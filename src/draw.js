@@ -1,6 +1,16 @@
 import { CONFIG } from './config.js';
 import { rgbToCss } from './utils.js';
 
+/**
+ * 绘制发光实心圆（含多层伪发光 + 可选 shadowBlur）
+ * @param {CanvasRenderingContext2D} context
+ * @param {number} x - 圆心 X
+ * @param {number} y - 圆心 Y
+ * @param {number} r - 半径
+ * @param {number[]} color - [r, g, b] 主题色
+ * @param {number} alpha - 基础透明度
+ * @param {number} [blur=0] - 光晕扩散量
+ */
 export function drawCircle(context, x, y, r, color, alpha, blur = 0) {
   if (alpha <= 0 || r <= 0) {
     return;
@@ -33,6 +43,18 @@ export function drawCircle(context, x, y, r, color, alpha, blur = 0) {
   context.restore();
 }
 
+/**
+ * 绘制带旋转的三角形粒子
+ * @param {CanvasRenderingContext2D} context
+ * @param {number} x - 中心 X
+ * @param {number} y - 中心 Y
+ * @param {number} size - 三角形尺寸
+ * @param {number} rotation - 旋转弧度
+ * @param {number[]} color - [r, g, b]
+ * @param {number} alpha - 透明度
+ * @param {number} [blur=0]
+ * @param {boolean} useFakeGlow - 是否叠加伪发光层
+ */
 export function drawTriangle(
   context,
   x,
@@ -83,6 +105,18 @@ export function drawTriangle(
 }
 
 // BASpark 的点击圆环是单层线条；多层 fake glow 会让点击反馈显得发糊。
+/**
+ * 绘制弧线段（单层线条，不带发光效果）
+ * @param {CanvasRenderingContext2D} context
+ * @param {number} x - 圆心 X
+ * @param {number} y - 圆心 Y
+ * @param {number} radius - 半径
+ * @param {number} start - 起始弧度
+ * @param {number} end - 结束弧度
+ * @param {number} widthValue - 线宽
+ * @param {number[]} color - [r, g, b]
+ * @param {number} alpha - 透明度
+ */
 export function drawArcSegment(
   context,
   x,
