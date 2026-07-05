@@ -152,7 +152,6 @@ const CONFIG = {
     shardSpacing: 112,
     shardChanceSlow: 0.28,
     shardChanceFast: 0.68,
-    shardMaxPerSegment: 1,
     shardOffsetMin: 8,
     shardOffsetMax: 28,
     shardLargeChance: 0.45,
@@ -229,7 +228,14 @@ function resizeCanvas() {
   requestRender();
 }
 
-window.addEventListener('resize', resizeCanvas);
+let resizeTimer = 0;
+
+function debouncedResize() {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(resizeCanvas, 150);
+}
+
+window.addEventListener('resize', debouncedResize);
 resizeCanvas();
 
 function requestRender() {
@@ -318,7 +324,8 @@ function getTrailHotColor() {
   return mixColor(CONFIG.color, [255, 255, 255], 0.74);
 }
 
-function getWeightProp(t) {
+// 弧段宽度权重曲线：中间宽，两端窄
+function getArcWeight(t) {
   return Math.min(2 - Math.abs(4 * (t - 0.5)), 1);
 }
 
@@ -431,7 +438,7 @@ function drawTriangle(
   color,
   alpha,
   blur = 0,
-  useFakeGlow = CONFIG.glow.fake,
+  useFakeGlow,
 )
 {
   if (alpha <= 0) {
@@ -628,7 +635,7 @@ class ClickWave {
         const a0 = start + (end - start) * t0;
         const a1 = start + (end - start) * t1;
 
-        const weight = getWeightProp(t0);
+        const weight = getArcWeight(t0);
         const lineWidth =
           (cfg.minW * (1 - weight) + cfg.maxW * weight) *
           lineWidthMul;
@@ -776,10 +783,7 @@ function spawnTrailShards(from, to, speedFactor)
     return;
   }
 
-  const attempts = Math.min(
-    cfg.shardMaxPerSegment,
-    Math.max(1, Math.floor(trailShardDistance / spacing)),
-  );
+  const attempts = Math.max(1, Math.floor(trailShardDistance / spacing));
 
   trailShardDistance %= spacing;
 

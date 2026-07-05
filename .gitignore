@@ -18,6 +18,7 @@ dist-ssr
 .idea
 .DS_Store
 .reasonix
+reasonix.toml
 *.suo
 *.ntvs*
 *.njsproj

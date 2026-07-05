@@ -215,6 +215,7 @@ kbd {
   right: 0;
   z-index: 150;
   width: 280px;
+  max-width: 85vw;
   height: 100vh;
   overflow-y: auto;
   background: rgba(8, 13, 22, 0.92);
