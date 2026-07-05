@@ -1936,6 +1936,7 @@ window.BASparkDemo = {
   ctrlColor.addEventListener('input', () => {
     const [r, g, b] = hexToRgb(ctrlColor.value);
     api.setColor(r, g, b);
+    localStorage.setItem('bafx-ctrlColor', ctrlColor.value);
   });
 
   bindRange('ctrlScale', 'outScale', v => api.setScale(v));
