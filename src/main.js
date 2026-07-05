@@ -87,7 +87,7 @@ const CONFIG = {
     // 指数平滑：削减鼠标手动移动时的微颤（0=不平滑，越大越平滑，推荐 0.35~0.55）
     smoothFactor: 0.5,
 
-    // 渲染重采样
+    // 渲染重采样（renderMaxPoints 限制最终渲染点数，区别于上面 maxPoints 限制原始采样存储点）
     renderStep: 0.75,
     renderMaxPoints: 2400,
     // 沿真实路径分段上色，避免首尾直线渐变在回环轨迹里误亮尾端。
@@ -835,6 +835,8 @@ function createClickEffect(x, y) {
   requestRender();
 }
 
+// stroke 结构：点对象数组，同时通过 .speedFactor / .released 携带元数据
+// 避免额外对象包装开销，数组方法（push/shift/length）直接操作轨迹点
 function createTrailStroke(initialSpeedFactor = 0) {
   const stroke = [];
 
@@ -1976,6 +1978,16 @@ window.BASparkDemo = {
 
   boom(x = window.innerWidth / 2, y = window.innerHeight / 2) {
     createClickEffect(x, y);
+  },
+
+  // 返回当前配置的深拷贝，方便调试和读取运行时参数
+  getConfig() {
+    return JSON.parse(JSON.stringify(CONFIG));
+  },
+
+  // 恢复所有配置为默认值（等同于点击重置按钮）
+  resetConfig() {
+    document.getElementById('btnReset').click();
   },
 };
 
