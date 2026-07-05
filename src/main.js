@@ -1795,8 +1795,16 @@ window.BASparkDemo = {
 
   // 恢复所有配置为默认值（等同于点击重置按钮）
   resetConfig() {
-    document.getElementById('btnReset').click();
+    const btn = document.getElementById('btnReset');
+
+    if (btn)
+    {
+      btn.click();
+    }
   },
+
+  // 直接引用 CONFIG 对象（只读推荐，直接修改可能不触发重绘）
+  CONFIG,
 };
 
 // ── 控制面板 & 交互提示 ──────────────────────────────────────────────────
