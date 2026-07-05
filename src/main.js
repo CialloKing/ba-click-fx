@@ -1994,6 +1994,8 @@ window.BASparkDemo = {
     trail: true,
     trailAlways: false,
     trailWidth: 1.00,
+    trailLength: 260,
+    trailLife: 30,
     fakeGlow: true,
     clickFake: false,
     glow: false,
@@ -2081,6 +2083,9 @@ window.BASparkDemo = {
 
   bindRange('ctrlTrailWidth', 'outTrailWidth', v => api.setTrailWidth(v));
 
+  bindRange('ctrlTrailLength', 'outTrailLength', v => api.setTrailLength(v), true);
+  bindRange('ctrlTrailLife', 'outTrailLife', v => api.setTrailLife(v), true);
+
   const ctrlFakeGlow = document.getElementById('ctrlFakeGlow');
   ctrlFakeGlow.addEventListener('change', () => api.setFakeGlow(ctrlFakeGlow.checked));
 
@@ -2136,6 +2141,11 @@ window.BASparkDemo = {
     api.setOpacity(DEFAULTS.opacity);
     api.setSpeed(DEFAULTS.clickSpeed, DEFAULTS.trailSpeed);
     api.setTrailWidth(DEFAULTS.trailWidth);
+
+    setVal('ctrlTrailLength', 'outTrailLength', DEFAULTS.trailLength, true);
+    setVal('ctrlTrailLife', 'outTrailLife', DEFAULTS.trailLife, true);
+    api.setTrailLength(DEFAULTS.trailLength);
+    api.setTrailLife(DEFAULTS.trailLife);
 
     ctrlTrail.checked = DEFAULTS.trail;
     ctrlTrailAlways.checked = DEFAULTS.trailAlways;
