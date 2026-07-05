@@ -30,7 +30,7 @@ const CONFIG = {
   maxDpr: 2,
 
   // 拖尾层缩放。1 最清晰；0.75 更省性能。
-  trailRenderScale: 0.75,
+  trailRenderScale: 1,
 
   maxDeltaMs: 80,
   baseFrameMs: 1000 / 60,
