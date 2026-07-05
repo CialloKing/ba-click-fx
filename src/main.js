@@ -1969,7 +1969,7 @@ window.BASparkDemo = {
   const ctrlClickFakeGlow = document.getElementById('ctrlClickFakeGlow');
   ctrlClickFakeGlow.addEventListener('change', () => { api.setClickFakeGlow(ctrlClickFakeGlow.checked); localStorage.setItem('bafx-ctrlClickFakeGlow', ctrlClickFakeGlow.checked); });
 
-  bindRangeInt('ctrlShardSpacing', 'outShardSpacing', v => api.setShardSpacing(v));
+  bindRange('ctrlShardSpacing', 'outShardSpacing', v => api.setShardSpacing(v), true);
 
   bindRange('ctrlShardChanceSlow', 'outShardChanceSlow', v => {
     const fast = parseFloat(document.getElementById('ctrlShardChanceFast').value);
