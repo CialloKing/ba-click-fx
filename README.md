@@ -89,6 +89,8 @@ npm run preview
 |---|---|
 | `boom(x, y)` | 手动触发一次点击特效 |
 | `clearTrail()` | 清除所有轨迹 |
+| `getConfig()` | 返回当前配置的浅拷贝 |
+| `resetConfig()` | 恢复所有配置为默认值 |
 
 ## 技术栈
 
