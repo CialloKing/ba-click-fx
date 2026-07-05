@@ -1865,6 +1865,7 @@ window.BASparkDemo = {
       const v = intOnly ? parseInt(input.value, 10) : parseFloat(input.value);
       output.textContent = intOnly ? v : v.toFixed(2);
       setter(v);
+      localStorage.setItem('bafx-' + id, input.value);
     });
   }
 
@@ -1896,10 +1897,10 @@ window.BASparkDemo = {
   });
 
   const ctrlTrail = document.getElementById('ctrlTrail');
-  ctrlTrail.addEventListener('change', () => api.setTrail(ctrlTrail.checked));
+  ctrlTrail.addEventListener('change', () => { api.setTrail(ctrlTrail.checked); localStorage.setItem('bafx-ctrlTrail', ctrlTrail.checked); });
 
   const ctrlTrailAlways = document.getElementById('ctrlTrailAlways');
-  ctrlTrailAlways.addEventListener('change', () => api.setTrailAlways(ctrlTrailAlways.checked));
+  ctrlTrailAlways.addEventListener('change', () => { api.setTrailAlways(ctrlTrailAlways.checked); localStorage.setItem('bafx-ctrlTrailAlways', ctrlTrailAlways.checked); });
 
   bindRange('ctrlTrailWidth', 'outTrailWidth', v => api.setTrailWidth(v));
 
@@ -1907,13 +1908,13 @@ window.BASparkDemo = {
   bindRange('ctrlTrailLife', 'outTrailLife', v => api.setTrailLife(v), true);
 
   const ctrlFakeGlow = document.getElementById('ctrlFakeGlow');
-  ctrlFakeGlow.addEventListener('change', () => api.setFakeGlow(ctrlFakeGlow.checked));
+  ctrlFakeGlow.addEventListener('change', () => { api.setFakeGlow(ctrlFakeGlow.checked); localStorage.setItem('bafx-ctrlFakeGlow', ctrlFakeGlow.checked); });
 
   const ctrlGlow = document.getElementById('ctrlGlow');
-  ctrlGlow.addEventListener('change', () => api.setGlow(ctrlGlow.checked));
+  ctrlGlow.addEventListener('change', () => { api.setGlow(ctrlGlow.checked); localStorage.setItem('bafx-ctrlGlow', ctrlGlow.checked); });
 
   const ctrlClickFakeGlow = document.getElementById('ctrlClickFakeGlow');
-  ctrlClickFakeGlow.addEventListener('change', () => api.setClickFakeGlow(ctrlClickFakeGlow.checked));
+  ctrlClickFakeGlow.addEventListener('change', () => { api.setClickFakeGlow(ctrlClickFakeGlow.checked); localStorage.setItem('bafx-ctrlClickFakeGlow', ctrlClickFakeGlow.checked); });
 
   bindRangeInt('ctrlShardSpacing', 'outShardSpacing', v => api.setShardSpacing(v));
 
@@ -1999,5 +2000,36 @@ window.BASparkDemo = {
 
     setVal('ctrlTrailRenderScale', 'outTrailRenderScale', DEFAULTS.trailRenderScale);
     api.setTrailRenderScale(DEFAULTS.trailRenderScale);
+    localStorage.clear();
   });
+  const saved = {};
+
+  for (let i = 0; i < localStorage.length; i++)
+  {
+    const key = localStorage.key(i);
+
+    if (key.startsWith('bafx-'))
+    {
+      saved[key.slice(5)] = localStorage.getItem(key);
+    }
+  }
+
+  for (const [id, val] of Object.entries(saved))
+  {
+    const el = document.getElementById(id);
+
+    if (!el) { continue; }
+
+    if (el.type === 'checkbox')
+    {
+      el.checked = val === 'true';
+    }
+    else
+    {
+      el.value = val;
+    }
+
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
 })();
