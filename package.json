@@ -1,8 +1,10 @@
 {
   "name": "ba-click-fx",
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "网页版《蔚蓝档案》点击与拖拽特效，纯 Canvas 2D 实现",
   "private": true,
   "type": "module",
+  "keywords": ["canvas", "animation", "particle", "trail", "click-effect", "blue-archive"],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
