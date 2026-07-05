@@ -28,8 +28,6 @@ const trailCtx = trailCanvas.getContext('2d', {
   desynchronized: true,
 });
 
-
-
 let width = 0;
 let height = 0;
 let dpr = 1;
