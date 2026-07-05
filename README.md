@@ -53,6 +53,15 @@ npm run preview
 - Canvas 2D API
 - Vite (开发服务器 & 构建)
 
+## 致谢
+
+本项目参考并改进了以下项目的部分代码：
+
+- [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark) — 蔚蓝档案点击特效的早期 Web 实现
+- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor) — 蔚蓝档案光标特效实现
+
+相较于上述项目，本项目对鼠标拖拽轨迹进行了优化，使其更贴合游戏内原始特效的表现。
+
 ## 许可
 
 MIT
