@@ -3,21 +3,120 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-  <title>BA Spark Click FX</title>
+  <title>ba-click-fx — 蔚蓝档案点击特效</title>
 </head>
 
 <body>
   <main class="page">
-    <h1>BA Spark 点击特效 Demo</h1>
-    <p>这是原生 Canvas 2D 实现的《蔚蓝档案》风格点击特效。</p>
+    <div class="hero">
+      <h1>蔚蓝档案点击特效</h1>
+      <p class="subtitle">纯 Canvas 2D 实现，零外部资源依赖。点击任意位置触发波纹，按住鼠标拖动留下光轨。</p>
+    </div>
+
+    <div class="demo-cards">
+      <div class="card">
+        <span class="card-icon">💠</span>
+        <span>点击触发蓝色扩散波纹与粒子爆射</span>
+      </div>
+      <div class="card">
+        <span class="card-icon">✨</span>
+        <span>按住拖动产生多层发光拖尾轨迹</span>
+      </div>
+      <div class="card">
+        <span class="card-icon">⚡</span>
+        <span>Canvas 不拦截交互，下方按钮可正常点击</span>
+      </div>
+    </div>
 
     <div class="button-row">
       <button>普通按钮</button>
-      <button>Canvas 不会挡住点击</button>
-      <button>按住鼠标拖动试试</button>
+      <button>点我试试</button>
+      <button>按住拖动看看</button>
     </div>
   </main>
+
+  <!-- 底部交互提示 -->
+  <div class="hint-bar" id="hintBar">
+    <span>🖱 点击任意处</span>
+    <span class="hint-sep">·</span>
+    <span>按住拖动留下光轨</span>
+    <span class="hint-sep">·</span>
+    <span>按 <kbd>B</kbd> 触发中心特效</span>
+    <button class="hint-dismiss" id="hintDismiss" title="关闭提示">✕</button>
+  </div>
+
+  <!-- 控制面板 -->
+  <button class="panel-toggle" id="panelToggle" title="控制面板">⚙</button>
+  <aside class="panel" id="panel">
+    <div class="panel-header">
+      <h2>控制面板</h2>
+      <button class="panel-close" id="panelClose">✕</button>
+    </div>
+
+    <section class="panel-section">
+      <h3>基础</h3>
+      <label class="ctrl">
+        <span>主题颜色</span>
+        <input type="color" id="ctrlColor" value="#189eff" />
+      </label>
+      <label class="ctrl">
+        <span>缩放 <output id="outScale">1.15</output></span>
+        <input type="range" id="ctrlScale" min="0.5" max="3" step="0.05" value="1.15" />
+      </label>
+      <label class="ctrl">
+        <span>透明度 <output id="outOpacity">0.95</output></span>
+        <input type="range" id="ctrlOpacity" min="0.1" max="1" step="0.05" value="0.95" />
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>速度</h3>
+      <label class="ctrl">
+        <span>点击速度 <output id="outClickSpeed">1.15</output></span>
+        <input type="range" id="ctrlClickSpeed" min="0.2" max="3" step="0.05" value="1.15" />
+      </label>
+      <label class="ctrl">
+        <span>拖拽速度 <output id="outTrailSpeed">1.05</output></span>
+        <input type="range" id="ctrlTrailSpeed" min="0.2" max="3" step="0.05" value="1.05" />
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>拖尾</h3>
+      <label class="ctrl toggle">
+        <span>启用拖尾</span>
+        <input type="checkbox" id="ctrlTrail" checked />
+        <span class="toggle-track"></span>
+      </label>
+      <label class="ctrl toggle">
+        <span>始终显示</span>
+        <input type="checkbox" id="ctrlTrailAlways" />
+        <span class="toggle-track"></span>
+      </label>
+      <label class="ctrl">
+        <span>拖尾宽度 <output id="outTrailWidth">2.65</output></span>
+        <input type="range" id="ctrlTrailWidth" min="0.5" max="6" step="0.1" value="2.65" />
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>发光</h3>
+      <label class="ctrl toggle">
+        <span>伪发光</span>
+        <input type="checkbox" id="ctrlFakeGlow" checked />
+        <span class="toggle-track"></span>
+      </label>
+      <label class="ctrl toggle">
+        <span>真实发光 (shadowBlur)</span>
+        <input type="checkbox" id="ctrlGlow" />
+        <span class="toggle-track"></span>
+      </label>
+    </section>
+
+    <div class="panel-actions">
+      <button id="btnReset" class="btn-reset">重置默认</button>
+    </div>
+  </aside>
 
   <canvas id="sparkCanvas"></canvas>
 

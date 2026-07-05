@@ -20,23 +20,61 @@ body {
   position: relative;
 }
 
+/* ── Page Layout ────────────────────────────────────────────────────────── */
+
 .page {
   position: relative;
   z-index: 1;
-  padding: 48px;
+  padding: 64px 48px 120px;
+  max-width: 640px;
+}
+
+.hero {
+  margin-bottom: 32px;
 }
 
 h1 {
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   font-size: 36px;
   line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
-p {
-  margin: 0 0 24px;
-  opacity: 0.75;
+.subtitle {
+  margin: 0;
+  opacity: 0.65;
   line-height: 1.7;
+  font-size: 15px;
 }
+
+/* ── Demo Cards ─────────────────────────────────────────────────────────── */
+
+.demo-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 32px;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 1px solid rgba(125, 239, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(125, 239, 255, 0.06);
+  backdrop-filter: blur(8px);
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.card-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
 
 .button-row {
   display: flex;
@@ -68,6 +106,319 @@ button:hover {
 button:active {
   transform: translateY(0);
 }
+
+/* ── Hint Bar ───────────────────────────────────────────────────────────── */
+
+.hint-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 48px;
+  background: rgba(8, 13, 22, 0.85);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(125, 239, 255, 0.15);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.hint-bar.hidden {
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hint-sep {
+  opacity: 0.3;
+}
+
+kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.hint-dismiss {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.hint-dismiss:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.7);
+  transform: translateY(-50%);
+}
+
+/* ── Panel Toggle ───────────────────────────────────────────────────────── */
+
+.panel-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 200;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid rgba(125, 239, 255, 0.35);
+  border-radius: 50%;
+  background: rgba(10, 16, 30, 0.75);
+  backdrop-filter: blur(10px);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.panel-toggle:hover {
+  background: rgba(24, 158, 255, 0.2);
+  border-color: rgba(125, 239, 255, 0.7);
+  transform: rotate(30deg);
+}
+
+.panel-toggle.active {
+  background: rgba(24, 158, 255, 0.25);
+  border-color: rgba(125, 239, 255, 0.8);
+}
+
+/* ── Control Panel ──────────────────────────────────────────────────────── */
+
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 150;
+  width: 280px;
+  height: 100vh;
+  overflow-y: auto;
+  background: rgba(8, 13, 22, 0.92);
+  backdrop-filter: blur(16px);
+  border-left: 1px solid rgba(125, 239, 255, 0.15);
+  padding: 24px 20px 32px;
+  transform: translateX(100%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel.open {
+  transform: translateX(0);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.panel-close {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.panel-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.8);
+  transform: none;
+}
+
+/* ── Panel Sections ─────────────────────────────────────────────────────── */
+
+.panel-section {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.panel-section:last-of-type {
+  border-bottom: none;
+}
+
+.panel-section h3 {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(125, 239, 255, 0.6);
+}
+
+/* ── Controls ───────────────────────────────────────────────────────────── */
+
+.ctrl {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: default;
+}
+
+.ctrl:last-child {
+  margin-bottom: 0;
+}
+
+.ctrl span {
+  flex-shrink: 0;
+}
+
+.ctrl output {
+  display: inline-block;
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: rgba(125, 239, 255, 0.8);
+  font-size: 12px;
+}
+
+/* Range slider */
+.ctrl input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.ctrl input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: rgb(24, 158, 255);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.ctrl input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+/* Color picker */
+.ctrl input[type="color"] {
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+/* Toggle switch */
+.ctrl.toggle {
+  cursor: pointer;
+}
+
+.ctrl.toggle input[type="checkbox"] {
+  display: none;
+}
+
+.toggle-track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 0.2s ease;
+}
+
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.ctrl.toggle input:checked + .toggle-track {
+  background: rgba(24, 158, 255, 0.4);
+}
+
+.ctrl.toggle input:checked + .toggle-track::after {
+  transform: translateX(16px);
+  background: rgb(24, 158, 255);
+}
+
+/* ── Panel Actions ──────────────────────────────────────────────────────── */
+
+.panel-actions {
+  margin-top: 8px;
+}
+
+.btn-reset {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.btn-reset:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: none;
+}
+
+/* ── Canvas ─────────────────────────────────────────────────────────────── */
 
 #sparkCanvas {
   position: fixed;

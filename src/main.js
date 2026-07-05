@@ -1882,3 +1882,133 @@ window.BASparkDemo = {
     createClickEffect(x, y);
   },
 };
+
+// ── 控制面板 & 交互提示 ──────────────────────────────────────────────────
+
+(function initUI() {
+  const api = window.BASparkDemo;
+
+  // -- 默认值（用于重置）--
+  const DEFAULTS = {
+    color: '#189eff',
+    scale: 1.15,
+    opacity: 0.95,
+    clickSpeed: 1.15,
+    trailSpeed: 1.05,
+    trail: true,
+    trailAlways: false,
+    trailWidth: 2.65,
+    fakeGlow: true,
+    glow: false,
+  };
+
+  // -- 面板开关 --
+  const panel = document.getElementById('panel');
+  const toggleBtn = document.getElementById('panelToggle');
+  const closeBtn = document.getElementById('panelClose');
+
+  function openPanel() {
+    panel.classList.add('open');
+    toggleBtn.classList.add('active');
+  }
+  function closePanel() {
+    panel.classList.remove('open');
+    toggleBtn.classList.remove('active');
+  }
+
+  toggleBtn.addEventListener('click', () => {
+    panel.classList.contains('open') ? closePanel() : openPanel();
+  });
+  closeBtn.addEventListener('click', closePanel);
+
+  // -- 提示栏关闭 --
+  const hintBar = document.getElementById('hintBar');
+  document.getElementById('hintDismiss').addEventListener('click', () => {
+    hintBar.classList.add('hidden');
+  });
+
+  // -- 工具函数 --
+  function bindRange(id, outputId, setter) {
+    const input = document.getElementById(id);
+    const output = document.getElementById(outputId);
+    input.addEventListener('input', () => {
+      const v = parseFloat(input.value);
+      output.textContent = v.toFixed(2);
+      setter(v);
+    });
+  }
+
+  function rgbToHex(r, g, b) {
+    return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+  }
+
+  function hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  // -- 绑定控件 --
+  const ctrlColor = document.getElementById('ctrlColor');
+  ctrlColor.addEventListener('input', () => {
+    const [r, g, b] = hexToRgb(ctrlColor.value);
+    api.setColor(r, g, b);
+  });
+
+  bindRange('ctrlScale', 'outScale', v => api.setScale(v));
+  bindRange('ctrlOpacity', 'outOpacity', v => api.setOpacity(v));
+  bindRange('ctrlClickSpeed', 'outClickSpeed', v => {
+    const ts = parseFloat(document.getElementById('ctrlTrailSpeed').value);
+    api.setSpeed(v, ts);
+  });
+  bindRange('ctrlTrailSpeed', 'outTrailSpeed', v => {
+    const cs = parseFloat(document.getElementById('ctrlClickSpeed').value);
+    api.setSpeed(cs, v);
+  });
+
+  const ctrlTrail = document.getElementById('ctrlTrail');
+  ctrlTrail.addEventListener('change', () => api.setTrail(ctrlTrail.checked));
+
+  const ctrlTrailAlways = document.getElementById('ctrlTrailAlways');
+  ctrlTrailAlways.addEventListener('change', () => api.setTrailAlways(ctrlTrailAlways.checked));
+
+  bindRange('ctrlTrailWidth', 'outTrailWidth', v => api.setTrailWidth(v));
+
+  const ctrlFakeGlow = document.getElementById('ctrlFakeGlow');
+  ctrlFakeGlow.addEventListener('change', () => api.setFakeGlow(ctrlFakeGlow.checked));
+
+  const ctrlGlow = document.getElementById('ctrlGlow');
+  ctrlGlow.addEventListener('change', () => api.setGlow(ctrlGlow.checked));
+
+  // -- 重置 --
+  document.getElementById('btnReset').addEventListener('click', () => {
+    ctrlColor.value = DEFAULTS.color;
+    const [r, g, b] = hexToRgb(DEFAULTS.color);
+    api.setColor(r, g, b);
+
+    const setVal = (id, outId, val) => {
+      document.getElementById(id).value = val;
+      document.getElementById(outId).textContent = Number(val).toFixed(2);
+    };
+
+    setVal('ctrlScale', 'outScale', DEFAULTS.scale);
+    setVal('ctrlOpacity', 'outOpacity', DEFAULTS.opacity);
+    setVal('ctrlClickSpeed', 'outClickSpeed', DEFAULTS.clickSpeed);
+    setVal('ctrlTrailSpeed', 'outTrailSpeed', DEFAULTS.trailSpeed);
+    setVal('ctrlTrailWidth', 'outTrailWidth', DEFAULTS.trailWidth);
+
+    api.setScale(DEFAULTS.scale);
+    api.setOpacity(DEFAULTS.opacity);
+    api.setSpeed(DEFAULTS.clickSpeed, DEFAULTS.trailSpeed);
+    api.setTrailWidth(DEFAULTS.trailWidth);
+
+    ctrlTrail.checked = DEFAULTS.trail;
+    ctrlTrailAlways.checked = DEFAULTS.trailAlways;
+    ctrlFakeGlow.checked = DEFAULTS.fakeGlow;
+    ctrlGlow.checked = DEFAULTS.glow;
+
+    api.setTrail(DEFAULTS.trail);
+    api.setTrailAlways(DEFAULTS.trailAlways);
+    api.setFakeGlow(DEFAULTS.fakeGlow);
+    api.setGlow(DEFAULTS.glow);
+  });
+})();
