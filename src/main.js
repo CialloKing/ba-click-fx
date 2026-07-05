@@ -1805,6 +1805,51 @@ window.BASparkDemo = {
 
   // 直接引用 CONFIG 对象（只读推荐，直接修改可能不触发重绘）
   CONFIG,
+
+  // 导出面板设置为 JSON 字符串，方便保存和分享
+  saveSettings() {
+    const data = {};
+
+    for (let i = 0; i < localStorage.length; i++)
+    {
+      const key = localStorage.key(i);
+
+      if (key.startsWith('bafx-'))
+      {
+        data[key.slice(5)] = localStorage.getItem(key);
+      }
+    }
+
+    return JSON.stringify(data, null, 2);
+  },
+
+  // 导入面板设置并立即应用
+  loadSettings(json) {
+    let data;
+
+    try { data = JSON.parse(json); } catch (e) { return false; }
+
+    for (const [id, val] of Object.entries(data))
+    {
+      const el = document.getElementById(id);
+
+      if (!el) { continue; }
+
+      if (el.type === 'checkbox')
+      {
+        el.checked = val === 'true';
+      }
+      else
+      {
+        el.value = val;
+      }
+
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    return true;
+  },
 };
 
 // ── 控制面板 & 交互提示 ──────────────────────────────────────────────────
