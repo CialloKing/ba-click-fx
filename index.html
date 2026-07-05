@@ -67,6 +67,14 @@
         <span>透明度 <output id="outOpacity">0.95</output></span>
         <input type="range" id="ctrlOpacity" min="0.1" max="1" step="0.05" value="0.95" />
       </label>
+      <label class="ctrl">
+        <span>高分屏渲染 <output id="outDpr">2</output></span>
+        <input type="range" id="ctrlDpr" min="1" max="2" step="1" value="2" />
+      </label>
+      <label class="ctrl">
+        <span>拖尾精度 <output id="outTrailRenderScale">0.75</output></span>
+        <input type="range" id="ctrlTrailRenderScale" min="0.5" max="1" step="0.05" value="0.75" />
+      </label>
     </section>
 
     <section class="panel-section">
@@ -94,8 +102,12 @@
         <span class="toggle-track"></span>
       </label>
       <label class="ctrl">
-        <span>拖尾宽度 <output id="outTrailWidth">2.65</output></span>
-        <input type="range" id="ctrlTrailWidth" min="0.5" max="6" step="0.1" value="2.65" />
+        <span>拖尾宽度 <output id="outTrailWidth">1.00</output></span>
+        <input type="range" id="ctrlTrailWidth" min="0.5" max="6" step="0.1" value="1.00" />
+      </label>
+      <label class="ctrl">
+        <span>平滑 <output id="outSmooth">0.50</output></span>
+        <input type="range" id="ctrlSmooth" min="0" max="0.9" step="0.05" value="0.5" />
       </label>
     </section>
 
@@ -110,6 +122,30 @@
         <span>真实发光 (shadowBlur)</span>
         <input type="checkbox" id="ctrlGlow" />
         <span class="toggle-track"></span>
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>碎片</h3>
+      <label class="ctrl">
+        <span>间距 <output id="outShardSpacing">112</output></span>
+        <input type="range" id="ctrlShardSpacing" min="20" max="300" step="5" value="112" />
+      </label>
+      <label class="ctrl">
+        <span>慢速概率 <output id="outShardChanceSlow">0.28</output></span>
+        <input type="range" id="ctrlShardChanceSlow" min="0" max="1" step="0.02" value="0.28" />
+      </label>
+      <label class="ctrl">
+        <span>快速概率 <output id="outShardChanceFast">0.68</output></span>
+        <input type="range" id="ctrlShardChanceFast" min="0" max="1" step="0.02" value="0.68" />
+      </label>
+      <label class="ctrl">
+        <span>大碎片概率 <output id="outShardLargeChance">0.45</output></span>
+        <input type="range" id="ctrlShardLargeChance" min="0" max="1" step="0.05" value="0.45" />
+      </label>
+      <label class="ctrl">
+        <span>最大数量 <output id="outMaxShards">56</output></span>
+        <input type="range" id="ctrlMaxShards" min="0" max="120" step="2" value="56" />
       </label>
     </section>
 

@@ -27,10 +27,10 @@ const CONFIG = {
   clickSpeed: 1.15,
   trailSpeed: 1.05,
 
-  maxDpr: 1,
+  maxDpr: 2,
 
   // 拖尾层缩放。1 最清晰；0.75 更省性能。
-  trailRenderScale: 1,
+  trailRenderScale: 0.75,
 
   maxDeltaMs: 80,
   baseFrameMs: 1000 / 60,
@@ -74,11 +74,14 @@ const CONFIG = {
     maxCoalescedEvents: 24,
     maxJumpDistance: 420,
 
+    // 指数平滑：削减鼠标手动移动时的微颤（0=不平滑，越大越平滑，推荐 0.35~0.55）
+    smoothFactor: 0.5,
+
     // 渲染重采样
     renderStep: 0.75,
     renderMaxPoints: 2400,
     // 沿真实路径分段上色，避免首尾直线渐变在回环轨迹里误亮尾端。
-    gradientChunkLength: 3,
+    gradientChunkLength: 1.5,
 
     // 快速移动时允许轨迹明显更长
     lengthSlow: 260,
@@ -106,7 +109,7 @@ const CONFIG = {
 
     // 轨迹宽度
     baseWidthSlow: 1.28,
-    baseWidthFast: 2.65,
+    baseWidthFast: 1.00,
 
     coreWidthSlow: 0.5,
     coreWidthFast: 1.05,
@@ -168,11 +171,14 @@ let wavePool = [];
 let sparkPool = [];
 
 let isDown = false;
-let lastPointerPos = null;
 let lastTrailPos = null;
 let lastTrailEventTime = 0;
 let trailSpeedFactor = 0;
 let trailShardDistance = 0;
+
+// 指数平滑：过滤鼠标手动直线移动时的手抖微颤
+let trailSmoothX = null;
+let trailSmoothY = null;
 
 let lastTime = performance.now();
 let running = false;
@@ -432,7 +438,7 @@ function drawTriangle(
     context.fill();
   }
 
-  if (useFakeGlow && CONFIG.glow.enabled && blur > 0) {
+  if (CONFIG.glow.enabled && blur > 0) {
     context.shadowColor = rgbToCss(color, alpha);
     context.shadowBlur = blur * 0.28;
   }
@@ -545,6 +551,7 @@ class ClickWave {
     this.r = radius;
 
     // BASpark 只绘制一层中心圆，点击反馈比多层光晕更利落。
+    // 传入 blur 让真实发光 (shadowBlur) 能作用于点击扩散圆
     drawCircle(
       context,
       this.x,
@@ -552,6 +559,7 @@ class ClickWave {
       radius,
       CONFIG.color,
       alpha,
+      radius * 0.65,
     );
   }
 
@@ -657,7 +665,7 @@ class SparkParticle {
     this.color = fromClick
       ? [255, 255, 255]
       : mixColor(CONFIG.color, [255, 255, 255], rand(0.28, 0.82));
-    this.blur = fromClick ? 0 : 2.8 * CONFIG.scale;
+    this.blur = fromClick ? (2.0 * particleScale) : (2.8 * CONFIG.scale);
     this.useFakeGlow = !fromClick;
     this.fromClick = fromClick;
     this.dead = false;
@@ -692,7 +700,7 @@ class SparkParticle {
 }
 
 function getWave(x, y) {
-  const wave = wavePool.pop() || new ClickWave();
+  const wave = wavePool.pop() ?? new ClickWave();
   wave.reset(x, y);
   return wave;
 }
@@ -706,7 +714,7 @@ function releaseWave(wave) {
 }
 
 function getSpark(x, y, fromClick) {
-  const spark = sparkPool.pop() || new SparkParticle();
+  const spark = sparkPool.pop() ?? new SparkParticle();
   spark.reset(x, y, fromClick);
   return spark;
 }
@@ -1415,21 +1423,36 @@ function renderTrailStrokeToCanvas(stroke) {
 
   const headRadius = lerp(1.1, 2.1, speedFactor) * CONFIG.scale;
 
-  // 头部保留柔和蓝光，但核心点不要过白。
-  trailCtx.fillStyle = rgbToCss(CONFIG.color, 0.14 * CONFIG.trail.alpha * fadeMul);
-  trailCtx.beginPath();
-  trailCtx.arc(head.x, head.y, headRadius * 3.2, 0, Math.PI * 2);
-  trailCtx.fill();
+  // 头部使用 drawCircle 以支持真实发光 (shadowBlur)
+  drawCircle(
+    trailCtx,
+    head.x,
+    head.y,
+    headRadius * 3.2,
+    CONFIG.color,
+    0.14 * CONFIG.trail.alpha * fadeMul,
+    headRadius * 2.8,
+  );
 
-  trailCtx.fillStyle = rgbToCss(trailColor, 0.28 * CONFIG.trail.alpha * fadeMul);
-  trailCtx.beginPath();
-  trailCtx.arc(head.x, head.y, headRadius * 1.9, 0, Math.PI * 2);
-  trailCtx.fill();
+  drawCircle(
+    trailCtx,
+    head.x,
+    head.y,
+    headRadius * 1.9,
+    trailColor,
+    0.28 * CONFIG.trail.alpha * fadeMul,
+    headRadius * 1.6,
+  );
 
-  trailCtx.fillStyle = rgbToCss(trailHotColor, 0.42 * CONFIG.trail.alpha * fadeMul);
-  trailCtx.beginPath();
-  trailCtx.arc(head.x, head.y, headRadius * 0.62, 0, Math.PI * 2);
-  trailCtx.fill();
+  drawCircle(
+    trailCtx,
+    head.x,
+    head.y,
+    headRadius * 0.62,
+    trailHotColor,
+    0.42 * CONFIG.trail.alpha * fadeMul,
+    headRadius * 0.5,
+  );
 }
 
 function renderTrailToCanvas() {
@@ -1565,9 +1588,27 @@ function handlePointerMove(event)
 
   for (const e of events)
   {
-    const pos = getPointerPos(e);
-    lastPointerPos = pos;
+    let pos = getPointerPos(e);
     latestPos = pos;
+
+    // 指数平滑：削减手动直线移动时的手抖微颤
+    const sf = CONFIG.trail.smoothFactor;
+
+    if (sf > 0)
+    {
+      if (trailSmoothX == null)
+      {
+        trailSmoothX = pos.x;
+        trailSmoothY = pos.y;
+      }
+      else
+      {
+        trailSmoothX = trailSmoothX * sf + pos.x * (1 - sf);
+        trailSmoothY = trailSmoothY * sf + pos.y * (1 - sf);
+      }
+
+      pos = { x: trailSmoothX, y: trailSmoothY };
+    }
 
     if (!lastTrailPos)
     {
@@ -1613,7 +1654,10 @@ window.addEventListener('pointerdown', (event) => {
 
   const pos = getPointerPos(event);
 
-  lastPointerPos = pos;
+  // 重置平滑状态，避免新一笔被旧平滑值拖偏起始位置
+  trailSmoothX = null;
+  trailSmoothY = null;
+
   lastTrailPos = pos;
   lastTrailEventTime = event.timeStamp || performance.now();
   trailSpeedFactor = Math.max(trailSpeedFactor, 0.15);
@@ -1667,30 +1711,30 @@ window.BASparkDemo = {
   },
 
   setScale(scale) {
-    CONFIG.scale = Math.max(0.5, Math.min(3, Number(scale) || 1.15));
+    CONFIG.scale = Math.max(0.5, Math.min(3, Number(scale) ?? 1.15));
     requestRender();
   },
 
   setOpacity(opacity) {
-    CONFIG.opacity = Math.max(0.1, Math.min(1, Number(opacity) || 0.95));
+    CONFIG.opacity = Math.max(0.1, Math.min(1, Number(opacity) ?? 0.95));
     requestRender();
   },
 
   setSpeed(clickSpeed, trailSpeed = clickSpeed) {
-    CONFIG.clickSpeed = Math.max(0.2, Math.min(3, Number(clickSpeed) || 1));
-    CONFIG.trailSpeed = Math.max(0.2, Math.min(3, Number(trailSpeed) || 1));
+    CONFIG.clickSpeed = Math.max(0.2, Math.min(3, Number(clickSpeed) ?? 1));
+    CONFIG.trailSpeed = Math.max(0.2, Math.min(3, Number(trailSpeed) ?? 1));
     requestRender();
   },
 
   setDpr(maxDpr) {
-    CONFIG.maxDpr = Math.max(1, Math.min(2, Number(maxDpr) || 1));
+    CONFIG.maxDpr = Math.max(1, Math.min(2, Number(maxDpr) ?? 1));
     resizeCanvas();
   },
 
   setTrailRenderScale(value) {
     CONFIG.trailRenderScale = Math.max(
       0.5,
-      Math.min(1, Number(value) || 1),
+      Math.min(1, Number(value) ?? 1),
     );
 
     resizeCanvas();
@@ -1721,26 +1765,26 @@ window.BASparkDemo = {
   setTrailBrightness(alpha = 0.96, whiteMix = 0.26) {
     CONFIG.trail.alpha = Math.max(
       0.1,
-      Math.min(1, Number(alpha) || 1),
+      Math.min(1, Number(alpha) ?? 1),
     );
 
     CONFIG.trail.whiteMix = Math.max(
       0,
-      Math.min(0.9, Number(whiteMix) || 0.26),
+      Math.min(0.9, Number(whiteMix) ?? 0.26),
     );
 
     requestRender();
   },
 
-  setTrailWidth(baseFast = 2.65, baseSlow = 1.28) {
+  setTrailWidth(baseFast = 1.00, baseSlow = 1.28) {
     CONFIG.trail.baseWidthFast = Math.max(
       0.5,
-      Math.min(6, Number(baseFast) || 2.65),
+      Math.min(6, Number(baseFast) ?? 1.00),
     );
 
     CONFIG.trail.baseWidthSlow = Math.max(
       0.3,
-      Math.min(CONFIG.trail.baseWidthFast, Number(baseSlow) || 1.28),
+      Math.min(CONFIG.trail.baseWidthFast, Number(baseSlow) ?? 1.28),
     );
 
     requestRender();
@@ -1754,29 +1798,29 @@ window.BASparkDemo = {
     softGlow = 0.16,
     rail = 0.28,
   ) {
-    CONFIG.trail.mainAlpha = Math.max(0, Math.min(1, Number(main) || 0.98));
-    CONFIG.trail.coreAlpha = Math.max(0, Math.min(1, Number(core) || 0.58));
-    CONFIG.trail.hotAlpha = Math.max(0, Math.min(1, Number(hot) || 0.38));
-    CONFIG.trail.glowAlpha = Math.max(0, Math.min(1, Number(glow) || 0.34));
+    CONFIG.trail.mainAlpha = Math.max(0, Math.min(1, Number(main) ?? 0.98));
+    CONFIG.trail.coreAlpha = Math.max(0, Math.min(1, Number(core) ?? 0.58));
+    CONFIG.trail.hotAlpha = Math.max(0, Math.min(1, Number(hot) ?? 0.38));
+    CONFIG.trail.glowAlpha = Math.max(0, Math.min(1, Number(glow) ?? 0.34));
     CONFIG.trail.softGlowAlpha = Math.max(
       0,
-      Math.min(1, Number(softGlow) || 0.16),
+      Math.min(1, Number(softGlow) ?? 0.16),
     );
-    CONFIG.trail.railAlpha = Math.max(0, Math.min(1, Number(rail) || 0.28));
+    CONFIG.trail.railAlpha = Math.max(0, Math.min(1, Number(rail) ?? 0.28));
 
     requestRender();
   },
 
   // 轨迹长度：速度越快越接近 lengthFast
-  setTrailLength(lengthSlow = 180, lengthFast = 980) {
+  setTrailLength(lengthSlow = 260, lengthFast = 8000) {
     CONFIG.trail.lengthSlow = Math.max(
       20,
-      Math.min(1500, Number(lengthSlow) || 180),
+      Math.min(1500, Number(lengthSlow) ?? 260),
     );
 
     CONFIG.trail.lengthFast = Math.max(
       CONFIG.trail.lengthSlow + 20,
-      Math.min(3200, Number(lengthFast) || 1800),
+      Math.min(3200, Number(lengthFast) ?? 8000),
     );
 
     requestRender();
@@ -1784,15 +1828,15 @@ window.BASparkDemo = {
 
   // 轨迹寿命：决定松开鼠标后消散持续时间。
   // 默认 slow/fast 相同：移动速度只影响轨迹长度，不影响消散时间。
-  setTrailLife(lifeSlow = 36, lifeFast = 36) {
+  setTrailLife(lifeSlow = 30, lifeFast = 30) {
     CONFIG.trail.lifeSlow = Math.max(
       5,
-      Math.min(400, Number(lifeSlow) || 36),
+      Math.min(400, Number(lifeSlow) ?? 30),
     );
 
     CONFIG.trail.lifeFast = Math.max(
       CONFIG.trail.lifeSlow,
-      Math.min(600, Number(lifeFast) || CONFIG.trail.lifeSlow),
+      Math.min(600, Number(lifeFast) ?? 30),
     );
 
     requestRender();
@@ -1802,17 +1846,17 @@ window.BASparkDemo = {
   setTrailDecay(tailDecayMul = 1.85, headDecayMul = 1.0, releaseDecayMul = 2.4) {
     CONFIG.trail.tailDecayMul = Math.max(
       0.1,
-      Math.min(5, Number(tailDecayMul) || 1.85),
+      Math.min(5, Number(tailDecayMul) ?? 1.85),
     );
 
     CONFIG.trail.headDecayMul = Math.max(
       0.1,
-      Math.min(CONFIG.trail.tailDecayMul, Number(headDecayMul) || 1.0),
+      Math.min(CONFIG.trail.tailDecayMul, Number(headDecayMul) ?? 1.0),
     );
 
     CONFIG.trail.releaseDecayMul = Math.max(
       0.5,
-      Math.min(12, Number(releaseDecayMul) || 2.4),
+      Math.min(12, Number(releaseDecayMul) ?? 2.4),
     );
 
     requestRender();
@@ -1821,18 +1865,18 @@ window.BASparkDemo = {
   setTrailSpeedDecay(value = 0.985) {
     CONFIG.trail.speedDecay = Math.max(
       0.8,
-      Math.min(0.999, Number(value) || 0.985),
+      Math.min(0.999, Number(value) ?? 0.985),
     );
 
     requestRender();
   },
 
   setTrailSpeedRange(speedMin = 0.035, speedMax = 2.2) {
-    CONFIG.trail.speedMin = Math.max(0, Number(speedMin) || 0.035);
+    CONFIG.trail.speedMin = Math.max(0, Number(speedMin) ?? 0.035);
 
     CONFIG.trail.speedMax = Math.max(
       CONFIG.trail.speedMin + 0.1,
-      Number(speedMax) || 2.2,
+      Number(speedMax) ?? 2.2,
     );
 
     requestRender();
@@ -1841,12 +1885,12 @@ window.BASparkDemo = {
   setTrailSampling(sampleStep = 0.85, maxInterpolatedPoints = 80) {
     CONFIG.trail.sampleStep = Math.max(
       0.3,
-      Math.min(12, Number(sampleStep) || 0.85),
+      Math.min(12, Number(sampleStep) ?? 0.85),
     );
 
     CONFIG.trail.maxInterpolatedPoints = Math.max(
       2,
-      Math.min(160, Number(maxInterpolatedPoints) || 80),
+      Math.min(160, Number(maxInterpolatedPoints) ?? 80),
     );
 
     requestRender();
@@ -1855,12 +1899,12 @@ window.BASparkDemo = {
   setTrailRenderSampling(renderStep = 0.75, renderMaxPoints = 2400) {
     CONFIG.trail.renderStep = Math.max(
       0.3,
-      Math.min(8, Number(renderStep) || 0.75),
+      Math.min(8, Number(renderStep) ?? 0.75),
     );
 
     CONFIG.trail.renderMaxPoints = Math.max(
       60,
-      Math.min(3600, Number(renderMaxPoints) || 2400),
+      Math.min(3600, Number(renderMaxPoints) ?? 2400),
     );
 
     requestRender();
@@ -1869,8 +1913,36 @@ window.BASparkDemo = {
   setMoveSparkChance(value = 0.009) {
     CONFIG.trail.moveSparkChance = Math.max(
       0,
-      Math.min(0.05, Number(value) || 0.009),
+      Math.min(0.05, Number(value) ?? 0.009),
     );
+  },
+
+  setShardSpacing(value = 112) {
+    CONFIG.trail.shardSpacing = Math.max(20, Math.min(500, Number(value) ?? 112));
+    requestRender();
+  },
+
+  setShardChance(slow = 0.28, fast = 0.68) {
+    CONFIG.trail.shardChanceSlow = Math.max(0, Math.min(1, Number(slow) ?? 0.28));
+    CONFIG.trail.shardChanceFast = Math.max(CONFIG.trail.shardChanceSlow, Math.min(1, Number(fast) ?? 0.68));
+    requestRender();
+  },
+
+  setShardLargeChance(value = 0.45) {
+    CONFIG.trail.shardLargeChance = Math.max(0, Math.min(1, Number(value) ?? 0.45));
+    requestRender();
+  },
+
+  setTrailSmooth(value = 0.5) {
+    CONFIG.trail.smoothFactor = Math.max(0, Math.min(0.9, Number(value) ?? 0.5));
+    trailSmoothX = null;
+    trailSmoothY = null;
+    requestRender();
+  },
+
+  setMaxShards(value = 56) {
+    CONFIG.trail.maxSparkParticles = Math.max(0, Math.min(200, Number(value) ?? 56));
+    requestRender();
   },
 
   clearTrail() {
@@ -1897,9 +1969,17 @@ window.BASparkDemo = {
     trailSpeed: 1.05,
     trail: true,
     trailAlways: false,
-    trailWidth: 2.65,
+    trailWidth: 1.00,
     fakeGlow: true,
     glow: false,
+    shardSpacing: 112,
+    shardChanceSlow: 0.28,
+    shardChanceFast: 0.68,
+    shardLargeChance: 0.45,
+    maxShards: 56,
+    smooth: 0.5,
+    dpr: 2,
+    trailRenderScale: 0.75,
   };
 
   // -- 面板开关 --
@@ -1979,6 +2059,37 @@ window.BASparkDemo = {
   const ctrlGlow = document.getElementById('ctrlGlow');
   ctrlGlow.addEventListener('change', () => api.setGlow(ctrlGlow.checked));
 
+  // -- 碎片 --
+  function bindRangeInt(id, outputId, setter) {
+    const input = document.getElementById(id);
+    const output = document.getElementById(outputId);
+    input.addEventListener('input', () => {
+      const v = parseInt(input.value, 10);
+      output.textContent = v;
+      setter(v);
+    });
+  }
+
+  bindRangeInt('ctrlShardSpacing', 'outShardSpacing', v => api.setShardSpacing(v));
+
+  bindRange('ctrlShardChanceSlow', 'outShardChanceSlow', v => {
+    const fast = parseFloat(document.getElementById('ctrlShardChanceFast').value);
+    api.setShardChance(v, fast);
+  });
+
+  bindRange('ctrlShardChanceFast', 'outShardChanceFast', v => {
+    const slow = parseFloat(document.getElementById('ctrlShardChanceSlow').value);
+    api.setShardChance(slow, v);
+  });
+
+  bindRange('ctrlShardLargeChance', 'outShardLargeChance', v => api.setShardLargeChance(v));
+  bindRangeInt('ctrlMaxShards', 'outMaxShards', v => api.setMaxShards(v));
+
+  bindRange('ctrlSmooth', 'outSmooth', v => api.setTrailSmooth(v));
+
+  bindRangeInt('ctrlDpr', 'outDpr', v => api.setDpr(v));
+  bindRange('ctrlTrailRenderScale', 'outTrailRenderScale', v => api.setTrailRenderScale(v));
+
   // -- 重置 --
   document.getElementById('btnReset').addEventListener('click', () => {
     ctrlColor.value = DEFAULTS.color;
@@ -2010,5 +2121,37 @@ window.BASparkDemo = {
     api.setTrailAlways(DEFAULTS.trailAlways);
     api.setFakeGlow(DEFAULTS.fakeGlow);
     api.setGlow(DEFAULTS.glow);
+
+    // 碎片
+    const setIntVal = (id, outId, val) => {
+      document.getElementById(id).value = val;
+      document.getElementById(outId).textContent = val;
+    };
+
+    setIntVal('ctrlShardSpacing', 'outShardSpacing', DEFAULTS.shardSpacing);
+    setIntVal('ctrlMaxShards', 'outMaxShards', DEFAULTS.maxShards);
+    setVal('ctrlShardChanceSlow', 'outShardChanceSlow', DEFAULTS.shardChanceSlow);
+    setVal('ctrlShardChanceFast', 'outShardChanceFast', DEFAULTS.shardChanceFast);
+    setVal('ctrlShardLargeChance', 'outShardLargeChance', DEFAULTS.shardLargeChance);
+
+    api.setShardSpacing(DEFAULTS.shardSpacing);
+    api.setShardChance(DEFAULTS.shardChanceSlow, DEFAULTS.shardChanceFast);
+    api.setShardLargeChance(DEFAULTS.shardLargeChance);
+    api.setMaxShards(DEFAULTS.maxShards);
+
+    const smoothSlider = document.getElementById('ctrlSmooth');
+    smoothSlider.value = DEFAULTS.smooth;
+    document.getElementById('outSmooth').textContent = DEFAULTS.smooth.toFixed(2);
+    api.setTrailSmooth(DEFAULTS.smooth);
+
+    const dprSlider = document.getElementById('ctrlDpr');
+    dprSlider.value = DEFAULTS.dpr;
+    document.getElementById('outDpr').textContent = DEFAULTS.dpr;
+    api.setDpr(DEFAULTS.dpr);
+
+    const trsSlider = document.getElementById('ctrlTrailRenderScale');
+    trsSlider.value = DEFAULTS.trailRenderScale;
+    document.getElementById('outTrailRenderScale').textContent = DEFAULTS.trailRenderScale.toFixed(2);
+    api.setTrailRenderScale(DEFAULTS.trailRenderScale);
   });
 })();
