@@ -2,10 +2,20 @@ import './style.css';
 
 const canvas = document.getElementById('sparkCanvas');
 
+if (!canvas)
+{
+  throw new Error('[ba-click-fx] 找不到 #sparkCanvas 元素');
+}
+
 const ctx = canvas.getContext('2d', {
   alpha: true,
   desynchronized: true,
 });
+
+if (!ctx)
+{
+  throw new Error('[ba-click-fx] 无法获取 Canvas 2D 上下文');
+}
 
 // 拖尾专用离屏画布：每帧清空后根据 trailStrokes 重绘。
 // 注意：这版不是“整张残影图一起淡出”，而是每个轨迹点有自己的寿命。
@@ -27,7 +37,7 @@ const CONFIG = {
   clickSpeed: 1.15,
   trailSpeed: 1.05,
 
-  maxDpr: 2,
+  maxDpr: 1,
 
   // 拖尾层缩放。1 最清晰；0.75 更省性能。
   trailRenderScale: 1,
@@ -1853,7 +1863,7 @@ window.BASparkDemo = {
   },
 
   // 控制从尾部到头部的消散速度
-  setTrailDecay(tailDecayMul = 1.85, headDecayMul = 1.0, releaseDecayMul = 2.4) {
+  setTrailDecay(tailDecayMul = 1.85, headDecayMul = 1.0, releaseDecayMul = 1) {
     CONFIG.trail.tailDecayMul = Math.max(
       0.1,
       Math.min(5, Number(tailDecayMul) ?? 1.85),
@@ -1866,16 +1876,16 @@ window.BASparkDemo = {
 
     CONFIG.trail.releaseDecayMul = Math.max(
       0.5,
-      Math.min(12, Number(releaseDecayMul) ?? 2.4),
+      Math.min(12, Number(releaseDecayMul) ?? 1),
     );
 
     requestRender();
   },
 
-  setTrailSpeedDecay(value = 0.985) {
+  setTrailSpeedDecay(value = 0.988) {
     CONFIG.trail.speedDecay = Math.max(
       0.8,
-      Math.min(0.999, Number(value) ?? 0.985),
+      Math.min(0.999, Number(value) ?? 0.988),
     );
 
     requestRender();
@@ -1920,10 +1930,10 @@ window.BASparkDemo = {
     requestRender();
   },
 
-  setMoveSparkChance(value = 0.009) {
+  setMoveSparkChance(value = 0) {
     CONFIG.trail.moveSparkChance = Math.max(
       0,
-      Math.min(0.05, Number(value) ?? 0.009),
+      Math.min(0.05, Number(value) ?? 0),
     );
   },
 
@@ -1989,8 +1999,8 @@ window.BASparkDemo = {
     shardLargeChance: 0.45,
     maxShards: 56,
     smooth: 0.5,
-    dpr: 2,
-    trailRenderScale: 0.75,
+    dpr: 1,
+    trailRenderScale: 1,
   };
 
   // -- 面板开关 --
@@ -2019,12 +2029,15 @@ window.BASparkDemo = {
   });
 
   // -- 工具函数 --
-  function bindRange(id, outputId, setter) {
+  function bindRange(id, outputId, setter, intOnly = false) {
     const input = document.getElementById(id);
     const output = document.getElementById(outputId);
+
+    if (!input) { return; }
+
     input.addEventListener('input', () => {
-      const v = parseFloat(input.value);
-      output.textContent = v.toFixed(2);
+      const v = intOnly ? parseInt(input.value, 10) : parseFloat(input.value);
+      output.textContent = intOnly ? v : v.toFixed(2);
       setter(v);
     });
   }
@@ -2073,17 +2086,6 @@ window.BASparkDemo = {
   const ctrlClickFakeGlow = document.getElementById('ctrlClickFakeGlow');
   ctrlClickFakeGlow.addEventListener('change', () => api.setClickFakeGlow(ctrlClickFakeGlow.checked));
 
-  // -- 碎片 --
-  function bindRangeInt(id, outputId, setter) {
-    const input = document.getElementById(id);
-    const output = document.getElementById(outputId);
-    input.addEventListener('input', () => {
-      const v = parseInt(input.value, 10);
-      output.textContent = v;
-      setter(v);
-    });
-  }
-
   bindRangeInt('ctrlShardSpacing', 'outShardSpacing', v => api.setShardSpacing(v));
 
   bindRange('ctrlShardChanceSlow', 'outShardChanceSlow', v => {
@@ -2097,11 +2099,11 @@ window.BASparkDemo = {
   });
 
   bindRange('ctrlShardLargeChance', 'outShardLargeChance', v => api.setShardLargeChance(v));
-  bindRangeInt('ctrlMaxShards', 'outMaxShards', v => api.setMaxShards(v));
+  bindRange('ctrlMaxShards', 'outMaxShards', v => api.setMaxShards(v), true);
 
   bindRange('ctrlSmooth', 'outSmooth', v => api.setTrailSmooth(v));
 
-  bindRangeInt('ctrlDpr', 'outDpr', v => api.setDpr(v));
+  bindRange('ctrlDpr', 'outDpr', v => api.setDpr(v), true);
   bindRange('ctrlTrailRenderScale', 'outTrailRenderScale', v => api.setTrailRenderScale(v));
 
   // -- 重置 --
@@ -2110,9 +2112,14 @@ window.BASparkDemo = {
     const [r, g, b] = hexToRgb(DEFAULTS.color);
     api.setColor(r, g, b);
 
-    const setVal = (id, outId, val) => {
-      document.getElementById(id).value = val;
-      document.getElementById(outId).textContent = Number(val).toFixed(2);
+    const setVal = (id, outId, val, intOnly = false) => {
+      const el = document.getElementById(id);
+      const out = document.getElementById(outId);
+
+      if (!el || !out) { return; }
+
+      el.value = val;
+      out.textContent = intOnly ? val : Number(val).toFixed(2);
     };
 
     setVal('ctrlScale', 'outScale', DEFAULTS.scale);
@@ -2139,13 +2146,8 @@ window.BASparkDemo = {
     api.setClickFakeGlow(DEFAULTS.clickFake);
 
     // 碎片
-    const setIntVal = (id, outId, val) => {
-      document.getElementById(id).value = val;
-      document.getElementById(outId).textContent = val;
-    };
-
-    setIntVal('ctrlShardSpacing', 'outShardSpacing', DEFAULTS.shardSpacing);
-    setIntVal('ctrlMaxShards', 'outMaxShards', DEFAULTS.maxShards);
+    setVal('ctrlShardSpacing', 'outShardSpacing', DEFAULTS.shardSpacing, true);
+    setVal('ctrlMaxShards', 'outMaxShards', DEFAULTS.maxShards, true);
     setVal('ctrlShardChanceSlow', 'outShardChanceSlow', DEFAULTS.shardChanceSlow);
     setVal('ctrlShardChanceFast', 'outShardChanceFast', DEFAULTS.shardChanceFast);
     setVal('ctrlShardLargeChance', 'outShardLargeChance', DEFAULTS.shardLargeChance);
@@ -2155,19 +2157,13 @@ window.BASparkDemo = {
     api.setShardLargeChance(DEFAULTS.shardLargeChance);
     api.setMaxShards(DEFAULTS.maxShards);
 
-    const smoothSlider = document.getElementById('ctrlSmooth');
-    smoothSlider.value = DEFAULTS.smooth;
-    document.getElementById('outSmooth').textContent = DEFAULTS.smooth.toFixed(2);
+    setVal('ctrlSmooth', 'outSmooth', DEFAULTS.smooth);
     api.setTrailSmooth(DEFAULTS.smooth);
 
-    const dprSlider = document.getElementById('ctrlDpr');
-    dprSlider.value = DEFAULTS.dpr;
-    document.getElementById('outDpr').textContent = DEFAULTS.dpr;
+    setVal('ctrlDpr', 'outDpr', DEFAULTS.dpr, true);
     api.setDpr(DEFAULTS.dpr);
 
-    const trsSlider = document.getElementById('ctrlTrailRenderScale');
-    trsSlider.value = DEFAULTS.trailRenderScale;
-    document.getElementById('outTrailRenderScale').textContent = DEFAULTS.trailRenderScale.toFixed(2);
+    setVal('ctrlTrailRenderScale', 'outTrailRenderScale', DEFAULTS.trailRenderScale);
     api.setTrailRenderScale(DEFAULTS.trailRenderScale);
   });
 })();

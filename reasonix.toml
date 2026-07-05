@@ -1,2 +1,2 @@
 [permissions]
-allow = ["Bash(cd D:\\WebProjects\\ba-click-fx && git add -A && git commit -m \"新增点击伪发光开关；resetTrailAll 重置平滑状态\" && git push 2>&1)"]
+allow = ["Bash(cd D:\\WebProjects\\ba-click-fx && git add -A && git commit -m \"新增点击伪发光开关；resetTrailAll 重置平滑状态\" && git push 2>&1)", "Bash(cd D:\\WebProjects\\ba-click-fx && npx vite build 2>&1 && git add -A && git commit -m \"优化：修复 API 默认值不一致 bug；统一 bindRange/setVal 消除重复代码；canvas null 检查；UI 标签优化；README 补充完整 API 文档\" && git push 2>&1)"]

@@ -68,11 +68,11 @@
         <input type="range" id="ctrlOpacity" min="0.1" max="1" step="0.05" value="0.95" />
       </label>
       <label class="ctrl">
-        <span>高分屏渲染 <output id="outDpr">1</output></span>
+        <span>最大 DPR <output id="outDpr">1</output></span>
         <input type="range" id="ctrlDpr" min="1" max="2" step="1" value="1" />
       </label>
       <label class="ctrl">
-        <span>拖尾精度 <output id="outTrailRenderScale">1.00</output></span>
+        <span>拖尾画质 <output id="outTrailRenderScale">1.00</output></span>
         <input type="range" id="ctrlTrailRenderScale" min="0.5" max="1" step="0.05" value="1" />
       </label>
     </section>
@@ -102,7 +102,7 @@
         <span class="toggle-track"></span>
       </label>
       <label class="ctrl">
-        <span>拖尾宽度 <output id="outTrailWidth">1.00</output></span>
+        <span>拖尾基础宽度 <output id="outTrailWidth">1.00</output></span>
         <input type="range" id="ctrlTrailWidth" min="0.5" max="6" step="0.1" value="1.00" />
       </label>
       <label class="ctrl">
@@ -114,17 +114,17 @@
     <section class="panel-section">
       <h3>发光</h3>
       <label class="ctrl toggle">
-        <span>伪发光</span>
+        <span>多层柔光</span>
         <input type="checkbox" id="ctrlFakeGlow" checked />
         <span class="toggle-track"></span>
       </label>
       <label class="ctrl toggle">
-        <span>真实发光 (shadowBlur)</span>
+        <span>阴影发光</span>
         <input type="checkbox" id="ctrlGlow" />
         <span class="toggle-track"></span>
       </label>
       <label class="ctrl toggle">
-        <span>点击伪发光</span>
+        <span>点击柔光</span>
         <input type="checkbox" id="ctrlClickFakeGlow" />
         <span class="toggle-track"></span>
       </label>
