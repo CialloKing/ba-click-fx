@@ -5,6 +5,11 @@
   "private": true,
   "type": "module",
   "keywords": ["canvas", "animation", "particle", "trail", "click-effect", "blue-archive"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CialloKing/ba-click-fx"
+  },
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

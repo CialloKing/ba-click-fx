@@ -1,5 +1,7 @@
 # ba-click-fx
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效，纯 Canvas 2D 实现，零外部资源依赖。
 
 ## 快速开始
