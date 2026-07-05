@@ -144,12 +144,19 @@ export const CONFIG = {
   },
 };
 
+/**
+ * 点击特效专用缩放 = scale × click.scaleMul
+ * @returns {number}
+ */
 export function getClickScale()
 {
   return CONFIG.scale * CONFIG.click.scaleMul;
 }
 
-// BASpark 使用主题色与两份白色混合，环线末端比纯主题色更轻、更接近原作 UI。
+/**
+ * 点击圆环渐变终点颜色（主题色与白色 1:2 混合）
+ * @returns {number[]} [r, g, b]
+ */
 export function getClickRingEndColor()
 {
   return CONFIG.color.map((channel) =>
@@ -157,16 +164,26 @@ export function getClickRingEndColor()
   );
 }
 
+/**
+ * 拖尾主色调 = 主题色按 whiteMix 混合白色
+ * @returns {number[]} [r, g, b]
+ */
 export function getTrailColor() {
   return mixColor(CONFIG.color, [255, 255, 255], CONFIG.trail.whiteMix);
 }
 
-// 中心线使用浅蓝而不是纯白，避免整条拖尾发白。
+/**
+ * 拖尾中心高光色 = 主题色 + 56% 白（浅蓝，避免纯白过于刺眼）
+ * @returns {number[]} [r, g, b]
+ */
 export function getTrailCoreColor() {
   return mixColor(CONFIG.color, [255, 255, 255], 0.56);
 }
 
-// 原作亮段接近蓝白，但仍保留蓝色基底。
+/**
+ * 拖尾头部热点色 = 主题色 + 74% 白（蓝白，保留蓝色基底）
+ * @returns {number[]} [r, g, b]
+ */
 export function getTrailHotColor() {
   return mixColor(CONFIG.color, [255, 255, 255], 0.74);
 }
