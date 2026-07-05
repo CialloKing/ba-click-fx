@@ -155,6 +155,8 @@ const CONFIG = {
   glow: {
     enabled: false,
     fake: true,
+    // 点击特效是否启用伪发光（拖尾线段由 fake 控制，点击默认关闭保持利落）
+    clickFake: false,
   },
 };
 
@@ -350,6 +352,8 @@ function resetTrailAll() {
   endTrailStroke();
   trailSpeedFactor = 0;
   trailStrokes.length = 0;
+  trailSmoothX = null;
+  trailSmoothY = null;
   clearTrailCanvas();
 }
 
@@ -551,7 +555,8 @@ class ClickWave {
     this.r = radius;
 
     // BASpark 只绘制一层中心圆，点击反馈比多层光晕更利落。
-    // 传入 blur 让真实发光 (shadowBlur) 能作用于点击扩散圆
+    // blur 用于真实发光和可选的点击伪发光
+    const blur = (CONFIG.glow.clickFake || CONFIG.glow.enabled) ? radius * 0.65 : 0;
     drawCircle(
       context,
       this.x,
@@ -559,7 +564,7 @@ class ClickWave {
       radius,
       CONFIG.color,
       alpha,
-      radius * 0.65,
+      blur,
     );
   }
 
@@ -666,7 +671,7 @@ class SparkParticle {
       ? [255, 255, 255]
       : mixColor(CONFIG.color, [255, 255, 255], rand(0.28, 0.82));
     this.blur = fromClick ? (2.0 * particleScale) : (2.8 * CONFIG.scale);
-    this.useFakeGlow = !fromClick;
+    this.useFakeGlow = fromClick ? CONFIG.glow.clickFake : true;
     this.fromClick = fromClick;
     this.dead = false;
   }
@@ -1750,6 +1755,11 @@ window.BASparkDemo = {
     requestRender();
   },
 
+  setClickFakeGlow(enabled) {
+    CONFIG.glow.clickFake = Boolean(enabled);
+    requestRender();
+  },
+
   setTrail(enabled) {
     CONFIG.trail.enabled = Boolean(enabled);
     requestRender();
@@ -1971,6 +1981,7 @@ window.BASparkDemo = {
     trailAlways: false,
     trailWidth: 1.00,
     fakeGlow: true,
+    clickFake: false,
     glow: false,
     shardSpacing: 112,
     shardChanceSlow: 0.28,
@@ -2059,6 +2070,9 @@ window.BASparkDemo = {
   const ctrlGlow = document.getElementById('ctrlGlow');
   ctrlGlow.addEventListener('change', () => api.setGlow(ctrlGlow.checked));
 
+  const ctrlClickFakeGlow = document.getElementById('ctrlClickFakeGlow');
+  ctrlClickFakeGlow.addEventListener('change', () => api.setClickFakeGlow(ctrlClickFakeGlow.checked));
+
   // -- 碎片 --
   function bindRangeInt(id, outputId, setter) {
     const input = document.getElementById(id);
@@ -2116,11 +2130,13 @@ window.BASparkDemo = {
     ctrlTrailAlways.checked = DEFAULTS.trailAlways;
     ctrlFakeGlow.checked = DEFAULTS.fakeGlow;
     ctrlGlow.checked = DEFAULTS.glow;
+    ctrlClickFakeGlow.checked = DEFAULTS.clickFake;
 
     api.setTrail(DEFAULTS.trail);
     api.setTrailAlways(DEFAULTS.trailAlways);
     api.setFakeGlow(DEFAULTS.fakeGlow);
     api.setGlow(DEFAULTS.glow);
+    api.setClickFakeGlow(DEFAULTS.clickFake);
 
     // 碎片
     const setIntVal = (id, outId, val) => {

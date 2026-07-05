@@ -1,0 +1,2 @@
+[permissions]
+allow = ["Bash(cd D:\\WebProjects\\ba-click-fx && git add -A && git commit -m \"新增点击伪发光开关；resetTrailAll 重置平滑状态\" && git push 2>&1)"]
