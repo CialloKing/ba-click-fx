@@ -2,6 +2,17 @@
 
 网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效，纯 Canvas 2D 实现，零外部资源依赖。
 
+## 快速开始
+
+在页面中放置一个 `<canvas id="sparkCanvas"></canvas>` 元素，引入构建产物即可：
+
+```html
+<canvas id="sparkCanvas"></canvas>
+<script type="module" src="/src/main.js"></script>
+```
+
+Canvas 会自动铺满窗口且不拦截鼠标事件（`pointer-events: none`）。
+
 ## 预览
 
 ```bash
