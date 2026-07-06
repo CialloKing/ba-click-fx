@@ -51,13 +51,13 @@ export const CONFIG = {
     baseRadiusMul: 0.47,
     // 圆盘消失(帧25)后12帧(帧37@120fps)达最大半径 → ringLife=16.5/25=0.66
     radiusGrowEnd: 0.66,
-    // 圆环最终扩张到约 1.5× 圆盘最大半径
-    postDiskGrow: 35,
-    emissionAlpha: 1.0,
+    // 圆环最终半径约为圆盘的 1.2 倍
+    postDiskGrow: 24,
+    emissionAlpha: 0.35,
     glowRadiusAdd: 54,
-    glowAlpha: 0.50,
+    glowAlpha: 0.15,
     softGlowRadiusAdd: 96,
-    softGlowAlpha: 0.30,
+    softGlowAlpha: 0.08,
     segmentCountMin: 2,
     segmentCountMax: 3,
     segmentExtraChance: 0.24,
@@ -85,8 +85,8 @@ export const CONFIG = {
     colorStart: 0.0,
     colorEnd: 0.15,
     segNum: 18,
-    minW: 1.3,
-    maxW: 6.0,
+    minW: 0.9,
+    maxW: 4.0,
     alpha: 1.0,
   },
 

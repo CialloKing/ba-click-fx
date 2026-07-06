@@ -515,9 +515,9 @@ class ClickWave
   getRingRadiusGrow(progress = 0)
   {
     const cfg = CONFIG.rings;
-    return clamp01(progress / cfg.radiusGrowEnd) *
-      cfg.postDiskGrow *
-      CONFIG.scale;
+    // easeOutCubic 使扩张先快后慢，半径越大速度越平缓
+    const t = easeOutCubic(clamp01(progress / cfg.radiusGrowEnd));
+    return t * cfg.postDiskGrow * CONFIG.scale;
   }
 
   getRingRadius(progress = 0)
@@ -613,7 +613,7 @@ class ClickWave
     // 原作圆环像独立 Additive Sprite，本体亮度不跟随全局透明度滑块变暗。
     // ringAlpha 用 grow 控制出现；glow 加地板避免初期完全不可见
     const ringAlpha = cfg.alpha * grow * fade;
-    const glowGrow = Math.max(grow, 0.35);
+    const glowGrow = Math.max(grow, 0.15);
     const ringGlowAlpha = cfg.emissionAlpha * glowGrow * fade;
     const staticRadius = this.getRingStaticRadius();
     const radiusGrow = this.getRingRadiusGrow(progress);
