@@ -373,8 +373,8 @@ class ClickWave {
       return;
     }
 
-    const eased = easeOutCubic(progress);
-    const radius = cfg.rAddRate * clickScale * eased;
+    // 游戏原作中蓝色实心圆固定大小，不做扩散（只有透明度衰减）
+    const radius = cfg.rAddRate * clickScale;
     const alpha = (1 - progress) * CONFIG.opacity;
 
     this.r = radius;
