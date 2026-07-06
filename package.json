@@ -1,9 +1,26 @@
 {
   "name": "ba-click-fx",
-  "version": "0.1.0",
-  "description": "网页版《蔚蓝档案》点击与拖拽特效，纯 Canvas 2D 实现",
-  "private": true,
+  "version": "1.0.0",
+  "description": "网页版《蔚蓝档案》点击与拖拽特效，纯 Canvas 2D 实现，零外部依赖",
   "type": "module",
+  "main": "./dist/ba-click-fx.cjs",
+  "module": "./dist/ba-click-fx.js",
+  "types": "./dist/ba-click-fx.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/ba-click-fx.js",
+      "require": "./dist/ba-click-fx.cjs",
+      "types": "./dist/ba-click-fx.d.ts"
+    }
+  },
+  "files": [
+    "dist/ba-click-fx.js",
+    "dist/ba-click-fx.cjs",
+    "dist/ba-click-fx.iife.js",
+    "dist/ba-click-fx.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "keywords": ["canvas", "animation", "particle", "trail", "click-effect", "blue-archive"],
   "repository": {
     "type": "git",
@@ -12,7 +29,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build --config vite.lib.config.js && node -e \"require('fs').copyFileSync('src/ba-click-fx.d.ts','dist/ba-click-fx.d.ts')\"",
     "preview": "vite preview"
   },
   "devDependencies": {

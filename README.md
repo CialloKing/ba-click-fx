@@ -9,44 +9,189 @@
 
 **在线演示：**[ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
+---
+
 ## 目录
 
 - [快速开始](#快速开始)
+- [三种使用方式](#三种使用方式)
+  - [npm 安装](#1-npm-安装)
+  - [CDN 引入](#2-cdn-引入)
+  - [直接下载](#3-直接下载)
+- [API 文档](#api-文档)
 - [效果说明](#效果说明)
-- [控制面板](#控制面板)
-- [运行时 API](#运行时-api)
 - [项目结构](#项目结构)
 - [部署](#部署)
 - [致谢](#致谢)
 - [许可](#许可)
 
+---
+
 ## 快速开始
 
+> 只想看效果？打开 [在线演示](https://ba-click-fx.cialloking.top) 随便点击、拖拽即可。
+
+---
+
+## 三种使用方式
+
+### 1. npm 安装
+
 ```bash
-npm install
-npm run dev        # 启动开发服务器
-npm run build      # 生产构建 → dist/
-npm run preview    # 预览生产版本
+npm install ba-click-fx
 ```
 
-在你自己的页面中引入：
+```js
+import { BASpark } from 'ba-click-fx';
+
+const spark = new BASpark();
+
+// 可选：自定义配置
+const spark = new BASpark({
+  color: [105, 161, 255],
+  scale: 1.1,
+  opacity: 0.5,
+});
+```
+
+### 2. CDN 引入
+
+一行 `<script>` 标签即可，无需构建工具：
 
 ```html
-<canvas id="sparkCanvas"></canvas>
-<script type="module" src="/src/main.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1/dist/ba-click-fx.iife.js"></script>
+<script>
+  const spark = new BASpark();
+</script>
 ```
 
-Canvas 自动铺满窗口，`pointer-events: none` 不拦截页面交互。
+### 3. 直接下载
+
+从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载 `dist/` 目录中的文件，适合静态站点：
+
+```html
+<canvas id="myCanvas"></canvas>
+<script type="module">
+  import { BASpark } from './ba-click-fx.js';
+  const spark = new BASpark({ target: '#myCanvas' });
+</script>
+```
+
+---
+
+## API 文档
+
+### 构造函数
+
+```ts
+new BASpark(options?: BASparkOptions)
+```
+
+| 选项 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `target` | `string \| HTMLElement` | 自动创建 | 挂载目标：CSS 选择器或已有 `<canvas>` |
+| `color` | `[r, g, b]` | `[105, 161, 255]` | 主题颜色 |
+| `scale` | `number` | `1.10` | 全局缩放 (0.5~3) |
+| `opacity` | `number` | `0.50` | 透明度 (0.1~1) |
+| `trailAlways` | `boolean` | `false` | 鼠标移动时也显示拖尾 |
+| `trailEnabled` | `boolean` | `true` | 启用拖尾轨迹 |
+
+### 实例方法
+
+#### 基础
+
+| 方法 | 说明 |
+|---|---|
+| `setColor(r, g, b)` | 主题颜色 (0~255) |
+| `setScale(s)` | 全局缩放 (0.5~3) |
+| `setOpacity(o)` | 透明度 (0.1~1) |
+| `setSpeed(click, trail?)` | 点击/拖拽速度 (0.2~3) |
+| `setDpr(d)` | 最大设备像素比 (1~2) |
+| `setTrailRenderScale(s)` | 拖尾离屏画布缩放 (0.5~1) |
+
+#### 发光
+
+| 方法 | 说明 |
+|---|---|
+| `setGlow(enabled)` | shadowBlur 发光（性能开销较高） |
+| `setFakeGlow(enabled)` | 多层柔光（推荐） |
+| `setClickFakeGlow(enabled)` | 点击特效柔光 |
+
+#### 圆环
+
+| 方法 | 说明 | 默认值 |
+|---|---|---|
+| `setRingRotationSpeed(v)` | 旋转角速度 (0~0.05) | `0.008` |
+| `setRingGlow(v)` | 光晕强度 (0~1) | `0.35` |
+| `setRingWidth(v)` | 弧线宽度 (0.3~3) | `0.9` |
+| `setRingAlpha(v)` | 圆环透明度 (0.1~1) | `0.9` |
+| `setRingDelay(v)` | 出现延迟 (0~10) | `2` |
+| `setRingMaxLife(v)` | 总时长 (10~60) | `27` |
+| `setRingBaseRadiusMul(v)` | 起始半径倍率 (0.2~1) | `0.47` |
+| `setRingPostDiskGrow(v)` | 扩张量 (5~60) | `24` |
+| `setRingGlowRadiusAdd(v)` | 发光半径 (10~150) | `54` |
+| `setRingSoftGlowRadiusAdd(v)` | 柔光半径 (20~200) | `96` |
+
+#### 拖尾
+
+| 方法 | 说明 | 默认值 |
+|---|---|---|
+| `setTrail(enabled)` | 开关拖尾 | `true` |
+| `setTrailAlways(enabled)` | 移动时也显示 | `false` |
+| `setTrailBrightness(a)` | 整体亮度 (0.1~1) | `0.96` |
+| `setTrailWhiteMix(v)` | 偏白程度 (0~1) | `0.08` |
+| `setTrailWidth(fast, slow?)` | 基础线宽 (0.5~6) | `3` |
+| `setTrailLength(slow, fast?)` | 轨迹长度上限 | `900, 4200` |
+| `setTrailLife(slow, fast?)` | 消散速度 (5~400) | `22` |
+| `setTrailDecay(tail, head, release)` | 尾部/头部/松手消散倍率 | `1.28, 0.95, 1.18` |
+| `setTrailSmooth(f)` | 鼠标平滑 (0~0.9) | `0.5` |
+| `setTrailSpeedRange(min, max)` | 速度映射区间 (px/ms) | `0.035, 2.2` |
+| `setTrailSpeedDecay(d)` | 速度衰减率 (0.8~0.999) | `0.988` |
+
+#### 拖尾图层透明度
+
+| 方法 | 说明 | 默认值 |
+|---|---|---|
+| `setTrailMainAlpha(v)` | 主轨迹 | `1` |
+| `setTrailCoreAlpha(v)` | 中心高光 | `0.78` |
+| `setTrailHotAlpha(v)` | 蓝白热点 | `0.34` |
+| `setTrailGlowAlpha(v)` | 蓝色发光 | `0.18` |
+| `setTrailSoftGlowAlpha(v)` | 柔和外光 | `0.045` |
+| `setTrailRailAlpha(v)` | 细轨 | `0.02` |
+| `setTrailGlowWidthMul(v)` | 发光宽度 (0.3~8) | `1.7` |
+| `setTrailSoftGlowWidthMul(v)` | 柔光宽度 (0.5~15) | `2.4` |
+
+#### 碎片
+
+| 方法 | 说明 | 默认值 |
+|---|---|---|
+| `setSparksCount(n)` | 点击碎片数量 (0~12) | `4` |
+| `setMaxShards(n)` | 最大碎片数 (0~200) | `38` |
+| `setShardSpacing(d)` | 间距 (20~500) | `220` |
+| `setShardChance(slow, fast)` | 额外概率 | `0.04, 0.18` |
+| `setShardLargeChance(p)` | 大碎片概率 | `0.62` |
+
+#### 生命周期
+
+| 方法 | 说明 |
+|---|---|
+| `boom(x?, y?)` | 手动触发点击特效，默认屏幕中央 |
+| `clearTrail()` | 清除所有拖尾 |
+| `getConfig()` | 返回当前配置深拷贝 |
+| `resetConfig()` | 恢复默认配置 |
+| `destroy()` | 销毁实例：移除 Canvas、事件、动画 |
+
+---
 
 ## 效果说明
 
 ### 点击特效
 
-| 元素 | 表现 | 120fps 时序 |
-|---|---|---|
-| 圆盘 | 白色闪光快速扩展为蓝色圆盘，2 帧达最大、12.5 帧消散 | 帧 0 → 帧 25 |
-| 圆环 | 2 段高亮弧线，第 4 帧出现，弧长先增至 3/4 圆再逆时针缩至 1/6 圆，半径持续 ease-out 外扩 | 帧 4 → 帧 54 |
-| 碎片 | 4 个三角粒子从圆盘边缘同时爆射、不旋转、从近 0 尺寸变大，脉冲闪烁 | 帧 3 出现 |
+| 元素 | 表现 |
+|---|---|
+| 圆盘 | 白色闪光 → 蓝色圆盘，快速扩张后消散 |
+| 圆环 | 2 段高亮弧线，逆时针旋转收缩 |
+| 碎片 | 三角粒子从圆盘边缘爆射，脉冲闪烁 |
 
 ### 拖尾光轨
 
@@ -55,130 +200,53 @@ Canvas 自动铺满窗口，`pointer-events: none` 不拦截页面交互。
 | 层 | 说明 |
 |---|---|
 | 暗轨线 | 残留在旧轨迹上的细蓝线 |
-| 柔和外光 | 宽而淡的分段扩散光晕 |
+| 柔和外光 | 宽而淡的扩散光晕 |
 | Ribbon 能量带 | 半透明带状材质 |
 | 主蓝色轨迹 | 核心轨迹，宽度沿路径变细 |
 | 中心高光 | 浅蓝高亮芯线 |
-| 蓝白热点 | 最近一段弧线持续发亮 |
+| 蓝白热点 | 最近弧线持续发亮 |
 
-- 头部 3 层发光圆点
-- 碎片按距离随机散布，间距为平均值而非固定值
-- 速度映射宽度/长度，消散时间恒定
-- 指数平滑过滤手抖微颤
+碎片沿轨迹按距离散布，支持大/小两种尺寸随机混合。
 
-## 控制面板
-
-点击右上角 ⚙ 打开，共 **7 个分区、26 个控件**：
-
-| 分区 | 控件 |
-|---|---|
-| 基础 | 主题颜色、全局缩放、透明度、最大 DPR、拖尾画质 |
-| 速度 | 点击速度、拖拽速度 |
-| 拖尾 | 启用/始终显示/基础宽度/轨迹长度/消散速度/平滑/亮度/偏白程度 |
-| 发光 | 多层柔光、阴影发光、点击柔光 |
-| 圆环 | 旋转速度、光晕强度、弧线宽度、透明度 |
-| 碎片 | 间距、慢速概率、快速概率、大碎片概率、最大数量 |
-
-设置自动保存到浏览器 localStorage，刷新不丢失。按 **B** 键在屏幕中央触发点击特效，底部提示栏可关闭。
-
-## 运行时 API
-
-`window.BASparkDemo` 暴露完整配置接口：
-
-### 基础
-
-| 方法 | 参数 | 范围 | 默认值 |
-|---|---|---|---|
-| `setColor(r,g,b)` | 主题颜色 | 0~255 | `18, 178, 255` |
-| `setScale(s)` | 全局缩放 | 0.5~3 | `1.10` |
-| `setOpacity(o)` | 圆盘/halo/碎片透明度 | 0.1~1 | `0.50` |
-| `setSpeed(click,trail)` | 点击/拖拽速度 | 0.2~3 | `1.00, 1.05` |
-| `setDpr(d)` | 设备像素比上限 | 1~2 | `1` |
-| `setTrailRenderScale(s)` | 拖尾离屏画布缩放 | 0.5~1 | `1` |
-
-### 发光
-
-| 方法 | 说明 | 默认值 |
-|---|---|---|
-| `setGlow(enabled)` | 阴影发光 (shadowBlur, 性能开销高) | `false` |
-| `setFakeGlow(enabled)` | 多层柔光 | `true` |
-| `setClickFakeGlow(enabled)` | 点击特效柔光 | `true` |
-
-### 拖尾
-
-| 方法 | 说明 | 默认值 |
-|---|---|---|
-| `setTrail(enabled)` | 开关拖拽轨迹 | `true` |
-| `setTrailAlways(enabled)` | 鼠标移动时始终显示 | `false` |
-| `setTrailBrightness(alpha,whiteMix)` | 拖尾整体亮度与偏白程度 (0~1) | `0.96, 0.08` |
-| `setTrailWidth(baseFast,baseSlow)` | 快速/慢速基础宽度 (0.5~6) | `3.00, 3.00` |
-| `setTrailLength(slow,fast)` | 慢速/快速长度上限 | `900, 4200` |
-| `setTrailLife(slow,fast)` | 轨迹消散速度 (帧, 60fps 基准) | `22, 22` |
-| `setTrailDecay(tail,head,release)` | 尾部/头部/松手后消散倍率 | `1.28, 0.95, 1.18` |
-| `setTrailSpeedDecay(d)` | 速度因子衰减率 (0.8~0.999) | `0.988` |
-| `setTrailSpeedRange(min,max)` | 速度因子映射范围 (px/ms) | `0.035, 2.2` |
-| `setTrailSampling(step,max)` | 输入采样间距与最大点数 | `0.85, 80` |
-| `setTrailRenderSampling(step,max)` | 渲染重采样间距与最大点数 | `0.75, 2400` |
-| `setTrailSmooth(f)` | 鼠标坐标指数平滑 (0~0.9) | `0.5` |
-| `setTrailLayerAlpha(main,core,hot,glow,sGlow,rail)` | 6 层透明度独立调节 | `1.00,0.78,0.34,0.18,0.045,0.02` |
-
-### 圆环
-
-| 方法 | 说明 | 默认值 |
-|---|---|---|
-| `setRingRotationSpeed(v)` | 旋转角速度 (0~0.05 rad/帧) | `0.008` |
-| `setRingGlow(v)` | 光晕强度 emissionAlpha (0~1) | `0.35` |
-| `setRingWidth(v)` | 弧线基础宽度 minW (0.3~3) | `0.9` |
-| `setRingAlpha(v)` | 圆环透明度 (0.1~1) | `0.9` |
-
-### 碎片
-
-| 方法 | 说明 | 默认值 |
-|---|---|---|
-| `setMaxShards(n)` | 最大碎片数量 (0~200) | `38` |
-| `setShardSpacing(d)` | 间距平均值 px (20~500) | `220` |
-| `setShardChance(slow,fast)` | 慢速/快速额外概率 | `0.04, 0.18` |
-| `setShardLargeChance(p)` | 大碎片概率 | `0.62` |
-| `setMoveSparkChance(p)` | 移动时随机撒点概率 (0~0.05) | `0` |
-
-### 工具
-
-| 方法 | 说明 |
-|---|---|
-| `boom(x, y)` | 手动触发点击特效，默认屏幕中央 |
-| `clearTrail()` | 清除所有拖尾轨迹 |
-| `getConfig()` | 返回当前配置深拷贝 |
-| `resetConfig()` | 恢复默认配置 |
-| `saveSettings()` | 导出面板设置为 JSON 字符串 |
-| `loadSettings(json)` | 导入 JSON 并立即应用 |
-| `CONFIG` | 直接引用配置对象（只读推荐） |
+---
 
 ## 项目结构
 
 ```
 ba-click-fx/
 ├── src/
-│   ├── main.js        # 动画循环、Canvas 渲染、事件处理、UI 绑定、API
-│   ├── config.js       # 所有可调参数集中管理（~190 个变量）
-│   ├── draw.js         # 绘图工具函数
-│   ├── utils.js        # 纯数学工具（缓动、颜色、smoothstep 等）
-│   └── style.css       # 演示页样式
-├── index.html          # 演示页面 + 控制面板
-├── dist/               # 生产构建输出（3 文件，~45KB）
-├── vite.config.js      # Vite 配置 (target: es2020)
-└── .github/workflows/  # CI 构建检查
+│   ├── ba-spark.js      # 特效引擎（BASpark 类）
+│   ├── main.js           # 演示页面入口 + 控制面板 UI
+│   ├── config.js         # 所有可调参数（~190 个变量）
+│   ├── draw.js           # 绘图工具函数
+│   ├── utils.js          # 纯数学工具
+│   ├── style.css         # 演示页样式
+│   └── ba-click-fx.d.ts  # TypeScript 声明
+├── index.html            # 演示页面
+├── dist/                 # 构建输出
+│   ├── index.html        # 演示页
+│   ├── ba-click-fx.js    # ESM 库 (~42KB)
+│   ├── ba-click-fx.cjs   # CommonJS (~35KB)
+│   ├── ba-click-fx.iife  # IIFE CDN (~35KB)
+│   └── ba-click-fx.d.ts  # TypeScript 声明
+├── vite.config.js        # 演示页 Vite 配置
+├── vite.lib.config.js    # 库模式 Vite 配置
+└── package.json
 ```
 
 ### 架构特点
 
-- **双层 Canvas**：主 Canvas 渲染点击特效，离屏 trailCanvas 独立渲染拖尾 → `lighter` 混合合成
+- **双层 Canvas**：主 Canvas 渲染点击特效，离屏 trailCanvas 独立渲染拖尾 → `lighter` 混合
 - **对象池**：ClickWave 和 SparkParticle 回收复用，避免 GC 抖动
 - **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`
-- **60fps 基准**：所有帧数参数归一化到 60fps，运行时间隔缩放适配任意刷新率
+- **60fps 基准**：所有帧数参数归一化到 60fps，运行时缩放适配任意刷新率
+- **零外部依赖**：仅依赖标准 Canvas 2D API
+
+---
 
 ## 部署
 
-### Cloudflare Pages（推荐，免费）
+### Cloudflare Pages（推荐）
 
 1. Dashboard → Workers & Pages → Pages → 连接 Git
 2. 选 `CialloKing/ba-click-fx`，构建命令 `npm run build`，输出目录 `dist`
@@ -188,12 +256,16 @@ ba-click-fx/
 
 `dist/` 目录是纯静态文件，可部署到任意静态托管（GitHub Pages、Netlify、Vercel、Nginx 等）。
 
+---
+
 ## 致谢
 
 - [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark) — 蔚蓝档案点击特效早期 Web 实现
 - [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor) — 蔚蓝档案光标特效实现
 
 本项目基于 120fps 录屏逐帧校准，从 Unity 原始 Prefab 结构映射到 Canvas 2D。
+
+---
 
 ## 许可
 
