@@ -3,7 +3,7 @@ import { mixColor } from './utils.js';
 // 游戏原始拖尾更偏蓝，不是偏白的蓝白色。
 // 所有可调参数集中于此，运行时可被 BASparkDemo API 修改。
 export const CONFIG = {
-  color: [18, 178, 255],
+  color: [105, 161, 255],
   startColor: [250, 252, 252],
 
   scale: 1.10,

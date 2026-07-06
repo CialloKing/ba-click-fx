@@ -2510,7 +2510,7 @@ window.BASparkDemo = {
 
   // -- 默认值（用于重置）--
   const DEFAULTS = {
-    color: '#12b2ff',
+    color: '#69a1ff',
     scale: 1.10,
     opacity: 0.5,
     clickSpeed: 1,
