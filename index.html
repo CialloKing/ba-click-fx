@@ -12,7 +12,6 @@
   <main class="page">
     <div class="hero">
       <h1>Blue Archive Click FX</h1>
-      <p class="subtitle">点击或拖拽任意位置查看特效 · 按 <kbd>B</kbd> 触发中心特效 · 右上角 ⚙ 调整参数</p>
     </div>
   </main>
 
@@ -116,6 +115,14 @@
         <span>点击柔光</span>
         <input type="checkbox" id="ctrlClickFakeGlow" checked />
         <span class="toggle-track"></span>
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>圆环</h3>
+      <label class="ctrl">
+        <span>旋转速度 <output id="outRingRotation">0.008</output></span>
+        <input type="range" id="ctrlRingRotation" min="0" max="0.05" step="0.001" value="0.008" />
       </label>
     </section>
 

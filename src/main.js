@@ -1997,6 +1997,11 @@ window.BASparkDemo = {
     requestRender();
   },
 
+  setRingRotationSpeed(value = 0.008) {
+    CONFIG.rings.rotationSpeed = Math.max(0, Math.min(0.05, Number(value) ?? 0.008));
+    requestRender();
+  },
+
   setTrail(enabled) {
     CONFIG.trail.enabled = Boolean(enabled);
     requestRender();
@@ -2293,6 +2298,7 @@ window.BASparkDemo = {
     smooth: 0.5,
     dpr: 1,
     trailRenderScale: 1,
+    ringRotation: 0.008,
   };
 
   // -- 面板开关 --
@@ -2403,6 +2409,8 @@ window.BASparkDemo = {
   bindRange('ctrlDpr', 'outDpr', v => api.setDpr(v), true);
   bindRange('ctrlTrailRenderScale', 'outTrailRenderScale', v => api.setTrailRenderScale(v));
 
+  bindRange('ctrlRingRotation', 'outRingRotation', v => api.setRingRotationSpeed(v));
+
   // -- 重置 --
   document.getElementById('btnReset').addEventListener('click', () => {
     ctrlColor.value = DEFAULTS.color;
@@ -2467,6 +2475,8 @@ window.BASparkDemo = {
 
     setVal('ctrlTrailRenderScale', 'outTrailRenderScale', DEFAULTS.trailRenderScale);
     api.setTrailRenderScale(DEFAULTS.trailRenderScale);
+    setVal('ctrlRingRotation', 'outRingRotation', DEFAULTS.ringRotation);
+    api.setRingRotationSpeed(DEFAULTS.ringRotation);
     localStorage.clear();
   });
   const saved = {};
