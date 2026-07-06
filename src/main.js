@@ -1,5 +1,5 @@
 import './style.css';
-import { clamp01, rand, pick, easeOutCubic, smoothstep, distance, lerp, rgbToCss, mixColor, getArcWeight } from './utils.js';
+import { clamp01, rand, easeOutCubic, smoothstep, distance, lerp, rgbToCss, mixColor, getArcWeight } from './utils.js';
 import { CONFIG, getClickScale, getClickRingEndColor, getTrailColor, getTrailCoreColor, getTrailHotColor } from './config.js';
 
 const canvas = document.getElementById('sparkCanvas');
@@ -316,12 +316,209 @@ function drawArcSegment(
   context.restore();
 }
 
-class ClickWave {
-  constructor() {
+function drawRadialGlow(context, x, y, radius, color, alpha)
+{
+  if (alpha <= 0 || radius <= 0)
+  {
+    return;
+  }
+
+  const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
+
+  gradient.addColorStop(0, rgbToCss(color, alpha));
+  gradient.addColorStop(0.36, rgbToCss(color, alpha * 0.32));
+  gradient.addColorStop(0.72, rgbToCss(color, alpha * 0.08));
+  gradient.addColorStop(1, rgbToCss(color, 0));
+
+  context.save();
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fill();
+  context.restore();
+}
+
+function drawClickDisk(context, x, y, radius, color, alpha)
+{
+  if (alpha <= 0 || radius <= 0)
+  {
+    return;
+  }
+
+  context.save();
+
+  // 游戏里的中心圆盘本体是纯色 Sprite，边缘差异由独立 glow 层承担。
+  context.fillStyle = rgbToCss(color, alpha);
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fill();
+  context.restore();
+}
+
+function drawClickArcSegment(
+  context,
+  x,
+  y,
+  radius,
+  start,
+  end,
+  widthValue,
+  color,
+  alpha,
+)
+{
+  if (alpha <= 0 || widthValue <= 0 || Math.abs(end - start) < 0.001)
+  {
+    return;
+  }
+
+  if (CONFIG.glow.clickFake || CONFIG.glow.enabled)
+  {
+    drawArcSegment(
+      context,
+      x,
+      y,
+      radius,
+      start,
+      end,
+      widthValue * 4.2,
+      CONFIG.color,
+      alpha * 0.12,
+    );
+
+    drawArcSegment(
+      context,
+      x,
+      y,
+      radius,
+      start,
+      end,
+      widthValue * 2.25,
+      mixColor(CONFIG.color, [255, 255, 255], 0.42),
+      alpha * 0.2,
+    );
+  }
+
+  drawArcSegment(
+    context,
+    x,
+    y,
+    radius,
+    start,
+    end,
+    widthValue,
+    color,
+    alpha,
+  );
+}
+
+function drawClickFullRing(context, x, y, radius, widthValue, color, alpha)
+{
+  if (alpha <= 0 || widthValue <= 0 || radius <= 0)
+  {
+    return;
+  }
+
+  if (CONFIG.glow.clickFake || CONFIG.glow.enabled)
+  {
+    const cfg = CONFIG.rings;
+
+    // 圆环自己的柔光层独立于中心圆盘，圆盘消失后仍随圆环生命周期保留。
+    drawArcSegment(
+      context,
+      x,
+      y,
+      radius,
+      0,
+      Math.PI * 2,
+      widthValue * cfg.softGlowWidthMul,
+      CONFIG.color,
+      alpha * cfg.softGlowAlpha,
+    );
+
+    drawArcSegment(
+      context,
+      x,
+      y,
+      radius,
+      0,
+      Math.PI * 2,
+      widthValue * cfg.glowWidthMul,
+      mixColor(CONFIG.color, [255, 255, 255], 0.38),
+      alpha * cfg.glowAlpha,
+    );
+  }
+
+  drawArcSegment(
+    context,
+    x,
+    y,
+    radius,
+    0,
+    Math.PI * 2,
+    widthValue,
+    color,
+    alpha,
+  );
+}
+
+function getAngleDistance(a, b)
+{
+  return Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+}
+
+function createClickRingSegments(rings)
+{
+  const minCount = Math.max(1, Math.floor(rings.segmentCountMin ?? 2));
+  const maxCount = Math.max(
+    minCount,
+    Math.floor(rings.segmentCountMax ?? minCount),
+  );
+  const count = Math.floor(rand(minCount, maxCount + 1));
+  const segments = [];
+  const minGap = Math.max(0, rings.segmentMinGap ?? 0);
+  const maxAttempts = 80;
+
+  let attempts = 0;
+
+  while (segments.length < count && attempts < maxAttempts)
+  {
+    attempts++;
+
+    const off = Math.random() * Math.PI * 2;
+
+    if (
+      segments.length > 0 &&
+      attempts < maxAttempts * 0.7 &&
+      segments.some((seg) => getAngleDistance(seg.off, off) < minGap)
+    )
+    {
+      continue;
+    }
+
+    segments.push({
+      off,
+      lenMul: rand(rings.lenMulMin, rings.lenMulMax),
+      radiusOffset: rand(rings.radiusJitterMin, rings.radiusJitterMax),
+      rotationMul: rand(rings.rotationMulMin, rings.rotationMulMax),
+      alphaMul: rand(0.72, 1),
+      widthMul: rand(0.82, 1.12),
+      collapseBias: rand(-0.08, 0.14),
+    });
+  }
+
+  return segments;
+}
+
+class ClickWave
+{
+  constructor()
+  {
     this.dead = true;
   }
 
-  reset(x, y) {
+  reset(x, y)
+  {
     const rings = CONFIG.rings;
 
     this.x = x;
@@ -331,127 +528,174 @@ class ClickWave {
     this.dead = false;
 
     this.ring = {
+      // 每次点击重新采样圆环弧段，避免高亮总落在固定两侧。
       ang: Math.random() * Math.PI * 2,
-      rs: pick(rings.rsList),
-      segs: [
-        {
-          off: 0,
-          len: rings.len,
-          rRoundRate: pick(rings.rRoundRateList),
-        },
-        {
-          off: rand(-1.5, 1.5) * Math.PI,
-          len: rings.len,
-          rRoundRate: pick(rings.rRoundRateList),
-        },
-      ],
+      rs: rings.rotationSpeed,
+      segs: createClickRingSegments(rings),
     };
   }
 
-  update(context, frameScale) {
+  update(context, frameScale)
+  {
     this.life += frameScale;
 
+    this.drawHalo(context);
     this.drawFilledCircle(context);
     this.drawRings(context, frameScale);
+    this.drawCenterDot(context);
 
-    const maxLife = Math.max(
-      CONFIG.filledCircle.maxLife,
-      CONFIG.rings.maxLife,
-    );
-
-    if (this.life >= maxLife) {
+    if (this.life >= CONFIG.click.totalLife)
+    {
       this.dead = true;
     }
   }
 
-  drawFilledCircle(context) {
-    const cfg = CONFIG.filledCircle;
-    const clickScale = getClickScale();
-    const progress = clamp01(this.life / cfg.maxLife);
+  getDiskRadius()
+  {
+    return CONFIG.filledCircle.rAddRate * getClickScale();
+  }
 
-    if (progress >= 1) {
+  getRingRadius(progress = 0)
+  {
+    const cfg = CONFIG.rings;
+    const radiusGrow =
+      clamp01(progress / cfg.radiusGrowEnd) *
+      cfg.postDiskGrow *
+      CONFIG.scale;
+
+    return this.getDiskRadius() + cfg.radiusOffset * getClickScale() + radiusGrow;
+  }
+
+  drawHalo(context)
+  {
+    if (!CONFIG.glow.clickFake && !CONFIG.glow.enabled)
+    {
       return;
     }
 
-    // 游戏原作：从 0 快速扩展到大圆，同时白色闪变为蓝
-    const expandT = Math.min(progress * 8, 1);
-    const radius = cfg.rAddRate * clickScale * expandT;
-    const color = mixColor(CONFIG.startColor, CONFIG.color, expandT);
-    const alpha = (1 - progress) * CONFIG.opacity;
-
-    this.r = radius;
-
-    // BASpark 只绘制一层中心圆，点击反馈比多层光晕更利落。
-    // blur 用于真实发光和可选的点击伪发光
-    const blur = (CONFIG.glow.clickFake || CONFIG.glow.enabled) ? radius * 0.65 : 0;
-    drawCircle(
-      context,
-      this.x,
-      this.y,
-      radius,
-      color,
-      alpha,
-      blur,
-      CONFIG.glow.clickFake,
+    const progress = clamp01(this.life / CONFIG.click.totalLife);
+    const diskProgress = clamp01(this.life / CONFIG.filledCircle.maxLife);
+    const appear = smoothstep(0.01, 0.2, progress);
+    const fade = 1 - smoothstep(0.84, 1, progress);
+    const color = mixColor(
+      CONFIG.startColor,
+      CONFIG.color,
+      smoothstep(0.08, CONFIG.filledCircle.colorEnd, diskProgress),
     );
+    const radius = lerp(
+      this.getDiskRadius() * 2.1,
+      CONFIG.click.haloRadius * getClickScale(),
+      smoothstep(0.04, 0.54, progress),
+    );
+    const alpha = 0.2 * CONFIG.opacity * appear * fade;
+
+    drawRadialGlow(context, this.x, this.y, radius, color, alpha);
   }
 
-  drawRings(context, frameScale) {
-    const cfg = CONFIG.rings;
-    const clickScale = getClickScale();
+  drawFilledCircle(context)
+  {
+    const cfg = CONFIG.filledCircle;
     const progress = clamp01(this.life / cfg.maxLife);
 
-    if (progress >= 1) {
+    this.r = this.getDiskRadius();
+
+    if (progress >= 1)
+    {
+      return;
+    }
+
+    // 原作圆盘很快长到目标尺寸，随后短暂停留，再在第 24 帧附近消失。
+    const expandT = easeOutCubic(clamp01(progress / cfg.expandEnd));
+    const fade = 1 - smoothstep(cfg.fadeStart, 1, progress);
+    const colorT = smoothstep(0.06, cfg.colorEnd, progress);
+    const radius = this.r * expandT;
+    const color = mixColor(CONFIG.startColor, CONFIG.color, colorT);
+    const alpha = CONFIG.opacity * fade;
+
+    if (CONFIG.glow.clickFake || CONFIG.glow.enabled)
+    {
+      // 中心圆盘自己的光晕只跟随圆盘 24 帧生命周期。
+      drawRadialGlow(
+        context,
+        this.x,
+        this.y,
+        radius * cfg.glowRadiusMul,
+        color,
+        alpha * cfg.glowAlpha,
+      );
+    }
+
+    drawClickDisk(context, this.x, this.y, radius, color, alpha);
+  }
+
+  drawRings(context, frameScale)
+  {
+    const cfg = CONFIG.rings;
+    const progress = clamp01(this.life / cfg.maxLife);
+
+    if (progress >= 1)
+    {
       return;
     }
 
     this.ring.ang -= this.ring.rs * frameScale;
 
-    const colorT = Math.min(1.2 * progress, 1);
-    const color = mixColor(CONFIG.startColor, getClickRingEndColor(), colorT);
+    const grow = smoothstep(0.02, cfg.growEnd, progress);
+    const collapse = smoothstep(cfg.collapseStart, 1, progress);
+    const fade = 1 - smoothstep(cfg.fadeStart, 1, progress);
+    const color = mixColor(
+      getClickRingEndColor(),
+      CONFIG.color,
+      smoothstep(cfg.colorStart, cfg.colorEnd, progress),
+    );
+    const ringAlpha = cfg.alpha * CONFIG.opacity * grow * fade;
+    const baseAlpha = cfg.baseAlpha * CONFIG.opacity * grow * fade;
+    const baseRadius = this.getRingRadius(progress);
+    const lineWidthMul = lerp(1, 0.72, collapse);
 
-    const ringAlpha = Math.min(1.1 - 0.3 * progress, 1) * CONFIG.opacity;
-    const lineWidthMul = Math.min(-0.8 * (progress - 0.8) + 1, 1);
+    // Unity 里常见做法是完整弱圆环贴图在底，短弧高亮叠在上层。
+    drawClickFullRing(
+      context,
+      this.x,
+      this.y,
+      baseRadius,
+      cfg.baseWidth * CONFIG.scale,
+      getClickRingEndColor(),
+      baseAlpha,
+    );
 
-    for (const seg of this.ring.segs) {
-      const base = this.ring.ang + seg.off;
+    for (const seg of this.ring.segs)
+    {
+      const segCollapse = smoothstep(
+        cfg.collapseStart + seg.collapseBias,
+        1,
+        progress,
+      );
+      const currentLen =
+        lerp(cfg.lenFull, cfg.lenEnd, segCollapse) *
+        seg.lenMul *
+        grow;
+      const start = this.ring.ang * seg.rotationMul + seg.off;
+      const end = start + currentLen;
+      const radius =
+        baseRadius +
+        seg.radiusOffset * CONFIG.scale;
+      const segAlpha = ringAlpha * seg.alphaMul;
+      const segLineWidthMul = lineWidthMul * seg.widthMul;
 
-      let start;
-      let end;
-
-      if (progress <= cfg.lenStopAddPoint) {
-        const currentLen = seg.len * (progress / cfg.lenStopAddPoint);
-        end = base + seg.len;
-        start = end - currentLen;
-      } else if (progress > cfg.lenStartDimPoint) {
-        const currentLen =
-          seg.len *
-          (1 -
-            (progress - cfg.lenStartDimPoint) /
-              (1 - cfg.lenStartDimPoint));
-
-        start = base;
-        end = start + currentLen;
-      } else {
-        start = base;
-        end = start + seg.len;
-      }
-
-      const radius = this.r + seg.rRoundRate * clickScale;
-
-      for (let i = 0; i < cfg.segNum; i++) {
+      for (let i = 0; i < cfg.segNum; i++)
+      {
         const t0 = i / cfg.segNum;
         const t1 = (i + 1) / cfg.segNum;
-
         const a0 = start + (end - start) * t0;
         const a1 = start + (end - start) * t1;
-
         const weight = getArcWeight(t0);
         const lineWidth =
           (cfg.minW * (1 - weight) + cfg.maxW * weight) *
-          lineWidthMul;
+          segLineWidthMul *
+          CONFIG.scale;
 
-        drawArcSegment(
+        drawClickArcSegment(
           context,
           this.x,
           this.y,
@@ -460,19 +704,50 @@ class ClickWave {
           a1,
           lineWidth,
           color,
-          ringAlpha,
+          segAlpha,
         );
       }
     }
   }
+
+  drawCenterDot(context)
+  {
+    const progress = clamp01(this.life / CONFIG.click.totalLife);
+    const dotAlpha =
+      smoothstep(0.43, 0.52, progress) *
+      (1 - smoothstep(0.82, 1, progress)) *
+      CONFIG.opacity *
+      0.72;
+
+    if (dotAlpha <= 0)
+    {
+      return;
+    }
+
+    const radius = lerp(1.5, 0.75, smoothstep(0.52, 1, progress)) * CONFIG.scale;
+
+    drawCircle(
+      context,
+      this.x,
+      this.y,
+      radius,
+      CONFIG.color,
+      dotAlpha,
+      radius * 1.8,
+      true,
+    );
+  }
 }
 
-class SparkParticle {
-  constructor() {
+class SparkParticle
+{
+  constructor()
+  {
     this.dead = true;
   }
 
-  reset(x, y, fromClick = true) {
+  reset(x, y, fromClick = true)
+  {
     const particleScale = fromClick ? getClickScale() : CONFIG.scale;
     const speedAdjust = particleScale / 1.5;
     const angle = Math.random() * Math.PI * 2;
@@ -493,6 +768,7 @@ class SparkParticle {
       : rand(2.4, 8.8) * particleScale;
 
     this.alpha = fromClick ? 1 : rand(0.28, 0.78);
+    this.maxAlpha = this.alpha;
     this.alphaDecay = 0.032;
     this.friction = fromClick ? 0.9 : 0.95;
     this.color = fromClick
@@ -500,11 +776,28 @@ class SparkParticle {
       : mixColor(CONFIG.color, [255, 255, 255], rand(0.28, 0.82));
     this.blur = fromClick ? (2.0 * particleScale) : (2.8 * CONFIG.scale);
     this.useFakeGlow = fromClick ? CONFIG.glow.clickFake : true;
+    this.delay = 0;
+    this.age = 0;
+    this.flickerPeriod = 0;
+    this.flickerMinAlpha = 1;
+    this.flickerPhase = 0;
+    this.flickerSizePulse = 0;
+    this.sizeGrowEnd = 0;
+    this.sizeShrinkStart = 1;
+    this.spawnSizeMul = 1;
+    this.endSizeMul = 1;
     this.fromClick = fromClick;
     this.dead = false;
   }
 
-  update(context, frameScale) {
+  update(context, frameScale)
+  {
+    if (this.delay > 0)
+    {
+      this.delay -= frameScale;
+      return;
+    }
+
     this.x += this.vx * frameScale;
     this.y += this.vy * frameScale;
 
@@ -514,19 +807,56 @@ class SparkParticle {
     this.rotation += this.rotationSpeed * frameScale;
     this.alpha -= this.alphaDecay * frameScale;
 
+    let drawAlpha = this.alpha * CONFIG.opacity;
+    let flickerPulse = 1;
+
+    if (this.flickerPeriod > 0)
+    {
+      const cycle =
+        ((this.age + this.flickerPhase) % this.flickerPeriod) /
+        this.flickerPeriod;
+      flickerPulse = (1 - Math.cos(cycle * Math.PI * 2)) / 2;
+
+      drawAlpha *= lerp(this.flickerMinAlpha, 1, flickerPulse);
+    }
+
+    const lifeProgress =
+      this.maxAlpha > 0
+        ? clamp01(1 - this.alpha / this.maxAlpha)
+        : 1;
+    const growMul = lerp(
+      this.spawnSizeMul,
+      1,
+      smoothstep(0, this.sizeGrowEnd, lifeProgress),
+    );
+    const shrinkMul = lerp(
+      1,
+      this.endSizeMul,
+      smoothstep(this.sizeShrinkStart, 1, lifeProgress),
+    );
+    const sizeByLife = this.size * growMul * shrinkMul;
+    const size =
+      this.flickerPeriod > 0 && this.flickerSizePulse > 0
+        ? sizeByLife *
+          lerp(1 - this.flickerSizePulse, 1 + this.flickerSizePulse, flickerPulse)
+        : sizeByLife;
+
     drawTriangle(
       context,
       this.x,
       this.y,
-      this.size,
+      size,
       this.rotation,
       this.color,
-      this.alpha * CONFIG.opacity,
+      drawAlpha,
       this.blur,
       this.useFakeGlow,
     );
 
-    if (this.alpha <= 0) {
+    this.age += frameScale;
+
+    if (this.alpha <= 0)
+    {
       this.dead = true;
     }
   }
@@ -546,10 +876,57 @@ function releaseWave(wave) {
   }
 }
 
-function getSpark(x, y, fromClick) {
+function getSpark(x, y, fromClick)
+{
   const spark = sparkPool.pop() ?? new SparkParticle();
   spark.reset(x, y, fromClick);
   return spark;
+}
+
+function tuneClickShard(spark, centerX, centerY)
+{
+  const angle = Math.random() * Math.PI * 2;
+  const tangentAngle = angle + Math.PI / 2;
+  const ringRadius =
+    (
+      CONFIG.filledCircle.rAddRate +
+      CONFIG.rings.radiusOffset +
+      rand(-6, 14)
+    ) *
+    getClickScale();
+  const radialSpeed = rand(-0.08, 0.42) * CONFIG.scale;
+  const tangentSpeed = rand(-0.34, 0.34) * CONFIG.scale;
+  const whiteMix = rand(0.38, 0.9);
+
+  spark.x = centerX + Math.cos(angle) * ringRadius;
+  spark.y = centerY + Math.sin(angle) * ringRadius;
+  spark.vx =
+    Math.cos(angle) * radialSpeed +
+    Math.cos(tangentAngle) * tangentSpeed;
+  spark.vy =
+    Math.sin(angle) * radialSpeed +
+    Math.sin(tangentAngle) * tangentSpeed;
+
+  // Unity ParticleSystem Burst：低速、随机大小和随机出生延迟，比固定环上标记自然。
+  spark.delay = rand(0, 4.5);
+  spark.size = rand(4.2, 8.8) * CONFIG.scale;
+  spark.alpha = rand(0.62, 1);
+  spark.maxAlpha = spark.alpha;
+  spark.alphaDecay = rand(0.028, 0.044);
+  spark.friction = rand(0.975, 0.992);
+  spark.rotation = angle + Math.PI + rand(-1.3, 1.3);
+  spark.rotationSpeed = rand(-0.09, 0.11);
+  spark.color = mixColor(CONFIG.color, [255, 255, 255], whiteMix);
+  spark.blur = rand(0.8, 2.2) * CONFIG.scale;
+  spark.useFakeGlow = CONFIG.glow.clickFake;
+  spark.flickerPeriod = CONFIG.click.shardFlickerPeriod;
+  spark.flickerMinAlpha = CONFIG.click.shardFlickerMinAlpha;
+  spark.flickerPhase = 0;
+  spark.flickerSizePulse = 0.08;
+  spark.sizeGrowEnd = rand(0.16, 0.28);
+  spark.sizeShrinkStart = rand(0.62, 0.76);
+  spark.spawnSizeMul = rand(0.42, 0.66);
+  spark.endSizeMul = rand(0.18, 0.36);
 }
 
 function tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor)
@@ -557,8 +934,8 @@ function tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor)
   const cfg = CONFIG.trail;
   const isLarge = Math.random() < cfg.shardLargeChance;
   const scale = CONFIG.scale;
-  const drift = rand(0.04, 0.36) * (0.72 + speedFactor * 0.5);
-  const tangentDrift = rand(-0.14, 0.22);
+  const drift = rand(0.02, 0.28) * (0.72 + speedFactor * 0.45);
+  const tangentDrift = rand(-0.22, 0.26);
   const whiteMix = isLarge ? rand(0.56, 0.92) : rand(0.24, 0.76);
 
   spark.vx = Math.cos(normalAngle) * drift + Math.cos(tangentAngle) * tangentDrift;
@@ -566,14 +943,25 @@ function tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor)
 
   // 大碎片更慢、更亮，能形成截图里沿轨迹漂浮的三角片。
   spark.size = (isLarge ? rand(7.4, 12.2) : rand(4.2, 6.4)) * scale;
-  spark.alpha = isLarge ? rand(0.42, 0.76) : rand(0.28, 0.56);
-  spark.alphaDecay = isLarge ? rand(0.016, 0.028) : rand(0.026, 0.046);
+  spark.alpha = isLarge ? rand(0.38, 0.72) : rand(0.24, 0.52);
+  spark.maxAlpha = spark.alpha;
+  spark.alphaDecay = isLarge ? rand(0.018, 0.032) : rand(0.03, 0.052);
   spark.friction = isLarge ? rand(0.978, 0.99) : rand(0.965, 0.982);
   spark.rotation = normalAngle + rand(-1.2, 1.2);
   spark.rotationSpeed = rand(-0.055, 0.075);
   spark.color = mixColor(CONFIG.color, [255, 255, 255], whiteMix);
   spark.blur = (isLarge ? rand(0.7, 1.6) : rand(0.15, 0.65)) * scale;
   spark.useFakeGlow = true;
+  spark.flickerPeriod = cfg.shardFlickerPeriod;
+  spark.flickerMinAlpha = isLarge
+    ? cfg.shardFlickerMinAlpha
+    : Math.min(0.34, cfg.shardFlickerMinAlpha + 0.1);
+  spark.flickerPhase = rand(0, cfg.shardFlickerPeriod);
+  spark.flickerSizePulse = cfg.shardFlickerSizePulse;
+  spark.sizeGrowEnd = isLarge ? rand(0.14, 0.26) : rand(0.1, 0.22);
+  spark.sizeShrinkStart = isLarge ? rand(0.62, 0.78) : rand(0.52, 0.72);
+  spark.spawnSizeMul = isLarge ? rand(0.5, 0.72) : rand(0.4, 0.65);
+  spark.endSizeMul = isLarge ? rand(0.2, 0.38) : rand(0.12, 0.3);
 }
 
 function spawnTrailShards(from, to, speedFactor)
@@ -586,7 +974,10 @@ function spawnTrailShards(from, to, speedFactor)
     return;
   }
 
-  const spacing = cfg.shardSpacing * CONFIG.scale;
+  const spacing =
+    cfg.shardSpacing *
+    CONFIG.scale *
+    lerp(1.15, 0.72, clamp01(speedFactor));
   trailShardDistance += dist;
 
   if (trailShardDistance < spacing)
@@ -594,11 +985,11 @@ function spawnTrailShards(from, to, speedFactor)
     return;
   }
 
-  const attempts = Math.max(1, Math.floor(trailShardDistance / spacing));
+  const attempts = Math.min(6, Math.max(1, Math.floor(trailShardDistance / spacing)));
 
   trailShardDistance %= spacing;
 
-  const spawnChance = lerp(
+  const extraChance = lerp(
     cfg.shardChanceSlow,
     cfg.shardChanceFast,
     clamp01(speedFactor),
@@ -607,24 +998,42 @@ function spawnTrailShards(from, to, speedFactor)
 
   for (let i = 0; i < attempts; i++)
   {
-    if (sparks.length >= cfg.maxSparkParticles || Math.random() > spawnChance)
+    if (sparks.length >= cfg.maxSparkParticles)
     {
-      continue;
+      return;
     }
 
-    const t = rand(0.25, 0.95);
-    const side = Math.random() < 0.5 ? -1 : 1;
-    const normalAngle = tangentAngle + side * Math.PI / 2;
-    const offset =
-      rand(cfg.shardOffsetMin, cfg.shardOffsetMax) *
-      CONFIG.scale *
-      (0.9 + speedFactor * 0.18);
-    const x = lerp(from.x, to.x, t) + Math.cos(normalAngle) * offset;
-    const y = lerp(from.y, to.y, t) + Math.sin(normalAngle) * offset;
-    const spark = getSpark(x, y, false);
+    const spawnCount =
+      Math.random() < extraChance && sparks.length < cfg.maxSparkParticles - 1
+        ? 2
+        : 1;
 
-    tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor);
-    sparks.push(spark);
+    for (let j = 0; j < spawnCount; j++)
+    {
+      const t = rand(0.16, 0.98);
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const normalAngle =
+        tangentAngle +
+        side * Math.PI / 2 +
+        rand(-0.24, 0.24);
+      const offset =
+        rand(cfg.shardOffsetMin, cfg.shardOffsetMax) *
+        CONFIG.scale *
+        (0.82 + speedFactor * 0.22);
+      const tangentOffset = rand(-8, 10) * CONFIG.scale;
+      const x =
+        lerp(from.x, to.x, t) +
+        Math.cos(normalAngle) * offset +
+        Math.cos(tangentAngle) * tangentOffset;
+      const y =
+        lerp(from.y, to.y, t) +
+        Math.sin(normalAngle) * offset +
+        Math.sin(tangentAngle) * tangentOffset;
+      const spark = getSpark(x, y, false);
+
+      tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor);
+      sparks.push(spark);
+    }
   }
 }
 
@@ -636,11 +1045,16 @@ function releaseSpark(spark) {
   }
 }
 
-function createClickEffect(x, y) {
+function createClickEffect(x, y)
+{
   waves.push(getWave(x, y));
 
-  for (let i = 0; i < CONFIG.sparksCount; i++) {
-    sparks.push(getSpark(x, y, true));
+  for (let i = 0; i < CONFIG.sparksCount; i++)
+  {
+    const spark = getSpark(x, y, true);
+
+    tuneClickShard(spark, x, y);
+    sparks.push(spark);
   }
 
   requestRender();
@@ -1195,7 +1609,27 @@ function renderTrailStrokeToCanvas(stroke) {
     });
   }
 
-  // 3. 主蓝色轨迹：宽度沿路径变细，避免尾部像等宽线。
+  // 3. 半透明 Ribbon 层：模拟 Unity TrailRenderer 的带状能量材质。
+  strokeFullTrailPath(trailCtx, renderPoints, {
+    widthValue: baseWidth * CONFIG.trail.ribbonWidthMul,
+    color: trailColor,
+    widthStops: [
+      [0.0, 0.06],
+      [0.26, 0.36],
+      [0.56, 0.88],
+      [0.86, 1.0],
+      [1.0, 0.72],
+    ],
+    stops: [
+      [0.0, 0.0],
+      [0.18, CONFIG.trail.ribbonAlpha * 0.08 * CONFIG.trail.alpha * fadeMul],
+      [0.48, CONFIG.trail.ribbonAlpha * 0.36 * CONFIG.trail.alpha * fadeMul],
+      [0.78, CONFIG.trail.ribbonAlpha * CONFIG.trail.alpha * fadeMul],
+      [1.0, CONFIG.trail.ribbonAlpha * 0.52 * CONFIG.trail.alpha * fadeMul],
+    ],
+  });
+
+  // 4. 主蓝色轨迹：宽度沿路径变细，避免尾部像等宽线。
   strokeFullTrailPath(trailCtx, renderPoints, {
     widthValue: baseWidth,
     color: trailColor,
@@ -1215,7 +1649,7 @@ function renderTrailStrokeToCanvas(stroke) {
     ],
   });
 
-  // 4. 中心浅蓝高光，覆盖更长的亮弧。
+  // 5. 中心浅蓝高光，覆盖更长的亮弧。
   strokeFullTrailPath(trailCtx, renderPoints, {
     widthValue: coreWidth,
     color: trailCoreColor,
@@ -1234,7 +1668,7 @@ function renderTrailStrokeToCanvas(stroke) {
     ],
   });
 
-  // 5. 蓝白高光：不是只亮头部，而是让最近一段弧线持续发亮。
+  // 6. 蓝白高光：不是只亮头部，而是让最近一段弧线持续发亮。
   strokeFullTrailPath(trailCtx, renderPoints, {
     widthValue: hotWidth,
     color: trailHotColor,
@@ -1613,15 +2047,15 @@ window.BASparkDemo = {
     requestRender();
   },
 
-  setTrailWidth(baseFast = 1.00, baseSlow = 1.28) {
+  setTrailWidth(baseFast = 1.18, baseSlow = 0.92) {
     CONFIG.trail.baseWidthFast = Math.max(
       0.5,
-      Math.min(6, Number(baseFast) ?? 1.00),
+      Math.min(6, Number(baseFast) ?? 1.18),
     );
 
     CONFIG.trail.baseWidthSlow = Math.max(
       0.3,
-      Math.min(CONFIG.trail.baseWidthFast, Number(baseSlow) ?? 1.28),
+      Math.min(CONFIG.trail.baseWidthFast, Number(baseSlow) ?? 0.92),
     );
 
     requestRender();
@@ -1649,15 +2083,15 @@ window.BASparkDemo = {
   },
 
   // 轨迹长度：速度越快越接近 lengthFast
-  setTrailLength(lengthSlow = 260, lengthFast = 8000) {
+  setTrailLength(lengthSlow = 900, lengthFast = 4200) {
     CONFIG.trail.lengthSlow = Math.max(
       20,
-      Math.min(1500, Number(lengthSlow) ?? 260),
+      Math.min(5000, Number(lengthSlow) ?? 900),
     );
 
     CONFIG.trail.lengthFast = Math.max(
       CONFIG.trail.lengthSlow + 20,
-      Math.min(3200, Number(lengthFast) ?? 8000),
+      Math.min(8000, Number(lengthFast) ?? 4200),
     );
 
     requestRender();
@@ -1665,35 +2099,35 @@ window.BASparkDemo = {
 
   // 轨迹寿命：决定松开鼠标后消散持续时间。
   // 默认 slow/fast 相同：移动速度只影响轨迹长度，不影响消散时间。
-  setTrailLife(lifeSlow = 30, lifeFast = 30) {
+  setTrailLife(lifeSlow = 22, lifeFast = 22) {
     CONFIG.trail.lifeSlow = Math.max(
       5,
-      Math.min(400, Number(lifeSlow) ?? 30),
+      Math.min(400, Number(lifeSlow) ?? 22),
     );
 
     CONFIG.trail.lifeFast = Math.max(
       CONFIG.trail.lifeSlow,
-      Math.min(600, Number(lifeFast) ?? 30),
+      Math.min(600, Number(lifeFast) ?? 22),
     );
 
     requestRender();
   },
 
   // 控制从尾部到头部的消散速度
-  setTrailDecay(tailDecayMul = 1.85, headDecayMul = 1.0, releaseDecayMul = 1) {
+  setTrailDecay(tailDecayMul = 1.28, headDecayMul = 0.95, releaseDecayMul = 1.18) {
     CONFIG.trail.tailDecayMul = Math.max(
       0.1,
-      Math.min(5, Number(tailDecayMul) ?? 1.85),
+      Math.min(5, Number(tailDecayMul) ?? 1.28),
     );
 
     CONFIG.trail.headDecayMul = Math.max(
       0.1,
-      Math.min(CONFIG.trail.tailDecayMul, Number(headDecayMul) ?? 1.0),
+      Math.min(CONFIG.trail.tailDecayMul, Number(headDecayMul) ?? 0.95),
     );
 
     CONFIG.trail.releaseDecayMul = Math.max(
       0.5,
-      Math.min(12, Number(releaseDecayMul) ?? 1),
+      Math.min(12, Number(releaseDecayMul) ?? 1.18),
     );
 
     requestRender();
@@ -1754,14 +2188,14 @@ window.BASparkDemo = {
     );
   },
 
-  setShardSpacing(value = 112) {
-    CONFIG.trail.shardSpacing = Math.max(20, Math.min(500, Number(value) ?? 112));
+  setShardSpacing(value = 92) {
+    CONFIG.trail.shardSpacing = Math.max(20, Math.min(500, Number(value) ?? 92));
     requestRender();
   },
 
-  setShardChance(slow = 0.28, fast = 0.68) {
-    CONFIG.trail.shardChanceSlow = Math.max(0, Math.min(1, Number(slow) ?? 0.28));
-    CONFIG.trail.shardChanceFast = Math.max(CONFIG.trail.shardChanceSlow, Math.min(1, Number(fast) ?? 0.68));
+  setShardChance(slow = 0.06, fast = 0.34) {
+    CONFIG.trail.shardChanceSlow = Math.max(0, Math.min(1, Number(slow) ?? 0.06));
+    CONFIG.trail.shardChanceFast = Math.max(CONFIG.trail.shardChanceSlow, Math.min(1, Number(fast) ?? 0.34));
     requestRender();
   },
 
@@ -1865,19 +2299,19 @@ window.BASparkDemo = {
     color: '#189eff',
     scale: 1.15,
     opacity: 0.95,
-    clickSpeed: 1.15,
+    clickSpeed: 1,
     trailSpeed: 1.05,
     trail: true,
     trailAlways: false,
-    trailWidth: 1.00,
-    trailLength: 260,
-    trailLife: 30,
+    trailWidth: 1.18,
+    trailLength: 900,
+    trailLife: 22,
     fakeGlow: true,
-    clickFake: false,
+    clickFake: true,
     glow: false,
-    shardSpacing: 112,
-    shardChanceSlow: 0.28,
-    shardChanceFast: 0.68,
+    shardSpacing: 92,
+    shardChanceSlow: 0.06,
+    shardChanceFast: 0.34,
     shardLargeChance: 0.45,
     maxShards: 56,
     smooth: 0.5,

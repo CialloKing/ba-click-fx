@@ -82,8 +82,8 @@
     <section class="panel-section">
       <h3>速度</h3>
       <label class="ctrl">
-        <span>点击速度 <output id="outClickSpeed">1.15</output></span>
-        <input type="range" id="ctrlClickSpeed" min="0.2" max="3" step="0.05" value="1.15" />
+        <span>点击速度 <output id="outClickSpeed">1.00</output></span>
+        <input type="range" id="ctrlClickSpeed" min="0.2" max="3" step="0.05" value="1" />
       </label>
       <label class="ctrl">
         <span>拖拽速度 <output id="outTrailSpeed">1.05</output></span>
@@ -104,16 +104,16 @@
         <span class="toggle-track"></span>
       </label>
       <label class="ctrl">
-        <span>拖尾基础宽度 <output id="outTrailWidth">1.00</output></span>
-        <input type="range" id="ctrlTrailWidth" min="0.5" max="6" step="0.1" value="1.00" />
+        <span>拖尾基础宽度 <output id="outTrailWidth">1.18</output></span>
+        <input type="range" id="ctrlTrailWidth" min="0.5" max="6" step="0.1" value="1.18" />
       </label>
       <label class="ctrl">
-        <span>轨迹长度 <output id="outTrailLength">260</output></span>
-        <input type="range" id="ctrlTrailLength" min="20" max="500" step="10" value="260" />
+        <span>轨迹长度 <output id="outTrailLength">900</output></span>
+        <input type="range" id="ctrlTrailLength" min="100" max="2000" step="50" value="900" />
       </label>
       <label class="ctrl">
-        <span>消散速度 <output id="outTrailLife">30</output></span>
-        <input type="range" id="ctrlTrailLife" min="5" max="120" step="5" value="30" />
+        <span>消散速度 <output id="outTrailLife">22</output></span>
+        <input type="range" id="ctrlTrailLife" min="5" max="120" step="1" value="22" />
       </label>
       <label class="ctrl">
         <span>平滑 <output id="outSmooth">0.50</output></span>
@@ -135,7 +135,7 @@
       </label>
       <label class="ctrl toggle">
         <span>点击柔光</span>
-        <input type="checkbox" id="ctrlClickFakeGlow" />
+        <input type="checkbox" id="ctrlClickFakeGlow" checked />
         <span class="toggle-track"></span>
       </label>
     </section>
@@ -143,16 +143,16 @@
     <section class="panel-section">
       <h3>碎片</h3>
       <label class="ctrl">
-        <span>间距 <output id="outShardSpacing">112</output></span>
-        <input type="range" id="ctrlShardSpacing" min="20" max="300" step="5" value="112" />
+        <span>间距 <output id="outShardSpacing">92</output></span>
+        <input type="range" id="ctrlShardSpacing" min="20" max="300" step="5" value="92" />
       </label>
       <label class="ctrl">
-        <span>慢速概率 <output id="outShardChanceSlow">0.28</output></span>
-        <input type="range" id="ctrlShardChanceSlow" min="0" max="1" step="0.02" value="0.28" />
+        <span>慢速概率 <output id="outShardChanceSlow">0.06</output></span>
+        <input type="range" id="ctrlShardChanceSlow" min="0" max="1" step="0.02" value="0.06" />
       </label>
       <label class="ctrl">
-        <span>快速概率 <output id="outShardChanceFast">0.68</output></span>
-        <input type="range" id="ctrlShardChanceFast" min="0" max="1" step="0.02" value="0.68" />
+        <span>快速概率 <output id="outShardChanceFast">0.34</output></span>
+        <input type="range" id="ctrlShardChanceFast" min="0" max="1" step="0.02" value="0.34" />
       </label>
       <label class="ctrl">
         <span>大碎片概率 <output id="outShardLargeChance">0.45</output></span>

@@ -9,7 +9,7 @@ export const CONFIG = {
   scale: 1.15,
   opacity: 0.95,
 
-  clickSpeed: 1.15,
+  clickSpeed: 1,
   trailSpeed: 1.05,
 
   maxDpr: 1,
@@ -22,28 +22,63 @@ export const CONFIG = {
 
   filledCircle: {
     rAddRate: 26,
-    maxLife: 16,
+    // 120fps 录制下中心蓝色圆盘存在 24 帧，即 200ms。
+    // 这里用 60fps 基准帧表示，所以默认点击速度下是 12 帧。
+    maxLife: 12,
+    expandEnd: 0.18,
+    colorEnd: 0.34,
+    fadeStart: 0.78,
+    glowRadiusMul: 2.7,
+    glowAlpha: 0.24,
   },
 
   click: {
     // BASpark 的点击波纹按 1.5 左右绘制；这里单独放大点击，避免影响拖尾手感。
     scaleMul: 1.3,
+    // 原始点击特效总时长约为 54 帧 @120fps，即 450ms。
+    totalLife: 27,
+    haloRadius: 96,
+    // 120fps 录像下碎片 16 帧完成 暗 -> 亮 -> 暗；换算为 60fps 基准是 8 帧。
+    shardFlickerPeriod: 8,
+    shardFlickerMinAlpha: 0.28,
   },
 
   rings: {
-    // BASpark 创建点击波纹时使用较慢角速度，圆环看起来更稳。
-    rsList: [0, 0.03, 0.06],
-    rRoundRateList: [0, 1, 1.5, 2],
-    len: 1.1 * Math.PI,
-    maxLife: 23,
-    segNum: 10,
-    minW: 0.4,
-    maxW: 3.3,
-    lenStopAddPoint: 0.1,
-    lenStartDimPoint: 0.4,
+    maxLife: 27,
+    rotationSpeed: 0.045,
+    radiusOffset: 0.8,
+    radiusGrowEnd: 0.82,
+    postDiskGrow: 8,
+    baseAlpha: 0.34,
+    baseWidth: 1.1,
+    glowWidthMul: 6.4,
+    glowAlpha: 0.24,
+    softGlowWidthMul: 12,
+    softGlowAlpha: 0.08,
+    segmentCountMin: 2,
+    segmentCountMax: 3,
+    lenFull: 1.16 * Math.PI,
+    lenEnd: 0.48 * Math.PI,
+    lenMulMin: 0.64,
+    lenMulMax: 1.18,
+    radiusJitterMin: -1.8,
+    radiusJitterMax: 2.4,
+    rotationMulMin: 0.72,
+    rotationMulMax: 1.28,
+    segmentMinGap: 0.22 * Math.PI,
+    growEnd: 0.24,
+    collapseStart: 12 / 27,
+    fadeStart: 0.88,
+    colorStart: 0.48,
+    colorEnd: 0.9,
+    segNum: 18,
+    minW: 0.7,
+    maxW: 3.6,
+    alpha: 0.98,
   },
 
-  sparksCount: 4,
+  // Unity ParticleSystem Burst 风格：点击时从圆环附近随机散出三角碎片。
+  sparksCount: 5,
 
   trail: {
     enabled: true,
@@ -68,9 +103,9 @@ export const CONFIG = {
     // 沿真实路径分段上色，避免首尾直线渐变在回环轨迹里误亮尾端。
     gradientChunkLength: 1.5,
 
-    // 快速移动时允许轨迹明显更长
-    lengthSlow: 260,
-    lengthFast: 8000,
+    // TrailRenderer.time 主导长度；这里主要作为异常长路径的保险上限。
+    lengthSlow: 900,
+    lengthFast: 4200,
 
     // 点数上限必须更大，否则 lengthFast 还没生效就被截断
     maxPoints: 12000,
@@ -78,32 +113,33 @@ export const CONFIG = {
     // 关键调整：
     // 轨迹寿命不再跟速度一起变长。
     // 鼠标移动越快，只会让"长度"变长，不会让"消散时间"变长。
-    // 36 帧约等于 0.6 秒；松开后会乘 releaseDecayMul，所以实际收尾约 0.25~0.35 秒。
-    lifeSlow: 30,
-    lifeFast: 30,
+    // 约 0.3s 的 TrailRenderer.time；速度只影响几何长度，不影响点寿命。
+    lifeSlow: 22,
+    lifeFast: 22,
 
     // 尾部比头部先消散，形成从尾部向终点连续收掉的效果。
-    tailDecayMul: 1.85,
-    headDecayMul: 1.0,
+    tailDecayMul: 1.28,
+    headDecayMul: 0.95,
 
-    // 松开鼠标后加速收尾，但不要太大，否则会瞬间断掉。
-    releaseDecayMul: 1,
+    // 松开鼠标后略微加速收尾，但仍保持从尾部连续消散。
+    releaseDecayMul: 1.18,
 
     // 速度因子下降稍快一点：松手后只影响宽度/长度，不拖慢寿命。
     speedDecay: 0.988,
 
     // 轨迹宽度
-    baseWidthSlow: 1.28,
-    baseWidthFast: 1.00,
+    baseWidthSlow: 0.92,
+    baseWidthFast: 1.18,
 
-    coreWidthSlow: 0.5,
-    coreWidthFast: 1.05,
+    coreWidthSlow: 0.42,
+    coreWidthFast: 0.88,
 
     hotWidthSlow: 0.18,
     hotWidthFast: 0.46,
 
-    glowWidthMul: 3.3,
-    softGlowWidthMul: 6.8,
+    ribbonWidthMul: 1.82,
+    glowWidthMul: 4.2,
+    softGlowWidthMul: 9.2,
     railWidthSlow: 0.45,
     railWidthFast: 0.78,
 
@@ -113,6 +149,7 @@ export const CONFIG = {
     whiteMix: 0.26,
 
     mainAlpha: 0.98,
+    ribbonAlpha: 0.5,
     coreAlpha: 0.58,
     hotAlpha: 0.38,
     glowAlpha: 0.34,
@@ -124,13 +161,19 @@ export const CONFIG = {
     speedMax: 2.2,
 
     // 沿轨迹散布的三角碎片；截图里碎片不是只跟在鼠标头部。
-    shardSpacing: 112,
-    shardChanceSlow: 0.28,
-    shardChanceFast: 0.68,
+    shardSpacing: 92,
+    // 距离到达间隔时一定发射 1 个；这里控制额外碎片概率。
+    shardChanceSlow: 0.06,
+    shardChanceFast: 0.34,
     shardOffsetMin: 8,
     shardOffsetMax: 28,
     shardLargeChance: 0.45,
     maxSparkParticles: 56,
+    // Unity ParticleSystem 常见做法：Color over Lifetime 叠加随机相位闪烁。
+    // 120fps 录像 16 帧一个完整暗 -> 亮 -> 暗周期，对应 60fps 基准 8 帧。
+    shardFlickerPeriod: 8,
+    shardFlickerMinAlpha: 0.18,
+    shardFlickerSizePulse: 0.12,
 
     // 游戏截图里的碎片主要沿轨迹分布；关闭头部随机撒点以免范围变宽。
     moveSparkChance: 0,
@@ -139,8 +182,8 @@ export const CONFIG = {
   glow: {
     enabled: false,
     fake: true,
-    // 点击特效是否启用伪发光（拖尾线段由 fake 控制，点击默认关闭保持利落）
-    clickFake: false,
+    // 原作点击反馈包含明显蓝白径向光，默认开启点击伪发光。
+    clickFake: true,
   },
 };
 

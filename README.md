@@ -39,12 +39,12 @@ npm run preview
 ## 效果说明
 
 ### 点击特效
-- 蓝色实心圆从点击处向外扩散并渐隐
-- 两段弧线围绕圆心旋转，颜色由白色过渡到主题蓝
-- 4 个白色三角形粒子向四周爆射，带摩擦力和旋转
+- 白色闪光快速扩展为蓝色圆盘，圆盘约 24 帧后消失（120fps 录制基准）
+- 完整弱圆环叠加 2-3 段随机高亮弧线，整体点击特效约 54 帧结束
+- 约 5 个三角碎片以 ParticleSystem Burst 风格从圆环附近随机散出
 
 ### 拖拽光轨
-按住鼠标拖动时出现多层发光轨迹，由 5 层叠加混合的折线组成：轨道线、外发光、主轨迹（头粗尾细）、高光芯线。轨迹头部有发光点，路径上随机散落三角形碎片粒子。松开鼠标后轨迹从尾部向头部平滑消退。
+按住鼠标拖动时出现多层发光轨迹，由 TrailRenderer 风格的时间窗口保留最近路径点，并叠加轨道线、外发光、Ribbon 能量带、主轨迹、高光芯线。轨迹头部有发光点，路径上按移动距离发射三角形碎片粒子。松开鼠标后轨迹从尾部向头部平滑消退。
 
 ## 运行时 API
 
@@ -57,7 +57,7 @@ npm run preview
 | `setColor(r, g, b)` | 主题颜色 | `24, 158, 255` |
 | `setScale(scale)` | 全局缩放 (0.5~3) | `1.15` |
 | `setOpacity(opacity)` | 全局透明度 (0.1~1) | `0.95` |
-| `setSpeed(clickSpeed, trailSpeed)` | 点击/拖拽动画速度 (0.2~3) | `1.15, 1.05` |
+| `setSpeed(clickSpeed, trailSpeed)` | 点击/拖拽动画速度 (0.2~3) | `1.00, 1.05` |
 | `setDpr(maxDpr)` | 设备像素比上限 (1~2) | `1` |
 | `setTrailRenderScale(value)` | 拖尾离屏画布缩放 (0.5~1) | `1` |
 
@@ -67,7 +67,7 @@ npm run preview
 |---|---|---|
 | `setGlow(enabled)` | 阴影发光 (shadowBlur, 性能开销较高) | `false` |
 | `setFakeGlow(enabled)` | 多层柔光（拖尾线段光晕） | `true` |
-| `setClickFakeGlow(enabled)` | 点击特效柔光 | `false` |
+| `setClickFakeGlow(enabled)` | 点击特效柔光 | `true` |
 
 ### 拖尾
 
@@ -76,10 +76,10 @@ npm run preview
 | `setTrail(enabled)` | 开关拖拽轨迹 | `true` |
 | `setTrailAlways(enabled)` | 鼠标移动时始终显示轨迹 | `false` |
 | `setTrailBrightness(alpha, whiteMix)` | 轨迹亮度与偏白程度 | `0.96, 0.26` |
-| `setTrailWidth(baseFast, baseSlow)` | 轨迹基础宽度 (0.5~6) | `1.00, 1.28` |
-| `setTrailLength(slow, fast)` | 慢速/快速移动轨迹长度 | `260, 8000` |
-| `setTrailLife(lifeSlow, lifeFast)` | 轨迹消散寿命（帧数） | `30, 30` |
-| `setTrailDecay(tailDecayMul, headDecayMul, releaseDecayMul)` | 尾部/头部/松手后消散速度 | `1.85, 1.0, 1` |
+| `setTrailWidth(baseFast, baseSlow)` | 轨迹基础宽度 (0.5~6) | `1.18, 0.92` |
+| `setTrailLength(slow, fast)` | 慢速/快速移动轨迹保险长度 | `900, 4200` |
+| `setTrailLife(lifeSlow, lifeFast)` | 轨迹时间窗口（帧数） | `22, 22` |
+| `setTrailDecay(tailDecayMul, headDecayMul, releaseDecayMul)` | 尾部/头部/松手后消散速度 | `1.28, 0.95, 1.18` |
 | `setTrailSpeedDecay(value)` | 速度因子衰减率 (0.8~0.999) | `0.988` |
 | `setTrailSpeedRange(speedMin, speedMax)` | 速度因子映射范围 (px/ms) | `0.035, 2.2` |
 | `setTrailSampling(step, maxPoints)` | 输入采样间距与最大点数 | `0.85, 80` |
@@ -92,8 +92,8 @@ npm run preview
 | 方法 | 说明 | 默认值 |
 |---|---|---|
 | `setMaxShards(count)` | 碎片最大数量 (0~200) | `56` |
-| `setShardSpacing(distance)` | 碎片生成间距 (px) | `112` |
-| `setShardChance(slowProb, fastProb)` | 慢速/快速下碎片生成概率 | `0.28, 0.68` |
+| `setShardSpacing(distance)` | 碎片按距离发射的基础间距 (px) | `92` |
+| `setShardChance(slowProb, fastProb)` | 慢速/快速下额外碎片概率 | `0.06, 0.34` |
 | `setShardLargeChance(prob)` | 大碎片概率 | `0.45` |
 | `setMoveSparkChance(prob)` | 移动时随机撒点概率 | `0` |
 
