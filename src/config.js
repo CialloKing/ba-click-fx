@@ -174,9 +174,9 @@ export const CONFIG = {
     shardLargeChance: 0.80,
     maxSparkParticles: 30,
     // Unity ParticleSystem 常见做法：Color over Lifetime 叠加随机相位闪烁。
-    // 120fps 录像 16 帧一个完整暗 -> 亮 -> 暗周期，对应 60fps 基准 8 帧。
-    shardFlickerPeriod: 8,
-    shardFlickerMinAlpha: 0.3,
+    // 120fps 视频基准：闪烁完整周期 9 帧 → 60fps 基准 4.5 帧。
+    shardFlickerPeriod: 4.5,
+    shardFlickerMinAlpha: 0.22,
     shardFlickerSizePulse: 0.12,
 
     // 游戏截图里的碎片主要沿轨迹分布；关闭头部随机撒点以免范围变宽。

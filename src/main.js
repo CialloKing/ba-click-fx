@@ -855,8 +855,9 @@ function tuneClickShard(spark, centerX, centerY)
       rand(-6, 14)
     ) *
     getClickScale();
-  const radialSpeed = rand(-0.08, 0.42) * CONFIG.scale;
-  const tangentSpeed = rand(-0.34, 0.34) * CONFIG.scale;
+  // 径向速度与圆环扩张速度相近（~0.55 px/帧 @60fps），碎片随环外扩
+  const radialSpeed = rand(0.4, 0.7) * CONFIG.scale;
+  const tangentSpeed = rand(-0.4, 0.4) * CONFIG.scale;
   // 偏向白色以模拟 Unity Additive + Bloom 下的明亮蓝白闪光
   const whiteMix = rand(0.65, 0.95);
 
@@ -876,9 +877,10 @@ function tuneClickShard(spark, centerX, centerY)
   spark.maxAlpha = spark.alpha;
   spark.alphaMul = rand(1.35, 1.6);
   spark.alphaDecay = rand(0.028, 0.044);
-  spark.friction = rand(0.975, 0.992);
+  spark.friction = rand(0.96, 0.985);
   spark.rotation = angle + Math.PI + rand(-1.3, 1.3);
-  spark.rotationSpeed = rand(-0.09, 0.11);
+  // 点击碎片不自身旋转，保持发射朝向
+  spark.rotationSpeed = 0;
   spark.color = mixColor(CONFIG.color, [255, 255, 255], whiteMix);
   spark.blur = rand(0.8, 2.2) * CONFIG.scale;
   spark.useFakeGlow = CONFIG.glow.clickFake;
@@ -910,7 +912,10 @@ function tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor)
   spark.alpha = isLarge ? rand(0.52, 0.9) : rand(0.36, 0.68);
   spark.maxAlpha = spark.alpha;
   spark.alphaMul = isLarge ? rand(1.45, 1.72) : rand(1.3, 1.55);
-  spark.alphaDecay = isLarge ? rand(0.018, 0.032) : rand(0.03, 0.052);
+  // 120fps 视频基准：生命周期随机 25~40 帧 → 60fps 基准 12.5~20 帧。
+  // 从目标生命周期反推衰减速度，保证每个碎片存活时间落在区间内。
+  const lifetime = rand(12.5, 20);
+  spark.alphaDecay = spark.alpha / lifetime;
   spark.friction = isLarge ? rand(0.978, 0.99) : rand(0.965, 0.982);
   spark.rotation = normalAngle + rand(-1.2, 1.2);
   spark.rotationSpeed = rand(-0.055, 0.075);
@@ -939,20 +944,22 @@ function spawnTrailShards(from, to, speedFactor)
     return;
   }
 
-  const spacing =
+  // spacing 为平均值，实际生成间距在 0.5~1.5 倍之间随机浮动，模拟游戏里不规则的碎片分布。
+  const baseSpacing =
     cfg.shardSpacing *
     CONFIG.scale *
     lerp(1.15, 0.72, clamp01(speedFactor));
   trailShardDistance += dist;
 
-  if (trailShardDistance < spacing)
+  if (trailShardDistance < baseSpacing)
   {
     return;
   }
 
-  const attempts = Math.min(6, Math.max(1, Math.floor(trailShardDistance / spacing)));
+  const actualSpacing = baseSpacing * rand(0.5, 1.5);
+  const attempts = Math.min(6, Math.max(1, Math.round(trailShardDistance / actualSpacing)));
 
-  trailShardDistance %= spacing;
+  trailShardDistance %= baseSpacing;
 
   const extraChance = lerp(
     cfg.shardChanceSlow,
