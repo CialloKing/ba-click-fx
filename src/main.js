@@ -876,7 +876,7 @@ function tuneClickShard(spark, centerX, centerY)
 
   // 120fps 视频基准：碎片在第 3 帧出现 → 60fps 基准延迟 1.5 帧
   spark.delay = 1.5;
-  spark.size = rand(4.2, 8.8) * CONFIG.scale;
+  spark.size = rand(5.2, 10.0) * CONFIG.scale;
   spark.alpha = rand(0.78, 1);
   spark.maxAlpha = spark.alpha;
   spark.alphaMul = rand(1.35, 1.6);
@@ -2272,7 +2272,7 @@ window.BASparkDemo = {
 
   // -- 默认值（用于重置）--
   const DEFAULTS = {
-    color: '#189eff',
+    color: '#5c9bff',
     scale: 1.10,
     opacity: 0.5,
     clickSpeed: 1,

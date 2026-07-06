@@ -3,7 +3,7 @@ import { mixColor } from './utils.js';
 // 游戏原始拖尾更偏蓝，不是偏白的蓝白色。
 // 所有可调参数集中于此，运行时可被 BASparkDemo API 修改。
 export const CONFIG = {
-  color: [24, 158, 255],
+  color: [92, 155, 255],
   startColor: [250, 252, 252],
 
   scale: 1.10,
@@ -59,8 +59,8 @@ export const CONFIG = {
     softGlowRadiusAdd: 96,
     softGlowAlpha: 0.08,
     segmentCountMin: 2,
-    segmentCountMax: 3,
-    segmentExtraChance: 0.24,
+    segmentCountMax: 2,
+    segmentExtraChance: 0,
     segmentClusterChance: 0.38,
     lenFull: 1.5 * Math.PI,
     // 圆环消散时弧长为整个圆的 1/6 = π/3
