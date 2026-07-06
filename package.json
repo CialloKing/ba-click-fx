@@ -1,6 +1,6 @@
 {
   "name": "ba-click-fx",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "网页版《蔚蓝档案》点击与拖拽特效，纯 Canvas 2D 实现，零外部依赖",
   "type": "module",
   "main": "./dist/ba-click-fx.cjs",
