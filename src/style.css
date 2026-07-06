@@ -236,6 +236,13 @@ kbd {
   color: rgba(255, 255, 255, 0.9);
 }
 
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.panel-pin,
 .panel-close {
   padding: 4px 8px;
   border: none;
@@ -245,6 +252,11 @@ kbd {
   font-size: 16px;
   cursor: pointer;
   line-height: 1;
+}
+
+.panel-pin.pinned {
+  background: rgba(24, 158, 255, 0.25);
+  color: rgba(125, 239, 255, 0.9);
 }
 
 .panel-close:hover {

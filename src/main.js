@@ -2578,6 +2578,8 @@ window.BASparkDemo = {
   const toggleBtn = document.getElementById('panelToggle');
   const closeBtn = document.getElementById('panelClose');
   const panelOverlay = document.getElementById('panelOverlay');
+  const panelPin = document.getElementById('panelPin');
+  let panelPinned = false;
 
   function openPanel()
   {
@@ -2598,8 +2600,20 @@ window.BASparkDemo = {
   });
   closeBtn.addEventListener('click', closePanel);
 
-  // 点击遮罩层关闭面板
-  panelOverlay.addEventListener('click', closePanel);
+  // 点击遮罩层关闭面板（图钉固定时忽略）
+  panelOverlay.addEventListener('click', () => {
+    if (!panelPinned)
+    {
+      closePanel();
+    }
+  });
+
+  // 图钉按钮
+  panelPin.addEventListener('click', () => {
+    panelPinned = !panelPinned;
+    panelPin.classList.toggle('pinned', panelPinned);
+    panelPin.title = panelPinned ? '已固定，点击面板外不会关闭' : '固定面板';
+  });
 
   // -- 提示栏关闭 --
   const hintBar = document.getElementById('hintBar');
