@@ -6,7 +6,7 @@ export const CONFIG = {
   color: [24, 158, 255],
   startColor: [250, 252, 252],
 
-  scale: 1.15,
+  scale: 1.00,
   opacity: 0.5,
 
   clickSpeed: 1,
@@ -49,8 +49,7 @@ export const CONFIG = {
     radiusOffset: 0.8,
     radiusGrowEnd: 0.82,
     postDiskGrow: 11,
-    baseAlpha: 0.34,
-    baseWidth: 1.1,
+    emissionAlpha: 0.34,
     glowRadiusAdd: 54,
     glowAlpha: 0.12,
     softGlowRadiusAdd: 96,
@@ -83,7 +82,7 @@ export const CONFIG = {
   },
 
   // Unity ParticleSystem Burst 风格：点击时从圆环附近随机散出三角碎片。
-  sparksCount: 5,
+  sparksCount: 4,
 
   trail: {
     enabled: true,
@@ -166,14 +165,14 @@ export const CONFIG = {
     speedMax: 2.2,
 
     // 沿轨迹散布的三角碎片；截图里碎片不是只跟在鼠标头部。
-    shardSpacing: 92,
+    shardSpacing: 300,
     // 距离到达间隔时一定发射 1 个；这里控制额外碎片概率。
-    shardChanceSlow: 0.06,
-    shardChanceFast: 0.34,
+    shardChanceSlow: 0.02,
+    shardChanceFast: 0.12,
     shardOffsetMin: 8,
     shardOffsetMax: 28,
-    shardLargeChance: 0.45,
-    maxSparkParticles: 56,
+    shardLargeChance: 0.80,
+    maxSparkParticles: 30,
     // Unity ParticleSystem 常见做法：Color over Lifetime 叠加随机相位闪烁。
     // 120fps 录像 16 帧一个完整暗 -> 亮 -> 暗周期，对应 60fps 基准 8 帧。
     shardFlickerPeriod: 8,

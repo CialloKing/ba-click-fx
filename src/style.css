@@ -222,6 +222,7 @@ kbd {
   backdrop-filter: blur(16px);
   border-left: 1px solid rgba(125, 239, 255, 0.15);
   padding: 24px 20px 32px;
+  box-sizing: border-box;
   transform: translateX(100%);
   transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }

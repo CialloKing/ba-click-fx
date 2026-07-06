@@ -377,47 +377,37 @@ function drawClickArcSegment(
   );
 }
 
-function drawClickFullRing(context, x, y, radius, widthValue, color, alpha)
+function drawClickRingGlow(context, x, y, radius, alpha)
 {
-  if (alpha <= 0 || widthValue <= 0 || radius <= 0)
+  if (alpha <= 0 || radius <= 0)
   {
     return;
   }
 
-  if (CONFIG.glow.clickFake || CONFIG.glow.enabled)
+  if (!CONFIG.glow.clickFake && !CONFIG.glow.enabled)
   {
-    const cfg = CONFIG.rings;
-
-    // 圆环本体保持锐利；自发光用低透明面光模拟 Unity Additive + Bloom。
-    drawRadialGlow(
-      context,
-      x,
-      y,
-      radius + cfg.softGlowRadiusAdd * getClickScale(),
-      CONFIG.color,
-      alpha * cfg.softGlowAlpha,
-    );
-
-    drawRadialGlow(
-      context,
-      x,
-      y,
-      radius + cfg.glowRadiusAdd * getClickScale(),
-      mixColor(CONFIG.color, [255, 255, 255], 0.38),
-      alpha * cfg.glowAlpha,
-    );
+    return;
   }
 
-  drawArcSegment(
+  const cfg = CONFIG.rings;
+
+  // 只保留自发光面光，避免出现原作里没有的完整浅圆环线条。
+  drawRadialGlow(
     context,
     x,
     y,
-    radius,
-    0,
-    Math.PI * 2,
-    widthValue,
-    color,
-    alpha,
+    radius + cfg.softGlowRadiusAdd * getClickScale(),
+    CONFIG.color,
+    alpha * cfg.softGlowAlpha,
+  );
+
+  drawRadialGlow(
+    context,
+    x,
+    y,
+    radius + cfg.glowRadiusAdd * getClickScale(),
+    mixColor(CONFIG.color, [255, 255, 255], 0.38),
+    alpha * cfg.glowAlpha,
   );
 }
 
@@ -619,21 +609,19 @@ class ClickWave
     );
     // 原作圆环像独立 Additive Sprite，本体亮度不跟随全局透明度滑块变暗。
     const ringAlpha = cfg.alpha * grow * fade;
-    const baseAlpha = cfg.baseAlpha * grow * fade;
+    const ringGlowAlpha = cfg.emissionAlpha * grow * fade;
     const staticRadius = this.getRingStaticRadius();
     const radiusGrow = this.getRingRadiusGrow(progress);
     const baseRadius = staticRadius + radiusGrow;
     const lineWidthMul = lerp(1, 0.72, collapse);
 
-    // Unity 里常见做法是完整弱圆环贴图在底，短弧高亮叠在上层。
-    drawClickFullRing(
+    // 原作没有完整弱圆环；这里只画自发光，清晰圆环由随机弧段组成。
+    drawClickRingGlow(
       context,
       this.x,
       this.y,
       baseRadius,
-      cfg.baseWidth * CONFIG.scale,
-      getClickRingEndColor(),
-      baseAlpha,
+      ringGlowAlpha,
     );
 
     for (const seg of this.ring.segs)
@@ -781,7 +769,8 @@ class SparkParticle
     this.rotation += this.rotationSpeed * frameScale;
     this.alpha -= this.alphaDecay * frameScale;
 
-    let drawAlpha = this.alpha * CONFIG.opacity * this.alphaMul;
+    // 碎片不跟随全局透明度，与圆环/拖尾一致保持 Additive 独立亮度。
+    let drawAlpha = this.alpha * this.alphaMul;
     let flickerPulse = 1;
 
     if (this.flickerPeriod > 0)
@@ -868,7 +857,8 @@ function tuneClickShard(spark, centerX, centerY)
     getClickScale();
   const radialSpeed = rand(-0.08, 0.42) * CONFIG.scale;
   const tangentSpeed = rand(-0.34, 0.34) * CONFIG.scale;
-  const whiteMix = rand(0.38, 0.9);
+  // 偏向白色以模拟 Unity Additive + Bloom 下的明亮蓝白闪光
+  const whiteMix = rand(0.65, 0.95);
 
   spark.x = centerX + Math.cos(angle) * ringRadius;
   spark.y = centerY + Math.sin(angle) * ringRadius;
@@ -884,7 +874,7 @@ function tuneClickShard(spark, centerX, centerY)
   spark.size = rand(4.2, 8.8) * CONFIG.scale;
   spark.alpha = rand(0.78, 1);
   spark.maxAlpha = spark.alpha;
-  spark.alphaMul = rand(1.22, 1.48);
+  spark.alphaMul = rand(1.35, 1.6);
   spark.alphaDecay = rand(0.028, 0.044);
   spark.friction = rand(0.975, 0.992);
   spark.rotation = angle + Math.PI + rand(-1.3, 1.3);
@@ -909,7 +899,8 @@ function tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor)
   const scale = CONFIG.scale;
   const drift = rand(0.02, 0.28) * (0.72 + speedFactor * 0.45);
   const tangentDrift = rand(-0.22, 0.26);
-  const whiteMix = isLarge ? rand(0.56, 0.92) : rand(0.24, 0.76);
+  // 偏向白色以匹配拖尾轨迹的亮度观感
+  const whiteMix = isLarge ? rand(0.72, 0.96) : rand(0.52, 0.86);
 
   spark.vx = Math.cos(normalAngle) * drift + Math.cos(tangentAngle) * tangentDrift;
   spark.vy = Math.sin(normalAngle) * drift + Math.sin(tangentAngle) * tangentDrift;
@@ -918,7 +909,7 @@ function tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor)
   spark.size = (isLarge ? rand(7.4, 12.2) : rand(4.2, 6.4)) * scale;
   spark.alpha = isLarge ? rand(0.52, 0.9) : rand(0.36, 0.68);
   spark.maxAlpha = spark.alpha;
-  spark.alphaMul = isLarge ? rand(1.32, 1.58) : rand(1.18, 1.42);
+  spark.alphaMul = isLarge ? rand(1.45, 1.72) : rand(1.3, 1.55);
   spark.alphaDecay = isLarge ? rand(0.018, 0.032) : rand(0.03, 0.052);
   spark.friction = isLarge ? rand(0.978, 0.99) : rand(0.965, 0.982);
   spark.rotation = normalAngle + rand(-1.2, 1.2);
@@ -1951,7 +1942,7 @@ window.BASparkDemo = {
   },
 
   setScale(scale) {
-    CONFIG.scale = Math.max(0.5, Math.min(3, Number(scale) ?? 1.15));
+    CONFIG.scale = Math.max(0.5, Math.min(3, Number(scale) ?? 1.00));
     requestRender();
   },
 
@@ -2162,19 +2153,19 @@ window.BASparkDemo = {
     );
   },
 
-  setShardSpacing(value = 92) {
-    CONFIG.trail.shardSpacing = Math.max(20, Math.min(500, Number(value) ?? 92));
+  setShardSpacing(value = 300) {
+    CONFIG.trail.shardSpacing = Math.max(20, Math.min(500, Number(value) ?? 300));
     requestRender();
   },
 
-  setShardChance(slow = 0.06, fast = 0.34) {
-    CONFIG.trail.shardChanceSlow = Math.max(0, Math.min(1, Number(slow) ?? 0.06));
-    CONFIG.trail.shardChanceFast = Math.max(CONFIG.trail.shardChanceSlow, Math.min(1, Number(fast) ?? 0.34));
+  setShardChance(slow = 0.02, fast = 0.12) {
+    CONFIG.trail.shardChanceSlow = Math.max(0, Math.min(1, Number(slow) ?? 0.02));
+    CONFIG.trail.shardChanceFast = Math.max(CONFIG.trail.shardChanceSlow, Math.min(1, Number(fast) ?? 0.12));
     requestRender();
   },
 
-  setShardLargeChance(value = 0.45) {
-    CONFIG.trail.shardLargeChance = Math.max(0, Math.min(1, Number(value) ?? 0.45));
+  setShardLargeChance(value = 0.80) {
+    CONFIG.trail.shardLargeChance = Math.max(0, Math.min(1, Number(value) ?? 0.80));
     requestRender();
   },
 
@@ -2185,8 +2176,8 @@ window.BASparkDemo = {
     requestRender();
   },
 
-  setMaxShards(value = 56) {
-    CONFIG.trail.maxSparkParticles = Math.max(0, Math.min(200, Number(value) ?? 56));
+  setMaxShards(value = 30) {
+    CONFIG.trail.maxSparkParticles = Math.max(0, Math.min(200, Number(value) ?? 30));
     requestRender();
   },
 
@@ -2271,7 +2262,7 @@ window.BASparkDemo = {
   // -- 默认值（用于重置）--
   const DEFAULTS = {
     color: '#189eff',
-    scale: 1.15,
+    scale: 1.00,
     opacity: 0.5,
     clickSpeed: 1,
     trailSpeed: 1.05,
@@ -2283,11 +2274,11 @@ window.BASparkDemo = {
     fakeGlow: true,
     clickFake: true,
     glow: false,
-    shardSpacing: 92,
-    shardChanceSlow: 0.06,
-    shardChanceFast: 0.34,
-    shardLargeChance: 0.45,
-    maxShards: 56,
+    shardSpacing: 300,
+    shardChanceSlow: 0.02,
+    shardChanceFast: 0.12,
+    shardLargeChance: 0.80,
+    maxShards: 30,
     smooth: 0.5,
     dpr: 1,
     trailRenderScale: 1,
