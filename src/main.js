@@ -205,14 +205,14 @@ function updateTrailSpeed(from, to, eventTime) {
   return factor;
 }
 
-function drawCircle(context, x, y, r, color, alpha, blur = 0) {
+function drawCircle(context, x, y, r, color, alpha, blur = 0, useFakeGlow = true) {
   if (alpha <= 0 || r <= 0) {
     return;
   }
 
   context.save();
 
-  if (CONFIG.glow.fake && blur > 0) {
+  if (useFakeGlow && CONFIG.glow.fake && blur > 0) {
     context.fillStyle = rgbToCss(color, alpha * 0.12);
     context.beginPath();
     context.arc(x, y, r + blur * 1.2, 0, Math.PI * 2);
@@ -390,6 +390,7 @@ class ClickWave {
       CONFIG.color,
       alpha,
       blur,
+      CONFIG.glow.clickFake,
     );
   }
 

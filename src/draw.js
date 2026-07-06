@@ -11,14 +11,14 @@ import { rgbToCss } from './utils.js';
  * @param {number} alpha - 基础透明度
  * @param {number} [blur=0] - 光晕扩散量
  */
-export function drawCircle(context, x, y, r, color, alpha, blur = 0) {
+export function drawCircle(context, x, y, r, color, alpha, blur = 0, useFakeGlow = true) {
   if (alpha <= 0 || r <= 0) {
     return;
   }
 
   context.save();
 
-  if (CONFIG.glow.fake && blur > 0) {
+  if (useFakeGlow && CONFIG.glow.fake && blur > 0) {
     context.fillStyle = rgbToCss(color, alpha * 0.12);
     context.beginPath();
     context.arc(x, y, r + blur * 1.2, 0, Math.PI * 2);
