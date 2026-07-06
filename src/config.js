@@ -46,22 +46,23 @@ export const CONFIG = {
     // 120fps 视频基准：圆环在第 4 帧出现 → 60fps 基准延迟 2 帧
     delay: 2,
     maxLife: 27,
-    rotationSpeed: 0.045,
+    rotationSpeed: 0.008,
     // 圆环起始半径 = 圆盘第4帧半径(120fps) ≈ 圆盘最大半径的 47%
     baseRadiusMul: 0.47,
-    radiusGrowEnd: 0.82,
-    // 第25帧(120fps)圆环追平圆盘最大半径
+    // 圆盘消失(帧25)后12帧(帧37@120fps)达最大半径 → ringLife=16.5/25=0.66
+    radiusGrowEnd: 0.66,
+    // 圆环最终扩张到约 1.5× 圆盘最大半径
     postDiskGrow: 35,
-    emissionAlpha: 0.34,
+    emissionAlpha: 0.55,
     glowRadiusAdd: 54,
-    glowAlpha: 0.12,
+    glowAlpha: 0.20,
     softGlowRadiusAdd: 96,
-    softGlowAlpha: 0.055,
+    softGlowAlpha: 0.10,
     segmentCountMin: 2,
     segmentCountMax: 3,
     segmentExtraChance: 0.24,
     segmentClusterChance: 0.38,
-    lenFull: 1.16 * Math.PI,
+    lenFull: 1.5 * Math.PI,
     // 圆环消散时弧长为整个圆的 1/6 = π/3
     lenEnd: Math.PI / 3,
     lenMulMin: 0.46,
@@ -82,9 +83,9 @@ export const CONFIG = {
     colorStart: 0.48,
     colorEnd: 0.9,
     segNum: 18,
-    minW: 0.7,
-    maxW: 3.6,
-    alpha: 0.98,
+    minW: 1.0,
+    maxW: 4.5,
+    alpha: 1.0,
   },
 
   // Unity ParticleSystem Burst 风格：点击时从圆环附近随机散出三角碎片。
