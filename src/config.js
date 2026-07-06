@@ -53,11 +53,11 @@ export const CONFIG = {
     radiusGrowEnd: 0.66,
     // 圆环最终扩张到约 1.5× 圆盘最大半径
     postDiskGrow: 35,
-    emissionAlpha: 0.85,
+    emissionAlpha: 1.0,
     glowRadiusAdd: 54,
-    glowAlpha: 0.40,
+    glowAlpha: 0.50,
     softGlowRadiusAdd: 96,
-    softGlowAlpha: 0.22,
+    softGlowAlpha: 0.30,
     segmentCountMin: 2,
     segmentCountMax: 3,
     segmentExtraChance: 0.24,
@@ -79,7 +79,8 @@ export const CONFIG = {
     // 第12帧(120fps)达最大弧长 → ringLife=4@60fps → growEnd=4/25=0.16
     growEnd: 0.16,
     collapseStart: 0.16,
-    fadeStart: 0.88,
+    // fade 推迟到 96%，末期保持高亮，仅最后 1 帧快速淡出(60fps)
+    fadeStart: 0.96,
     colorStart: 0.48,
     colorEnd: 0.9,
     segNum: 18,
