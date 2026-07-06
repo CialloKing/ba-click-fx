@@ -1,3 +1,29 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE / Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
 # Logs
 logs
 *.log
@@ -7,20 +33,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Misc
 *.local
+*.tsbuildinfo
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
+# Agent / AI
 .reasonix
 reasonix.toml
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?

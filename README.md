@@ -5,6 +5,8 @@
 
 网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效，基于 120fps 视频逐帧校准，纯 Canvas 2D 实现，零外部资源依赖。
 
+（本项目纯AI生成，绝无手写代码）
+
 **在线演示：**[ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
 ## 目录
