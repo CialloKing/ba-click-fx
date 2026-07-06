@@ -21,10 +21,17 @@
     "README.md",
     "LICENSE"
   ],
-  "keywords": ["canvas", "animation", "particle", "trail", "click-effect", "blue-archive"],
+  "keywords": [
+    "canvas",
+    "animation",
+    "particle",
+    "trail",
+    "click-effect",
+    "blue-archive"
+  ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/CialloKing/ba-click-fx"
+    "url": "git+https://github.com/CialloKing/ba-click-fx.git"
   },
   "license": "MIT",
   "scripts": {

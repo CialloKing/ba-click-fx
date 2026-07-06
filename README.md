@@ -227,7 +227,7 @@ ba-click-fx/
 │   ├── index.html        # 演示页
 │   ├── ba-click-fx.js    # ESM 库 (~42KB)
 │   ├── ba-click-fx.cjs   # CommonJS (~35KB)
-│   ├── ba-click-fx.iife  # IIFE CDN (~35KB)
+│   ├── ba-click-fx.iife.js  # IIFE CDN (~35KB)
 │   └── ba-click-fx.d.ts  # TypeScript 声明
 ├── vite.config.js        # 演示页 Vite 配置
 ├── vite.lib.config.js    # 库模式 Vite 配置

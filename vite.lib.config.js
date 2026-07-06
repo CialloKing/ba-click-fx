@@ -9,7 +9,7 @@ export default defineConfig({
       name: 'BASpark',
       formats: ['es', 'cjs', 'iife'],
       fileName: (format) =>
-        `ba-click-fx.${format === 'iife' ? 'iife' : format === 'cjs' ? 'cjs' : 'js'}`,
+        `ba-click-fx.${format === 'iife' ? 'iife.js' : format === 'cjs' ? 'cjs' : 'js'}`,
     },
     rollupOptions: {
       output: {
