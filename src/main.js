@@ -245,42 +245,32 @@ function drawTriangle(
   rotation,
   color,
   alpha,
-  blur = 0,
-  useFakeGlow,
 )
 {
-  if (alpha <= 0) {
+  if (alpha <= 0)
+  {
     return;
   }
+
+  const drawEquilateralPath = (triangleSize) =>
+  {
+    const halfWidth = triangleSize * Math.sqrt(3) * 0.5;
+    const baseY = triangleSize * 0.5;
+
+    context.beginPath();
+    context.moveTo(0, -triangleSize);
+    context.lineTo(halfWidth, baseY);
+    context.lineTo(-halfWidth, baseY);
+    context.closePath();
+  };
 
   context.save();
   context.translate(x, y);
   context.rotate(rotation);
 
-  if (useFakeGlow && CONFIG.glow.fake) {
-    context.fillStyle = rgbToCss(color, alpha * 0.18);
-    context.beginPath();
-    context.moveTo(0, -size * 1.55);
-    context.lineTo(size * 0.95, size * 0.9);
-    context.lineTo(-size * 0.95, size * 0.9);
-    context.closePath();
-    context.fill();
-  }
-
-  if (CONFIG.glow.enabled && blur > 0) {
-    context.shadowColor = rgbToCss(color, alpha);
-    context.shadowBlur = blur * 0.28;
-  }
-
-  const sideX = useFakeGlow ? 0.62 : 0.6;
-  const sideY = useFakeGlow ? 0.58 : 0.6;
-
+  // 原作碎片是纯色 Sprite，本体边缘不做描边、阴影或独立 glow。
   context.fillStyle = rgbToCss(color, alpha);
-  context.beginPath();
-  context.moveTo(0, -size);
-  context.lineTo(size * sideX, size * sideY);
-  context.lineTo(-size * sideX, size * sideY);
-  context.closePath();
+  drawEquilateralPath(size);
   context.fill();
 
   context.restore();
@@ -325,12 +315,14 @@ function drawRadialGlow(context, x, y, radius, color, alpha)
 
   const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
 
-  gradient.addColorStop(0, rgbToCss(color, alpha));
-  gradient.addColorStop(0.36, rgbToCss(color, alpha * 0.32));
-  gradient.addColorStop(0.72, rgbToCss(color, alpha * 0.08));
+  gradient.addColorStop(0, rgbToCss(color, alpha * 0.68));
+  gradient.addColorStop(0.2, rgbToCss(color, alpha * 0.48));
+  gradient.addColorStop(0.52, rgbToCss(color, alpha * 0.2));
+  gradient.addColorStop(0.82, rgbToCss(color, alpha * 0.055));
   gradient.addColorStop(1, rgbToCss(color, 0));
 
   context.save();
+  context.globalCompositeOperation = 'lighter';
   context.fillStyle = gradient;
   context.beginPath();
   context.arc(x, y, radius, 0, Math.PI * 2);
@@ -372,33 +364,6 @@ function drawClickArcSegment(
     return;
   }
 
-  if (CONFIG.glow.clickFake || CONFIG.glow.enabled)
-  {
-    drawArcSegment(
-      context,
-      x,
-      y,
-      radius,
-      start,
-      end,
-      widthValue * 4.2,
-      CONFIG.color,
-      alpha * 0.12,
-    );
-
-    drawArcSegment(
-      context,
-      x,
-      y,
-      radius,
-      start,
-      end,
-      widthValue * 2.25,
-      mixColor(CONFIG.color, [255, 255, 255], 0.42),
-      alpha * 0.2,
-    );
-  }
-
   drawArcSegment(
     context,
     x,
@@ -423,27 +388,21 @@ function drawClickFullRing(context, x, y, radius, widthValue, color, alpha)
   {
     const cfg = CONFIG.rings;
 
-    // 圆环自己的柔光层独立于中心圆盘，圆盘消失后仍随圆环生命周期保留。
-    drawArcSegment(
+    // 圆环本体保持锐利；自发光用低透明面光模拟 Unity Additive + Bloom。
+    drawRadialGlow(
       context,
       x,
       y,
-      radius,
-      0,
-      Math.PI * 2,
-      widthValue * cfg.softGlowWidthMul,
+      radius + cfg.softGlowRadiusAdd * getClickScale(),
       CONFIG.color,
       alpha * cfg.softGlowAlpha,
     );
 
-    drawArcSegment(
+    drawRadialGlow(
       context,
       x,
       y,
-      radius,
-      0,
-      Math.PI * 2,
-      widthValue * cfg.glowWidthMul,
+      radius + cfg.glowRadiusAdd * getClickScale(),
       mixColor(CONFIG.color, [255, 255, 255], 0.38),
       alpha * cfg.glowAlpha,
     );
@@ -462,11 +421,6 @@ function drawClickFullRing(context, x, y, radius, widthValue, color, alpha)
   );
 }
 
-function getAngleDistance(a, b)
-{
-  return Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
-}
-
 function createClickRingSegments(rings)
 {
   const minCount = Math.max(1, Math.floor(rings.segmentCountMin ?? 2));
@@ -474,36 +428,44 @@ function createClickRingSegments(rings)
     minCount,
     Math.floor(rings.segmentCountMax ?? minCount),
   );
-  const count = Math.floor(rand(minCount, maxCount + 1));
+  const extraCount =
+    maxCount > minCount &&
+    Math.random() < (rings.segmentExtraChance ?? 0)
+      ? 1
+      : 0;
+  const count = Math.min(maxCount, minCount + extraCount);
   const segments = [];
-  const minGap = Math.max(0, rings.segmentMinGap ?? 0);
-  const maxAttempts = 80;
+  const smallRadiusIndex = Math.floor(Math.random() * count);
 
-  let attempts = 0;
-
-  while (segments.length < count && attempts < maxAttempts)
+  while (segments.length < count)
   {
-    attempts++;
+    const index = segments.length;
+    const shouldCluster =
+      index > 0 &&
+      Math.random() < (rings.segmentClusterChance ?? 0);
+    const shouldUseSmallRadius = index === smallRadiusIndex;
+    let off = Math.random() * Math.PI * 2;
 
-    const off = Math.random() * Math.PI * 2;
-
-    if (
-      segments.length > 0 &&
-      attempts < maxAttempts * 0.7 &&
-      segments.some((seg) => getAngleDistance(seg.off, off) < minGap)
-    )
+    if (shouldCluster)
     {
-      continue;
+      const base = segments[Math.floor(Math.random() * segments.length)];
+      const direction = Math.random() < 0.5 ? -1 : 1;
+
+      // Unity 粒子 Burst 的随机感并不均匀，允许弧段偶尔靠近同一侧。
+      off = base.off + direction * rand(0.3 * Math.PI, 0.92 * Math.PI);
     }
 
     segments.push({
       off,
       lenMul: rand(rings.lenMulMin, rings.lenMulMax),
       radiusOffset: rand(rings.radiusJitterMin, rings.radiusJitterMax),
+      radiusGrowMul: shouldUseSmallRadius
+        ? rand(rings.segmentRadiusGrowSmallMin, rings.segmentRadiusGrowSmallMax)
+        : rand(rings.segmentRadiusGrowMin, rings.segmentRadiusGrowMax),
       rotationMul: rand(rings.rotationMulMin, rings.rotationMulMax),
-      alphaMul: rand(0.72, 1),
-      widthMul: rand(0.82, 1.12),
-      collapseBias: rand(-0.08, 0.14),
+      alphaMul: rand(0.62, 1.08),
+      widthMul: rand(0.68, 1.24),
+      collapseBias: rand(-0.16, 0.2),
     });
   }
 
@@ -555,15 +517,22 @@ class ClickWave
     return CONFIG.filledCircle.rAddRate * getClickScale();
   }
 
-  getRingRadius(progress = 0)
+  getRingStaticRadius()
+  {
+    return this.getDiskRadius() + CONFIG.rings.radiusOffset * getClickScale();
+  }
+
+  getRingRadiusGrow(progress = 0)
   {
     const cfg = CONFIG.rings;
-    const radiusGrow =
-      clamp01(progress / cfg.radiusGrowEnd) *
+    return clamp01(progress / cfg.radiusGrowEnd) *
       cfg.postDiskGrow *
       CONFIG.scale;
+  }
 
-    return this.getDiskRadius() + cfg.radiusOffset * getClickScale() + radiusGrow;
+  getRingRadius(progress = 0)
+  {
+    return this.getRingStaticRadius() + this.getRingRadiusGrow(progress);
   }
 
   drawHalo(context)
@@ -648,9 +617,12 @@ class ClickWave
       CONFIG.color,
       smoothstep(cfg.colorStart, cfg.colorEnd, progress),
     );
-    const ringAlpha = cfg.alpha * CONFIG.opacity * grow * fade;
-    const baseAlpha = cfg.baseAlpha * CONFIG.opacity * grow * fade;
-    const baseRadius = this.getRingRadius(progress);
+    // 原作圆环像独立 Additive Sprite，本体亮度不跟随全局透明度滑块变暗。
+    const ringAlpha = cfg.alpha * grow * fade;
+    const baseAlpha = cfg.baseAlpha * grow * fade;
+    const staticRadius = this.getRingStaticRadius();
+    const radiusGrow = this.getRingRadiusGrow(progress);
+    const baseRadius = staticRadius + radiusGrow;
     const lineWidthMul = lerp(1, 0.72, collapse);
 
     // Unity 里常见做法是完整弱圆环贴图在底，短弧高亮叠在上层。
@@ -678,7 +650,8 @@ class ClickWave
       const start = this.ring.ang * seg.rotationMul + seg.off;
       const end = start + currentLen;
       const radius =
-        baseRadius +
+        staticRadius +
+        radiusGrow * seg.radiusGrowMul +
         seg.radiusOffset * CONFIG.scale;
       const segAlpha = ringAlpha * seg.alphaMul;
       const segLineWidthMul = lineWidthMul * seg.widthMul;
@@ -769,6 +742,7 @@ class SparkParticle
 
     this.alpha = fromClick ? 1 : rand(0.28, 0.78);
     this.maxAlpha = this.alpha;
+    this.alphaMul = 1;
     this.alphaDecay = 0.032;
     this.friction = fromClick ? 0.9 : 0.95;
     this.color = fromClick
@@ -807,7 +781,7 @@ class SparkParticle
     this.rotation += this.rotationSpeed * frameScale;
     this.alpha -= this.alphaDecay * frameScale;
 
-    let drawAlpha = this.alpha * CONFIG.opacity;
+    let drawAlpha = this.alpha * CONFIG.opacity * this.alphaMul;
     let flickerPulse = 1;
 
     if (this.flickerPeriod > 0)
@@ -849,8 +823,6 @@ class SparkParticle
       this.rotation,
       this.color,
       drawAlpha,
-      this.blur,
-      this.useFakeGlow,
     );
 
     this.age += frameScale;
@@ -910,8 +882,9 @@ function tuneClickShard(spark, centerX, centerY)
   // Unity ParticleSystem Burst：低速、随机大小和随机出生延迟，比固定环上标记自然。
   spark.delay = rand(0, 4.5);
   spark.size = rand(4.2, 8.8) * CONFIG.scale;
-  spark.alpha = rand(0.62, 1);
+  spark.alpha = rand(0.78, 1);
   spark.maxAlpha = spark.alpha;
+  spark.alphaMul = rand(1.22, 1.48);
   spark.alphaDecay = rand(0.028, 0.044);
   spark.friction = rand(0.975, 0.992);
   spark.rotation = angle + Math.PI + rand(-1.3, 1.3);
@@ -943,8 +916,9 @@ function tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor)
 
   // 大碎片更慢、更亮，能形成截图里沿轨迹漂浮的三角片。
   spark.size = (isLarge ? rand(7.4, 12.2) : rand(4.2, 6.4)) * scale;
-  spark.alpha = isLarge ? rand(0.38, 0.72) : rand(0.24, 0.52);
+  spark.alpha = isLarge ? rand(0.52, 0.9) : rand(0.36, 0.68);
   spark.maxAlpha = spark.alpha;
+  spark.alphaMul = isLarge ? rand(1.32, 1.58) : rand(1.18, 1.42);
   spark.alphaDecay = isLarge ? rand(0.018, 0.032) : rand(0.03, 0.052);
   spark.friction = isLarge ? rand(0.978, 0.99) : rand(0.965, 0.982);
   spark.rotation = normalAngle + rand(-1.2, 1.2);
@@ -1982,7 +1956,7 @@ window.BASparkDemo = {
   },
 
   setOpacity(opacity) {
-    CONFIG.opacity = Math.max(0.1, Math.min(1, Number(opacity) ?? 0.95));
+    CONFIG.opacity = Math.max(0.1, Math.min(1, Number(opacity) ?? 0.5));
     requestRender();
   },
 
@@ -2298,7 +2272,7 @@ window.BASparkDemo = {
   const DEFAULTS = {
     color: '#189eff',
     scale: 1.15,
-    opacity: 0.95,
+    opacity: 0.5,
     clickSpeed: 1,
     trailSpeed: 1.05,
     trail: true,

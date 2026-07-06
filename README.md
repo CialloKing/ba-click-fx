@@ -56,7 +56,7 @@ npm run preview
 |---|---|---|
 | `setColor(r, g, b)` | 主题颜色 | `24, 158, 255` |
 | `setScale(scale)` | 全局缩放 (0.5~3) | `1.15` |
-| `setOpacity(opacity)` | 全局透明度 (0.1~1) | `0.95` |
+| `setOpacity(opacity)` | 圆环除外的全局透明度 (0.1~1) | `0.50` |
 | `setSpeed(clickSpeed, trailSpeed)` | 点击/拖拽动画速度 (0.2~3) | `1.00, 1.05` |
 | `setDpr(maxDpr)` | 设备像素比上限 (1~2) | `1` |
 | `setTrailRenderScale(value)` | 拖尾离屏画布缩放 (0.5~1) | `1` |

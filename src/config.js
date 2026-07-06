@@ -7,7 +7,7 @@ export const CONFIG = {
   startColor: [250, 252, 252],
 
   scale: 1.15,
-  opacity: 0.95,
+  opacity: 0.5,
 
   clickSpeed: 1,
   trailSpeed: 1.05,
@@ -28,8 +28,8 @@ export const CONFIG = {
     expandEnd: 0.18,
     colorEnd: 0.34,
     fadeStart: 0.78,
-    glowRadiusMul: 2.7,
-    glowAlpha: 0.24,
+    glowRadiusMul: 4.2,
+    glowAlpha: 0.13,
   },
 
   click: {
@@ -40,7 +40,7 @@ export const CONFIG = {
     haloRadius: 96,
     // 120fps 录像下碎片 16 帧完成 暗 -> 亮 -> 暗；换算为 60fps 基准是 8 帧。
     shardFlickerPeriod: 8,
-    shardFlickerMinAlpha: 0.28,
+    shardFlickerMinAlpha: 0.38,
   },
 
   rings: {
@@ -48,24 +48,29 @@ export const CONFIG = {
     rotationSpeed: 0.045,
     radiusOffset: 0.8,
     radiusGrowEnd: 0.82,
-    postDiskGrow: 8,
+    postDiskGrow: 11,
     baseAlpha: 0.34,
     baseWidth: 1.1,
-    glowWidthMul: 6.4,
-    glowAlpha: 0.24,
-    softGlowWidthMul: 12,
-    softGlowAlpha: 0.08,
+    glowRadiusAdd: 54,
+    glowAlpha: 0.12,
+    softGlowRadiusAdd: 96,
+    softGlowAlpha: 0.055,
     segmentCountMin: 2,
     segmentCountMax: 3,
+    segmentExtraChance: 0.24,
+    segmentClusterChance: 0.38,
     lenFull: 1.16 * Math.PI,
     lenEnd: 0.48 * Math.PI,
-    lenMulMin: 0.64,
-    lenMulMax: 1.18,
-    radiusJitterMin: -1.8,
-    radiusJitterMax: 2.4,
-    rotationMulMin: 0.72,
-    rotationMulMax: 1.28,
-    segmentMinGap: 0.22 * Math.PI,
+    lenMulMin: 0.46,
+    lenMulMax: 1.38,
+    radiusJitterMin: -3.2,
+    radiusJitterMax: 4.2,
+    segmentRadiusGrowSmallMin: 0.56,
+    segmentRadiusGrowSmallMax: 0.76,
+    segmentRadiusGrowMin: 0.9,
+    segmentRadiusGrowMax: 1.16,
+    rotationMulMin: 0.54,
+    rotationMulMax: 1.58,
     growEnd: 0.24,
     collapseStart: 12 / 27,
     fadeStart: 0.88,
@@ -172,7 +177,7 @@ export const CONFIG = {
     // Unity ParticleSystem 常见做法：Color over Lifetime 叠加随机相位闪烁。
     // 120fps 录像 16 帧一个完整暗 -> 亮 -> 暗周期，对应 60fps 基准 8 帧。
     shardFlickerPeriod: 8,
-    shardFlickerMinAlpha: 0.18,
+    shardFlickerMinAlpha: 0.3,
     shardFlickerSizePulse: 0.12,
 
     // 游戏截图里的碎片主要沿轨迹分布；关闭头部随机撒点以免范围变宽。
