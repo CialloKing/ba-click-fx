@@ -637,13 +637,12 @@ class ClickWave
         1,
         progress,
       );
-      const currentLen =
-        lerp(cfg.lenFull, cfg.lenEnd, segCollapse) *
-        seg.lenMul *
-        grow;
-      // collapse 偏移让弧段尾部被"吃掉"时头部向前流动，产生一头增长一头减少的灵动感
-      const start = this.ring.ang * seg.rotationMul + seg.off + segCollapse * cfg.collapseDrift;
-      const end = start + currentLen;
+      // 固定 end 位置，只让 start 随 collapse 前移"吃掉"弧尾，实现一头减少的流动感
+      const baseAngle = this.ring.ang * seg.rotationMul + seg.off;
+      const fullLen = cfg.lenFull * seg.lenMul * grow;
+      const end = baseAngle + fullLen;
+      const start = baseAngle + segCollapse * cfg.collapseDrift;
+      const currentLen = Math.max(0.01, end - start);
       const radius =
         staticRadius +
         radiusGrow * seg.radiusGrowMul +
