@@ -2413,14 +2413,20 @@ window.BASparkDemo = {
   const panel = document.getElementById('panel');
   const toggleBtn = document.getElementById('panelToggle');
   const closeBtn = document.getElementById('panelClose');
+  const panelOverlay = document.getElementById('panelOverlay');
 
-  function openPanel() {
+  function openPanel()
+  {
     panel.classList.add('open');
     toggleBtn.classList.add('active');
+    panelOverlay.classList.add('open');
   }
-  function closePanel() {
+
+  function closePanel()
+  {
     panel.classList.remove('open');
     toggleBtn.classList.remove('active');
+    panelOverlay.classList.remove('open');
   }
 
   toggleBtn.addEventListener('click', () => {
@@ -2428,11 +2434,133 @@ window.BASparkDemo = {
   });
   closeBtn.addEventListener('click', closePanel);
 
+  // 点击遮罩层关闭面板
+  panelOverlay.addEventListener('click', closePanel);
+
   // -- 提示栏关闭 --
   const hintBar = document.getElementById('hintBar');
   document.getElementById('hintDismiss').addEventListener('click', () => {
     hintBar.classList.add('hidden');
   });
+
+  // -- 背景主题 --
+  const BACKGROUND_THEMES = {
+    '蔚蓝': 'radial-gradient(circle at top, #1d3558 0%, #101827 45%, #080d16 100%)',
+    '深紫': 'radial-gradient(circle at top, #2d1b4e 0%, #1a1028 45%, #0d0616 100%)',
+    '深绿': 'radial-gradient(circle at top, #1a3d2a 0%, #0f1a14 45%, #080d0a 100%)',
+    '暖金': 'radial-gradient(circle at top, #3d2a1a 0%, #1f1910 45%, #14100a 100%)',
+    '纯黑': '#0a0a0f',
+  };
+
+  // 将图片 URL 包装为 cover 背景
+  function wrapBgImage(url)
+  {
+    return `url("${url}") center / cover no-repeat fixed, #080d16`;
+  }
+
+  // 检测值是否为图片 URL 格式
+  function isImageUrl(value)
+  {
+    return (
+      /^https?:\/\/.+\.(png|jpg|jpeg|gif|webp|svg|avif)(\?.*)?$/i.test(value) ||
+      /^https?:\/\/i\.imgur\.com\/.+/i.test(value)
+    );
+  }
+
+  function setBodyBackground(value)
+  {
+    const bg = isImageUrl(value) ? wrapBgImage(value) : value;
+    document.body.style.background = bg;
+  }
+
+  function applyTheme(themeName)
+  {
+    // 清除所有按钮 active 状态
+    const themeBtns = document.querySelectorAll('.theme-btn');
+    for (const btn of themeBtns)
+    {
+      btn.classList.toggle('active', btn.dataset.theme === themeName);
+    }
+
+    const customBgCtrl = document.getElementById('customBgCtrl');
+    const ctrlCustomBg = document.getElementById('ctrlCustomBg');
+    const btnApplyBg = document.getElementById('btnApplyBg');
+    const isCustom = themeName === 'custom';
+
+    customBgCtrl.style.display = isCustom ? '' : 'none';
+    ctrlCustomBg.style.display = isCustom ? '' : 'none';
+    btnApplyBg.style.display = isCustom ? '' : 'none';
+
+    if (isCustom)
+    {
+      const saved = localStorage.getItem('bafx-customBg');
+      if (saved)
+      {
+        ctrlCustomBg.value = saved;
+      }
+      return;
+    }
+
+    const bgValue = BACKGROUND_THEMES[themeName];
+    if (bgValue)
+    {
+      setBodyBackground(bgValue);
+    }
+
+    localStorage.setItem('bafx-theme', themeName);
+    localStorage.removeItem('bafx-customBg');
+  }
+
+  function applyCustomBackground()
+  {
+    const ctrlCustomBg = document.getElementById('ctrlCustomBg');
+    const value = ctrlCustomBg.value.trim();
+
+    if (!value)
+    {
+      return;
+    }
+
+    setBodyBackground(value);
+    localStorage.setItem('bafx-customBg', value);
+    localStorage.setItem('bafx-theme', 'custom');
+  }
+
+  // 主题按钮点击
+  const themePresets = document.getElementById('themePresets');
+  for (const btn of themePresets.querySelectorAll('.theme-btn'))
+  {
+    btn.addEventListener('click', () =>
+    {
+      applyTheme(btn.dataset.theme);
+    });
+  }
+
+  // 自定义背景：点击应用按钮
+  document.getElementById('btnApplyBg').addEventListener('click', applyCustomBackground);
+
+  // 自定义背景：回车键应用
+  document.getElementById('ctrlCustomBg').addEventListener('keydown', (e) =>
+  {
+    if (e.key === 'Enter')
+    {
+      applyCustomBackground();
+    }
+  });
+
+  // 恢复已保存的主题
+  const savedTheme = localStorage.getItem('bafx-theme');
+  const savedCustomBg = localStorage.getItem('bafx-customBg');
+  if (savedTheme === 'custom' && savedCustomBg)
+  {
+    applyTheme('custom');
+    document.getElementById('ctrlCustomBg').value = savedCustomBg;
+    setBodyBackground(savedCustomBg);
+  }
+  else if (savedTheme && BACKGROUND_THEMES[savedTheme])
+  {
+    applyTheme(savedTheme);
+  }
 
   // -- 工具函数 --
   function bindRange(id, outputId, setter, intOnly = false) {
@@ -2601,7 +2729,12 @@ window.BASparkDemo = {
     api.setTrailBrightness(DEFAULTS.trailBrightness);
     setVal('ctrlTrailWhiteMix', 'outTrailWhiteMix', DEFAULTS.trailWhiteMix);
     api.setTrailWhiteMix(DEFAULTS.trailWhiteMix);
+
+    // 重置背景主题
+    applyTheme('蔚蓝');
+
     localStorage.clear();
+    localStorage.setItem('bafx-version', SETTINGS_VERSION);
   });
   const saved = {};
 

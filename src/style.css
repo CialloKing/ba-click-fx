@@ -377,6 +377,91 @@ kbd {
   transform: none;
 }
 
+/* ── Panel Overlay ─────────────────────────────────────────────────────── */
+
+.panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 149;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ── Theme Presets ──────────────────────────────────────────────────────── */
+
+.theme-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.theme-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+  flex-shrink: 0;
+}
+
+.theme-btn:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 10px rgba(125, 239, 255, 0.3);
+  transform: scale(1.12);
+}
+
+.theme-btn.active {
+  border-color: rgba(125, 239, 255, 0.8);
+  box-shadow: 0 0 14px rgba(24, 158, 255, 0.45);
+}
+
+/* ── Custom Background ──────────────────────────────────────────────────── */
+
+.custom-bg-ctrl {
+  margin-bottom: 6px;
+}
+
+.custom-bg-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-family: inherit;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.18s ease;
+  margin-bottom: 8px;
+}
+
+.custom-bg-input:focus {
+  border-color: rgba(125, 239, 255, 0.5);
+}
+
+.custom-bg-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.custom-bg-apply {
+  width: 100%;
+  margin-bottom: 0;
+}
+
 /* ── Canvas ─────────────────────────────────────────────────────────────── */
 
 #sparkCanvas {

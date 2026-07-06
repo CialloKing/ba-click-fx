@@ -28,6 +28,9 @@
     <button class="hint-dismiss" id="hintDismiss" title="关闭提示">✕</button>
   </div>
 
+  <!-- 面板遮罩层：点击面板外区域关闭面板 -->
+  <div class="panel-overlay" id="panelOverlay"></div>
+
   <!-- 控制面板 -->
   <button class="panel-toggle" id="panelToggle" title="控制面板">⚙</button>
   <aside class="panel" id="panel">
@@ -58,6 +61,23 @@
         <span>拖尾画质 <output id="outTrailRenderScale">1.00</output></span>
         <input type="range" id="ctrlTrailRenderScale" min="0.5" max="1" step="0.05" value="1" />
       </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>背景主题</h3>
+      <div class="theme-presets" id="themePresets">
+        <button class="theme-btn active" data-theme="蔚蓝" style="background: radial-gradient(circle at 30% 20%, #1d3558 0%, #101827 45%, #080d16 100%);" title="蔚蓝（默认）"></button>
+        <button class="theme-btn" data-theme="深紫" style="background: radial-gradient(circle at 30% 20%, #2d1b4e 0%, #1a1028 45%, #0d0616 100%);" title="深紫"></button>
+        <button class="theme-btn" data-theme="深绿" style="background: radial-gradient(circle at 30% 20%, #1a3d2a 0%, #0f1a14 45%, #080d0a 100%);" title="深绿"></button>
+        <button class="theme-btn" data-theme="暖金" style="background: radial-gradient(circle at 30% 20%, #3d2a1a 0%, #1f1910 45%, #14100a 100%);" title="暖金"></button>
+        <button class="theme-btn" data-theme="纯黑" style="background: #0a0a0f;" title="纯黑"></button>
+        <button class="theme-btn" data-theme="custom" style="background: conic-gradient(#666 0deg 90deg, #999 90deg 180deg, #666 180deg 270deg, #999 270deg 360deg);" title="自定义"></button>
+      </div>
+      <label class="ctrl custom-bg-ctrl" id="customBgCtrl" style="display:none;">
+        <span>自定义背景</span>
+      </label>
+      <input type="text" class="custom-bg-input" id="ctrlCustomBg" placeholder="CSS background 值或图片 URL…" style="display:none;" />
+      <button class="btn-reset custom-bg-apply" id="btnApplyBg" style="display:none;">应用背景</button>
     </section>
 
     <section class="panel-section">
