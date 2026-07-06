@@ -637,12 +637,12 @@ class ClickWave
         1,
         progress,
       );
-      // end 固定不动，targetLen 从 fullLen lerp 到 lenEnd(π/3)，start 前移来收缩
+      // start 固定，end 逆时针回缩减少弧长（模拟游戏里逆时针消散）
       const baseAngle = this.ring.ang * seg.rotationMul + seg.off;
       const fullLen = cfg.lenFull * seg.lenMul * grow;
       const targetLen = lerp(fullLen, cfg.lenEnd, segCollapse);
-      const end = baseAngle + fullLen;
-      const start = baseAngle + fullLen - targetLen;
+      const start = baseAngle;
+      const end = baseAngle + targetLen;
       const currentLen = targetLen;
       const radius =
         staticRadius +
