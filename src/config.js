@@ -84,7 +84,6 @@ export const CONFIG = {
     // 颜色快速过渡到蓝白高亮（0→0.15），之后全程保持
     colorStart: 0.0,
     colorEnd: 0.15,
-    segNum: 18,
     minW: 0.9,
     maxW: 4.0,
     alpha: 0.9,

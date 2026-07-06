@@ -1,5 +1,5 @@
 import './style.css';
-import { clamp01, rand, easeOutCubic, smoothstep, distance, lerp, rgbToCss, mixColor, getArcWeight } from './utils.js';
+import { clamp01, rand, easeOutCubic, smoothstep, distance, lerp, rgbToCss, mixColor } from './utils.js';
 import { CONFIG, getClickScale, getClickRingEndColor, getTrailColor, getTrailCoreColor, getTrailHotColor } from './config.js';
 
 const canvas = document.getElementById('sparkCanvas');
@@ -276,36 +276,6 @@ function drawTriangle(
   context.restore();
 }
 
-function drawArcSegment(
-  context,
-  x,
-  y,
-  radius,
-  start,
-  end,
-  widthValue,
-  color,
-  alpha,
-)
-{
-  if (alpha <= 0 || widthValue <= 0 || Math.abs(end - start) < 0.001) {
-    return;
-  }
-
-  context.save();
-
-  // BASpark 的点击圆环是单层线条；多层 fake glow 会让点击反馈显得发糊。
-  context.lineCap = 'round';
-  context.strokeStyle = rgbToCss(color, alpha);
-  context.lineWidth = widthValue;
-
-  context.beginPath();
-  context.arc(x, y, radius, start, end);
-  context.stroke();
-
-  context.restore();
-}
-
 function drawRadialGlow(context, x, y, radius, color, alpha)
 {
   if (alpha <= 0 || radius <= 0)
@@ -347,34 +317,75 @@ function drawClickDisk(context, x, y, radius, color, alpha)
   context.restore();
 }
 
-function drawClickArcSegment(
+function drawClickArcRibbon(
   context,
   x,
   y,
   radius,
   start,
   end,
-  widthValue,
+  minWidth,
+  maxWidth,
   color,
   alpha,
 )
 {
-  if (alpha <= 0 || widthValue <= 0 || Math.abs(end - start) < 0.001)
+  const arcLength = Math.abs(end - start);
+
+  if (
+    alpha <= 0 ||
+    radius <= 0 ||
+    maxWidth <= 0 ||
+    arcLength < 0.001
+  )
   {
     return;
   }
 
-  drawArcSegment(
-    context,
-    x,
-    y,
-    radius,
-    start,
-    end,
-    widthValue,
-    color,
-    alpha,
-  );
+  const steps = Math.max(10, Math.min(96, Math.ceil(arcLength / 0.07)));
+
+  context.save();
+  context.fillStyle = rgbToCss(color, alpha);
+  context.beginPath();
+
+  // 用连续 ribbon mesh 代替短 stroke 拼接，避免端帽和接缝叠成“珍珠项链”。
+  for (let i = 0; i <= steps; i++)
+  {
+    const t = i / steps;
+    const angle = lerp(start, end, t);
+    const widthT = smoothstep(0, 1, Math.sin(Math.PI * t));
+    const widthValue = lerp(minWidth, maxWidth, widthT);
+    const outerRadius = radius + widthValue * 0.5;
+    const px = x + Math.cos(angle) * outerRadius;
+    const py = y + Math.sin(angle) * outerRadius;
+
+    if (i === 0)
+    {
+      context.moveTo(px, py);
+    }
+    else
+    {
+      context.lineTo(px, py);
+    }
+  }
+
+  for (let i = steps; i >= 0; i--)
+  {
+    const t = i / steps;
+    const angle = lerp(start, end, t);
+    const widthT = smoothstep(0, 1, Math.sin(Math.PI * t));
+    const widthValue = lerp(minWidth, maxWidth, widthT);
+    const innerRadius = Math.max(0.1, radius - widthValue * 0.5);
+
+    context.lineTo(
+      x + Math.cos(angle) * innerRadius,
+      y + Math.sin(angle) * innerRadius,
+    );
+  }
+
+  context.closePath();
+  context.fill();
+  context.restore();
 }
 
 function drawClickRingGlow(context, x, y, radius, color, alpha)
@@ -643,38 +654,27 @@ class ClickWave
       const targetLen = lerp(fullLen, cfg.lenEnd, segCollapse);
       const start = baseAngle;
       const end = baseAngle + targetLen;
-      const currentLen = targetLen;
       const radius =
         staticRadius +
         radiusGrow * seg.radiusGrowMul +
         seg.radiusOffset * CONFIG.scale;
       const segAlpha = ringAlpha * seg.alphaMul;
       const segLineWidthMul = lineWidthMul * seg.widthMul;
+      const minWidth = cfg.minW * segLineWidthMul * CONFIG.scale;
+      const maxWidth = cfg.maxW * segLineWidthMul * CONFIG.scale;
 
-      for (let i = 0; i < cfg.segNum; i++)
-      {
-        const t0 = i / cfg.segNum;
-        const t1 = (i + 1) / cfg.segNum;
-        const a0 = start + (end - start) * t0;
-        const a1 = start + (end - start) * t1;
-        const weight = getArcWeight(t0);
-        const lineWidth =
-          (cfg.minW * (1 - weight) + cfg.maxW * weight) *
-          segLineWidthMul *
-          CONFIG.scale;
-
-        drawClickArcSegment(
-          context,
-          this.x,
-          this.y,
-          radius,
-          a0,
-          a1,
-          lineWidth,
-          color,
-          segAlpha,
-        );
-      }
+      drawClickArcRibbon(
+        context,
+        this.x,
+        this.y,
+        radius,
+        start,
+        end,
+        minWidth,
+        maxWidth,
+        color,
+        segAlpha,
+      );
     }
   }
 

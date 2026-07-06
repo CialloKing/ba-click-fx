@@ -104,12 +104,3 @@ export function mixColor(a, b, t) {
     Math.round(a[2] * (1 - t) + b[2] * t),
   ];
 }
-
-/**
- * 弧段宽度权重曲线：中间宽(t≈0.5)，两端窄(t≈0,1)
- * @param {number} t - 归一化位置 [0, 1]
- * @returns {number}
- */
-export function getArcWeight(t) {
-  return Math.min(2 - Math.abs(4 * (t - 0.5)), 1);
-}
