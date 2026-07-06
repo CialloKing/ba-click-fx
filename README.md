@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)
 
-网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效，基于 120fps 视频逐帧校准，纯 Canvas 2D 实现，零外部资源依赖。
+网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效，基于游戏录像逐帧校准，纯 Canvas 2D 实现，零外部资源依赖。
 
 （本项目纯AI生成，绝无手写代码）
 
