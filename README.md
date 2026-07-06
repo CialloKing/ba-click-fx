@@ -42,12 +42,12 @@ npm install ba-click-fx
 ```
 
 ```js
-import { BASpark } from 'ba-click-fx';
+import { BAClickFX } from 'ba-click-fx';
 
-const spark = new BASpark();
+const spark = new BAClickFX();
 
 // 可选：自定义配置
-const spark = new BASpark({
+const spark = new BAClickFX({
   color: [105, 161, 255],
   scale: 1.1,
   opacity: 0.5,
@@ -61,7 +61,7 @@ const spark = new BASpark({
 ```html
 <script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1/dist/ba-click-fx.iife.js"></script>
 <script>
-  const spark = new BASpark();
+  const spark = new BAClickFX();
 </script>
 ```
 
@@ -72,8 +72,8 @@ const spark = new BASpark({
 ```html
 <canvas id="myCanvas"></canvas>
 <script type="module">
-  import { BASpark } from './ba-click-fx.js';
-  const spark = new BASpark({ target: '#myCanvas' });
+  import { BAClickFX } from './ba-click-fx.js';
+  const spark = new BAClickFX({ target: '#myCanvas' });
 </script>
 ```
 
@@ -84,7 +84,7 @@ const spark = new BASpark({
 ### 构造函数
 
 ```ts
-new BASpark(options?: BASparkOptions)
+new BAClickFX(options?: BAClickFXOptions)
 ```
 
 | 选项 | 类型 | 默认值 | 说明 |
@@ -215,7 +215,7 @@ new BASpark(options?: BASparkOptions)
 ```
 ba-click-fx/
 ├── src/
-│   ├── ba-spark.js      # 特效引擎（BASpark 类）
+│   ├── ba-spark.js      # 特效引擎（BAClickFX 类）
 │   ├── main.js           # 演示页面入口 + 控制面板 UI
 │   ├── config.js         # 所有可调参数（~190 个变量）
 │   ├── draw.js           # 绘图工具函数

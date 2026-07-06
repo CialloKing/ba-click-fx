@@ -1,5 +1,5 @@
 declare module 'ba-click-fx' {
-  export interface BASparkOptions {
+  export interface BAClickFXOptions {
     /** 挂载目标：CSS 选择器或已有 <canvas> 元素。不传则自动创建全屏 Canvas */
     target?: string | HTMLElement;
     /** 主题颜色 [r, g, b]，默认 [105, 161, 255] */
@@ -14,8 +14,8 @@ declare module 'ba-click-fx' {
     trailEnabled?: boolean;
   }
 
-  export class BASpark {
-    constructor(options?: BASparkOptions);
+  export class BAClickFX {
+    constructor(options?: BAClickFXOptions);
 
     /** 销毁实例：移除 Canvas、事件监听、停止动画 */
     destroy(): void;
@@ -105,5 +105,5 @@ declare module 'ba-click-fx' {
     readonly CONFIG: object;
   }
 
-  export default BASpark;
+  export default BAClickFX;
 }

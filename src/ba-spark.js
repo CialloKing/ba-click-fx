@@ -5,8 +5,8 @@
  * 作为 ES Module 导入使用，也可通过 Vite 构建为 CJS / IIFE 格式。
  *
  * @example
- *   import { BASpark } from './ba-spark.js';
- *   const spark = new BASpark();
+ *   import { BAClickFX } from './ba-spark.js';
+ *   const spark = new BAClickFX();
  *   spark.boom(300, 200);
  *
  * @license MIT
@@ -486,10 +486,10 @@ class SparkParticle
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BASpark — 特效引擎
+// BAClickFX — 特效引擎
 // ═══════════════════════════════════════════════════════════════════════════
 
-export class BASpark
+export class BAClickFX
 {
   /**
    * @param {object} [options={}]
@@ -2502,4 +2502,4 @@ export class BASpark
 // 保存默认配置快照用于 resetConfig
 const defaultConfigSnapshot = JSON.parse(JSON.stringify(CONFIG));
 
-export default BASpark;
+export default BAClickFX;

@@ -1,9 +1,9 @@
 import './style.css';
-import { BASpark } from './ba-spark.js';
+import { BAClickFX } from './ba-spark.js';
 import { CONFIG } from './config.js';
 
 // ── 创建特效引擎实例 ────────────────────────────────────────────────────
-const api = new BASpark();
+const api = new BAClickFX();
 
 // ── 演示页扩展 API（不进入引擎库）────────────────────────────────────────
 api.saveSettings = function ()
@@ -64,7 +64,7 @@ api.resetConfig = function ()
 };
 
 // 暴露到全局
-window.BASparkDemo = api;
+window.BAClickFXDdemo = api;
 
 // ── 控制面板 & 交互提示 ──────────────────────────────────────────────────
 (function initUI()
