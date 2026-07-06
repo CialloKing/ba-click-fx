@@ -373,10 +373,9 @@ class ClickWave {
       return;
     }
 
-    // 游戏原作：从可见小圆快速扩展到大圆，同时白色闪变为蓝
+    // 游戏原作：从 0 快速扩展到大圆，同时白色闪变为蓝
     const expandT = Math.min(progress * 8, 1);
-    const scale = 0.25 + 0.75 * expandT;
-    const radius = cfg.rAddRate * clickScale * scale;
+    const radius = cfg.rAddRate * clickScale * expandT;
     const color = mixColor(CONFIG.startColor, CONFIG.color, expandT);
     const alpha = (1 - progress) * CONFIG.opacity;
 
