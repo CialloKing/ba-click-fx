@@ -375,6 +375,10 @@ class ClickWave {
 
     // 游戏原作中蓝色实心圆固定大小，不做扩散（只有透明度衰减）
     const radius = cfg.rAddRate * clickScale;
+
+    // 初始瞬间白色爆闪，随后快速过渡到主题蓝色
+    const flashProgress = Math.min(progress * 4, 1);
+    const color = mixColor(CONFIG.startColor, CONFIG.color, flashProgress);
     const alpha = (1 - progress) * CONFIG.opacity;
 
     this.r = radius;
@@ -387,7 +391,7 @@ class ClickWave {
       this.x,
       this.y,
       radius,
-      CONFIG.color,
+      color,
       alpha,
       blur,
       CONFIG.glow.clickFake,
