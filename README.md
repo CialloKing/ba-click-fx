@@ -245,10 +245,12 @@ ba-click-fx/
 
 ## 致谢
 
-- [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark) — 蔚蓝档案点击特效早期 Web 实现
-- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor) — 蔚蓝档案光标特效实现
 
-本项目基于 120fps 录屏逐帧校准，从 Unity 原始 Prefab 结构映射到 Canvas 2D。
+- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor) — 蔚蓝档案光标特效实现
+- [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark) — 蔚蓝档案点击特效早期 Web 实现
+
+上面的这两个项目对于鼠标轨迹的还原都不够像游戏内的原始特效，本项目在前两个项目的基础上优化了点击特效和轨迹特效。
+
 
 ---
 
