@@ -637,12 +637,13 @@ class ClickWave
         1,
         progress,
       );
-      // 固定 end 位置，只让 start 随 collapse 前移"吃掉"弧尾，实现一头减少的流动感
+      // end 固定不动，targetLen 从 fullLen lerp 到 lenEnd(π/3)，start 前移来收缩
       const baseAngle = this.ring.ang * seg.rotationMul + seg.off;
       const fullLen = cfg.lenFull * seg.lenMul * grow;
+      const targetLen = lerp(fullLen, cfg.lenEnd, segCollapse);
       const end = baseAngle + fullLen;
-      const start = baseAngle + segCollapse * cfg.collapseDrift;
-      const currentLen = Math.max(0.01, end - start);
+      const start = baseAngle + fullLen - targetLen;
+      const currentLen = targetLen;
       const radius =
         staticRadius +
         radiusGrow * seg.radiusGrowMul +

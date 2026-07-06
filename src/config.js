@@ -62,8 +62,8 @@ export const CONFIG = {
     segmentExtraChance: 0.24,
     segmentClusterChance: 0.38,
     lenFull: 1.16 * Math.PI,
-    // collapse 期间只移动 start 点，end 固定，产生尾部被"吃掉"的流动感
-    collapseDrift: 1.5 * Math.PI,
+    // 圆环消散时弧长为整个圆的 1/6 = π/3
+    lenEnd: Math.PI / 3,
     lenMulMin: 0.46,
     lenMulMax: 1.38,
     // 段间半径差异很小，仅微微错开以模拟手绘感
