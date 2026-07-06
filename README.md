@@ -21,7 +21,6 @@
 - [API 文档](#api-文档)
 - [效果说明](#效果说明)
 - [项目结构](#项目结构)
-- [部署](#部署)
 - [致谢](#致谢)
 - [许可](#许可)
 
@@ -241,20 +240,6 @@ ba-click-fx/
 - **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`
 - **60fps 基准**：所有帧数参数归一化到 60fps，运行时缩放适配任意刷新率
 - **零外部依赖**：仅依赖标准 Canvas 2D API
-
----
-
-## 部署
-
-### Cloudflare Pages（推荐）
-
-1. Dashboard → Workers & Pages → Pages → 连接 Git
-2. 选 `CialloKing/ba-click-fx`，构建命令 `npm run build`，输出目录 `dist`
-3. 保存部署后绑定自定义域名
-
-### 其他平台
-
-`dist/` 目录是纯静态文件，可部署到任意静态托管（GitHub Pages、Netlify、Vercel、Nginx 等）。
 
 ---
 
