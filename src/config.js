@@ -210,13 +210,13 @@ export function getClickScale()
 }
 
 /**
- * 点击圆环渐变终点颜色（主题色与白色 1:2 混合）
+ * 点击圆环颜色 — 主题色与白色 1:3 混合，明度极高
  * @returns {number[]} [r, g, b]
  */
 export function getClickRingEndColor()
 {
   return CONFIG.color.map((channel) =>
-    Math.round((channel + 255 * 2) / 3),
+    Math.round((channel + 255 * 3) / 4),
   );
 }
 

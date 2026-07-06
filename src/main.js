@@ -608,12 +608,8 @@ class ClickWave
     const grow = smoothstep(0.02, cfg.growEnd, progress);
     const collapse = smoothstep(cfg.collapseStart, 1, progress);
     const fade = 1 - smoothstep(cfg.fadeStart, 1, progress);
-    // 颜色从主题蓝渐变到亮蓝白，末期保持高亮
-    const color = mixColor(
-      CONFIG.color,
-      getClickRingEndColor(),
-      smoothstep(cfg.colorStart, cfg.colorEnd, progress),
-    );
+    // 始终使用明度极高的亮色，不作颜色渐变
+    const color = getClickRingEndColor();
     // 原作圆环像独立 Additive Sprite，本体亮度不跟随全局透明度滑块变暗。
     // ringAlpha 用 grow 控制出现；glow 加地板避免初期完全不可见
     const ringAlpha = cfg.alpha * grow * fade;
