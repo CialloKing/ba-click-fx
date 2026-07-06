@@ -190,6 +190,122 @@
       </label>
     </section>
 
+    <section class="panel-section">
+      <h3>点击</h3>
+      <label class="ctrl">
+        <span>碎片数量 <output id="outSparksCount">4</output></span>
+        <input type="range" id="ctrlSparksCount" min="0" max="12" step="1" value="4" />
+      </label>
+      <label class="ctrl">
+        <span>特效时长 <output id="outClickTotalLife">27</output></span>
+        <input type="range" id="ctrlClickTotalLife" min="10" max="60" step="1" value="27" />
+      </label>
+      <label class="ctrl">
+        <span>点击缩放 <output id="outClickScaleMul">1.30</output></span>
+        <input type="range" id="ctrlClickScaleMul" min="0.5" max="3" step="0.05" value="1.3" />
+      </label>
+      <label class="ctrl">
+        <span>光晕半径 <output id="outClickHaloRadius">96</output></span>
+        <input type="range" id="ctrlClickHaloRadius" min="30" max="200" step="2" value="96" />
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>圆环高级</h3>
+      <label class="ctrl">
+        <span>出现延迟 <output id="outRingDelay">2</output></span>
+        <input type="range" id="ctrlRingDelay" min="0" max="10" step="0.5" value="2" />
+      </label>
+      <label class="ctrl">
+        <span>总时长 <output id="outRingMaxLife">27</output></span>
+        <input type="range" id="ctrlRingMaxLife" min="10" max="60" step="1" value="27" />
+      </label>
+      <label class="ctrl">
+        <span>起始半径倍率 <output id="outRingBaseRadiusMul">0.47</output></span>
+        <input type="range" id="ctrlRingBaseRadiusMul" min="0.2" max="1" step="0.05" value="0.47" />
+      </label>
+      <label class="ctrl">
+        <span>扩张量 <output id="outRingPostDiskGrow">24</output></span>
+        <input type="range" id="ctrlRingPostDiskGrow" min="5" max="60" step="1" value="24" />
+      </label>
+      <label class="ctrl">
+        <span>发光半径 <output id="outRingGlowRadiusAdd">54</output></span>
+        <input type="range" id="ctrlRingGlowRadiusAdd" min="10" max="150" step="2" value="54" />
+      </label>
+      <label class="ctrl">
+        <span>柔光半径 <output id="outRingSoftGlowRadiusAdd">96</output></span>
+        <input type="range" id="ctrlRingSoftGlowRadiusAdd" min="20" max="200" step="2" value="96" />
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>拖尾图层</h3>
+      <label class="ctrl">
+        <span>主轨迹 <output id="outTrailMainAlpha">1.00</output></span>
+        <input type="range" id="ctrlTrailMainAlpha" min="0" max="1" step="0.05" value="1" />
+      </label>
+      <label class="ctrl">
+        <span>中心高光 <output id="outTrailCoreAlpha">0.78</output></span>
+        <input type="range" id="ctrlTrailCoreAlpha" min="0" max="1" step="0.05" value="0.78" />
+      </label>
+      <label class="ctrl">
+        <span>蓝白热点 <output id="outTrailHotAlpha">0.34</output></span>
+        <input type="range" id="ctrlTrailHotAlpha" min="0" max="1" step="0.05" value="0.34" />
+      </label>
+      <label class="ctrl">
+        <span>蓝色发光 <output id="outTrailGlowAlpha">0.18</output></span>
+        <input type="range" id="ctrlTrailGlowAlpha" min="0" max="1" step="0.02" value="0.18" />
+      </label>
+      <label class="ctrl">
+        <span>柔和外光 <output id="outTrailSoftGlowAlpha">0.05</output></span>
+        <input type="range" id="ctrlTrailSoftGlowAlpha" min="0" max="0.5" step="0.005" value="0.045" />
+      </label>
+      <label class="ctrl">
+        <span>细轨 <output id="outTrailRailAlpha">0.02</output></span>
+        <input type="range" id="ctrlTrailRailAlpha" min="0" max="0.3" step="0.01" value="0.02" />
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>拖尾发光范围</h3>
+      <label class="ctrl">
+        <span>发光宽度 <output id="outTrailGlowWidthMul">1.70</output></span>
+        <input type="range" id="ctrlTrailGlowWidthMul" min="0.3" max="8" step="0.1" value="1.7" />
+      </label>
+      <label class="ctrl">
+        <span>柔光宽度 <output id="outTrailSoftGlowWidthMul">2.40</output></span>
+        <input type="range" id="ctrlTrailSoftGlowWidthMul" min="0.5" max="15" step="0.1" value="2.4" />
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>拖尾消散</h3>
+      <label class="ctrl">
+        <span>尾部衰减 <output id="outTrailTailDecayMul">1.28</output></span>
+        <input type="range" id="ctrlTrailTailDecayMul" min="0.1" max="5" step="0.05" value="1.28" />
+      </label>
+      <label class="ctrl">
+        <span>头部衰减 <output id="outTrailHeadDecayMul">0.95</output></span>
+        <input type="range" id="ctrlTrailHeadDecayMul" min="0.1" max="5" step="0.05" value="0.95" />
+      </label>
+      <label class="ctrl">
+        <span>松手衰减 <output id="outTrailReleaseDecayMul">1.18</output></span>
+        <input type="range" id="ctrlTrailReleaseDecayMul" min="0.5" max="8" step="0.05" value="1.18" />
+      </label>
+      <label class="ctrl">
+        <span>速度衰减 <output id="outTrailSpeedDecay">0.988</output></span>
+        <input type="range" id="ctrlTrailSpeedDecay" min="0.8" max="0.999" step="0.001" value="0.988" />
+      </label>
+      <label class="ctrl">
+        <span>最小速度 <output id="outTrailSpeedMin">0.035</output></span>
+        <input type="range" id="ctrlTrailSpeedMin" min="0.005" max="0.5" step="0.005" value="0.035" />
+      </label>
+      <label class="ctrl">
+        <span>最大速度 <output id="outTrailSpeedMax">2.20</output></span>
+        <input type="range" id="ctrlTrailSpeedMax" min="0.5" max="5" step="0.05" value="2.2" />
+      </label>
+    </section>
+
     <div class="panel-actions">
       <button id="btnReset" class="btn-reset">重置默认</button>
     </div>

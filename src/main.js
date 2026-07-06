@@ -2286,6 +2286,136 @@ window.BASparkDemo = {
     requestRender();
   },
 
+  // ── 点击 ──
+  setSparksCount(value = 4) {
+    CONFIG.sparksCount = Math.max(0, Math.min(12, Number(value) ?? 4));
+    requestRender();
+  },
+
+  setClickTotalLife(value = 27) {
+    CONFIG.click.totalLife = Math.max(10, Math.min(60, Number(value) ?? 27));
+    requestRender();
+  },
+
+  setClickScaleMul(value = 1.3) {
+    CONFIG.click.scaleMul = Math.max(0.5, Math.min(3, Number(value) ?? 1.3));
+    requestRender();
+  },
+
+  setClickHaloRadius(value = 96) {
+    CONFIG.click.haloRadius = Math.max(30, Math.min(200, Number(value) ?? 96));
+    requestRender();
+  },
+
+  // ── 圆环 ──
+  setRingDelay(value = 2) {
+    CONFIG.rings.delay = Math.max(0, Math.min(10, Number(value) ?? 2));
+    requestRender();
+  },
+
+  setRingMaxLife(value = 27) {
+    CONFIG.rings.maxLife = Math.max(10, Math.min(60, Number(value) ?? 27));
+    requestRender();
+  },
+
+  setRingBaseRadiusMul(value = 0.47) {
+    CONFIG.rings.baseRadiusMul = Math.max(0.2, Math.min(1, Number(value) ?? 0.47));
+    requestRender();
+  },
+
+  setRingRadiusGrowEnd(value = 0.66) {
+    CONFIG.rings.radiusGrowEnd = Math.max(0.2, Math.min(1, Number(value) ?? 0.66));
+    requestRender();
+  },
+
+  setRingPostDiskGrow(value = 24) {
+    CONFIG.rings.postDiskGrow = Math.max(5, Math.min(60, Number(value) ?? 24));
+    requestRender();
+  },
+
+  setRingGlowRadiusAdd(value = 54) {
+    CONFIG.rings.glowRadiusAdd = Math.max(10, Math.min(150, Number(value) ?? 54));
+    requestRender();
+  },
+
+  setRingSoftGlowRadiusAdd(value = 96) {
+    CONFIG.rings.softGlowRadiusAdd = Math.max(20, Math.min(200, Number(value) ?? 96));
+    requestRender();
+  },
+
+  // ── 拖尾图层透明度 ──
+  setTrailMainAlpha(value = 1) {
+    CONFIG.trail.mainAlpha = Math.max(0, Math.min(1, Number(value) ?? 1));
+    requestRender();
+  },
+
+  setTrailCoreAlpha(value = 0.78) {
+    CONFIG.trail.coreAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.78));
+    requestRender();
+  },
+
+  setTrailHotAlpha(value = 0.34) {
+    CONFIG.trail.hotAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.34));
+    requestRender();
+  },
+
+  setTrailGlowAlpha(value = 0.18) {
+    CONFIG.trail.glowAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.18));
+    requestRender();
+  },
+
+  setTrailSoftGlowAlpha(value = 0.045) {
+    CONFIG.trail.softGlowAlpha = Math.max(0, Math.min(0.5, Number(value) ?? 0.045));
+    requestRender();
+  },
+
+  setTrailRailAlpha(value = 0.02) {
+    CONFIG.trail.railAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.02));
+    requestRender();
+  },
+
+  // ── 拖尾发光宽度 ──
+  setTrailGlowWidthMul(value = 1.7) {
+    CONFIG.trail.glowWidthMul = Math.max(0.3, Math.min(8, Number(value) ?? 1.7));
+    requestRender();
+  },
+
+  setTrailSoftGlowWidthMul(value = 2.4) {
+    CONFIG.trail.softGlowWidthMul = Math.max(0.5, Math.min(15, Number(value) ?? 2.4));
+    requestRender();
+  },
+
+  // ── 拖尾消散 ──
+  setTrailTailDecayMul(value = 1.28) {
+    CONFIG.trail.tailDecayMul = Math.max(0.1, Math.min(5, Number(value) ?? 1.28));
+    requestRender();
+  },
+
+  setTrailHeadDecayMul(value = 0.95) {
+    CONFIG.trail.headDecayMul = Math.max(0.1, Math.min(5, Number(value) ?? 0.95));
+    requestRender();
+  },
+
+  setTrailReleaseDecayMul(value = 1.18) {
+    CONFIG.trail.releaseDecayMul = Math.max(0.5, Math.min(12, Number(value) ?? 1.18));
+    requestRender();
+  },
+
+  setTrailSpeedDecay(value = 0.988) {
+    CONFIG.trail.speedDecay = Math.max(0.8, Math.min(0.999, Number(value) ?? 0.988));
+    requestRender();
+  },
+
+  setTrailSpeedMin(value = 0.035) {
+    CONFIG.trail.speedMin = Math.max(0.005, Math.min(0.5, Number(value) ?? 0.035));
+    requestRender();
+  },
+
+  setTrailSpeedMax(value = 2.2) {
+    CONFIG.trail.speedMax = Math.max(0.5, Math.min(5, Number(value) ?? 2.2));
+    requestRender();
+  },
+
   clearTrail() {
     resetTrailAll();
     requestRender();
@@ -2407,6 +2537,40 @@ window.BASparkDemo = {
     ringAlpha: 0.9,
     trailBrightness: 0.96,
     trailWhiteMix: 0.08,
+
+    // 点击
+    sparksCount: 4,
+    clickTotalLife: 27,
+    clickScaleMul: 1.3,
+    clickHaloRadius: 96,
+
+    // 圆环高级
+    ringDelay: 2,
+    ringMaxLife: 27,
+    ringBaseRadiusMul: 0.47,
+    ringPostDiskGrow: 24,
+    ringGlowRadiusAdd: 54,
+    ringSoftGlowRadiusAdd: 96,
+
+    // 拖尾图层
+    trailMainAlpha: 1,
+    trailCoreAlpha: 0.78,
+    trailHotAlpha: 0.34,
+    trailGlowAlpha: 0.18,
+    trailSoftGlowAlpha: 0.045,
+    trailRailAlpha: 0.02,
+
+    // 拖尾发光
+    trailGlowWidthMul: 1.7,
+    trailSoftGlowWidthMul: 2.4,
+
+    // 拖尾消散
+    trailTailDecayMul: 1.28,
+    trailHeadDecayMul: 0.95,
+    trailReleaseDecayMul: 1.18,
+    trailSpeedDecay: 0.988,
+    trailSpeedMin: 0.035,
+    trailSpeedMax: 2.2,
   };
 
   // -- 面板开关 --
@@ -2658,6 +2822,40 @@ window.BASparkDemo = {
   bindRange('ctrlTrailAlpha', 'outTrailAlpha', v => api.setTrailBrightness(v));
   bindRange('ctrlTrailWhiteMix', 'outTrailWhiteMix', v => api.setTrailWhiteMix(v));
 
+  // -- 点击 --
+  bindRange('ctrlSparksCount', 'outSparksCount', v => api.setSparksCount(v), true);
+  bindRange('ctrlClickTotalLife', 'outClickTotalLife', v => api.setClickTotalLife(v), true);
+  bindRange('ctrlClickScaleMul', 'outClickScaleMul', v => api.setClickScaleMul(v));
+  bindRange('ctrlClickHaloRadius', 'outClickHaloRadius', v => api.setClickHaloRadius(v), true);
+
+  // -- 圆环高级 --
+  bindRange('ctrlRingDelay', 'outRingDelay', v => api.setRingDelay(v));
+  bindRange('ctrlRingMaxLife', 'outRingMaxLife', v => api.setRingMaxLife(v), true);
+  bindRange('ctrlRingBaseRadiusMul', 'outRingBaseRadiusMul', v => api.setRingBaseRadiusMul(v));
+  bindRange('ctrlRingPostDiskGrow', 'outRingPostDiskGrow', v => api.setRingPostDiskGrow(v), true);
+  bindRange('ctrlRingGlowRadiusAdd', 'outRingGlowRadiusAdd', v => api.setRingGlowRadiusAdd(v), true);
+  bindRange('ctrlRingSoftGlowRadiusAdd', 'outRingSoftGlowRadiusAdd', v => api.setRingSoftGlowRadiusAdd(v), true);
+
+  // -- 拖尾图层 --
+  bindRange('ctrlTrailMainAlpha', 'outTrailMainAlpha', v => api.setTrailMainAlpha(v));
+  bindRange('ctrlTrailCoreAlpha', 'outTrailCoreAlpha', v => api.setTrailCoreAlpha(v));
+  bindRange('ctrlTrailHotAlpha', 'outTrailHotAlpha', v => api.setTrailHotAlpha(v));
+  bindRange('ctrlTrailGlowAlpha', 'outTrailGlowAlpha', v => api.setTrailGlowAlpha(v));
+  bindRange('ctrlTrailSoftGlowAlpha', 'outTrailSoftGlowAlpha', v => api.setTrailSoftGlowAlpha(v));
+  bindRange('ctrlTrailRailAlpha', 'outTrailRailAlpha', v => api.setTrailRailAlpha(v));
+
+  // -- 拖尾发光范围 --
+  bindRange('ctrlTrailGlowWidthMul', 'outTrailGlowWidthMul', v => api.setTrailGlowWidthMul(v));
+  bindRange('ctrlTrailSoftGlowWidthMul', 'outTrailSoftGlowWidthMul', v => api.setTrailSoftGlowWidthMul(v));
+
+  // -- 拖尾消散 --
+  bindRange('ctrlTrailTailDecayMul', 'outTrailTailDecayMul', v => api.setTrailTailDecayMul(v));
+  bindRange('ctrlTrailHeadDecayMul', 'outTrailHeadDecayMul', v => api.setTrailHeadDecayMul(v));
+  bindRange('ctrlTrailReleaseDecayMul', 'outTrailReleaseDecayMul', v => api.setTrailReleaseDecayMul(v));
+  bindRange('ctrlTrailSpeedDecay', 'outTrailSpeedDecay', v => api.setTrailSpeedDecay(v));
+  bindRange('ctrlTrailSpeedMin', 'outTrailSpeedMin', v => api.setTrailSpeedMin(v));
+  bindRange('ctrlTrailSpeedMax', 'outTrailSpeedMax', v => api.setTrailSpeedMax(v));
+
   // -- 重置 --
   document.getElementById('btnReset').addEventListener('click', () => {
     ctrlColor.value = DEFAULTS.color;
@@ -2734,6 +2932,64 @@ window.BASparkDemo = {
     api.setTrailBrightness(DEFAULTS.trailBrightness);
     setVal('ctrlTrailWhiteMix', 'outTrailWhiteMix', DEFAULTS.trailWhiteMix);
     api.setTrailWhiteMix(DEFAULTS.trailWhiteMix);
+
+    // 点击
+    setVal('ctrlSparksCount', 'outSparksCount', DEFAULTS.sparksCount, true);
+    api.setSparksCount(DEFAULTS.sparksCount);
+    setVal('ctrlClickTotalLife', 'outClickTotalLife', DEFAULTS.clickTotalLife, true);
+    api.setClickTotalLife(DEFAULTS.clickTotalLife);
+    setVal('ctrlClickScaleMul', 'outClickScaleMul', DEFAULTS.clickScaleMul);
+    api.setClickScaleMul(DEFAULTS.clickScaleMul);
+    setVal('ctrlClickHaloRadius', 'outClickHaloRadius', DEFAULTS.clickHaloRadius, true);
+    api.setClickHaloRadius(DEFAULTS.clickHaloRadius);
+
+    // 圆环高级
+    setVal('ctrlRingDelay', 'outRingDelay', DEFAULTS.ringDelay);
+    api.setRingDelay(DEFAULTS.ringDelay);
+    setVal('ctrlRingMaxLife', 'outRingMaxLife', DEFAULTS.ringMaxLife, true);
+    api.setRingMaxLife(DEFAULTS.ringMaxLife);
+    setVal('ctrlRingBaseRadiusMul', 'outRingBaseRadiusMul', DEFAULTS.ringBaseRadiusMul);
+    api.setRingBaseRadiusMul(DEFAULTS.ringBaseRadiusMul);
+    setVal('ctrlRingPostDiskGrow', 'outRingPostDiskGrow', DEFAULTS.ringPostDiskGrow, true);
+    api.setRingPostDiskGrow(DEFAULTS.ringPostDiskGrow);
+    setVal('ctrlRingGlowRadiusAdd', 'outRingGlowRadiusAdd', DEFAULTS.ringGlowRadiusAdd, true);
+    api.setRingGlowRadiusAdd(DEFAULTS.ringGlowRadiusAdd);
+    setVal('ctrlRingSoftGlowRadiusAdd', 'outRingSoftGlowRadiusAdd', DEFAULTS.ringSoftGlowRadiusAdd, true);
+    api.setRingSoftGlowRadiusAdd(DEFAULTS.ringSoftGlowRadiusAdd);
+
+    // 拖尾图层
+    setVal('ctrlTrailMainAlpha', 'outTrailMainAlpha', DEFAULTS.trailMainAlpha);
+    api.setTrailMainAlpha(DEFAULTS.trailMainAlpha);
+    setVal('ctrlTrailCoreAlpha', 'outTrailCoreAlpha', DEFAULTS.trailCoreAlpha);
+    api.setTrailCoreAlpha(DEFAULTS.trailCoreAlpha);
+    setVal('ctrlTrailHotAlpha', 'outTrailHotAlpha', DEFAULTS.trailHotAlpha);
+    api.setTrailHotAlpha(DEFAULTS.trailHotAlpha);
+    setVal('ctrlTrailGlowAlpha', 'outTrailGlowAlpha', DEFAULTS.trailGlowAlpha);
+    api.setTrailGlowAlpha(DEFAULTS.trailGlowAlpha);
+    setVal('ctrlTrailSoftGlowAlpha', 'outTrailSoftGlowAlpha', DEFAULTS.trailSoftGlowAlpha);
+    api.setTrailSoftGlowAlpha(DEFAULTS.trailSoftGlowAlpha);
+    setVal('ctrlTrailRailAlpha', 'outTrailRailAlpha', DEFAULTS.trailRailAlpha);
+    api.setTrailRailAlpha(DEFAULTS.trailRailAlpha);
+
+    // 拖尾发光
+    setVal('ctrlTrailGlowWidthMul', 'outTrailGlowWidthMul', DEFAULTS.trailGlowWidthMul);
+    api.setTrailGlowWidthMul(DEFAULTS.trailGlowWidthMul);
+    setVal('ctrlTrailSoftGlowWidthMul', 'outTrailSoftGlowWidthMul', DEFAULTS.trailSoftGlowWidthMul);
+    api.setTrailSoftGlowWidthMul(DEFAULTS.trailSoftGlowWidthMul);
+
+    // 拖尾消散
+    setVal('ctrlTrailTailDecayMul', 'outTrailTailDecayMul', DEFAULTS.trailTailDecayMul);
+    api.setTrailTailDecayMul(DEFAULTS.trailTailDecayMul);
+    setVal('ctrlTrailHeadDecayMul', 'outTrailHeadDecayMul', DEFAULTS.trailHeadDecayMul);
+    api.setTrailHeadDecayMul(DEFAULTS.trailHeadDecayMul);
+    setVal('ctrlTrailReleaseDecayMul', 'outTrailReleaseDecayMul', DEFAULTS.trailReleaseDecayMul);
+    api.setTrailReleaseDecayMul(DEFAULTS.trailReleaseDecayMul);
+    setVal('ctrlTrailSpeedDecay', 'outTrailSpeedDecay', DEFAULTS.trailSpeedDecay);
+    api.setTrailSpeedDecay(DEFAULTS.trailSpeedDecay);
+    setVal('ctrlTrailSpeedMin', 'outTrailSpeedMin', DEFAULTS.trailSpeedMin);
+    api.setTrailSpeedMin(DEFAULTS.trailSpeedMin);
+    setVal('ctrlTrailSpeedMax', 'outTrailSpeedMax', DEFAULTS.trailSpeedMax);
+    api.setTrailSpeedMax(DEFAULTS.trailSpeedMax);
 
     // 重置背景主题
     applyTheme('蔚蓝');
