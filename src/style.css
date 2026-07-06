@@ -30,21 +30,13 @@ body {
 }
 
 .hero {
-  margin-bottom: 32px;
 }
 
 h1 {
-  margin: 0 0 12px;
+  margin: 0;
   font-size: 36px;
   line-height: 1.2;
   letter-spacing: -0.02em;
-}
-
-.subtitle {
-  margin: 0;
-  opacity: 0.65;
-  line-height: 1.7;
-  font-size: 15px;
 }
 
 button {
