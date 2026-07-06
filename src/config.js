@@ -48,9 +48,10 @@ export const CONFIG = {
     delay: 2,
     maxLife: 27,
     rotationSpeed: 0.045,
-    radiusOffset: 0.8,
+    // 圆环从圆盘边缘出发，总扩张量 = 圆盘最大半径
+    radiusOffset: 0,
     radiusGrowEnd: 0.82,
-    postDiskGrow: 11,
+    postDiskGrow: 34,
     emissionAlpha: 0.34,
     glowRadiusAdd: 54,
     glowAlpha: 0.12,
