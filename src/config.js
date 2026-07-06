@@ -22,10 +22,9 @@ export const CONFIG = {
 
   filledCircle: {
     rAddRate: 26,
-    // 120fps 录制下中心蓝色圆盘存在 24 帧，即 200ms。
-    // 这里用 60fps 基准帧表示，所以默认点击速度下是 12 帧。
-    maxLife: 12,
-    expandEnd: 0.18,
+    // 120fps 视频基准：圆盘存在 25 帧(→12.5@60fps)，第 21 帧扩张到最大(21/25=0.84)
+    maxLife: 12.5,
+    expandEnd: 0.84,
     colorEnd: 0.34,
     fadeStart: 0.78,
     glowRadiusMul: 4.2,
@@ -48,9 +47,11 @@ export const CONFIG = {
     delay: 2,
     maxLife: 27,
     rotationSpeed: 0.045,
-    radiusOffset: 0.8,
+    // 圆环起始半径 = 圆盘第4帧半径(120fps) ≈ 圆盘最大半径的 47%
+    baseRadiusMul: 0.47,
     radiusGrowEnd: 0.82,
-    postDiskGrow: 11,
+    // 第25帧(120fps)圆环追平圆盘最大半径
+    postDiskGrow: 35,
     emissionAlpha: 0.34,
     glowRadiusAdd: 54,
     glowAlpha: 0.12,

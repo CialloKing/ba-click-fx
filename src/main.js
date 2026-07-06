@@ -509,7 +509,7 @@ class ClickWave
 
   getRingStaticRadius()
   {
-    return this.getDiskRadius() + CONFIG.rings.radiusOffset * getClickScale();
+    return this.getDiskRadius() * CONFIG.rings.baseRadiusMul;
   }
 
   getRingRadiusGrow(progress = 0)
