@@ -18,6 +18,38 @@ body {
   position: relative;
 }
 
+/* ── Floating Hero ──────────────────────────────────────────────────────── */
+
+.hero-float {
+  position: fixed;
+  top: 20px;
+  left: 24px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hero-float h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
+}
+
+.hero-link {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.35);
+  text-decoration: none;
+  transition: color 0.18s ease;
+}
+
+.hero-link:hover {
+  color: rgba(125, 239, 255, 0.7);
+}
+
 /* ── Button ────────────────────────────────────────────────────────────── */
 
 button {
