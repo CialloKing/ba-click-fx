@@ -2002,6 +2002,26 @@ window.BASparkDemo = {
     requestRender();
   },
 
+  setRingGlow(value = 0.35) {
+    CONFIG.rings.emissionAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.35));
+    requestRender();
+  },
+
+  setRingWidth(value = 0.9) {
+    CONFIG.rings.minW = Math.max(0.3, Math.min(3, Number(value) ?? 0.9));
+    requestRender();
+  },
+
+  setTrailBrightness(value = 0.96) {
+    CONFIG.trail.alpha = Math.max(0.1, Math.min(1, Number(value) ?? 0.96));
+    requestRender();
+  },
+
+  setTrailWhiteMix(value = 0.26) {
+    CONFIG.trail.whiteMix = Math.max(0, Math.min(1, Number(value) ?? 0.26));
+    requestRender();
+  },
+
   setTrail(enabled) {
     CONFIG.trail.enabled = Boolean(enabled);
     requestRender();
@@ -2299,6 +2319,10 @@ window.BASparkDemo = {
     dpr: 1,
     trailRenderScale: 1,
     ringRotation: 0.008,
+    ringGlow: 0.35,
+    ringWidth: 0.9,
+    trailBrightness: 0.96,
+    trailWhiteMix: 0.26,
   };
 
   // -- 面板开关 --
@@ -2410,6 +2434,11 @@ window.BASparkDemo = {
   bindRange('ctrlTrailRenderScale', 'outTrailRenderScale', v => api.setTrailRenderScale(v));
 
   bindRange('ctrlRingRotation', 'outRingRotation', v => api.setRingRotationSpeed(v));
+  bindRange('ctrlRingGlow', 'outRingGlow', v => api.setRingGlow(v));
+  bindRange('ctrlRingWidth', 'outRingWidth', v => api.setRingWidth(v));
+
+  bindRange('ctrlTrailAlpha', 'outTrailAlpha', v => api.setTrailBrightness(v));
+  bindRange('ctrlTrailWhiteMix', 'outTrailWhiteMix', v => api.setTrailWhiteMix(v));
 
   // -- 重置 --
   document.getElementById('btnReset').addEventListener('click', () => {
@@ -2477,6 +2506,14 @@ window.BASparkDemo = {
     api.setTrailRenderScale(DEFAULTS.trailRenderScale);
     setVal('ctrlRingRotation', 'outRingRotation', DEFAULTS.ringRotation);
     api.setRingRotationSpeed(DEFAULTS.ringRotation);
+    setVal('ctrlRingGlow', 'outRingGlow', DEFAULTS.ringGlow);
+    api.setRingGlow(DEFAULTS.ringGlow);
+    setVal('ctrlRingWidth', 'outRingWidth', DEFAULTS.ringWidth);
+    api.setRingWidth(DEFAULTS.ringWidth);
+    setVal('ctrlTrailAlpha', 'outTrailAlpha', DEFAULTS.trailBrightness);
+    api.setTrailBrightness(DEFAULTS.trailBrightness);
+    setVal('ctrlTrailWhiteMix', 'outTrailWhiteMix', DEFAULTS.trailWhiteMix);
+    api.setTrailWhiteMix(DEFAULTS.trailWhiteMix);
     localStorage.clear();
   });
   const saved = {};
