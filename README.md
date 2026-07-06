@@ -89,7 +89,7 @@ Canvas 自动铺满窗口，`pointer-events: none` 不拦截页面交互。
 
 | 方法 | 参数 | 范围 | 默认值 |
 |---|---|---|---|
-| `setColor(r,g,b)` | 主题颜色 | 0~255 | `92, 155, 255` |
+| `setColor(r,g,b)` | 主题颜色 | 0~255 | `18, 178, 255` |
 | `setScale(s)` | 全局缩放 | 0.5~3 | `1.10` |
 | `setOpacity(o)` | 圆盘/halo/碎片透明度 | 0.1~1 | `0.50` |
 | `setSpeed(click,trail)` | 点击/拖拽速度 | 0.2~3 | `1.00, 1.05` |
@@ -110,8 +110,8 @@ Canvas 自动铺满窗口，`pointer-events: none` 不拦截页面交互。
 |---|---|---|
 | `setTrail(enabled)` | 开关拖拽轨迹 | `true` |
 | `setTrailAlways(enabled)` | 鼠标移动时始终显示 | `false` |
-| `setTrailBrightness(alpha,whiteMix)` | 拖尾整体亮度与偏白程度 (0~1) | `0.96, 0.26` |
-| `setTrailWidth(baseFast,baseSlow)` | 快速/慢速基础宽度 (0.5~6) | `1.18, 0.92` |
+| `setTrailBrightness(alpha,whiteMix)` | 拖尾整体亮度与偏白程度 (0~1) | `0.96, 0.08` |
+| `setTrailWidth(baseFast,baseSlow)` | 快速/慢速基础宽度 (0.5~6) | `3.00, 3.00` |
 | `setTrailLength(slow,fast)` | 慢速/快速长度上限 | `900, 4200` |
 | `setTrailLife(slow,fast)` | 轨迹消散速度 (帧, 60fps 基准) | `22, 22` |
 | `setTrailDecay(tail,head,release)` | 尾部/头部/松手后消散倍率 | `1.28, 0.95, 1.18` |
@@ -120,7 +120,7 @@ Canvas 自动铺满窗口，`pointer-events: none` 不拦截页面交互。
 | `setTrailSampling(step,max)` | 输入采样间距与最大点数 | `0.85, 80` |
 | `setTrailRenderSampling(step,max)` | 渲染重采样间距与最大点数 | `0.75, 2400` |
 | `setTrailSmooth(f)` | 鼠标坐标指数平滑 (0~0.9) | `0.5` |
-| `setTrailLayerAlpha(main,core,hot,glow,sGlow,rail)` | 6 层透明度独立调节 | `0.98,0.58,0.38,0.34,0.16,0.28` |
+| `setTrailLayerAlpha(main,core,hot,glow,sGlow,rail)` | 6 层透明度独立调节 | `1.00,0.78,0.34,0.18,0.045,0.02` |
 
 ### 圆环
 
@@ -135,10 +135,10 @@ Canvas 自动铺满窗口，`pointer-events: none` 不拦截页面交互。
 
 | 方法 | 说明 | 默认值 |
 |---|---|---|
-| `setMaxShards(n)` | 最大碎片数量 (0~200) | `30` |
-| `setShardSpacing(d)` | 间距平均值 px (20~500) | `300` |
-| `setShardChance(slow,fast)` | 慢速/快速额外概率 | `0.02, 0.12` |
-| `setShardLargeChance(p)` | 大碎片概率 | `0.80` |
+| `setMaxShards(n)` | 最大碎片数量 (0~200) | `38` |
+| `setShardSpacing(d)` | 间距平均值 px (20~500) | `220` |
+| `setShardChance(slow,fast)` | 慢速/快速额外概率 | `0.04, 0.18` |
+| `setShardLargeChance(p)` | 大碎片概率 | `0.62` |
 | `setMoveSparkChance(p)` | 移动时随机撒点概率 (0~0.05) | `0` |
 
 ### 工具

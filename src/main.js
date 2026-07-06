@@ -295,7 +295,7 @@ function drawArcSegment(
   context.save();
 
   // BASpark 的点击圆环是单层线条；多层 fake glow 会让点击反馈显得发糊。
-  context.lineCap = 'butt';
+  context.lineCap = 'round';
   context.strokeStyle = rgbToCss(color, alpha);
   context.lineWidth = widthValue;
 
@@ -905,17 +905,17 @@ function tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor)
   const scale = CONFIG.scale;
   const drift = rand(0.02, 0.28) * (0.72 + speedFactor * 0.45);
   const tangentDrift = rand(-0.22, 0.26);
-  // 偏向白色以匹配拖尾轨迹的亮度观感
-  const whiteMix = isLarge ? rand(0.72, 0.96) : rand(0.52, 0.86);
+  // 拖尾碎片只做辅助点缀，避免比轨迹本体更抢眼。
+  const whiteMix = isLarge ? rand(0.48, 0.82) : rand(0.28, 0.62);
 
   spark.vx = Math.cos(normalAngle) * drift + Math.cos(tangentAngle) * tangentDrift;
   spark.vy = Math.sin(normalAngle) * drift + Math.sin(tangentAngle) * tangentDrift;
 
   // 大碎片更慢、更亮，能形成截图里沿轨迹漂浮的三角片。
-  spark.size = (isLarge ? rand(7.4, 12.2) : rand(4.2, 6.4)) * scale;
-  spark.alpha = isLarge ? rand(0.52, 0.9) : rand(0.36, 0.68);
+  spark.size = (isLarge ? rand(6.2, 9.8) : rand(3.6, 5.6)) * scale;
+  spark.alpha = isLarge ? rand(0.42, 0.74) : rand(0.28, 0.52);
   spark.maxAlpha = spark.alpha;
-  spark.alphaMul = isLarge ? rand(1.45, 1.72) : rand(1.3, 1.55);
+  spark.alphaMul = isLarge ? rand(1.08, 1.32) : rand(0.96, 1.18);
   // 120fps 视频基准：生命周期随机 25~40 帧 → 60fps 基准 12.5~20 帧。
   // 从目标生命周期反推衰减速度，保证每个碎片存活时间落在区间内。
   const lifetime = rand(12.5, 20);
@@ -1342,20 +1342,95 @@ function buildTrailRenderPoints(points) {
   return result;
 }
 
-function getTrailStopAlpha(stops, offset)
+function getTrailPathSlice(points, startProgress)
 {
-  const progress = clamp01(offset);
+  const progress = clamp01(startProgress);
 
-  if (stops.length === 0)
+  if (progress <= 0)
   {
-    return 0;
+    return points;
   }
 
+  if (progress >= 1)
+  {
+    const empty = [];
+    empty.totalLength = 0;
+
+    return empty;
+  }
+
+  const totalLength =
+    points.totalLength ??
+    points[points.length - 1]?.distanceFromTail ??
+    0;
+
+  if (points.length < 2 || totalLength <= 0)
+  {
+    return points;
+  }
+
+  const startDistance = totalLength * progress;
+
+  for (let i = 1; i < points.length; i++)
+  {
+    const prev = points[i - 1];
+    const current = points[i];
+
+    if (current.distanceFromTail < startDistance)
+    {
+      continue;
+    }
+
+    const segmentLength = current.distanceFromTail - prev.distanceFromTail;
+    const t =
+      segmentLength <= 0
+        ? 0
+        : (startDistance - prev.distanceFromTail) / segmentLength;
+    const startPoint = {
+      ...current,
+      x: lerp(prev.x, current.x, clamp01(t)),
+      y: lerp(prev.y, current.y, clamp01(t)),
+      distanceFromTail: 0,
+    };
+    const sliced = [
+      startPoint,
+      ...points.slice(i).map((point) => ({ ...point })),
+    ];
+
+    let slicedLength = 0;
+
+    sliced[0].distanceFromTail = 0;
+
+    for (let j = 1; j < sliced.length; j++)
+    {
+      slicedLength += distance(sliced[j - 1], sliced[j]);
+      sliced[j].distanceFromTail = slicedLength;
+    }
+
+    sliced.totalLength = slicedLength;
+
+    return sliced;
+  }
+
+  const empty = [];
+  empty.totalLength = 0;
+
+  return empty;
+}
+
+function getTrailStopValue(stops, progress, fallback = 0)
+{
+  if (!Array.isArray(stops) || stops.length === 0)
+  {
+    return fallback;
+  }
+
+  const value = clamp01(progress);
   const first = stops[0];
 
-  if (progress <= first[0])
+  if (value <= first[0])
   {
-    return clamp01(first[1]);
+    return first[1];
   }
 
   for (let i = 1; i < stops.length; i++)
@@ -1363,118 +1438,102 @@ function getTrailStopAlpha(stops, offset)
     const prev = stops[i - 1];
     const next = stops[i];
 
-    if (progress <= next[0])
-    {
-      const range = next[0] - prev[0];
-      const t = range === 0 ? 1 : (progress - prev[0]) / range;
-
-      return clamp01(lerp(prev[1], next[1], t));
-    }
-  }
-
-  return clamp01(stops[stops.length - 1][1]);
-}
-
-function getTrailStopValue(stops, offset, fallback = 1)
-{
-  if (!stops || stops.length === 0)
-  {
-    return fallback;
-  }
-
-  return getTrailStopAlpha(stops, offset);
-}
-
-function strokeTrailChunk(
-  context,
-  points,
-  startIndex,
-  endIndex,
-  options,
-  alpha,
-  widthScale,
-)
-{
-  const {
-    widthValue,
-    color,
-    minWidth = 0,
-  } = options;
-  const lineWidth = Math.max(minWidth, widthValue * widthScale);
-
-  if (alpha <= 0 || lineWidth <= 0 || endIndex <= startIndex)
-  {
-    return;
-  }
-
-  context.strokeStyle = rgbToCss(color, alpha);
-  context.lineWidth = lineWidth;
-  context.lineCap = 'butt';
-  context.lineJoin = 'round';
-
-  context.beginPath();
-  context.moveTo(points[startIndex].x, points[startIndex].y);
-
-  for (let i = startIndex + 1; i <= endIndex; i++)
-  {
-    context.lineTo(points[i].x, points[i].y);
-  }
-
-  context.stroke();
-}
-
-function strokeFullTrailPath(context, points, options)
-{
-  const {
-    widthValue,
-    stops,
-    widthStops,
-  } = options;
-
-  const totalLength =
-    points.totalLength ??
-    points[points.length - 1]?.distanceFromTail ??
-    0;
-
-  if (points.length < 2 || widthValue <= 0 || totalLength <= 0)
-  {
-    return;
-  }
-
-  const chunkLength = Math.max(1, CONFIG.trail.gradientChunkLength);
-
-  context.save();
-
-  let startIndex = 0;
-
-  for (let i = 1; i < points.length; i++)
-  {
-    const currentLength =
-      points[i].distanceFromTail - points[startIndex].distanceFromTail;
-    const isLastPoint = i === points.length - 1;
-
-    if (currentLength < chunkLength && !isLastPoint)
+    if (value > next[0])
     {
       continue;
     }
 
-    // Canvas 的线性渐变按首尾直线投影，不按真实路径长度计算。
-    // 圆形轨迹里首尾点靠近时会让端帽被错误点亮，所以这里分段沿路径采样透明度。
-    const midpointDistance =
-      (points[startIndex].distanceFromTail + points[i].distanceFromTail) / 2;
-    const progress = midpointDistance / totalLength;
-    const alpha = getTrailStopAlpha(stops, progress);
-    const widthScale = getTrailStopValue(widthStops, progress);
+    const range = next[0] - prev[0];
+    const t = range <= 0 ? 1 : (value - prev[0]) / range;
 
-    strokeTrailChunk(
-      context,
-      points,
-      startIndex,
-      i,
-      options,
-      alpha,
-      widthScale,
-    );
+    return lerp(prev[1], next[1], clamp01(t));
+  }
+
+  return stops[stops.length - 1][1];
+}
+
+function strokeTaperedTrailPath(context, points, options)
+{
+  const {
+    widthValue,
+    color,
+    stops,
+    widthStops,
+    minWidth = 0,
+    lineCap = 'round',
+    shadowBlur = 0,
+    shadowColor = color,
+    shadowAlpha = 0,
+    startProgress = 0,
+    chunkLength = 12 * CONFIG.scale,
+    maxChunks = 96,
+  } = options;
+  const pathPoints = getTrailPathSlice(points, startProgress);
+  const totalLength =
+    pathPoints.totalLength ??
+    pathPoints[pathPoints.length - 1]?.distanceFromTail ??
+    0;
+
+  if (pathPoints.length < 2 || widthValue <= 0 || totalLength <= 0)
+  {
+    return;
+  }
+
+  const startDistance = pathPoints[0].distanceFromTail ?? 0;
+  const maxAlpha = Math.max(...stops.map((stop) => stop[1]), 0.001);
+  const effectiveChunkLength = Math.max(
+    chunkLength,
+    totalLength / Math.max(8, maxChunks),
+  );
+  let startIndex = 0;
+
+  context.save();
+  context.lineCap = lineCap;
+  context.lineJoin = 'round';
+
+  for (let i = 1; i < pathPoints.length; i++)
+  {
+    const currentLength =
+      pathPoints[i].distanceFromTail - pathPoints[startIndex].distanceFromTail;
+    const isLastPoint = i === pathPoints.length - 1;
+
+    if (currentLength < effectiveChunkLength && !isLastPoint)
+    {
+      continue;
+    }
+
+    const midpoint =
+      (pathPoints[startIndex].distanceFromTail + pathPoints[i].distanceFromTail) / 2;
+    const localProgress = clamp01((midpoint - startDistance) / totalLength);
+    const alpha = getTrailStopValue(stops, localProgress);
+    const widthScale = getTrailStopValue(widthStops, localProgress, 1);
+    const lineWidth = Math.max(minWidth, widthValue * widthScale);
+
+    if (alpha > 0 && lineWidth > 0)
+    {
+      context.strokeStyle = rgbToCss(color, alpha);
+      context.lineWidth = lineWidth;
+
+      if (shadowBlur > 0 && shadowAlpha > 0)
+      {
+        // 分段宽度和透明度模拟 Unity TrailRenderer 的 width/color over lifetime。
+        context.shadowBlur = shadowBlur;
+        context.shadowColor = rgbToCss(
+          shadowColor,
+          shadowAlpha * clamp01(alpha / maxAlpha),
+        );
+      }
+
+      context.beginPath();
+      context.moveTo(pathPoints[startIndex].x, pathPoints[startIndex].y);
+
+      for (let j = startIndex + 1; j <= i; j++)
+      {
+        context.lineTo(pathPoints[j].x, pathPoints[j].y);
+      }
+
+      context.stroke();
+    }
 
     startIndex = i;
   }
@@ -1482,14 +1541,63 @@ function strokeFullTrailPath(context, points, options)
   context.restore();
 }
 
-function renderTrailStrokeToCanvas(stroke) {
-  if (!stroke || stroke.length < 2) {
+function strokeSolidTrailPath(context, points, options)
+{
+  const {
+    widthValue,
+    color,
+    alpha,
+    minWidth = 0,
+    lineCap = 'butt',
+    shadowBlur = 0,
+    shadowColor = color,
+    shadowAlpha = 0,
+    startProgress = 0,
+  } = options;
+  const pathPoints = getTrailPathSlice(points, startProgress);
+  const lineWidth = Math.max(minWidth, widthValue);
+
+  if (pathPoints.length < 2 || lineWidth <= 0 || alpha <= 0)
+  {
+    return;
+  }
+
+  context.save();
+  context.strokeStyle = rgbToCss(color, alpha);
+  context.lineWidth = lineWidth;
+  context.lineCap = lineCap;
+  context.lineJoin = 'round';
+
+  if (shadowBlur > 0 && shadowAlpha > 0)
+  {
+    // 大范围柔光用整条路径一次绘制，避免每个小段都触发 expensive shadowBlur。
+    context.shadowBlur = shadowBlur;
+    context.shadowColor = rgbToCss(shadowColor, shadowAlpha);
+  }
+
+  context.beginPath();
+  context.moveTo(pathPoints[0].x, pathPoints[0].y);
+
+  for (let i = 1; i < pathPoints.length; i++)
+  {
+    context.lineTo(pathPoints[i].x, pathPoints[i].y);
+  }
+
+  context.stroke();
+  context.restore();
+}
+
+function renderTrailStrokeToCanvas(stroke)
+{
+  if (!stroke || stroke.length < 2)
+  {
     return;
   }
 
   const renderPoints = buildTrailRenderPoints(stroke);
 
-  if (renderPoints.length < 2) {
+  if (renderPoints.length < 2)
+  {
     return;
   }
 
@@ -1522,179 +1630,132 @@ function renderTrailStrokeToCanvas(stroke) {
     CONFIG.trail.railWidthFast,
     speedFactor,
   ) * CONFIG.scale;
+  const glowBaseWidth = Math.max(
+    CONFIG.scale,
+    Math.min(baseWidth, 2.2 * CONFIG.scale),
+  );
 
   // stroke 快结束时整体稍微淡出，避免最后一个头部亮点突然消失。
   const headLifeRatio = head.maxLife > 0 ? clamp01(head.life / head.maxLife) : 1;
   const fadeMul = smoothstep(0.05, 0.45, headLifeRatio);
 
-  // 1. 细暗轨道：截图里旧轨迹会保留一条很细的蓝线。
-  strokeFullTrailPath(trailCtx, renderPoints, {
+  // 1. 细暗轨道：按路径长度采样，避免回环轨迹被首尾线性渐变误亮。
+  strokeTaperedTrailPath(trailCtx, renderPoints, {
     widthValue: railWidth,
-    minWidth: 0.22 * CONFIG.scale,
+    minWidth: 0.08 * CONFIG.scale,
+    lineCap: 'butt',
     color: CONFIG.color,
-    widthStops: [
-      [0.0, 0.38],
-      [0.35, 0.52],
-      [0.72, 0.72],
-      [1.0, 0.52],
-    ],
     stops: [
-      [0.0, CONFIG.trail.railAlpha * 0.16 * CONFIG.trail.alpha * fadeMul],
-      [0.22, CONFIG.trail.railAlpha * 0.34 * CONFIG.trail.alpha * fadeMul],
-      [0.62, CONFIG.trail.railAlpha * 0.58 * CONFIG.trail.alpha * fadeMul],
-      [1.0, CONFIG.trail.railAlpha * 0.3 * CONFIG.trail.alpha * fadeMul],
+      [0.0, CONFIG.trail.railAlpha * 0.04 * CONFIG.trail.alpha * fadeMul],
+      [0.45, CONFIG.trail.railAlpha * 0.08 * CONFIG.trail.alpha * fadeMul],
+      [0.82, CONFIG.trail.railAlpha * 0.18 * CONFIG.trail.alpha * fadeMul],
+      [1.0, CONFIG.trail.railAlpha * 0.06 * CONFIG.trail.alpha * fadeMul],
     ],
+    widthStops: [
+      [0.0, 0.5],
+      [0.5, 0.72],
+      [1.0, 0.58],
+    ],
+    chunkLength: 14 * CONFIG.scale,
+    maxChunks: 56,
   });
 
-  // 2. 柔和外光：用更宽、更淡的分段线模拟截图里的蓝色扩散。
-  if (CONFIG.glow.fake) {
-    strokeFullTrailPath(trailCtx, renderPoints, {
-      widthValue: baseWidth * CONFIG.trail.softGlowWidthMul,
+  // 2. 柔和外光：让细线自身发光，而不是画出一条可见宽色带。
+  if (CONFIG.glow.fake)
+  {
+    strokeSolidTrailPath(trailCtx, renderPoints, {
+      widthValue: glowBaseWidth * CONFIG.trail.softGlowWidthMul * 2.9,
+      minWidth: glowBaseWidth * 0.36,
+      lineCap: 'butt',
       color: CONFIG.color,
-      widthStops: [
-        [0.0, 0.18],
-        [0.42, 0.55],
-        [0.78, 0.92],
-        [1.0, 1.0],
-      ],
-      stops: [
-        [0.0, 0.0],
-        [0.22, CONFIG.trail.softGlowAlpha * 0.18 * CONFIG.trail.alpha * fadeMul],
-        [0.52, CONFIG.trail.softGlowAlpha * 0.58 * CONFIG.trail.alpha * fadeMul],
-        [0.82, CONFIG.trail.softGlowAlpha * CONFIG.trail.alpha * fadeMul],
-        [1.0, CONFIG.trail.softGlowAlpha * 0.72 * CONFIG.trail.alpha * fadeMul],
-      ],
+      alpha: CONFIG.trail.softGlowAlpha * 0.16 * CONFIG.trail.alpha * fadeMul,
+      shadowBlur: glowBaseWidth * 60,
+      shadowColor: CONFIG.color,
+      shadowAlpha: CONFIG.trail.softGlowAlpha * 0.9 * CONFIG.trail.alpha * fadeMul,
+      startProgress: 0.7,
     });
 
-    strokeFullTrailPath(trailCtx, renderPoints, {
-      widthValue: baseWidth * CONFIG.trail.glowWidthMul,
+    strokeSolidTrailPath(trailCtx, renderPoints, {
+      widthValue: glowBaseWidth * CONFIG.trail.glowWidthMul * 1.25,
+      minWidth: glowBaseWidth * 0.22,
+      lineCap: 'butt',
       color: trailColor,
-      widthStops: [
-        [0.0, 0.22],
-        [0.38, 0.54],
-        [0.76, 0.88],
-        [1.0, 1.0],
-      ],
-      stops: [
-        [0.0, 0.0],
-        [0.2, CONFIG.trail.glowAlpha * 0.16 * CONFIG.trail.alpha * fadeMul],
-        [0.5, CONFIG.trail.glowAlpha * 0.48 * CONFIG.trail.alpha * fadeMul],
-        [0.82, CONFIG.trail.glowAlpha * CONFIG.trail.alpha * fadeMul],
-        [1.0, CONFIG.trail.glowAlpha * 0.82 * CONFIG.trail.alpha * fadeMul],
-      ],
+      alpha: CONFIG.trail.glowAlpha * 0.22 * CONFIG.trail.alpha * fadeMul,
+      shadowBlur: glowBaseWidth * 20,
+      shadowColor: trailColor,
+      shadowAlpha: CONFIG.trail.glowAlpha * 0.42 * CONFIG.trail.alpha * fadeMul,
+      startProgress: 0.74,
     });
   }
 
-  // 3. 半透明 Ribbon 层：模拟 Unity TrailRenderer 的带状能量材质。
-  strokeFullTrailPath(trailCtx, renderPoints, {
-    widthValue: baseWidth * CONFIG.trail.ribbonWidthMul,
+  // 3. 主蓝色轨迹：沿路径长度分段，避免圆形轨迹尾部被头部渐变拖亮。
+  strokeTaperedTrailPath(trailCtx, renderPoints, {
+    widthValue: baseWidth,
+    minWidth: baseWidth * 0.14,
+    lineCap: 'butt',
     color: trailColor,
+    stops: [
+      [0.0, CONFIG.trail.mainAlpha * 0.03 * CONFIG.trail.alpha * fadeMul],
+      [0.24, CONFIG.trail.mainAlpha * 0.09 * CONFIG.trail.alpha * fadeMul],
+      [0.5, CONFIG.trail.mainAlpha * 0.26 * CONFIG.trail.alpha * fadeMul],
+      [0.78, CONFIG.trail.mainAlpha * 0.74 * CONFIG.trail.alpha * fadeMul],
+      [1.0, CONFIG.trail.mainAlpha * 0.9 * CONFIG.trail.alpha * fadeMul],
+    ],
     widthStops: [
-      [0.0, 0.06],
-      [0.26, 0.36],
-      [0.56, 0.88],
-      [0.86, 1.0],
+      [0.0, 0.18],
+      [0.4, 0.42],
+      [0.82, 1.0],
+      [1.0, 0.86],
+    ],
+    chunkLength: 12 * CONFIG.scale,
+    maxChunks: 88,
+  });
+
+  // 4. 中心浅蓝高光：只是一条很细的亮芯，避免出现双轨。
+  strokeTaperedTrailPath(trailCtx, renderPoints, {
+    widthValue: coreWidth,
+    minWidth: coreWidth * 0.12,
+    lineCap: 'butt',
+    color: trailCoreColor,
+    stops: [
+      [0.0, 0.0],
+      [0.34, CONFIG.trail.coreAlpha * 0.02 * CONFIG.trail.alpha * fadeMul],
+      [0.62, CONFIG.trail.coreAlpha * 0.18 * CONFIG.trail.alpha * fadeMul],
+      [0.86, CONFIG.trail.coreAlpha * 0.7 * CONFIG.trail.alpha * fadeMul],
+      [1.0, CONFIG.trail.coreAlpha * 0.36 * CONFIG.trail.alpha * fadeMul],
+    ],
+    widthStops: [
+      [0.0, 0.1],
+      [0.55, 0.42],
+      [0.9, 1.0],
       [1.0, 0.72],
     ],
-    stops: [
-      [0.0, 0.0],
-      [0.18, CONFIG.trail.ribbonAlpha * 0.08 * CONFIG.trail.alpha * fadeMul],
-      [0.48, CONFIG.trail.ribbonAlpha * 0.36 * CONFIG.trail.alpha * fadeMul],
-      [0.78, CONFIG.trail.ribbonAlpha * CONFIG.trail.alpha * fadeMul],
-      [1.0, CONFIG.trail.ribbonAlpha * 0.52 * CONFIG.trail.alpha * fadeMul],
-    ],
+    chunkLength: 9 * CONFIG.scale,
+    maxChunks: 80,
   });
 
-  // 4. 主蓝色轨迹：宽度沿路径变细，避免尾部像等宽线。
-  strokeFullTrailPath(trailCtx, renderPoints, {
-    widthValue: baseWidth,
-    color: trailColor,
-    widthStops: [
-      [0.0, 0.24],
-      [0.28, 0.46],
-      [0.58, 0.82],
-      [0.86, 1.0],
-      [1.0, 0.88],
-    ],
-    stops: [
-      [0.0, CONFIG.trail.mainAlpha * 0.04 * CONFIG.trail.alpha * fadeMul],
-      [0.16, CONFIG.trail.mainAlpha * 0.14 * CONFIG.trail.alpha * fadeMul],
-      [0.44, CONFIG.trail.mainAlpha * 0.48 * CONFIG.trail.alpha * fadeMul],
-      [0.74, CONFIG.trail.mainAlpha * CONFIG.trail.alpha * fadeMul],
-      [1.0, CONFIG.trail.mainAlpha * 0.86 * CONFIG.trail.alpha * fadeMul],
-    ],
-  });
-
-  // 5. 中心浅蓝高光，覆盖更长的亮弧。
-  strokeFullTrailPath(trailCtx, renderPoints, {
-    widthValue: coreWidth,
-    color: trailCoreColor,
-    widthStops: [
-      [0.0, 0.16],
-      [0.42, 0.42],
-      [0.72, 0.9],
-      [1.0, 0.75],
-    ],
-    stops: [
-      [0.0, 0.0],
-      [0.34, CONFIG.trail.coreAlpha * 0.08 * CONFIG.trail.alpha * fadeMul],
-      [0.58, CONFIG.trail.coreAlpha * 0.42 * CONFIG.trail.alpha * fadeMul],
-      [0.86, CONFIG.trail.coreAlpha * CONFIG.trail.alpha * fadeMul],
-      [1.0, CONFIG.trail.coreAlpha * 0.62 * CONFIG.trail.alpha * fadeMul],
-    ],
-  });
-
-  // 6. 蓝白高光：不是只亮头部，而是让最近一段弧线持续发亮。
-  strokeFullTrailPath(trailCtx, renderPoints, {
+  // 5. 蓝白高光：同样按路径长度采样，回环时不会从尾端错误延长。
+  strokeTaperedTrailPath(trailCtx, renderPoints, {
     widthValue: hotWidth,
+    minWidth: hotWidth * 0.1,
+    lineCap: 'butt',
     color: trailHotColor,
-    widthStops: [
-      [0.0, 0.0],
-      [0.52, 0.35],
-      [0.78, 1.0],
-      [1.0, 0.62],
-    ],
     stops: [
       [0.0, 0.0],
-      [0.46, 0.0],
-      [0.66, CONFIG.trail.hotAlpha * 0.28 * CONFIG.trail.alpha * fadeMul],
-      [0.86, CONFIG.trail.hotAlpha * CONFIG.trail.alpha * fadeMul],
-      [1.0, CONFIG.trail.hotAlpha * 0.48 * CONFIG.trail.alpha * fadeMul],
+      [0.52, 0.0],
+      [0.72, CONFIG.trail.hotAlpha * 0.2 * CONFIG.trail.alpha * fadeMul],
+      [0.92, CONFIG.trail.hotAlpha * 0.92 * CONFIG.trail.alpha * fadeMul],
+      [1.0, CONFIG.trail.hotAlpha * 0.3 * CONFIG.trail.alpha * fadeMul],
     ],
+    widthStops: [
+      [0.0, 0],
+      [0.72, 0.38],
+      [0.92, 1.0],
+      [1.0, 0.55],
+    ],
+    chunkLength: 7 * CONFIG.scale,
+    maxChunks: 72,
   });
-
-  const headRadius = lerp(1.1, 2.1, speedFactor) * CONFIG.scale;
-
-  // 头部使用 drawCircle 以支持真实发光 (shadowBlur)
-  drawCircle(
-    trailCtx,
-    head.x,
-    head.y,
-    headRadius * 3.2,
-    CONFIG.color,
-    0.14 * CONFIG.trail.alpha * fadeMul,
-    headRadius * 2.8,
-  );
-
-  drawCircle(
-    trailCtx,
-    head.x,
-    head.y,
-    headRadius * 1.9,
-    trailColor,
-    0.28 * CONFIG.trail.alpha * fadeMul,
-    headRadius * 1.6,
-  );
-
-  drawCircle(
-    trailCtx,
-    head.x,
-    head.y,
-    headRadius * 0.62,
-    trailHotColor,
-    0.42 * CONFIG.trail.alpha * fadeMul,
-    headRadius * 0.5,
-  );
 }
 
 function renderTrailToCanvas() {
@@ -2017,13 +2078,8 @@ window.BASparkDemo = {
     requestRender();
   },
 
-  setTrailBrightness(value = 0.96) {
-    CONFIG.trail.alpha = Math.max(0.1, Math.min(1, Number(value) ?? 0.96));
-    requestRender();
-  },
-
-  setTrailWhiteMix(value = 0.26) {
-    CONFIG.trail.whiteMix = Math.max(0, Math.min(1, Number(value) ?? 0.26));
+  setTrailWhiteMix(value = 0.08) {
+    CONFIG.trail.whiteMix = Math.max(0, Math.min(1, Number(value) ?? 0.08));
     requestRender();
   },
 
@@ -2039,7 +2095,7 @@ window.BASparkDemo = {
     requestRender();
   },
 
-  setTrailBrightness(alpha = 0.96, whiteMix = 0.26) {
+  setTrailBrightness(alpha = 0.96, whiteMix = 0.08) {
     CONFIG.trail.alpha = Math.max(
       0.1,
       Math.min(1, Number(alpha) ?? 1),
@@ -2047,43 +2103,50 @@ window.BASparkDemo = {
 
     CONFIG.trail.whiteMix = Math.max(
       0,
-      Math.min(0.9, Number(whiteMix) ?? 0.26),
+      Math.min(0.9, Number(whiteMix) ?? 0.08),
     );
 
     requestRender();
   },
 
-  setTrailWidth(baseFast = 1.18, baseSlow = 0.92) {
+  setTrailWidth(baseFast = 3, baseSlow = baseFast)
+  {
+    const fast = Number(baseFast);
+    const slow = Number(baseSlow);
+    const safeFast = Number.isFinite(fast) ? fast : 3;
+    const safeSlow = Number.isFinite(slow) ? slow : safeFast;
+
     CONFIG.trail.baseWidthFast = Math.max(
       0.5,
-      Math.min(6, Number(baseFast) ?? 1.18),
+      Math.min(6, safeFast),
     );
 
     CONFIG.trail.baseWidthSlow = Math.max(
       0.3,
-      Math.min(CONFIG.trail.baseWidthFast, Number(baseSlow) ?? 0.92),
+      Math.min(CONFIG.trail.baseWidthFast, safeSlow),
     );
 
     requestRender();
   },
 
   setTrailLayerAlpha(
-    main = 0.98,
-    core = 0.58,
-    hot = 0.38,
-    glow = 0.34,
-    softGlow = 0.16,
-    rail = 0.28,
-  ) {
-    CONFIG.trail.mainAlpha = Math.max(0, Math.min(1, Number(main) ?? 0.98));
-    CONFIG.trail.coreAlpha = Math.max(0, Math.min(1, Number(core) ?? 0.58));
-    CONFIG.trail.hotAlpha = Math.max(0, Math.min(1, Number(hot) ?? 0.38));
-    CONFIG.trail.glowAlpha = Math.max(0, Math.min(1, Number(glow) ?? 0.34));
+    main = 1,
+    core = 0.92,
+    hot = 0.58,
+    glow = 0.18,
+    softGlow = 0.045,
+    rail = 0.02,
+  )
+  {
+    CONFIG.trail.mainAlpha = Math.max(0, Math.min(1, Number(main) ?? 1));
+    CONFIG.trail.coreAlpha = Math.max(0, Math.min(1, Number(core) ?? 0.92));
+    CONFIG.trail.hotAlpha = Math.max(0, Math.min(1, Number(hot) ?? 0.58));
+    CONFIG.trail.glowAlpha = Math.max(0, Math.min(1, Number(glow) ?? 0.18));
     CONFIG.trail.softGlowAlpha = Math.max(
       0,
-      Math.min(1, Number(softGlow) ?? 0.16),
+      Math.min(1, Number(softGlow) ?? 0.045),
     );
-    CONFIG.trail.railAlpha = Math.max(0, Math.min(1, Number(rail) ?? 0.28));
+    CONFIG.trail.railAlpha = Math.max(0, Math.min(1, Number(rail) ?? 0.02));
 
     requestRender();
   },
@@ -2194,19 +2257,20 @@ window.BASparkDemo = {
     );
   },
 
-  setShardSpacing(value = 300) {
-    CONFIG.trail.shardSpacing = Math.max(20, Math.min(500, Number(value) ?? 300));
+  setShardSpacing(value = 220) {
+    CONFIG.trail.shardSpacing = Math.max(20, Math.min(500, Number(value) ?? 220));
     requestRender();
   },
 
-  setShardChance(slow = 0.02, fast = 0.12) {
-    CONFIG.trail.shardChanceSlow = Math.max(0, Math.min(1, Number(slow) ?? 0.02));
-    CONFIG.trail.shardChanceFast = Math.max(CONFIG.trail.shardChanceSlow, Math.min(1, Number(fast) ?? 0.12));
+  setShardChance(slow = 0.04, fast = 0.18) {
+    CONFIG.trail.shardChanceSlow = Math.max(0, Math.min(1, Number(slow) ?? 0.04));
+    CONFIG.trail.shardChanceFast = Math.max(CONFIG.trail.shardChanceSlow, Math.min(1, Number(fast) ?? 0.18));
     requestRender();
   },
 
-  setShardLargeChance(value = 0.80) {
-    CONFIG.trail.shardLargeChance = Math.max(0, Math.min(1, Number(value) ?? 0.80));
+  setShardLargeChance(value = 0.62)
+  {
+    CONFIG.trail.shardLargeChance = Math.max(0, Math.min(1, Number(value) ?? 0.62));
     requestRender();
   },
 
@@ -2217,8 +2281,8 @@ window.BASparkDemo = {
     requestRender();
   },
 
-  setMaxShards(value = 30) {
-    CONFIG.trail.maxSparkParticles = Math.max(0, Math.min(200, Number(value) ?? 30));
+  setMaxShards(value = 38) {
+    CONFIG.trail.maxSparkParticles = Math.max(0, Math.min(200, Number(value) ?? 38));
     requestRender();
   },
 
@@ -2299,27 +2363,41 @@ window.BASparkDemo = {
 
 (function initUI() {
   const api = window.BASparkDemo;
+  const SETTINGS_VERSION = '2026-07-07-trail-render-fast-1';
+
+  if (localStorage.getItem('bafx-version') !== SETTINGS_VERSION)
+  {
+    for (const key of Object.keys(localStorage))
+    {
+      if (key.startsWith('bafx-'))
+      {
+        localStorage.removeItem(key);
+      }
+    }
+
+    localStorage.setItem('bafx-version', SETTINGS_VERSION);
+  }
 
   // -- 默认值（用于重置）--
   const DEFAULTS = {
-    color: '#5c9bff',
+    color: '#12b2ff',
     scale: 1.10,
     opacity: 0.5,
     clickSpeed: 1,
     trailSpeed: 1.05,
     trail: true,
     trailAlways: false,
-    trailWidth: 1.18,
+    trailWidth: 3,
     trailLength: 900,
     trailLife: 22,
     fakeGlow: true,
     clickFake: true,
     glow: false,
-    shardSpacing: 300,
-    shardChanceSlow: 0.02,
-    shardChanceFast: 0.12,
-    shardLargeChance: 0.80,
-    maxShards: 30,
+    shardSpacing: 220,
+    shardChanceSlow: 0.04,
+    shardChanceFast: 0.18,
+    shardLargeChance: 0.62,
+    maxShards: 38,
     smooth: 0.5,
     dpr: 1,
     trailRenderScale: 1,
@@ -2328,7 +2406,7 @@ window.BASparkDemo = {
     ringWidth: 0.9,
     ringAlpha: 0.9,
     trailBrightness: 0.96,
-    trailWhiteMix: 0.26,
+    trailWhiteMix: 0.08,
   };
 
   // -- 面板开关 --

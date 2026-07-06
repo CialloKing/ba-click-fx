@@ -3,7 +3,7 @@ import { mixColor } from './utils.js';
 // 游戏原始拖尾更偏蓝，不是偏白的蓝白色。
 // 所有可调参数集中于此，运行时可被 BASparkDemo API 修改。
 export const CONFIG = {
-  color: [92, 155, 255],
+  color: [18, 178, 255],
   startColor: [250, 252, 252],
 
   scale: 1.10,
@@ -113,9 +113,6 @@ export const CONFIG = {
     // 渲染重采样（renderMaxPoints 限制最终渲染点数，区别于上面 maxPoints 限制原始采样存储点）
     renderStep: 0.75,
     renderMaxPoints: 2400,
-    // 沿真实路径分段上色，避免首尾直线渐变在回环轨迹里误亮尾端。
-    gradientChunkLength: 1.5,
-
     // TrailRenderer.time 主导长度；这里主要作为异常长路径的保险上限。
     lengthSlow: 900,
     lengthFast: 4200,
@@ -140,52 +137,52 @@ export const CONFIG = {
     // 速度因子下降稍快一点：松手后只影响宽度/长度，不拖慢寿命。
     speedDecay: 0.988,
 
-    // 轨迹宽度
-    baseWidthSlow: 0.92,
-    baseWidthFast: 1.18,
+    // 轨迹本体更像 Unity TrailRenderer 的细线，宽度主要交给发光层表现。
+    baseWidthSlow: 3,
+    baseWidthFast: 3,
 
-    coreWidthSlow: 0.42,
-    coreWidthFast: 0.88,
+    coreWidthSlow: 0.3,
+    coreWidthFast: 0.52,
 
-    hotWidthSlow: 0.18,
-    hotWidthFast: 0.46,
+    hotWidthSlow: 0.1,
+    hotWidthFast: 0.24,
 
-    ribbonWidthMul: 1.82,
-    glowWidthMul: 4.2,
-    softGlowWidthMul: 9.2,
-    railWidthSlow: 0.45,
-    railWidthFast: 0.78,
+    ribbonWidthMul: 0,
+    glowWidthMul: 1.7,
+    softGlowWidthMul: 2.4,
+    railWidthSlow: 0.22,
+    railWidthFast: 0.36,
 
     // 亮度与偏白程度：
-    // whiteMix 越大越白。原来 0.68 会明显偏白，这里降到 0.26。
+    // whiteMix 越大越白；轨迹本体需要偏 cyan，白色只留给极细中心高光。
     alpha: 0.96,
-    whiteMix: 0.26,
+    whiteMix: 0.08,
 
-    mainAlpha: 0.98,
-    ribbonAlpha: 0.5,
-    coreAlpha: 0.58,
-    hotAlpha: 0.38,
-    glowAlpha: 0.34,
-    softGlowAlpha: 0.16,
-    railAlpha: 0.28,
+    mainAlpha: 1,
+    ribbonAlpha: 0,
+    coreAlpha: 0.78,
+    hotAlpha: 0.34,
+    glowAlpha: 0.18,
+    softGlowAlpha: 0.045,
+    railAlpha: 0.02,
 
     // 鼠标速度范围，单位 px/ms
     speedMin: 0.035,
     speedMax: 2.2,
 
     // 沿轨迹散布的三角碎片；截图里碎片不是只跟在鼠标头部。
-    shardSpacing: 300,
+    shardSpacing: 220,
     // 距离到达间隔时一定发射 1 个；这里控制额外碎片概率。
-    shardChanceSlow: 0.02,
-    shardChanceFast: 0.12,
-    shardOffsetMin: 8,
-    shardOffsetMax: 28,
-    shardLargeChance: 0.80,
-    maxSparkParticles: 30,
+    shardChanceSlow: 0.04,
+    shardChanceFast: 0.18,
+    shardOffsetMin: 2,
+    shardOffsetMax: 36,
+    shardLargeChance: 0.62,
+    maxSparkParticles: 38,
     // Unity ParticleSystem 常见做法：Color over Lifetime 叠加随机相位闪烁。
-    // 120fps 视频基准：闪烁完整周期 9 帧 → 60fps 基准 4.5 帧。
-    shardFlickerPeriod: 4.5,
-    shardFlickerMinAlpha: 0.22,
+    // 120fps 视频基准：闪烁完整周期 16 帧 → 60fps 基准 8 帧。
+    shardFlickerPeriod: 8,
+    shardFlickerMinAlpha: 0.3,
     shardFlickerSizePulse: 0.12,
 
     // 游戏截图里的碎片主要沿轨迹分布；关闭头部随机撒点以免范围变宽。
@@ -224,7 +221,8 @@ export function getClickRingEndColor()
  * 拖尾主色调 = 主题色按 whiteMix 混合白色
  * @returns {number[]} [r, g, b]
  */
-export function getTrailColor() {
+export function getTrailColor()
+{
   return mixColor(CONFIG.color, [255, 255, 255], CONFIG.trail.whiteMix);
 }
 
@@ -232,14 +230,16 @@ export function getTrailColor() {
  * 拖尾中心高光色 = 主题色 + 56% 白（浅蓝，避免纯白过于刺眼）
  * @returns {number[]} [r, g, b]
  */
-export function getTrailCoreColor() {
-  return mixColor(CONFIG.color, [255, 255, 255], 0.56);
+export function getTrailCoreColor()
+{
+  return mixColor(CONFIG.color, [255, 255, 255], 0.36);
 }
 
 /**
  * 拖尾头部热点色 = 主题色 + 74% 白（蓝白，保留蓝色基底）
  * @returns {number[]} [r, g, b]
  */
-export function getTrailHotColor() {
-  return mixColor(CONFIG.color, [255, 255, 255], 0.74);
+export function getTrailHotColor()
+{
+  return mixColor(CONFIG.color, [255, 255, 255], 0.58);
 }
