@@ -242,7 +242,34 @@ kbd {
   gap: 6px;
 }
 
-.panel-pin,
+.panel-pin {
+  padding: 5px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 15px;
+  cursor: pointer;
+  line-height: 1;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.panel-pin:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.panel-pin.pinned {
+  background: rgba(24, 158, 255, 0.22);
+  border-color: rgba(125, 239, 255, 0.5);
+  color: rgba(125, 239, 255, 0.95);
+  box-shadow: 0 0 8px rgba(24, 158, 255, 0.25);
+}
+
 .panel-close {
   padding: 4px 8px;
   border: none;
@@ -252,11 +279,6 @@ kbd {
   font-size: 16px;
   cursor: pointer;
   line-height: 1;
-}
-
-.panel-pin.pinned {
-  background: rgba(24, 158, 255, 0.25);
-  color: rgba(125, 239, 255, 0.9);
 }
 
 .panel-close:hover {
