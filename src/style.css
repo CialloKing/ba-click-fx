@@ -2,10 +2,8 @@ html,
 body {
   margin: 0;
   width: 100%;
-  min-height: 100%;
+  min-height: 100vh;
   overflow-x: hidden;
-  background:
-    radial-gradient(circle at top, #1d3558 0%, #101827 45%, #080d16 100%);
   color: white;
   font-family:
     Inter,
@@ -20,24 +18,7 @@ body {
   position: relative;
 }
 
-/* ── Page Layout ────────────────────────────────────────────────────────── */
-
-.page {
-  position: relative;
-  z-index: 1;
-  padding: 64px 48px 120px;
-  max-width: 640px;
-}
-
-.hero {
-}
-
-h1 {
-  margin: 0;
-  font-size: 36px;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
-}
+/* ── Button ────────────────────────────────────────────────────────────── */
 
 button {
   padding: 12px 20px;

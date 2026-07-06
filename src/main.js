@@ -2470,7 +2470,7 @@ window.BASparkDemo = {
   function setBodyBackground(value)
   {
     const bg = isImageUrl(value) ? wrapBgImage(value) : value;
-    document.body.style.background = bg;
+    document.documentElement.style.background = bg;
   }
 
   function applyTheme(themeName)
@@ -2560,6 +2560,11 @@ window.BASparkDemo = {
   else if (savedTheme && BACKGROUND_THEMES[savedTheme])
   {
     applyTheme(savedTheme);
+  }
+  else
+  {
+    // 首次访问或无已保存主题：应用默认蔚蓝背景
+    applyTheme('蔚蓝');
   }
 
   // -- 工具函数 --
