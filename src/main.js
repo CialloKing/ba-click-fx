@@ -848,12 +848,9 @@ function tuneClickShard(spark, centerX, centerY)
 {
   const angle = Math.random() * Math.PI * 2;
   const tangentAngle = angle + Math.PI / 2;
+  // 固定产生 4 个碎片（sparksCount），产生半径 = 圆盘最大半径
   const ringRadius =
-    (
-      CONFIG.filledCircle.rAddRate +
-      CONFIG.rings.radiusOffset +
-      rand(-6, 14)
-    ) *
+    CONFIG.filledCircle.rAddRate *
     getClickScale();
   // 径向速度与圆环扩张速度相近（~0.55 px/帧 @60fps），碎片随环外扩
   const radialSpeed = rand(0.4, 0.7) * CONFIG.scale;
@@ -870,8 +867,8 @@ function tuneClickShard(spark, centerX, centerY)
     Math.sin(angle) * radialSpeed +
     Math.sin(tangentAngle) * tangentSpeed;
 
-  // Unity ParticleSystem Burst：低速、随机大小和随机出生延迟，比固定环上标记自然。
-  spark.delay = rand(0, 4.5);
+  // 120fps 视频基准：碎片在第 3 帧出现 → 60fps 基准延迟 1.5 帧
+  spark.delay = 1.5;
   spark.size = rand(4.2, 8.8) * CONFIG.scale;
   spark.alpha = rand(0.78, 1);
   spark.maxAlpha = spark.alpha;
@@ -890,7 +887,7 @@ function tuneClickShard(spark, centerX, centerY)
   spark.flickerSizePulse = 0.08;
   spark.sizeGrowEnd = rand(0.16, 0.28);
   spark.sizeShrinkStart = rand(0.62, 0.76);
-  spark.spawnSizeMul = rand(0.42, 0.66);
+  spark.spawnSizeMul = rand(0.02, 0.1);
   spark.endSizeMul = rand(0.18, 0.36);
 }
 
