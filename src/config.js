@@ -79,10 +79,11 @@ export const CONFIG = {
     // 第12帧(120fps)达最大弧长 → ringLife=4@60fps → growEnd=4/25=0.16
     growEnd: 0.16,
     collapseStart: 0.16,
-    // fade 推迟到 96%，末期保持高亮，仅最后 1 帧快速淡出(60fps)
-    fadeStart: 0.96,
-    colorStart: 0.48,
-    colorEnd: 0.9,
+    // 全生命周期始终满亮度，不做淡出
+    fadeStart: 1.0,
+    // 颜色快速过渡到蓝白高亮（0→0.15），之后全程保持
+    colorStart: 0.0,
+    colorEnd: 0.15,
     segNum: 18,
     minW: 1.3,
     maxW: 6.0,
