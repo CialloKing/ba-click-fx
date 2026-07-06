@@ -1477,6 +1477,7 @@ export class BAClickFX
       widthValue,
       stops,
       widthStops,
+      minWidth = 0,
     } = options;
     const totalLength =
       points.totalLength ??
@@ -1511,7 +1512,7 @@ export class BAClickFX
       const progress = midpointDistance / totalLength;
       const alpha = getTrailStopValue(stops, progress);
       const widthScale = getTrailStopValue(widthStops, progress, 1);
-      const lineWidth = Math.max(0, widthValue * widthScale);
+      const lineWidth = Math.max(minWidth, widthValue * widthScale);
 
       if (alpha > 0 && lineWidth > 0 && i > startIndex)
       {
@@ -1587,6 +1588,7 @@ export class BAClickFX
     // 1. 细暗轨道
     this._strokeSolidTrailPath(this.trailCtx, renderPoints, {
       widthValue: railWidth,
+      minWidth: 0.08 * CONFIG.scale,
       color: CONFIG.color,
       widthStops: [
         [0.0, 0.38],
@@ -1607,6 +1609,7 @@ export class BAClickFX
     {
       this._strokeSolidTrailPath(this.trailCtx, renderPoints, {
         widthValue: baseWidth * CONFIG.trail.softGlowWidthMul,
+        minWidth: baseWidth * 0.05,
         color: CONFIG.color,
         widthStops: [
           [0.0, 0.18],
@@ -1625,6 +1628,7 @@ export class BAClickFX
 
       this._strokeSolidTrailPath(this.trailCtx, renderPoints, {
         widthValue: baseWidth * CONFIG.trail.glowWidthMul,
+        minWidth: baseWidth * 0.04,
         color: trailColor,
         widthStops: [
           [0.0, 0.22],
@@ -1647,6 +1651,7 @@ export class BAClickFX
     {
       this._strokeSolidTrailPath(this.trailCtx, renderPoints, {
         widthValue: baseWidth * CONFIG.trail.ribbonWidthMul,
+        minWidth: baseWidth * 0.05,
         color: trailColor,
         widthStops: [
           [0.0, 0.06],
@@ -1668,6 +1673,7 @@ export class BAClickFX
     // 4. 主蓝色轨迹
     this._strokeSolidTrailPath(this.trailCtx, renderPoints, {
       widthValue: baseWidth,
+      minWidth: baseWidth * 0.14,
       color: trailColor,
       widthStops: [
         [0.0, 0.24],
@@ -1688,6 +1694,7 @@ export class BAClickFX
     // 5. 中心浅蓝高光
     this._strokeSolidTrailPath(this.trailCtx, renderPoints, {
       widthValue: coreWidth,
+      minWidth: coreWidth * 0.12,
       color: trailCoreColor,
       widthStops: [
         [0.0, 0.16],
@@ -1707,6 +1714,7 @@ export class BAClickFX
     // 6. 蓝白高光
     this._strokeSolidTrailPath(this.trailCtx, renderPoints, {
       widthValue: hotWidth,
+      minWidth: hotWidth * 0.1,
       color: trailHotColor,
       widthStops: [
         [0.0, 0.0],
