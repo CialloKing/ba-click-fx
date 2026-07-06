@@ -590,7 +590,13 @@ class ClickWave
   drawRings(context, frameScale)
   {
     const cfg = CONFIG.rings;
-    const progress = clamp01(this.life / cfg.maxLife);
+    // 圆环在第 4 帧（120fps）出现，相对时间轴偏移 2 帧（60fps）
+    const ringLife = this.life - cfg.delay;
+    if (ringLife <= 0)
+    {
+      return;
+    }
+    const progress = clamp01(ringLife / (cfg.maxLife - cfg.delay));
 
     if (progress >= 1)
     {

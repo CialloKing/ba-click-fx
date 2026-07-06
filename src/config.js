@@ -44,6 +44,8 @@ export const CONFIG = {
   },
 
   rings: {
+    // 120fps 视频基准：圆环在第 4 帧出现 → 60fps 基准延迟 2 帧
+    delay: 2,
     maxLife: 27,
     rotationSpeed: 0.045,
     radiusOffset: 0.8,
