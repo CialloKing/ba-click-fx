@@ -1942,7 +1942,7 @@ window.BASparkDemo = {
   },
 
   setScale(scale) {
-    CONFIG.scale = Math.max(0.5, Math.min(3, Number(scale) ?? 1.00));
+    CONFIG.scale = Math.max(0.5, Math.min(3, Number(scale) ?? 1.10));
     requestRender();
   },
 
@@ -2262,7 +2262,7 @@ window.BASparkDemo = {
   // -- 默认值（用于重置）--
   const DEFAULTS = {
     color: '#189eff',
-    scale: 1.00,
+    scale: 1.10,
     opacity: 0.5,
     clickSpeed: 1,
     trailSpeed: 1.05,

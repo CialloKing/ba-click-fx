@@ -47,41 +47,6 @@ h1 {
   font-size: 15px;
 }
 
-/* ── Demo Cards ─────────────────────────────────────────────────────────── */
-
-.demo-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 32px;
-}
-
-.card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 18px;
-  border: 1px solid rgba(125, 239, 255, 0.2);
-  border-radius: 12px;
-  background: rgba(125, 239, 255, 0.06);
-  backdrop-filter: blur(8px);
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.card-icon {
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-/* ── Buttons ────────────────────────────────────────────────────────────── */
-
-.button-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
 button {
   padding: 12px 20px;
   border: 1px solid rgba(125, 239, 255, 0.45);

@@ -6,7 +6,7 @@ export const CONFIG = {
   color: [24, 158, 255],
   startColor: [250, 252, 252],
 
-  scale: 1.00,
+  scale: 1.10,
   opacity: 0.5,
 
   clickSpeed: 1,
