@@ -377,7 +377,7 @@ function drawClickArcSegment(
   );
 }
 
-function drawClickRingGlow(context, x, y, radius, alpha)
+function drawClickRingGlow(context, x, y, radius, color, alpha)
 {
   if (alpha <= 0 || radius <= 0)
   {
@@ -397,7 +397,7 @@ function drawClickRingGlow(context, x, y, radius, alpha)
     x,
     y,
     radius + cfg.softGlowRadiusAdd * getClickScale(),
-    CONFIG.color,
+    color,
     alpha * cfg.softGlowAlpha,
   );
 
@@ -406,7 +406,7 @@ function drawClickRingGlow(context, x, y, radius, alpha)
     x,
     y,
     radius + cfg.glowRadiusAdd * getClickScale(),
-    mixColor(CONFIG.color, [255, 255, 255], 0.38),
+    mixColor(color, [255, 255, 255], 0.38),
     alpha * cfg.glowAlpha,
   );
 }
@@ -630,6 +630,7 @@ class ClickWave
       this.x,
       this.y,
       baseRadius,
+      color,
       ringGlowAlpha,
     );
 
