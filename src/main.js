@@ -373,12 +373,10 @@ class ClickWave {
       return;
     }
 
-    // 游戏原作中蓝色实心圆固定大小，不做扩散（只有透明度衰减）
-    const radius = cfg.rAddRate * clickScale;
-
-    // 初始瞬间白色爆闪，随后快速过渡到主题蓝色
-    const flashProgress = Math.min(progress * 4, 1);
-    const color = mixColor(CONFIG.startColor, CONFIG.color, flashProgress);
+    // 游戏原作：圆从小快速扩展到大（极短），同时白色瞬间闪变为蓝
+    const expandProgress = Math.min(progress * 8, 1);
+    const radius = cfg.rAddRate * clickScale * expandProgress;
+    const color = mixColor(CONFIG.startColor, CONFIG.color, expandProgress);
     const alpha = (1 - progress) * CONFIG.opacity;
 
     this.r = radius;
