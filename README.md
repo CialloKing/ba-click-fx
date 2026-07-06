@@ -5,6 +5,8 @@
 
 网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效，纯 Canvas 2D 实现，零外部资源依赖。
 
+在线演示：[ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
+
 ## 快速开始
 
 在页面中放置一个 `<canvas id="sparkCanvas"></canvas>` 元素，引入构建产物即可：
@@ -32,19 +34,19 @@ npm run preview
 
 ## 使用
 
-页面引入 `#sparkCanvas` 画布元素，Canvas 设置 `pointer-events: none` 不拦截页面交互，下方按钮/链接可正常点击。
-
-右侧 **⚙ 控制面板** 可实时调节所有参数（设置自动保存到浏览器，刷新不丢失），按 **B** 键在屏幕中央触发点击特效。
+页面引入 `#sparkCanvas` 画布元素，Canvas 设置 `pointer-events: none` 不拦截页面交互。右侧 **⚙ 控制面板** 可实时调节所有参数（自动保存到浏览器），按 **B** 键在屏幕中央触发点击特效。
 
 ## 效果说明
 
 ### 点击特效
-- 白色闪光快速扩展为蓝色圆盘，圆盘约 24 帧后消失（120fps 录制基准）
-- 完整弱圆环叠加 2-3 段随机高亮弧线，整体点击特效约 54 帧结束
-- 约 5 个三角碎片以 ParticleSystem Burst 风格从圆环附近随机散出
+- 白色闪光快速扩展为蓝色圆盘，约 25 帧后消失（120fps 基准）
+- 2 段高亮弧线圆环，弧长先增长后逆时针缩减，圆环半径持续外扩
+- 4 个三角碎片从圆盘边缘同时爆射，向外飞行且不旋转
 
 ### 拖拽光轨
-按住鼠标拖动时出现多层发光轨迹，由 TrailRenderer 风格的时间窗口保留最近路径点，并叠加轨道线、外发光、Ribbon 能量带、主轨迹、高光芯线。轨迹头部有发光点，路径上按移动距离发射三角形碎片粒子。松开鼠标后轨迹从尾部向头部平滑消退。
+- 6 层叠加轨迹：暗轨线 + 柔和外光 + Ribbon 能量带 + 主蓝色轨迹 + 中心高光 + 蓝白热点
+- 头部有 3 层发光圆点，路径上按移动距离发射三角粒子
+- 松开鼠标后轨迹从尾部向头部平滑消退
 
 ## 运行时 API
 
@@ -54,8 +56,8 @@ npm run preview
 
 | 方法 | 说明 | 默认值 |
 |---|---|---|
-| `setColor(r, g, b)` | 主题颜色 | `24, 158, 255` |
-| `setScale(scale)` | 全局缩放 (0.5~3) | `1.15` |
+| `setColor(r, g, b)` | 主题颜色 | `92, 155, 255` |
+| `setScale(scale)` | 全局缩放 (0.5~3) | `1.10` |
 | `setOpacity(opacity)` | 圆环除外的全局透明度 (0.1~1) | `0.50` |
 | `setSpeed(clickSpeed, trailSpeed)` | 点击/拖拽动画速度 (0.2~3) | `1.00, 1.05` |
 | `setDpr(maxDpr)` | 设备像素比上限 (1~2) | `1` |
@@ -65,8 +67,8 @@ npm run preview
 
 | 方法 | 说明 | 默认值 |
 |---|---|---|
-| `setGlow(enabled)` | 阴影发光 (shadowBlur, 性能开销较高) | `false` |
-| `setFakeGlow(enabled)` | 多层柔光（拖尾线段光晕） | `true` |
+| `setGlow(enabled)` | 阴影发光 (性能开销较高) | `false` |
+| `setFakeGlow(enabled)` | 多层柔光 | `true` |
 | `setClickFakeGlow(enabled)` | 点击特效柔光 | `true` |
 
 ### 拖尾
@@ -74,28 +76,30 @@ npm run preview
 | 方法 | 说明 | 默认值 |
 |---|---|---|
 | `setTrail(enabled)` | 开关拖拽轨迹 | `true` |
-| `setTrailAlways(enabled)` | 鼠标移动时始终显示轨迹 | `false` |
+| `setTrailAlways(enabled)` | 鼠标移动时始终显示 | `false` |
 | `setTrailBrightness(alpha, whiteMix)` | 轨迹亮度与偏白程度 | `0.96, 0.26` |
-| `setTrailWidth(baseFast, baseSlow)` | 轨迹基础宽度 (0.5~6) | `1.18, 0.92` |
-| `setTrailLength(slow, fast)` | 慢速/快速移动轨迹保险长度 | `900, 4200` |
-| `setTrailLife(lifeSlow, lifeFast)` | 轨迹时间窗口（帧数） | `22, 22` |
-| `setTrailDecay(tailDecayMul, headDecayMul, releaseDecayMul)` | 尾部/头部/松手后消散速度 | `1.28, 0.95, 1.18` |
-| `setTrailSpeedDecay(value)` | 速度因子衰减率 (0.8~0.999) | `0.988` |
-| `setTrailSpeedRange(speedMin, speedMax)` | 速度因子映射范围 (px/ms) | `0.035, 2.2` |
-| `setTrailSampling(step, maxPoints)` | 输入采样间距与最大点数 | `0.85, 80` |
-| `setTrailRenderSampling(step, maxPoints)` | 渲染重采样间距与最大点数 | `0.75, 2400` |
-| `setTrailSmooth(factor)` | 鼠标坐标指数平滑 (0~0.9) | `0.5` |
-| `setTrailLayerAlpha(main, core, hot, glow, softGlow, rail)` | 各层透明度 | `0.98~0.16` |
+| `setTrailWidth(baseFast)` | 轨迹基础宽度 (0.5~6) | `1.18` |
+| `setTrailLength(slow)` | 轨迹长度 | `900` |
+| `setTrailLife(lifeSlow)` | 轨迹消失速度 (帧数) | `22` |
+| `setTrailSmooth(factor)` | 鼠标平滑 (0~0.9) | `0.5` |
+
+### 圆环
+
+| 方法 | 说明 | 默认值 |
+|---|---|---|
+| `setRingRotationSpeed(value)` | 旋转速度 (0~0.05) | `0.008` |
+| `setRingGlow(value)` | 光晕强度 (0~1) | `0.35` |
+| `setRingWidth(value)` | 弧线宽度 (0.3~3) | `0.9` |
+| `setRingAlpha(value)` | 圆环透明度 (0.1~1) | `0.9` |
 
 ### 碎片
 
 | 方法 | 说明 | 默认值 |
 |---|---|---|
-| `setMaxShards(count)` | 碎片最大数量 (0~200) | `56` |
-| `setShardSpacing(distance)` | 碎片按距离发射的基础间距 (px) | `92` |
-| `setShardChance(slowProb, fastProb)` | 慢速/快速下额外碎片概率 | `0.06, 0.34` |
-| `setShardLargeChance(prob)` | 大碎片概率 | `0.45` |
-| `setMoveSparkChance(prob)` | 移动时随机撒点概率 | `0` |
+| `setMaxShards(count)` | 碎片最大数量 (0~200) | `30` |
+| `setShardSpacing(distance)` | 碎片间距平均值 (px) | `300` |
+| `setShardChance(slowProb, fastProb)` | 慢速/快速额外概率 | `0.02, 0.12` |
+| `setShardLargeChance(prob)` | 大碎片概率 | `0.80` |
 
 ### 其他
 
@@ -116,12 +120,10 @@ npm run preview
 
 ## 致谢
 
-本项目参考并改进了以下项目的部分代码：
+本项目参考了以下项目并基于 120fps 视频逐帧校准：
 
 - [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark) — 蔚蓝档案点击特效的早期 Web 实现
 - [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor) — 蔚蓝档案光标特效实现
-
-相较于上述项目，本项目对鼠标拖拽轨迹进行了优化，使其更贴合游戏内原始特效的表现。
 
 ## 许可
 
