@@ -2012,6 +2012,11 @@ window.BASparkDemo = {
     requestRender();
   },
 
+  setRingAlpha(value = 0.9) {
+    CONFIG.rings.alpha = Math.max(0.1, Math.min(1, Number(value) ?? 0.9));
+    requestRender();
+  },
+
   setTrailBrightness(value = 0.96) {
     CONFIG.trail.alpha = Math.max(0.1, Math.min(1, Number(value) ?? 0.96));
     requestRender();
@@ -2321,6 +2326,7 @@ window.BASparkDemo = {
     ringRotation: 0.008,
     ringGlow: 0.35,
     ringWidth: 0.9,
+    ringAlpha: 0.9,
     trailBrightness: 0.96,
     trailWhiteMix: 0.26,
   };
@@ -2436,6 +2442,7 @@ window.BASparkDemo = {
   bindRange('ctrlRingRotation', 'outRingRotation', v => api.setRingRotationSpeed(v));
   bindRange('ctrlRingGlow', 'outRingGlow', v => api.setRingGlow(v));
   bindRange('ctrlRingWidth', 'outRingWidth', v => api.setRingWidth(v));
+  bindRange('ctrlRingAlpha', 'outRingAlpha', v => api.setRingAlpha(v));
 
   bindRange('ctrlTrailAlpha', 'outTrailAlpha', v => api.setTrailBrightness(v));
   bindRange('ctrlTrailWhiteMix', 'outTrailWhiteMix', v => api.setTrailWhiteMix(v));
@@ -2510,6 +2517,8 @@ window.BASparkDemo = {
     api.setRingGlow(DEFAULTS.ringGlow);
     setVal('ctrlRingWidth', 'outRingWidth', DEFAULTS.ringWidth);
     api.setRingWidth(DEFAULTS.ringWidth);
+    setVal('ctrlRingAlpha', 'outRingAlpha', DEFAULTS.ringAlpha);
+    api.setRingAlpha(DEFAULTS.ringAlpha);
     setVal('ctrlTrailAlpha', 'outTrailAlpha', DEFAULTS.trailBrightness);
     api.setTrailBrightness(DEFAULTS.trailBrightness);
     setVal('ctrlTrailWhiteMix', 'outTrailWhiteMix', DEFAULTS.trailWhiteMix);

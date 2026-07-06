@@ -87,7 +87,7 @@ export const CONFIG = {
     segNum: 18,
     minW: 0.9,
     maxW: 4.0,
-    alpha: 1.0,
+    alpha: 0.9,
   },
 
   // Unity ParticleSystem Burst 风格：点击时从圆环附近随机散出三角碎片。
