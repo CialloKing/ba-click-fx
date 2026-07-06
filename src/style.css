@@ -308,6 +308,17 @@ kbd {
   color: rgba(125, 239, 255, 0.6);
 }
 
+.sub-heading {
+  margin: 14px 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(125, 239, 255, 0.4);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 10px;
+}
+
 /* ── Controls ───────────────────────────────────────────────────────────── */
 
 .ctrl {
