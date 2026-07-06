@@ -614,8 +614,10 @@ class ClickWave
       smoothstep(cfg.colorStart, cfg.colorEnd, progress),
     );
     // 原作圆环像独立 Additive Sprite，本体亮度不跟随全局透明度滑块变暗。
+    // ringAlpha 用 grow 控制出现；glow 加地板避免初期完全不可见
     const ringAlpha = cfg.alpha * grow * fade;
-    const ringGlowAlpha = cfg.emissionAlpha * grow * fade;
+    const glowGrow = Math.max(grow, 0.35);
+    const ringGlowAlpha = cfg.emissionAlpha * glowGrow * fade;
     const staticRadius = this.getRingStaticRadius();
     const radiusGrow = this.getRingRadiusGrow(progress);
     const baseRadius = staticRadius + radiusGrow;
