@@ -149,7 +149,6 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrailSpeedMin(v)` | 最小速度阈值 (0.005~0.5) | `0.035` |
 | `setTrailSpeedMax(v)` | 最大速度阈值 (0.5~5) | `2.2` |
 | `setTrailSpeedDecay(d)` | 速度衰减率 (0.8~0.999) | `0.988` |
-| `setTrailDecay(tail, head, release)` | 尾部/头部/松手消散倍率 | `1.28, 0.95, 1.18` |
 | `setTrailTailDecayMul(v)` | 单独设置尾部衰减 | `1.28` |
 | `setTrailHeadDecayMul(v)` | 单独设置头部衰减 | `0.95` |
 | `setTrailReleaseDecayMul(v)` | 单独设置松手衰减 | `1.18` |
@@ -226,11 +225,14 @@ ba-click-fx/
 ├── src/
 │   ├── ba-spark.js      # 特效引擎（BAClickFX 类）
 │   ├── main.js           # 演示页面入口 + 控制面板 UI
-│   ├── config.js         # 所有可调参数（~190 个变量）
-│   ├── draw.js           # 绘图工具函数
+│   ├── config.js         # 所有可调参数
 │   ├── utils.js          # 纯数学工具
 │   ├── style.css         # 演示页样式
 │   └── ba-click-fx.d.ts  # TypeScript 声明
+├── scripts/
+│   └── build.mjs         # 构建脚本
+├── test/
+│   └── smoke.js          # 冒烟测试
 ├── index.html            # 演示页面
 ├── dist/                 # 构建输出
 │   ├── index.html        # 演示页
@@ -259,7 +261,7 @@ ba-click-fx/
 - [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor) — 蔚蓝档案光标特效实现
 - [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark) — 蔚蓝档案点击特效早期 Web 实现
 
-上面的这两个项目对于鼠标轨迹的还原都不够像游戏内的原始特效，本项目在前两个项目的基础上优化了点击特效和轨迹特效，并且增加了可自定义主题色。
+上面的这两个项目对于鼠标轨迹的还原都不够像游戏内的原始特效，本项目在前两个项目的基础上优化了点击特效和轨迹特效，并且增加了大量可自定义选项。
 
 
 ---
