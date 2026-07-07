@@ -69,30 +69,6 @@ function createClickRingSegments(rings)
   return segments;
 }
 
-function mixTrailPointMeta(a, b, t, x, y)
-{
-  return {
-    x,
-    y,
-    life: lerp(a.life, b.life, t),
-    maxLife: lerp(a.maxLife, b.maxLife, t),
-    speedFactor: lerp(a.speedFactor ?? 0, b.speedFactor ?? 0, t),
-    distanceFromTail: 0,
-  };
-}
-
-function pushRenderPoint(list, point)
-{
-  const last = list[list.length - 1];
-
-  if (last && distance(last, point) < 0.2)
-  {
-    return;
-  }
-
-  list.push(point);
-}
-
 function getTrailStopValue(stops, progress, fallback = 0)
 {
   if (!stops || stops.length === 0)
@@ -572,6 +548,7 @@ export class BAClickFX
     this.lastTime = performance.now();
     this.running = false;
     this._resizeTimer = 0;
+    this._renderPointCache = [];
 
     // ── 启动 ──
     this._onResize = this._debouncedResize.bind(this);
@@ -1444,7 +1421,10 @@ export class BAClickFX
       return points;
     }
 
-    const result = [];
+    // 复用缓存数组避免每帧分配新对象
+    const result = this._renderPointCache;
+    let ri = 0;
+    const maxR = this.config.trail.renderMaxPoints;
 
     for (let i = 0; i < points.length - 1; i++)
     {
@@ -1457,29 +1437,70 @@ export class BAClickFX
       {
         const t = s / steps;
 
-        pushRenderPoint(
-          result,
-          mixTrailPointMeta(
-            p1,
-            p2,
-            t,
-            lerp(p1.x, p2.x, t),
-            lerp(p1.y, p2.y, t),
-          ),
-        );
+        // 复用或创建缓存条目
+        if (ri >= result.length)
+        {
+          result.push({ x: 0, y: 0, life: 0, maxLife: 0, speedFactor: 0, distanceFromTail: 0 });
+        }
+        const pt = result[ri];
+        pt.x = lerp(p1.x, p2.x, t);
+        pt.y = lerp(p1.y, p2.y, t);
+        pt.life = lerp(p1.life, p2.life, t);
+        pt.maxLife = lerp(p1.maxLife, p2.maxLife, t);
+        pt.speedFactor = lerp(p1.speedFactor ?? 0, p2.speedFactor ?? 0, t);
+        pt.distanceFromTail = 0;
+
+        // 跳过与上一点距离过近的冗余点
+        if (ri > 0)
+        {
+          const prev = result[ri - 1];
+          if (Math.hypot(pt.x - prev.x, pt.y - prev.y) < 0.2)
+          {
+            continue;
+          }
+        }
+
+        ri++;
       }
     }
 
+    // 追加尾部最后一点
     const last = points[points.length - 1];
-
-    pushRenderPoint(result, {
-      ...last,
-      distanceFromTail: 0,
-    });
-
-    while (result.length > this.config.trail.renderMaxPoints)
+    if (ri >= result.length)
     {
-      result.shift();
+      result.push({ x: 0, y: 0, life: 0, maxLife: 0, speedFactor: 0, distanceFromTail: 0 });
+    }
+    const tailPt = result[ri];
+    tailPt.x = last.x;
+    tailPt.y = last.y;
+    tailPt.life = last.life;
+    tailPt.maxLife = last.maxLife;
+    tailPt.speedFactor = last.speedFactor ?? 0;
+    tailPt.distanceFromTail = 0;
+
+    if (ri === 0 || Math.hypot(tailPt.x - result[ri - 1].x, tailPt.y - result[ri - 1].y) >= 0.2)
+    {
+      ri++;
+    }
+
+    result.length = ri;
+
+    if (result.length > maxR)
+    {
+      // 超出上限时移动数据到数组头部，避免 O(n) shift
+      const keep = maxR;
+      const offset = result.length - keep;
+      for (let i = 0; i < keep; i++)
+      {
+        const src = result[offset + i];
+        const dst = result[i];
+        dst.x = src.x;
+        dst.y = src.y;
+        dst.life = src.life;
+        dst.maxLife = src.maxLife;
+        dst.speedFactor = src.speedFactor;
+      }
+      result.length = keep;
     }
 
     if (result.length === 0)
@@ -1488,7 +1509,6 @@ export class BAClickFX
     }
 
     let total = 0;
-
     result[0].distanceFromTail = 0;
 
     for (let i = 1; i < result.length; i++)
