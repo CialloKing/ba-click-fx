@@ -2091,20 +2091,11 @@ export class BAClickFX
       this._requestRender();
     };
 
-    this._onKeyDown = (event) =>
-    {
-      if (event.key.toLowerCase() === 'b')
-      {
-        this._createClickEffect(window.innerWidth / 2, window.innerHeight / 2);
-      }
-    };
-
     window.addEventListener('pointerdown', this._onPointerDown);
     window.addEventListener('pointermove', this._onPointerMove, { passive: true });
     window.addEventListener('pointerup', this._onPointerUp);
     window.addEventListener('pointercancel', this._onPointerUp);
     window.addEventListener('blur', this._onBlur);
-    window.addEventListener('keydown', this._onKeyDown);
   }
 
   _teardownInput()
@@ -2114,7 +2105,6 @@ export class BAClickFX
     window.removeEventListener('pointerup', this._onPointerUp);
     window.removeEventListener('pointercancel', this._onPointerUp);
     window.removeEventListener('blur', this._onBlur);
-    window.removeEventListener('keydown', this._onKeyDown);
   }
 
   // ══════════════════════════════════════════════════════════════════════

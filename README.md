@@ -30,6 +30,7 @@ A lightweight **Blue Archive style cursor effect** library for the web. It provi
   - [npm 安装](#1-npm-安装)
   - [CDN 引入](#2-cdn-引入)
   - [直接下载](#3-直接下载)
+- [常见用法](#常见用法)
 - [API 文档](#api-文档)
 - [效果说明](#效果说明)
 - [和其他项目的区别](#和其他项目的区别)
@@ -62,7 +63,22 @@ A lightweight **Blue Archive style cursor effect** library for the web. It provi
 
 ## 快速开始
 
-> 只想看效果？打开 [在线演示](https://ba-click-fx.cialloking.top) 随便点击、拖拽即可。
+只想看效果？打开 [在线演示](https://ba-click-fx.cialloking.top) 随便点击、拖拽即可。
+
+本地运行：
+
+```bash
+git clone https://github.com/CialloKing/ba-click-fx.git
+cd ba-click-fx
+npm install
+npm run dev
+```
+
+构建：
+
+```bash
+npm run build
+```
 
 ---
 
@@ -100,8 +116,19 @@ const spark = new BAClickFX({
 
 一行 `<script>` 标签即可，无需构建工具：
 
+固定版本（推荐）：
+
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.0.7/dist/ba-click-fx.iife.js"></script>
+<script>
+  const spark = new BAClickFX();
+</script>
+```
+
+始终使用最新版本：
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx/dist/ba-click-fx.iife.js"></script>
 <script>
   const spark = new BAClickFX();
 </script>
@@ -109,7 +136,7 @@ const spark = new BAClickFX({
 
 ### 3. 直接下载
 
-从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载 `dist/` 目录中的文件，适合静态站点：
+从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载构建产物（`ba-click-fx.js`、`ba-click-fx.iife.js`、`ba-click-fx.cjs`、`ba-click-fx.d.ts`），或直接 clone 仓库使用 `dist/` 目录中的文件，适合静态站点：
 
 ```html
 <canvas id="myCanvas"></canvas>
@@ -117,6 +144,30 @@ const spark = new BAClickFX({
   import { BAClickFX } from './ba-click-fx.js';
   const spark = new BAClickFX({ target: '#myCanvas' });
 </script>
+```
+
+---
+
+## 常见用法
+
+挂载到指定 canvas：
+
+```js
+const fx = new BAClickFX({
+  target: '#myCanvas',
+});
+```
+
+手动触发点击特效：
+
+```js
+fx.boom(window.innerWidth / 2, window.innerHeight / 2);
+```
+
+页面卸载时销毁：
+
+```js
+fx.destroy();
 ```
 
 ---
