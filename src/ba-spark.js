@@ -504,6 +504,11 @@ export class BAClickFX
       this.config.trail.enabled = options.trailEnabled;
     }
 
+    if (options.touchAction !== undefined)
+    {
+      this.config.touchAction = options.touchAction;
+    }
+
     // ── Canvas 创建 ──
     this._resolveCanvas(options.target);
 
@@ -588,7 +593,7 @@ export class BAClickFX
       }
 
       this._ownsCanvas = false;
-      this.canvas.style.touchAction = 'none';
+      this.canvas.style.touchAction = this.config.touchAction;
       return;
     }
 
@@ -599,7 +604,7 @@ export class BAClickFX
     {
       this.canvas = existing;
       this._ownsCanvas = false;
-      this.canvas.style.touchAction = 'none';
+      this.canvas.style.touchAction = this.config.touchAction;
       return;
     }
 
@@ -607,7 +612,7 @@ export class BAClickFX
     this.canvas = document.createElement('canvas');
     this.canvas.id = 'sparkCanvas';
     this.canvas.style.cssText =
-      'position:fixed;inset:0;z-index:999999;width:100vw;height:100vh;pointer-events:none;display:block;touch-action:none;';
+      `position:fixed;inset:0;z-index:999999;width:100vw;height:100vh;pointer-events:none;display:block;touch-action:${this.config.touchAction};`;
 
     const parent = document.body || document.documentElement;
     if (!parent)
@@ -2178,6 +2183,19 @@ export class BAClickFX
   {
     this.config.trailRenderScale = Math.max(0.5, Math.min(1, Number(value) ?? 1));
     this._resizeCanvas();
+  }
+
+  /**
+   * 设置 Canvas touch-action CSS 属性。
+   * 'none' — 拖尾完整，禁止页面滚动（默认）
+   * 'auto' / 'pan-y' — 允许页面滚动，拖尾会被中断
+   * @param {'none'|'auto'|'pan-y'|'pan-x'|'manipulation'} value
+   */
+  setTouchAction(value = 'none')
+  {
+    this.config.touchAction = value;
+    this.canvas.style.touchAction = value;
+    this._requestRender();
   }
 
   /** @param {boolean} enabled */

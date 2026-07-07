@@ -17,6 +17,10 @@ export const CONFIG = {
   // 拖尾层缩放。1 最清晰；0.75 更省性能。
   trailRenderScale: 1,
 
+  // Canvas 的 touch-action CSS 属性。'none' 时拖尾正常但禁用滚动；
+  // 'auto' 或 'pan-y' 时允许页面滚动但拖尾会被中断。
+  touchAction: 'none',
+
   maxDeltaMs: 80,
   baseFrameMs: 1000 / 60,
 
