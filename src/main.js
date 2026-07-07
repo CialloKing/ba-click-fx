@@ -65,7 +65,247 @@ api.resetConfig = function ()
 // 暴露到全局
 window.BAClickFXDemo = api;
 
-// ── 控制面板 & 交互提示 ──────────────────────────────────────────────────
+// ── 国际化 ──────────────────────────────────────────────────────────────
+const I18N = {
+  zh: {
+    langToggle: 'EN',
+    hintClick: '🖱 点击任意处',
+    hintDrag: '按住拖动留下光轨',
+    hintKey: '按 <kbd>空格</kbd> 触发中心特效',
+    hintDismissTitle: '关闭提示',
+    panelTitle: '控制面板',
+    panelPinTitle: '固定面板',
+    panelCloseTitle: '关闭面板',
+    sectionBasic: '基础',
+    sectionTheme: '背景主题',
+    sectionClick: '点击特效',
+    sectionTrail: '拖尾轨迹',
+    sectionTrailLayer: '拖尾图层',
+    sectionTrailDecay: '拖尾消散',
+    subShards: '碎片',
+    subRings: '圆环',
+    labelColor: '主题颜色',
+    labelScale: '全局缩放',
+    labelOpacity: '透明度',
+    labelDpr: '最大 DPR',
+    labelTrailRenderScale: '拖尾画质',
+    labelClickEnabled: '启用点击特效',
+    labelClickSpeed: '播放速度',
+    labelSparksCount: '碎片数量',
+    labelClickTotalLife: '特效时长',
+    labelClickScaleMul: '点击缩放',
+    labelClickHaloRadius: '光晕半径',
+    labelClickFakeGlow: '点击柔光',
+    labelShardSpacing: '间距',
+    labelShardChanceSlow: '慢速概率',
+    labelShardChanceFast: '快速概率',
+    labelShardLargeChance: '大碎片概率',
+    labelMaxShards: '最大数量',
+    labelRingRotation: '旋转速度',
+    labelRingGlow: '光晕强度',
+    labelRingWidth: '弧线宽度',
+    labelRingAlpha: '透明度',
+    labelRingDelay: '出现延迟',
+    labelRingMaxLife: '总时长',
+    labelRingBaseRadiusMul: '起始半径倍率',
+    labelRingPostDiskGrow: '扩张量',
+    labelRingGlowRadiusAdd: '发光半径',
+    labelRingSoftGlowRadiusAdd: '柔光半径',
+    labelTrailEnabled: '启用拖尾',
+    labelTrailAlways: '始终显示',
+    labelTrailSpeed: '拖拽速度',
+    labelTrailWidth: '基础宽度',
+    labelTrailLength: '轨迹长度',
+    labelTrailLife: '消散速度',
+    labelSmooth: '平滑',
+    labelTrailAlpha: '亮度',
+    labelTrailWhiteMix: '偏白程度',
+    labelFakeGlow: '多层柔光',
+    labelGlow: '阴影发光',
+    labelTrailMainAlpha: '主轨迹',
+    labelTrailCoreAlpha: '中心高光',
+    labelTrailHotAlpha: '蓝白热点',
+    labelTrailGlowAlpha: '蓝色发光',
+    labelTrailSoftGlowAlpha: '柔和外光',
+    labelTrailRailAlpha: '细轨',
+    labelTrailGlowWidthMul: '发光宽度',
+    labelTrailSoftGlowWidthMul: '柔光宽度',
+    labelTrailTailDecayMul: '尾部衰减',
+    labelTrailHeadDecayMul: '头部衰减',
+    labelTrailReleaseDecayMul: '松手衰减',
+    labelTrailSpeedDecay: '速度衰减',
+    labelTrailSpeedMin: '最小速度',
+    labelTrailSpeedMax: '最大速度',
+    btnReset: '重置默认',
+    customBgLabel: '自定义背景',
+    customBgPlaceholder: 'CSS background 值或图片 URL…',
+    btnApplyBg: '应用背景',
+  },
+  en: {
+    langToggle: '中文',
+    hintClick: '🖱 Click anywhere',
+    hintDrag: 'Hold and drag to leave light trails',
+    hintKey: 'Press <kbd>Space</kbd> to trigger center effect',
+    hintDismissTitle: 'Dismiss',
+    panelTitle: 'Control Panel',
+    panelPinTitle: 'Pin panel',
+    panelCloseTitle: 'Close panel',
+    sectionBasic: 'Basic',
+    sectionTheme: 'Background Theme',
+    sectionClick: 'Click Effect',
+    sectionTrail: 'Cursor Trail',
+    sectionTrailLayer: 'Trail Layers',
+    sectionTrailDecay: 'Trail Decay',
+    subShards: 'Shards',
+    subRings: 'Rings',
+    labelColor: 'Theme Color',
+    labelScale: 'Global Scale',
+    labelOpacity: 'Opacity',
+    labelDpr: 'Max DPR',
+    labelTrailRenderScale: 'Trail Quality',
+    labelClickEnabled: 'Enable Click Effect',
+    labelClickSpeed: 'Playback Speed',
+    labelSparksCount: 'Spark Count',
+    labelClickTotalLife: 'Effect Duration',
+    labelClickScaleMul: 'Click Scale',
+    labelClickHaloRadius: 'Halo Radius',
+    labelClickFakeGlow: 'Click Soft Glow',
+    labelShardSpacing: 'Spacing',
+    labelShardChanceSlow: 'Slow Chance',
+    labelShardChanceFast: 'Fast Chance',
+    labelShardLargeChance: 'Large Shard Chance',
+    labelMaxShards: 'Max Count',
+    labelRingRotation: 'Rotation Speed',
+    labelRingGlow: 'Glow Intensity',
+    labelRingWidth: 'Arc Width',
+    labelRingAlpha: 'Opacity',
+    labelRingDelay: 'Appear Delay',
+    labelRingMaxLife: 'Total Duration',
+    labelRingBaseRadiusMul: 'Initial Radius',
+    labelRingPostDiskGrow: 'Expansion',
+    labelRingGlowRadiusAdd: 'Glow Radius',
+    labelRingSoftGlowRadiusAdd: 'Soft Glow Radius',
+    labelTrailEnabled: 'Enable Trail',
+    labelTrailAlways: 'Always Show',
+    labelTrailSpeed: 'Drag Speed',
+    labelTrailWidth: 'Base Width',
+    labelTrailLength: 'Trail Length',
+    labelTrailLife: 'Fade Speed',
+    labelSmooth: 'Smoothing',
+    labelTrailAlpha: 'Brightness',
+    labelTrailWhiteMix: 'Whiteness',
+    labelFakeGlow: 'Multi-layer Glow',
+    labelGlow: 'Shadow Glow',
+    labelTrailMainAlpha: 'Main Trail',
+    labelTrailCoreAlpha: 'Center Highlight',
+    labelTrailHotAlpha: 'Blue-White Hotspot',
+    labelTrailGlowAlpha: 'Blue Glow',
+    labelTrailSoftGlowAlpha: 'Soft Outer Glow',
+    labelTrailRailAlpha: 'Thin Rail',
+    labelTrailGlowWidthMul: 'Glow Width',
+    labelTrailSoftGlowWidthMul: 'Soft Glow Width',
+    labelTrailTailDecayMul: 'Tail Decay',
+    labelTrailHeadDecayMul: 'Head Decay',
+    labelTrailReleaseDecayMul: 'Release Decay',
+    labelTrailSpeedDecay: 'Speed Decay',
+    labelTrailSpeedMin: 'Min Speed',
+    labelTrailSpeedMax: 'Max Speed',
+    btnReset: 'Reset Defaults',
+    customBgLabel: 'Custom Background',
+    customBgPlaceholder: 'CSS background value or image URL…',
+    btnApplyBg: 'Apply Background',
+  },
+};
+
+function switchLanguage(lang)
+{
+  const t = I18N[lang] ?? I18N.zh;
+
+  document.getElementById('langToggle').textContent = t.langToggle;
+
+  // 提示栏
+  const hintBar = document.getElementById('hintBar');
+  const hintSpans = hintBar.querySelectorAll('span');
+  if (hintSpans.length >= 3)
+  {
+    hintSpans[0].innerHTML = t.hintClick;
+    hintSpans[1].innerHTML = t.hintDrag;
+    hintSpans[2].innerHTML = t.hintKey;
+  }
+  document.getElementById('hintDismiss').title = t.hintDismissTitle;
+
+  // 面板头部
+  const panel = document.getElementById('panel');
+  panel.querySelector('h2').textContent = t.panelTitle;
+  document.getElementById('panelPin').title = t.panelPinTitle;
+  document.getElementById('panelClose').title = t.panelCloseTitle;
+
+  // 面板段落标题
+  const sections = panel.querySelectorAll('.panel-section h3');
+  const sectionKeys = ['sectionBasic', 'sectionTheme', 'sectionClick', 'sectionTrail', 'sectionTrailLayer', 'sectionTrailDecay'];
+  sections.forEach((h3, i) => { if (t[sectionKeys[i]]) { h3.textContent = t[sectionKeys[i]]; } });
+
+  // 子标题
+  const subHeadings = panel.querySelectorAll('.sub-heading');
+  const subKeys = ['subShards', 'subRings'];
+  subHeadings.forEach((h4, i) => { if (t[subKeys[i]]) { h4.textContent = t[subKeys[i]]; } });
+
+  // 标签（通过 id 映射）
+  const labelMap = {
+    ctrlColor: 'labelColor', ctrlScale: 'labelScale', ctrlOpacity: 'labelOpacity',
+    ctrlDpr: 'labelDpr', ctrlTrailRenderScale: 'labelTrailRenderScale',
+    ctrlClick: 'labelClickEnabled',
+    ctrlClickSpeed: 'labelClickSpeed', ctrlSparksCount: 'labelSparksCount',
+    ctrlClickTotalLife: 'labelClickTotalLife', ctrlClickScaleMul: 'labelClickScaleMul',
+    ctrlClickHaloRadius: 'labelClickHaloRadius', ctrlClickFakeGlow: 'labelClickFakeGlow',
+    ctrlShardSpacing: 'labelShardSpacing', ctrlShardChanceSlow: 'labelShardChanceSlow',
+    ctrlShardChanceFast: 'labelShardChanceFast', ctrlShardLargeChance: 'labelShardLargeChance',
+    ctrlMaxShards: 'labelMaxShards',
+    ctrlRingRotation: 'labelRingRotation', ctrlRingGlow: 'labelRingGlow',
+    ctrlRingWidth: 'labelRingWidth', ctrlRingAlpha: 'labelRingAlpha',
+    ctrlRingDelay: 'labelRingDelay', ctrlRingMaxLife: 'labelRingMaxLife',
+    ctrlRingBaseRadiusMul: 'labelRingBaseRadiusMul', ctrlRingPostDiskGrow: 'labelRingPostDiskGrow',
+    ctrlRingGlowRadiusAdd: 'labelRingGlowRadiusAdd', ctrlRingSoftGlowRadiusAdd: 'labelRingSoftGlowRadiusAdd',
+    ctrlTrail: 'labelTrailEnabled', ctrlTrailAlways: 'labelTrailAlways',
+    ctrlTrailSpeed: 'labelTrailSpeed', ctrlTrailWidth: 'labelTrailWidth',
+    ctrlTrailLength: 'labelTrailLength', ctrlTrailLife: 'labelTrailLife',
+    ctrlSmooth: 'labelSmooth', ctrlTrailAlpha: 'labelTrailAlpha',
+    ctrlTrailWhiteMix: 'labelTrailWhiteMix', ctrlFakeGlow: 'labelFakeGlow',
+    ctrlGlow: 'labelGlow',
+    ctrlTrailMainAlpha: 'labelTrailMainAlpha', ctrlTrailCoreAlpha: 'labelTrailCoreAlpha',
+    ctrlTrailHotAlpha: 'labelTrailHotAlpha', ctrlTrailGlowAlpha: 'labelTrailGlowAlpha',
+    ctrlTrailSoftGlowAlpha: 'labelTrailSoftGlowAlpha', ctrlTrailRailAlpha: 'labelTrailRailAlpha',
+    ctrlTrailGlowWidthMul: 'labelTrailGlowWidthMul', ctrlTrailSoftGlowWidthMul: 'labelTrailSoftGlowWidthMul',
+    ctrlTrailTailDecayMul: 'labelTrailTailDecayMul', ctrlTrailHeadDecayMul: 'labelTrailHeadDecayMul',
+    ctrlTrailReleaseDecayMul: 'labelTrailReleaseDecayMul', ctrlTrailSpeedDecay: 'labelTrailSpeedDecay',
+    ctrlTrailSpeedMin: 'labelTrailSpeedMin', ctrlTrailSpeedMax: 'labelTrailSpeedMax',
+  };
+
+  for (const [id, key] of Object.entries(labelMap))
+  {
+    const ctrl = document.getElementById(id);
+    if (!ctrl) { continue; }
+    const span = ctrl.parentElement?.querySelector('span');
+    if (span) { span.childNodes[0].textContent = t[key] + ' '; }
+  }
+
+  // 按钮
+  document.getElementById('btnReset').textContent = t.btnReset;
+  document.getElementById('ctrlCustomBg').placeholder = t.customBgPlaceholder;
+  document.querySelector('.custom-bg-ctrl span').textContent = t.customBgLabel;
+  document.getElementById('btnApplyBg').textContent = t.btnApplyBg;
+
+  localStorage.setItem('bafx-lang', lang);
+}
+
+// 语言切换按钮
+document.getElementById('langToggle').addEventListener('click', () =>
+{
+  const next = localStorage.getItem('bafx-lang') === 'en' ? 'zh' : 'en';
+  switchLanguage(next);
+});
+
+// ── 控制面板 & 交互提示 ──
 (function initUI()
 {
   const SETTINGS_VERSION = '2026-07-07-trail-render-fast-1';
@@ -654,4 +894,8 @@ window.BAClickFXDemo = api;
       api.boom();
     }
   });
+
+  // 语言初始化
+  const savedLang = localStorage.getItem('bafx-lang') || 'zh';
+  switchLanguage(savedLang);
 })();

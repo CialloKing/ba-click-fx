@@ -3,6 +3,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)
 
+> 📖 [English version](./README.en.md)
+
 **Blue Archive / 蔚蓝档案 style mouse click effect and cursor trail animation for web.**
 
 `ba-click-fx` 是一个网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效库，使用纯 **Canvas 2D** 实现游戏风格的鼠标点击动画、蓝色圆盘、旋转圆环、碎片粒子、拖尾光轨和拖拽轨迹效果。
