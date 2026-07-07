@@ -101,7 +101,7 @@ declare module 'ba-click-fx' {
     getConfig(): object;
     resetConfig(): void;
 
-    /** 只读配置引用 */
+    /** 当前实例的只读配置引用 */
     readonly CONFIG: object;
   }
 

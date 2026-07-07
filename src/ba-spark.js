@@ -13,7 +13,7 @@
  */
 
 import { clamp01, rand, easeOutCubic, smoothstep, distance, lerp, rgbToCss, mixColor } from './utils.js';
-import { CONFIG, getClickScale, getClickRingEndColor, getTrailColor, getTrailCoreColor, getTrailHotColor } from './config.js';
+import { cloneConfig, createConfig, getClickScale, getClickRingEndColor, getTrailColor, getTrailCoreColor, getTrailHotColor } from './config.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 辅助函数（不依赖实例状态，保持为模块级函数）
@@ -144,7 +144,7 @@ class ClickWave
 
   reset(x, y)
   {
-    const rings = CONFIG.rings;
+    const rings = this._engine.config.rings;
 
     this.x = x;
     this.y = y;
@@ -168,7 +168,7 @@ class ClickWave
     this.drawRings(context, frameScale);
     this.drawCenterDot(context);
 
-    if (this.life >= CONFIG.click.totalLife)
+    if (this.life >= this._engine.config.click.totalLife)
     {
       this.dead = true;
     }
@@ -176,20 +176,20 @@ class ClickWave
 
   getDiskRadius()
   {
-    return CONFIG.filledCircle.rAddRate * getClickScale();
+    return this._engine.config.filledCircle.rAddRate * getClickScale(this._engine.config);
   }
 
   getRingStaticRadius()
   {
-    return this.getDiskRadius() * CONFIG.rings.baseRadiusMul;
+    return this.getDiskRadius() * this._engine.config.rings.baseRadiusMul;
   }
 
   getRingRadiusGrow(progress = 0)
   {
-    const cfg = CONFIG.rings;
+    const cfg = this._engine.config.rings;
     const t = easeOutCubic(clamp01(progress / cfg.radiusGrowEnd));
 
-    return t * cfg.postDiskGrow * CONFIG.scale;
+    return t * cfg.postDiskGrow * this._engine.config.scale;
   }
 
   getRingRadius(progress = 0)
@@ -199,33 +199,33 @@ class ClickWave
 
   drawHalo(context)
   {
-    if (!CONFIG.glow.clickFake && !CONFIG.glow.enabled)
+    if (!this._engine.config.glow.clickFake && !this._engine.config.glow.enabled)
     {
       return;
     }
 
-    const progress = clamp01(this.life / CONFIG.click.totalLife);
-    const diskProgress = clamp01(this.life / CONFIG.filledCircle.maxLife);
+    const progress = clamp01(this.life / this._engine.config.click.totalLife);
+    const diskProgress = clamp01(this.life / this._engine.config.filledCircle.maxLife);
     const appear = smoothstep(0.01, 0.2, progress);
     const fade = 1 - smoothstep(0.84, 1, progress);
     const color = mixColor(
-      CONFIG.startColor,
-      CONFIG.color,
-      smoothstep(0.08, CONFIG.filledCircle.colorEnd, diskProgress),
+      this._engine.config.startColor,
+      this._engine.config.color,
+      smoothstep(0.08, this._engine.config.filledCircle.colorEnd, diskProgress),
     );
     const radius = lerp(
       this.getDiskRadius() * 2.1,
-      CONFIG.click.haloRadius * getClickScale(),
+      this._engine.config.click.haloRadius * getClickScale(this._engine.config),
       smoothstep(0.04, 0.54, progress),
     );
-    const alpha = 0.2 * CONFIG.opacity * appear * fade;
+    const alpha = 0.2 * this._engine.config.opacity * appear * fade;
 
     this._engine._drawRadialGlow(context, this.x, this.y, radius, color, alpha);
   }
 
   drawFilledCircle(context)
   {
-    const cfg = CONFIG.filledCircle;
+    const cfg = this._engine.config.filledCircle;
     const progress = clamp01(this.life / cfg.maxLife);
 
     this.r = this.getDiskRadius();
@@ -239,10 +239,10 @@ class ClickWave
     const fade = 1 - smoothstep(cfg.fadeStart, 1, progress);
     const colorT = smoothstep(0.06, cfg.colorEnd, progress);
     const radius = this.r * expandT;
-    const color = mixColor(CONFIG.startColor, CONFIG.color, colorT);
-    const alpha = CONFIG.opacity * fade;
+    const color = mixColor(this._engine.config.startColor, this._engine.config.color, colorT);
+    const alpha = this._engine.config.opacity * fade;
 
-    if (CONFIG.glow.clickFake || CONFIG.glow.enabled)
+    if (this._engine.config.glow.clickFake || this._engine.config.glow.enabled)
     {
       this._engine._drawRadialGlow(
         context,
@@ -259,7 +259,7 @@ class ClickWave
 
   drawRings(context, frameScale)
   {
-    const cfg = CONFIG.rings;
+    const cfg = this._engine.config.rings;
     const ringLife = this.life - cfg.delay;
 
     if (ringLife <= 0)
@@ -279,7 +279,7 @@ class ClickWave
     const grow = smoothstep(0.02, cfg.growEnd, progress);
     const collapse = smoothstep(cfg.collapseStart, 1, progress);
     const fade = 1 - smoothstep(cfg.fadeStart, 1, progress);
-    const color = getClickRingEndColor();
+    const color = getClickRingEndColor(this._engine.config);
     const ringAlpha = cfg.alpha * grow * fade;
     const glowGrow = Math.max(grow, 0.15);
     const ringGlowAlpha = cfg.emissionAlpha * glowGrow * fade;
@@ -312,11 +312,11 @@ class ClickWave
       const radius =
         staticRadius +
         radiusGrow * seg.radiusGrowMul +
-        seg.radiusOffset * CONFIG.scale;
+        seg.radiusOffset * this._engine.config.scale;
       const segAlpha = ringAlpha * seg.alphaMul;
       const segLineWidthMul = lineWidthMul * seg.widthMul;
-      const minWidth = cfg.minW * segLineWidthMul * CONFIG.scale;
-      const maxWidth = cfg.maxW * segLineWidthMul * CONFIG.scale;
+      const minWidth = cfg.minW * segLineWidthMul * this._engine.config.scale;
+      const maxWidth = cfg.maxW * segLineWidthMul * this._engine.config.scale;
 
       this._engine._drawClickArcRibbon(
         context,
@@ -335,11 +335,11 @@ class ClickWave
 
   drawCenterDot(context)
   {
-    const progress = clamp01(this.life / CONFIG.click.totalLife);
+    const progress = clamp01(this.life / this._engine.config.click.totalLife);
     const dotAlpha =
       smoothstep(0.43, 0.52, progress) *
       (1 - smoothstep(0.82, 1, progress)) *
-      CONFIG.opacity *
+      this._engine.config.opacity *
       0.72;
 
     if (dotAlpha <= 0)
@@ -347,14 +347,14 @@ class ClickWave
       return;
     }
 
-    const radius = lerp(1.5, 0.75, smoothstep(0.52, 1, progress)) * CONFIG.scale;
+    const radius = lerp(1.5, 0.75, smoothstep(0.52, 1, progress)) * this._engine.config.scale;
 
     this._engine._drawCircle(
       context,
       this.x,
       this.y,
       radius,
-      CONFIG.color,
+      this._engine.config.color,
       dotAlpha,
       radius * 1.8,
       true,
@@ -372,7 +372,7 @@ class SparkParticle
 
   reset(x, y, fromClick = true)
   {
-    const particleScale = fromClick ? getClickScale() : CONFIG.scale;
+    const particleScale = fromClick ? getClickScale(this._engine.config) : this._engine.config.scale;
     const speedAdjust = particleScale / 1.5;
     const angle = Math.random() * Math.PI * 2;
     const speed = fromClick
@@ -398,9 +398,9 @@ class SparkParticle
     this.friction = fromClick ? 0.9 : 0.95;
     this.color = fromClick
       ? [255, 255, 255]
-      : mixColor(CONFIG.color, [255, 255, 255], rand(0.28, 0.82));
-    this.blur = fromClick ? (2.0 * particleScale) : (2.8 * CONFIG.scale);
-    this.useFakeGlow = fromClick ? CONFIG.glow.clickFake : true;
+      : mixColor(this._engine.config.color, [255, 255, 255], rand(0.28, 0.82));
+    this.blur = fromClick ? (2.0 * particleScale) : (2.8 * this._engine.config.scale);
+    this.useFakeGlow = fromClick ? this._engine.config.glow.clickFake : true;
     this.delay = 0;
     this.age = 0;
     this.flickerPeriod = 0;
@@ -499,12 +499,34 @@ export class BAClickFX
    */
   constructor(options = {})
   {
+    // 每个实例都持有独立配置，避免多 Canvas/多实例互相污染运行时参数。
+    this.config = createConfig();
+
     // ── 应用初始配置 ──
-    if (options.color) { CONFIG.color = options.color; }
-    if (options.scale !== undefined) { CONFIG.scale = options.scale; }
-    if (options.opacity !== undefined) { CONFIG.opacity = options.opacity; }
-    if (options.trailAlways !== undefined) { CONFIG.trail.always = options.trailAlways; }
-    if (options.trailEnabled !== undefined) { CONFIG.trail.enabled = options.trailEnabled; }
+    if (options.color)
+    {
+      this.config.color = [...options.color];
+    }
+
+    if (options.scale !== undefined)
+    {
+      this.config.scale = options.scale;
+    }
+
+    if (options.opacity !== undefined)
+    {
+      this.config.opacity = options.opacity;
+    }
+
+    if (options.trailAlways !== undefined)
+    {
+      this.config.trail.always = options.trailAlways;
+    }
+
+    if (options.trailEnabled !== undefined)
+    {
+      this.config.trail.enabled = options.trailEnabled;
+    }
 
     // ── Canvas 创建 ──
     this._resolveCanvas(options.target);
@@ -617,7 +639,7 @@ export class BAClickFX
     this.width = rect.width || window.innerWidth;
     this.height = rect.height || window.innerHeight;
 
-    this.dpr = Math.min(window.devicePixelRatio || 1, CONFIG.maxDpr);
+    this.dpr = Math.min(window.devicePixelRatio || 1, this.config.maxDpr);
 
     this.canvas.width = Math.floor(this.width * this.dpr);
     this.canvas.height = Math.floor(this.height * this.dpr);
@@ -625,16 +647,16 @@ export class BAClickFX
     this.canvas.style.width = `${this.width}px`;
     this.canvas.style.height = `${this.height}px`;
 
-    this.trailCanvas.width = Math.floor(this.width * this.dpr * CONFIG.trailRenderScale);
-    this.trailCanvas.height = Math.floor(this.height * this.dpr * CONFIG.trailRenderScale);
+    this.trailCanvas.width = Math.floor(this.width * this.dpr * this.config.trailRenderScale);
+    this.trailCanvas.height = Math.floor(this.height * this.dpr * this.config.trailRenderScale);
 
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
     this.trailCtx.setTransform(
-      this.dpr * CONFIG.trailRenderScale,
+      this.dpr * this.config.trailRenderScale,
       0,
       0,
-      this.dpr * CONFIG.trailRenderScale,
+      this.dpr * this.config.trailRenderScale,
       0,
       0,
     );
@@ -663,10 +685,10 @@ export class BAClickFX
     this.trailCtx.restore();
 
     this.trailCtx.setTransform(
-      this.dpr * CONFIG.trailRenderScale,
+      this.dpr * this.config.trailRenderScale,
       0,
       0,
-      this.dpr * CONFIG.trailRenderScale,
+      this.dpr * this.config.trailRenderScale,
       0,
       0,
     );
@@ -698,7 +720,7 @@ export class BAClickFX
 
     context.save();
 
-    if (useFakeGlow && CONFIG.glow.fake && blur > 0)
+    if (useFakeGlow && this.config.glow.fake && blur > 0)
     {
       context.fillStyle = rgbToCss(color, alpha * 0.12);
       context.beginPath();
@@ -711,7 +733,7 @@ export class BAClickFX
       context.fill();
     }
 
-    if (CONFIG.glow.enabled && blur > 0)
+    if (this.config.glow.enabled && blur > 0)
     {
       context.shadowColor = rgbToCss(color, alpha);
       context.shadowBlur = blur * 0.28;
@@ -871,18 +893,18 @@ export class BAClickFX
       return;
     }
 
-    if (!CONFIG.glow.clickFake && !CONFIG.glow.enabled)
+    if (!this.config.glow.clickFake && !this.config.glow.enabled)
     {
       return;
     }
 
-    const cfg = CONFIG.rings;
+    const cfg = this.config.rings;
 
     this._drawRadialGlow(
       context,
       x,
       y,
-      radius + cfg.softGlowRadiusAdd * getClickScale(),
+      radius + cfg.softGlowRadiusAdd * getClickScale(this.config),
       color,
       alpha * cfg.softGlowAlpha,
     );
@@ -891,7 +913,7 @@ export class BAClickFX
       context,
       x,
       y,
-      radius + cfg.glowRadiusAdd * getClickScale(),
+      radius + cfg.glowRadiusAdd * getClickScale(this.config),
       mixColor(color, [255, 255, 255], 0.38),
       alpha * cfg.glowAlpha,
     );
@@ -945,9 +967,9 @@ export class BAClickFX
   {
     const angle = Math.random() * Math.PI * 2;
     const tangentAngle = angle + Math.PI / 2;
-    const ringRadius = CONFIG.filledCircle.rAddRate * getClickScale();
-    const radialSpeed = rand(0.4, 0.7) * CONFIG.scale;
-    const tangentSpeed = rand(-0.4, 0.4) * CONFIG.scale;
+    const ringRadius = this.config.filledCircle.rAddRate * getClickScale(this.config);
+    const radialSpeed = rand(0.4, 0.7) * this.config.scale;
+    const tangentSpeed = rand(-0.4, 0.4) * this.config.scale;
     const whiteMix = rand(0.65, 0.95);
 
     spark.x = centerX + Math.cos(angle) * ringRadius;
@@ -960,7 +982,7 @@ export class BAClickFX
       Math.sin(tangentAngle) * tangentSpeed;
 
     spark.delay = 1.5;
-    spark.size = rand(5.2, 10.0) * CONFIG.scale;
+    spark.size = rand(5.2, 10.0) * this.config.scale;
     spark.alpha = rand(0.78, 1);
     spark.maxAlpha = spark.alpha;
     spark.alphaMul = rand(1.35, 1.6);
@@ -968,11 +990,11 @@ export class BAClickFX
     spark.friction = rand(0.96, 0.985);
     spark.rotation = angle + Math.PI + rand(-1.3, 1.3);
     spark.rotationSpeed = 0;
-    spark.color = mixColor(CONFIG.color, [255, 255, 255], whiteMix);
-    spark.blur = rand(0.8, 2.2) * CONFIG.scale;
-    spark.useFakeGlow = CONFIG.glow.clickFake;
-    spark.flickerPeriod = CONFIG.click.shardFlickerPeriod;
-    spark.flickerMinAlpha = CONFIG.click.shardFlickerMinAlpha;
+    spark.color = mixColor(this.config.color, [255, 255, 255], whiteMix);
+    spark.blur = rand(0.8, 2.2) * this.config.scale;
+    spark.useFakeGlow = this.config.glow.clickFake;
+    spark.flickerPeriod = this.config.click.shardFlickerPeriod;
+    spark.flickerMinAlpha = this.config.click.shardFlickerMinAlpha;
     spark.flickerPhase = 0;
     spark.flickerSizePulse = 0.08;
     spark.sizeGrowEnd = rand(0.16, 0.28);
@@ -983,9 +1005,9 @@ export class BAClickFX
 
   _tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor)
   {
-    const cfg = CONFIG.trail;
+    const cfg = this.config.trail;
     const isLarge = Math.random() < cfg.shardLargeChance;
-    const scale = CONFIG.scale;
+    const scale = this.config.scale;
     const drift = rand(0.02, 0.28) * (0.72 + speedFactor * 0.45);
     const tangentDrift = rand(-0.22, 0.26);
     const whiteMix = isLarge ? rand(0.72, 0.96) : rand(0.52, 0.86);
@@ -1002,8 +1024,9 @@ export class BAClickFX
     spark.alphaDecay = spark.alpha / lifetime;
     spark.friction = isLarge ? rand(0.978, 0.99) : rand(0.965, 0.982);
     spark.rotation = normalAngle + rand(-1.2, 1.2);
-    spark.rotationSpeed = rand(-0.055, 0.075);
-    spark.color = mixColor(CONFIG.color, [255, 255, 255], whiteMix);
+    // 游戏原始特效的轨迹碎片不会自身旋转
+    spark.rotationSpeed = 0;
+    spark.color = mixColor(this.config.color, [255, 255, 255], whiteMix);
     spark.blur = (isLarge ? rand(0.7, 1.6) : rand(0.15, 0.65)) * scale;
     spark.useFakeGlow = true;
     spark.flickerPeriod = cfg.shardFlickerPeriod;
@@ -1020,7 +1043,7 @@ export class BAClickFX
 
   _spawnTrailShards(from, to, speedFactor)
   {
-    const cfg = CONFIG.trail;
+    const cfg = this.config.trail;
     const dist = distance(from, to);
 
     if (dist < 2 || this.sparks.length >= cfg.maxSparkParticles)
@@ -1030,7 +1053,7 @@ export class BAClickFX
 
     const baseSpacing =
       cfg.shardSpacing *
-      CONFIG.scale *
+      this.config.scale *
       lerp(1.15, 0.72, clamp01(speedFactor));
 
     this.trailShardDistance += dist;
@@ -1074,9 +1097,9 @@ export class BAClickFX
           rand(-0.24, 0.24);
         const offset =
           rand(cfg.shardOffsetMin, cfg.shardOffsetMax) *
-          CONFIG.scale *
+          this.config.scale *
           (0.82 + speedFactor * 0.22);
-        const tangentOffset = rand(-8, 10) * CONFIG.scale;
+        const tangentOffset = rand(-8, 10) * this.config.scale;
         const x =
           lerp(from.x, to.x, t) +
           Math.cos(normalAngle) * offset +
@@ -1097,7 +1120,7 @@ export class BAClickFX
   {
     this.waves.push(this._getWave(x, y));
 
-    for (let i = 0; i < CONFIG.sparksCount; i++)
+    for (let i = 0; i < this.config.sparksCount; i++)
     {
       const spark = this._getSpark(x, y, true);
 
@@ -1153,8 +1176,8 @@ export class BAClickFX
     const dt = Math.max(1, eventTime - this.lastTrailEventTime);
     const speed = dist / dt;
     const factor = clamp01(
-      (speed - CONFIG.trail.speedMin) /
-        (CONFIG.trail.speedMax - CONFIG.trail.speedMin),
+      (speed - this.config.trail.speedMin) /
+        (this.config.trail.speedMax - this.config.trail.speedMin),
     );
 
     this.trailSpeedFactor = Math.max(this.trailSpeedFactor, factor);
@@ -1189,8 +1212,8 @@ export class BAClickFX
     const speedFactor = stroke ? (stroke.speedFactor ?? 0) : this.trailSpeedFactor;
 
     return lerp(
-      CONFIG.trail.lengthSlow,
-      CONFIG.trail.lengthFast,
+      this.config.trail.lengthSlow,
+      this.config.trail.lengthFast,
       clamp01(speedFactor),
     );
   }
@@ -1211,7 +1234,7 @@ export class BAClickFX
   {
     let count = this._getTotalTrailPointCount();
 
-    while (count > CONFIG.trail.maxPoints && this.trailStrokes.length > 0)
+    while (count > this.config.trail.maxPoints && this.trailStrokes.length > 0)
     {
       const oldest = this.trailStrokes[0];
 
@@ -1280,8 +1303,8 @@ export class BAClickFX
     );
 
     const life = lerp(
-      CONFIG.trail.lifeSlow,
-      CONFIG.trail.lifeFast,
+      this.config.trail.lifeSlow,
+      this.config.trail.lifeFast,
       clamp01(speedFactor),
     );
 
@@ -1302,12 +1325,12 @@ export class BAClickFX
   {
     const dist = distance(from, to);
 
-    if (dist < CONFIG.trail.minDistance)
+    if (dist < this.config.trail.minDistance)
     {
       return;
     }
 
-    if (dist > CONFIG.trail.maxJumpDistance)
+    if (dist > this.config.trail.maxJumpDistance)
     {
       this._endTrailStroke();
       this._beginTrailStroke(to.x, to.y, speedFactor);
@@ -1317,8 +1340,8 @@ export class BAClickFX
 
     const stroke = this.currentTrailStroke || this._createTrailStroke(speedFactor);
     const steps = Math.min(
-      CONFIG.trail.maxInterpolatedPoints,
-      Math.max(2, Math.ceil(dist / CONFIG.trail.sampleStep)),
+      this.config.trail.maxInterpolatedPoints,
+      Math.max(2, Math.ceil(dist / this.config.trail.sampleStep)),
     );
 
     for (let i = 1; i <= steps; i++)
@@ -1353,9 +1376,9 @@ export class BAClickFX
       const isActiveStroke =
         stroke === this.currentTrailStroke &&
         !stroke.released &&
-        (this.isDown || CONFIG.trail.always);
+        (this.isDown || this.config.trail.always);
 
-      const releaseMul = isActiveStroke ? 1 : CONFIG.trail.releaseDecayMul;
+      const releaseMul = isActiveStroke ? 1 : this.config.trail.releaseDecayMul;
 
       for (let i = 0; i < stroke.length; i++)
       {
@@ -1363,8 +1386,8 @@ export class BAClickFX
         const indexFactor =
           stroke.length > 1 ? i / (stroke.length - 1) : 1;
         const decayMul = lerp(
-          CONFIG.trail.tailDecayMul,
-          CONFIG.trail.headDecayMul,
+          this.config.trail.tailDecayMul,
+          this.config.trail.headDecayMul,
           indexFactor,
         );
 
@@ -1377,7 +1400,7 @@ export class BAClickFX
       }
 
       stroke.speedFactor = clamp01(
-        (stroke.speedFactor ?? 0) * Math.pow(CONFIG.trail.speedDecay, frameScale),
+        (stroke.speedFactor ?? 0) * Math.pow(this.config.trail.speedDecay, frameScale),
       );
 
       this._trimTrailPoints(stroke);
@@ -1399,7 +1422,7 @@ export class BAClickFX
       this.currentTrailStroke = null;
     }
 
-    this.trailSpeedFactor *= Math.pow(CONFIG.trail.speedDecay, frameScale);
+    this.trailSpeedFactor *= Math.pow(this.config.trail.speedDecay, frameScale);
   }
 
   // ═══════════════════════════════════════════════════════
@@ -1420,7 +1443,7 @@ export class BAClickFX
       const p1 = points[i];
       const p2 = points[i + 1];
       const segLen = distance(p1, p2);
-      const steps = Math.max(1, Math.ceil(segLen / CONFIG.trail.renderStep));
+      const steps = Math.max(1, Math.ceil(segLen / this.config.trail.renderStep));
 
       for (let s = 0; s < steps; s++)
       {
@@ -1446,7 +1469,7 @@ export class BAClickFX
       distanceFromTail: 0,
     });
 
-    while (result.length > CONFIG.trail.renderMaxPoints)
+    while (result.length > this.config.trail.renderMaxPoints)
     {
       result.shift();
     }
@@ -1490,7 +1513,7 @@ export class BAClickFX
     }
 
     // 沿真实路径分段采样，避免 Canvas 线性渐变在回环路径里误亮尾部。
-    const chunkLength = Math.max(1, CONFIG.trail.gradientChunkLength ?? 1.5);
+    const chunkLength = Math.max(1, this.config.trail.gradientChunkLength ?? 1.5);
 
     context.save();
 
@@ -1552,35 +1575,35 @@ export class BAClickFX
       return;
     }
 
-    const trailColor = getTrailColor();
-    const trailCoreColor = getTrailCoreColor();
-    const trailHotColor = getTrailHotColor();
+    const trailColor = getTrailColor(this.config);
+    const trailCoreColor = getTrailCoreColor(this.config);
+    const trailHotColor = getTrailHotColor(this.config);
     const head = renderPoints[renderPoints.length - 1];
     const speedFactor = Math.max(head.speedFactor ?? 0, stroke.speedFactor ?? 0);
 
     const baseWidth = lerp(
-      CONFIG.trail.baseWidthSlow,
-      CONFIG.trail.baseWidthFast,
+      this.config.trail.baseWidthSlow,
+      this.config.trail.baseWidthFast,
       speedFactor,
-    ) * CONFIG.scale;
+    ) * this.config.scale;
 
     const coreWidth = lerp(
-      CONFIG.trail.coreWidthSlow,
-      CONFIG.trail.coreWidthFast,
+      this.config.trail.coreWidthSlow,
+      this.config.trail.coreWidthFast,
       speedFactor,
-    ) * CONFIG.scale;
+    ) * this.config.scale;
 
     const hotWidth = lerp(
-      CONFIG.trail.hotWidthSlow,
-      CONFIG.trail.hotWidthFast,
+      this.config.trail.hotWidthSlow,
+      this.config.trail.hotWidthFast,
       speedFactor,
-    ) * CONFIG.scale;
+    ) * this.config.scale;
 
     const railWidth = lerp(
-      CONFIG.trail.railWidthSlow,
-      CONFIG.trail.railWidthFast,
+      this.config.trail.railWidthSlow,
+      this.config.trail.railWidthFast,
       speedFactor,
-    ) * CONFIG.scale;
+    ) * this.config.scale;
 
     const headLifeRatio = head.maxLife > 0 ? clamp01(head.life / head.maxLife) : 1;
     const fadeMul = smoothstep(0.05, 0.45, headLifeRatio);
@@ -1588,8 +1611,8 @@ export class BAClickFX
     // 1. 细暗轨道
     this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
       widthValue: railWidth,
-      minWidth: 0.08 * CONFIG.scale,
-      color: CONFIG.color,
+      minWidth: 0.08 * this.config.scale,
+      color: this.config.color,
       widthStops: [
         [0.0, 0.38],
         [0.35, 0.52],
@@ -1597,20 +1620,20 @@ export class BAClickFX
         [1.0, 0.52],
       ],
       stops: [
-        [0.0, CONFIG.trail.railAlpha * 0.16 * CONFIG.trail.alpha * fadeMul],
-        [0.22, CONFIG.trail.railAlpha * 0.34 * CONFIG.trail.alpha * fadeMul],
-        [0.62, CONFIG.trail.railAlpha * 0.58 * CONFIG.trail.alpha * fadeMul],
-        [1.0, CONFIG.trail.railAlpha * 0.3 * CONFIG.trail.alpha * fadeMul],
+        [0.0, this.config.trail.railAlpha * 0.16 * this.config.trail.alpha * fadeMul],
+        [0.22, this.config.trail.railAlpha * 0.34 * this.config.trail.alpha * fadeMul],
+        [0.62, this.config.trail.railAlpha * 0.58 * this.config.trail.alpha * fadeMul],
+        [1.0, this.config.trail.railAlpha * 0.3 * this.config.trail.alpha * fadeMul],
       ],
     });
 
     // 2. 柔和外光
-    if (CONFIG.glow.fake)
+    if (this.config.glow.fake)
     {
       this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
-        widthValue: baseWidth * CONFIG.trail.softGlowWidthMul,
+        widthValue: baseWidth * this.config.trail.softGlowWidthMul,
         minWidth: baseWidth * 0.05,
-        color: CONFIG.color,
+        color: this.config.color,
         widthStops: [
           [0.0, 0.18],
           [0.42, 0.55],
@@ -1619,15 +1642,15 @@ export class BAClickFX
         ],
         stops: [
           [0.0, 0.0],
-          [0.22, CONFIG.trail.softGlowAlpha * 0.18 * CONFIG.trail.alpha * fadeMul],
-          [0.52, CONFIG.trail.softGlowAlpha * 0.58 * CONFIG.trail.alpha * fadeMul],
-          [0.82, CONFIG.trail.softGlowAlpha * CONFIG.trail.alpha * fadeMul],
-          [1.0, CONFIG.trail.softGlowAlpha * 0.72 * CONFIG.trail.alpha * fadeMul],
+          [0.22, this.config.trail.softGlowAlpha * 0.18 * this.config.trail.alpha * fadeMul],
+          [0.52, this.config.trail.softGlowAlpha * 0.58 * this.config.trail.alpha * fadeMul],
+          [0.82, this.config.trail.softGlowAlpha * this.config.trail.alpha * fadeMul],
+          [1.0, this.config.trail.softGlowAlpha * 0.72 * this.config.trail.alpha * fadeMul],
         ],
       });
 
       this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
-        widthValue: baseWidth * CONFIG.trail.glowWidthMul,
+        widthValue: baseWidth * this.config.trail.glowWidthMul,
         minWidth: baseWidth * 0.04,
         color: trailColor,
         widthStops: [
@@ -1638,19 +1661,19 @@ export class BAClickFX
         ],
         stops: [
           [0.0, 0.0],
-          [0.2, CONFIG.trail.glowAlpha * 0.16 * CONFIG.trail.alpha * fadeMul],
-          [0.5, CONFIG.trail.glowAlpha * 0.48 * CONFIG.trail.alpha * fadeMul],
-          [0.82, CONFIG.trail.glowAlpha * CONFIG.trail.alpha * fadeMul],
-          [1.0, CONFIG.trail.glowAlpha * 0.82 * CONFIG.trail.alpha * fadeMul],
+          [0.2, this.config.trail.glowAlpha * 0.16 * this.config.trail.alpha * fadeMul],
+          [0.5, this.config.trail.glowAlpha * 0.48 * this.config.trail.alpha * fadeMul],
+          [0.82, this.config.trail.glowAlpha * this.config.trail.alpha * fadeMul],
+          [1.0, this.config.trail.glowAlpha * 0.82 * this.config.trail.alpha * fadeMul],
         ],
       });
     }
 
     // 3. 半透明 Ribbon 层
-    if (CONFIG.trail.ribbonAlpha > 0 && CONFIG.trail.ribbonWidthMul > 0)
+    if (this.config.trail.ribbonAlpha > 0 && this.config.trail.ribbonWidthMul > 0)
     {
       this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
-        widthValue: baseWidth * CONFIG.trail.ribbonWidthMul,
+        widthValue: baseWidth * this.config.trail.ribbonWidthMul,
         minWidth: baseWidth * 0.05,
         color: trailColor,
         widthStops: [
@@ -1662,10 +1685,10 @@ export class BAClickFX
         ],
         stops: [
           [0.0, 0.0],
-          [0.18, CONFIG.trail.ribbonAlpha * 0.08 * CONFIG.trail.alpha * fadeMul],
-          [0.48, CONFIG.trail.ribbonAlpha * 0.36 * CONFIG.trail.alpha * fadeMul],
-          [0.78, CONFIG.trail.ribbonAlpha * CONFIG.trail.alpha * fadeMul],
-          [1.0, CONFIG.trail.ribbonAlpha * 0.52 * CONFIG.trail.alpha * fadeMul],
+          [0.18, this.config.trail.ribbonAlpha * 0.08 * this.config.trail.alpha * fadeMul],
+          [0.48, this.config.trail.ribbonAlpha * 0.36 * this.config.trail.alpha * fadeMul],
+          [0.78, this.config.trail.ribbonAlpha * this.config.trail.alpha * fadeMul],
+          [1.0, this.config.trail.ribbonAlpha * 0.52 * this.config.trail.alpha * fadeMul],
         ],
       });
     }
@@ -1683,11 +1706,11 @@ export class BAClickFX
         [1.0, 0.88],
       ],
       stops: [
-        [0.0, CONFIG.trail.mainAlpha * 0.04 * CONFIG.trail.alpha * fadeMul],
-        [0.16, CONFIG.trail.mainAlpha * 0.14 * CONFIG.trail.alpha * fadeMul],
-        [0.44, CONFIG.trail.mainAlpha * 0.48 * CONFIG.trail.alpha * fadeMul],
-        [0.74, CONFIG.trail.mainAlpha * CONFIG.trail.alpha * fadeMul],
-        [1.0, CONFIG.trail.mainAlpha * 0.86 * CONFIG.trail.alpha * fadeMul],
+        [0.0, this.config.trail.mainAlpha * 0.04 * this.config.trail.alpha * fadeMul],
+        [0.16, this.config.trail.mainAlpha * 0.14 * this.config.trail.alpha * fadeMul],
+        [0.44, this.config.trail.mainAlpha * 0.48 * this.config.trail.alpha * fadeMul],
+        [0.74, this.config.trail.mainAlpha * this.config.trail.alpha * fadeMul],
+        [1.0, this.config.trail.mainAlpha * 0.86 * this.config.trail.alpha * fadeMul],
       ],
     });
 
@@ -1704,10 +1727,10 @@ export class BAClickFX
       ],
       stops: [
         [0.0, 0.0],
-        [0.34, CONFIG.trail.coreAlpha * 0.08 * CONFIG.trail.alpha * fadeMul],
-        [0.58, CONFIG.trail.coreAlpha * 0.42 * CONFIG.trail.alpha * fadeMul],
-        [0.86, CONFIG.trail.coreAlpha * CONFIG.trail.alpha * fadeMul],
-        [1.0, CONFIG.trail.coreAlpha * 0.62 * CONFIG.trail.alpha * fadeMul],
+        [0.34, this.config.trail.coreAlpha * 0.08 * this.config.trail.alpha * fadeMul],
+        [0.58, this.config.trail.coreAlpha * 0.42 * this.config.trail.alpha * fadeMul],
+        [0.86, this.config.trail.coreAlpha * this.config.trail.alpha * fadeMul],
+        [1.0, this.config.trail.coreAlpha * 0.62 * this.config.trail.alpha * fadeMul],
       ],
     });
 
@@ -1725,22 +1748,22 @@ export class BAClickFX
       stops: [
         [0.0, 0.0],
         [0.46, 0.0],
-        [0.66, CONFIG.trail.hotAlpha * 0.28 * CONFIG.trail.alpha * fadeMul],
-        [0.86, CONFIG.trail.hotAlpha * CONFIG.trail.alpha * fadeMul],
-        [1.0, CONFIG.trail.hotAlpha * 0.48 * CONFIG.trail.alpha * fadeMul],
+        [0.66, this.config.trail.hotAlpha * 0.28 * this.config.trail.alpha * fadeMul],
+        [0.86, this.config.trail.hotAlpha * this.config.trail.alpha * fadeMul],
+        [1.0, this.config.trail.hotAlpha * 0.48 * this.config.trail.alpha * fadeMul],
       ],
     });
 
     // 头部发光圆点
-    const headRadius = lerp(1.1, 2.1, speedFactor) * CONFIG.scale;
+    const headRadius = lerp(1.1, 2.1, speedFactor) * this.config.scale;
 
     this._drawCircle(
       this.trailCtx,
       head.x,
       head.y,
       headRadius * 3.2,
-      CONFIG.color,
-      0.14 * CONFIG.trail.alpha * fadeMul,
+      this.config.color,
+      0.14 * this.config.trail.alpha * fadeMul,
       headRadius * 2.8,
     );
 
@@ -1750,7 +1773,7 @@ export class BAClickFX
       head.y,
       headRadius * 1.9,
       trailColor,
-      0.28 * CONFIG.trail.alpha * fadeMul,
+      0.28 * this.config.trail.alpha * fadeMul,
       headRadius * 1.6,
     );
 
@@ -1760,7 +1783,7 @@ export class BAClickFX
       head.y,
       headRadius * 0.62,
       trailHotColor,
-      0.42 * CONFIG.trail.alpha * fadeMul,
+      0.42 * this.config.trail.alpha * fadeMul,
       headRadius * 0.5,
     );
   }
@@ -1769,7 +1792,7 @@ export class BAClickFX
   {
     this._clearTrailCanvas();
 
-    if (!CONFIG.trail.enabled || this.trailStrokes.length === 0)
+    if (!this.config.trail.enabled || this.trailStrokes.length === 0)
     {
       return;
     }
@@ -1834,13 +1857,13 @@ export class BAClickFX
 
   _animationLoop(now)
   {
-    const deltaMs = Math.min(now - this.lastTime, CONFIG.maxDeltaMs);
+    const deltaMs = Math.min(now - this.lastTime, this.config.maxDeltaMs);
 
     this.lastTime = now;
 
-    const baseFrameScale = deltaMs / CONFIG.baseFrameMs;
-    const clickFrameScale = baseFrameScale * CONFIG.clickSpeed;
-    const trailFrameScale = baseFrameScale * CONFIG.trailSpeed;
+    const baseFrameScale = deltaMs / this.config.baseFrameMs;
+    const clickFrameScale = baseFrameScale * this.config.clickSpeed;
+    const trailFrameScale = baseFrameScale * this.config.trailSpeed;
 
     this._clearCanvas();
 
@@ -1895,9 +1918,9 @@ export class BAClickFX
       events = [event];
     }
 
-    if (events.length > CONFIG.trail.maxCoalescedEvents)
+    if (events.length > this.config.trail.maxCoalescedEvents)
     {
-      const max = CONFIG.trail.maxCoalescedEvents;
+      const max = this.config.trail.maxCoalescedEvents;
       const sampled = [];
 
       for (let i = 0; i < max; i++)
@@ -1910,7 +1933,7 @@ export class BAClickFX
       events = sampled;
     }
 
-    const shouldDrawTrail = CONFIG.trail.always || this.isDown;
+    const shouldDrawTrail = this.config.trail.always || this.isDown;
 
     if (!shouldDrawTrail)
     {
@@ -1927,7 +1950,7 @@ export class BAClickFX
 
       latestPos = pos;
 
-      const sf = CONFIG.trail.smoothFactor;
+      const sf = this.config.trail.smoothFactor;
 
       if (sf > 0)
       {
@@ -1967,10 +1990,10 @@ export class BAClickFX
       this.lastTrailPos = pos;
     }
 
-    if (latestPos && Math.random() < CONFIG.trail.moveSparkChance)
+    if (latestPos && Math.random() < this.config.trail.moveSparkChance)
     {
       const angle = Math.random() * Math.PI * 2;
-      const offset = rand(5, 22) * CONFIG.scale;
+      const offset = rand(5, 22) * this.config.scale;
       const spark = this._getSpark(
         latestPos.x + Math.cos(angle) * offset,
         latestPos.y + Math.sin(angle) * offset,
@@ -2079,120 +2102,120 @@ export class BAClickFX
   /** @param {number} r @param {number} g @param {number} b */
   setColor(r, g, b)
   {
-    CONFIG.color = [r, g, b];
+    this.config.color = [r, g, b];
     this._requestRender();
   }
 
   /** @param {number} scale */
   setScale(scale)
   {
-    CONFIG.scale = Math.max(0.5, Math.min(3, Number(scale) ?? 1.10));
+    this.config.scale = Math.max(0.5, Math.min(3, Number(scale) ?? 1.10));
     this._requestRender();
   }
 
   /** @param {number} opacity */
   setOpacity(opacity)
   {
-    CONFIG.opacity = Math.max(0.1, Math.min(1, Number(opacity) ?? 0.5));
+    this.config.opacity = Math.max(0.1, Math.min(1, Number(opacity) ?? 0.5));
     this._requestRender();
   }
 
   /** @param {number} clickSpeed @param {number} [trailSpeed=clickSpeed] */
   setSpeed(clickSpeed, trailSpeed = clickSpeed)
   {
-    CONFIG.clickSpeed = Math.max(0.2, Math.min(3, Number(clickSpeed) ?? 1));
-    CONFIG.trailSpeed = Math.max(0.2, Math.min(3, Number(trailSpeed) ?? 1));
+    this.config.clickSpeed = Math.max(0.2, Math.min(3, Number(clickSpeed) ?? 1));
+    this.config.trailSpeed = Math.max(0.2, Math.min(3, Number(trailSpeed) ?? 1));
     this._requestRender();
   }
 
   /** @param {number} maxDpr */
   setDpr(maxDpr)
   {
-    CONFIG.maxDpr = Math.max(1, Math.min(2, Number(maxDpr) ?? 1));
+    this.config.maxDpr = Math.max(1, Math.min(2, Number(maxDpr) ?? 1));
     this._resizeCanvas();
   }
 
   /** @param {number} value */
   setTrailRenderScale(value)
   {
-    CONFIG.trailRenderScale = Math.max(0.5, Math.min(1, Number(value) ?? 1));
+    this.config.trailRenderScale = Math.max(0.5, Math.min(1, Number(value) ?? 1));
     this._resizeCanvas();
   }
 
   /** @param {boolean} enabled */
   setGlow(enabled)
   {
-    CONFIG.glow.enabled = Boolean(enabled);
+    this.config.glow.enabled = Boolean(enabled);
     this._requestRender();
   }
 
   /** @param {boolean} enabled */
   setFakeGlow(enabled)
   {
-    CONFIG.glow.fake = Boolean(enabled);
+    this.config.glow.fake = Boolean(enabled);
     this._requestRender();
   }
 
   /** @param {boolean} enabled */
   setClickFakeGlow(enabled)
   {
-    CONFIG.glow.clickFake = Boolean(enabled);
+    this.config.glow.clickFake = Boolean(enabled);
     this._requestRender();
   }
 
   /** @param {number} value */
   setRingRotationSpeed(value = 0.008)
   {
-    CONFIG.rings.rotationSpeed = Math.max(0, Math.min(0.05, Number(value) ?? 0.008));
+    this.config.rings.rotationSpeed = Math.max(0, Math.min(0.05, Number(value) ?? 0.008));
     this._requestRender();
   }
 
   /** @param {number} value */
   setRingGlow(value = 0.35)
   {
-    CONFIG.rings.emissionAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.35));
+    this.config.rings.emissionAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.35));
     this._requestRender();
   }
 
   /** @param {number} value */
   setRingWidth(value = 0.9)
   {
-    CONFIG.rings.minW = Math.max(0.3, Math.min(3, Number(value) ?? 0.9));
+    this.config.rings.minW = Math.max(0.3, Math.min(3, Number(value) ?? 0.9));
     this._requestRender();
   }
 
   /** @param {number} value */
   setRingAlpha(value = 0.9)
   {
-    CONFIG.rings.alpha = Math.max(0.1, Math.min(1, Number(value) ?? 0.9));
+    this.config.rings.alpha = Math.max(0.1, Math.min(1, Number(value) ?? 0.9));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailBrightness(value = 0.96)
   {
-    CONFIG.trail.alpha = Math.max(0.1, Math.min(1, Number(value) ?? 0.96));
+    this.config.trail.alpha = Math.max(0.1, Math.min(1, Number(value) ?? 0.96));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailWhiteMix(value = 0.08)
   {
-    CONFIG.trail.whiteMix = Math.max(0, Math.min(1, Number(value) ?? 0.08));
+    this.config.trail.whiteMix = Math.max(0, Math.min(1, Number(value) ?? 0.08));
     this._requestRender();
   }
 
   /** @param {boolean} enabled */
   setTrail(enabled)
   {
-    CONFIG.trail.enabled = Boolean(enabled);
+    this.config.trail.enabled = Boolean(enabled);
     this._requestRender();
   }
 
   /** @param {boolean} enabled */
   setTrailAlways(enabled)
   {
-    CONFIG.trail.always = Boolean(enabled);
+    this.config.trail.always = Boolean(enabled);
     this._resetTrailInput();
     this._endTrailStroke();
     this._requestRender();
@@ -2201,71 +2224,71 @@ export class BAClickFX
   /** @param {number} baseFast @param {number} [baseSlow] */
   setTrailWidth(baseFast = 3, baseSlow = 3)
   {
-    CONFIG.trail.baseWidthFast = Math.max(0.5, Math.min(6, Number(baseFast) ?? 3));
-    CONFIG.trail.baseWidthSlow = Math.max(0.3, Math.min(CONFIG.trail.baseWidthFast, Number(baseSlow) ?? 3));
+    this.config.trail.baseWidthFast = Math.max(0.5, Math.min(6, Number(baseFast) ?? 3));
+    this.config.trail.baseWidthSlow = Math.max(0.3, Math.min(this.config.trail.baseWidthFast, Number(baseSlow) ?? 3));
     this._requestRender();
   }
 
   /** @param {number} lengthSlow @param {number} [lengthFast] */
   setTrailLength(lengthSlow = 900, lengthFast = 4200)
   {
-    CONFIG.trail.lengthSlow = Math.max(20, Math.min(5000, Number(lengthSlow) ?? 900));
-    CONFIG.trail.lengthFast = Math.max(CONFIG.trail.lengthSlow + 20, Math.min(8000, Number(lengthFast) ?? 4200));
+    this.config.trail.lengthSlow = Math.max(20, Math.min(5000, Number(lengthSlow) ?? 900));
+    this.config.trail.lengthFast = Math.max(this.config.trail.lengthSlow + 20, Math.min(8000, Number(lengthFast) ?? 4200));
     this._requestRender();
   }
 
   /** @param {number} lifeSlow @param {number} [lifeFast] */
   setTrailLife(lifeSlow = 22, lifeFast = 22)
   {
-    CONFIG.trail.lifeSlow = Math.max(5, Math.min(400, Number(lifeSlow) ?? 22));
-    CONFIG.trail.lifeFast = Math.max(CONFIG.trail.lifeSlow, Math.min(600, Number(lifeFast) ?? 22));
+    this.config.trail.lifeSlow = Math.max(5, Math.min(400, Number(lifeSlow) ?? 22));
+    this.config.trail.lifeFast = Math.max(this.config.trail.lifeSlow, Math.min(600, Number(lifeFast) ?? 22));
     this._requestRender();
   }
 
   /** @param {number} tailDecayMul @param {number} headDecayMul @param {number} releaseDecayMul */
   setTrailDecay(tailDecayMul = 1.28, headDecayMul = 0.95, releaseDecayMul = 1.18)
   {
-    CONFIG.trail.tailDecayMul = Math.max(0.1, Math.min(5, Number(tailDecayMul) ?? 1.28));
-    CONFIG.trail.headDecayMul = Math.max(0.1, Math.min(CONFIG.trail.tailDecayMul, Number(headDecayMul) ?? 0.95));
-    CONFIG.trail.releaseDecayMul = Math.max(0.5, Math.min(12, Number(releaseDecayMul) ?? 1.18));
+    this.config.trail.tailDecayMul = Math.max(0.1, Math.min(5, Number(tailDecayMul) ?? 1.28));
+    this.config.trail.headDecayMul = Math.max(0.1, Math.min(this.config.trail.tailDecayMul, Number(headDecayMul) ?? 0.95));
+    this.config.trail.releaseDecayMul = Math.max(0.5, Math.min(12, Number(releaseDecayMul) ?? 1.18));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailSpeedDecay(value = 0.988)
   {
-    CONFIG.trail.speedDecay = Math.max(0.8, Math.min(0.999, Number(value) ?? 0.988));
+    this.config.trail.speedDecay = Math.max(0.8, Math.min(0.999, Number(value) ?? 0.988));
     this._requestRender();
   }
 
   /** @param {number} speedMin @param {number} speedMax */
   setTrailSpeedRange(speedMin = 0.035, speedMax = 2.2)
   {
-    CONFIG.trail.speedMin = Math.max(0, Number(speedMin) ?? 0.035);
-    CONFIG.trail.speedMax = Math.max(CONFIG.trail.speedMin + 0.1, Number(speedMax) ?? 2.2);
+    this.config.trail.speedMin = Math.max(0, Number(speedMin) ?? 0.035);
+    this.config.trail.speedMax = Math.max(this.config.trail.speedMin + 0.1, Number(speedMax) ?? 2.2);
     this._requestRender();
   }
 
   /** @param {number} sampleStep @param {number} maxInterpolatedPoints */
   setTrailSampling(sampleStep = 0.85, maxInterpolatedPoints = 80)
   {
-    CONFIG.trail.sampleStep = Math.max(0.3, Math.min(12, Number(sampleStep) ?? 0.85));
-    CONFIG.trail.maxInterpolatedPoints = Math.max(2, Math.min(160, Number(maxInterpolatedPoints) ?? 80));
+    this.config.trail.sampleStep = Math.max(0.3, Math.min(12, Number(sampleStep) ?? 0.85));
+    this.config.trail.maxInterpolatedPoints = Math.max(2, Math.min(160, Number(maxInterpolatedPoints) ?? 80));
     this._requestRender();
   }
 
   /** @param {number} renderStep @param {number} renderMaxPoints */
   setTrailRenderSampling(renderStep = 0.75, renderMaxPoints = 2400)
   {
-    CONFIG.trail.renderStep = Math.max(0.3, Math.min(8, Number(renderStep) ?? 0.75));
-    CONFIG.trail.renderMaxPoints = Math.max(60, Math.min(3600, Number(renderMaxPoints) ?? 2400));
+    this.config.trail.renderStep = Math.max(0.3, Math.min(8, Number(renderStep) ?? 0.75));
+    this.config.trail.renderMaxPoints = Math.max(60, Math.min(3600, Number(renderMaxPoints) ?? 2400));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailSmooth(value = 0.5)
   {
-    CONFIG.trail.smoothFactor = Math.max(0, Math.min(0.9, Number(value) ?? 0.5));
+    this.config.trail.smoothFactor = Math.max(0, Math.min(0.9, Number(value) ?? 0.5));
     this.trailSmoothX = null;
     this.trailSmoothY = null;
     this._requestRender();
@@ -2274,215 +2297,215 @@ export class BAClickFX
   /** @param {number} main @param {number} core @param {number} hot @param {number} glow @param {number} softGlow @param {number} rail */
   setTrailLayerAlpha(main = 1, core = 0.78, hot = 0.34, glow = 0.18, softGlow = 0.045, rail = 0.02)
   {
-    CONFIG.trail.mainAlpha = Math.max(0, Math.min(1, Number(main) ?? 1));
-    CONFIG.trail.coreAlpha = Math.max(0, Math.min(1, Number(core) ?? 0.78));
-    CONFIG.trail.hotAlpha = Math.max(0, Math.min(1, Number(hot) ?? 0.34));
-    CONFIG.trail.glowAlpha = Math.max(0, Math.min(1, Number(glow) ?? 0.18));
-    CONFIG.trail.softGlowAlpha = Math.max(0, Math.min(0.5, Number(softGlow) ?? 0.045));
-    CONFIG.trail.railAlpha = Math.max(0, Math.min(1, Number(rail) ?? 0.02));
+    this.config.trail.mainAlpha = Math.max(0, Math.min(1, Number(main) ?? 1));
+    this.config.trail.coreAlpha = Math.max(0, Math.min(1, Number(core) ?? 0.78));
+    this.config.trail.hotAlpha = Math.max(0, Math.min(1, Number(hot) ?? 0.34));
+    this.config.trail.glowAlpha = Math.max(0, Math.min(1, Number(glow) ?? 0.18));
+    this.config.trail.softGlowAlpha = Math.max(0, Math.min(0.5, Number(softGlow) ?? 0.045));
+    this.config.trail.railAlpha = Math.max(0, Math.min(1, Number(rail) ?? 0.02));
     this._requestRender();
   }
 
   /** @param {number} value */
   setMoveSparkChance(value = 0)
   {
-    CONFIG.trail.moveSparkChance = Math.max(0, Math.min(0.05, Number(value) ?? 0));
+    this.config.trail.moveSparkChance = Math.max(0, Math.min(0.05, Number(value) ?? 0));
   }
 
   /** @param {number} value */
   setShardSpacing(value = 220)
   {
-    CONFIG.trail.shardSpacing = Math.max(20, Math.min(500, Number(value) ?? 220));
+    this.config.trail.shardSpacing = Math.max(20, Math.min(500, Number(value) ?? 220));
     this._requestRender();
   }
 
   /** @param {number} slow @param {number} fast */
   setShardChance(slow = 0.04, fast = 0.18)
   {
-    CONFIG.trail.shardChanceSlow = Math.max(0, Math.min(1, Number(slow) ?? 0.04));
-    CONFIG.trail.shardChanceFast = Math.max(CONFIG.trail.shardChanceSlow, Math.min(1, Number(fast) ?? 0.18));
+    this.config.trail.shardChanceSlow = Math.max(0, Math.min(1, Number(slow) ?? 0.04));
+    this.config.trail.shardChanceFast = Math.max(this.config.trail.shardChanceSlow, Math.min(1, Number(fast) ?? 0.18));
     this._requestRender();
   }
 
   /** @param {number} value */
   setShardLargeChance(value = 0.62)
   {
-    CONFIG.trail.shardLargeChance = Math.max(0, Math.min(1, Number(value) ?? 0.62));
+    this.config.trail.shardLargeChance = Math.max(0, Math.min(1, Number(value) ?? 0.62));
     this._requestRender();
   }
 
   /** @param {number} value */
   setMaxShards(value = 38)
   {
-    CONFIG.trail.maxSparkParticles = Math.max(0, Math.min(200, Number(value) ?? 38));
+    this.config.trail.maxSparkParticles = Math.max(0, Math.min(200, Number(value) ?? 38));
     this._requestRender();
   }
 
   /** @param {number} value */
   setSparksCount(value = 4)
   {
-    CONFIG.sparksCount = Math.max(0, Math.min(12, Number(value) ?? 4));
+    this.config.sparksCount = Math.max(0, Math.min(12, Number(value) ?? 4));
     this._requestRender();
   }
 
   /** @param {number} value */
   setClickTotalLife(value = 27)
   {
-    CONFIG.click.totalLife = Math.max(10, Math.min(60, Number(value) ?? 27));
+    this.config.click.totalLife = Math.max(10, Math.min(60, Number(value) ?? 27));
     this._requestRender();
   }
 
   /** @param {number} value */
   setClickScaleMul(value = 1.3)
   {
-    CONFIG.click.scaleMul = Math.max(0.5, Math.min(3, Number(value) ?? 1.3));
+    this.config.click.scaleMul = Math.max(0.5, Math.min(3, Number(value) ?? 1.3));
     this._requestRender();
   }
 
   /** @param {number} value */
   setClickHaloRadius(value = 96)
   {
-    CONFIG.click.haloRadius = Math.max(30, Math.min(200, Number(value) ?? 96));
+    this.config.click.haloRadius = Math.max(30, Math.min(200, Number(value) ?? 96));
     this._requestRender();
   }
 
   /** @param {number} value */
   setRingDelay(value = 2)
   {
-    CONFIG.rings.delay = Math.max(0, Math.min(10, Number(value) ?? 2));
+    this.config.rings.delay = Math.max(0, Math.min(10, Number(value) ?? 2));
     this._requestRender();
   }
 
   /** @param {number} value */
   setRingMaxLife(value = 27)
   {
-    CONFIG.rings.maxLife = Math.max(10, Math.min(60, Number(value) ?? 27));
+    this.config.rings.maxLife = Math.max(10, Math.min(60, Number(value) ?? 27));
     this._requestRender();
   }
 
   /** @param {number} value */
   setRingBaseRadiusMul(value = 0.47)
   {
-    CONFIG.rings.baseRadiusMul = Math.max(0.2, Math.min(1, Number(value) ?? 0.47));
+    this.config.rings.baseRadiusMul = Math.max(0.2, Math.min(1, Number(value) ?? 0.47));
     this._requestRender();
   }
 
   /** @param {number} value */
   setRingRadiusGrowEnd(value = 0.66)
   {
-    CONFIG.rings.radiusGrowEnd = Math.max(0.2, Math.min(1, Number(value) ?? 0.66));
+    this.config.rings.radiusGrowEnd = Math.max(0.2, Math.min(1, Number(value) ?? 0.66));
     this._requestRender();
   }
 
   /** @param {number} value */
   setRingPostDiskGrow(value = 24)
   {
-    CONFIG.rings.postDiskGrow = Math.max(5, Math.min(60, Number(value) ?? 24));
+    this.config.rings.postDiskGrow = Math.max(5, Math.min(60, Number(value) ?? 24));
     this._requestRender();
   }
 
   /** @param {number} value */
   setRingGlowRadiusAdd(value = 54)
   {
-    CONFIG.rings.glowRadiusAdd = Math.max(10, Math.min(150, Number(value) ?? 54));
+    this.config.rings.glowRadiusAdd = Math.max(10, Math.min(150, Number(value) ?? 54));
     this._requestRender();
   }
 
   /** @param {number} value */
   setRingSoftGlowRadiusAdd(value = 96)
   {
-    CONFIG.rings.softGlowRadiusAdd = Math.max(20, Math.min(200, Number(value) ?? 96));
+    this.config.rings.softGlowRadiusAdd = Math.max(20, Math.min(200, Number(value) ?? 96));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailMainAlpha(value = 1)
   {
-    CONFIG.trail.mainAlpha = Math.max(0, Math.min(1, Number(value) ?? 1));
+    this.config.trail.mainAlpha = Math.max(0, Math.min(1, Number(value) ?? 1));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailCoreAlpha(value = 0.78)
   {
-    CONFIG.trail.coreAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.78));
+    this.config.trail.coreAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.78));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailHotAlpha(value = 0.34)
   {
-    CONFIG.trail.hotAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.34));
+    this.config.trail.hotAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.34));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailGlowAlpha(value = 0.18)
   {
-    CONFIG.trail.glowAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.18));
+    this.config.trail.glowAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.18));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailSoftGlowAlpha(value = 0.045)
   {
-    CONFIG.trail.softGlowAlpha = Math.max(0, Math.min(0.5, Number(value) ?? 0.045));
+    this.config.trail.softGlowAlpha = Math.max(0, Math.min(0.5, Number(value) ?? 0.045));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailRailAlpha(value = 0.02)
   {
-    CONFIG.trail.railAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.02));
+    this.config.trail.railAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.02));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailGlowWidthMul(value = 1.7)
   {
-    CONFIG.trail.glowWidthMul = Math.max(0.3, Math.min(8, Number(value) ?? 1.7));
+    this.config.trail.glowWidthMul = Math.max(0.3, Math.min(8, Number(value) ?? 1.7));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailSoftGlowWidthMul(value = 2.4)
   {
-    CONFIG.trail.softGlowWidthMul = Math.max(0.5, Math.min(15, Number(value) ?? 2.4));
+    this.config.trail.softGlowWidthMul = Math.max(0.5, Math.min(15, Number(value) ?? 2.4));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailTailDecayMul(value = 1.28)
   {
-    CONFIG.trail.tailDecayMul = Math.max(0.1, Math.min(5, Number(value) ?? 1.28));
+    this.config.trail.tailDecayMul = Math.max(0.1, Math.min(5, Number(value) ?? 1.28));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailHeadDecayMul(value = 0.95)
   {
-    CONFIG.trail.headDecayMul = Math.max(0.1, Math.min(5, Number(value) ?? 0.95));
+    this.config.trail.headDecayMul = Math.max(0.1, Math.min(5, Number(value) ?? 0.95));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailReleaseDecayMul(value = 1.18)
   {
-    CONFIG.trail.releaseDecayMul = Math.max(0.5, Math.min(12, Number(value) ?? 1.18));
+    this.config.trail.releaseDecayMul = Math.max(0.5, Math.min(12, Number(value) ?? 1.18));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailSpeedMin(value = 0.035)
   {
-    CONFIG.trail.speedMin = Math.max(0.005, Math.min(0.5, Number(value) ?? 0.035));
+    this.config.trail.speedMin = Math.max(0.005, Math.min(0.5, Number(value) ?? 0.035));
     this._requestRender();
   }
 
   /** @param {number} value */
   setTrailSpeedMax(value = 2.2)
   {
-    CONFIG.trail.speedMax = Math.max(0.5, Math.min(5, Number(value) ?? 2.2));
+    this.config.trail.speedMax = Math.max(0.5, Math.min(5, Number(value) ?? 2.2));
     this._requestRender();
   }
 
@@ -2506,24 +2529,23 @@ export class BAClickFX
   /** @returns {object} 当前配置的深拷贝 */
   getConfig()
   {
-    return JSON.parse(JSON.stringify(CONFIG));
+    return cloneConfig(this.config);
   }
 
   /** 恢复所有配置为默认值 */
   resetConfig()
   {
-    Object.assign(CONFIG, defaultConfigSnapshot);
+    this.config = createConfig();
+    this._resizeCanvas();
     this._requestRender();
   }
 
-  /** 直接引用 CONFIG 对象（只读推荐） */
+  /** 直接引用当前实例配置对象（只读推荐） */
   get CONFIG()
   {
-    return CONFIG;
+    return this.config;
   }
 }
 
-// 保存默认配置快照用于 resetConfig
-const defaultConfigSnapshot = JSON.parse(JSON.stringify(CONFIG));
 
 export default BAClickFX;

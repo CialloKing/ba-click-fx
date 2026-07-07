@@ -199,49 +199,78 @@ export const CONFIG = {
   },
 };
 
+// resetConfig 必须回到模块初始默认值，不能受运行时或外部误改 CONFIG 的影响。
+const DEFAULT_CONFIG = JSON.parse(JSON.stringify(CONFIG));
+
+/**
+ * 深拷贝配置对象。
+ * 运行时配置必须按实例隔离，避免多个 BAClickFX 互相覆盖参数。
+ * @param {object} [config=CONFIG]
+ * @returns {object}
+ */
+export function cloneConfig(config = CONFIG)
+{
+  return JSON.parse(JSON.stringify(config));
+}
+
+/**
+ * 创建运行时配置副本。
+ * CONFIG 只保留为默认模板和兼容导出，不直接作为实例状态使用。
+ * @returns {object}
+ */
+export function createConfig()
+{
+  return cloneConfig(DEFAULT_CONFIG);
+}
+
 /**
  * 点击特效专用缩放 = scale × click.scaleMul
+ * @param {object} [config=CONFIG]
  * @returns {number}
  */
-export function getClickScale()
+export function getClickScale(config = CONFIG)
 {
-  return CONFIG.scale * CONFIG.click.scaleMul;
+  return config.scale * config.click.scaleMul;
 }
 
 /**
  * 点击圆环颜色 — 主题色与白色 1:3 混合，明度极高
+ * @param {object} [config=CONFIG]
  * @returns {number[]} [r, g, b]
  */
-export function getClickRingEndColor()
+export function getClickRingEndColor(config = CONFIG)
 {
-  return CONFIG.color.map((channel) =>
+  return config.color.map((channel) =>
     Math.round((channel + 255 * 3) / 4),
   );
 }
 
 /**
  * 拖尾主色调 = 主题色按 whiteMix 混合白色
+ * @param {object} [config=CONFIG]
  * @returns {number[]} [r, g, b]
  */
-export function getTrailColor()
+export function getTrailColor(config = CONFIG)
 {
-  return mixColor(CONFIG.color, [255, 255, 255], CONFIG.trail.whiteMix);
+  return mixColor(config.color, [255, 255, 255], config.trail.whiteMix);
 }
 
 /**
  * 拖尾中心高光色 = 主题色 + 56% 白（浅蓝，避免纯白过于刺眼）
+ * @param {object} [config=CONFIG]
  * @returns {number[]} [r, g, b]
  */
-export function getTrailCoreColor()
+export function getTrailCoreColor(config = CONFIG)
 {
-  return mixColor(CONFIG.color, [255, 255, 255], 0.36);
+  return mixColor(config.color, [255, 255, 255], 0.36);
 }
 
 /**
  * 拖尾头部热点色 = 主题色 + 74% 白（蓝白，保留蓝色基底）
+ * @param {object} [config=CONFIG]
  * @returns {number[]} [r, g, b]
  */
-export function getTrailHotColor()
+export function getTrailHotColor(config = CONFIG)
 {
-  return mixColor(CONFIG.color, [255, 255, 255], 0.58);
+  return mixColor(config.color, [255, 255, 255], 0.58);
 }

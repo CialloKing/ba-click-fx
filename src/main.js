@@ -1,6 +1,5 @@
 import './style.css';
 import { BAClickFX } from './ba-spark.js';
-import { CONFIG } from './config.js';
 
 // ── 创建特效引擎实例 ────────────────────────────────────────────────────
 const api = new BAClickFX();
