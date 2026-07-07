@@ -628,7 +628,13 @@ export class BAClickFX
     this.canvas.id = 'sparkCanvas';
     this.canvas.style.cssText =
       'position:fixed;inset:0;z-index:999999;width:100vw;height:100vh;pointer-events:none;display:block;';
-    document.body.appendChild(this.canvas);
+
+    const parent = document.body || document.documentElement;
+    if (!parent)
+    {
+      throw new Error('[ba-click-fx] 无法挂载 Canvas：请在 DOM 加载完成后初始化');
+    }
+    parent.appendChild(this.canvas);
     this._ownsCanvas = true;
   }
 
@@ -2087,6 +2093,7 @@ export class BAClickFX
     window.removeEventListener('resize', this._onResize);
     this._teardownInput();
 
+    clearTimeout(this._resizeTimer);
     this.running = false;
 
     if (this._rafId != null)
@@ -2501,6 +2508,12 @@ export class BAClickFX
   setTrailSpeedMin(value = 0.035)
   {
     this.config.trail.speedMin = Math.max(0.005, Math.min(0.5, Number(value) ?? 0.035));
+    // 确保 speedMin < speedMax，防止 _updateTrailSpeed 除零
+    if (this.config.trail.speedMin >= this.config.trail.speedMax)
+    {
+      this.config.trail.speedMax = this.config.trail.speedMin + 0.005;
+    }
+
     this._requestRender();
   }
 
@@ -2508,6 +2521,12 @@ export class BAClickFX
   setTrailSpeedMax(value = 2.2)
   {
     this.config.trail.speedMax = Math.max(0.5, Math.min(5, Number(value) ?? 2.2));
+    // 确保 speedMax > speedMin，防止 _updateTrailSpeed 除零
+    if (this.config.trail.speedMax <= this.config.trail.speedMin)
+    {
+      this.config.trail.speedMin = this.config.trail.speedMax - 0.005;
+    }
+
     this._requestRender();
   }
 

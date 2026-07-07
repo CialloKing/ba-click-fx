@@ -26,16 +26,6 @@ export function rand(min, max) {
 }
 
 /**
- * 从数组中随机取一个元素
- * @template T
- * @param {T[]} list
- * @returns {T}
- */
-export function pick(list) {
-  return list[Math.floor(Math.random() * list.length)];
-}
-
-/**
  * easeOutCubic 缓动：t → 1-(1-t)³
  * @param {number} t - 归一化进度 [0, 1]
  * @returns {number}
@@ -86,8 +76,21 @@ export function lerp(a, b, t) {
  * @param {number} [alpha=1]
  * @returns {string} "rgba(r, g, b, a)"
  */
+const _rgbCache = new Map();
+const _RGB_CACHE_MAX = 64;
 export function rgbToCss(rgb, alpha = 1) {
-  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${clamp01(alpha)})`;
+  const a = clamp01(alpha);
+  const key = ((rgb[0] << 16) | (rgb[1] << 8) | rgb[2]) * 1000 + Math.round(a * 1000);
+  const cached = _rgbCache.get(key);
+  if (cached !== undefined) { return cached; }
+
+  const value = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`;
+  if (_rgbCache.size >= _RGB_CACHE_MAX)
+  {
+    _rgbCache.delete(_rgbCache.keys().next().value);
+  }
+  _rgbCache.set(key, value);
+  return value;
 }
 
 /**

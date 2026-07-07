@@ -240,9 +240,7 @@ export function getClickScale(config = CONFIG)
  */
 export function getClickRingEndColor(config = CONFIG)
 {
-  return config.color.map((channel) =>
-    Math.round((channel + 255 * 3) / 4),
-  );
+  return mixColor(config.color, [255, 255, 255], 0.75);
 }
 
 /**
