@@ -9,6 +9,9 @@ export const CONFIG = {
   scale: 1.10,
   opacity: 0.5,
 
+  // 点击特效开关，设为 false 可仅保留拖尾轨迹。
+  clickEnabled: true,
+
   clickSpeed: 1,
   trailSpeed: 1.05,
 

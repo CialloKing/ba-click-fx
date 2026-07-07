@@ -504,6 +504,11 @@ export class BAClickFX
       this.config.trail.enabled = options.trailEnabled;
     }
 
+    if (options.clickEnabled !== undefined)
+    {
+      this.config.clickEnabled = options.clickEnabled;
+    }
+
     if (options.touchAction !== undefined)
     {
       this.config.touchAction = options.touchAction;
@@ -2077,7 +2082,10 @@ export class BAClickFX
       this._endTrailStroke();
       this._beginTrailStroke(pos.x, pos.y, this.trailSpeedFactor);
 
-      this._createClickEffect(pos.x, pos.y);
+      if (this.config.clickEnabled)
+      {
+        this._createClickEffect(pos.x, pos.y);
+      }
     };
 
     this._onPointerMove = this._handlePointerMove.bind(this);
@@ -2265,6 +2273,13 @@ export class BAClickFX
   setTrail(enabled)
   {
     this.config.trail.enabled = Boolean(enabled);
+    this._requestRender();
+  }
+
+  /** @param {boolean} enabled */
+  setClick(enabled)
+  {
+    this.config.clickEnabled = Boolean(enabled);
     this._requestRender();
   }
 
@@ -2591,7 +2606,10 @@ export class BAClickFX
    */
   boom(x = window.innerWidth / 2, y = window.innerHeight / 2)
   {
-    this._createClickEffect(x, y);
+    if (this.config.clickEnabled)
+    {
+      this._createClickEffect(x, y);
+    }
   }
 
   /** @returns {object} 当前配置的深拷贝 */
