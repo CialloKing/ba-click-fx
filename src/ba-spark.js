@@ -1523,8 +1523,6 @@ export class BAClickFX
     // 沿真实路径分段采样，避免 Canvas 线性渐变在回环路径里误亮尾部。
     const chunkLength = Math.max(1, this.config.trail.gradientChunkLength ?? 1.5);
 
-    context.save();
-
     let startIndex = 0;
 
     for (let i = 1; i < points.length; i++)
@@ -1565,8 +1563,6 @@ export class BAClickFX
 
       startIndex = i;
     }
-
-    context.restore();
   }
 
   _renderTrailStrokeToCanvas(stroke)
