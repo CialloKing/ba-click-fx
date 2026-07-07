@@ -112,6 +112,9 @@ export const CONFIG = {
     // 渲染重采样（renderMaxPoints 限制最终渲染点数，区别于上面 maxPoints 限制原始采样存储点）
     renderStep: 0.75,
     renderMaxPoints: 2400,
+    // 拖尾分段渐变长度：沿路径每隔多少 px 采样透明度/宽度。
+    // 值越小渐变越细腻，但 stroke 调用越多。1.5≈与旧版兼容。
+    gradientChunkLength: 1.5,
     // TrailRenderer.time 主导长度；这里主要作为异常长路径的保险上限。
     lengthSlow: 900,
     lengthFast: 4200,

@@ -682,7 +682,7 @@ export class BAClickFX
     this.running = true;
     this.lastTime = performance.now();
     this._animationLoopBound = this._animationLoop.bind(this);
-    requestAnimationFrame(this._animationLoopBound);
+    this._rafId = requestAnimationFrame(this._animationLoopBound);
   }
 
   // ═══════════════════════════════════════════════════════
@@ -1859,7 +1859,7 @@ export class BAClickFX
 
     if (this._hasActiveEffects())
     {
-      requestAnimationFrame(this._animationLoopBound);
+      this._rafId = requestAnimationFrame(this._animationLoopBound);
     }
     else
     {
@@ -2063,6 +2063,12 @@ export class BAClickFX
     this._teardownInput();
 
     this.running = false;
+
+    if (this._rafId != null)
+    {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
 
     if (this._ownsCanvas && this.canvas.parentNode)
     {

@@ -64,7 +64,7 @@ api.resetConfig = function ()
 };
 
 // 暴露到全局
-window.BAClickFXDdemo = api;
+window.BAClickFXDemo = api;
 
 // ── 控制面板 & 交互提示 ──────────────────────────────────────────────────
 (function initUI()
@@ -596,7 +596,15 @@ window.BAClickFXDdemo = api;
     // 重置背景主题
     applyTheme('蔚蓝');
 
-    localStorage.clear();
+    // 只删除 bafx- 前缀的键，不影响同域名下其他应用
+    for (const key of Object.keys(localStorage))
+    {
+      if (key.startsWith('bafx-'))
+      {
+        localStorage.removeItem(key);
+      }
+    }
+
     localStorage.setItem('bafx-version', SETTINGS_VERSION);
   });
 
