@@ -26,8 +26,9 @@ body {
   left: 24px;
   z-index: 1;
   display: flex;
-  align-items: baseline;
-  gap: 18px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .hero-float h1 {
