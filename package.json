@@ -1,6 +1,6 @@
 {
   "name": "ba-click-fx",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Blue Archive style mouse click effect and cursor trail animation for web Canvas.",
   "type": "module",
   "sideEffects": false,
