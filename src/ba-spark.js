@@ -970,7 +970,8 @@ export class BAClickFX
     const ringRadius = this.config.filledCircle.rAddRate * getClickScale(this.config);
     const radialSpeed = rand(0.4, 0.7) * this.config.scale;
     const tangentSpeed = rand(-0.4, 0.4) * this.config.scale;
-    const whiteMix = rand(0.65, 0.95);
+    // 偏向蓝色，保留轻微白色高亮以模拟 Additive 叠加
+    const whiteMix = rand(0.3, 0.55);
 
     spark.x = centerX + Math.cos(angle) * ringRadius;
     spark.y = centerY + Math.sin(angle) * ringRadius;
@@ -1010,7 +1011,8 @@ export class BAClickFX
     const scale = this.config.scale;
     const drift = rand(0.02, 0.28) * (0.72 + speedFactor * 0.45);
     const tangentDrift = rand(-0.22, 0.26);
-    const whiteMix = isLarge ? rand(0.72, 0.96) : rand(0.52, 0.86);
+    // 偏向蓝色，大碎片稍亮
+    const whiteMix = isLarge ? rand(0.35, 0.6) : rand(0.2, 0.48);
 
     spark.vx = Math.cos(normalAngle) * drift + Math.cos(tangentAngle) * tangentDrift;
     spark.vy = Math.sin(normalAngle) * drift + Math.sin(tangentAngle) * tangentDrift;
