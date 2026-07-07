@@ -1,7 +1,7 @@
 {
   "name": "ba-click-fx",
   "version": "1.0.7",
-  "description": "网页版《蔚蓝档案》点击与拖拽特效，纯 Canvas 2D 实现，零外部依赖",
+  "description": "Blue Archive style mouse click effect and cursor trail animation for web Canvas.",
   "type": "module",
   "sideEffects": false,
   "main": "./dist/ba-click-fx.cjs",
@@ -23,16 +23,30 @@
     "LICENSE"
   ],
   "keywords": [
-    "canvas",
-    "animation",
-    "particle",
-    "trail",
+    "blue-archive",
+    "bluearchive",
+    "ba",
     "click-effect",
-    "blue-archive"
+    "mouse-effect",
+    "cursor-effect",
+    "touch-effect",
+    "trail-effect",
+    "cursor-trail",
+    "canvas",
+    "canvas2d",
+    "javascript",
+    "web-animation",
+    "particle-effect",
+    "anime-ui",
+    "game-ui"
   ],
+  "homepage": "https://ba-click-fx.cialloking.top",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/CialloKing/ba-click-fx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CialloKing/ba-click-fx/issues"
   },
   "license": "MIT",
   "scripts": {

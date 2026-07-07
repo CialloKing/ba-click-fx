@@ -3,16 +3,28 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)
 
-网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效，基于游戏录像逐帧校准，纯 Canvas 2D 实现，零外部资源依赖。
+**Blue Archive / 蔚蓝档案 style mouse click effect and cursor trail animation for web.**
 
-（本项目纯AI生成，绝无手写代码）
+`ba-click-fx` 是一个网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效库，使用纯 **Canvas 2D** 实现游戏风格的鼠标点击动画、蓝色圆盘、旋转圆环、碎片粒子、拖尾光轨和拖拽轨迹效果。
 
-**在线演示：**[ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
+A lightweight **Blue Archive style cursor effect** library for the web. It provides **mouse click effects**, **touch effects**, **cursor trail animation**, **particle sparks**, **glowing rings**, and **drag trails** with zero external runtime dependencies.
+
+**Online Demo:** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
+
+> Click, drag, or move your mouse on the demo page to preview the Blue Archive style click effect and cursor trail.
+
+<!-- TODO: add a demo GIF
+<p align="center">
+  <img src="./docs/assets/ba-click-fx-demo.gif" alt="Blue Archive click effect and cursor trail demo" width="720">
+</p>
+-->
 
 ---
 
 ## 目录
 
+- [在线演示](#在线演示)
+- [特性](#特性)
 - [快速开始](#快速开始)
 - [三种使用方式](#三种使用方式)
   - [npm 安装](#1-npm-安装)
@@ -20,9 +32,31 @@
   - [直接下载](#3-直接下载)
 - [API 文档](#api-文档)
 - [效果说明](#效果说明)
+- [和其他项目的区别](#和其他项目的区别)
 - [项目结构](#项目结构)
+- [开发说明](#开发说明)
 - [致谢](#致谢)
 - [许可](#许可)
+
+---
+
+## 在线演示
+
+打开 [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)，随意点击、拖动鼠标即可预览效果。页面右上角 ⚙ 可打开控制面板，实时调整颜色、大小、拖尾长度、碎片数量等参数。
+
+---
+
+## 特性
+
+- Blue Archive / 蔚蓝档案风格点击特效
+- Mouse click effect / touch effect / cursor trail effect
+- 蓝色圆盘、旋转圆环、碎片粒子、拖尾光轨
+- 支持点击、拖拽、移动轨迹和手动触发
+- 纯 Canvas 2D 实现，无图片素材依赖
+- 零外部运行时依赖，适合普通网页、博客、个人主页和前端项目
+- 支持 npm、CDN、直接下载三种接入方式
+- 支持颜色、缩放、透明度、速度、拖尾长度、圆环、碎片、发光等大量可调参数
+- 60+ 可调参数，演示页控制面板可实时预览
 
 ---
 
@@ -40,16 +74,25 @@
 npm install ba-click-fx
 ```
 
+最简用法：
+
 ```js
 import { BAClickFX } from 'ba-click-fx';
 
 const spark = new BAClickFX();
+```
 
-// 可选：自定义配置
+带自定义配置：
+
+```js
+import { BAClickFX } from 'ba-click-fx';
+
 const spark = new BAClickFX({
   color: [105, 161, 255],
   scale: 1.1,
   opacity: 0.5,
+  trailEnabled: true,
+  trailAlways: false,
 });
 ```
 
@@ -218,6 +261,27 @@ new BAClickFX(options?: BAClickFXOptions)
 
 ---
 
+## 和其他项目的区别
+
+`ba-click-fx` 更关注网页版《蔚蓝档案》点击反馈的细节还原，而不是普通网页烟花或简单鼠标拖尾效果。
+
+相比通用 cursor effects，本项目重点实现：
+
+- 游戏风格的点击圆盘、旋转圆环和碎片爆发
+- 更接近原游戏观感的蓝色拖尾光轨
+- 拖尾从尾部到头部连续消散，而不是整条轨迹同时淡出
+- 鼠标快速移动时保持连续轨迹
+- 点击、拖拽、移动轨迹、手动触发都可控制
+- 60+ 参数可调，适合继续校准游戏原版效果
+
+Related projects:
+
+- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
+- [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark)
+- [ZM-Kimu/Blue-Archive-Touch-Effect](https://github.com/ZM-Kimu/Blue-Archive-Touch-Effect)
+
+---
+
 ## 项目结构
 
 ```
@@ -236,9 +300,9 @@ ba-click-fx/
 ├── index.html            # 演示页面
 ├── dist/                 # 构建输出
 │   ├── index.html        # 演示页
-│   ├── ba-click-fx.js    # ESM 库 (~42KB)
-│   ├── ba-click-fx.cjs   # CommonJS (~35KB)
-│   ├── ba-click-fx.iife.js  # IIFE CDN (~35KB)
+│   ├── ba-click-fx.js    # ESM 库
+│   ├── ba-click-fx.cjs   # CommonJS
+│   ├── ba-click-fx.iife.js  # IIFE CDN
 │   └── ba-click-fx.d.ts  # TypeScript 声明
 ├── vite.config.js        # 演示页 Vite 配置
 ├── vite.lib.config.js    # 库模式 Vite 配置
@@ -255,14 +319,18 @@ ba-click-fx/
 
 ---
 
-## 致谢
+## 开发说明
 
+本项目主要通过 AI 辅助生成和迭代完成，并经过实际运行测试、参数调校和效果校准。项目目标是尽可能还原《蔚蓝档案》风格的网页点击特效与拖尾轨迹，同时保持纯 Canvas 2D、零运行时依赖和易集成的特性。
+
+---
+
+## 致谢
 
 - [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor) — 蔚蓝档案光标特效实现
 - [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark) — 蔚蓝档案点击特效早期 Web 实现
 
 上面的这两个项目对于鼠标轨迹的还原都不够像游戏内的原始特效，本项目在前两个项目的基础上优化了点击特效和轨迹特效，并且增加了大量可自定义选项。
-
 
 ---
 
