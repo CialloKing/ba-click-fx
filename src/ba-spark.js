@@ -588,6 +588,7 @@ export class BAClickFX
       }
 
       this._ownsCanvas = false;
+      this.canvas.style.touchAction = 'none';
       return;
     }
 
@@ -598,6 +599,7 @@ export class BAClickFX
     {
       this.canvas = existing;
       this._ownsCanvas = false;
+      this.canvas.style.touchAction = 'none';
       return;
     }
 
@@ -605,7 +607,7 @@ export class BAClickFX
     this.canvas = document.createElement('canvas');
     this.canvas.id = 'sparkCanvas';
     this.canvas.style.cssText =
-      'position:fixed;inset:0;z-index:999999;width:100vw;height:100vh;pointer-events:none;display:block;';
+      'position:fixed;inset:0;z-index:999999;width:100vw;height:100vh;pointer-events:none;display:block;touch-action:none;';
 
     const parent = document.body || document.documentElement;
     if (!parent)
