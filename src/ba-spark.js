@@ -1509,6 +1509,7 @@ export class BAClickFX
       stops,
       widthStops,
       minWidth = 0,
+      maxChunks = 128,
     } = options;
     const totalLength =
       points.totalLength ??
@@ -1520,8 +1521,9 @@ export class BAClickFX
       return;
     }
 
-    // 沿真实路径分段采样，避免 Canvas 线性渐变在回环路径里误亮尾部。
-    const chunkLength = Math.max(1, this.config.trail.gradientChunkLength ?? 1.5);
+    // 分段间距取固定值和动态值中较大者：短拖尾保持细腻，长拖尾自动扩大间距
+    const minChunk = Math.max(1, this.config.trail.gradientChunkLength ?? 1.5);
+    const chunkLength = Math.max(minChunk, totalLength / maxChunks);
 
     let startIndex = 0;
 
