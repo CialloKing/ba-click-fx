@@ -3,6 +3,7 @@
   "version": "1.0.3",
   "description": "网页版《蔚蓝档案》点击与拖拽特效，纯 Canvas 2D 实现，零外部依赖",
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/ba-click-fx.cjs",
   "module": "./dist/ba-click-fx.js",
   "types": "./dist/ba-click-fx.d.ts",
@@ -37,7 +38,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && vite build --config vite.lib.config.js && node -e \"require('fs').copyFileSync('src/ba-click-fx.d.ts','dist/ba-click-fx.d.ts')\"",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node test/smoke.js"
   },
   "devDependencies": {
     "vite": "^8.1.1"

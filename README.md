@@ -130,6 +130,7 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setRingPostDiskGrow(v)` | 扩张量 (5~60) | `24` |
 | `setRingGlowRadiusAdd(v)` | 发光半径 (10~150) | `54` |
 | `setRingSoftGlowRadiusAdd(v)` | 柔光半径 (20~200) | `96` |
+| `setRingRadiusGrowEnd(v)` | 扩张进度阈值 (0.2~1) | `0.66` |
 
 #### 拖尾
 
@@ -145,7 +146,15 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrailDecay(tail, head, release)` | 尾部/头部/松手消散倍率 | `1.28, 0.95, 1.18` |
 | `setTrailSmooth(f)` | 鼠标平滑 (0~0.9) | `0.5` |
 | `setTrailSpeedRange(min, max)` | 速度映射区间 (px/ms) | `0.035, 2.2` |
+| `setTrailSpeedMin(v)` | 最小速度阈值 (0.005~0.5) | `0.035` |
+| `setTrailSpeedMax(v)` | 最大速度阈值 (0.5~5) | `2.2` |
 | `setTrailSpeedDecay(d)` | 速度衰减率 (0.8~0.999) | `0.988` |
+| `setTrailDecay(tail, head, release)` | 尾部/头部/松手消散倍率 | `1.28, 0.95, 1.18` |
+| `setTrailTailDecayMul(v)` | 单独设置尾部衰减 | `1.28` |
+| `setTrailHeadDecayMul(v)` | 单独设置头部衰减 | `0.95` |
+| `setTrailReleaseDecayMul(v)` | 单独设置松手衰减 | `1.18` |
+| `setTrailSampling(step, max)` | 输入采样间距与最大点数 | `0.85, 80` |
+| `setTrailRenderSampling(step, max)` | 渲染重采样间距与最大点数 | `0.75, 2400` |
 
 #### 拖尾图层透明度
 
@@ -169,6 +178,7 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setShardSpacing(d)` | 间距 (20~500) | `220` |
 | `setShardChance(slow, fast)` | 额外概率 | `0.04, 0.18` |
 | `setShardLargeChance(p)` | 大碎片概率 | `0.62` |
+| `setMoveSparkChance(v)` | 移动随机撒点概率 (0~0.05) | `0` |
 
 #### 生命周期
 
