@@ -638,11 +638,12 @@ window.BAClickFXDemo = api;
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  // 按 B 键在屏幕中央触发点击特效（仅演示页功能）
+  // 按空格键在屏幕中央触发点击特效（仅演示页功能）
   window.addEventListener('keydown', (event) =>
   {
-    if (event.key.toLowerCase() === 'b')
+    if (event.key === ' ')
     {
+      event.preventDefault();
       api.boom();
     }
   });
