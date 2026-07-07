@@ -1023,8 +1023,8 @@ export class BAClickFX
 
     spark.alphaDecay = spark.alpha / lifetime;
     spark.friction = isLarge ? rand(0.978, 0.99) : rand(0.965, 0.982);
-    spark.rotation = normalAngle + rand(-1.2, 1.2);
-    // 游戏原始特效的轨迹碎片不会自身旋转
+    // 游戏原始特效的轨迹碎片只有正上和正下两个朝向
+    spark.rotation = Math.random() < 0.5 ? 0 : Math.PI;
     spark.rotationSpeed = 0;
     spark.color = mixColor(this.config.color, [255, 255, 255], whiteMix);
     spark.blur = (isLarge ? rand(0.7, 1.6) : rand(0.15, 0.65)) * scale;
