@@ -259,7 +259,7 @@ ba-click-fx/
 - [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor) — 蔚蓝档案光标特效实现
 - [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark) — 蔚蓝档案点击特效早期 Web 实现
 
-上面的这两个项目对于鼠标轨迹的还原都不够像游戏内的原始特效，本项目在前两个项目的基础上优化了点击特效和轨迹特效。
+上面的这两个项目对于鼠标轨迹的还原都不够像游戏内的原始特效，本项目在前两个项目的基础上优化了点击特效和轨迹特效，并且增加了可自定义主题色。
 
 
 ---
