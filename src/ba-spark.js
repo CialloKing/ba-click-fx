@@ -2187,11 +2187,11 @@ export class BAClickFX
 
   /**
    * 设置 Canvas touch-action CSS 属性。
-   * 'none' — 拖尾完整，禁止页面滚动（默认）
-   * 'auto' / 'pan-y' — 允许页面滚动，拖尾会被中断
-   * @param {'none'|'auto'|'pan-y'|'pan-x'|'manipulation'} value
+   * 'auto' — 页面滚动正常，拖尾会被中断（默认）
+   * 'none' — 拖尾完整，禁止页面滚动
+   * @param {'auto'|'none'|'pan-y'|'pan-x'|'manipulation'} value
    */
-  setTouchAction(value = 'none')
+  setTouchAction(value = 'auto')
   {
     this.config.touchAction = value;
     this.canvas.style.touchAction = value;
