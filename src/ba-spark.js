@@ -990,7 +990,8 @@ export class BAClickFX
     spark.alphaMul = rand(1.35, 1.6);
     spark.alphaDecay = rand(0.028, 0.044);
     spark.friction = rand(0.96, 0.985);
-    spark.rotation = angle + Math.PI + rand(-1.3, 1.3);
+    // 游戏原始特效的碎片只有正上和正下两个朝向
+    spark.rotation = Math.random() < 0.5 ? 0 : Math.PI;
     spark.rotationSpeed = 0;
     spark.color = mixColor(this.config.color, [255, 255, 255], whiteMix);
     spark.blur = rand(0.8, 2.2) * this.config.scale;
