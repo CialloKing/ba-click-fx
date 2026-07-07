@@ -91,6 +91,7 @@ window.BAClickFXDemo = api;
     clickSpeed: 1,
     trailSpeed: 1.05,
     trail: true,
+    clickEnabled: true,
     trailAlways: false,
     trailWidth: 3,
     trailLength: 900,
@@ -376,6 +377,10 @@ window.BAClickFXDemo = api;
 
   ctrlTrailAlways.addEventListener('change', () => { api.setTrailAlways(ctrlTrailAlways.checked); localStorage.setItem('bafx-ctrlTrailAlways', ctrlTrailAlways.checked); });
 
+  const ctrlClick = document.getElementById('ctrlClick');
+
+  ctrlClick.addEventListener('change', () => { api.setClick(ctrlClick.checked); localStorage.setItem('bafx-ctrlClick', ctrlClick.checked); });
+
   bindRange('ctrlTrailWidth', 'outTrailWidth', v => api.setTrailWidth(v));
 
   bindRange('ctrlTrailLength', 'outTrailLength', v => api.setTrailLength(v), true);
@@ -495,12 +500,14 @@ window.BAClickFXDemo = api;
     ctrlFakeGlow.checked = DEFAULTS.fakeGlow;
     ctrlGlow.checked = DEFAULTS.glow;
     ctrlClickFakeGlow.checked = DEFAULTS.clickFake;
+    ctrlClick.checked = DEFAULTS.clickEnabled;
 
     api.setTrail(DEFAULTS.trail);
     api.setTrailAlways(DEFAULTS.trailAlways);
     api.setFakeGlow(DEFAULTS.fakeGlow);
     api.setGlow(DEFAULTS.glow);
     api.setClickFakeGlow(DEFAULTS.clickFake);
+    api.setClick(DEFAULTS.clickEnabled);
 
     setVal('ctrlShardSpacing', 'outShardSpacing', DEFAULTS.shardSpacing, true);
     setVal('ctrlMaxShards', 'outMaxShards', DEFAULTS.maxShards, true);
