@@ -563,6 +563,7 @@ export class BAClickFX
 
     // ── 启动 ──
     this._onResize = this._debouncedResize.bind(this);
+    this._animationLoopBound = this._animationLoop.bind(this);
     window.addEventListener('resize', this._onResize);
     this._resizeCanvas();
 
@@ -701,7 +702,6 @@ export class BAClickFX
 
     this.running = true;
     this.lastTime = performance.now();
-    this._animationLoopBound = this._animationLoop.bind(this);
     this._rafId = requestAnimationFrame(this._animationLoopBound);
   }
 
