@@ -198,7 +198,7 @@ class ClickWave
       this._engine.config.click.haloRadius * getClickScale(this._engine.config),
       smoothstep(0.04, 0.54, progress),
     );
-    const alpha = 0.2 * this._engine.config.opacity * appear * fade;
+    const alpha = 0.08 * this._engine.config.opacity * appear * fade;
 
     this._engine._drawRadialGlow(context, this.x, this.y, radius, color, alpha);
   }
@@ -291,7 +291,7 @@ class ClickWave
       const minWidth = cfg.minW * segLineWidthMul * this._engine.config.scale;
       const maxWidth = cfg.maxW * segLineWidthMul * this._engine.config.scale;
 
-      // 自发光柔光带：单层超宽极低透明度，实现无极渐变柔光
+      // 自发光柔光带：跟随弧线形状，宽大柔和
       this._engine._drawClickArcRibbon(
         context,
         this.x,
@@ -299,9 +299,9 @@ class ClickWave
         radius,
         start,
         end,
-        minWidth * 5, maxWidth * 50,
+        minWidth * 3, maxWidth * 35,
         color,
-        segAlpha * 0.012,
+        segAlpha * 0.04,
       );
 
       this._engine._drawClickArcRibbon(
