@@ -79,8 +79,8 @@ export const CONFIG = {
     radiusJitterMin: -0.5,
     radiusJitterMax: 0.8,
     // small 上限 0.80 < normal 下限 0.95，确保两圆环半径始终错开
-    segmentRadiusGrowSmallMin: 0.65,
-    segmentRadiusGrowSmallMax: 0.88,
+    segmentRadiusGrowSmallMin: 0.75,
+    segmentRadiusGrowSmallMax: 0.92,
     // 正常段固定 1.0：圆盘半径 ≈ 正常圆环半径 × 0.85
     segmentRadiusGrowMin: 1.0,
     segmentRadiusGrowMax: 1.0,
