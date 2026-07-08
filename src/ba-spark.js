@@ -1252,14 +1252,16 @@ export class BAClickFX
   {
     let count = this._getTotalTrailPointCount();
 
-    while (count > this.config.trail.maxPoints && this.trailStrokes.length > 0)
+    if (count > this.config.trail.maxPoints && this.trailStrokes.length > 0)
     {
       const oldest = this.trailStrokes[0];
+      const excess = count - this.config.trail.maxPoints;
 
       if (oldest.length > 0)
       {
-        oldest.shift();
-        count--;
+        const removeCount = Math.min(oldest.length, excess);
+
+        oldest.splice(0, removeCount);
       }
 
       if (oldest.length === 0)
@@ -1412,9 +1414,16 @@ export class BAClickFX
         p.life -= frameScale * decayMul * releaseMul;
       }
 
-      while (stroke.length > 0 && stroke[0].life <= 0)
+      let deadCount = 0;
+
+      while (deadCount < stroke.length && stroke[deadCount].life <= 0)
       {
-        stroke.shift();
+        deadCount++;
+      }
+
+      if (deadCount > 0)
+      {
+        stroke.splice(0, deadCount);
       }
 
       stroke.speedFactor = clamp01(
