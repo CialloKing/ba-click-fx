@@ -184,8 +184,10 @@ class ClickWave
     const diskProgress = clamp01(this.life / this._engine.config.filledCircle.maxLife);
     const appear = smoothstep(0.01, 0.2, progress);
     const fade = 1 - smoothstep(0.84, 1, progress);
+    // 根据主题色动态计算浅色起点，避免纯白与其他主题色叠加时色相冲突
+    const startColor = mixColor(this._engine.config.color, [255, 255, 255], 0.95);
     const color = mixColor(
-      this._engine.config.startColor,
+      startColor,
       this._engine.config.color,
       smoothstep(0.08, this._engine.config.filledCircle.colorEnd, diskProgress),
     );
@@ -215,7 +217,8 @@ class ClickWave
     const fade = 1 - smoothstep(cfg.fadeStart, 1, progress);
     const colorT = smoothstep(0.06, cfg.colorEnd, progress);
     const radius = this.r * expandT;
-    const color = mixColor(this._engine.config.startColor, this._engine.config.color, colorT);
+    const startColor = mixColor(this._engine.config.color, [255, 255, 255], 0.95);
+    const color = mixColor(startColor, this._engine.config.color, colorT);
     const alpha = this._engine.config.opacity * fade;
 
     if (this._engine.config.glow.clickFake || this._engine.config.glow.enabled)

@@ -4,6 +4,7 @@ import { mixColor } from './utils.js';
 // 所有可调参数集中于此，运行时可被 BAClickFX API 修改。
 export const CONFIG = {
   color: [105, 161, 255],
+  // startColor 废弃，现由 drawHalo/drawFilledCircle 根据主题色动态计算浅色版本
   startColor: [250, 252, 252],
 
   scale: 1.10,
