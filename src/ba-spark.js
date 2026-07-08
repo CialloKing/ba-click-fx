@@ -55,7 +55,9 @@ function createClickRingSegments(rings)
     segments.push({
       off,
       lenMul: rand(rings.lenMulMin, rings.lenMulMax),
-      radiusOffset: rand(rings.radiusJitterMin, rings.radiusJitterMax),
+      radiusOffset: shouldUseSmallRadius
+        ? rand(rings.radiusJitterMin, rings.radiusJitterMax)
+        : 0,
       radiusGrowMul: shouldUseSmallRadius
         ? rand(rings.segmentRadiusGrowSmallMin, rings.segmentRadiusGrowSmallMax)
         : rand(rings.segmentRadiusGrowMin, rings.segmentRadiusGrowMax),

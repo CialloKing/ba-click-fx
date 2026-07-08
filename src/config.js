@@ -81,8 +81,9 @@ export const CONFIG = {
     // small 上限 0.80 < normal 下限 0.95，确保两圆环半径始终错开
     segmentRadiusGrowSmallMin: 0.65,
     segmentRadiusGrowSmallMax: 0.88,
-    segmentRadiusGrowMin: 0.95,
-    segmentRadiusGrowMax: 1.08,
+    // 正常段固定 0.85，仅小半径段有随机抖动
+    segmentRadiusGrowMin: 0.85,
+    segmentRadiusGrowMax: 0.85,
     rotationMulMin: 0.54,
     rotationMulMax: 1.58,
     // 第12帧(120fps)达最大弧长 → ringLife=4@60fps → growEnd=4/25=0.16
