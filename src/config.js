@@ -80,7 +80,7 @@ export const CONFIG = {
     radiusJitterMax: 0.8,
     // small 上限 0.80 < normal 下限 0.95，确保两圆环半径始终错开
     segmentRadiusGrowSmallMin: 0.65,
-    segmentRadiusGrowSmallMax: 0.80,
+    segmentRadiusGrowSmallMax: 0.88,
     segmentRadiusGrowMin: 0.95,
     segmentRadiusGrowMax: 1.08,
     rotationMulMin: 0.54,
