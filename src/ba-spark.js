@@ -255,9 +255,10 @@ class ClickWave
     const grow = smoothstep(0.02, cfg.growEnd, progress);
     const collapse = smoothstep(cfg.collapseStart, 1, progress);
     const fade = 1 - smoothstep(cfg.fadeStart, 1, progress);
-    // 圆环大部分时间维持纯白，最后 colorFadeStart 进度内渐变到 colorEnd
+    // 圆环大部分时间维持纯白，最后 colorFadeStart 内渐变至基于主题色的浅色
+    const ringEndColor = mixColor(this._engine.config.color, [255, 255, 255], cfg.colorEndWhiteMix);
     const colorFadeT = smoothstep(cfg.colorFadeStart, 1, progress);
-    const color = mixColor([255, 255, 255], cfg.colorEnd, colorFadeT);
+    const color = mixColor([255, 255, 255], ringEndColor, colorFadeT);
     const ringAlpha = cfg.alpha * grow * fade;
     const glowGrow = Math.max(grow, 0.15);
     const ringGlowAlpha = cfg.emissionAlpha * glowGrow * fade;
