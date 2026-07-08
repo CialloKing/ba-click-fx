@@ -998,7 +998,7 @@ export class BAClickFX
 
     spark.delay = 1.5;
     spark.size = rand(5.2, 10.0) * this.config.scale;
-    spark.alpha = rand(0.85, 1);
+    spark.alpha = rand(0.9, 1);
     spark.maxAlpha = spark.alpha;
     spark.alphaMul = rand(1.6, 2.0);
     spark.alphaDecay = rand(0.028, 0.044);
@@ -1035,7 +1035,7 @@ export class BAClickFX
     const whiteMix = isLarge ? rand(0.35, 0.6) : rand(0.2, 0.48);
 
     spark.size = (isLarge ? rand(7.4, 12.2) : rand(4.2, 6.4)) * scale;
-    spark.alpha = isLarge ? rand(0.6, 0.95) : rand(0.45, 0.75);
+    spark.alpha = isLarge ? rand(0.7, 1) : rand(0.55, 0.85);
     spark.maxAlpha = spark.alpha;
     spark.alphaMul = isLarge ? rand(1.6, 2.0) : rand(1.5, 1.8);
     // 120fps 基准 48 帧 ≈ 60fps 24 帧
