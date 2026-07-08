@@ -1055,8 +1055,8 @@ export class BAClickFX
       : Math.min(0.34, cfg.shardFlickerMinAlpha + 0.1);
     spark.flickerPhase = rand(0, cfg.shardFlickerPeriod);
     spark.flickerSizePulse = cfg.shardFlickerSizePulse;
-    // 增长与收缩在同一点衔接，消除平台期使大小变化更平滑
-    const peak = rand(0.32, 0.44);
+    // 增长快于消散：峰值靠前，碎片迅速变大后缓慢缩小至零
+    const peak = rand(0.18, 0.30);
     spark.sizeGrowEnd = peak;
     spark.sizeShrinkStart = peak;
     spark.spawnSizeMul = isLarge ? rand(0.35, 0.55) : rand(0.25, 0.45);
