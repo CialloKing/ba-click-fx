@@ -663,8 +663,6 @@ export class BAClickFX
       0,
     );
 
-    this._radialGradCache.clear();
-
     this._clearCanvas();
     this._clearTrailCanvas();
     this._requestRender();
@@ -787,30 +785,14 @@ export class BAClickFX
       return;
     }
 
-    // 缓存渐变对象避免重复创建，key 含位置坐标（5px 量化）防止错位
-    const cacheKey = (((x / 5) | 0) & 0x3FF) * 0x40000000
-      + (((y / 5) | 0) & 0x3FF) * 0x100000
-      + ((radius * 20) & 0x3FF) * 256
-      + (color[0] << 12) + (color[1] << 6) + color[2]
-      + Math.round(alpha * 10000) * 100;
-    let gradient = this._radialGradCache.get(cacheKey);
+    // 不缓存渐变对象：缓存的梯度中心可能与实际绘制位置有微小偏移，导致边缘出现异常圆环
+    const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
 
-    if (!gradient)
-    {
-      gradient = context.createRadialGradient(x, y, 0, x, y, radius);
-
-      gradient.addColorStop(0, rgbToCss(color, alpha * 0.68));
-      gradient.addColorStop(0.2, rgbToCss(color, alpha * 0.48));
-      gradient.addColorStop(0.52, rgbToCss(color, alpha * 0.2));
-      gradient.addColorStop(0.82, rgbToCss(color, alpha * 0.055));
-      gradient.addColorStop(1, rgbToCss(color, 0));
-
-      if (this._radialGradCache.size > 128)
-      {
-        this._radialGradCache.delete(this._radialGradCache.keys().next().value);
-      }
-      this._radialGradCache.set(cacheKey, gradient);
-    }
+    gradient.addColorStop(0, rgbToCss(color, alpha * 0.68));
+    gradient.addColorStop(0.2, rgbToCss(color, alpha * 0.48));
+    gradient.addColorStop(0.52, rgbToCss(color, alpha * 0.2));
+    gradient.addColorStop(0.82, rgbToCss(color, alpha * 0.055));
+    gradient.addColorStop(1, rgbToCss(color, 0));
 
     context.save();
     context.globalCompositeOperation = 'lighter';
