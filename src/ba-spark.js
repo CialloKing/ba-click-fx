@@ -1061,23 +1061,12 @@ export class BAClickFX
       return;
     }
 
-    // 低速时间距缩小使碎片更密集，高速时扩大避免过密
+    // 根据移动距离直接决定碎片数量，保证无论多慢至少产生 1 个
     const baseSpacing =
       cfg.shardSpacing *
       this.config.scale *
-      lerp(0.3, 1.2, clamp01(speedFactor));
-
-    this.trailShardDistance += dist;
-
-    if (this.trailShardDistance < baseSpacing)
-    {
-      return;
-    }
-
-    const actualSpacing = baseSpacing * rand(0.5, 1.5);
-    const attempts = Math.min(6, Math.max(1, Math.round(this.trailShardDistance / actualSpacing)));
-
-    this.trailShardDistance %= baseSpacing;
+      lerp(0.25, 1.2, clamp01(speedFactor));
+    const attempts = Math.min(6, Math.max(1, Math.round(dist / baseSpacing)));
 
     const extraChance = lerp(
       cfg.shardChanceSlow,
