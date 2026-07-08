@@ -46,7 +46,7 @@ export const CONFIG = {
     haloRadius: 96,
     // 120fps 录像下碎片 16 帧完成 暗 -> 亮 -> 暗；换算为 60fps 基准是 8 帧。
     shardFlickerPeriod: 8,
-    shardFlickerMinAlpha: 0.38,
+    shardFlickerMinAlpha: 0.15,
   },
 
   rings: {
@@ -179,7 +179,7 @@ export const CONFIG = {
     speedMax: 2.2,
 
     // 沿轨迹散布的三角碎片；截图里碎片不是只跟在鼠标头部。
-    shardSpacing: 220,
+    shardSpacing: 120,
     // 距离到达间隔时一定发射 1 个；这里控制额外碎片概率。
     shardChanceSlow: 0.04,
     shardChanceFast: 0.18,
@@ -190,8 +190,8 @@ export const CONFIG = {
     // Unity ParticleSystem 常见做法：Color over Lifetime 叠加随机相位闪烁。
     // 120fps 视频基准：闪烁完整周期 16 帧 → 60fps 基准 8 帧。
     shardFlickerPeriod: 8,
-    shardFlickerMinAlpha: 0.3,
-    shardFlickerSizePulse: 0.12,
+    shardFlickerMinAlpha: 0.12,
+    shardFlickerSizePulse: 0.16,
 
     // 游戏截图里的碎片主要沿轨迹分布；关闭头部随机撒点以免范围变宽。
     moveSparkChance: 0,

@@ -417,7 +417,7 @@ class SparkParticle
         ((this.age + this.flickerPhase) % this.flickerPeriod) /
         this.flickerPeriod;
 
-      flickerPulse = (1 - Math.cos(cycle * Math.PI * 2)) / 2;
+      flickerPulse = Math.pow(Math.sin(cycle * Math.PI), 2);
       drawAlpha *= lerp(this.flickerMinAlpha, 1, flickerPulse);
     }
 
