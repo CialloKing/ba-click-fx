@@ -1,6 +1,7 @@
 import './style.css';
 import { BAClickFX } from './ba-spark.js';
 import { createConfig } from './config.js';
+import { rgbToHex, hexToRgb } from './utils.js';
 
 // ── 创建特效引擎实例 ────────────────────────────────────────────────────
 const api = new BAClickFX();
@@ -51,8 +52,7 @@ api.loadSettings = function (json)
   return true;
 };
 
-// 兼容旧 API：resetConfig 通过点击重置按钮触发完整 UI 重置
-api._originalResetConfig = api.resetConfig;
+// 演示页 resetConfig：触发 UI 重置按钮（含面板控件重置 + localStorage 清理）
 api.resetConfig = function ()
 {
   const btn = document.getElementById('btnReset');
@@ -575,18 +575,6 @@ document.getElementById('langToggle').addEventListener('click', () =>
       setter(v);
       localStorage.setItem('bafx-' + id, input.value);
     });
-  }
-
-  function rgbToHex(r, g, b)
-  {
-    return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
-  }
-
-  function hexToRgb(hex)
-  {
-    const n = parseInt(hex.slice(1), 16);
-
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
 
   // -- 绑定控件 --

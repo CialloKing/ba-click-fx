@@ -107,3 +107,21 @@ export function mixColor(a, b, t) {
     Math.round(a[2] * (1 - t) + b[2] * t),
   ];
 }
+
+/**
+ * RGB [r, g, b] → "#rrggbb" 十六进制字符串
+ */
+export function rgbToHex(r, g, b)
+{
+  return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * "#rrggbb" 十六进制字符串 → [r, g, b]
+ */
+export function hexToRgb(hex)
+{
+  const n = parseInt(hex.slice(1), 16);
+
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
