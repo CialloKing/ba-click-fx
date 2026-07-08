@@ -1055,9 +1055,11 @@ export class BAClickFX
       : Math.min(0.34, cfg.shardFlickerMinAlpha + 0.1);
     spark.flickerPhase = rand(0, cfg.shardFlickerPeriod);
     spark.flickerSizePulse = cfg.shardFlickerSizePulse;
-    spark.sizeGrowEnd = isLarge ? rand(0.14, 0.26) : rand(0.1, 0.22);
-    spark.sizeShrinkStart = isLarge ? rand(0.62, 0.78) : rand(0.52, 0.72);
-    spark.spawnSizeMul = isLarge ? rand(0.5, 0.72) : rand(0.4, 0.65);
+    // 增长与收缩在同一点衔接，消除平台期使大小变化更平滑
+    const peak = rand(0.32, 0.44);
+    spark.sizeGrowEnd = peak;
+    spark.sizeShrinkStart = peak;
+    spark.spawnSizeMul = isLarge ? rand(0.35, 0.55) : rand(0.25, 0.45);
     spark.endSizeMul = 0;
   }
 
