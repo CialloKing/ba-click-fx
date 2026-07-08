@@ -1344,7 +1344,6 @@ export class BAClickFX
     });
 
     this._trimTrailPoints(targetStroke);
-    this._trimOldestTrailPointsByCount();
     this._requestRender();
   }
 
