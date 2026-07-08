@@ -1068,9 +1068,12 @@ export class BAClickFX
       lerp(0.25, 1.2, clamp01(speedFactor));
 
     this.trailShardDistance += dist;
-    const attempts = Math.min(6, Math.max(1, Math.round(this.trailShardDistance / baseSpacing)));
+    const rawCount = Math.round(this.trailShardDistance / baseSpacing);
+    const attempts = Math.min(6, Math.max(1, rawCount));
 
-    this.trailShardDistance %= baseSpacing;
+    // 按实际 spawn 数量扣除累积距离，防止多 spawn 少扣的累积误差
+    this.trailShardDistance -= attempts * baseSpacing;
+    if (this.trailShardDistance < 0) { this.trailShardDistance = 0; }
 
     const extraChance = lerp(
       cfg.shardChanceSlow,
@@ -2032,8 +2035,10 @@ export class BAClickFX
       if (frameNewSteps <= MAX_NEW_STEPS)
       {
         this._addInterpolatedTrailPoints(this.lastTrailPos, pos, speedFactor);
-        this._spawnTrailShards(this.lastTrailPos, pos, speedFactor);
       }
+
+      // 碎片轻量，不受帧上限限制，始终正常累积距离
+      this._spawnTrailShards(this.lastTrailPos, pos, speedFactor);
 
       this.lastTrailPos = { x: pos.x, y: pos.y };
     }
