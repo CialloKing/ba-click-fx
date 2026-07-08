@@ -998,9 +998,9 @@ export class BAClickFX
 
     spark.delay = 1.5;
     spark.size = rand(5.2, 10.0) * this.config.scale;
-    spark.alpha = rand(0.78, 1);
+    spark.alpha = rand(0.85, 1);
     spark.maxAlpha = spark.alpha;
-    spark.alphaMul = rand(1.35, 1.6);
+    spark.alphaMul = rand(1.6, 2.0);
     spark.alphaDecay = rand(0.028, 0.044);
     spark.friction = rand(0.96, 0.985);
     // 游戏原始特效的碎片只有正上和正下两个朝向
@@ -1035,9 +1035,9 @@ export class BAClickFX
     const whiteMix = isLarge ? rand(0.35, 0.6) : rand(0.2, 0.48);
 
     spark.size = (isLarge ? rand(7.4, 12.2) : rand(4.2, 6.4)) * scale;
-    spark.alpha = isLarge ? rand(0.52, 0.9) : rand(0.36, 0.68);
+    spark.alpha = isLarge ? rand(0.6, 0.95) : rand(0.45, 0.75);
     spark.maxAlpha = spark.alpha;
-    spark.alphaMul = isLarge ? rand(1.45, 1.72) : rand(1.3, 1.55);
+    spark.alphaMul = isLarge ? rand(1.6, 2.0) : rand(1.5, 1.8);
     // 120fps 基准 48 帧 ≈ 60fps 24 帧
     const lifetime = rand(20, 28);
 
