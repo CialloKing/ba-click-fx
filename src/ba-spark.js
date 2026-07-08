@@ -922,6 +922,43 @@ export class BAClickFX
   // 对象池
   // ═══════════════════════════════════════════════════════
 
+  _drawClickRingGlow(context, x, y, radius, color, alpha)
+  {
+    if (alpha <= 0 || radius <= 0)
+    {
+      return;
+    }
+
+    if (!this.config.glow.clickFake && !this.config.glow.enabled)
+    {
+      return;
+    }
+
+    const cfg = this.config.rings;
+
+    this._drawRadialGlow(
+      context,
+      x,
+      y,
+      radius + cfg.softGlowRadiusAdd * getClickScale(this.config),
+      color,
+      alpha * cfg.softGlowAlpha,
+    );
+
+    this._drawRadialGlow(
+      context,
+      x,
+      y,
+      radius + cfg.glowRadiusAdd * getClickScale(this.config),
+      mixColor(color, [255, 255, 255], 0.38),
+      alpha * cfg.glowAlpha,
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // 对象池
+  // ═══════════════════════════════════════════════════════
+
   _getWave(x, y)
   {
     const wave = this.wavePool.pop() ?? new ClickWave(this);
