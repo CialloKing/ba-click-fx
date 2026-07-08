@@ -430,11 +430,10 @@ class SparkParticle
       1,
       smoothstep(0, this.sizeGrowEnd, lifeProgress),
     );
-    const shrinkMul = lerp(
-      1,
-      this.endSizeMul,
-      smoothstep(this.sizeShrinkStart, 1, lifeProgress),
-    );
+    // 消散阶段加速缩水：越接近消失缩小越快
+    const rawShrinkT = clamp01((lifeProgress - this.sizeShrinkStart) / (1 - this.sizeShrinkStart));
+    const shrinkT = rawShrinkT * rawShrinkT;
+    const shrinkMul = lerp(1, this.endSizeMul, shrinkT);
     const sizeByLife = this.size * growMul * shrinkMul;
     const size =
       this.flickerPeriod > 0 && this.flickerSizePulse > 0
