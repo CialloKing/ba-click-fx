@@ -1039,7 +1039,8 @@ export class BAClickFX
     spark.alpha = isLarge ? rand(0.52, 0.9) : rand(0.36, 0.68);
     spark.maxAlpha = spark.alpha;
     spark.alphaMul = isLarge ? rand(1.45, 1.72) : rand(1.3, 1.55);
-    const lifetime = rand(12.5, 20);
+    // 120fps 基准 48 帧 ≈ 60fps 24 帧
+    const lifetime = rand(20, 28);
 
     spark.alphaDecay = spark.alpha / lifetime;
     spark.friction = isLarge ? rand(0.978, 0.99) : rand(0.965, 0.982);
