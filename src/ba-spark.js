@@ -1061,10 +1061,11 @@ export class BAClickFX
       return;
     }
 
+    // 低速时间距缩小使碎片更密集，高速时扩大避免过密
     const baseSpacing =
       cfg.shardSpacing *
       this.config.scale *
-      lerp(1.15, 0.72, clamp01(speedFactor));
+      lerp(0.5, 1.2, clamp01(speedFactor));
 
     this.trailShardDistance += dist;
 

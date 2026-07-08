@@ -108,7 +108,7 @@ export const CONFIG = {
 
     // false：只有按住鼠标拖动才有轨迹
     // true：鼠标移动时也有轨迹
-    always: true,
+    always: false,
 
     // 输入采样
     minDistance: 0.06,
@@ -137,7 +137,7 @@ export const CONFIG = {
     // 轨迹寿命不再跟速度一起变长。
     // 鼠标移动越快，只会让"长度"变长，不会让"消散时间"变长。
     // 约 0.3s 的 TrailRenderer.time；速度只影响几何长度，不影响点寿命。
-    lifeSlow: 35,
+    lifeSlow: 22,
     lifeFast: 22,
 
     // 尾部比头部先消散，形成从尾部向终点连续收掉的效果。
