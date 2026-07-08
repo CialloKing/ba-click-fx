@@ -198,7 +198,7 @@ class ClickWave
       this._engine.config.click.haloRadius * getClickScale(this._engine.config),
       smoothstep(0.04, 0.54, progress),
     );
-    const alpha = 0.04 * this._engine.config.opacity * appear * fade;
+    const alpha = 0.2 * this._engine.config.opacity * appear * fade;
 
     this._engine._drawRadialGlow(context, this.x, this.y, radius, color, alpha);
   }
@@ -266,9 +266,21 @@ class ClickWave
     const colorFadeT = smoothstep(cfg.colorFadeStart, 1, progress);
     const color = mixColor([255, 255, 255], ringEndColor, colorFadeT);
     const ringAlpha = cfg.alpha * grow * fade;
+    const glowGrow = Math.max(grow, 0.15);
+    const ringGlowAlpha = cfg.emissionAlpha * glowGrow * fade;
     const staticRadius = this.getRingStaticRadius();
     const radiusGrow = this.getRingRadiusGrow(progress);
+    const baseRadius = staticRadius + radiusGrow;
     const lineWidthMul = lerp(1, 0.72, collapse);
+
+    this._engine._drawClickRingGlow(
+      context,
+      this.x,
+      this.y,
+      baseRadius,
+      color,
+      ringGlowAlpha,
+    );
 
     for (const seg of this.ring.segs)
     {
@@ -290,15 +302,6 @@ class ClickWave
       const segLineWidthMul = lineWidthMul * seg.widthMul;
       const minWidth = cfg.minW * segLineWidthMul * this._engine.config.scale;
       const maxWidth = cfg.maxW * segLineWidthMul * this._engine.config.scale;
-
-      // 自发光柔光带：3 层同心弧线，宽度递增透明度递减，模拟无极渐变
-      const glowRadius = radius + maxWidth * 0.2;
-      this._engine._drawClickArcRibbon(context, this.x, this.y, glowRadius, start, end,
-        minWidth * 1, maxWidth * 5, color, segAlpha * 0.12);
-      this._engine._drawClickArcRibbon(context, this.x, this.y, glowRadius, start, end,
-        minWidth * 3, maxWidth * 14, color, segAlpha * 0.05);
-      this._engine._drawClickArcRibbon(context, this.x, this.y, glowRadius, start, end,
-        minWidth * 7, maxWidth * 28, color, segAlpha * 0.015);
 
       this._engine._drawClickArcRibbon(
         context,
