@@ -1025,13 +1025,15 @@ export class BAClickFX
     const cfg = this.config.trail;
     const isLarge = Math.random() < cfg.shardLargeChance;
     const scale = this.config.scale;
-    const drift = rand(0.02, 0.28) * (0.72 + speedFactor * 0.45);
-    const tangentDrift = rand(-0.22, 0.26);
+    // 速度方向：在轨迹外侧 ±90° 半圆内随机分布，模拟游戏原版碎片向外飘散
+    const spreadAngle = rand(-Math.PI / 2, Math.PI / 2);
+    const speed = rand(0.04, 0.32) * (0.65 + speedFactor * 0.5) * scale;
+    const velAngle = normalAngle + spreadAngle;
+    spark.vx = Math.cos(velAngle) * speed;
+    spark.vy = Math.sin(velAngle) * speed;
+
     // 偏向蓝色，大碎片稍亮
     const whiteMix = isLarge ? rand(0.35, 0.6) : rand(0.2, 0.48);
-
-    spark.vx = Math.cos(normalAngle) * drift + Math.cos(tangentAngle) * tangentDrift;
-    spark.vy = Math.sin(normalAngle) * drift + Math.sin(tangentAngle) * tangentDrift;
 
     spark.size = (isLarge ? rand(7.4, 12.2) : rand(4.2, 6.4)) * scale;
     spark.alpha = isLarge ? rand(0.52, 0.9) : rand(0.36, 0.68);
