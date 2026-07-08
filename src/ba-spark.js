@@ -1059,7 +1059,7 @@ export class BAClickFX
     const baseSpacing =
       cfg.shardSpacing *
       this.config.scale *
-      lerp(1.8, 0.5, clamp01(speedFactor));
+      lerp(1.8, 0.8, clamp01(speedFactor));
 
     this.trailShardDistance += dist;
     const rawCount = Math.round(this.trailShardDistance / baseSpacing);
