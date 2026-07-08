@@ -1063,7 +1063,7 @@ export class BAClickFX
 
     this.trailShardDistance += dist;
     const rawCount = Math.round(this.trailShardDistance / baseSpacing);
-    const attempts = Math.min(6, rawCount);
+    const attempts = Math.min(3, rawCount);
 
     if (attempts <= 0)
     {
