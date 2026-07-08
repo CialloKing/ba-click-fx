@@ -296,12 +296,12 @@ class ClickWave
         context,
         this.x,
         this.y,
-        radius,
+        radius + maxWidth * 0.2,
         start,
         end,
-        minWidth * 3, maxWidth * 35,
+        minWidth * 2, maxWidth * 24,
         color,
-        segAlpha * 0.08,
+        segAlpha * 0.06,
       );
 
       this._engine._drawClickArcRibbon(
