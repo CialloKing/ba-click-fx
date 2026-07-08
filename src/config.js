@@ -93,7 +93,7 @@ export const CONFIG = {
     // 圆环颜色衰减起始进度（120fps 基准最后 22 帧 → 60fps 11 帧，11/25=0.56）
     colorFadeStart: 0.56,
     // 圆环消失时的最终颜色（改为白混合比例，0=纯主题色，1=纯白）
-    colorEndWhiteMix: 0.95,
+    colorEndWhiteMix: 0.97,
     minW: 0.9,
     maxW: 4.0,
     alpha: 1,
