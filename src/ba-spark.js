@@ -291,7 +291,7 @@ class ClickWave
       const minWidth = cfg.minW * segLineWidthMul * this._engine.config.scale;
       const maxWidth = cfg.maxW * segLineWidthMul * this._engine.config.scale;
 
-      // 自发光柔光带：宽 + 低透明度，跟随弧线形状
+      // 自发光柔光带：单层超宽低透明度，无极渐变
       this._engine._drawClickArcRibbon(
         context,
         this.x,
@@ -299,21 +299,9 @@ class ClickWave
         radius,
         start,
         end,
-        minWidth * 8, maxWidth * 14,
+        minWidth * 2, maxWidth * 16,
         color,
-        segAlpha * 0.06,
-      );
-
-      this._engine._drawClickArcRibbon(
-        context,
-        this.x,
-        this.y,
-        radius,
-        start,
-        end,
-        minWidth * 3, maxWidth * 5,
-        color,
-        segAlpha * 0.10,
+        segAlpha * 0.08,
       );
 
       this._engine._drawClickArcRibbon(
