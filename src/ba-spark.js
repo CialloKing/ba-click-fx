@@ -1301,16 +1301,18 @@ export class BAClickFX
     }
 
     const maxLength = this._getTrailMaxLength(stroke);
+    let excessCount = 0;
 
-    while (totalLength > maxLength && stroke.length > 8)
+    while (totalLength > maxLength && (excessCount + 1) < stroke.length - 7)
     {
-      const removedLength = distance(stroke[0], stroke[1]);
-
-      stroke.shift();
-      totalLength -= removedLength;
+      totalLength -= distance(stroke[excessCount], stroke[excessCount + 1]);
+      excessCount++;
     }
 
-    this._trimOldestTrailPointsByCount();
+    if (excessCount > 0)
+    {
+      stroke.splice(0, excessCount);
+    }
   }
 
   _addTrailPoint(x, y, speedFactor = 0, stroke = this.currentTrailStroke)
@@ -1338,6 +1340,7 @@ export class BAClickFX
     });
 
     this._trimTrailPoints(targetStroke);
+    this._trimOldestTrailPointsByCount();
     this._requestRender();
   }
 
@@ -1450,6 +1453,9 @@ export class BAClickFX
     }
 
     this.trailSpeedFactor *= Math.pow(this.config.trail.speedDecay, frameScale);
+
+    // 全局点数上限修剪，仅此一次避免 _trimTrailPoints 内的重复遍历
+    this._trimOldestTrailPointsByCount();
   }
 
   // ═══════════════════════════════════════════════════════
