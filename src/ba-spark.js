@@ -1056,12 +1056,6 @@ export class BAClickFX
     const cfg = this.config.trail;
     const dist = distance(from, to);
 
-    if (dist < 2 || this.sparks.length >= cfg.maxSparkParticles)
-    {
-      return;
-    }
-
-    // 累积距离，保证低速和跨帧的移动也能产生碎片
     const baseSpacing =
       cfg.shardSpacing *
       this.config.scale *
