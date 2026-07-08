@@ -1,5 +1,6 @@
 import './style.css';
 import { BAClickFX } from './ba-spark.js';
+import { createConfig } from './config.js';
 
 // ── 创建特效引擎实例 ────────────────────────────────────────────────────
 const api = new BAClickFX();
@@ -323,67 +324,68 @@ document.getElementById('langToggle').addEventListener('click', () =>
     localStorage.setItem('bafx-version', SETTINGS_VERSION);
   }
 
-  // -- 默认值（用于重置）--
-  const DEFAULTS = {
-    color: '#69a1ff',
-    scale: 1.10,
-    opacity: 0.5,
-    clickSpeed: 1,
-    trailSpeed: 1.05,
-    trail: true,
-    clickEnabled: true,
-    trailAlways: false,
-    trailWidth: 3,
-    trailLength: 900,
-    trailLife: 22,
-    fakeGlow: true,
-    clickFake: true,
-    glow: false,
-    shardSpacing: 220,
-    shardChanceSlow: 0.04,
-    shardChanceFast: 0.18,
-    shardLargeChance: 0.62,
-    maxShards: 38,
-    smooth: 0.5,
-    dpr: 1,
-    trailRenderScale: 1,
-    ringRotation: 0.008,
-    ringGlow: 0.35,
-    ringWidth: 0.9,
-    ringAlpha: 0.9,
-    ringWhiteMix: 0.75,
-    trailBrightness: 0.96,
-    trailWhiteMix: 0.08,
+  // -- 默认值（用于重置）— 从 config 模块自动提取，避免重复维护 --
+  function readDefaults()
+  {
+    const c = createConfig();
 
-    sparksCount: 4,
-    clickTotalLife: 27,
-    clickScaleMul: 1.3,
-    clickHaloRadius: 96,
-
-    ringDelay: 2,
-    ringMaxLife: 27,
-    ringBaseRadiusMul: 0.47,
-    ringPostDiskGrow: 24,
-    ringGlowRadiusAdd: 54,
-    ringSoftGlowRadiusAdd: 96,
-
-    trailMainAlpha: 1,
-    trailCoreAlpha: 0.78,
-    trailHotAlpha: 0.34,
-    trailGlowAlpha: 0.18,
-    trailSoftGlowAlpha: 0.045,
-    trailRailAlpha: 0.02,
-
-    trailGlowWidthMul: 1.7,
-    trailSoftGlowWidthMul: 2.4,
-
-    trailTailDecayMul: 1.28,
-    trailHeadDecayMul: 0.95,
-    trailReleaseDecayMul: 1.18,
-    trailSpeedDecay: 0.988,
-    trailSpeedMin: 0.035,
-    trailSpeedMax: 2.2,
-  };
+    return {
+      color: '#' + c.color.map(v => v.toString(16).padStart(2, '0')).join(''),
+      scale: c.scale,
+      opacity: c.opacity,
+      clickSpeed: c.clickSpeed,
+      trailSpeed: c.trailSpeed,
+      trail: c.trail.enabled,
+      clickEnabled: c.clickEnabled,
+      trailAlways: c.trail.always,
+      trailWidth: c.trail.baseWidthSlow,
+      trailLength: c.trail.lengthSlow,
+      trailLife: c.trail.lifeSlow,
+      fakeGlow: c.glow.fake,
+      clickFake: c.glow.clickFake,
+      glow: c.glow.enabled,
+      shardSpacing: c.trail.shardSpacing,
+      shardChanceSlow: c.trail.shardChanceSlow,
+      shardChanceFast: c.trail.shardChanceFast,
+      shardLargeChance: c.trail.shardLargeChance,
+      maxShards: c.trail.maxSparkParticles,
+      smooth: c.trail.smoothFactor,
+      dpr: c.maxDpr,
+      trailRenderScale: c.trailRenderScale,
+      ringRotation: c.rings.rotationSpeed,
+      ringGlow: c.rings.emissionAlpha,
+      ringWidth: c.rings.minW,
+      ringAlpha: c.rings.alpha,
+      ringWhiteMix: c.rings.whiteMix,
+      trailBrightness: c.trail.alpha,
+      trailWhiteMix: c.trail.whiteMix,
+      sparksCount: c.sparksCount,
+      clickTotalLife: c.click.totalLife,
+      clickScaleMul: c.click.scaleMul,
+      clickHaloRadius: c.click.haloRadius,
+      ringDelay: c.rings.delay,
+      ringMaxLife: c.rings.maxLife,
+      ringBaseRadiusMul: c.rings.baseRadiusMul,
+      ringPostDiskGrow: c.rings.postDiskGrow,
+      ringGlowRadiusAdd: c.rings.glowRadiusAdd,
+      ringSoftGlowRadiusAdd: c.rings.softGlowRadiusAdd,
+      trailMainAlpha: c.trail.mainAlpha,
+      trailCoreAlpha: c.trail.coreAlpha,
+      trailHotAlpha: c.trail.hotAlpha,
+      trailGlowAlpha: c.trail.glowAlpha,
+      trailSoftGlowAlpha: c.trail.softGlowAlpha,
+      trailRailAlpha: c.trail.railAlpha,
+      trailGlowWidthMul: c.trail.glowWidthMul,
+      trailSoftGlowWidthMul: c.trail.softGlowWidthMul,
+      trailTailDecayMul: c.trail.tailDecayMul,
+      trailHeadDecayMul: c.trail.headDecayMul,
+      trailReleaseDecayMul: c.trail.releaseDecayMul,
+      trailSpeedDecay: c.trail.speedDecay,
+      trailSpeedMin: c.trail.speedMin,
+      trailSpeedMax: c.trail.speedMax,
+    };
+  }
+  const DEFAULTS = readDefaults();
 
   // -- 面板开关 --
   const panel = document.getElementById('panel');
