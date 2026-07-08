@@ -226,7 +226,7 @@ function switchLanguage(lang)
 
   // 提示栏
   const hintBar = document.getElementById('hintBar');
-  const hintSpans = hintBar.querySelectorAll('span');
+  const hintSpans = hintBar.querySelectorAll('span:not(.hint-sep)');
   if (hintSpans.length >= 3)
   {
     hintSpans[0].innerHTML = t.hintClick;
