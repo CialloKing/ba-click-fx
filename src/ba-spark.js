@@ -481,37 +481,37 @@ export class BAClickFX
     // ── 应用初始配置 ──
     if (options.color)
     {
-      this.config.color = [...options.color];
+      this.setColor(...options.color);
     }
 
     if (options.scale !== undefined)
     {
-      this.config.scale = options.scale;
+      this.setScale(options.scale);
     }
 
     if (options.opacity !== undefined)
     {
-      this.config.opacity = options.opacity;
+      this.setOpacity(options.opacity);
     }
 
     if (options.trailAlways !== undefined)
     {
-      this.config.trail.always = options.trailAlways;
+      this.setTrailAlways(options.trailAlways);
     }
 
     if (options.trailEnabled !== undefined)
     {
-      this.config.trail.enabled = options.trailEnabled;
+      this.setTrail(options.trailEnabled);
     }
 
     if (options.clickEnabled !== undefined)
     {
-      this.config.clickEnabled = options.clickEnabled;
+      this.setClick(options.clickEnabled);
     }
 
     if (options.touchAction !== undefined)
     {
-      this.config.touchAction = options.touchAction;
+      this.setTouchAction(options.touchAction);
     }
 
     // ── Canvas 创建 ──
