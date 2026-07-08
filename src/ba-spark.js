@@ -1319,7 +1319,7 @@ export class BAClickFX
     }
   }
 
-  _addTrailPoint(x, y, speedFactor = 0, stroke = this.currentTrailStroke)
+  _addTrailPoint(x, y, speedFactor = 0, stroke = this.currentTrailStroke, skipTrim = false)
   {
     const targetStroke = stroke || this._createTrailStroke(speedFactor);
 
@@ -1343,7 +1343,11 @@ export class BAClickFX
       distanceFromTail: 0,
     });
 
-    this._trimTrailPoints(targetStroke);
+    if (!skipTrim)
+    {
+      this._trimTrailPoints(targetStroke);
+    }
+
     this._requestRender();
   }
 
@@ -1379,8 +1383,11 @@ export class BAClickFX
         lerp(from.y, to.y, t),
         speedFactor,
         stroke,
+        true,
       );
     }
+
+    this._trimTrailPoints(stroke);
   }
 
   _updateTrailPoints(frameScale)
