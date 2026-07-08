@@ -1675,152 +1675,110 @@ export class BAClickFX
 
     const headLifeRatio = head.maxLife > 0 ? clamp01(head.life / head.maxLife) : 1;
     const fadeMul = smoothstep(0.05, 0.45, headLifeRatio);
+    const tf = this.config.trail.alpha * fadeMul;
 
-    // 1. 细暗轨道
-    this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
-      widthValue: railWidth,
-      minWidth: 0.08 * this.config.scale,
-      color: this.config.color,
-      widthStops: [
-        [0.0, 0.38],
-        [0.35, 0.52],
-        [0.72, 0.72],
-        [1.0, 0.52],
-      ],
-      stops: [
-        [0.0, this.config.trail.railAlpha * 0.16 * this.config.trail.alpha * fadeMul],
-        [0.22, this.config.trail.railAlpha * 0.34 * this.config.trail.alpha * fadeMul],
-        [0.62, this.config.trail.railAlpha * 0.58 * this.config.trail.alpha * fadeMul],
-        [1.0, this.config.trail.railAlpha * 0.3 * this.config.trail.alpha * fadeMul],
-      ],
-    });
-
-    // 2. 柔和外光
-    if (this.config.glow.fake)
-    {
-      this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
+    // 拖尾图层定义：按渲染顺序排列，condition 为 falsy 时跳过该层
+    const layers = [
+      // 1. 细暗轨道
+      {
+        widthValue: railWidth,
+        minWidth: 0.08 * this.config.scale,
+        color: this.config.color,
+        widthStops: [[0.0, 0.38], [0.35, 0.52], [0.72, 0.72], [1.0, 0.52]],
+        stops: [[0.0, this.config.trail.railAlpha * 0.16 * tf],
+                [0.22, this.config.trail.railAlpha * 0.34 * tf],
+                [0.62, this.config.trail.railAlpha * 0.58 * tf],
+                [1.0, this.config.trail.railAlpha * 0.3 * tf]],
+      },
+      // 2. 柔和外光
+      {
+        condition: this.config.glow.fake,
         widthValue: baseWidth * this.config.trail.softGlowWidthMul,
         minWidth: baseWidth * 0.05,
         color: this.config.color,
-        widthStops: [
-          [0.0, 0.18],
-          [0.42, 0.55],
-          [0.78, 0.92],
-          [1.0, 1.0],
-        ],
-        stops: [
-          [0.0, 0.0],
-          [0.22, this.config.trail.softGlowAlpha * 0.18 * this.config.trail.alpha * fadeMul],
-          [0.52, this.config.trail.softGlowAlpha * 0.58 * this.config.trail.alpha * fadeMul],
-          [0.82, this.config.trail.softGlowAlpha * this.config.trail.alpha * fadeMul],
-          [1.0, this.config.trail.softGlowAlpha * 0.72 * this.config.trail.alpha * fadeMul],
-        ],
-      });
-
-      this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
+        widthStops: [[0.0, 0.18], [0.42, 0.55], [0.78, 0.92], [1.0, 1.0]],
+        stops: [[0.0, 0.0],
+                [0.22, this.config.trail.softGlowAlpha * 0.18 * tf],
+                [0.52, this.config.trail.softGlowAlpha * 0.58 * tf],
+                [0.82, this.config.trail.softGlowAlpha * tf],
+                [1.0, this.config.trail.softGlowAlpha * 0.72 * tf]],
+      },
+      // 2b. 蓝色发光
+      {
+        condition: this.config.glow.fake,
         widthValue: baseWidth * this.config.trail.glowWidthMul,
         minWidth: baseWidth * 0.04,
         color: trailColor,
-        widthStops: [
-          [0.0, 0.22],
-          [0.38, 0.54],
-          [0.76, 0.88],
-          [1.0, 1.0],
-        ],
-        stops: [
-          [0.0, 0.0],
-          [0.2, this.config.trail.glowAlpha * 0.16 * this.config.trail.alpha * fadeMul],
-          [0.5, this.config.trail.glowAlpha * 0.48 * this.config.trail.alpha * fadeMul],
-          [0.82, this.config.trail.glowAlpha * this.config.trail.alpha * fadeMul],
-          [1.0, this.config.trail.glowAlpha * 0.82 * this.config.trail.alpha * fadeMul],
-        ],
-      });
-    }
-
-    // 3. 半透明 Ribbon 层
-    if (this.config.trail.ribbonAlpha > 0 && this.config.trail.ribbonWidthMul > 0)
-    {
-      this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
+        widthStops: [[0.0, 0.22], [0.38, 0.54], [0.76, 0.88], [1.0, 1.0]],
+        stops: [[0.0, 0.0],
+                [0.2, this.config.trail.glowAlpha * 0.16 * tf],
+                [0.5, this.config.trail.glowAlpha * 0.48 * tf],
+                [0.82, this.config.trail.glowAlpha * tf],
+                [1.0, this.config.trail.glowAlpha * 0.82 * tf]],
+      },
+      // 3. 半透明 Ribbon 层
+      {
+        condition: this.config.trail.ribbonAlpha > 0 && this.config.trail.ribbonWidthMul > 0,
         widthValue: baseWidth * this.config.trail.ribbonWidthMul,
         minWidth: baseWidth * 0.05,
         color: trailColor,
-        widthStops: [
-          [0.0, 0.06],
-          [0.26, 0.36],
-          [0.56, 0.88],
-          [0.86, 1.0],
-          [1.0, 0.72],
-        ],
-        stops: [
-          [0.0, 0.0],
-          [0.18, this.config.trail.ribbonAlpha * 0.08 * this.config.trail.alpha * fadeMul],
-          [0.48, this.config.trail.ribbonAlpha * 0.36 * this.config.trail.alpha * fadeMul],
-          [0.78, this.config.trail.ribbonAlpha * this.config.trail.alpha * fadeMul],
-          [1.0, this.config.trail.ribbonAlpha * 0.52 * this.config.trail.alpha * fadeMul],
-        ],
+        widthStops: [[0.0, 0.06], [0.26, 0.36], [0.56, 0.88], [0.86, 1.0], [1.0, 0.72]],
+        stops: [[0.0, 0.0],
+                [0.18, this.config.trail.ribbonAlpha * 0.08 * tf],
+                [0.48, this.config.trail.ribbonAlpha * 0.36 * tf],
+                [0.78, this.config.trail.ribbonAlpha * tf],
+                [1.0, this.config.trail.ribbonAlpha * 0.52 * tf]],
+      },
+      // 4. 主蓝色轨迹
+      {
+        widthValue: baseWidth,
+        minWidth: baseWidth * 0.14,
+        color: trailColor,
+        widthStops: [[0.0, 0.24], [0.28, 0.46], [0.58, 0.82], [0.86, 1.0], [1.0, 0.88]],
+        stops: [[0.0, this.config.trail.mainAlpha * 0.04 * tf],
+                [0.16, this.config.trail.mainAlpha * 0.14 * tf],
+                [0.44, this.config.trail.mainAlpha * 0.48 * tf],
+                [0.74, this.config.trail.mainAlpha * tf],
+                [1.0, this.config.trail.mainAlpha * 0.86 * tf]],
+      },
+      // 5. 中心浅蓝高光
+      {
+        widthValue: coreWidth,
+        minWidth: coreWidth * 0.12,
+        color: trailCoreColor,
+        widthStops: [[0.0, 0.16], [0.42, 0.42], [0.72, 0.9], [1.0, 0.75]],
+        stops: [[0.0, 0.0],
+                [0.34, this.config.trail.coreAlpha * 0.08 * tf],
+                [0.58, this.config.trail.coreAlpha * 0.42 * tf],
+                [0.86, this.config.trail.coreAlpha * tf],
+                [1.0, this.config.trail.coreAlpha * 0.62 * tf]],
+      },
+      // 6. 蓝白高光
+      {
+        widthValue: hotWidth,
+        minWidth: hotWidth * 0.1,
+        color: trailHotColor,
+        widthStops: [[0.0, 0.0], [0.52, 0.35], [0.78, 1.0], [1.0, 0.62]],
+        stops: [[0.0, 0.0],
+                [0.46, 0.0],
+                [0.66, this.config.trail.hotAlpha * 0.28 * tf],
+                [0.86, this.config.trail.hotAlpha * tf],
+                [1.0, this.config.trail.hotAlpha * 0.48 * tf]],
+      },
+    ];
+
+    for (const layer of layers)
+    {
+      if (layer.condition === false) { continue; }
+
+      this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
+        widthValue: layer.widthValue,
+        minWidth: layer.minWidth,
+        color: layer.color,
+        widthStops: layer.widthStops,
+        stops: layer.stops,
       });
     }
-
-    // 4. 主蓝色轨迹
-    this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
-      widthValue: baseWidth,
-      minWidth: baseWidth * 0.14,
-      color: trailColor,
-      widthStops: [
-        [0.0, 0.24],
-        [0.28, 0.46],
-        [0.58, 0.82],
-        [0.86, 1.0],
-        [1.0, 0.88],
-      ],
-      stops: [
-        [0.0, this.config.trail.mainAlpha * 0.04 * this.config.trail.alpha * fadeMul],
-        [0.16, this.config.trail.mainAlpha * 0.14 * this.config.trail.alpha * fadeMul],
-        [0.44, this.config.trail.mainAlpha * 0.48 * this.config.trail.alpha * fadeMul],
-        [0.74, this.config.trail.mainAlpha * this.config.trail.alpha * fadeMul],
-        [1.0, this.config.trail.mainAlpha * 0.86 * this.config.trail.alpha * fadeMul],
-      ],
-    });
-
-    // 5. 中心浅蓝高光
-    this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
-      widthValue: coreWidth,
-      minWidth: coreWidth * 0.12,
-      color: trailCoreColor,
-      widthStops: [
-        [0.0, 0.16],
-        [0.42, 0.42],
-        [0.72, 0.9],
-        [1.0, 0.75],
-      ],
-      stops: [
-        [0.0, 0.0],
-        [0.34, this.config.trail.coreAlpha * 0.08 * this.config.trail.alpha * fadeMul],
-        [0.58, this.config.trail.coreAlpha * 0.42 * this.config.trail.alpha * fadeMul],
-        [0.86, this.config.trail.coreAlpha * this.config.trail.alpha * fadeMul],
-        [1.0, this.config.trail.coreAlpha * 0.62 * this.config.trail.alpha * fadeMul],
-      ],
-    });
-
-    // 6. 蓝白高光
-    this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
-      widthValue: hotWidth,
-      minWidth: hotWidth * 0.1,
-      color: trailHotColor,
-      widthStops: [
-        [0.0, 0.0],
-        [0.52, 0.35],
-        [0.78, 1.0],
-        [1.0, 0.62],
-      ],
-      stops: [
-        [0.0, 0.0],
-        [0.46, 0.0],
-        [0.66, this.config.trail.hotAlpha * 0.28 * this.config.trail.alpha * fadeMul],
-        [0.86, this.config.trail.hotAlpha * this.config.trail.alpha * fadeMul],
-        [1.0, this.config.trail.hotAlpha * 0.48 * this.config.trail.alpha * fadeMul],
-      ],
-    });
 
     // 头部发光圆点
     const headRadius = lerp(1.1, 2.1, speedFactor) * this.config.scale;
