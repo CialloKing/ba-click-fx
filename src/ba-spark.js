@@ -1981,11 +1981,8 @@ export class BAClickFX
 
     for (const e of events)
     {
-      // 本帧插值点数已接近上限，跳过剩余合并事件防止过载
-      if (frameNewSteps >= MAX_NEW_STEPS)
-      {
-        break;
-      }
+      // 本帧插值点数已接近上限，跳过剩余合并事件的轨迹插值
+      const skipTrail = frameNewSteps >= MAX_NEW_STEPS;
 
       let pos = this._getPointerPos(e);
 
@@ -2032,7 +2029,7 @@ export class BAClickFX
       const speedStep = this.config.trail.sampleStep * (1 + clamp01(speedFactor) * 2);
       frameNewSteps += Math.ceil(estDist / speedStep);
 
-      if (frameNewSteps <= MAX_NEW_STEPS)
+      if (!skipTrail)
       {
         this._addInterpolatedTrailPoints(this.lastTrailPos, pos, speedFactor);
       }
