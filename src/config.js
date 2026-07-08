@@ -76,8 +76,8 @@ export const CONFIG = {
     lenMulMin: 0.46,
     lenMulMax: 1.38,
     // 段间半径差异很小，仅微微错开以模拟手绘感
-    radiusJitterMin: -1.0,
-    radiusJitterMax: 1.2,
+    radiusJitterMin: -0.5,
+    radiusJitterMax: 0.8,
     // small 上限 0.80 < normal 下限 0.95，确保两圆环半径始终错开
     segmentRadiusGrowSmallMin: 0.65,
     segmentRadiusGrowSmallMax: 0.80,
