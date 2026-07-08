@@ -1063,7 +1063,12 @@ export class BAClickFX
 
     this.trailShardDistance += dist;
     const rawCount = Math.round(this.trailShardDistance / baseSpacing);
-    const attempts = Math.min(6, Math.max(1, rawCount));
+    const attempts = Math.min(6, rawCount);
+
+    if (attempts <= 0)
+    {
+      return;
+    }
 
     // 按实际 spawn 数量扣除累积距离，防止多 spawn 少扣的累积误差
     this.trailShardDistance -= attempts * baseSpacing;
