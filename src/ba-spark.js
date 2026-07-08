@@ -1017,7 +1017,7 @@ export class BAClickFX
     spark.sizeGrowEnd = rand(0.16, 0.28);
     spark.sizeShrinkStart = rand(0.62, 0.76);
     spark.spawnSizeMul = rand(0.02, 0.1);
-    spark.endSizeMul = rand(0.18, 0.36);
+    spark.endSizeMul = rand(0.03, 0.10);
   }
 
   _tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor)
@@ -1058,7 +1058,7 @@ export class BAClickFX
     spark.sizeGrowEnd = isLarge ? rand(0.14, 0.26) : rand(0.1, 0.22);
     spark.sizeShrinkStart = isLarge ? rand(0.62, 0.78) : rand(0.52, 0.72);
     spark.spawnSizeMul = isLarge ? rand(0.5, 0.72) : rand(0.4, 0.65);
-    spark.endSizeMul = isLarge ? rand(0.2, 0.38) : rand(0.12, 0.3);
+    spark.endSizeMul = isLarge ? rand(0.04, 0.12) : rand(0.02, 0.08);
   }
 
   _spawnTrailShards(from, to, speedFactor)
