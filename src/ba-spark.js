@@ -299,9 +299,21 @@ class ClickWave
         radius,
         start,
         end,
-        minWidth * 4, maxWidth * 7,
+        minWidth * 8, maxWidth * 14,
         color,
-        segAlpha * 0.12,
+        segAlpha * 0.06,
+      );
+
+      this._engine._drawClickArcRibbon(
+        context,
+        this.x,
+        this.y,
+        radius,
+        start,
+        end,
+        minWidth * 3, maxWidth * 5,
+        color,
+        segAlpha * 0.10,
       );
 
       this._engine._drawClickArcRibbon(
@@ -829,12 +841,15 @@ export class BAClickFX
       return;
     }
 
-    // 空心环渐变：光从圆盘边缘向外扩散，模拟自发光
+    // 空心环渐变：多层色阶模拟柔和自发光，无清晰边缘
     const gradient = context.createRadialGradient(x, y, innerRadius, x, y, outerRadius);
 
     gradient.addColorStop(0, rgbToCss(color, alpha));
-    gradient.addColorStop(0.3, rgbToCss(color, alpha * 0.55));
-    gradient.addColorStop(0.7, rgbToCss(color, alpha * 0.12));
+    gradient.addColorStop(0.08, rgbToCss(color, alpha * 0.85));
+    gradient.addColorStop(0.20, rgbToCss(color, alpha * 0.55));
+    gradient.addColorStop(0.40, rgbToCss(color, alpha * 0.25));
+    gradient.addColorStop(0.65, rgbToCss(color, alpha * 0.08));
+    gradient.addColorStop(0.85, rgbToCss(color, alpha * 0.02));
     gradient.addColorStop(1, rgbToCss(color, 0));
 
     context.save();
