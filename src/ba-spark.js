@@ -225,10 +225,11 @@ class ClickWave
 
     if (this._engine.config.glow.clickFake || this._engine.config.glow.enabled)
     {
-      this._engine._drawRadialGlow(
+      this._engine._drawDiskEdgeGlow(
         context,
         this.x,
         this.y,
+        radius,
         radius * cfg.glowRadiusMul,
         color,
         alpha * cfg.glowAlpha,
@@ -265,21 +266,9 @@ class ClickWave
     const colorFadeT = smoothstep(cfg.colorFadeStart, 1, progress);
     const color = mixColor([255, 255, 255], ringEndColor, colorFadeT);
     const ringAlpha = cfg.alpha * grow * fade;
-    const glowGrow = Math.max(grow, 0.15);
-    const ringGlowAlpha = cfg.emissionAlpha * glowGrow * fade;
     const staticRadius = this.getRingStaticRadius();
     const radiusGrow = this.getRingRadiusGrow(progress);
-    const baseRadius = staticRadius + radiusGrow;
     const lineWidthMul = lerp(1, 0.72, collapse);
-
-    this._engine._drawClickRingGlow(
-      context,
-      this.x,
-      this.y,
-      baseRadius,
-      color,
-      ringGlowAlpha,
-    );
 
     for (const seg of this.ring.segs)
     {
@@ -301,6 +290,19 @@ class ClickWave
       const segLineWidthMul = lineWidthMul * seg.widthMul;
       const minWidth = cfg.minW * segLineWidthMul * this._engine.config.scale;
       const maxWidth = cfg.maxW * segLineWidthMul * this._engine.config.scale;
+
+      // 自发光柔光带：宽 + 低透明度，跟随弧线形状
+      this._engine._drawClickArcRibbon(
+        context,
+        this.x,
+        this.y,
+        radius,
+        start,
+        end,
+        minWidth * 4, maxWidth * 7,
+        color,
+        segAlpha * 0.12,
+      );
 
       this._engine._drawClickArcRibbon(
         context,
@@ -820,6 +822,30 @@ export class BAClickFX
     context.restore();
   }
 
+  _drawDiskEdgeGlow(context, x, y, innerRadius, outerRadius, color, alpha)
+  {
+    if (alpha <= 0 || outerRadius <= innerRadius)
+    {
+      return;
+    }
+
+    // 空心环渐变：光从圆盘边缘向外扩散，模拟自发光
+    const gradient = context.createRadialGradient(x, y, innerRadius, x, y, outerRadius);
+
+    gradient.addColorStop(0, rgbToCss(color, alpha));
+    gradient.addColorStop(0.3, rgbToCss(color, alpha * 0.55));
+    gradient.addColorStop(0.7, rgbToCss(color, alpha * 0.12));
+    gradient.addColorStop(1, rgbToCss(color, 0));
+
+    context.save();
+    context.globalCompositeOperation = 'lighter';
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(x, y, outerRadius, 0, Math.PI * 2);
+    context.fill();
+    context.restore();
+  }
+
   _drawClickArcRibbon(
     context,
     x,
@@ -888,39 +914,6 @@ export class BAClickFX
     context.closePath();
     context.fill();
     context.restore();
-  }
-
-  _drawClickRingGlow(context, x, y, radius, color, alpha)
-  {
-    if (alpha <= 0 || radius <= 0)
-    {
-      return;
-    }
-
-    if (!this.config.glow.clickFake && !this.config.glow.enabled)
-    {
-      return;
-    }
-
-    const cfg = this.config.rings;
-
-    this._drawRadialGlow(
-      context,
-      x,
-      y,
-      radius + cfg.softGlowRadiusAdd * getClickScale(this.config),
-      color,
-      alpha * cfg.softGlowAlpha,
-    );
-
-    this._drawRadialGlow(
-      context,
-      x,
-      y,
-      radius + cfg.glowRadiusAdd * getClickScale(this.config),
-      mixColor(color, [255, 255, 255], 0.38),
-      alpha * cfg.glowAlpha,
-    );
   }
 
   // ═══════════════════════════════════════════════════════
