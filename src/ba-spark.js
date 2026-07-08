@@ -13,7 +13,7 @@
  */
 
 import { clamp01, rand, easeOutCubic, smoothstep, distance, lerp, rgbToCss, mixColor } from './utils.js';
-import { cloneConfig, createConfig, getClickScale, getClickRingEndColor, getTrailColor, getTrailCoreColor, getTrailHotColor } from './config.js';
+import { cloneConfig, createConfig, getClickScale, getTrailColor, getTrailCoreColor, getTrailHotColor } from './config.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 辅助函数（不依赖实例状态，保持为模块级函数）
@@ -255,7 +255,9 @@ class ClickWave
     const grow = smoothstep(0.02, cfg.growEnd, progress);
     const collapse = smoothstep(cfg.collapseStart, 1, progress);
     const fade = 1 - smoothstep(cfg.fadeStart, 1, progress);
-    const color = getClickRingEndColor(this._engine.config);
+    // 圆环大部分时间维持纯白，最后 colorFadeStart 进度内渐变到 colorEnd
+    const colorFadeT = smoothstep(cfg.colorFadeStart, 1, progress);
+    const color = mixColor([255, 255, 255], cfg.colorEnd, colorFadeT);
     const ringAlpha = cfg.alpha * grow * fade;
     const glowGrow = Math.max(grow, 0.15);
     const ringGlowAlpha = cfg.emissionAlpha * glowGrow * fade;
