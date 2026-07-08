@@ -1991,9 +1991,17 @@ export class BAClickFX
     }
 
     let latestPos = null;
+    let frameNewSteps = 0;
+    const MAX_NEW_STEPS = 1024;
 
     for (const e of events)
     {
+      // 本帧插值点数已接近上限，跳过剩余合并事件防止过载
+      if (frameNewSteps >= MAX_NEW_STEPS)
+      {
+        break;
+      }
+
       let pos = this._getPointerPos(e);
 
       latestPos = pos;
@@ -2035,8 +2043,15 @@ export class BAClickFX
       const eventTime = e.timeStamp || performance.now();
       const speedFactor = this._updateTrailSpeed(this.lastTrailPos, pos, eventTime);
 
-      this._addInterpolatedTrailPoints(this.lastTrailPos, pos, speedFactor);
-      this._spawnTrailShards(this.lastTrailPos, pos, speedFactor);
+      const estDist = distance(this.lastTrailPos, pos);
+      const speedStep = this.config.trail.sampleStep * (1 + clamp01(speedFactor) * 2);
+      frameNewSteps += Math.ceil(estDist / speedStep);
+
+      if (frameNewSteps <= MAX_NEW_STEPS)
+      {
+        this._addInterpolatedTrailPoints(this.lastTrailPos, pos, speedFactor);
+        this._spawnTrailShards(this.lastTrailPos, pos, speedFactor);
+      }
 
       this.lastTrailPos = { x: pos.x, y: pos.y };
     }
