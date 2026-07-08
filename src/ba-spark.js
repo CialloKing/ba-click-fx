@@ -2266,6 +2266,13 @@ export class BAClickFX
     this._requestRender();
   }
 
+  /** @param {number} value 圆环颜色中白色的混合比例 (0~1) */
+  setRingWhiteMix(value = 0.75)
+  {
+    this.config.rings.whiteMix = Math.max(0, Math.min(1, Number(value) ?? 0.75));
+    this._requestRender();
+  }
+
   /** @param {number} value */
   setTrailBrightness(value = 0.96)
   {

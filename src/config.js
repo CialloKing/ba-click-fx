@@ -88,9 +88,8 @@ export const CONFIG = {
     collapseStart: 0.16,
     // 全生命周期始终满亮度，不做淡出
     fadeStart: 1.0,
-    // 颜色快速过渡到蓝白高亮（0→0.15），之后全程保持
-    colorStart: 0.0,
-    colorEnd: 0.15,
+    // 圆环颜色中白色的混合比例，0=纯主题色，1=纯白
+    whiteMix: 0.75,
     minW: 0.9,
     maxW: 4.0,
     alpha: 0.9,
@@ -247,7 +246,7 @@ export function getClickScale(config = CONFIG)
  */
 export function getClickRingEndColor(config = CONFIG)
 {
-  return mixColor(config.color, [255, 255, 255], 0.75);
+  return mixColor(config.color, [255, 255, 255], config.rings.whiteMix);
 }
 
 /**
