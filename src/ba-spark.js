@@ -1928,6 +1928,9 @@ export class BAClickFX
   // 输入处理
   // ═══════════════════════════════════════════════════════
 
+  // 预分配平滑坐标对象，避免每帧创建新对象
+  _smoothPosCache = { x: 0, y: 0 };
+
   _getPointerPos(event)
   {
     const rect = this.canvas.getBoundingClientRect();
@@ -1997,12 +2000,14 @@ export class BAClickFX
           this.trailSmoothY = this.trailSmoothY * sf + pos.y * (1 - sf);
         }
 
-        pos = { x: this.trailSmoothX, y: this.trailSmoothY };
+        this._smoothPosCache.x = this.trailSmoothX;
+        this._smoothPosCache.y = this.trailSmoothY;
+        pos = this._smoothPosCache;
       }
 
       if (!this.lastTrailPos)
       {
-        this.lastTrailPos = pos;
+        this.lastTrailPos = { x: pos.x, y: pos.y };
         this.lastTrailEventTime = e.timeStamp || performance.now();
 
         if (!this.currentTrailStroke)
@@ -2010,6 +2015,7 @@ export class BAClickFX
           this._beginTrailStroke(pos.x, pos.y, this.trailSpeedFactor);
         }
 
+        latestPos = pos;
         continue;
       }
 
@@ -2019,7 +2025,7 @@ export class BAClickFX
       this._addInterpolatedTrailPoints(this.lastTrailPos, pos, speedFactor);
       this._spawnTrailShards(this.lastTrailPos, pos, speedFactor);
 
-      this.lastTrailPos = pos;
+      this.lastTrailPos = { x: pos.x, y: pos.y };
     }
 
     if (latestPos && Math.random() < this.config.trail.moveSparkChance)
