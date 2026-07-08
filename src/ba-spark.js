@@ -1369,9 +1369,12 @@ export class BAClickFX
     }
 
     const stroke = this.currentTrailStroke || this._createTrailStroke(speedFactor);
+    // 高速时动态扩大采样步长，降低点密度避免过载
+    const speedAdjustedStep = this.config.trail.sampleStep *
+      (1 + clamp01(speedFactor) * 2);
     const steps = Math.min(
       this.config.trail.maxInterpolatedPoints,
-      Math.max(2, Math.ceil(dist / this.config.trail.sampleStep)),
+      Math.max(2, Math.ceil(dist / speedAdjustedStep)),
     );
 
     for (let i = 1; i <= steps; i++)
