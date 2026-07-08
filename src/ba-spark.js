@@ -60,7 +60,7 @@ function createClickRingSegments(rings)
         ? rand(rings.segmentRadiusGrowSmallMin, rings.segmentRadiusGrowSmallMax)
         : rand(rings.segmentRadiusGrowMin, rings.segmentRadiusGrowMax),
       rotationMul: rand(rings.rotationMulMin, rings.rotationMulMax),
-      alphaMul: rand(0.62, 1.08),
+      alphaMul: rand(0.8, 1.1),
       widthMul: rand(0.68, 1.24),
       collapseBias: rand(-0.16, 0.2),
     });
