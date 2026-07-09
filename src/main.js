@@ -396,6 +396,8 @@ document.getElementById('langToggle').addEventListener('click', () =>
       ringSoftGlowAlpha: c.rings.softGlowAlpha,
       ringColorFadeStart: c.rings.colorFadeStart,
       ringColorEndWhiteMix: c.rings.colorEndWhiteMix,
+      ringSegCount: c.rings.segmentCountMin,
+      ringArcLen: c.rings.lenFull,
     };
   }
   const DEFAULTS = readDefaults();
@@ -694,6 +696,9 @@ document.getElementById('langToggle').addEventListener('click', () =>
   bindRange('ctrlRingGlowRadiusAdd', 'outRingGlowRadiusAdd', v => api.setRingGlowRadiusAdd(v), true);
   bindRange('ctrlRingSoftGlowRadiusAdd', 'outRingSoftGlowRadiusAdd', v => api.setRingSoftGlowRadiusAdd(v), true);
 
+  bindRange('ctrlRingSegCount', 'outRingSegCount', v => api.setRingSegmentCount(v), true);
+  bindRange('ctrlRingArcLen', 'outRingArcLen', v => api.setRingArcLength(v));
+
   // -- 拖尾图层 --
   bindRange('ctrlTrailMainAlpha', 'outTrailMainAlpha', v => api.setTrailMainAlpha(v));
   bindRange('ctrlTrailCoreAlpha', 'outTrailCoreAlpha', v => api.setTrailCoreAlpha(v));
@@ -854,6 +859,11 @@ document.getElementById('langToggle').addEventListener('click', () =>
     api.setRingGlowRadiusAdd(DEFAULTS.ringGlowRadiusAdd);
     setVal('ctrlRingSoftGlowRadiusAdd', 'outRingSoftGlowRadiusAdd', DEFAULTS.ringSoftGlowRadiusAdd, true);
     api.setRingSoftGlowRadiusAdd(DEFAULTS.ringSoftGlowRadiusAdd);
+
+    setVal('ctrlRingSegCount', 'outRingSegCount', DEFAULTS.ringSegCount, true);
+    api.setRingSegmentCount(DEFAULTS.ringSegCount);
+    setVal('ctrlRingArcLen', 'outRingArcLen', DEFAULTS.ringArcLen);
+    api.setRingArcLength(DEFAULTS.ringArcLen);
 
     // 拖尾图层
     setVal('ctrlTrailMainAlpha', 'outTrailMainAlpha', DEFAULTS.trailMainAlpha);

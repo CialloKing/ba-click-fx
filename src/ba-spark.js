@@ -2268,6 +2268,12 @@ export class BAClickFX
     this._requestRender();
   }
 
+  /** @param {number} value 同 setRingGlow，语义化命名 */
+  setRingEmission(value = 0.35)
+  {
+    this.setRingGlow(value);
+  }
+
   /** @param {number} value */
   setRingWidth(value = 0.9)
   {
@@ -2683,6 +2689,76 @@ export class BAClickFX
       this.config.trail.speedMin = this.config.trail.speedMax - 0.005;
     }
 
+    this._requestRender();
+  }
+
+  /** @param {number} lenFull @param {number} [lenEnd] 圆环弧长（饱满弧度与消散弧度） */
+  setRingArcLength(lenFull = 1.5 * Math.PI, lenEnd = Math.PI / 3)
+  {
+    this.config.rings.lenFull = Math.max(0.5, Math.min(6.28, Number(lenFull) ?? 4.71));
+    this.config.rings.lenEnd = Math.max(0.1, Math.min(this.config.rings.lenFull, Number(lenEnd) ?? 1.05));
+    this._requestRender();
+  }
+
+  /** @param {number} min @param {number} [max] 圆环旋转速度随机抖动范围 */
+  setRingRotationJitter(min = 0.54, max = 1.58)
+  {
+    this.config.rings.rotationMulMin = Math.max(0.1, Math.min(5, Number(min) ?? 0.54));
+    this.config.rings.rotationMulMax = Math.max(this.config.rings.rotationMulMin, Math.min(5, Number(max) ?? 1.58));
+    this._requestRender();
+  }
+
+  /** @param {number} min @param {number} [max] 圆环弧段数量 */
+  setRingSegmentCount(min = 2, max = 2)
+  {
+    this.config.rings.segmentCountMin = Math.max(1, Math.min(8, Number(min) ?? 2));
+    this.config.rings.segmentCountMax = Math.max(this.config.rings.segmentCountMin, Math.min(8, Number(max) ?? 2));
+    this._requestRender();
+  }
+
+  /** @param {number} min @param {number} [max] 小半径弧段的 growMul 范围 */
+  setRingSmallRadius(min = 0.75, max = 0.92)
+  {
+    this.config.rings.segmentRadiusGrowSmallMin = Math.max(0.3, Math.min(1.5, Number(min) ?? 0.75));
+    this.config.rings.segmentRadiusGrowSmallMax = Math.max(this.config.rings.segmentRadiusGrowSmallMin, Math.min(1.5, Number(max) ?? 0.92));
+    this._requestRender();
+  }
+
+  /** @param {number} min @param {number} [max] 轨迹碎片偏移范围 */
+  setTrailShardOffset(min = 2, max = 36)
+  {
+    this.config.trail.shardOffsetMin = Math.max(0, Math.min(100, Number(min) ?? 2));
+    this.config.trail.shardOffsetMax = Math.max(this.config.trail.shardOffsetMin, Math.min(100, Number(max) ?? 36));
+    this._requestRender();
+  }
+
+  /** @param {number} slow @param {number} [fast] 拖尾中心高光线宽 */
+  setTrailCoreWidth(slow = 0.3, fast = 0.52)
+  {
+    this.config.trail.coreWidthSlow = Math.max(0.05, Math.min(5, Number(slow) ?? 0.3));
+    this.config.trail.coreWidthFast = Math.max(this.config.trail.coreWidthSlow, Math.min(5, Number(fast) ?? 0.52));
+    this._requestRender();
+  }
+
+  /** @param {number} slow @param {number} [fast] 拖尾蓝白热点线宽 */
+  setTrailHotWidth(slow = 0.1, fast = 0.24)
+  {
+    this.config.trail.hotWidthSlow = Math.max(0.05, Math.min(5, Number(slow) ?? 0.1));
+    this.config.trail.hotWidthFast = Math.max(this.config.trail.hotWidthSlow, Math.min(5, Number(fast) ?? 0.24));
+    this._requestRender();
+  }
+
+  /** @param {number} value 拖尾分段渐变长度，越小越细腻 (0.3~10) */
+  setTrailGradientChunk(value = 1.5)
+  {
+    this.config.trail.gradientChunkLength = Math.max(0.3, Math.min(10, Number(value) ?? 1.5));
+    this._requestRender();
+  }
+
+  /** @param {number} value 拖尾原始点数上限 */
+  setTrailMaxPoints(value = 12000)
+  {
+    this.config.trail.maxPoints = Math.max(500, Math.min(30000, Number(value) ?? 12000));
     this._requestRender();
   }
 
