@@ -457,7 +457,7 @@ document.getElementById('langToggle').addEventListener('click', () =>
     '深紫': 'radial-gradient(circle at top, #2d1b4e 0%, #1a1028 45%, #0d0616 100%)',
     '深绿': 'radial-gradient(circle at top, #1a3d2a 0%, #0f1a14 45%, #080d0a 100%)',
     '暖金': 'radial-gradient(circle at top, #3d2a1a 0%, #1f1910 45%, #14100a 100%)',
-    '纯黑': '#0a0a0f',
+    '纯黑': '#000000',
   };
 
   function wrapBgImage(url)
