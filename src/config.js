@@ -99,6 +99,8 @@ export const CONFIG = {
     colorEndWhiteMix: 0.97,
     minW: 0.9,
     maxW: 4.0,
+    // 圆环宽度随生命周期收缩的终点倍率（游戏内圆环会在生命周期中明显变细）
+    widthEndMul: 0.35,
     alpha: 1,
   },
 

@@ -272,6 +272,8 @@ class ClickWave
     const radiusGrow = this.getRingRadiusGrow(progress);
     const baseRadius = staticRadius + radiusGrow;
     const lineWidthMul = lerp(1, 0.72, collapse);
+    // 模拟游戏内圆环随生命周期逐渐变细的效果：从初始宽度线性过渡到 widthEndMul 倍
+    const lifeWidthMul = lerp(1, cfg.widthEndMul, progress);
 
     this._engine._drawClickRingGlow(
       context,
@@ -299,7 +301,7 @@ class ClickWave
         radiusGrow * seg.radiusGrowMul +
         seg.radiusOffset * this._engine.config.scale;
       const segAlpha = ringAlpha * seg.alphaMul;
-      const segLineWidthMul = lineWidthMul * seg.widthMul;
+      const segLineWidthMul = lineWidthMul * seg.widthMul * lifeWidthMul;
       const minWidth = cfg.minW * segLineWidthMul * this._engine.config.scale;
       const maxWidth = cfg.maxW * segLineWidthMul * this._engine.config.scale;
 
@@ -2272,6 +2274,13 @@ export class BAClickFX
   setRingWidth(value = 0.9)
   {
     this.config.rings.minW = Math.max(0.3, Math.min(3, Number(value) ?? 0.9));
+    this._requestRender();
+  }
+
+  /** @param {number} value 圆环宽度随生命周期收缩的终点倍率 (0~1) */
+  setRingWidthEndMul(value = 0.35)
+  {
+    this.config.rings.widthEndMul = Math.max(0.05, Math.min(1, Number(value) ?? 0.35));
     this._requestRender();
   }
 

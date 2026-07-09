@@ -37,6 +37,7 @@ declare module 'ba-click-fx' {
     setRingRotationSpeed(value?: number): void;
     setRingEmission(value?: number): void;
     setRingWidth(value?: number): void;
+    setRingWidthEndMul(value?: number): void;
     setRingAlpha(value?: number): void;
     setRingDelay(value?: number): void;
     setRingMaxLife(value?: number): void;
