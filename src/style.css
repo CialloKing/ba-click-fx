@@ -577,3 +577,52 @@ kbd {
   pointer-events: none;
   display: block;
 }
+
+/* ── Intro Section (SEO) ────────────────────────────────────────────────── */
+
+.intro-section {
+  position: fixed;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  max-width: 600px;
+  padding: 16px 24px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  text-align: center;
+  pointer-events: auto;
+}
+
+.intro-section h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.intro-section p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.intro-section nav {
+  margin-top: 10px;
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+}
+
+.intro-section nav a {
+  color: rgba(125, 239, 255, 0.7);
+  font-size: 13px;
+  text-decoration: none;
+  transition: color 0.18s;
+}
+
+.intro-section nav a:hover {
+  color: rgba(125, 239, 255, 1);
+}
