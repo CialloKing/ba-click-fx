@@ -198,7 +198,7 @@ class ClickWave
       this._engine.config.click.haloRadius * getClickScale(this._engine.config),
       smoothstep(0.04, 0.54, progress),
     );
-    const alpha = 0.2 * this._engine.config.opacity * appear * fade;
+    const alpha = 0.12 * this._engine.config.opacity * appear * fade;
 
     this._engine._drawRadialGlow(context, this.x, this.y, radius, color, alpha);
   }
