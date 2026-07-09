@@ -451,6 +451,20 @@ document.getElementById('langToggle').addEventListener('click', () =>
     hintBar.classList.add('hidden');
   });
 
+  // -- 介绍区块关闭（关闭后仍保留在 DOM 中以供 SEO）--
+  const introSection = document.getElementById('introSection');
+
+  // 若之前关闭过则恢复隐藏状态
+  if (localStorage.getItem('bafx-intro-hidden') === 'true')
+  {
+    introSection.classList.add('hidden');
+  }
+
+  document.getElementById('introDismiss').addEventListener('click', () => {
+    introSection.classList.add('hidden');
+    localStorage.setItem('bafx-intro-hidden', 'true');
+  });
+
   // -- 背景主题 --
   const BACKGROUND_THEMES = {
     '蔚蓝': 'radial-gradient(circle at top, #1d3558 0%, #101827 45%, #080d16 100%)',

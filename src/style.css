@@ -595,6 +595,30 @@ kbd {
   pointer-events: auto;
 }
 
+/* 介绍区块关闭后仍保留在 DOM 中供 SEO 抓取 */
+.intro-section.hidden {
+  display: none;
+}
+
+.intro-dismiss {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.18s;
+}
+
+.intro-dismiss:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
 .intro-section h2 {
   margin: 0 0 8px;
   font-size: 18px;
