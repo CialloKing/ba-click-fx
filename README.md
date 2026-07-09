@@ -22,7 +22,7 @@ A lightweight **Blue Archive style cursor effect** library for the web. It provi
   &nbsp;&nbsp;
   <img src="./docs/assets/blue-archive-reference.gif" alt="Blue Archive in-game effect reference" width="45%">
 </p>
-<p align="center"><sub>ba-click-fx demo（左） · Blue Archive in-game（右）</sub></p>
+<p align="center"><sub>ba-click-fx 演示（左） · 蔚蓝档案 游戏内（右）</sub></p>
 
 ---
 
