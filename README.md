@@ -121,7 +121,7 @@ const spark = new BAClickFX({
 固定版本（推荐）：
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.0.12/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.0/dist/ba-click-fx.iife.js"></script>
 <script>
   const spark = new BAClickFX();
 </script>
