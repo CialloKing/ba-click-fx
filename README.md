@@ -19,13 +19,13 @@ A lightweight **Blue Archive style cursor effect** library for the web. It provi
 
 <p align="center">
   <img
-    src="https://cdn.jsdelivr.net/gh/CialloKing/ba-click-fx@main/docs/assets/ba-click-fx-demo.gif?v=1.1.2"
+    src="./docs/assets/ba-click-fx-demo.gif"
     alt="ba-click-fx Blue Archive style click effect and cursor trail demo"
     width="45%"
   >
   &nbsp;&nbsp;
   <img
-    src="https://cdn.jsdelivr.net/gh/CialloKing/ba-click-fx@main/docs/assets/blue-archive-reference.gif?v=1.1.2"
+    src="./docs/assets/blue-archive-reference.gif"
     alt="Blue Archive in-game click effect and cursor trail reference"
     width="45%"
   >
