@@ -686,6 +686,7 @@ document.getElementById('langToggle').addEventListener('click', () =>
   bindRange('ctrlRingRotation', 'outRingRotation', v => api.setRingRotationSpeed(v));
   bindRange('ctrlRingGlow', 'outRingGlow', v => api.setRingEmission(v));
   bindRange('ctrlRingWidth', 'outRingWidth', v => api.setRingWidth(v));
+  bindRange('ctrlRingWidthEndMul', 'outRingWidthEndMul', v => api.setRingWidthEndMul(v));
   bindRange('ctrlRingAlpha', 'outRingAlpha', v => api.setRingAlpha(v));
   bindRange('ctrlRingWhiteMix', 'outRingWhiteMix', v => api.setRingWhiteMix(v));
   bindRange('ctrlRingGlowAlpha', 'outRingGlowAlpha', v => api.setRingGlowAlpha(v));
@@ -825,6 +826,8 @@ document.getElementById('langToggle').addEventListener('click', () =>
     api.setRingEmission(DEFAULTS.ringGlow);
     setVal('ctrlRingWidth', 'outRingWidth', DEFAULTS.ringWidth);
     api.setRingWidth(DEFAULTS.ringWidth);
+    setVal('ctrlRingWidthEndMul', 'outRingWidthEndMul', DEFAULTS.ringWidthEndMul);
+    api.setRingWidthEndMul(DEFAULTS.ringWidthEndMul);
     setVal('ctrlRingAlpha', 'outRingAlpha', DEFAULTS.ringAlpha);
     api.setRingAlpha(DEFAULTS.ringAlpha);
     setVal('ctrlRingWhiteMix', 'outRingWhiteMix', DEFAULTS.ringWhiteMix);
