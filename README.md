@@ -18,11 +18,19 @@ A lightweight **Blue Archive style cursor effect** library for the web. It provi
 > 🖱 点击、拖拽或移动鼠标即可预览特效。Click, drag, or move your mouse on the demo page to preview.
 
 <p align="center">
-  <img src="./docs/assets/ba-click-fx-demo.gif" alt="ba-click-fx Blue Archive style click effect and cursor trail demo" width="45%">
+  <img
+    src="https://cdn.jsdelivr.net/gh/CialloKing/ba-click-fx@main/docs/assets/ba-click-fx-demo.gif"
+    alt="ba-click-fx Blue Archive style click effect and cursor trail demo"
+    width="45%"
+  >
   &nbsp;&nbsp;
-  <img src="./docs/assets/blue-archive-reference.gif" alt="Blue Archive in-game click effect and cursor trail reference" width="45%">
+  <img
+    src="https://cdn.jsdelivr.net/gh/CialloKing/ba-click-fx@main/docs/assets/blue-archive-reference.gif"
+    alt="Blue Archive in-game click effect and cursor trail reference"
+    width="45%"
+  >
 </p>
-<p align="center"><sub>ba-click-fx 项目演示（左） · 蔚蓝档案 游戏内效果参考（右）</sub></p>
+<p align="center"><sub>ba-click-fx 项目演示（左） · 游戏内效果参考（右，仅用于效果对比）</sub></p>
 
 ---
 
