@@ -7,15 +7,15 @@
 
 > 📖 [English version](./README.en.md)
 
-**Blue Archive / 蔚蓝档案 style mouse click effect and cursor trail animation for web.**
+**蔚蓝档案 (Blue Archive) 风格网页鼠标点击特效与光标拖尾动画库。**
 
-`ba-click-fx` 是一个网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效库，使用纯 **Canvas 2D** 实现游戏风格的鼠标点击动画、蓝色圆盘、旋转圆环、碎片粒子、拖尾光轨和拖拽轨迹效果。
+`ba-click-fx` 是一个网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效库，使用纯 **Canvas 2D** 实现游戏风格的鼠标点击动画、蓝色圆盘、旋转圆环、碎片粒子、拖尾光轨和拖拽轨迹效果。零外部运行时依赖，支持鼠标点击、触摸、拖拽等多种交互方式。
 
 A lightweight **Blue Archive style cursor effect** library for the web. It provides **mouse click effects**, **touch effects**, **cursor trail animation**, **particle sparks**, **glowing rings**, and **drag trails** with zero external runtime dependencies.
 
-**Online Demo:** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
+**在线演示：** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
-> Click, drag, or move your mouse on the demo page to preview the Blue Archive style click effect and cursor trail.
+> 🖱 点击、拖拽或移动鼠标即可预览特效。Click, drag, or move your mouse on the demo page to preview.
 
 <p align="center">
   <img src="./docs/assets/ba-click-fx-demo.gif" alt="ba-click-fx click effect and cursor trail demo" width="45%">
