@@ -218,7 +218,7 @@ new BAClickFX(options?: BAClickFXOptions)
 | Method | Description | Default |
 |---|---|---|
 | `setRingRotationSpeed(v)` | Rotation speed (0~0.05) | `0.008` |
-| `setRingGlow(v)` | Glow intensity (0~1) | `0.35` |
+| `setRingEmission(v)` | Glow intensity (0~1) | `0.35` |
 | `setRingWidth(v)` | Arc width (0.3~3) | `0.9` |
 | `setRingAlpha(v)` | Ring opacity (0.1~1) | `0.9` |
 | `setRingDelay(v)` | Appearance delay (0~10) | `2` |

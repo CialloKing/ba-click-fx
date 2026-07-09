@@ -2261,17 +2261,11 @@ export class BAClickFX
     this._requestRender();
   }
 
-  /** @param {number} value */
-  setRingGlow(value = 0.35)
+  /** @param {number} value 圆环光晕强度 */
+  setRingEmission(value = 0.35)
   {
     this.config.rings.emissionAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.35));
     this._requestRender();
-  }
-
-  /** @param {number} value 同 setRingGlow，语义化命名 */
-  setRingEmission(value = 0.35)
-  {
-    this.setRingGlow(value);
   }
 
   /** @param {number} value */

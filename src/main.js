@@ -667,7 +667,7 @@ document.getElementById('langToggle').addEventListener('click', () =>
   bindRange('ctrlTrailRenderScale', 'outTrailRenderScale', v => api.setTrailRenderScale(v));
 
   bindRange('ctrlRingRotation', 'outRingRotation', v => api.setRingRotationSpeed(v));
-  bindRange('ctrlRingGlow', 'outRingGlow', v => api.setRingGlow(v));
+  bindRange('ctrlRingGlow', 'outRingGlow', v => api.setRingEmission(v));
   bindRange('ctrlRingWidth', 'outRingWidth', v => api.setRingWidth(v));
   bindRange('ctrlRingAlpha', 'outRingAlpha', v => api.setRingAlpha(v));
   bindRange('ctrlRingWhiteMix', 'outRingWhiteMix', v => api.setRingWhiteMix(v));
@@ -805,7 +805,7 @@ document.getElementById('langToggle').addEventListener('click', () =>
     setVal('ctrlRingRotation', 'outRingRotation', DEFAULTS.ringRotation);
     api.setRingRotationSpeed(DEFAULTS.ringRotation);
     setVal('ctrlRingGlow', 'outRingGlow', DEFAULTS.ringGlow);
-    api.setRingGlow(DEFAULTS.ringGlow);
+    api.setRingEmission(DEFAULTS.ringGlow);
     setVal('ctrlRingWidth', 'outRingWidth', DEFAULTS.ringWidth);
     api.setRingWidth(DEFAULTS.ringWidth);
     setVal('ctrlRingAlpha', 'outRingAlpha', DEFAULTS.ringAlpha);
