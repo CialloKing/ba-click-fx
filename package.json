@@ -14,9 +14,9 @@
   "types": "./dist/ba-click-fx.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/ba-click-fx.d.ts",
       "import": "./dist/ba-click-fx.js",
-      "require": "./dist/ba-click-fx.cjs",
-      "types": "./dist/ba-click-fx.d.ts"
+      "require": "./dist/ba-click-fx.cjs"
     }
   },
   "files": [
@@ -25,6 +25,7 @@
     "dist/ba-click-fx.iife.js",
     "dist/ba-click-fx.d.ts",
     "README.md",
+    "README.en.md",
     "LICENSE"
   ],
   "keywords": [
@@ -53,7 +54,6 @@
   "bugs": {
     "url": "https://github.com/CialloKing/ba-click-fx/issues"
   },
-  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "node scripts/build.mjs",
