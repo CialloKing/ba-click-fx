@@ -272,8 +272,8 @@ class ClickWave
     const radiusGrow = this.getRingRadiusGrow(progress);
     const baseRadius = staticRadius + radiusGrow;
     const lineWidthMul = lerp(1, 0.72, collapse);
-    // 模拟游戏内圆环随生命周期逐渐变细的效果：从初始宽度线性过渡到 widthEndMul 倍
-    const lifeWidthMul = lerp(1, cfg.widthEndMul, progress);
+    // 游戏内圆环宽度收缩是非线性的：前期保持宽度，后期加速变细
+    const lifeWidthMul = lerp(1, cfg.widthEndMul, progress * progress);
 
     this._engine._drawClickRingGlow(
       context,
