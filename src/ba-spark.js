@@ -2523,6 +2523,66 @@ export class BAClickFX
     this._requestRender();
   }
 
+  /** @param {number} value 圆环颜色衰减起始进度 (0~1) */
+  setRingColorFadeStart(value = 0.56)
+  {
+    this.config.rings.colorFadeStart = Math.max(0, Math.min(1, Number(value) ?? 0.56));
+    this._requestRender();
+  }
+
+  /** @param {number} value 圆环消失时白混合比例 (0~1) */
+  setRingColorEndWhiteMix(value = 0.97)
+  {
+    this.config.rings.colorEndWhiteMix = Math.max(0, Math.min(1, Number(value) ?? 0.97));
+    this._requestRender();
+  }
+
+  /** @param {number} value 圆环内层柔光透明度 (0~1) */
+  setRingGlowAlpha(value = 0.15)
+  {
+    this.config.rings.glowAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.15));
+    this._requestRender();
+  }
+
+  /** @param {number} value 圆环外层柔光透明度 (0~1) */
+  setRingSoftGlowAlpha(value = 0.08)
+  {
+    this.config.rings.softGlowAlpha = Math.max(0, Math.min(1, Number(value) ?? 0.08));
+    this._requestRender();
+  }
+
+  /** @param {number} period @param {number} [minAlpha] 点击碎片闪烁周期与最低亮度 */
+  setClickShardFlicker(period = 8, minAlpha = 0.45)
+  {
+    this.config.click.shardFlickerPeriod = Math.max(2, Math.min(30, Number(period) ?? 8));
+    this.config.click.shardFlickerMinAlpha = Math.max(0, Math.min(1, Number(minAlpha) ?? 0.45));
+    this._requestRender();
+  }
+
+  /** @param {number} period @param {number} [minAlpha] @param {number} [sizePulse] 轨迹碎片闪烁参数 */
+  setTrailShardFlicker(period = 8, minAlpha = 0.35, sizePulse = 0.16)
+  {
+    this.config.trail.shardFlickerPeriod = Math.max(2, Math.min(30, Number(period) ?? 8));
+    this.config.trail.shardFlickerMinAlpha = Math.max(0, Math.min(1, Number(minAlpha) ?? 0.35));
+    this.config.trail.shardFlickerSizePulse = Math.max(0, Math.min(0.5, Number(sizePulse) ?? 0.16));
+    this._requestRender();
+  }
+
+  /** @param {number} value 圆盘增长速度 (10~50) */
+  setDiskSize(value = 26)
+  {
+    this.config.filledCircle.rAddRate = Math.max(10, Math.min(50, Number(value) ?? 26));
+    this._requestRender();
+  }
+
+  /** @param {number} radiusMul @param {number} [alpha] 圆盘柔光范围倍数与透明度 */
+  setDiskGlow(radiusMul = 4.2, alpha = 0.13)
+  {
+    this.config.filledCircle.glowRadiusMul = Math.max(1, Math.min(10, Number(radiusMul) ?? 4.2));
+    this.config.filledCircle.glowAlpha = Math.max(0, Math.min(1, Number(alpha) ?? 0.13));
+    this._requestRender();
+  }
+
   /** @param {number} value */
   setTrailMainAlpha(value = 1)
   {
