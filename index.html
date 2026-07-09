@@ -117,7 +117,26 @@
         <span class="toggle-track"></span>
       </label>
 
+      <h4 class="sub-heading">圆盘</h4>
+      <label class="ctrl">
+        <span>圆盘大小 <output id="outDiskSize">26</output></span>
+        <input type="range" id="ctrlDiskSize" min="10" max="50" step="1" value="26" />
+      </label>
+      <label class="ctrl">
+        <span>柔光范围 <output id="outDiskGlowRadius">4.20</output></span>
+        <input type="range" id="ctrlDiskGlowRadius" min="1" max="10" step="0.1" value="4.2" />
+      </label>
+      <label class="ctrl">
+        <span>柔光透明度 <output id="outDiskGlowAlpha">0.13</output></span>
+        <input type="range" id="ctrlDiskGlowAlpha" min="0" max="1" step="0.01" value="0.13" />
+      </label>
+
       <h4 class="sub-heading">碎片</h4>
+
+      <label class="ctrl">
+        <span>闪烁周期 <output id="outClickShardFlicker">8</output></span>
+        <input type="range" id="ctrlClickShardFlicker" min="2" max="30" step="1" value="8" />
+      </label>
       <label class="ctrl">
         <span>间距 <output id="outShardSpacing">220</output></span>
         <input type="range" id="ctrlShardSpacing" min="20" max="500" step="5" value="120" />
@@ -184,6 +203,26 @@
         <span>柔光半径 <output id="outRingSoftGlowRadiusAdd">96</output></span>
         <input type="range" id="ctrlRingSoftGlowRadiusAdd" min="20" max="200" step="2" value="96" />
       </label>
+
+      <h4 class="sub-heading">柔光</h4>
+      <label class="ctrl">
+        <span>内层透明度 <output id="outRingGlowAlpha">0.15</output></span>
+        <input type="range" id="ctrlRingGlowAlpha" min="0" max="1" step="0.05" value="0.15" />
+      </label>
+      <label class="ctrl">
+        <span>外层透明度 <output id="outRingSoftGlowAlpha">0.08</output></span>
+        <input type="range" id="ctrlRingSoftGlowAlpha" min="0" max="0.5" step="0.02" value="0.08" />
+      </label>
+
+      <h4 class="sub-heading">颜色衰减</h4>
+      <label class="ctrl">
+        <span>衰减起点 <output id="outRingColorFadeStart">0.56</output></span>
+        <input type="range" id="ctrlRingColorFadeStart" min="0" max="1" step="0.05" value="0.56" />
+      </label>
+      <label class="ctrl">
+        <span>末尾白混合 <output id="outRingColorEndWhiteMix">0.97</output></span>
+        <input type="range" id="ctrlRingColorEndWhiteMix" min="0" max="1" step="0.02" value="0.97" />
+      </label>
     </section>
 
     <!-- ── 拖尾轨迹 ── -->
@@ -236,6 +275,20 @@
         <span>阴影发光</span>
         <input type="checkbox" id="ctrlGlow" />
         <span class="toggle-track"></span>
+      </label>
+
+      <h4 class="sub-heading">碎片闪烁</h4>
+      <label class="ctrl">
+        <span>闪烁周期 <output id="outTrailShardFlicker">8</output></span>
+        <input type="range" id="ctrlTrailShardFlicker" min="2" max="30" step="1" value="8" />
+      </label>
+      <label class="ctrl">
+        <span>最低亮度 <output id="outTrailShardMinAlpha">0.35</output></span>
+        <input type="range" id="ctrlTrailShardMinAlpha" min="0" max="1" step="0.05" value="0.35" />
+      </label>
+      <label class="ctrl">
+        <span>大小脉冲 <output id="outTrailShardSizePulse">0.16</output></span>
+        <input type="range" id="ctrlTrailShardSizePulse" min="0" max="0.5" step="0.02" value="0.16" />
       </label>
     </section>
 

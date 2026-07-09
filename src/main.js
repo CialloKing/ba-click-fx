@@ -383,6 +383,19 @@ document.getElementById('langToggle').addEventListener('click', () =>
       trailSpeedDecay: c.trail.speedDecay,
       trailSpeedMin: c.trail.speedMin,
       trailSpeedMax: c.trail.speedMax,
+
+      // 新增 API
+      diskSize: c.filledCircle.rAddRate,
+      diskGlowRadius: c.filledCircle.glowRadiusMul,
+      diskGlowAlpha: c.filledCircle.glowAlpha,
+      clickShardFlicker: c.click.shardFlickerPeriod,
+      trailShardFlicker: c.trail.shardFlickerPeriod,
+      trailShardMinAlpha: c.trail.shardFlickerMinAlpha,
+      trailShardSizePulse: c.trail.shardFlickerSizePulse,
+      ringGlowAlpha: c.rings.glowAlpha,
+      ringSoftGlowAlpha: c.rings.softGlowAlpha,
+      ringColorFadeStart: c.rings.colorFadeStart,
+      ringColorEndWhiteMix: c.rings.colorEndWhiteMix,
     };
   }
   const DEFAULTS = readDefaults();
@@ -656,6 +669,10 @@ document.getElementById('langToggle').addEventListener('click', () =>
   bindRange('ctrlRingWidth', 'outRingWidth', v => api.setRingWidth(v));
   bindRange('ctrlRingAlpha', 'outRingAlpha', v => api.setRingAlpha(v));
   bindRange('ctrlRingWhiteMix', 'outRingWhiteMix', v => api.setRingWhiteMix(v));
+  bindRange('ctrlRingGlowAlpha', 'outRingGlowAlpha', v => api.setRingGlowAlpha(v));
+  bindRange('ctrlRingSoftGlowAlpha', 'outRingSoftGlowAlpha', v => api.setRingSoftGlowAlpha(v));
+  bindRange('ctrlRingColorFadeStart', 'outRingColorFadeStart', v => api.setRingColorFadeStart(v));
+  bindRange('ctrlRingColorEndWhiteMix', 'outRingColorEndWhiteMix', v => api.setRingColorEndWhiteMix(v));
 
   bindRange('ctrlTrailAlpha', 'outTrailAlpha', v => api.setTrailBrightness(v));
   bindRange('ctrlTrailWhiteMix', 'outTrailWhiteMix', v => api.setTrailWhiteMix(v));
@@ -665,6 +682,9 @@ document.getElementById('langToggle').addEventListener('click', () =>
   bindRange('ctrlClickTotalLife', 'outClickTotalLife', v => api.setClickTotalLife(v), true);
   bindRange('ctrlClickScaleMul', 'outClickScaleMul', v => api.setClickScaleMul(v));
   bindRange('ctrlClickHaloRadius', 'outClickHaloRadius', v => api.setClickHaloRadius(v), true);
+
+  bindRange('ctrlDiskSize', 'outDiskSize', v => api.setDiskSize(v), true);
+  bindRange('ctrlClickShardFlicker', 'outClickShardFlicker', v => api.setClickShardFlicker(v), true);
 
   // -- 圆环高级 --
   bindRange('ctrlRingDelay', 'outRingDelay', v => api.setRingDelay(v));
@@ -685,6 +705,23 @@ document.getElementById('langToggle').addEventListener('click', () =>
   // -- 拖尾发光范围 --
   bindRange('ctrlTrailGlowWidthMul', 'outTrailGlowWidthMul', v => api.setTrailGlowWidthMul(v));
   bindRange('ctrlTrailSoftGlowWidthMul', 'outTrailSoftGlowWidthMul', v => api.setTrailSoftGlowWidthMul(v));
+
+  // -- 拖尾碎片闪烁 --
+  bindRange('ctrlTrailShardFlicker', 'outTrailShardFlicker', v => {
+    const ma = parseFloat(document.getElementById('ctrlTrailShardMinAlpha').value);
+    const sp = parseFloat(document.getElementById('ctrlTrailShardSizePulse').value);
+    api.setTrailShardFlicker(v, ma, sp);
+  }, true);
+  bindRange('ctrlTrailShardMinAlpha', 'outTrailShardMinAlpha', v => {
+    const p = parseFloat(document.getElementById('ctrlTrailShardFlicker').value);
+    const sp = parseFloat(document.getElementById('ctrlTrailShardSizePulse').value);
+    api.setTrailShardFlicker(p, v, sp);
+  });
+  bindRange('ctrlTrailShardSizePulse', 'outTrailShardSizePulse', v => {
+    const p = parseFloat(document.getElementById('ctrlTrailShardFlicker').value);
+    const ma = parseFloat(document.getElementById('ctrlTrailShardMinAlpha').value);
+    api.setTrailShardFlicker(p, ma, v);
+  });
 
   // -- 拖尾消散 --
   bindRange('ctrlTrailTailDecayMul', 'outTrailTailDecayMul', v => api.setTrailTailDecayMul(v));
@@ -770,6 +807,14 @@ document.getElementById('langToggle').addEventListener('click', () =>
     api.setRingAlpha(DEFAULTS.ringAlpha);
     setVal('ctrlRingWhiteMix', 'outRingWhiteMix', DEFAULTS.ringWhiteMix);
     api.setRingWhiteMix(DEFAULTS.ringWhiteMix);
+    setVal('ctrlRingGlowAlpha', 'outRingGlowAlpha', DEFAULTS.ringGlowAlpha);
+    api.setRingGlowAlpha(DEFAULTS.ringGlowAlpha);
+    setVal('ctrlRingSoftGlowAlpha', 'outRingSoftGlowAlpha', DEFAULTS.ringSoftGlowAlpha);
+    api.setRingSoftGlowAlpha(DEFAULTS.ringSoftGlowAlpha);
+    setVal('ctrlRingColorFadeStart', 'outRingColorFadeStart', DEFAULTS.ringColorFadeStart);
+    api.setRingColorFadeStart(DEFAULTS.ringColorFadeStart);
+    setVal('ctrlRingColorEndWhiteMix', 'outRingColorEndWhiteMix', DEFAULTS.ringColorEndWhiteMix);
+    api.setRingColorEndWhiteMix(DEFAULTS.ringColorEndWhiteMix);
     setVal('ctrlTrailAlpha', 'outTrailAlpha', DEFAULTS.trailBrightness);
     api.setTrailBrightness(DEFAULTS.trailBrightness);
     setVal('ctrlTrailWhiteMix', 'outTrailWhiteMix', DEFAULTS.trailWhiteMix);
@@ -784,6 +829,17 @@ document.getElementById('langToggle').addEventListener('click', () =>
     api.setClickScaleMul(DEFAULTS.clickScaleMul);
     setVal('ctrlClickHaloRadius', 'outClickHaloRadius', DEFAULTS.clickHaloRadius, true);
     api.setClickHaloRadius(DEFAULTS.clickHaloRadius);
+
+    setVal('ctrlDiskSize', 'outDiskSize', DEFAULTS.diskSize, true);
+    api.setDiskSize(DEFAULTS.diskSize);
+    document.getElementById('ctrlDiskGlowRadius').value = DEFAULTS.diskGlowRadius;
+    document.getElementById('ctrlDiskGlowAlpha').value = DEFAULTS.diskGlowAlpha;
+    document.getElementById('outDiskGlowRadius').textContent = DEFAULTS.diskGlowRadius.toFixed(2);
+    document.getElementById('outDiskGlowAlpha').textContent = DEFAULTS.diskGlowAlpha.toFixed(2);
+    api.setDiskGlow(DEFAULTS.diskGlowRadius, DEFAULTS.diskGlowAlpha);
+
+    setVal('ctrlClickShardFlicker', 'outClickShardFlicker', DEFAULTS.clickShardFlicker, true);
+    api.setClickShardFlicker(DEFAULTS.clickShardFlicker);
 
     // 圆环高级
     setVal('ctrlRingDelay', 'outRingDelay', DEFAULTS.ringDelay);
@@ -832,6 +888,11 @@ document.getElementById('langToggle').addEventListener('click', () =>
     api.setTrailSpeedMin(DEFAULTS.trailSpeedMin);
     setVal('ctrlTrailSpeedMax', 'outTrailSpeedMax', DEFAULTS.trailSpeedMax);
     api.setTrailSpeedMax(DEFAULTS.trailSpeedMax);
+
+    setVal('ctrlTrailShardFlicker', 'outTrailShardFlicker', DEFAULTS.trailShardFlicker, true);
+    setVal('ctrlTrailShardMinAlpha', 'outTrailShardMinAlpha', DEFAULTS.trailShardMinAlpha);
+    setVal('ctrlTrailShardSizePulse', 'outTrailShardSizePulse', DEFAULTS.trailShardSizePulse);
+    api.setTrailShardFlicker(DEFAULTS.trailShardFlicker, DEFAULTS.trailShardMinAlpha, DEFAULTS.trailShardSizePulse);
 
     // 重置背景主题
     applyTheme('蔚蓝');
