@@ -1957,8 +1957,12 @@ export class BAClickFX
     this._updateTrailPoints(trailFrameScale);
     this._renderTrailToCanvas();
 
+    // 使用 screen 混合而非 lighter：screen 按比例叠加（result = 1 - ∏(1 - a_i)），
+    // 不会像 lighter 加法那样让不平衡的 RGB 通道裁剪后产生灰色环。
+    // 例如黄色 [255, 224, 26] 在 lighter 下多波叠加时 R/G 先裁剪到 255 但 B 还在累加，
+    // 在裁剪边界半径处形成去饱和灰色环；screen 则渐进趋近白色，无硬裁剪边界。
     this.ctx.save();
-    this.ctx.globalCompositeOperation = 'lighter';
+    this.ctx.globalCompositeOperation = 'screen';
 
     this.ctx.drawImage(this.trailCanvas, 0, 0, this.width, this.height);
 
