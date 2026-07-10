@@ -85,6 +85,17 @@ const I18N = {
     sectionTrailDecay: '拖尾消散',
     subShards: '碎片',
     subRings: '圆环',
+    subDiskTiming: '圆盘时序',
+    subDisk: '圆盘',
+    subSoftGlow: '柔光',
+    subArcSeg: '弧段',
+    subColorFade: '颜色衰减',
+    subShardFlicker: '碎片闪烁',
+    subArcDetail: '弧段细节',
+    subJitter: '半径抖动',
+    subNormalGrow: '正常段增长',
+    subCollapseTiming: '收缩时序',
+    subTrailInput: '输入参数',
     labelColor: '主题颜色',
     labelScale: '全局缩放',
     labelOpacity: '透明度',
@@ -138,6 +149,28 @@ const I18N = {
     labelTrailSpeedDecay: '速度衰减',
     labelTrailSpeedMin: '最小速度',
     labelTrailSpeedMax: '最大速度',
+    labelDiskMaxLife: '存在帧数',
+    labelDiskExpandEnd: '扩张比例',
+    labelDiskColorEnd: '颜色过渡',
+    labelDiskFadeStart: '淡出时机',
+    labelRingMaxW: '最大宽度',
+    labelRingExtraChance: '额外弧段概率',
+    labelRingClusterChance: '聚拢概率',
+    labelRingLenMulMin: '弧长倍率下限',
+    labelRingLenMulMax: '弧长倍率上限',
+    labelRingJitterMin: '抖动下限',
+    labelRingJitterMax: '抖动上限',
+    labelRingNormalGrowMin: '增长率下限',
+    labelRingNormalGrowMax: '增长率上限',
+    labelRingGrowEnd: '增长终点',
+    labelRingCollapseStart: '收缩起点',
+    labelRingFadeStart: '淡出起点',
+    labelTrailMinDistance: '采样间距',
+    labelTrailMaxJumpDistance: '断笔距离',
+    labelTrailMaxCoalesced: '合并事件上限',
+    labelTrailRailWidth: '轨道线宽度',
+    labelTrailRibbonWidth: '能量带宽度',
+    labelTrailRibbonAlpha: '能量带透明度',
     btnReset: '重置默认',
     customBgLabel: '自定义背景',
     customBgPlaceholder: 'CSS background 值或图片 URL…',
@@ -167,6 +200,17 @@ const I18N = {
     sectionTrailDecay: 'Trail Decay',
     subShards: 'Shards',
     subRings: 'Rings',
+    subDiskTiming: 'Disk Timing',
+    subDisk: 'Disk',
+    subSoftGlow: 'Soft Glow',
+    subArcSeg: 'Arc Segments',
+    subColorFade: 'Color Fade',
+    subShardFlicker: 'Shard Flicker',
+    subArcDetail: 'Arc Detail',
+    subJitter: 'Radius Jitter',
+    subNormalGrow: 'Normal Grow',
+    subCollapseTiming: 'Collapse Timing',
+    subTrailInput: 'Input Params',
     labelColor: 'Theme Color',
     labelScale: 'Global Scale',
     labelOpacity: 'Opacity',
@@ -220,6 +264,28 @@ const I18N = {
     labelTrailSpeedDecay: 'Speed Decay',
     labelTrailSpeedMin: 'Min Speed',
     labelTrailSpeedMax: 'Max Speed',
+    labelDiskMaxLife: 'Disk Lifetime',
+    labelDiskExpandEnd: 'Expansion Ratio',
+    labelDiskColorEnd: 'Color Transition',
+    labelDiskFadeStart: 'Fade Start',
+    labelRingMaxW: 'Max Width',
+    labelRingExtraChance: 'Extra Arc Chance',
+    labelRingClusterChance: 'Cluster Chance',
+    labelRingLenMulMin: 'Arc Length Min',
+    labelRingLenMulMax: 'Arc Length Max',
+    labelRingJitterMin: 'Jitter Min',
+    labelRingJitterMax: 'Jitter Max',
+    labelRingNormalGrowMin: 'Grow Min',
+    labelRingNormalGrowMax: 'Grow Max',
+    labelRingGrowEnd: 'Grow End',
+    labelRingCollapseStart: 'Collapse Start',
+    labelRingFadeStart: 'Fade Start',
+    labelTrailMinDistance: 'Sample Distance',
+    labelTrailMaxJumpDistance: 'Jump Distance',
+    labelTrailMaxCoalesced: 'Max Coalesced',
+    labelTrailRailWidth: 'Rail Width',
+    labelTrailRibbonWidth: 'Ribbon Width',
+    labelTrailRibbonAlpha: 'Ribbon Alpha',
     btnReset: 'Reset Defaults',
     customBgLabel: 'Custom Background',
     customBgPlaceholder: 'CSS background value or image URL…',
@@ -264,7 +330,11 @@ function switchLanguage(lang)
 
   // 子标题
   const subHeadings = panel.querySelectorAll('.sub-heading');
-  const subKeys = ['subShards', 'subRings'];
+  const subKeys = [
+    'subDisk', 'subDiskTiming', 'subShards', 'subRings', 'subSoftGlow', 'subArcSeg', 'subColorFade',
+    'subArcDetail', 'subJitter', 'subNormalGrow', 'subCollapseTiming',
+    'subShardFlicker', 'subTrailInput',
+  ];
   subHeadings.forEach((h4, i) => { if (t[subKeys[i]]) { h4.textContent = t[subKeys[i]]; } });
 
   // 标签（通过 id 映射）
@@ -296,6 +366,19 @@ function switchLanguage(lang)
     ctrlTrailTailDecayMul: 'labelTrailTailDecayMul', ctrlTrailHeadDecayMul: 'labelTrailHeadDecayMul',
     ctrlTrailReleaseDecayMul: 'labelTrailReleaseDecayMul', ctrlTrailSpeedDecay: 'labelTrailSpeedDecay',
     ctrlTrailSpeedMin: 'labelTrailSpeedMin', ctrlTrailSpeedMax: 'labelTrailSpeedMax',
+    ctrlDiskMaxLife: 'labelDiskMaxLife', ctrlDiskExpandEnd: 'labelDiskExpandEnd',
+    ctrlDiskColorEnd: 'labelDiskColorEnd', ctrlDiskFadeStart: 'labelDiskFadeStart',
+    ctrlRingMaxW: 'labelRingMaxW',
+    ctrlRingExtraChance: 'labelRingExtraChance', ctrlRingClusterChance: 'labelRingClusterChance',
+    ctrlRingLenMulMin: 'labelRingLenMulMin', ctrlRingLenMulMax: 'labelRingLenMulMax',
+    ctrlRingJitterMin: 'labelRingJitterMin', ctrlRingJitterMax: 'labelRingJitterMax',
+    ctrlRingNormalGrowMin: 'labelRingNormalGrowMin', ctrlRingNormalGrowMax: 'labelRingNormalGrowMax',
+    ctrlRingGrowEnd: 'labelRingGrowEnd', ctrlRingCollapseStart: 'labelRingCollapseStart',
+    ctrlRingFadeStart: 'labelRingFadeStart',
+    ctrlTrailMinDistance: 'labelTrailMinDistance', ctrlTrailMaxJumpDistance: 'labelTrailMaxJumpDistance',
+    ctrlTrailMaxCoalesced: 'labelTrailMaxCoalesced',
+    ctrlTrailRailWidth: 'labelTrailRailWidth', ctrlTrailRibbonWidth: 'labelTrailRibbonWidth',
+    ctrlTrailRibbonAlpha: 'labelTrailRibbonAlpha',
   };
 
   for (const [id, key] of Object.entries(labelMap))
@@ -341,7 +424,7 @@ document.getElementById('langToggle').addEventListener('click', () =>
 // ── 控制面板 & 交互提示 ──
 (function initUI()
 {
-  const SETTINGS_VERSION = '2026-07-07-trail-render-fast-1';
+  const SETTINGS_VERSION = '2026-07-10-new-api-controls';
 
   if (localStorage.getItem('bafx-version') !== SETTINGS_VERSION)
   {
@@ -431,6 +514,36 @@ document.getElementById('langToggle').addEventListener('click', () =>
       ringColorEndWhiteMix: c.rings.colorEndWhiteMix,
       ringSegCount: c.rings.segmentCountMin,
       ringArcLen: c.rings.lenFull,
+
+      // 圆盘时序
+      diskMaxLife: c.filledCircle.maxLife,
+      diskExpandEnd: c.filledCircle.expandEnd,
+      diskColorEnd: c.filledCircle.colorEnd,
+      diskFadeStart: c.filledCircle.fadeStart,
+
+      // 弧线环精细
+      ringMaxW: c.rings.maxW,
+      ringExtraChance: c.rings.segmentExtraChance,
+      ringClusterChance: c.rings.segmentClusterChance,
+      ringLenMulMin: c.rings.lenMulMin,
+      ringLenMulMax: c.rings.lenMulMax,
+      ringJitterMin: c.rings.radiusJitterMin,
+      ringJitterMax: c.rings.radiusJitterMax,
+      ringNormalGrowMin: c.rings.segmentRadiusGrowMin,
+      ringNormalGrowMax: c.rings.segmentRadiusGrowMax,
+      ringGrowEnd: c.rings.growEnd,
+      ringCollapseStart: c.rings.collapseStart,
+      ringFadeStart: c.rings.fadeStart,
+
+      // 轨迹输入
+      trailMinDistance: c.trail.minDistance,
+      trailMaxJumpDistance: c.trail.maxJumpDistance,
+      trailMaxCoalesced: c.trail.maxCoalescedEvents,
+
+      // 轨迹渲染层
+      trailRailWidth: c.trail.railWidthSlow,
+      trailRibbonWidth: c.trail.ribbonWidthMul,
+      trailRibbonAlpha: c.trail.ribbonAlpha,
     };
   }
   const DEFAULTS = readDefaults();
@@ -747,6 +860,113 @@ document.getElementById('langToggle').addEventListener('click', () =>
   bindRange('ctrlRingSegCount', 'outRingSegCount', v => api.setRingSegmentCount(v), true);
   bindRange('ctrlRingArcLen', 'outRingArcLen', v => api.setRingArcLength(v));
 
+  // -- 圆盘时序 --
+  bindRange('ctrlDiskMaxLife', 'outDiskMaxLife', v => {
+    const ee = parseFloat(document.getElementById('ctrlDiskExpandEnd').value);
+    const ce = parseFloat(document.getElementById('ctrlDiskColorEnd').value);
+    const fs = parseFloat(document.getElementById('ctrlDiskFadeStart').value);
+    api.setDiskTiming(v, ee, ce, fs);
+  });
+  bindRange('ctrlDiskExpandEnd', 'outDiskExpandEnd', v => {
+    const ml = parseFloat(document.getElementById('ctrlDiskMaxLife').value);
+    const ce = parseFloat(document.getElementById('ctrlDiskColorEnd').value);
+    const fs = parseFloat(document.getElementById('ctrlDiskFadeStart').value);
+    api.setDiskTiming(ml, v, ce, fs);
+  });
+  bindRange('ctrlDiskColorEnd', 'outDiskColorEnd', v => {
+    const ml = parseFloat(document.getElementById('ctrlDiskMaxLife').value);
+    const ee = parseFloat(document.getElementById('ctrlDiskExpandEnd').value);
+    const fs = parseFloat(document.getElementById('ctrlDiskFadeStart').value);
+    api.setDiskTiming(ml, ee, v, fs);
+  });
+  bindRange('ctrlDiskFadeStart', 'outDiskFadeStart', v => {
+    const ml = parseFloat(document.getElementById('ctrlDiskMaxLife').value);
+    const ee = parseFloat(document.getElementById('ctrlDiskExpandEnd').value);
+    const ce = parseFloat(document.getElementById('ctrlDiskColorEnd').value);
+    api.setDiskTiming(ml, ee, ce, v);
+  });
+
+  // -- 弧线环精细 --
+  bindRange('ctrlRingMaxW', 'outRingMaxW', v => {
+    const minW = parseFloat(document.getElementById('ctrlRingWidth').value);
+    api.setRingWidth(minW, v);
+  });
+
+  bindRange('ctrlRingExtraChance', 'outRingExtraChance', v => {
+    const cc = parseFloat(document.getElementById('ctrlRingClusterChance').value);
+    const lmin = parseFloat(document.getElementById('ctrlRingLenMulMin').value);
+    const lmax = parseFloat(document.getElementById('ctrlRingLenMulMax').value);
+    api.setRingSegmentDetail(v, cc, lmin, lmax);
+  });
+  bindRange('ctrlRingClusterChance', 'outRingClusterChance', v => {
+    const ec = parseFloat(document.getElementById('ctrlRingExtraChance').value);
+    const lmin = parseFloat(document.getElementById('ctrlRingLenMulMin').value);
+    const lmax = parseFloat(document.getElementById('ctrlRingLenMulMax').value);
+    api.setRingSegmentDetail(ec, v, lmin, lmax);
+  });
+  bindRange('ctrlRingLenMulMin', 'outRingLenMulMin', v => {
+    const ec = parseFloat(document.getElementById('ctrlRingExtraChance').value);
+    const cc = parseFloat(document.getElementById('ctrlRingClusterChance').value);
+    const lmax = parseFloat(document.getElementById('ctrlRingLenMulMax').value);
+    api.setRingSegmentDetail(ec, cc, v, lmax);
+  });
+  bindRange('ctrlRingLenMulMax', 'outRingLenMulMax', v => {
+    const ec = parseFloat(document.getElementById('ctrlRingExtraChance').value);
+    const cc = parseFloat(document.getElementById('ctrlRingClusterChance').value);
+    const lmin = parseFloat(document.getElementById('ctrlRingLenMulMin').value);
+    api.setRingSegmentDetail(ec, cc, lmin, v);
+  });
+
+  bindRange('ctrlRingJitterMin', 'outRingJitterMin', v => {
+    const mx = parseFloat(document.getElementById('ctrlRingJitterMax').value);
+    api.setRingRadiusJitter(v, mx);
+  });
+  bindRange('ctrlRingJitterMax', 'outRingJitterMax', v => {
+    const mn = parseFloat(document.getElementById('ctrlRingJitterMin').value);
+    api.setRingRadiusJitter(mn, v);
+  });
+
+  bindRange('ctrlRingNormalGrowMin', 'outRingNormalGrowMin', v => {
+    const mx = parseFloat(document.getElementById('ctrlRingNormalGrowMax').value);
+    api.setRingNormalGrow(v, mx);
+  });
+  bindRange('ctrlRingNormalGrowMax', 'outRingNormalGrowMax', v => {
+    const mn = parseFloat(document.getElementById('ctrlRingNormalGrowMin').value);
+    api.setRingNormalGrow(mn, v);
+  });
+
+  bindRange('ctrlRingGrowEnd', 'outRingGrowEnd', v => {
+    const cs = parseFloat(document.getElementById('ctrlRingCollapseStart').value);
+    const fs = parseFloat(document.getElementById('ctrlRingFadeStart').value);
+    api.setRingCollapseTiming(v, cs, fs);
+  });
+  bindRange('ctrlRingCollapseStart', 'outRingCollapseStart', v => {
+    const ge = parseFloat(document.getElementById('ctrlRingGrowEnd').value);
+    const fs = parseFloat(document.getElementById('ctrlRingFadeStart').value);
+    api.setRingCollapseTiming(ge, v, fs);
+  });
+  bindRange('ctrlRingFadeStart', 'outRingFadeStart', v => {
+    const ge = parseFloat(document.getElementById('ctrlRingGrowEnd').value);
+    const cs = parseFloat(document.getElementById('ctrlRingCollapseStart').value);
+    api.setRingCollapseTiming(ge, cs, v);
+  });
+
+  // -- 轨迹输入参数 --
+  bindRange('ctrlTrailMinDistance', 'outTrailMinDistance', v => api.setTrailMinDistance(v));
+  bindRange('ctrlTrailMaxJumpDistance', 'outTrailMaxJumpDistance', v => api.setTrailMaxJumpDistance(v), true);
+  bindRange('ctrlTrailMaxCoalesced', 'outTrailMaxCoalesced', v => api.setTrailMaxCoalescedEvents(v), true);
+
+  // -- 轨迹渲染层宽度 --
+  bindRange('ctrlTrailRailWidth', 'outTrailRailWidth', v => api.setTrailRailWidth(v));
+  bindRange('ctrlTrailRibbonWidth', 'outTrailRibbonWidth', v => {
+    const a = parseFloat(document.getElementById('ctrlTrailRibbonAlpha').value);
+    api.setTrailRibbon(v, a);
+  });
+  bindRange('ctrlTrailRibbonAlpha', 'outTrailRibbonAlpha', v => {
+    const w = parseFloat(document.getElementById('ctrlTrailRibbonWidth').value);
+    api.setTrailRibbon(w, v);
+  });
+
   // -- 拖尾图层 --
   bindRange('ctrlTrailMainAlpha', 'outTrailMainAlpha', v => api.setTrailMainAlpha(v));
   bindRange('ctrlTrailCoreAlpha', 'outTrailCoreAlpha', v => api.setTrailCoreAlpha(v));
@@ -914,6 +1134,47 @@ document.getElementById('langToggle').addEventListener('click', () =>
     api.setRingSegmentCount(DEFAULTS.ringSegCount);
     setVal('ctrlRingArcLen', 'outRingArcLen', DEFAULTS.ringArcLen);
     api.setRingArcLength(DEFAULTS.ringArcLen);
+
+    // 圆盘时序
+    setVal('ctrlDiskMaxLife', 'outDiskMaxLife', DEFAULTS.diskMaxLife);
+    setVal('ctrlDiskExpandEnd', 'outDiskExpandEnd', DEFAULTS.diskExpandEnd);
+    setVal('ctrlDiskColorEnd', 'outDiskColorEnd', DEFAULTS.diskColorEnd);
+    setVal('ctrlDiskFadeStart', 'outDiskFadeStart', DEFAULTS.diskFadeStart);
+    api.setDiskTiming(DEFAULTS.diskMaxLife, DEFAULTS.diskExpandEnd, DEFAULTS.diskColorEnd, DEFAULTS.diskFadeStart);
+
+    // 弧线环精细
+    setVal('ctrlRingMaxW', 'outRingMaxW', DEFAULTS.ringMaxW);
+    api.setRingWidth(DEFAULTS.ringWidth, DEFAULTS.ringMaxW);
+    setVal('ctrlRingExtraChance', 'outRingExtraChance', DEFAULTS.ringExtraChance);
+    setVal('ctrlRingClusterChance', 'outRingClusterChance', DEFAULTS.ringClusterChance);
+    setVal('ctrlRingLenMulMin', 'outRingLenMulMin', DEFAULTS.ringLenMulMin);
+    setVal('ctrlRingLenMulMax', 'outRingLenMulMax', DEFAULTS.ringLenMulMax);
+    api.setRingSegmentDetail(DEFAULTS.ringExtraChance, DEFAULTS.ringClusterChance, DEFAULTS.ringLenMulMin, DEFAULTS.ringLenMulMax);
+    setVal('ctrlRingJitterMin', 'outRingJitterMin', DEFAULTS.ringJitterMin);
+    setVal('ctrlRingJitterMax', 'outRingJitterMax', DEFAULTS.ringJitterMax);
+    api.setRingRadiusJitter(DEFAULTS.ringJitterMin, DEFAULTS.ringJitterMax);
+    setVal('ctrlRingNormalGrowMin', 'outRingNormalGrowMin', DEFAULTS.ringNormalGrowMin);
+    setVal('ctrlRingNormalGrowMax', 'outRingNormalGrowMax', DEFAULTS.ringNormalGrowMax);
+    api.setRingNormalGrow(DEFAULTS.ringNormalGrowMin, DEFAULTS.ringNormalGrowMax);
+    setVal('ctrlRingGrowEnd', 'outRingGrowEnd', DEFAULTS.ringGrowEnd);
+    setVal('ctrlRingCollapseStart', 'outRingCollapseStart', DEFAULTS.ringCollapseStart);
+    setVal('ctrlRingFadeStart', 'outRingFadeStart', DEFAULTS.ringFadeStart);
+    api.setRingCollapseTiming(DEFAULTS.ringGrowEnd, DEFAULTS.ringCollapseStart, DEFAULTS.ringFadeStart);
+
+    // 轨迹输入参数
+    setVal('ctrlTrailMinDistance', 'outTrailMinDistance', DEFAULTS.trailMinDistance);
+    api.setTrailMinDistance(DEFAULTS.trailMinDistance);
+    setVal('ctrlTrailMaxJumpDistance', 'outTrailMaxJumpDistance', DEFAULTS.trailMaxJumpDistance, true);
+    api.setTrailMaxJumpDistance(DEFAULTS.trailMaxJumpDistance);
+    setVal('ctrlTrailMaxCoalesced', 'outTrailMaxCoalesced', DEFAULTS.trailMaxCoalesced, true);
+    api.setTrailMaxCoalescedEvents(DEFAULTS.trailMaxCoalesced);
+
+    // 轨迹渲染层宽度
+    setVal('ctrlTrailRailWidth', 'outTrailRailWidth', DEFAULTS.trailRailWidth);
+    api.setTrailRailWidth(DEFAULTS.trailRailWidth);
+    setVal('ctrlTrailRibbonWidth', 'outTrailRibbonWidth', DEFAULTS.trailRibbonWidth);
+    setVal('ctrlTrailRibbonAlpha', 'outTrailRibbonAlpha', DEFAULTS.trailRibbonAlpha);
+    api.setTrailRibbon(DEFAULTS.trailRibbonWidth, DEFAULTS.trailRibbonAlpha);
 
     // 拖尾图层
     setVal('ctrlTrailMainAlpha', 'outTrailMainAlpha', DEFAULTS.trailMainAlpha);

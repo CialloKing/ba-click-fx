@@ -188,6 +188,24 @@
         <input type="range" id="ctrlDiskGlowAlpha" min="0" max="1" step="0.01" value="0.13" />
       </label>
 
+      <h4 class="sub-heading">圆盘时序</h4>
+      <label class="ctrl">
+        <span>存在帧数 <output id="outDiskMaxLife">12.50</output></span>
+        <input type="range" id="ctrlDiskMaxLife" min="5" max="30" step="0.5" value="12.5" />
+      </label>
+      <label class="ctrl">
+        <span>扩张比例 <output id="outDiskExpandEnd">0.84</output></span>
+        <input type="range" id="ctrlDiskExpandEnd" min="0.1" max="1" step="0.05" value="0.84" />
+      </label>
+      <label class="ctrl">
+        <span>颜色过渡 <output id="outDiskColorEnd">0.34</output></span>
+        <input type="range" id="ctrlDiskColorEnd" min="0.05" max="1" step="0.05" value="0.34" />
+      </label>
+      <label class="ctrl">
+        <span>淡出时机 <output id="outDiskFadeStart">0.78</output></span>
+        <input type="range" id="ctrlDiskFadeStart" min="0.1" max="1" step="0.05" value="0.78" />
+      </label>
+
       <h4 class="sub-heading">碎片</h4>
 
       <label class="ctrl">
@@ -294,6 +312,63 @@
         <span>末尾白混合 <output id="outRingColorEndWhiteMix">0.97</output></span>
         <input type="range" id="ctrlRingColorEndWhiteMix" min="0" max="1" step="0.02" value="0.97" />
       </label>
+
+      <label class="ctrl">
+        <span>最大宽度 <output id="outRingMaxW">4.00</output></span>
+        <input type="range" id="ctrlRingMaxW" min="1" max="10" step="0.1" value="4.0" />
+      </label>
+
+      <h4 class="sub-heading">弧段细节</h4>
+      <label class="ctrl">
+        <span>额外弧段概率 <output id="outRingExtraChance">0.00</output></span>
+        <input type="range" id="ctrlRingExtraChance" min="0" max="1" step="0.05" value="0" />
+      </label>
+      <label class="ctrl">
+        <span>聚拢概率 <output id="outRingClusterChance">0.38</output></span>
+        <input type="range" id="ctrlRingClusterChance" min="0" max="1" step="0.05" value="0.38" />
+      </label>
+      <label class="ctrl">
+        <span>弧长倍率下限 <output id="outRingLenMulMin">0.46</output></span>
+        <input type="range" id="ctrlRingLenMulMin" min="0.1" max="1" step="0.05" value="0.46" />
+      </label>
+      <label class="ctrl">
+        <span>弧长倍率上限 <output id="outRingLenMulMax">1.38</output></span>
+        <input type="range" id="ctrlRingLenMulMax" min="1" max="3" step="0.05" value="1.38" />
+      </label>
+
+      <h4 class="sub-heading">半径抖动</h4>
+      <label class="ctrl">
+        <span>抖动下限 <output id="outRingJitterMin">0.30</output></span>
+        <input type="range" id="ctrlRingJitterMin" min="0" max="2" step="0.05" value="0.3" />
+      </label>
+      <label class="ctrl">
+        <span>抖动上限 <output id="outRingJitterMax">0.80</output></span>
+        <input type="range" id="ctrlRingJitterMax" min="0" max="2" step="0.05" value="0.8" />
+      </label>
+
+      <h4 class="sub-heading">正常段增长</h4>
+      <label class="ctrl">
+        <span>增长率下限 <output id="outRingNormalGrowMin">1.00</output></span>
+        <input type="range" id="ctrlRingNormalGrowMin" min="0.3" max="2" step="0.05" value="1.0" />
+      </label>
+      <label class="ctrl">
+        <span>增长率上限 <output id="outRingNormalGrowMax">1.00</output></span>
+        <input type="range" id="ctrlRingNormalGrowMax" min="0.3" max="2" step="0.05" value="1.0" />
+      </label>
+
+      <h4 class="sub-heading">收缩时序</h4>
+      <label class="ctrl">
+        <span>增长终点 <output id="outRingGrowEnd">0.16</output></span>
+        <input type="range" id="ctrlRingGrowEnd" min="0.05" max="0.5" step="0.05" value="0.16" />
+      </label>
+      <label class="ctrl">
+        <span>收缩起点 <output id="outRingCollapseStart">0.16</output></span>
+        <input type="range" id="ctrlRingCollapseStart" min="0.05" max="1" step="0.05" value="0.16" />
+      </label>
+      <label class="ctrl">
+        <span>淡出起点 <output id="outRingFadeStart">1.00</output></span>
+        <input type="range" id="ctrlRingFadeStart" min="0.1" max="1" step="0.05" value="1.0" />
+      </label>
     </section>
 
     <!-- ── 拖尾轨迹 ── -->
@@ -361,6 +436,20 @@
         <span>大小脉冲 <output id="outTrailShardSizePulse">0.16</output></span>
         <input type="range" id="ctrlTrailShardSizePulse" min="0" max="0.5" step="0.02" value="0.16" />
       </label>
+
+      <h4 class="sub-heading">输入参数</h4>
+      <label class="ctrl">
+        <span>采样间距 <output id="outTrailMinDistance">0.06</output></span>
+        <input type="range" id="ctrlTrailMinDistance" min="0.01" max="5" step="0.01" value="0.06" />
+      </label>
+      <label class="ctrl">
+        <span>断笔距离 <output id="outTrailMaxJumpDistance">420</output></span>
+        <input type="range" id="ctrlTrailMaxJumpDistance" min="50" max="2000" step="10" value="420" />
+      </label>
+      <label class="ctrl">
+        <span>合并事件上限 <output id="outTrailMaxCoalesced">24</output></span>
+        <input type="range" id="ctrlTrailMaxCoalesced" min="1" max="100" step="1" value="24" />
+      </label>
     </section>
 
     <!-- ── 拖尾图层 ── -->
@@ -397,6 +486,18 @@
       <label class="ctrl">
         <span>柔光宽度 <output id="outTrailSoftGlowWidthMul">2.40</output></span>
         <input type="range" id="ctrlTrailSoftGlowWidthMul" min="0.5" max="15" step="0.1" value="2.4" />
+      </label>
+      <label class="ctrl">
+        <span>轨道线宽度 <output id="outTrailRailWidth">0.22</output></span>
+        <input type="range" id="ctrlTrailRailWidth" min="0.05" max="3" step="0.05" value="0.22" />
+      </label>
+      <label class="ctrl">
+        <span>能量带宽度 <output id="outTrailRibbonWidth">0.00</output></span>
+        <input type="range" id="ctrlTrailRibbonWidth" min="0" max="5" step="0.1" value="0" />
+      </label>
+      <label class="ctrl">
+        <span>能量带透明度 <output id="outTrailRibbonAlpha">0.00</output></span>
+        <input type="range" id="ctrlTrailRibbonAlpha" min="0" max="1" step="0.05" value="0" />
       </label>
     </section>
 

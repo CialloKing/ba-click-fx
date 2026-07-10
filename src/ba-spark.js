@@ -2270,10 +2270,11 @@ export class BAClickFX
     this._requestRender();
   }
 
-  /** @param {number} value */
-  setRingWidth(value = 0.9)
+  /** @param {number} value @param {number} [maxValue] 圆环最小/最大线宽 */
+  setRingWidth(value = 0.9, maxValue = 4.0)
   {
     this.config.rings.minW = Math.max(0.3, Math.min(3, Number(value) ?? 0.9));
+    this.config.rings.maxW = Math.max(this.config.rings.minW, Math.min(10, Number(maxValue) ?? 4.0));
     this._requestRender();
   }
 
@@ -2306,9 +2307,9 @@ export class BAClickFX
   }
 
   /** @param {number} value */
-  setTrailWhiteMix(value = 0.08)
+  setTrailWhiteMix(value = 0.25)
   {
-    this.config.trail.whiteMix = Math.max(0, Math.min(1, Number(value) ?? 0.08));
+    this.config.trail.whiteMix = Math.max(0, Math.min(1, Number(value) ?? 0.25));
     this._requestRender();
   }
 
@@ -2762,6 +2763,138 @@ export class BAClickFX
   setTrailMaxPoints(value = 12000)
   {
     this.config.trail.maxPoints = Math.max(500, Math.min(30000, Number(value) ?? 12000));
+    this._requestRender();
+  }
+
+  // ── 圆盘时序 ──
+
+  /**
+   * 圆盘动画时序参数
+   * @param {number} maxLife - 圆盘存在帧数 (5~30, 默认 12.5)
+   * @param {number} [expandEnd=0.84] - 扩张到最大的时间比例 (0.1~1)
+   * @param {number} [colorEnd=0.34] - 白→蓝颜色过渡终点 (0.05~1)
+   * @param {number} [fadeStart=0.78] - 开始淡出的时机 (0.1~1)
+   */
+  setDiskTiming(maxLife = 12.5, expandEnd = 0.84, colorEnd = 0.34, fadeStart = 0.78)
+  {
+    this.config.filledCircle.maxLife = Math.max(5, Math.min(30, Number(maxLife) ?? 12.5));
+    this.config.filledCircle.expandEnd = Math.max(0.1, Math.min(1, Number(expandEnd) ?? 0.84));
+    this.config.filledCircle.colorEnd = Math.max(0.05, Math.min(1, Number(colorEnd) ?? 0.34));
+    this.config.filledCircle.fadeStart = Math.max(0.1, Math.min(1, Number(fadeStart) ?? 0.78));
+    this._requestRender();
+  }
+
+  // ── 弧线环精细调参 ──
+
+  /**
+   * 圆环弧段细节：额外弧段概率、聚拢概率、弧长随机倍率范围
+   * @param {number} [extraChance=0] - 额外弧段出现概率 (0~1)
+   * @param {number} [clusterChance=0.38] - 弧段聚拢概率 (0~1)
+   * @param {number} [lenMulMin=0.46] - 弧长倍率下限 (0.1~1)
+   * @param {number} [lenMulMax=1.38] - 弧长倍率上限 (1~3)
+   */
+  setRingSegmentDetail(extraChance = 0, clusterChance = 0.38, lenMulMin = 0.46, lenMulMax = 1.38)
+  {
+    this.config.rings.segmentExtraChance = Math.max(0, Math.min(1, Number(extraChance) ?? 0));
+    this.config.rings.segmentClusterChance = Math.max(0, Math.min(1, Number(clusterChance) ?? 0.38));
+    this.config.rings.lenMulMin = Math.max(0.1, Math.min(1, Number(lenMulMin) ?? 0.46));
+    this.config.rings.lenMulMax = Math.max(this.config.rings.lenMulMin, Math.min(3, Number(lenMulMax) ?? 1.38));
+    this._requestRender();
+  }
+
+  /**
+   * 圆环半径抖动范围（模拟手绘感）
+   * @param {number} [min=0.3] - 抖动下限 (0~2)
+   * @param {number} [max=0.8] - 抖动上限 (min~2)
+   */
+  setRingRadiusJitter(min = 0.3, max = 0.8)
+  {
+    this.config.rings.radiusJitterMin = Math.max(0, Math.min(2, Number(min) ?? 0.3));
+    this.config.rings.radiusJitterMax = Math.max(this.config.rings.radiusJitterMin, Math.min(2, Number(max) ?? 0.8));
+    this._requestRender();
+  }
+
+  /**
+   * 正常弧段半径增长率范围
+   * @param {number} [min=1.0] - 增长率下限 (0.3~2)
+   * @param {number} [max=1.0] - 增长率上限 (min~2)
+   */
+  setRingNormalGrow(min = 1.0, max = 1.0)
+  {
+    this.config.rings.segmentRadiusGrowMin = Math.max(0.3, Math.min(2, Number(min) ?? 1.0));
+    this.config.rings.segmentRadiusGrowMax = Math.max(this.config.rings.segmentRadiusGrowMin, Math.min(2, Number(max) ?? 1.0));
+    this._requestRender();
+  }
+
+  /**
+   * 圆环收缩/淡出时序
+   * @param {number} [growEnd=0.16] - 弧长增长终点 (0.05~0.5)
+   * @param {number} [collapseStart=0.16] - 开始收缩的时间点 (0.05~1)
+   * @param {number} [fadeStart=1.0] - 开始淡出的时间点 (0.1~1)
+   */
+  setRingCollapseTiming(growEnd = 0.16, collapseStart = 0.16, fadeStart = 1.0)
+  {
+    this.config.rings.growEnd = Math.max(0.05, Math.min(0.5, Number(growEnd) ?? 0.16));
+    this.config.rings.collapseStart = Math.max(0.05, Math.min(1, Number(collapseStart) ?? 0.16));
+    this.config.rings.fadeStart = Math.max(0.1, Math.min(1, Number(fadeStart) ?? 1.0));
+    this._requestRender();
+  }
+
+  // ── 轨迹输入参数 ──
+
+  /**
+   * 轨迹采样最小间距（相邻点间距阈值）
+   * @param {number} [value=0.06] - 最小距离 (0.01~5)
+   */
+  setTrailMinDistance(value = 0.06)
+  {
+    this.config.trail.minDistance = Math.max(0.01, Math.min(5, Number(value) ?? 0.06));
+    this._requestRender();
+  }
+
+  /**
+   * 轨迹断笔距离阈值：超过此距离视为新的笔画
+   * @param {number} [value=420] - 最大跳跃距离 (50~2000)
+   */
+  setTrailMaxJumpDistance(value = 420)
+  {
+    this.config.trail.maxJumpDistance = Math.max(50, Math.min(2000, Number(value) ?? 420));
+    this._requestRender();
+  }
+
+  /**
+   * 高频事件处理上限（getCoalescedEvents 最大处理数）
+   * @param {number} [value=24] - 最大合并事件数 (1~100)
+   */
+  setTrailMaxCoalescedEvents(value = 24)
+  {
+    this.config.trail.maxCoalescedEvents = Math.max(1, Math.min(100, Number(value) ?? 24));
+    this._requestRender();
+  }
+
+  // ── 轨迹渲染层宽度 ──
+
+  /**
+   * 轨道线层宽度（最底层的细线）
+   * @param {number} [slow=0.22] - 低速时宽度 (0.05~3)
+   * @param {number} [fast=0.36] - 高速时宽度 (slow~3)
+   */
+  setTrailRailWidth(slow = 0.22, fast = 0.36)
+  {
+    this.config.trail.railWidthSlow = Math.max(0.05, Math.min(3, Number(slow) ?? 0.22));
+    this.config.trail.railWidthFast = Math.max(this.config.trail.railWidthSlow, Math.min(3, Number(fast) ?? 0.36));
+    this._requestRender();
+  }
+
+  /**
+   * 能量带层（ribbon）宽度倍率和透明度，默认关闭
+   * @param {number} [widthMul=0] - 宽度倍率，0 = 关闭该层 (0~5)
+   * @param {number} [alpha=0] - 透明度 (0~1)
+   */
+  setTrailRibbon(widthMul = 0, alpha = 0)
+  {
+    this.config.trail.ribbonWidthMul = Math.max(0, Math.min(5, Number(widthMul) ?? 0));
+    this.config.trail.ribbonAlpha = Math.max(0, Math.min(1, Number(alpha) ?? 0));
     this._requestRender();
   }
 
