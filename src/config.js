@@ -204,8 +204,8 @@ export const CONFIG = {
     moveSparkChance: 0,
 
     // 轨迹真实光影（径向渐变光晕）参数
-    glowRadiusMul: 16,
-    glowIntensity: 0.17,
+    glowRadiusMul: 25,
+    glowIntensity: 0.13,
   },
 
   glow: {

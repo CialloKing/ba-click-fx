@@ -299,8 +299,8 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrailMaxPoints(v)` | Max raw points (500~30000) | `12000` |
 | `setTrailCoreWidth(slow, fast?)` | Core highlight width | `0.3, 0.52` |
 | `setTrailHotWidth(slow, fast?)` | Hotspot width | `0.1, 0.24` |
-| `setTrailGlowRadius(v)` | Real glow radius multiplier (4~30) | `16` |
-| `setTrailGlowIntensity(v)` | Real glow intensity (0.02~0.5) | `0.17` |
+| `setTrailGlowRadius(v)` | Real glow radius multiplier (4~30) | `25` |
+| `setTrailGlowIntensity(v)` | Real glow intensity (0.02~0.5) | `0.13` |
 | `setTrailMinDistance(v)` | Min sample distance (0.01~5) | `0.06` |
 | `setTrailMaxJumpDistance(v)` | Jump distance threshold (50~2000) | `420` |
 | `setTrailMaxCoalescedEvents(v)` | Max coalesced events (1~100) | `24` |

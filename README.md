@@ -302,8 +302,8 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrailMaxPoints(v)` | 原始点数上限 (500~30000) | `12000` |
 | `setTrailCoreWidth(slow, fast?)` | 中心高光线宽 | `0.3, 0.52` |
 | `setTrailHotWidth(slow, fast?)` | 蓝白热点线宽 | `0.1, 0.24` |
-| `setTrailGlowRadius(v)` | 真实光晕半径倍率 (4~30) | `16` |
-| `setTrailGlowIntensity(v)` | 真实光晕强度 (0.02~0.5) | `0.17` |
+| `setTrailGlowRadius(v)` | 真实光晕半径倍率 (4~30) | `25` |
+| `setTrailGlowIntensity(v)` | 真实光晕强度 (0.02~0.5) | `0.13` |
 | `setTrailMinDistance(v)` | 采样最小间距 (0.01~5) | `0.06` |
 | `setTrailMaxJumpDistance(v)` | 断笔距离 (50~2000) | `420` |
 | `setTrailMaxCoalescedEvents(v)` | 合并事件上限 (1~100) | `24` |
