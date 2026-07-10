@@ -799,8 +799,10 @@ export class BAClickFX
     gradient.addColorStop(0.82, rgbToCss(color, alpha * 0.055));
     gradient.addColorStop(1, rgbToCss(color, 0));
 
+    // 使用 screen 混合而非 lighter：screen 按比例叠加（result = 1 - ∏(1 - a)），
+    // 不会像 lighter 加法那样让不平衡的 RGB 通道（如黄色 R=255 B=26）等值化产生灰色环
     context.save();
-    context.globalCompositeOperation = 'lighter';
+    context.globalCompositeOperation = 'screen';
     context.fillStyle = gradient;
     context.beginPath();
     context.arc(x, y, radius, 0, Math.PI * 2);
@@ -847,7 +849,7 @@ export class BAClickFX
     gradient.addColorStop(1, rgbToCss(color, 0));
 
     context.save();
-    context.globalCompositeOperation = 'lighter';
+    context.globalCompositeOperation = 'screen';
     context.fillStyle = gradient;
     context.beginPath();
     context.arc(x, y, outerRadius, 0, Math.PI * 2);
