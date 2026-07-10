@@ -213,28 +213,35 @@ class ClickWave
 
     const expandT = easeOutCubic(clamp01(progress / cfg.expandEnd));
     const fade = 1 - smoothstep(cfg.fadeStart, 1, progress);
-    const colorT = smoothstep(0.06, cfg.colorEnd, progress);
     const radius = this.r * expandT;
-    const startColor = mixColor(this._engine.config.color, [255, 255, 255], 0.95);
-    const color = mixColor(startColor, this._engine.config.color, colorT);
+    // 圆盘直接使用主题色，不混白。之前 startColor = mixColor(theme, white, 0.95)
+    // 产生近白色圆盘，多波 source-over 叠加时近白色元素产生灰色调。
+    const color = this._engine.config.color;
     const alpha = this._engine.config.opacity * fade;
 
     if (this._engine.config.glow.clickFake || this._engine.config.glow.enabled)
     {
-      // 光晕直接使用主题色，避免混白导致多波叠加灰色环
-      const glowColor = this._engine.config.color;
       this._engine._drawDiskEdgeGlow(
         context,
         this.x,
         this.y,
         radius,
         radius * cfg.glowRadiusMul,
-        glowColor,
+        color,
         alpha * cfg.glowAlpha,
       );
     }
 
     this._engine._drawClickDisk(context, this.x, this.y, radius, color, alpha);
+
+    // 白色闪光：极短暂的纯白叠加层，仅在最开始几帧出现然后快速淡出。
+    // 与主题色分开渲染，避免混白导致的灰色环。
+    const flashAlpha = (1 - smoothstep(0, 0.15, progress)) * 0.6 * fade;
+
+    if (flashAlpha > 0.01)
+    {
+      this._engine._drawClickDisk(context, this.x, this.y, radius, [255, 255, 255], flashAlpha);
+    }
   }
 
   drawRings(context, frameScale)
@@ -962,7 +969,7 @@ export class BAClickFX
       x,
       y,
       radius + cfg.softGlowRadiusAdd * getClickScale(this.config),
-      color,
+      this.config.color,
       alpha * cfg.softGlowAlpha,
     );
 
@@ -971,7 +978,7 @@ export class BAClickFX
       x,
       y,
       radius + cfg.glowRadiusAdd * getClickScale(this.config),
-      mixColor(color, [255, 255, 255], 0.38),
+      this.config.color,
       alpha * cfg.glowAlpha,
     );
   }
