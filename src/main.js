@@ -142,6 +142,13 @@ const I18N = {
     customBgLabel: '自定义背景',
     customBgPlaceholder: 'CSS background 值或图片 URL…',
     btnApplyBg: '应用背景',
+    introTitle: 'ba-click-fx',
+    introP1: 'Blue Archive / 蔚蓝档案 style mouse click effect and cursor trail animation for web. Click, drag, or move your mouse to preview the effect.',
+    introP2: 'ba-click-fx is a pure Canvas 2D JavaScript library for mouse click effects, cursor trail animation, glowing rings, particle sparks, and drag trails. Zero external dependencies.',
+    introInstallSummary: '安装方式 / Installation',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@main/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introFAQSummary: '常见问题 / FAQ',
+    introFAQContent: '<p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p><p><strong>需要图片素材或 WebGL 吗？</strong> 不需要，纯 Canvas 2D 实现，零外部运行时依赖。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和直接 script 引入三种方式。</p>',
   },
   en: {
     langToggle: '中文',
@@ -217,6 +224,13 @@ const I18N = {
     customBgLabel: 'Custom Background',
     customBgPlaceholder: 'CSS background value or image URL…',
     btnApplyBg: 'Apply Background',
+    introTitle: 'ba-click-fx',
+    introP1: 'Blue Archive style mouse click effect and cursor trail animation for web. Click, drag, or move your mouse to preview the effect.',
+    introP2: 'ba-click-fx is a pure Canvas 2D JavaScript library for mouse click effects, cursor trail animation, glowing rings, particle sparks, and drag trails. Zero external dependencies.',
+    introInstallSummary: 'Installation',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@main/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introFAQSummary: 'FAQ',
+    introFAQContent: '<p><strong>Is ba-click-fx related to Blue Archive?</strong> It is a fan-made visual effect library inspired by the UI click and trail effects of Blue Archive.</p><p><strong>Does it require images or WebGL?</strong> No. It uses pure Canvas 2D and has zero external runtime dependencies.</p><p><strong>Can I use it on a blog or personal homepage?</strong> Yes. It supports npm, CDN, and direct script usage.</p>',
   },
 };
 
@@ -297,6 +311,22 @@ function switchLanguage(lang)
   document.getElementById('ctrlCustomBg').placeholder = t.customBgPlaceholder;
   document.querySelector('.custom-bg-ctrl span').textContent = t.customBgLabel;
   document.getElementById('btnApplyBg').textContent = t.btnApplyBg;
+
+  // 介绍区块
+  const introTitle = document.getElementById('introTitle');
+  const introP1 = document.getElementById('introP1');
+  const introP2 = document.getElementById('introP2');
+  const introInstallSummary = document.getElementById('introInstallSummary');
+  const introInstallContent = document.getElementById('introInstallContent');
+  const introFAQSummary = document.getElementById('introFAQSummary');
+  const introFAQContent = document.getElementById('introFAQContent');
+  if (introTitle) { introTitle.textContent = t.introTitle; }
+  if (introP1) { introP1.textContent = t.introP1; }
+  if (introP2) { introP2.textContent = t.introP2; }
+  if (introInstallSummary) { introInstallSummary.textContent = t.introInstallSummary; }
+  if (introInstallContent) { introInstallContent.innerHTML = t.introInstallContent; }
+  if (introFAQSummary) { introFAQSummary.textContent = t.introFAQSummary; }
+  if (introFAQContent) { introFAQContent.innerHTML = t.introFAQContent; }
 
   localStorage.setItem('bafx-lang', lang);
 }
