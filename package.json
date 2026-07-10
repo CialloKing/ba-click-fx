@@ -1,7 +1,7 @@
 {
   "name": "ba-click-fx",
   "version": "1.1.2",
-  "description": "Blue Archive style mouse click effect and cursor trail animation for web Canvas.",
+  "description": "Blue Archive click effect and cursor trail animation for web. 蔚蓝档案风格网页鼠标点击特效、触摸特效、粒子圆环和拖尾动画库。",
   "author": "CialloKing",
   "license": "MIT",
   "type": "module",
@@ -44,7 +44,14 @@
     "web-animation",
     "particle-effect",
     "anime-ui",
-    "game-ui"
+    "game-ui",
+    "click-animation",
+    "蔚蓝档案",
+    "点击特效",
+    "鼠标特效",
+    "光标拖尾",
+    "触摸特效",
+    "粒子特效"
   ],
   "homepage": "https://ba-click-fx.cialloking.top",
   "repository": {

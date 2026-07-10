@@ -1,4 +1,4 @@
-# ba-click-fx
+# ba-click-fx — Blue Archive Click Effect and Cursor Trail for Web
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)

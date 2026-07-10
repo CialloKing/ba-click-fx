@@ -650,3 +650,43 @@ kbd {
 .intro-section nav a:hover {
   color: rgba(125, 239, 255, 1);
 }
+
+.intro-section details {
+  margin-top: 8px;
+  text-align: left;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.intro-section summary {
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.intro-section summary:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.intro-section details p {
+  margin: 6px 0 2px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.intro-section details strong {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.intro-section pre {
+  margin: 2px 0 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+}
+
+.intro-section code {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
