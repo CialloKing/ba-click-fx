@@ -186,8 +186,9 @@ class ClickWave
     const diskProgress = clamp01(this.life / this._engine.config.filledCircle.maxLife);
     const appear = smoothstep(0.01, 0.2, progress);
     const fade = 1 - smoothstep(0.84, 1, progress);
-    // 根据主题色动态计算浅色起点，避免纯白与其他主题色叠加时色相冲突
-    const startColor = mixColor(this._engine.config.color, [255, 255, 255], 0.95);
+    // 光晕使用较低白混合（0.8 vs 圆盘 0.95），避免 lighter 模式下多个 ClickWave
+    // 的近白色光晕叠加导致 RGB 通道趋向等值产生灰色异常圆环
+    const startColor = mixColor(this._engine.config.color, [255, 255, 255], 0.8);
     const color = mixColor(
       startColor,
       this._engine.config.color,
@@ -225,13 +226,15 @@ class ClickWave
 
     if (this._engine.config.glow.clickFake || this._engine.config.glow.enabled)
     {
+      // 边缘光晕使用更接近主题色的颜色，避免 lighter 模式下近白色光晕叠加产生灰色环
+      const glowColor = mixColor(color, this._engine.config.color, 0.25);
       this._engine._drawDiskEdgeGlow(
         context,
         this.x,
         this.y,
         radius,
         radius * cfg.glowRadiusMul,
-        color,
+        glowColor,
         alpha * cfg.glowAlpha,
       );
     }
