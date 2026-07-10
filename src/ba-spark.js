@@ -186,9 +186,9 @@ class ClickWave
     const diskProgress = clamp01(this.life / this._engine.config.filledCircle.maxLife);
     const appear = smoothstep(0.01, 0.2, progress);
     const fade = 1 - smoothstep(0.84, 1, progress);
-    // 光晕使用较低白混合（0.8 vs 圆盘 0.95），避免 lighter 模式下多个 ClickWave
-    // 的近白色光晕叠加导致 RGB 通道趋向等值产生灰色异常圆环
-    const startColor = mixColor(this._engine.config.color, [255, 255, 255], 0.8);
+    // 光晕使用较低白混合（0.6 vs 圆盘 0.95），避免 lighter/screen 模式下多个 ClickWave
+    // 的光晕叠加导致 RGB 通道趋向等值产生灰色异常圆环
+    const startColor = mixColor(this._engine.config.color, [255, 255, 255], 0.6);
     const color = mixColor(
       startColor,
       this._engine.config.color,
@@ -199,7 +199,7 @@ class ClickWave
       this._engine.config.click.haloRadius * getClickScale(this._engine.config),
       smoothstep(0.04, 0.54, progress),
     );
-    const alpha = 0.12 * this._engine.config.opacity * appear * fade;
+    const alpha = 0.06 * this._engine.config.opacity * appear * fade;
 
     this._engine._drawRadialGlow(context, this.x, this.y, radius, color, alpha);
   }
