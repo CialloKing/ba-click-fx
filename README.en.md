@@ -220,9 +220,28 @@ new BAClickFX(options?: BAClickFXOptions)
 
 | Method | Description |
 |---|---|
-| `setGlow(enabled)` | shadowBlur glow (higher performance cost) |
+| `setGlow(enabled)` | Real glow (trail radial gradient halo + click shadowBlur) |
 | `setFakeGlow(enabled)` | Multi-layer soft glow (recommended) |
 | `setClickFakeGlow(enabled)` | Click effect soft glow |
+
+#### Click
+
+| Method | Description | Default |
+|---|---|---|
+| `setClick(enabled)` | Toggle click effects | `true` |
+| `setClickTotalLife(v)` | Effect duration (10~60 frames) | `27` |
+| `setClickScaleMul(v)` | Click scale multiplier (0.5~3) | `1.3` |
+| `setClickHaloRadius(v)` | Halo radius (30~200) | `96` |
+| `setClickShardFlicker(period, minAlpha?)` | Shard flicker period/min alpha | `8, 0.45` |
+| `setSparksCount(n)` | Click particle count (0~12) | `4` |
+
+#### Disk
+
+| Method | Description | Default |
+|---|---|---|
+| `setDiskSize(v)` | Disk growth rate (10~50) | `26` |
+| `setDiskGlow(radiusMul, alpha?)` | Soft glow radius/opacity | `4.2, 0.13` |
+| `setDiskTiming(maxLife, expandEnd?, colorEnd?, fadeStart?)` | Disk animation timing | `12.5, 0.84, 0.34, 0.78` |
 
 #### Rings
 
@@ -230,7 +249,7 @@ new BAClickFX(options?: BAClickFXOptions)
 |---|---|---|
 | `setRingRotationSpeed(v)` | Rotation speed (0~0.05) | `0.008` |
 | `setRingEmission(v)` | Glow intensity (0~1) | `0.35` |
-| `setRingWidth(v)` | Arc width (0.3~3) | `0.9` |
+| `setRingWidth(v, maxValue?)` | Arc min/max width (0.3~3, 1~10) | `0.9, 4.0` |
 | `setRingAlpha(v)` | Ring opacity (0.1~1) | `0.9` |
 | `setRingDelay(v)` | Appearance delay (0~10) | `2` |
 | `setRingMaxLife(v)` | Total lifetime (10~60) | `27` |
@@ -239,6 +258,20 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setRingGlowRadiusAdd(v)` | Glow radius (10~150) | `54` |
 | `setRingSoftGlowRadiusAdd(v)` | Soft glow radius (20~200) | `96` |
 | `setRingRadiusGrowEnd(v)` | Expansion progress threshold (0.2~1) | `0.66` |
+| `setRingWidthEndMul(v)` | Width shrink (0.05~1) | `0.55` |
+| `setRingWhiteMix(v)` | Whiteness (0~1) | `0.75` |
+| `setRingGlowAlpha(v)` | Inner glow opacity (0~1) | `0.15` |
+| `setRingSoftGlowAlpha(v)` | Outer glow opacity (0~0.5) | `0.08` |
+| `setRingColorFadeStart(v)` | Color fade start (0~1) | `0.56` |
+| `setRingColorEndWhiteMix(v)` | End whiteness (0~1) | `0.97` |
+| `setRingArcLength(full, end?)` | Arc length (0.5~6.28) | `4.71, 1.05` |
+| `setRingSegmentCount(min, max?)` | Segment count (1~8) | `2` |
+| `setRingSegmentDetail(extra, cluster, lenMin, lenMax)` | Segment detail params | `0, 0.38, 0.46, 1.38` |
+| `setRingRotationJitter(min, max?)` | Rotation jitter (0.1~5) | `0.54, 1.58` |
+| `setRingSmallRadius(min, max?)` | Small radius growth (0.3~1.5) | `0.75, 0.92` |
+| `setRingRadiusJitter(min, max?)` | Radius jitter (0~2) | `0.3, 0.8` |
+| `setRingNormalGrow(min, max?)` | Normal segment growth (0.3~2) | `1.0` |
+| `setRingCollapseTiming(growEnd, collapse, fade)` | Collapse timing | `0.16, 0.16, 1.0` |
 
 #### Trail
 
@@ -247,7 +280,7 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrail(enabled)` | Toggle trail | `true` |
 | `setTrailAlways(enabled)` | Show on move | `false` |
 | `setTrailBrightness(a)` | Overall brightness (0.1~1) | `0.96` |
-| `setTrailWhiteMix(v)` | Whiteness amount (0~1) | `0.08` |
+| `setTrailWhiteMix(v)` | Whiteness amount (0~1) | `0.45` |
 | `setTrailWidth(fast, slow?)` | Base line width (0.5~6) | `3` |
 | `setTrailLength(slow, fast?)` | Max trail length | `900, 4200` |
 | `setTrailLife(slow, fast?)` | Fade speed (5~400) | `22` |
@@ -262,6 +295,17 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrailReleaseDecayMul(v)` | Release decay | `1.18` |
 | `setTrailSampling(step, max)` | Input sampling spacing & max points | `0.85, 80` |
 | `setTrailRenderSampling(step, max)` | Render resample spacing & max points | `0.75, 2400` |
+| `setTrailGradientChunk(v)` | Gradient chunk length (0.3~10) | `1.5` |
+| `setTrailMaxPoints(v)` | Max raw points (500~30000) | `12000` |
+| `setTrailCoreWidth(slow, fast?)` | Core highlight width | `0.3, 0.52` |
+| `setTrailHotWidth(slow, fast?)` | Hotspot width | `0.1, 0.24` |
+| `setTrailGlowRadius(v)` | Real glow radius multiplier (4~30) | `16` |
+| `setTrailGlowIntensity(v)` | Real glow intensity (0.02~0.5) | `0.17` |
+| `setTrailMinDistance(v)` | Min sample distance (0.01~5) | `0.06` |
+| `setTrailMaxJumpDistance(v)` | Jump distance threshold (50~2000) | `420` |
+| `setTrailMaxCoalescedEvents(v)` | Max coalesced events (1~100) | `24` |
+| `setTrailRailWidth(slow, fast?)` | Rail line width | `0.22, 0.36` |
+| `setTrailRibbon(widthMul, alpha?)` | Ribbon width/opacity | `0, 0` |
 
 #### Trail Layer Opacity
 
@@ -275,17 +319,19 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrailRailAlpha(v)` | Thin rail | `0.02` |
 | `setTrailGlowWidthMul(v)` | Glow width (0.3~8) | `1.7` |
 | `setTrailSoftGlowWidthMul(v)` | Soft glow width (0.5~15) | `2.4` |
+| `setTrailLayerAlpha(main, core, hot, glow, soft, rail)` | Set all layer alphas at once | — |
 
 #### Shards
 
 | Method | Description | Default |
 |---|---|---|
-| `setSparksCount(n)` | Click particle count (0~12) | `4` |
 | `setMaxShards(n)` | Max shard count (0~200) | `38` |
-| `setShardSpacing(d)` | Spacing (20~500) | `220` |
+| `setShardSpacing(d)` | Spacing (20~500) | `120` |
 | `setShardChance(slow, fast)` | Extra chance | `0.04, 0.18` |
 | `setShardLargeChance(p)` | Large shard probability | `0.62` |
 | `setMoveSparkChance(v)` | Random spark on move (0~0.05) | `0` |
+| `setTrailShardFlicker(period, minAlpha?, sizePulse?)` | Trail shard flicker params | `8, 0.35, 0.16` |
+| `setTrailShardOffset(min, max?)` | Shard offset range (0~100) | `2, 36` |
 
 #### Lifecycle
 
