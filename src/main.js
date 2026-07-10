@@ -367,6 +367,9 @@ function switchLanguage(lang)
     ctrlRingDelay: 'labelRingDelay', ctrlRingMaxLife: 'labelRingMaxLife',
     ctrlRingBaseRadiusMul: 'labelRingBaseRadiusMul', ctrlRingPostDiskGrow: 'labelRingPostDiskGrow',
     ctrlRingGlowRadiusAdd: 'labelRingGlowRadiusAdd', ctrlRingSoftGlowRadiusAdd: 'labelRingSoftGlowRadiusAdd',
+    ctrlRingGlowAlpha: 'labelRingGlowAlpha', ctrlRingSoftGlowAlpha: 'labelRingSoftGlowAlpha',
+    ctrlRingSegCount: 'labelRingSegCount', ctrlRingArcLen: 'labelRingArcLen',
+    ctrlRingColorFadeStart: 'labelRingColorFadeStart', ctrlRingColorEndWhiteMix: 'labelRingColorEndWhiteMix',
     ctrlTrail: 'labelTrailEnabled', ctrlTrailAlways: 'labelTrailAlways',
     ctrlTrailSpeed: 'labelTrailSpeed', ctrlTrailWidth: 'labelTrailWidth',
     ctrlTrailLength: 'labelTrailLength', ctrlTrailLife: 'labelTrailLife',
@@ -391,6 +394,8 @@ function switchLanguage(lang)
     ctrlRingFadeStart: 'labelRingFadeStart',
     ctrlTrailMinDistance: 'labelTrailMinDistance', ctrlTrailMaxJumpDistance: 'labelTrailMaxJumpDistance',
     ctrlTrailMaxCoalesced: 'labelTrailMaxCoalesced',
+    ctrlTrailShardFlicker: 'labelTrailShardFlicker', ctrlTrailShardMinAlpha: 'labelTrailShardMinAlpha',
+    ctrlTrailShardSizePulse: 'labelTrailShardSizePulse',
     ctrlTrailRailWidth: 'labelTrailRailWidth', ctrlTrailRibbonWidth: 'labelTrailRibbonWidth',
     ctrlTrailRibbonAlpha: 'labelTrailRibbonAlpha',
   };
