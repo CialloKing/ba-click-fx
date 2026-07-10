@@ -1,4 +1,4 @@
-declare module 'ba-click-fx' {
+﻿declare module 'ba-click-fx' {
   export interface BAClickFXOptions {
     /** 挂载目标：CSS 选择器或已有 <canvas> 元素。不传则自动创建全屏 Canvas */
     target?: string | HTMLElement;

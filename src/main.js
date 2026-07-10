@@ -1,4 +1,4 @@
-import './style.css';
+﻿import './style.css';
 import { BAClickFX } from './ba-spark.js';
 import { createConfig } from './config.js';
 import { rgbToHex, hexToRgb } from './utils.js';
@@ -108,6 +108,11 @@ const I18N = {
     labelClickScaleMul: '点击缩放',
     labelClickHaloRadius: '光晕半径',
     labelClickFakeGlow: '点击柔光',
+    labelDiskSize: '圆盘大小',
+    labelDiskGlowRadius: '柔光范围',
+    labelDiskGlowAlpha: '柔光透明度',
+    labelClickShardFlicker: '闪烁周期',
+    labelRingWhiteMix: '偏白程度',
     labelShardSpacing: '间距',
     labelShardChanceSlow: '慢速概率',
     labelShardChanceFast: '快速概率',
@@ -223,6 +228,11 @@ const I18N = {
     labelClickScaleMul: 'Click Scale',
     labelClickHaloRadius: 'Halo Radius',
     labelClickFakeGlow: 'Click Soft Glow',
+    labelDiskSize: 'Disk Size',
+    labelDiskGlowRadius: 'Glow Range',
+    labelDiskGlowAlpha: 'Glow Opacity',
+    labelClickShardFlicker: 'Flicker Period',
+    labelRingWhiteMix: 'Whiteness',
     labelShardSpacing: 'Spacing',
     labelShardChanceSlow: 'Slow Chance',
     labelShardChanceFast: 'Fast Chance',
@@ -345,11 +355,15 @@ function switchLanguage(lang)
     ctrlClickSpeed: 'labelClickSpeed', ctrlSparksCount: 'labelSparksCount',
     ctrlClickTotalLife: 'labelClickTotalLife', ctrlClickScaleMul: 'labelClickScaleMul',
     ctrlClickHaloRadius: 'labelClickHaloRadius', ctrlClickFakeGlow: 'labelClickFakeGlow',
+    ctrlDiskSize: 'labelDiskSize', ctrlDiskGlowRadius: 'labelDiskGlowRadius',
+    ctrlDiskGlowAlpha: 'labelDiskGlowAlpha',
+    ctrlClickShardFlicker: 'labelClickShardFlicker',
     ctrlShardSpacing: 'labelShardSpacing', ctrlShardChanceSlow: 'labelShardChanceSlow',
     ctrlShardChanceFast: 'labelShardChanceFast', ctrlShardLargeChance: 'labelShardLargeChance',
     ctrlMaxShards: 'labelMaxShards',
     ctrlRingRotation: 'labelRingRotation', ctrlRingGlow: 'labelRingGlow',
-    ctrlRingWidth: 'labelRingWidth', ctrlRingWidthEndMul: 'labelRingWidthEndMul', ctrlRingAlpha: 'labelRingAlpha',
+    ctrlRingWidth: 'labelRingWidth', ctrlRingWidthEndMul: 'labelRingWidthEndMul',
+    ctrlRingAlpha: 'labelRingAlpha', ctrlRingWhiteMix: 'labelRingWhiteMix',
     ctrlRingDelay: 'labelRingDelay', ctrlRingMaxLife: 'labelRingMaxLife',
     ctrlRingBaseRadiusMul: 'labelRingBaseRadiusMul', ctrlRingPostDiskGrow: 'labelRingPostDiskGrow',
     ctrlRingGlowRadiusAdd: 'labelRingGlowRadiusAdd', ctrlRingSoftGlowRadiusAdd: 'labelRingSoftGlowRadiusAdd',

@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -247,6 +247,10 @@
         <input type="range" id="ctrlRingWidth" min="0.3" max="3" step="0.1" value="0.9" />
       </label>
       <label class="ctrl">
+        <span>最大宽度 <output id="outRingMaxW">4.00</output></span>
+        <input type="range" id="ctrlRingMaxW" min="1" max="10" step="0.1" value="4.0" />
+      </label>
+      <label class="ctrl">
         <span>宽度收缩 <output id="outRingWidthEndMul">0.55</output></span>
         <input type="range" id="ctrlRingWidthEndMul" min="0.05" max="1" step="0.05" value="0.55" />
       </label>
@@ -311,11 +315,6 @@
       <label class="ctrl">
         <span>末尾白混合 <output id="outRingColorEndWhiteMix">0.97</output></span>
         <input type="range" id="ctrlRingColorEndWhiteMix" min="0" max="1" step="0.02" value="0.97" />
-      </label>
-
-      <label class="ctrl">
-        <span>最大宽度 <output id="outRingMaxW">4.00</output></span>
-        <input type="range" id="ctrlRingMaxW" min="1" max="10" step="0.1" value="4.0" />
       </label>
 
       <h4 class="sub-heading">弧段细节</h4>
