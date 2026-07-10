@@ -2920,21 +2920,21 @@ export class BAClickFX
 
   /**
    * 轨迹真实光晕半径倍率（基于 baseWidth）
-   * @param {number} [value=16] - 半径倍率 (4~30)
+   * @param {number} [value=25] - 半径倍率 (4~30)
    */
-  setTrailGlowRadius(value = 16)
+  setTrailGlowRadius(value = 25)
   {
-    this.config.trail.glowRadiusMul = Math.max(4, Math.min(30, Number(value) ?? 16));
+    this.config.trail.glowRadiusMul = Math.max(4, Math.min(30, Number(value) ?? 25));
     this._requestRender();
   }
 
   /**
    * 轨迹真实光晕强度（峰值 alpha）
-   * @param {number} [value=0.17] - 峰值透明度 (0.02~0.5)
+   * @param {number} [value=0.13] - 峰值透明度 (0.02~0.5)
    */
-  setTrailGlowIntensity(value = 0.17)
+  setTrailGlowIntensity(value = 0.13)
   {
-    this.config.trail.glowIntensity = Math.max(0.02, Math.min(0.5, Number(value) ?? 0.17));
+    this.config.trail.glowIntensity = Math.max(0.02, Math.min(0.5, Number(value) ?? 0.13));
     this._requestRender();
   }
 
