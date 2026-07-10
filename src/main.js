@@ -98,7 +98,7 @@ const I18N = {
     subTrailInput: '输入参数',
     labelColor: '主题颜色',
     labelScale: '全局缩放',
-    labelOpacity: '透明度',
+    labelOpacity: '不透明度',
     labelDpr: '最大 DPR',
     labelTrailRenderScale: '拖尾画质',
     labelClickEnabled: '启用点击特效',

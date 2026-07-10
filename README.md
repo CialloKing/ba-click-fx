@@ -198,7 +198,7 @@ new BAClickFX(options?: BAClickFXOptions)
 | `target` | `string \| HTMLElement` | 自动创建 | 挂载目标：CSS 选择器或已有 `<canvas>` |
 | `color` | `[r, g, b]` | `[105, 161, 255]` | 主题颜色 |
 | `scale` | `number` | `1.10` | 全局缩放 (0.5~3) |
-| `opacity` | `number` | `0.50` | 透明度 (0.1~1) |
+| `opacity` | `number` | `0.50` | 不透明度 (0.1~1) |
 | `trailAlways` | `boolean` | `false` | 鼠标移动时也显示拖尾 |
 | `trailEnabled` | `boolean` | `true` | 启用拖尾轨迹 |
 | `clickEnabled` | `boolean` | `true` | 启用点击特效 |
@@ -212,7 +212,7 @@ new BAClickFX(options?: BAClickFXOptions)
 |---|---|
 | `setColor(r, g, b)` | 主题颜色 (0~255) |
 | `setScale(s)` | 全局缩放 (0.5~3) |
-| `setOpacity(o)` | 透明度 (0.1~1) |
+| `setOpacity(o)` | 不透明度 (0.1~1) |
 | `setClick(enabled)` | 开关点击特效 |
 | `setSpeed(click, trail?)` | 点击/拖拽速度 (0.2~3) |
 | `setDpr(d)` | 最大设备像素比 (1~2) |
