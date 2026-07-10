@@ -236,7 +236,7 @@ class ClickWave
 
     // 白色闪光：极短暂的纯白叠加层，仅在最开始几帧出现然后快速淡出。
     // 与主题色分开渲染，避免混白导致的灰色环。
-    const flashAlpha = (1 - smoothstep(0, 0.15, progress)) * 0.6 * fade;
+    const flashAlpha = (1 - smoothstep(0, 0.15, progress)) * 0.35 * fade;
 
     if (flashAlpha > 0.01)
     {
@@ -1971,16 +1971,14 @@ export class BAClickFX
     this._updateTrailPoints(trailFrameScale);
     this._renderTrailToCanvas();
 
-    // 每个 ClickWave 独立渲染到 waveCanvas（内部发光用 screen），
-    // 完成后 source-over 合成到主画布。波间完全隔离，不可能产生灰色环。
-    // 之前所有波共享主画布，发光元素的 screen 混合会和前一个波的像素叠加，
-    // 导致不平衡 RGB 通道（如黄色 R=255 B=26）趋向等值产生灰色环。
     this.ctx.save();
     this.ctx.globalCompositeOperation = 'source-over';
 
     this.ctx.drawImage(this.trailCanvas, 0, 0, this.width, this.height);
 
-    for (let i = this.waves.length - 1; i >= 0; i--)
+    // 从旧到新渲染：旧波先画（底层），新波后画（顶层）。
+    // 新波的白色闪光在最上层最明显，不会被旧波覆盖。
+    for (let i = 0; i < this.waves.length; i++)
     {
       const wave = this.waves[i];
 
@@ -1995,11 +1993,15 @@ export class BAClickFX
 
       // source-over 合成到主画布
       this.ctx.drawImage(this.waveCanvas, 0, 0, this.width, this.height);
+    }
 
-      if (wave.dead)
+    // 清理已结束的波（从后往前 splice 避免索引偏移）
+    for (let i = this.waves.length - 1; i >= 0; i--)
+    {
+      if (this.waves[i].dead)
       {
+        this._releaseWave(this.waves[i]);
         this.waves.splice(i, 1);
-        this._releaseWave(wave);
       }
     }
 
