@@ -173,7 +173,7 @@ export const CONFIG = {
     // 亮度与偏白程度：
     // whiteMix 越大越白；轨迹本体需要偏 cyan，白色只留给极细中心高光。
     alpha: 0.96,
-    whiteMix: 0.25,
+    whiteMix: 0.45,
 
     mainAlpha: 1,
     ribbonAlpha: 0,

@@ -2307,9 +2307,9 @@ export class BAClickFX
   }
 
   /** @param {number} value */
-  setTrailWhiteMix(value = 0.25)
+  setTrailWhiteMix(value = 0.45)
   {
-    this.config.trail.whiteMix = Math.max(0, Math.min(1, Number(value) ?? 0.25));
+    this.config.trail.whiteMix = Math.max(0, Math.min(1, Number(value) ?? 0.45));
     this._requestRender();
   }
 
