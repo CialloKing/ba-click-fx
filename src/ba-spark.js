@@ -496,37 +496,40 @@ export class BAClickFX
 
     if (options.color)
     {
-      this.setColor(...options.color);
+      // 构造阶段直接设置 config，不走 setColor()，
+      // 因为 setColor 会调用 clearTrail() 等副作用方法，
+      // 此时 trailStrokes / canvas / ctx 等状态尚未初始化。
+      this.config.color = [options.color[0], options.color[1], options.color[2]];
     }
 
     if (options.scale !== undefined)
     {
-      this.setScale(options.scale);
+      this.config.scale = Math.max(0.5, Math.min(3, Number(options.scale) ?? 1.10));
     }
 
     if (options.opacity !== undefined)
     {
-      this.setOpacity(options.opacity);
+      this.config.opacity = Math.max(0.1, Math.min(1, Number(options.opacity) ?? 0.5));
     }
 
     if (options.trailAlways !== undefined)
     {
-      this.setTrailAlways(options.trailAlways);
+      this.config.trail.always = Boolean(options.trailAlways);
     }
 
     if (options.trailEnabled !== undefined)
     {
-      this.setTrail(options.trailEnabled);
+      this.config.trail.enabled = Boolean(options.trailEnabled);
     }
 
     if (options.clickEnabled !== undefined)
     {
-      this.setClick(options.clickEnabled);
+      this.config.clickEnabled = Boolean(options.clickEnabled);
     }
 
     if (options.touchAction !== undefined)
     {
-      this.setTouchAction(options.touchAction);
+      this.config.touchAction = options.touchAction;
     }
 
     // ── Canvas 创建 ──
@@ -837,8 +840,11 @@ export class BAClickFX
       return;
     }
 
-    // 空心环渐变：多层色阶模拟柔和自发光，无清晰边缘
-    const gradient = context.createRadialGradient(x, y, innerRadius, x, y, outerRadius);
+    // 完整径向渐变：从中心到外缘平滑衰减，避免空心环在 innerRadius 处产生锐利边界。
+    // 旧版使用空心环渐变（innerRadius → outerRadius），多个 ClickWave 在不同半径叠加时
+    // 各环的 innerRadius 边界形成可见的同心灰色环（lighter 混合下亮度跳变）。
+    // 改为从中心 0 开始的完整渐变，消除内侧边界，与圆盘 fill 自然叠加。
+    const gradient = context.createRadialGradient(x, y, 0, x, y, outerRadius);
 
     gradient.addColorStop(0, rgbToCss(color, alpha));
     gradient.addColorStop(0.08, rgbToCss(color, alpha * 0.85));
