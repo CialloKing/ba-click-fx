@@ -2193,6 +2193,11 @@ export class BAClickFX
   setColor(r, g, b)
   {
     this.config.color = [r, g, b];
+    // 切换主题色时清空拖尾轨迹和画布，避免旧颜色与新颜色在 lighter 混合模式下
+    // 叠加导致 RGB 通道趋向等值产生灰色异常圆环
+    this.clearTrail();
+    this._clearCanvas();
+    this._clearTrailCanvas();
     this._requestRender();
   }
 
