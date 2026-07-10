@@ -190,6 +190,10 @@
     setTrailRailWidth(slow?: number, fast?: number): void;
     /** 能量带层(ribbon)宽度倍率和透明度，默认关闭 */
     setTrailRibbon(widthMul?: number, alpha?: number): void;
+    /** 轨迹真实光晕半径倍率 (4~30, 默认 16) */
+    setTrailGlowRadius(value?: number): void;
+    /** 轨迹真实光晕强度 (0.02~0.5, 默认 0.17) */
+    setTrailGlowIntensity(value?: number): void;
 
     // ═══ 拖尾分层透明度 ═══
 

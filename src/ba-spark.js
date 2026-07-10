@@ -727,7 +727,7 @@ export class BAClickFX
 
     context.save();
 
-    if (useFakeGlow && this.config.glow.fake && blur > 0)
+    if (useFakeGlow && this.config.glow.fake && this.config.glow.enabled && blur > 0)
     {
       context.fillStyle = rgbToCss(color, alpha * 0.12);
       context.beginPath();
@@ -743,7 +743,7 @@ export class BAClickFX
     if (this.config.glow.enabled && blur > 0)
     {
       context.shadowColor = rgbToCss(color, alpha);
-      context.shadowBlur = blur * 0.28;
+      context.shadowBlur = blur * 1.0;
     }
 
     context.fillStyle = rgbToCss(color, alpha);
@@ -817,6 +817,13 @@ export class BAClickFX
     }
 
     context.save();
+
+    if (this.config.glow.enabled)
+    {
+      context.shadowColor = rgbToCss(color, alpha);
+      context.shadowBlur = radius * 2.5;
+    }
+
     context.fillStyle = rgbToCss(color, alpha);
     context.beginPath();
     context.arc(x, y, radius, 0, Math.PI * 2);
@@ -879,6 +886,13 @@ export class BAClickFX
     const steps = Math.max(10, Math.min(96, Math.ceil(arcLength / 0.07)));
 
     context.save();
+
+    if (this.config.glow.enabled)
+    {
+      context.shadowColor = rgbToCss(color, alpha);
+      context.shadowBlur = 35 * getClickScale(this.config);
+    }
+
     context.fillStyle = rgbToCss(color, alpha);
     context.beginPath();
 
@@ -1732,7 +1746,7 @@ export class BAClickFX
       },
       // 2. 柔和外光
       {
-        condition: this.config.glow.fake,
+        condition: this.config.glow.fake && this.config.glow.enabled,
         widthValue: baseWidth * this.config.trail.softGlowWidthMul,
         minWidth: baseWidth * 0.05,
         color: this.config.color,
@@ -1745,7 +1759,7 @@ export class BAClickFX
       },
       // 2b. 蓝色发光
       {
-        condition: this.config.glow.fake,
+        condition: this.config.glow.fake && this.config.glow.enabled,
         widthValue: baseWidth * this.config.trail.glowWidthMul,
         minWidth: baseWidth * 0.04,
         color: trailColor,
@@ -1820,38 +1834,48 @@ export class BAClickFX
       });
     }
 
-    // 头部发光圆点
-    const headRadius = lerp(1.1, 2.1, speedFactor) * this.config.scale;
+    // 真实光影：沿轨迹画径向渐变圆，模拟自发光柔和光晕（与圆盘/圆环同技术）
+    if (this.config.glow.enabled && renderPoints.length > 1)
+    {
+      const totalLength = renderPoints[renderPoints.length - 1].distanceFromTail || 1;
+      const glowRadius = baseWidth * this.config.trail.glowRadiusMul;
+      const step = Math.max(glowRadius * 0.4, 4);
+      let accum = 0;
 
-    this._drawCircle(
-      this.trailCtx,
-      head.x,
-      head.y,
-      headRadius * 3.2,
-      this.config.color,
-      0.14 * this.config.trail.alpha * fadeMul,
-      headRadius * 2.8,
-    );
+      for (let i = 0; i < renderPoints.length; i++)
+      {
+        if (i > 0)
+        {
+          const dx = renderPoints[i].x - renderPoints[i - 1].x;
+          const dy = renderPoints[i].y - renderPoints[i - 1].y;
 
-    this._drawCircle(
-      this.trailCtx,
-      head.x,
-      head.y,
-      headRadius * 1.9,
-      trailColor,
-      0.28 * this.config.trail.alpha * fadeMul,
-      headRadius * 1.6,
-    );
+          accum += Math.sqrt(dx * dx + dy * dy);
+        }
 
-    this._drawCircle(
-      this.trailCtx,
-      head.x,
-      head.y,
-      headRadius * 0.62,
-      trailHotColor,
-      0.42 * this.config.trail.alpha * fadeMul,
-      headRadius * 0.5,
-    );
+        if (accum >= step || i === 0 || i === renderPoints.length - 1)
+        {
+          accum = 0;
+          const progress = (renderPoints[i].distanceFromTail || 0) / totalLength;
+          const gi = this.config.trail.glowIntensity;
+          const alpha = getTrailStopValue(
+            [[0.0, 0.0], [0.20, gi * 0.12], [0.50, gi * 0.35], [0.80, gi * 0.71], [1.0, gi]],
+            progress,
+          ) * this.config.trail.mainAlpha * tf;
+
+          if (alpha > 0.005)
+          {
+            this._drawRadialGlow(
+              this.trailCtx,
+              renderPoints[i].x,
+              renderPoints[i].y,
+              glowRadius,
+              this.config.color,
+              alpha,
+            );
+          }
+        }
+      }
+    }
   }
 
   _renderTrailToCanvas()
@@ -2895,6 +2919,26 @@ export class BAClickFX
   {
     this.config.trail.ribbonWidthMul = Math.max(0, Math.min(5, Number(widthMul) ?? 0));
     this.config.trail.ribbonAlpha = Math.max(0, Math.min(1, Number(alpha) ?? 0));
+    this._requestRender();
+  }
+
+  /**
+   * 轨迹真实光晕半径倍率（基于 baseWidth）
+   * @param {number} [value=16] - 半径倍率 (4~30)
+   */
+  setTrailGlowRadius(value = 16)
+  {
+    this.config.trail.glowRadiusMul = Math.max(4, Math.min(30, Number(value) ?? 16));
+    this._requestRender();
+  }
+
+  /**
+   * 轨迹真实光晕强度（峰值 alpha）
+   * @param {number} [value=0.17] - 峰值透明度 (0.02~0.5)
+   */
+  setTrailGlowIntensity(value = 0.17)
+  {
+    this.config.trail.glowIntensity = Math.max(0.02, Math.min(0.5, Number(value) ?? 0.17));
     this._requestRender();
   }
 

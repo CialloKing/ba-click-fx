@@ -129,6 +129,12 @@ const I18N = {
     labelRingPostDiskGrow: '扩张量',
     labelRingGlowRadiusAdd: '发光半径',
     labelRingSoftGlowRadiusAdd: '柔光半径',
+    labelRingGlowAlpha: '内层透明度',
+    labelRingSoftGlowAlpha: '外层透明度',
+    labelRingSegCount: '弧段数量',
+    labelRingArcLen: '弧长',
+    labelRingColorFadeStart: '衰减起点',
+    labelRingColorEndWhiteMix: '末尾白混合',
     labelTrailEnabled: '启用拖尾',
     labelTrailAlways: '始终显示',
     labelTrailSpeed: '拖拽速度',
@@ -139,7 +145,9 @@ const I18N = {
     labelTrailAlpha: '亮度',
     labelTrailWhiteMix: '偏白程度',
     labelFakeGlow: '多层柔光',
-    labelGlow: '阴影发光',
+    labelGlow: '真实光影',
+    labelTrailGlowRadius: '光晕范围',
+    labelTrailGlowIntensity: '光晕强度',
     labelTrailMainAlpha: '主轨迹',
     labelTrailCoreAlpha: '中心高光',
     labelTrailHotAlpha: '蓝白热点',
@@ -173,6 +181,9 @@ const I18N = {
     labelTrailMinDistance: '采样间距',
     labelTrailMaxJumpDistance: '断笔距离',
     labelTrailMaxCoalesced: '合并事件上限',
+    labelTrailShardFlicker: '闪烁周期',
+    labelTrailShardMinAlpha: '最低亮度',
+    labelTrailShardSizePulse: '大小脉冲',
     labelTrailRailWidth: '轨道线宽度',
     labelTrailRibbonWidth: '能量带宽度',
     labelTrailRibbonAlpha: '能量带透明度',
@@ -249,6 +260,12 @@ const I18N = {
     labelRingPostDiskGrow: 'Expansion',
     labelRingGlowRadiusAdd: 'Glow Radius',
     labelRingSoftGlowRadiusAdd: 'Soft Glow Radius',
+    labelRingGlowAlpha: 'Inner Opacity',
+    labelRingSoftGlowAlpha: 'Outer Opacity',
+    labelRingSegCount: 'Segment Count',
+    labelRingArcLen: 'Arc Length',
+    labelRingColorFadeStart: 'Fade Start',
+    labelRingColorEndWhiteMix: 'End Whiteness',
     labelTrailEnabled: 'Enable Trail',
     labelTrailAlways: 'Always Show',
     labelTrailSpeed: 'Drag Speed',
@@ -259,7 +276,9 @@ const I18N = {
     labelTrailAlpha: 'Brightness',
     labelTrailWhiteMix: 'Whiteness',
     labelFakeGlow: 'Multi-layer Glow',
-    labelGlow: 'Shadow Glow',
+    labelGlow: 'Real Glow',
+    labelTrailGlowRadius: 'Glow Radius',
+    labelTrailGlowIntensity: 'Glow Intensity',
     labelTrailMainAlpha: 'Main Trail',
     labelTrailCoreAlpha: 'Center Highlight',
     labelTrailHotAlpha: 'Blue-White Hotspot',
@@ -293,6 +312,9 @@ const I18N = {
     labelTrailMinDistance: 'Sample Distance',
     labelTrailMaxJumpDistance: 'Jump Distance',
     labelTrailMaxCoalesced: 'Max Coalesced',
+    labelTrailShardFlicker: 'Flicker Period',
+    labelTrailShardMinAlpha: 'Min Brightness',
+    labelTrailShardSizePulse: 'Size Pulse',
     labelTrailRailWidth: 'Rail Width',
     labelTrailRibbonWidth: 'Ribbon Width',
     labelTrailRibbonAlpha: 'Ribbon Alpha',
@@ -376,6 +398,8 @@ function switchLanguage(lang)
     ctrlSmooth: 'labelSmooth', ctrlTrailAlpha: 'labelTrailAlpha',
     ctrlTrailWhiteMix: 'labelTrailWhiteMix', ctrlFakeGlow: 'labelFakeGlow',
     ctrlGlow: 'labelGlow',
+    ctrlTrailGlowRadius: 'labelTrailGlowRadius',
+    ctrlTrailGlowIntensity: 'labelTrailGlowIntensity',
     ctrlTrailMainAlpha: 'labelTrailMainAlpha', ctrlTrailCoreAlpha: 'labelTrailCoreAlpha',
     ctrlTrailHotAlpha: 'labelTrailHotAlpha', ctrlTrailGlowAlpha: 'labelTrailGlowAlpha',
     ctrlTrailSoftGlowAlpha: 'labelTrailSoftGlowAlpha', ctrlTrailRailAlpha: 'labelTrailRailAlpha',
@@ -478,6 +502,8 @@ document.getElementById('langToggle').addEventListener('click', () =>
       fakeGlow: c.glow.fake,
       clickFake: c.glow.clickFake,
       glow: c.glow.enabled,
+      trailGlowRadius: c.trail.glowRadiusMul,
+      trailGlowIntensity: c.trail.glowIntensity,
       shardSpacing: c.trail.shardSpacing,
       shardChanceSlow: c.trail.shardChanceSlow,
       shardChanceFast: c.trail.shardChanceFast,
@@ -819,6 +845,9 @@ document.getElementById('langToggle').addEventListener('click', () =>
 
   ctrlGlow.addEventListener('change', () => { api.setGlow(ctrlGlow.checked); localStorage.setItem('bafx-ctrlGlow', ctrlGlow.checked); });
 
+  bindRange('ctrlTrailGlowRadius', 'outTrailGlowRadius', v => api.setTrailGlowRadius(v), true);
+  bindRange('ctrlTrailGlowIntensity', 'outTrailGlowIntensity', v => api.setTrailGlowIntensity(v));
+
   const ctrlClickFakeGlow = document.getElementById('ctrlClickFakeGlow');
 
   ctrlClickFakeGlow.addEventListener('change', () => { api.setClickFakeGlow(ctrlClickFakeGlow.checked); localStorage.setItem('bafx-ctrlClickFakeGlow', ctrlClickFakeGlow.checked); });
@@ -866,6 +895,14 @@ document.getElementById('langToggle').addEventListener('click', () =>
   bindRange('ctrlClickHaloRadius', 'outClickHaloRadius', v => api.setClickHaloRadius(v), true);
 
   bindRange('ctrlDiskSize', 'outDiskSize', v => api.setDiskSize(v), true);
+  bindRange('ctrlDiskGlowRadius', 'outDiskGlowRadius', v => {
+    const a = parseFloat(document.getElementById('ctrlDiskGlowAlpha').value);
+    api.setDiskGlow(v, a);
+  });
+  bindRange('ctrlDiskGlowAlpha', 'outDiskGlowAlpha', v => {
+    const r = parseFloat(document.getElementById('ctrlDiskGlowRadius').value);
+    api.setDiskGlow(r, v);
+  });
   bindRange('ctrlClickShardFlicker', 'outClickShardFlicker', v => api.setClickShardFlicker(v), true);
 
   // -- 圆环高级 --
@@ -1067,6 +1104,10 @@ document.getElementById('langToggle').addEventListener('click', () =>
     api.setTrailAlways(DEFAULTS.trailAlways);
     api.setFakeGlow(DEFAULTS.fakeGlow);
     api.setGlow(DEFAULTS.glow);
+    setVal('ctrlTrailGlowRadius', 'outTrailGlowRadius', DEFAULTS.trailGlowRadius, true);
+    api.setTrailGlowRadius(DEFAULTS.trailGlowRadius);
+    setVal('ctrlTrailGlowIntensity', 'outTrailGlowIntensity', DEFAULTS.trailGlowIntensity);
+    api.setTrailGlowIntensity(DEFAULTS.trailGlowIntensity);
     api.setClickFakeGlow(DEFAULTS.clickFake);
     api.setClick(DEFAULTS.clickEnabled);
 

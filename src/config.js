@@ -204,10 +204,14 @@ export const CONFIG = {
 
     // 游戏截图里的碎片主要沿轨迹分布；关闭头部随机撒点以免范围变宽。
     moveSparkChance: 0,
+
+    // 轨迹真实光影（径向渐变光晕）参数
+    glowRadiusMul: 16,
+    glowIntensity: 0.17,
   },
 
   glow: {
-    enabled: false,
+    enabled: true,
     fake: true,
     // 原作点击反馈包含明显蓝白径向光，默认开启点击伪发光。
     clickFake: true,

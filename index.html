@@ -417,9 +417,17 @@
         <span class="toggle-track"></span>
       </label>
       <label class="ctrl toggle">
-        <span>阴影发光</span>
-        <input type="checkbox" id="ctrlGlow" />
+        <span>真实光影</span>
+        <input type="checkbox" id="ctrlGlow" checked />
         <span class="toggle-track"></span>
+      </label>
+      <label class="ctrl">
+        <span>光晕范围 <output id="outTrailGlowRadius">16</output></span>
+        <input type="range" id="ctrlTrailGlowRadius" min="4" max="30" step="1" value="16" />
+      </label>
+      <label class="ctrl">
+        <span>光晕强度 <output id="outTrailGlowIntensity">0.17</output></span>
+        <input type="range" id="ctrlTrailGlowIntensity" min="0.02" max="0.5" step="0.01" value="0.17" />
       </label>
 
       <h4 class="sub-heading">碎片闪烁</h4>
