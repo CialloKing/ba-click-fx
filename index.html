@@ -148,6 +148,11 @@
         <input type="checkbox" id="ctrlClick" checked />
         <span class="toggle-track"></span>
       </label>
+      <label class="ctrl toggle">
+        <span>点击柔光</span>
+        <input type="checkbox" id="ctrlClickFakeGlow" checked />
+        <span class="toggle-track"></span>
+      </label>
       <label class="ctrl">
         <span>播放速度 <output id="outClickSpeed">1.00</output></span>
         <input type="range" id="ctrlClickSpeed" min="0.2" max="3" step="0.05" value="1" />
@@ -167,11 +172,6 @@
       <label class="ctrl">
         <span>光晕半径 <output id="outClickHaloRadius">96</output></span>
         <input type="range" id="ctrlClickHaloRadius" min="30" max="200" step="2" value="96" />
-      </label>
-      <label class="ctrl toggle">
-        <span>点击柔光</span>
-        <input type="checkbox" id="ctrlClickFakeGlow" checked />
-        <span class="toggle-track"></span>
       </label>
 
       <h4 class="sub-heading">圆盘</h4>
@@ -383,6 +383,16 @@
         <input type="checkbox" id="ctrlTrailAlways" />
         <span class="toggle-track"></span>
       </label>
+      <label class="ctrl toggle">
+        <span>多层柔光</span>
+        <input type="checkbox" id="ctrlFakeGlow" checked />
+        <span class="toggle-track"></span>
+      </label>
+      <label class="ctrl toggle">
+        <span>真实光影</span>
+        <input type="checkbox" id="ctrlGlow" checked />
+        <span class="toggle-track"></span>
+      </label>
       <label class="ctrl">
         <span>拖拽速度 <output id="outTrailSpeed">1.05</output></span>
         <input type="range" id="ctrlTrailSpeed" min="0.2" max="3" step="0.05" value="1.05" />
@@ -410,16 +420,6 @@
       <label class="ctrl">
         <span>偏白程度 <output id="outTrailWhiteMix">0.45</output></span>
         <input type="range" id="ctrlTrailWhiteMix" min="0" max="1" step="0.01" value="0.45" />
-      </label>
-      <label class="ctrl toggle">
-        <span>多层柔光</span>
-        <input type="checkbox" id="ctrlFakeGlow" checked />
-        <span class="toggle-track"></span>
-      </label>
-      <label class="ctrl toggle">
-        <span>真实光影</span>
-        <input type="checkbox" id="ctrlGlow" checked />
-        <span class="toggle-track"></span>
       </label>
       <label class="ctrl">
         <span>光晕范围 <output id="outTrailGlowRadius">16</output></span>
