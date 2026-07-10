@@ -132,7 +132,7 @@ Drop a single `<script>` tag — no build tools required:
 Fixed version (recommended):
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@main/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.3/dist/ba-click-fx.iife.js"></script>
 <script>
   const spark = new BAClickFX();
 </script>
