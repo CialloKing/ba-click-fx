@@ -201,6 +201,8 @@ new BAClickFX(options?: BAClickFXOptions)
 | `opacity` | `number` | `0.50` | 透明度 (0.1~1) |
 | `trailAlways` | `boolean` | `false` | 鼠标移动时也显示拖尾 |
 | `trailEnabled` | `boolean` | `true` | 启用拖尾轨迹 |
+| `clickEnabled` | `boolean` | `true` | 启用点击特效 |
+| `touchAction` | `string` | `'auto'` | Canvas touch-action CSS（`'none'` 可在移动端保持拖尾） |
 
 ### 实例方法
 
@@ -211,17 +213,38 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setColor(r, g, b)` | 主题颜色 (0~255) |
 | `setScale(s)` | 全局缩放 (0.5~3) |
 | `setOpacity(o)` | 透明度 (0.1~1) |
+| `setClick(enabled)` | 开关点击特效 |
 | `setSpeed(click, trail?)` | 点击/拖拽速度 (0.2~3) |
 | `setDpr(d)` | 最大设备像素比 (1~2) |
 | `setTrailRenderScale(s)` | 拖尾离屏画布缩放 (0.5~1) |
+| `setTouchAction(value)` | 移动端 touch-action (`'auto'` / `'none'` / `'pan-y'`) |
 
 #### 发光
 
 | 方法 | 说明 |
 |---|---|
-| `setGlow(enabled)` | shadowBlur 发光（性能开销较高） |
+| `setGlow(enabled)` | 真实光影（轨迹径向渐变光晕 + 点击 shadowBlur） |
 | `setFakeGlow(enabled)` | 多层柔光（推荐） |
 | `setClickFakeGlow(enabled)` | 点击特效柔光 |
+
+#### 点击
+
+| 方法 | 说明 | 默认值 |
+|---|---|---|
+| `setClick(enabled)` | 开关点击特效 | `true` |
+| `setClickTotalLife(v)` | 特效总时长 (10~60 帧) | `27` |
+| `setClickScaleMul(v)` | 点击缩放倍率 (0.5~3) | `1.3` |
+| `setClickHaloRadius(v)` | 光晕半径 (30~200) | `96` |
+| `setClickShardFlicker(period, minAlpha?)` | 碎片闪烁周期/最低亮度 | `8, 0.45` |
+| `setSparksCount(n)` | 点击碎片数量 (0~12) | `4` |
+
+#### 圆盘
+
+| 方法 | 说明 | 默认值 |
+|---|---|---|
+| `setDiskSize(v)` | 圆盘增长速度 (10~50) | `26` |
+| `setDiskGlow(radiusMul, alpha?)` | 柔光范围倍数/透明度 | `4.2, 0.13` |
+| `setDiskTiming(maxLife, expandEnd?, colorEnd?, fadeStart?)` | 圆盘动画时序 | `12.5, 0.84, 0.34, 0.78` |
 
 #### 圆环
 
@@ -229,7 +252,7 @@ new BAClickFX(options?: BAClickFXOptions)
 |---|---|---|
 | `setRingRotationSpeed(v)` | 旋转角速度 (0~0.05) | `0.008` |
 | `setRingEmission(v)` | 光晕强度 (0~1) | `0.35` |
-| `setRingWidth(v)` | 弧线宽度 (0.3~3) | `0.9` |
+| `setRingWidth(v, maxValue?)` | 弧线最小/最大宽度 (0.3~3, 1~10) | `0.9, 4.0` |
 | `setRingAlpha(v)` | 圆环透明度 (0.1~1) | `0.9` |
 | `setRingDelay(v)` | 出现延迟 (0~10) | `2` |
 | `setRingMaxLife(v)` | 总时长 (10~60) | `27` |
@@ -238,6 +261,20 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setRingGlowRadiusAdd(v)` | 发光半径 (10~150) | `54` |
 | `setRingSoftGlowRadiusAdd(v)` | 柔光半径 (20~200) | `96` |
 | `setRingRadiusGrowEnd(v)` | 扩张进度阈值 (0.2~1) | `0.66` |
+| `setRingWidthEndMul(v)` | 宽度收缩 (0.05~1) | `0.55` |
+| `setRingWhiteMix(v)` | 偏白程度 (0~1) | `0.75` |
+| `setRingGlowAlpha(v)` | 内层光晕透明度 (0~1) | `0.15` |
+| `setRingSoftGlowAlpha(v)` | 外层光晕透明度 (0~0.5) | `0.08` |
+| `setRingColorFadeStart(v)` | 颜色衰减起点 (0~1) | `0.56` |
+| `setRingColorEndWhiteMix(v)` | 末尾白混合 (0~1) | `0.97` |
+| `setRingArcLength(full, end?)` | 弧长 (0.5~6.28) | `4.71, 1.05` |
+| `setRingSegmentCount(min, max?)` | 弧段数量 (1~8) | `2` |
+| `setRingSegmentDetail(extra, cluster, lenMin, lenMax)` | 弧段细节参数 | `0, 0.38, 0.46, 1.38` |
+| `setRingRotationJitter(min, max?)` | 旋转抖动 (0.1~5) | `0.54, 1.58` |
+| `setRingSmallRadius(min, max?)` | 小半径弧段增长 (0.3~1.5) | `0.75, 0.92` |
+| `setRingRadiusJitter(min, max?)` | 半径抖动 (0~2) | `0.3, 0.8` |
+| `setRingNormalGrow(min, max?)` | 正常段增长 (0.3~2) | `1.0` |
+| `setRingCollapseTiming(growEnd, collapse, fade)` | 收缩时序 | `0.16, 0.16, 1.0` |
 
 #### 拖尾
 
@@ -246,7 +283,7 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrail(enabled)` | 开关拖尾 | `true` |
 | `setTrailAlways(enabled)` | 移动时也显示 | `false` |
 | `setTrailBrightness(a)` | 整体亮度 (0.1~1) | `0.96` |
-| `setTrailWhiteMix(v)` | 偏白程度 (0~1) | `0.08` |
+| `setTrailWhiteMix(v)` | 偏白程度 (0~1) | `0.45` |
 | `setTrailWidth(fast, slow?)` | 基础线宽 (0.5~6) | `3` |
 | `setTrailLength(slow, fast?)` | 轨迹长度上限 | `900, 4200` |
 | `setTrailLife(slow, fast?)` | 消散速度 (5~400) | `22` |
@@ -261,6 +298,17 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrailReleaseDecayMul(v)` | 单独设置松手衰减 | `1.18` |
 | `setTrailSampling(step, max)` | 输入采样间距与最大点数 | `0.85, 80` |
 | `setTrailRenderSampling(step, max)` | 渲染重采样间距与最大点数 | `0.75, 2400` |
+| `setTrailGradientChunk(v)` | 分段渐变长度 (0.3~10) | `1.5` |
+| `setTrailMaxPoints(v)` | 原始点数上限 (500~30000) | `12000` |
+| `setTrailCoreWidth(slow, fast?)` | 中心高光线宽 | `0.3, 0.52` |
+| `setTrailHotWidth(slow, fast?)` | 蓝白热点线宽 | `0.1, 0.24` |
+| `setTrailGlowRadius(v)` | 真实光晕半径倍率 (4~30) | `16` |
+| `setTrailGlowIntensity(v)` | 真实光晕强度 (0.02~0.5) | `0.17` |
+| `setTrailMinDistance(v)` | 采样最小间距 (0.01~5) | `0.06` |
+| `setTrailMaxJumpDistance(v)` | 断笔距离 (50~2000) | `420` |
+| `setTrailMaxCoalescedEvents(v)` | 合并事件上限 (1~100) | `24` |
+| `setTrailRailWidth(slow, fast?)` | 轨道线宽度 | `0.22, 0.36` |
+| `setTrailRibbon(widthMul, alpha?)` | 能量带宽度/透明度 | `0, 0` |
 
 #### 拖尾图层透明度
 
@@ -274,17 +322,19 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrailRailAlpha(v)` | 细轨 | `0.02` |
 | `setTrailGlowWidthMul(v)` | 发光宽度 (0.3~8) | `1.7` |
 | `setTrailSoftGlowWidthMul(v)` | 柔光宽度 (0.5~15) | `2.4` |
+| `setTrailLayerAlpha(main, core, hot, glow, soft, rail)` | 一次性设置所有层透明度 | — |
 
 #### 碎片
 
 | 方法 | 说明 | 默认值 |
 |---|---|---|
-| `setSparksCount(n)` | 点击碎片数量 (0~12) | `4` |
 | `setMaxShards(n)` | 最大碎片数 (0~200) | `38` |
-| `setShardSpacing(d)` | 间距 (20~500) | `220` |
+| `setShardSpacing(d)` | 间距 (20~500) | `120` |
 | `setShardChance(slow, fast)` | 额外概率 | `0.04, 0.18` |
 | `setShardLargeChance(p)` | 大碎片概率 | `0.62` |
 | `setMoveSparkChance(v)` | 移动随机撒点概率 (0~0.05) | `0` |
+| `setTrailShardFlicker(period, minAlpha?, sizePulse?)` | 拖尾碎片闪烁参数 | `8, 0.35, 0.16` |
+| `setTrailShardOffset(min, max?)` | 碎片偏移范围 (0~100) | `2, 36` |
 
 #### 生命周期
 

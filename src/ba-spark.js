@@ -935,10 +935,6 @@ export class BAClickFX
     context.restore();
   }
 
-  // ═══════════════════════════════════════════════════════
-  // 对象池
-  // ═══════════════════════════════════════════════════════
-
   _drawClickRingGlow(context, x, y, radius, color, alpha)
   {
     if (alpha <= 0 || radius <= 0)

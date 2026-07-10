@@ -4,8 +4,6 @@
 // 所有可调参数集中于此，运行时可被 BAClickFX API 修改。
 export const CONFIG = {
   color: [105, 161, 255],
-  // startColor 废弃，现由 drawHalo/drawFilledCircle 根据主题色动态计算浅色版本
-  startColor: [250, 252, 252],
 
   scale: 1.10,
   opacity: 0.5,
@@ -250,16 +248,6 @@ export function createConfig()
 export function getClickScale(config = CONFIG)
 {
   return config.scale * config.click.scaleMul;
-}
-
-/**
- * 点击圆环颜色 — 主题色与白色 1:3 混合，明度极高
- * @param {object} [config=CONFIG]
- * @returns {number[]} [r, g, b]
- */
-export function getClickRingEndColor(config = CONFIG)
-{
-  return mixColor(config.color, [255, 255, 255], config.rings.whiteMix);
 }
 
 /**
