@@ -718,6 +718,8 @@ export class BAClickFX
   // 绘制方法
   // ═══════════════════════════════════════════════════════
 
+  // 通用圆形绘制（轨迹头部圆点等）。光晕由 useFakeGlow 多层半透明圆叠加提供，不使用 shadowBlur。
+  // 原因同 _drawClickDisk：lighter 混合模式下 shadowBlur 在多个效果叠加时产生灰色环。
   _drawCircle(context, x, y, r, color, alpha, blur = 0, useFakeGlow = true)
   {
     if (alpha <= 0 || r <= 0)
@@ -738,12 +740,6 @@ export class BAClickFX
       context.beginPath();
       context.arc(x, y, r + blur * 0.55, 0, Math.PI * 2);
       context.fill();
-    }
-
-    if (this.config.glow.enabled && blur > 0)
-    {
-      context.shadowColor = rgbToCss(color, alpha);
-      context.shadowBlur = blur * 1.0;
     }
 
     context.fillStyle = rgbToCss(color, alpha);
@@ -809,6 +805,10 @@ export class BAClickFX
     context.restore();
   }
 
+  // 圆盘本体填充。光晕由 _drawDiskEdgeGlow（径向渐变）提供，不使用 shadowBlur。
+  // 原因：动画循环设置 globalCompositeOperation = 'lighter'（加法混合），
+  // shadowBlur 在 lighter 模式下会将阴影像素加到画布上，快速连点时多个 ClickWave
+  // 的 shadowBlur 光晕叠加导致 RGB 通道趋向等值，产生去饱和的灰色环。
   _drawClickDisk(context, x, y, radius, color, alpha)
   {
     if (alpha <= 0 || radius <= 0)
@@ -817,12 +817,6 @@ export class BAClickFX
     }
 
     context.save();
-
-    if (this.config.glow.enabled)
-    {
-      context.shadowColor = rgbToCss(color, alpha);
-      context.shadowBlur = radius * 2.5;
-    }
 
     context.fillStyle = rgbToCss(color, alpha);
     context.beginPath();
@@ -858,6 +852,8 @@ export class BAClickFX
     context.restore();
   }
 
+  // 圆环弧线 ribbon 填充。光晕由 _drawClickRingGlow（双层径向渐变）提供，不使用 shadowBlur。
+  // 原因同 _drawClickDisk：lighter 混合模式下 shadowBlur 在快速连点时叠加产生灰色环。
   _drawClickArcRibbon(
     context,
     x,
@@ -886,12 +882,6 @@ export class BAClickFX
     const steps = Math.max(10, Math.min(96, Math.ceil(arcLength / 0.07)));
 
     context.save();
-
-    if (this.config.glow.enabled)
-    {
-      context.shadowColor = rgbToCss(color, alpha);
-      context.shadowBlur = 35 * getClickScale(this.config);
-    }
 
     context.fillStyle = rgbToCss(color, alpha);
     context.beginPath();
