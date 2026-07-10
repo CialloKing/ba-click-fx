@@ -546,6 +546,14 @@ export class BAClickFX
       desynchronized: true,
     });
 
+    // 波效果隔离画布：每个 ClickWave 独立渲染后 source-over 合成到主画布，
+    // 避免多个波的发光元素在 lighter/screen 下直接叠加导致灰色环
+    this.waveCanvas = document.createElement('canvas');
+    this.waveCtx = this.waveCanvas.getContext('2d', {
+      alpha: true,
+      desynchronized: true,
+    });
+
     // ── 状态初始化 ──
     this.width = 0;
     this.height = 0;
@@ -669,6 +677,10 @@ export class BAClickFX
       0,
       0,
     );
+
+    this.waveCanvas.width = Math.floor(this.width * this.dpr);
+    this.waveCanvas.height = Math.floor(this.height * this.dpr);
+    this.waveCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
     this._clearCanvas();
     this._clearTrailCanvas();
@@ -1952,17 +1964,38 @@ export class BAClickFX
     this._updateTrailPoints(trailFrameScale);
     this._renderTrailToCanvas();
 
-    // 使用 source-over 混合：多个 ClickWave 自然叠放而非叠加混合。
-    // 之前用 lighter/screen 时，多波在同一画布上叠加导致不平衡 RGB 通道
-    // （如黄色 R=255 B=26）趋向等值，在光晕边界产生灰色环。
-    // source-over 让每个波独立绘制，各波内部的发光元素仍用 screen
-    // （在 _drawRadialGlow / _drawDiskEdgeGlow 内部设置），单波效果不变。
+    // 每个 ClickWave 独立渲染到 waveCanvas（内部发光用 screen），
+    // 完成后 source-over 合成到主画布。波间完全隔离，不可能产生灰色环。
+    // 之前所有波共享主画布，发光元素的 screen 混合会和前一个波的像素叠加，
+    // 导致不平衡 RGB 通道（如黄色 R=255 B=26）趋向等值产生灰色环。
     this.ctx.save();
     this.ctx.globalCompositeOperation = 'source-over';
 
     this.ctx.drawImage(this.trailCanvas, 0, 0, this.width, this.height);
 
-    this._updateWaves(this.ctx, clickFrameScale);
+    for (let i = this.waves.length - 1; i >= 0; i--)
+    {
+      const wave = this.waves[i];
+
+      // 清除波画布
+      this.waveCtx.save();
+      this.waveCtx.setTransform(1, 0, 0, 1, 0, 0);
+      this.waveCtx.clearRect(0, 0, this.waveCanvas.width, this.waveCanvas.height);
+      this.waveCtx.restore();
+
+      // 在隔离画布上渲染波（内部发光方法自行设置 screen）
+      wave.update(this.waveCtx, clickFrameScale);
+
+      // source-over 合成到主画布
+      this.ctx.drawImage(this.waveCanvas, 0, 0, this.width, this.height);
+
+      if (wave.dead)
+      {
+        this.waves.splice(i, 1);
+        this._releaseWave(wave);
+      }
+    }
+
     this._updateSparks(this.ctx, clickFrameScale, trailFrameScale);
 
     this.ctx.restore();
