@@ -39,10 +39,11 @@ A lightweight **Blue Archive style cursor effect** library for the web. It provi
 - [Online Demo](#online-demo)
 - [Features](#features)
 - [Quick Start](#quick-start)
-- [Three Ways to Use](#three-ways-to-use)
+- [Usage](#usage)
   - [npm Install](#1-npm-install)
   - [CDN](#2-cdn)
   - [Direct Download](#3-direct-download)
+  - [Browser Extension](#4-browser-extension)
 - [Common Usage](#common-usage)
 - [API Reference](#api-reference)
 - [Effect Details](#effect-details)
@@ -95,7 +96,7 @@ npm run build
 
 ---
 
-## Three Ways to Use
+## Usage
 
 ### 1. npm Install
 
@@ -155,6 +156,18 @@ Download build artifacts (`ba-click-fx.js`, `ba-click-fx.iife.js`, `ba-click-fx.
   const spark = new BAClickFX({ target: '#myCanvas' });
 </script>
 ```
+
+### 4. Browser Extension
+
+Don't want to write code? Install the [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension) browser extension to get Blue Archive style click effects and cursor trails on any webpage.
+
+- Enabled by default after install — no scripts needed
+- Toggle click effects and cursor trails independently, disable per-site
+- Adjustable theme color, opacity, effect size, and quality
+- Canvas runs inside Shadow DOM — no layout impact
+- Pure local rendering, no remote requests
+
+See the [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension) repository for details.
 
 ---
 

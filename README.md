@@ -39,10 +39,11 @@ A lightweight **Blue Archive style cursor effect** library for the web. It provi
 - [在线演示](#在线演示)
 - [特性](#特性)
 - [快速开始](#快速开始)
-- [三种使用方式](#三种使用方式)
+- [使用方式](#使用方式)
   - [npm 安装](#1-npm-安装)
   - [CDN 引入](#2-cdn-引入)
   - [直接下载](#3-直接下载)
+  - [浏览器插件](#4-浏览器插件)
 - [常见用法](#常见用法)
 - [API 文档](#api-文档)
 - [效果说明](#效果说明)
@@ -95,7 +96,7 @@ npm run build
 
 ---
 
-## 三种使用方式
+## 使用方式
 
 ### 1. npm 安装
 
@@ -158,6 +159,18 @@ const spark = new BAClickFX({
   const spark = new BAClickFX({ target: '#myCanvas' });
 </script>
 ```
+
+### 4. 浏览器插件
+
+不想写代码？安装 [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension) 浏览器插件，普通网页即可获得蔚蓝档案风格点击特效和光标拖尾。
+
+- 安装后默认开启，无需给每个网站添加脚本
+- 点击特效与光标拖尾可分别开关，可按网站临时禁用
+- 可调整主题颜色、透明度、特效大小和画质
+- Canvas 位于 Shadow DOM 内，不影响页面布局
+- 纯本地渲染，不请求远程资源
+
+详见 [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension) 仓库。
 
 ---
 
