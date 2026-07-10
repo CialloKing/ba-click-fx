@@ -186,14 +186,9 @@ class ClickWave
     const diskProgress = clamp01(this.life / this._engine.config.filledCircle.maxLife);
     const appear = smoothstep(0.01, 0.2, progress);
     const fade = 1 - smoothstep(0.84, 1, progress);
-    // 光晕使用较低白混合（0.6 vs 圆盘 0.95），避免 lighter/screen 模式下多个 ClickWave
-    // 的光晕叠加导致 RGB 通道趋向等值产生灰色异常圆环
-    const startColor = mixColor(this._engine.config.color, [255, 255, 255], 0.6);
-    const color = mixColor(
-      startColor,
-      this._engine.config.color,
-      smoothstep(0.08, this._engine.config.filledCircle.colorEnd, diskProgress),
-    );
+    // 光晕直接使用主题色，不混入白色。混白会让低通道（如黄色 B=26）被拉高，
+    // 多波叠加时低通道追上高通道导致 RGB 等值化产生灰色环。
+    const color = this._engine.config.color;
     const radius = lerp(
       this.getDiskRadius() * 2.1,
       this._engine.config.click.haloRadius * getClickScale(this._engine.config),
@@ -226,8 +221,8 @@ class ClickWave
 
     if (this._engine.config.glow.clickFake || this._engine.config.glow.enabled)
     {
-      // 边缘光晕使用更接近主题色的颜色，避免 lighter 模式下近白色光晕叠加产生灰色环
-      const glowColor = mixColor(color, this._engine.config.color, 0.25);
+      // 光晕直接使用主题色，避免混白导致多波叠加灰色环
+      const glowColor = this._engine.config.color;
       this._engine._drawDiskEdgeGlow(
         context,
         this.x,
@@ -1957,12 +1952,13 @@ export class BAClickFX
     this._updateTrailPoints(trailFrameScale);
     this._renderTrailToCanvas();
 
-    // 使用 screen 混合而非 lighter：screen 按比例叠加（result = 1 - ∏(1 - a_i)），
-    // 不会像 lighter 加法那样让不平衡的 RGB 通道裁剪后产生灰色环。
-    // 例如黄色 [255, 224, 26] 在 lighter 下多波叠加时 R/G 先裁剪到 255 但 B 还在累加，
-    // 在裁剪边界半径处形成去饱和灰色环；screen 则渐进趋近白色，无硬裁剪边界。
+    // 使用 source-over 混合：多个 ClickWave 自然叠放而非叠加混合。
+    // 之前用 lighter/screen 时，多波在同一画布上叠加导致不平衡 RGB 通道
+    // （如黄色 R=255 B=26）趋向等值，在光晕边界产生灰色环。
+    // source-over 让每个波独立绘制，各波内部的发光元素仍用 screen
+    // （在 _drawRadialGlow / _drawDiskEdgeGlow 内部设置），单波效果不变。
     this.ctx.save();
-    this.ctx.globalCompositeOperation = 'screen';
+    this.ctx.globalCompositeOperation = 'source-over';
 
     this.ctx.drawImage(this.trailCanvas, 0, 0, this.width, this.height);
 
