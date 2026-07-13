@@ -347,6 +347,26 @@
         <input type="range" id="ctrlRingJitterMax" min="0" max="2" step="0.05" value="0.8" />
       </label>
 
+      <h4 class="sub-heading">旋转随机</h4>
+      <label class="ctrl">
+        <span>旋转抖动下限 <output id="outRingRotJitterMin">0.54</output></span>
+        <input type="range" id="ctrlRingRotJitterMin" min="0.1" max="2" step="0.05" value="0.54" />
+      </label>
+      <label class="ctrl">
+        <span>旋转抖动上限 <output id="outRingRotJitterMax">1.58</output></span>
+        <input type="range" id="ctrlRingRotJitterMax" min="0.1" max="3" step="0.05" value="1.58" />
+      </label>
+
+      <h4 class="sub-heading">内径</h4>
+      <label class="ctrl">
+        <span>内径下限倍率 <output id="outRingSmallRadiusMin">0.75</output></span>
+        <input type="range" id="ctrlRingSmallRadiusMin" min="0.3" max="1" step="0.05" value="0.75" />
+      </label>
+      <label class="ctrl">
+        <span>内径上限倍率 <output id="outRingSmallRadiusMax">0.92</output></span>
+        <input type="range" id="ctrlRingSmallRadiusMax" min="0.3" max="1" step="0.05" value="0.92" />
+      </label>
+
       <h4 class="sub-heading">正常段增长</h4>
       <label class="ctrl">
         <span>增长率下限 <output id="outRingNormalGrowMin">1.00</output></span>
@@ -369,6 +389,12 @@
       <label class="ctrl">
         <span>淡出起点 <output id="outRingFadeStart">1.00</output></span>
         <input type="range" id="ctrlRingFadeStart" min="0.1" max="1" step="0.05" value="1.0" />
+      </label>
+
+      <h4 class="sub-heading">扩张终点</h4>
+      <label class="ctrl">
+        <span>扩张终点比例 <output id="outRingRadiusGrowEnd">0.66</output></span>
+        <input type="range" id="ctrlRingRadiusGrowEnd" min="0.3" max="1" step="0.05" value="0.66" />
       </label>
     </section>
 
@@ -458,6 +484,46 @@
       <label class="ctrl">
         <span>合并事件上限 <output id="outTrailMaxCoalesced">24</output></span>
         <input type="range" id="ctrlTrailMaxCoalesced" min="1" max="100" step="1" value="24" />
+      </label>
+
+      <h4 class="sub-heading">采样配置</h4>
+      <label class="ctrl">
+        <span>采样步长 <output id="outTrailSampleStep">0.85</output></span>
+        <input type="range" id="ctrlTrailSampleStep" min="0.1" max="3" step="0.05" value="0.85" />
+      </label>
+      <label class="ctrl">
+        <span>采样插值上限 <output id="outTrailSampleMaxPts">80</output></span>
+        <input type="range" id="ctrlTrailSampleMaxPts" min="10" max="200" step="5" value="80" />
+      </label>
+      <label class="ctrl">
+        <span>渲染步长 <output id="outTrailRenderStep">0.75</output></span>
+        <input type="range" id="ctrlTrailRenderStep" min="0.1" max="3" step="0.05" value="0.75" />
+      </label>
+      <label class="ctrl">
+        <span>渲染点数上限 <output id="outTrailRenderMaxPts">2400</output></span>
+        <input type="range" id="ctrlTrailRenderMaxPts" min="500" max="6000" step="100" value="2400" />
+      </label>
+      <label class="ctrl">
+        <span>渐变分段 <output id="outTrailGradientChunk">1.50</output></span>
+        <input type="range" id="ctrlTrailGradientChunk" min="0.5" max="5" step="0.1" value="1.5" />
+      </label>
+      <label class="ctrl">
+        <span>最大轨迹点数 <output id="outTrailMaxPoints">12000</output></span>
+        <input type="range" id="ctrlTrailMaxPoints" min="2000" max="30000" step="500" value="12000" />
+      </label>
+
+      <h4 class="sub-heading">移动碎片</h4>
+      <label class="ctrl">
+        <span>移动碎片概率 <output id="outMoveSparkChance">0.00</output></span>
+        <input type="range" id="ctrlMoveSparkChance" min="0" max="0.1" step="0.005" value="0" />
+      </label>
+      <label class="ctrl">
+        <span>碎片偏移下限 <output id="outTrailShardOffsetMin">2</output></span>
+        <input type="range" id="ctrlTrailShardOffsetMin" min="0" max="30" step="1" value="2" />
+      </label>
+      <label class="ctrl">
+        <span>碎片偏移上限 <output id="outTrailShardOffsetMax">36</output></span>
+        <input type="range" id="ctrlTrailShardOffsetMax" min="5" max="60" step="1" value="36" />
       </label>
     </section>
 
