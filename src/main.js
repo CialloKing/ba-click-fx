@@ -171,6 +171,20 @@ const I18N = {
     labelRingClusterChance: '聚拢概率',
     labelRingLenMulMin: '弧长倍率下限',
     labelRingLenMulMax: '弧长倍率上限',
+    labelRingRotJitterMin: '旋转抖动下限',
+    labelRingRotJitterMax: '旋转抖动上限',
+    labelRingSmallRadiusMin: '内径下限倍率',
+    labelRingSmallRadiusMax: '内径上限倍率',
+    labelRingRadiusGrowEnd: '扩张终点比例',
+    labelMoveSparkChance: '移动碎片概率',
+    labelTrailShardOffsetMin: '碎片偏移下限',
+    labelTrailShardOffsetMax: '碎片偏移上限',
+    labelTrailSampleStep: '采样步长',
+    labelTrailSampleMaxPts: '采样插值上限',
+    labelTrailRenderStep: '渲染步长',
+    labelTrailRenderMaxPts: '渲染点数上限',
+    labelTrailGradientChunk: '渐变分段',
+    labelTrailMaxPoints: '最大轨迹点数',
     labelRingJitterMin: '抖动下限',
     labelRingJitterMax: '抖动上限',
     labelRingNormalGrowMin: '增长率下限',
@@ -302,6 +316,20 @@ const I18N = {
     labelRingClusterChance: 'Cluster Chance',
     labelRingLenMulMin: 'Arc Length Min',
     labelRingLenMulMax: 'Arc Length Max',
+    labelRingRotJitterMin: 'Rot Jitter Min',
+    labelRingRotJitterMax: 'Rot Jitter Max',
+    labelRingSmallRadiusMin: 'Inner Radius Min',
+    labelRingSmallRadiusMax: 'Inner Radius Max',
+    labelRingRadiusGrowEnd: 'Radius Grow End',
+    labelMoveSparkChance: 'Move Spark Chance',
+    labelTrailShardOffsetMin: 'Shard Offset Min',
+    labelTrailShardOffsetMax: 'Shard Offset Max',
+    labelTrailSampleStep: 'Sample Step',
+    labelTrailSampleMaxPts: 'Max Interp Points',
+    labelTrailRenderStep: 'Render Step',
+    labelTrailRenderMaxPts: 'Max Render Points',
+    labelTrailGradientChunk: 'Gradient Chunk',
+    labelTrailMaxPoints: 'Max Trail Points',
     labelRingJitterMin: 'Jitter Min',
     labelRingJitterMax: 'Jitter Max',
     labelRingNormalGrowMin: 'Grow Min',
@@ -412,6 +440,14 @@ function switchLanguage(lang)
     ctrlRingMaxW: 'labelRingMaxW',
     ctrlRingExtraChance: 'labelRingExtraChance', ctrlRingClusterChance: 'labelRingClusterChance',
     ctrlRingLenMulMin: 'labelRingLenMulMin', ctrlRingLenMulMax: 'labelRingLenMulMax',
+    ctrlRingRotJitterMin: 'labelRingRotJitterMin', ctrlRingRotJitterMax: 'labelRingRotJitterMax',
+    ctrlRingSmallRadiusMin: 'labelRingSmallRadiusMin', ctrlRingSmallRadiusMax: 'labelRingSmallRadiusMax',
+    ctrlRingRadiusGrowEnd: 'labelRingRadiusGrowEnd',
+    ctrlMoveSparkChance: 'labelMoveSparkChance',
+    ctrlTrailShardOffsetMin: 'labelTrailShardOffsetMin', ctrlTrailShardOffsetMax: 'labelTrailShardOffsetMax',
+    ctrlTrailSampleStep: 'labelTrailSampleStep', ctrlTrailSampleMaxPts: 'labelTrailSampleMaxPts',
+    ctrlTrailRenderStep: 'labelTrailRenderStep', ctrlTrailRenderMaxPts: 'labelTrailRenderMaxPts',
+    ctrlTrailGradientChunk: 'labelTrailGradientChunk', ctrlTrailMaxPoints: 'labelTrailMaxPoints',
     ctrlRingJitterMin: 'labelRingJitterMin', ctrlRingJitterMax: 'labelRingJitterMax',
     ctrlRingNormalGrowMin: 'labelRingNormalGrowMin', ctrlRingNormalGrowMax: 'labelRingNormalGrowMax',
     ctrlRingGrowEnd: 'labelRingGrowEnd', ctrlRingCollapseStart: 'labelRingCollapseStart',
@@ -572,6 +608,20 @@ document.getElementById('langToggle').addEventListener('click', () =>
       ringClusterChance: c.rings.segmentClusterChance,
       ringLenMulMin: c.rings.lenMulMin,
       ringLenMulMax: c.rings.lenMulMax,
+      ringRotJitterMin: c.rings.rotationJitterMin,
+      ringRotJitterMax: c.rings.rotationJitterMax,
+      ringSmallRadiusMin: c.rings.smallRadiusMin,
+      ringSmallRadiusMax: c.rings.smallRadiusMax,
+      ringRadiusGrowEnd: c.rings.radiusGrowEnd,
+      moveSparkChance: c.trail.moveSparkChance,
+      trailShardOffsetMin: c.trail.shardOffsetMin,
+      trailShardOffsetMax: c.trail.shardOffsetMax,
+      trailSampleStep: c.trail.sampleStep,
+      trailSampleMaxPts: c.trail.maxInterpolatedPoints,
+      trailRenderStep: c.trail.renderStep,
+      trailRenderMaxPts: c.trail.renderMaxPoints,
+      trailGradientChunk: c.trail.gradientChunk,
+      trailMaxPoints: c.trail.maxPoints,
       ringJitterMin: c.rings.radiusJitterMin,
       ringJitterMax: c.rings.radiusJitterMax,
       ringNormalGrowMin: c.rings.segmentRadiusGrowMin,
@@ -1211,6 +1261,29 @@ document.getElementById('langToggle').addEventListener('click', () =>
     setVal('ctrlRingLenMulMin', 'outRingLenMulMin', DEFAULTS.ringLenMulMin);
     setVal('ctrlRingLenMulMax', 'outRingLenMulMax', DEFAULTS.ringLenMulMax);
     api.setRingSegmentDetail(DEFAULTS.ringExtraChance, DEFAULTS.ringClusterChance, DEFAULTS.ringLenMulMin, DEFAULTS.ringLenMulMax);
+    setVal('ctrlRingRotJitterMin', 'outRingRotJitterMin', DEFAULTS.ringRotJitterMin);
+    api.setRingRotationJitter(DEFAULTS.ringRotJitterMin, DEFAULTS.ringRotJitterMax);
+    setVal('ctrlRingRotJitterMax', 'outRingRotJitterMax', DEFAULTS.ringRotJitterMax);
+    setVal('ctrlRingSmallRadiusMin', 'outRingSmallRadiusMin', DEFAULTS.ringSmallRadiusMin);
+    api.setRingSmallRadius(DEFAULTS.ringSmallRadiusMin, DEFAULTS.ringSmallRadiusMax);
+    setVal('ctrlRingSmallRadiusMax', 'outRingSmallRadiusMax', DEFAULTS.ringSmallRadiusMax);
+    setVal('ctrlRingRadiusGrowEnd', 'outRingRadiusGrowEnd', DEFAULTS.ringRadiusGrowEnd);
+    api.setRingRadiusGrowEnd(DEFAULTS.ringRadiusGrowEnd);
+    setVal('ctrlMoveSparkChance', 'outMoveSparkChance', DEFAULTS.moveSparkChance);
+    api.setMoveSparkChance(DEFAULTS.moveSparkChance);
+    setVal('ctrlTrailShardOffsetMin', 'outTrailShardOffsetMin', DEFAULTS.trailShardOffsetMin);
+    api.setTrailShardOffset(DEFAULTS.trailShardOffsetMin, DEFAULTS.trailShardOffsetMax);
+    setVal('ctrlTrailShardOffsetMax', 'outTrailShardOffsetMax', DEFAULTS.trailShardOffsetMax);
+    setVal('ctrlTrailSampleStep', 'outTrailSampleStep', DEFAULTS.trailSampleStep);
+    api.setTrailSampling(DEFAULTS.trailSampleStep, DEFAULTS.trailSampleMaxPts);
+    setVal('ctrlTrailSampleMaxPts', 'outTrailSampleMaxPts', DEFAULTS.trailSampleMaxPts);
+    setVal('ctrlTrailRenderStep', 'outTrailRenderStep', DEFAULTS.trailRenderStep);
+    api.setTrailRenderSampling(DEFAULTS.trailRenderStep, DEFAULTS.trailRenderMaxPts);
+    setVal('ctrlTrailRenderMaxPts', 'outTrailRenderMaxPts', DEFAULTS.trailRenderMaxPts);
+    setVal('ctrlTrailGradientChunk', 'outTrailGradientChunk', DEFAULTS.trailGradientChunk);
+    api.setTrailGradientChunk(DEFAULTS.trailGradientChunk);
+    setVal('ctrlTrailMaxPoints', 'outTrailMaxPoints', DEFAULTS.trailMaxPoints);
+    api.setTrailMaxPoints(DEFAULTS.trailMaxPoints);
     setVal('ctrlRingJitterMin', 'outRingJitterMin', DEFAULTS.ringJitterMin);
     setVal('ctrlRingJitterMax', 'outRingJitterMax', DEFAULTS.ringJitterMax);
     api.setRingRadiusJitter(DEFAULTS.ringJitterMin, DEFAULTS.ringJitterMax);
