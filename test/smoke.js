@@ -29,6 +29,7 @@ class MockCanvas extends MockHTMLElement
     this.width = 0;
     this.height = 0;
     this.parentNode = null;
+    this.rectReadCount = 0;
   }
 
   getContext()
@@ -38,22 +39,35 @@ class MockCanvas extends MockHTMLElement
 
   getBoundingClientRect()
   {
+    this.rectReadCount++;
+
     return {
+      left: 0,
+      top: 0,
       width: 320,
       height: 240,
     };
   }
+
+  resetRectReadCount()
+  {
+    this.rectReadCount = 0;
+  }
 }
 
-function createMockContext()
+function createMockContext(commands)
 {
   return new Proxy({}, {
     get(target, prop)
     {
       if (!(prop in target))
       {
-        target[prop] = () =>
+        target[prop] = (...args) =>
         {
+          if (commands)
+          {
+            commands.push([String(prop), ...args]);
+          }
         };
       }
 
@@ -269,6 +283,7 @@ else
       color: [1, 2, 3],
       scale: 2,
     });
+    const initialConfig = first.getConfig();
 
     first.setColor(10, 20, 30);
     assert(
@@ -449,6 +464,10 @@ else
     assert(resetCfg.scale === 1.10, `resetConfig 后 scale 应为 1.10，实际 ${resetCfg.scale}`);
     assert(resetCfg.trail.whiteMix === 0.45, `resetConfig 后 trail.whiteMix 应为 0.45，实际 ${resetCfg.trail.whiteMix}`);
     assert(resetCfg.color.join(',') === '105,161,255', 'resetConfig 后 color 应为默认值');
+    assert(
+      JSON.stringify(resetCfg) === JSON.stringify(initialConfig),
+      'resetConfig 后全部默认配置应保持不变',
+    );
     assert(second.getConfig().scale === 1.8, 'resetConfig 不应影响其他实例');
 
     // ═══════════════════════════════════════════════
@@ -466,6 +485,80 @@ else
 
     configCopy._testMarker = true;
     assert(liveConfig._testMarker === undefined, '修改 getConfig() 副本不应影响 CONFIG');
+
+    // ═══════════════════════════════════════════════
+    // 测试 8: 无视觉差异的热路径优化
+    // ═══════════════════════════════════════════════
+    console.log('8. 无视觉差异的热路径优化');
+
+    first.setTrailAlways(true);
+    first.setTrailMaxCoalescedEvents(24);
+    first.clearTrail();
+    first.canvas.resetRectReadCount();
+    first._handlePointerMove({
+      getCoalescedEvents()
+      {
+        return [
+          { clientX: 10, clientY: 20, timeStamp: 10 },
+          { clientX: 20, clientY: 30, timeStamp: 20 },
+          { clientX: 30, clientY: 40, timeStamp: 30 },
+        ];
+      },
+    });
+    assert(
+      first.canvas.rectReadCount === 1,
+      `一批合并事件应只读取一次画布矩形，实际 ${first.canvas.rectReadCount}`,
+    );
+
+    first.setTrailMaxCoalescedEvents(1);
+    first.clearTrail();
+    let coalescedError = null;
+
+    try
+    {
+      first._handlePointerMove({
+        getCoalescedEvents()
+        {
+          return [
+            { clientX: 50, clientY: 60, timeStamp: 40 },
+            { clientX: 90, clientY: 70, timeStamp: 50 },
+          ];
+        },
+      });
+    }
+    catch (error)
+    {
+      coalescedError = error;
+    }
+
+    assert(coalescedError === null, '合并事件上限为 1 时不应抛出异常');
+    assert(
+      first.lastTrailPos?.x === 90 && first.lastTrailPos?.y === 70,
+      '合并事件上限为 1 时应保留最后一个事件坐标',
+    );
+
+    const drawCommands = [];
+    const drawContext = createMockContext(drawCommands);
+
+    first._drawTriangle(drawContext, 10, 20, 2, 0.25, [100, 150, 255], 0.5);
+
+    const expectedDrawCommands = [
+      ['save'],
+      ['translate', 10, 20],
+      ['rotate', 0.25],
+      ['beginPath'],
+      ['moveTo', 0, -2],
+      ['lineTo', Math.sqrt(3), 1],
+      ['lineTo', -Math.sqrt(3), 1],
+      ['closePath'],
+      ['fill'],
+      ['restore'],
+    ];
+
+    assert(
+      JSON.stringify(drawCommands) === JSON.stringify(expectedDrawCommands),
+      '等边三角的 Canvas 路径指令与坐标应保持不变',
+    );
 
     // 清理
     first.destroy();

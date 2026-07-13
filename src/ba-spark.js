@@ -108,6 +108,20 @@ function getTrailStopValue(stops, progress, fallback = 0)
   return clamp01(stops[stops.length - 1][1]);
 }
 
+function drawEquilateralPath(context, triangleSize)
+{
+  // 路径函数移出粒子热循环，避免每个粒子每帧重复创建相同的闭包。
+  // 指令顺序和计算公式必须保持不变，确保渲染结果完全一致。
+  const halfWidth = triangleSize * Math.sqrt(3) * 0.5;
+  const baseY = triangleSize * 0.5;
+
+  context.beginPath();
+  context.moveTo(0, -triangleSize);
+  context.lineTo(halfWidth, baseY);
+  context.lineTo(-halfWidth, baseY);
+  context.closePath();
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 内部类
 // ═══════════════════════════════════════════════════════════════════════════
@@ -587,7 +601,6 @@ export class BAClickFX
     this.running = false;
     this._resizeTimer = 0;
     this._renderPointCache = [];
-    this._radialGradCache = new Map();
 
     // ── 启动 ──
     this._onResize = this._debouncedResize.bind(this);
@@ -777,24 +790,12 @@ export class BAClickFX
       return;
     }
 
-    const drawEquilateralPath = (triangleSize) =>
-    {
-      const halfWidth = triangleSize * Math.sqrt(3) * 0.5;
-      const baseY = triangleSize * 0.5;
-
-      context.beginPath();
-      context.moveTo(0, -triangleSize);
-      context.lineTo(halfWidth, baseY);
-      context.lineTo(-halfWidth, baseY);
-      context.closePath();
-    };
-
     context.save();
     context.translate(x, y);
     context.rotate(rotation);
 
     context.fillStyle = rgbToCss(color, alpha);
-    drawEquilateralPath(size);
+    drawEquilateralPath(context, size);
     context.fill();
 
     context.restore();
@@ -1913,22 +1914,6 @@ export class BAClickFX
   // 动画循环
   // ═══════════════════════════════════════════════════════
 
-  _updateWaves(context, frameScale)
-  {
-    for (let i = this.waves.length - 1; i >= 0; i--)
-    {
-      const wave = this.waves[i];
-
-      wave.update(context, frameScale);
-
-      if (wave.dead)
-      {
-        this.waves.splice(i, 1);
-        this._releaseWave(wave);
-      }
-    }
-  }
-
   _updateSparks(context, clickFrameScale, trailFrameScale)
   {
     for (let i = this.sparks.length - 1; i >= 0; i--)
@@ -2028,10 +2013,8 @@ export class BAClickFX
   // 预分配平滑坐标对象，避免每帧创建新对象
   _smoothPosCache = { x: 0, y: 0 };
 
-  _getPointerPos(event)
+  _getPointerPos(event, rect = this.canvas.getBoundingClientRect())
   {
-    const rect = this.canvas.getBoundingClientRect();
-
     return {
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
@@ -2053,16 +2036,25 @@ export class BAClickFX
     if (events.length > this.config.trail.maxCoalescedEvents)
     {
       const max = this.config.trail.maxCoalescedEvents;
-      const sampled = [];
 
-      for (let i = 0; i < max; i++)
+      if (max === 1)
       {
-        const index = Math.round((events.length - 1) * (i / (max - 1)));
-
-        sampled.push(events[index]);
+        // 上限为 1 时通用采样公式的分母为 0；保留最后一个事件以延续最新坐标。
+        events = [events[events.length - 1]];
       }
+      else
+      {
+        const sampled = [];
 
-      events = sampled;
+        for (let i = 0; i < max; i++)
+        {
+          const index = Math.round((events.length - 1) * (i / (max - 1)));
+
+          sampled.push(events[index]);
+        }
+
+        events = sampled;
+      }
     }
 
     const shouldDrawTrail = this.config.trail.always || this.isDown;
@@ -2077,13 +2069,15 @@ export class BAClickFX
     let latestPos = null;
     let frameNewSteps = 0;
     const MAX_NEW_STEPS = 1024;
+    // 同一批合并事件在一次同步分发中共享画布位置，只读取一次可避免重复触发布局查询。
+    const canvasRect = this.canvas.getBoundingClientRect();
 
     for (const e of events)
     {
       // 本帧插值点数已接近上限，跳过剩余合并事件的轨迹插值
       const skipTrail = frameNewSteps >= MAX_NEW_STEPS;
 
-      let pos = this._getPointerPos(e);
+      let pos = this._getPointerPos(e, canvasRect);
 
       latestPos = pos;
 
