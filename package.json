@@ -1,6 +1,6 @@
 {
   "name": "ba-click-fx",
-  "version": "1.1.7",
+  "version": "1.1.10",
   "description": "Blue Archive click effect and cursor trail animation for web. 蔚蓝档案风格网页鼠标点击特效、触摸特效、粒子圆环和拖尾动画库。",
   "author": "CialloKing",
   "license": "MIT",
@@ -65,9 +65,18 @@
     "dev": "vite",
     "build": "node scripts/build.mjs",
     "preview": "vite preview",
-    "test": "node test/smoke.js"
+    "test": "node test/smoke.js",
+    "test:source": "node test/smoke.js --source",
+    "verify:sync": "node scripts/verify-sync.cjs",
+    "verify:package": "node scripts/verify-package.mjs",
+    "verify:pack": "node scripts/verify-pack.mjs",
+    "verify:tarball": "node scripts/verify-tarball.mjs",
+    "check": "npm run build && npm run test:source && npm test && npm run verify:sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run check"
   },
   "devDependencies": {
+    "typescript": "^7.0.2",
     "vite": "^8.1.1"
   }
 }

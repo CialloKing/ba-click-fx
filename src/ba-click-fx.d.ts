@@ -1,5 +1,203 @@
-﻿declare module 'ba-click-fx' {
-  export interface BAClickFXOptions {
+﻿declare module 'ba-click-fx'
+{
+  /** Canvas 边界外的拖尾输入策略 */
+  export type TrailOutsideBehavior = 'auto' | 'pause-connect' | 'continue';
+
+  /** Canvas backing store 的画质与总像素预算。 */
+  export interface BAClickFXRenderOptions
+  {
+    /** 最大设备像素比；默认 1，与 v1.1.8 相同。 */
+    maxDpr?: number;
+    /** 启用像素预算时允许使用的最低渲染倍率；默认 0.5。 */
+    minRenderScale?: number;
+    /** 拖尾离屏 Canvas 相对主 Canvas 的渲染倍率；默认 1。 */
+    trailRenderScale?: number;
+    /** 所有 backing store 的总像素预算；null 表示不启用预算，默认 null。 */
+    maxBackingPixels?: number | null;
+  }
+
+  /** 当前 Canvas 尺寸、实际渲染倍率和理论 backing store 开销快照。 */
+  export interface BAClickFXRenderMetrics
+  {
+    /** Canvas 的 CSS 布局宽度。 */
+    readonly cssWidth: number;
+    /** Canvas 的 CSS 布局高度。 */
+    readonly cssHeight: number;
+    /** 浏览器报告的设备像素比。 */
+    readonly devicePixelRatio: number;
+    /** 应用 maxDpr 与像素预算后的实际主渲染像素比。 */
+    readonly effectivePixelRatio: number;
+    /** 当前实际拖尾渲染倍率。 */
+    readonly trailRenderScale: number;
+    /** 主 Canvas 与内部 Canvas backing store 的总像素数。 */
+    readonly totalBackingPixels: number;
+    /** 按每像素 4 字节估算的理论 RGBA 下限，不代表浏览器实际内存占用。 */
+    readonly nominalRgbaBytes: number;
+    /** 当前总像素预算；null 表示未启用。 */
+    readonly maxBackingPixels: number | null;
+    /** 达到最低渲染倍率后是否仍超过预算。 */
+    readonly budgetExceeded: boolean;
+  }
+
+  /** 圆盘绘制与生命周期配置。 */
+  export interface BAClickFXFilledCircleConfig
+  {
+    rAddRate: number;
+    maxLife: number;
+    expandEnd: number;
+    colorEnd: number;
+    fadeStart: number;
+    glowRadiusMul: number;
+    glowAlpha: number;
+  }
+
+  /** 点击波纹与点击碎片配置。 */
+  export interface BAClickFXClickConfig
+  {
+    scaleMul: number;
+    totalLife: number;
+    haloRadius: number;
+    shardFlickerPeriod: number;
+    shardFlickerMinAlpha: number;
+  }
+
+  /** 圆环绘制、随机分段和生命周期配置。 */
+  export interface BAClickFXRingsConfig
+  {
+    delay: number;
+    maxLife: number;
+    rotationSpeed: number;
+    baseRadiusMul: number;
+    radiusGrowEnd: number;
+    postDiskGrow: number;
+    emissionAlpha: number;
+    glowRadiusAdd: number;
+    glowAlpha: number;
+    softGlowRadiusAdd: number;
+    softGlowAlpha: number;
+    segmentCountMin: number;
+    segmentCountMax: number;
+    segmentExtraChance: number;
+    segmentClusterChance: number;
+    lenFull: number;
+    lenEnd: number;
+    lenMulMin: number;
+    lenMulMax: number;
+    radiusJitterMin: number;
+    radiusJitterMax: number;
+    segmentRadiusGrowSmallMin: number;
+    segmentRadiusGrowSmallMax: number;
+    segmentRadiusGrowMin: number;
+    segmentRadiusGrowMax: number;
+    rotationMulMin: number;
+    rotationMulMax: number;
+    growEnd: number;
+    collapseStart: number;
+    fadeStart: number;
+    whiteMix: number;
+    colorFadeStart: number;
+    colorEndWhiteMix: number;
+    minW: number;
+    maxW: number;
+    widthEndMul: number;
+    alpha: number;
+  }
+
+  /** 拖尾输入、重采样、分层绘制、衰减和碎片配置。 */
+  export interface BAClickFXTrailConfig
+  {
+    enabled: boolean;
+    always: boolean;
+    outsideBehavior: TrailOutsideBehavior;
+    minDistance: number;
+    sampleStep: number;
+    maxInterpolatedPoints: number;
+    maxCoalescedEvents: number;
+    maxJumpDistance: number;
+    smoothFactor: number;
+    renderStep: number;
+    renderMaxPoints: number;
+    gradientChunkLength: number;
+    lengthSlow: number;
+    lengthFast: number;
+    maxPoints: number;
+    lifeSlow: number;
+    lifeFast: number;
+    tailDecayMul: number;
+    headDecayMul: number;
+    releaseDecayMul: number;
+    speedDecay: number;
+    baseWidthSlow: number;
+    baseWidthFast: number;
+    coreWidthSlow: number;
+    coreWidthFast: number;
+    hotWidthSlow: number;
+    hotWidthFast: number;
+    ribbonWidthMul: number;
+    glowWidthMul: number;
+    softGlowWidthMul: number;
+    railWidthSlow: number;
+    railWidthFast: number;
+    alpha: number;
+    whiteMix: number;
+    mainAlpha: number;
+    ribbonAlpha: number;
+    coreAlpha: number;
+    hotAlpha: number;
+    glowAlpha: number;
+    softGlowAlpha: number;
+    railAlpha: number;
+    speedMin: number;
+    speedMax: number;
+    shardSpacing: number;
+    shardChanceSlow: number;
+    shardChanceFast: number;
+    shardOffsetMin: number;
+    shardOffsetMax: number;
+    shardLargeChance: number;
+    maxSparkParticles: number;
+    shardFlickerPeriod: number;
+    shardFlickerMinAlpha: number;
+    shardFlickerSizePulse: number;
+    moveSparkChance: number;
+    glowRadiusMul: number;
+    glowIntensity: number;
+  }
+
+  /** 发光实现开关配置。 */
+  export interface BAClickFXGlowConfig
+  {
+    enabled: boolean;
+    fake: boolean;
+    clickFake: boolean;
+  }
+
+  /** `getConfig()` 返回的完整实例配置。 */
+  export interface BAClickFXConfig
+  {
+    color: [number, number, number];
+    scale: number;
+    opacity: number;
+    clickEnabled: boolean;
+    clickSpeed: number;
+    trailSpeed: number;
+    maxDpr: number;
+    minRenderScale: number;
+    maxBackingPixels: number | null;
+    trailRenderScale: number;
+    touchAction: 'auto' | 'none' | 'pan-y' | 'pan-x' | 'manipulation';
+    maxDeltaMs: number;
+    baseFrameMs: number;
+    filledCircle: BAClickFXFilledCircleConfig;
+    click: BAClickFXClickConfig;
+    rings: BAClickFXRingsConfig;
+    sparksCount: number;
+    trail: BAClickFXTrailConfig;
+    glow: BAClickFXGlowConfig;
+  }
+
+  export interface BAClickFXOptions
+  {
     /** 挂载目标：CSS 选择器或已有 <canvas> 元素。不传则自动创建全屏 Canvas */
     target?: string | HTMLElement;
     /** 主题颜色 [r, g, b]，默认 [105, 161, 255] */
@@ -16,12 +214,18 @@
     clickEnabled?: boolean;
     /** Canvas touch-action CSS 属性，默认 'auto' */
     touchAction?: 'auto' | 'none' | 'pan-y' | 'pan-x' | 'manipulation';
+    /** Canvas 画质、缩放下限与可选总像素预算。 */
+    render?: BAClickFXRenderOptions;
   }
 
-  export class BAClickFX {
+  export class BAClickFX
+  {
     constructor(options?: BAClickFXOptions);
 
-    /** 销毁实例：移除 Canvas、事件监听、停止动画 */
+    /**
+     * 幂等销毁实例并释放监听器、RAF、定时器、Pointer Capture 和内部 Canvas。
+     * 自动创建的主 Canvas 会被移除；调用方传入的 Canvas 节点和尺寸会保留。
+     */
     destroy(): void;
 
     // ═══ 基础设置 ═══
@@ -38,6 +242,12 @@
     setDpr(maxDpr: number): void;
     /** 拖尾离屏 Canvas 渲染缩放 0.5~1 */
     setTrailRenderScale(value: number): void;
+    /** 批量更新 Canvas 渲染选项并重新计算 backing store 尺寸。 */
+    setRenderOptions(options: BAClickFXRenderOptions): void;
+    /** 立即按当前 CSS 布局尺寸和 DPR 刷新 Canvas；销毁后调用无操作。 */
+    refreshSize(): void;
+    /** 获取当前渲染尺寸、预算状态和理论 RGBA 开销快照。 */
+    getRenderMetrics(): BAClickFXRenderMetrics;
     /** Canvas touch-action CSS 属性 */
     setTouchAction(value?: 'auto' | 'none' | 'pan-y' | 'pan-x' | 'manipulation'): void;
 
@@ -52,7 +262,9 @@
 
     // ═══ 点击特效 ═══
 
-    /** 开关点击特效 */
+    /**
+     * 开关后续点击特效；关闭不会中断已经开始的点击动画，也不影响拖尾。
+     */
     setClick(enabled: boolean): void;
     /** 点击特效总帧数 10~60 */
     setClickTotalLife(value?: number): void;
@@ -146,10 +358,18 @@
 
     // ═══ 拖尾 ═══
 
-    /** 开关拖尾 */
+    /**
+     * 开关拖尾；关闭会立即停止采样并清理拖尾轨迹和拖尾碎片，点击特效不受影响。
+     */
     setTrail(enabled: boolean): void;
     /** 移动时也显示拖尾 */
     setTrailAlways(enabled: boolean): void;
+    /**
+     * 设置 Canvas 边界外的拖尾策略。
+     * auto 保持浏览器原始分发行为；pause-connect 忽略边界外样本并在重新进入时连接；
+     * continue 在下一次有效按压时尝试 Pointer Capture，但不提供系统级全局鼠标追踪。
+     */
+    setTrailOutsideBehavior(mode: TrailOutsideBehavior): void;
     /** 拖尾整体亮度 0.1~1 */
     setTrailBrightness(value?: number): void;
     /** 拖尾偏白程度 0~1 */
@@ -244,7 +464,9 @@
 
     // ═══ 操作 ═══
 
-    /** 清除所有拖尾轨迹 */
+    /**
+     * 清除拖尾轨迹和拖尾碎片，但保留拖尾开关、当前按压状态及全部点击特效。
+     */
     clearTrail(): void;
     /**
      * 手动触发点击特效
@@ -253,12 +475,15 @@
      */
     boom(x?: number, y?: number): void;
     /** 获取当前配置的深拷贝 */
-    getConfig(): object;
+    getConfig(): BAClickFXConfig;
     /** 恢复所有配置为默认值 */
     resetConfig(): void;
 
-    /** 当前实例的只读配置引用 */
-    readonly CONFIG: object;
+    /**
+     * @deprecated 该属性暴露实例内部的可变引用，会绕过 setter 校验和尺寸刷新副作用。
+     * 请使用 getConfig() 读取快照，并通过 setter 或 setRenderOptions() 修改配置。
+     */
+    readonly CONFIG: BAClickFXConfig;
   }
 
   export default BAClickFX;

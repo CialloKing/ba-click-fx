@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * verify-sync.js
+ * verify-sync.cjs
  * Check ba-click-fx demo page control 6-point sync completeness.
  *
  * Usage: run from project root
- *   node scripts/verify-sync.js
+ *   node scripts/verify-sync.cjs
  */
 
 const fs = require('fs');

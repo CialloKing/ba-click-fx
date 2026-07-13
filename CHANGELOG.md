@@ -1,5 +1,34 @@
 ﻿# Changelog
 
+## v1.1.10 - 2026-07-13
+
+- Centralized finite-number normalization across constructor options, render options, `boom()`, colors, and every public numeric setter.
+- Invalid numeric conversions, `NaN`, `Infinity`, and `Symbol` inputs now fall back safely; existing finite values, numeric strings, and `null` conversion behavior are unchanged.
+- Added complete TypeScript types for the configuration returned by `getConfig()` and marked the live `CONFIG` reference as deprecated.
+- Added strict TypeScript consumer compilation and ESM/CommonJS default-export checks against the packed npm tarball.
+- Reused the trail update's live-point count and bounded the trail render cache without changing forward sampling, deduplication, suffix retention, or Canvas command order.
+- Made fractional `renderMaxPoints` values safe by applying the existing integer point-limit meaning at the internal allocation boundary.
+- No default configuration, public runtime API, color, opacity, geometry, timing, easing, random distribution, drawing formula, draw order, or compositing changes.
+
+## v1.1.9 - 2026-07-13
+
+- Added opt-in Canvas render budgets and runtime render metrics for large surfaces.
+- Added explicit size refresh support for externally managed Canvas elements.
+- Added debounced `ResizeObserver`, `visualViewport`, and device-pixel-ratio monitoring with complete teardown.
+- Paused rendering while an external Canvas has a zero-sized layout box and resumed after its size is refreshed.
+- Prevented multiple live engines from clearing or resizing the same main Canvas.
+- Kept the default, no-budget rendering dimensions and visual output for non-zero Canvas layouts identical to v1.1.8.
+- Deferred local click-wave scratch canvases to preserve the existing production drawing path and strict visual equivalence.
+
+## v1.1.8 - 2026-07-13
+
+- Added `auto`, `pause-connect`, and `continue` trail behavior outside the Canvas.
+- Made trail disabling and clearing release their trail-only input and particle state.
+- Hardened construction, destruction, Pointer Capture, RAF, timer, and Canvas cleanup.
+- Added package metadata, exact file-list, CI, prepack, and prepublish verification.
+- Corrected the IIFE examples to use `BAClickFX.BAClickFX`.
+- No color, opacity, geometry, timing, easing, random distribution, drawing formula, or default visual changes.
+
 ## v1.1.7 - 2026-07-13
 
 - Reused the Canvas bounds across each batch of coalesced pointer events.

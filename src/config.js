@@ -16,6 +16,11 @@ export const CONFIG = {
 
   maxDpr: 1,
 
+  // 显式预算启用时，核心最多把有效像素比降到目标值的 50%。
+  // 默认不启用预算，因此不会改变现有 backing store 或视觉结果。
+  minRenderScale: 0.5,
+  maxBackingPixels: null,
+
   // 拖尾层缩放。1 最清晰；0.75 更省性能。
   trailRenderScale: 1,
 
@@ -111,6 +116,9 @@ export const CONFIG = {
     // false：只有按住鼠标拖动才有轨迹
     // true：鼠标移动时也有轨迹
     always: false,
+
+    // 保持现有浏览器 Pointer 分发行为；其他模式仅在调用方显式选择时生效。
+    outsideBehavior: 'auto',
 
     // 输入采样
     minDistance: 0.06,
