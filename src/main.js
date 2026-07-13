@@ -185,6 +185,7 @@ const I18N = {
     labelTrailRenderMaxPts: '渲染点数上限',
     labelTrailGradientChunk: '渐变分段',
     labelTrailMaxPoints: '最大轨迹点数',
+    labelTrailOutsideBehavior: '鼠标离开窗口',
     labelRingJitterMin: '抖动下限',
     labelRingJitterMax: '抖动上限',
     labelRingNormalGrowMin: '增长率下限',
@@ -330,6 +331,7 @@ const I18N = {
     labelTrailRenderMaxPts: 'Max Render Points',
     labelTrailGradientChunk: 'Gradient Chunk',
     labelTrailMaxPoints: 'Max Trail Points',
+    labelTrailOutsideBehavior: 'Mouse Leave',
     labelRingJitterMin: 'Jitter Min',
     labelRingJitterMax: 'Jitter Max',
     labelRingNormalGrowMin: 'Grow Min',
@@ -448,6 +450,7 @@ function switchLanguage(lang)
     ctrlTrailSampleStep: 'labelTrailSampleStep', ctrlTrailSampleMaxPts: 'labelTrailSampleMaxPts',
     ctrlTrailRenderStep: 'labelTrailRenderStep', ctrlTrailRenderMaxPts: 'labelTrailRenderMaxPts',
     ctrlTrailGradientChunk: 'labelTrailGradientChunk', ctrlTrailMaxPoints: 'labelTrailMaxPoints',
+    ctrlTrailOutside: 'labelTrailOutsideBehavior',
     ctrlRingJitterMin: 'labelRingJitterMin', ctrlRingJitterMax: 'labelRingJitterMax',
     ctrlRingNormalGrowMin: 'labelRingNormalGrowMin', ctrlRingNormalGrowMax: 'labelRingNormalGrowMax',
     ctrlRingGrowEnd: 'labelRingGrowEnd', ctrlRingCollapseStart: 'labelRingCollapseStart',
@@ -622,6 +625,7 @@ document.getElementById('langToggle').addEventListener('click', () =>
       trailRenderMaxPts: c.trail.renderMaxPoints,
       trailGradientChunk: c.trail.gradientChunk,
       trailMaxPoints: c.trail.maxPoints,
+      trailOutsideBehavior: c.trail.outsideBehavior,
       ringJitterMin: c.rings.radiusJitterMin,
       ringJitterMax: c.rings.radiusJitterMax,
       ringNormalGrowMin: c.rings.segmentRadiusGrowMin,
@@ -1284,6 +1288,8 @@ document.getElementById('langToggle').addEventListener('click', () =>
     api.setTrailGradientChunk(DEFAULTS.trailGradientChunk);
     setVal('ctrlTrailMaxPoints', 'outTrailMaxPoints', DEFAULTS.trailMaxPoints);
     api.setTrailMaxPoints(DEFAULTS.trailMaxPoints);
+    document.getElementById('ctrlTrailOutside').value = DEFAULTS.trailOutsideBehavior;
+    api.setTrailOutsideBehavior(DEFAULTS.trailOutsideBehavior);
     setVal('ctrlRingJitterMin', 'outRingJitterMin', DEFAULTS.ringJitterMin);
     setVal('ctrlRingJitterMax', 'outRingJitterMax', DEFAULTS.ringJitterMax);
     api.setRingRadiusJitter(DEFAULTS.ringJitterMin, DEFAULTS.ringJitterMax);
