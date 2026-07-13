@@ -133,9 +133,9 @@ const spark = new BAClickFX({
 固定版本（推荐）：
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.3/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.10/dist/ba-click-fx.iife.js"></script>
 <script>
-  const spark = new BAClickFX();
+  const spark = new BAClickFX.BAClickFX();
 </script>
 ```
 
@@ -144,9 +144,12 @@ const spark = new BAClickFX({
 ```html
 <script src="https://cdn.jsdelivr.net/npm/ba-click-fx/dist/ba-click-fx.iife.js"></script>
 <script>
-  const spark = new BAClickFX();
+  const spark = new BAClickFX.BAClickFX();
 </script>
 ```
+
+IIFE 构建会把模块对象暴露为全局变量 `BAClickFX`，因此构造函数位于
+`BAClickFX.BAClickFX`；ESM 与 CommonJS 的导入方式不变。
 
 ### 3. 直接下载
 
@@ -216,6 +219,73 @@ new BAClickFX(options?: BAClickFXOptions)
 | `trailEnabled` | `boolean` | `true` | 启用拖尾轨迹 |
 | `clickEnabled` | `boolean` | `true` | 启用点击特效 |
 | `touchAction` | `string` | `'auto'` | Canvas touch-action CSS（`'none'` 可在移动端保持拖尾） |
+| `render` | `BAClickFXRenderOptions` | 见下表 | Canvas 画质、缩放下限与可选总像素预算 |
+
+#### 渲染预算与 Canvas 尺寸
+
+`render` 中的所有字段都可省略：
+
+| 选项 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `maxDpr` | `number` | `1` | 最大设备像素比 |
+| `minRenderScale` | `number` | `0.5` | 启用预算时允许使用的最低渲染倍率 |
+| `trailRenderScale` | `number` | `1` | 拖尾离屏 Canvas 相对主 Canvas 的渲染倍率 |
+| `maxBackingPixels` | `number \| null` | `null` | 主 Canvas 与内部 Canvas 的总 backing 像素预算；`null` 表示不启用预算 |
+
+默认 `maxBackingPixels: null` 时不会因预算降低渲染倍率；对于非零布局尺寸，默认视觉
+效果和 Canvas backing 尺寸与 v1.1.8 完全相同。启用预算只会调整内部渲染分辨率，
+不会修改颜色、透明度、几何、时序、缓动、随机分布、绘制公式或混合顺序。
+
+```js
+const fx = new BAClickFX({
+  target: '#myCanvas',
+  render: {
+    maxDpr: 2,
+    minRenderScale: 0.5,
+    trailRenderScale: 1,
+    maxBackingPixels: 12_000_000,
+  },
+});
+
+fx.setRenderOptions({ maxBackingPixels: 8_000_000 });
+fx.refreshSize();
+console.log(fx.getRenderMetrics());
+```
+
+外部 Canvas 由 `ResizeObserver` 跟踪尺寸，自有全屏 Canvas 监听窗口尺寸；两者还会
+跟踪 `visualViewport` 和跨显示器 DPR 变化，并共享约 100ms 的防抖刷新。外部 Canvas
+的 CSS 布局尺寸为 `0 × 0` 时，引擎不会回退到窗口大小并分配全屏 backing store，而是
+暂停渲染；布局恢复为非零尺寸后会自动恢复。`refreshSize()` 是立即重新测量的显式兜底，
+适用于标签页、折叠面板或宿主已知布局刚刚变化的场景。
+
+同一张主 Canvas 同时只能绑定一个存活的 `BAClickFX` 实例，避免实例之间互相清屏或
+改写 transform。多个不传 `target` 的实例会各自创建独立 Canvas；原实例 `destroy()`
+后，外部 Canvas 可再次绑定。
+
+`getRenderMetrics()` 返回 `cssWidth`、`cssHeight`、`devicePixelRatio`、
+`effectivePixelRatio`、`trailRenderScale`、`totalBackingPixels`、
+`nominalRgbaBytes`、`maxBackingPixels` 和 `budgetExceeded`。其中
+`nominalRgbaBytes` 等于总 backing 像素数按 RGBA 每像素 4 字节计算的理论下限，
+不是浏览器实际 RAM 或 GPU 显存占用；`budgetExceeded` 表示达到最低渲染倍率后仍无法
+满足预算。
+
+为严格保持零视觉差异，v1.1.9 延期了局部 click-wave scratch Canvas；生产环境仍使用
+与 v1.1.8 相同的逐 wave 全尺寸隔离合成路径。
+
+#### 数值输入与 TypeScript 配置类型
+
+v1.1.10 会让构造选项、渲染选项、`boom()` 和全部公开数值 setter 安全处理
+`NaN`、`Infinity`、无法转换的值及 `Symbol`，并回退到各 API 原有的稳定默认值。
+颜色 setter 的无效通道会保留当前通道值。有限数字、数值字符串和
+`Number(null) === 0` 的既有转换与钳制行为保持不变。
+
+`getConfig()` 现在返回完整的 `BAClickFXConfig` 类型，其嵌套结构也分别导出
+`BAClickFXFilledCircleConfig`、`BAClickFXClickConfig`、`BAClickFXRingsConfig`、
+`BAClickFXTrailConfig` 与 `BAClickFXGlowConfig`。`CONFIG` 仍为兼容旧代码而保留，
+但它是可绕过 setter 校验与尺寸同步的实时引用，因此已标记为 deprecated；读取配置请优先使用
+`getConfig()` 快照，通过 setter 或 `setRenderOptions()` 修改配置。
+
+这些调整只增强输入边界、类型提示和内部缓存复用，不修改任何默认视觉参数或 Canvas 绘制结果。
 
 ### 实例方法
 
@@ -226,10 +296,13 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setColor(r, g, b)` | 主题颜色 (0~255) |
 | `setScale(s)` | 全局缩放 (0.5~3) |
 | `setOpacity(o)` | 不透明度 (0.1~1) |
-| `setClick(enabled)` | 开关点击特效 |
+| `setClick(enabled)` | 开关后续点击特效；已开始的点击动画会自然结束 |
 | `setSpeed(click, trail?)` | 点击/拖拽速度 (0.2~3) |
 | `setDpr(d)` | 最大设备像素比 (1~2) |
 | `setTrailRenderScale(s)` | 拖尾离屏画布缩放 (0.5~1) |
+| `setRenderOptions(options)` | 批量更新渲染选项并重新计算 backing store 尺寸 |
+| `refreshSize()` | 立即按当前 CSS 布局尺寸和 DPR 刷新 Canvas |
+| `getRenderMetrics()` | 返回当前尺寸、实际渲染倍率、预算状态及理论 RGBA 开销 |
 | `setTouchAction(value)` | 移动端 touch-action (`'auto'` / `'none'` / `'pan-y'`) |
 
 #### 发光
@@ -244,7 +317,7 @@ new BAClickFX(options?: BAClickFXOptions)
 
 | 方法 | 说明 | 默认值 |
 |---|---|---|
-| `setClick(enabled)` | 开关点击特效 | `true` |
+| `setClick(enabled)` | 开关后续点击特效；不影响已有动画或拖尾 | `true` |
 | `setClickTotalLife(v)` | 特效总时长 (10~60 帧) | `27` |
 | `setClickScaleMul(v)` | 点击缩放倍率 (0.5~3) | `1.3` |
 | `setClickHaloRadius(v)` | 光晕半径 (30~200) | `96` |
@@ -293,8 +366,9 @@ new BAClickFX(options?: BAClickFXOptions)
 
 | 方法 | 说明 | 默认值 |
 |---|---|---|
-| `setTrail(enabled)` | 开关拖尾 | `true` |
+| `setTrail(enabled)` | 开关拖尾；关闭时立即清理轨迹与拖尾碎片 | `true` |
 | `setTrailAlways(enabled)` | 移动时也显示 | `false` |
+| `setTrailOutsideBehavior(mode)` | Canvas 边界外输入策略 | `'auto'` |
 | `setTrailBrightness(a)` | 整体亮度 (0.1~1) | `0.96` |
 | `setTrailWhiteMix(v)` | 偏白程度 (0~1) | `0.45` |
 | `setTrailWidth(fast, slow?)` | 基础线宽 (0.5~6) | `3` |
@@ -322,6 +396,21 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrailMaxCoalescedEvents(v)` | 合并事件上限 (1~100) | `24` |
 | `setTrailRailWidth(slow, fast?)` | 轨道线宽度 | `0.22, 0.36` |
 | `setTrailRibbon(widthMul, alpha?)` | 能量带宽度/透明度 | `0, 0` |
+
+`setTrailOutsideBehavior(mode)` 只控制拖尾，不影响点击特效：
+
+- `'auto'`：默认值，保持 1.1.7 的兼容行为；处理浏览器实际投递的 Pointer
+  样本，不主动捕获指针。
+- `'pause-connect'`：拖尾会话活跃时忽略 Canvas 边界外样本，但保留当前
+  锚点、平滑状态和 stroke；重新进入后继续使用现有平滑、断笔阈值和插值逻辑连接。
+- `'continue'`：有效按压期间尝试 Pointer Capture，并处理浏览器实际投递的
+  边界外样本；这不是系统级全局鼠标追踪，浏览器或操作系统停止分发后无法继续采样。
+
+三种模式都会在 `blur`、`pointerup` 或 `pointercancel` 时结束当前输入。
+切换模式会释放已有 Pointer Capture、断开当前 stroke 并重置输入锚点，已经绘制的
+视觉内容仍按原有时序自然消散；切换到 `'continue'` 后会在下一次有效
+`pointerdown` 尝试捕获。
+当前模式可从 `getConfig().trail.outsideBehavior` 读取；此版本不增加构造参数或演示控件。
 
 #### 拖尾图层透明度
 
@@ -354,10 +443,10 @@ new BAClickFX(options?: BAClickFXOptions)
 | 方法 | 说明 |
 |---|---|
 | `boom(x?, y?)` | 手动触发点击特效，默认屏幕中央 |
-| `clearTrail()` | 清除所有拖尾 |
+| `clearTrail()` | 清除轨迹与拖尾碎片；保留拖尾开关、按压状态和点击特效 |
 | `getConfig()` | 返回当前配置深拷贝 |
 | `resetConfig()` | 恢复默认配置 |
-| `destroy()` | 销毁实例：移除 Canvas、事件、动画 |
+| `destroy()` | 幂等销毁：释放监听器、RAF、定时器、Pointer Capture 和自有 Canvas；保留外部 Canvas 节点及尺寸 |
 
 ---
 
@@ -421,7 +510,11 @@ ba-click-fx/
 │   ├── style.css         # 演示页样式
 │   └── ba-click-fx.d.ts  # TypeScript 声明
 ├── scripts/
-│   └── build.mjs         # 构建脚本
+│   ├── build.mjs         # 构建脚本
+│   ├── verify-sync.cjs   # 演示控件同步检查
+│   ├── verify-package.mjs # 版本与入口检查
+│   ├── verify-pack.mjs   # npm 包精确文件检查
+│   └── verify-tarball.mjs # 本地包安装与入口验证
 ├── test/
 │   └── smoke.js          # 冒烟测试
 ├── index.html            # 演示页面
@@ -449,6 +542,16 @@ ba-click-fx/
 ## 开发说明
 
 本项目主要通过 AI 生成和迭代完成（**绝无手写代码**），并经过实际运行测试、参数调校和效果校准。项目目标是尽可能还原《蔚蓝档案》风格的网页点击特效与拖尾轨迹，同时保持纯 Canvas 2D、零运行时依赖和易集成的特性。
+
+发布前统一执行：
+
+```bash
+npm ci
+npm run check
+```
+
+`check` 会按顺序完成构建、测试、演示同步、版本/入口、npm 精确文件清单和本地包安装检查。
+`prepack` 会重新构建发行产物，`prepublishOnly` 会执行完整检查；两者都不会自动发布。
 
 ---
 

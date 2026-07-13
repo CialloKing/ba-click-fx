@@ -16,6 +16,41 @@ export function clamp01(v) {
 }
 
 /**
+ * 将输入转换为有限数字；无效输入回退到调用方声明的稳定默认值。
+ * Number(null) 仍为 0，以保持现有公开 API 对可转换值的兼容行为。
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+export function toFiniteNumber(value, fallback)
+{
+  try
+  {
+    const number = Number(value);
+
+    return Number.isFinite(number) ? number : fallback;
+  }
+  catch
+  {
+    // Symbol 和自定义 valueOf 可能拒绝数字转换；公开 setter 必须安全回退。
+    return fallback;
+  }
+}
+
+/**
+ * 将有限数字钳制到闭区间；集中处理 NaN 与 Infinity，避免污染运行时配置。
+ * @param {unknown} value
+ * @param {number} min
+ * @param {number} max
+ * @param {number} fallback
+ * @returns {number}
+ */
+export function clampNumber(value, min, max, fallback)
+{
+  return Math.max(min, Math.min(max, toFiniteNumber(value, fallback)));
+}
+
+/**
  * [min, max) 区间随机浮点数
  * @param {number} min
  * @param {number} max

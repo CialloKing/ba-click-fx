@@ -133,9 +133,9 @@ Drop a single `<script>` tag — no build tools required:
 Fixed version (recommended):
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.3/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.10/dist/ba-click-fx.iife.js"></script>
 <script>
-  const spark = new BAClickFX();
+  const spark = new BAClickFX.BAClickFX();
 </script>
 ```
 
@@ -143,7 +143,13 @@ Always use the latest version:
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/ba-click-fx/dist/ba-click-fx.iife.js"></script>
+<script>
+  const spark = new BAClickFX.BAClickFX();
+</script>
 ```
+
+The IIFE build exposes the module object as the global `BAClickFX`, so its
+constructor is `BAClickFX.BAClickFX`. ESM and CommonJS imports are unchanged.
 
 ### 3. Direct Download
 
@@ -213,6 +219,81 @@ new BAClickFX(options?: BAClickFXOptions)
 | `trailEnabled` | `boolean` | `true` | Enable cursor trail |
 | `clickEnabled` | `boolean` | `true` | Enable click effects |
 | `touchAction` | `string` | `'auto'` | Canvas touch-action CSS (`'none'` for trail on mobile) |
+| `render` | `BAClickFXRenderOptions` | see below | Canvas quality, scale floor, and optional total pixel budget |
+
+#### Render Budget and Canvas Size
+
+Every field in `render` is optional:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `maxDpr` | `number` | `1` | Maximum device pixel ratio |
+| `minRenderScale` | `number` | `0.5` | Lowest render scale allowed when a budget is enabled |
+| `trailRenderScale` | `number` | `1` | Trail offscreen Canvas scale relative to the main Canvas |
+| `maxBackingPixels` | `number \| null` | `null` | Total backing-pixel budget across the main and internal canvases; `null` disables the budget |
+
+With the default `maxBackingPixels: null`, no render scale is reduced by a budget. For a
+non-zero layout, the default visual output and Canvas backing dimensions are identical to
+v1.1.8. Enabling a budget only adjusts the internal render resolution. It does not change
+colors, opacity,
+geometry, timing, easing, random distribution, drawing formulas, or compositing order.
+
+```js
+const fx = new BAClickFX({
+  target: '#myCanvas',
+  render: {
+    maxDpr: 2,
+    minRenderScale: 0.5,
+    trailRenderScale: 1,
+    maxBackingPixels: 12_000_000,
+  },
+});
+
+fx.setRenderOptions({ maxBackingPixels: 8_000_000 });
+fx.refreshSize();
+console.log(fx.getRenderMetrics());
+```
+
+External canvases are tracked with `ResizeObserver`, while an owned full-screen Canvas
+tracks window resize. Both also track `visualViewport` and cross-display DPR changes through
+one roughly 100 ms debounced refresh path. When an external Canvas has a `0 × 0` CSS layout
+box, the engine pauses rendering instead of falling back to the window size and allocating
+full-screen backing stores, then resumes automatically after the layout becomes non-zero.
+`refreshSize()` is the immediate explicit fallback for tab, collapsed-panel, or host-known
+layout changes.
+
+One main Canvas can be bound to only one live `BAClickFX` instance, preventing engines from
+clearing each other or overwriting transforms. Multiple instances created without `target`
+receive independent canvases; an external Canvas can be claimed again after the previous
+instance is destroyed.
+
+`getRenderMetrics()` returns `cssWidth`, `cssHeight`, `devicePixelRatio`,
+`effectivePixelRatio`, `trailRenderScale`, `totalBackingPixels`, `nominalRgbaBytes`,
+`maxBackingPixels`, and `budgetExceeded`. `nominalRgbaBytes` is the theoretical lower
+bound obtained by counting four RGBA bytes per backing pixel; it is not measured browser
+RAM or GPU memory. `budgetExceeded` means the budget still cannot be met at the minimum
+render scale.
+
+To preserve strict zero visual differences, local click-wave scratch canvases were deferred
+in v1.1.9. The production renderer retains the same per-wave full-size isolated compositing
+path as v1.1.8.
+
+#### Numeric Inputs and TypeScript Configuration Types
+
+In v1.1.10, constructor options, render options, `boom()`, and every public numeric setter
+safely handle `NaN`, `Infinity`, values that cannot be converted, and `Symbol`, falling back
+to each API's existing stable default. Invalid color-setter channels retain their current
+channel values. Existing conversion and clamping behavior for finite numbers, numeric strings,
+and `Number(null) === 0` is unchanged.
+
+`getConfig()` now returns the complete `BAClickFXConfig` type. Its nested structures are also
+exported as `BAClickFXFilledCircleConfig`, `BAClickFXClickConfig`, `BAClickFXRingsConfig`,
+`BAClickFXTrailConfig`, and `BAClickFXGlowConfig`. `CONFIG` remains available for compatibility,
+but it is a live reference that can bypass setter validation and size synchronization, so it is
+deprecated. Prefer a `getConfig()` snapshot for reads and setters or `setRenderOptions()` for writes.
+
+These changes only strengthen input boundaries, type hints, and internal cache reuse. They do
+not alter any default visual parameter or Canvas drawing result.
 
 ### Instance Methods
 
@@ -223,10 +304,13 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setColor(r, g, b)` | Theme color (0~255) |
 | `setScale(s)` | Global scale (0.5~3) |
 | `setOpacity(o)` | Opacity (0.1~1) |
-| `setClick(enabled)` | Toggle click effects |
+| `setClick(enabled)` | Toggle future click effects; active click animations finish naturally |
 | `setSpeed(click, trail?)` | Click/drag speed (0.2~3) |
 | `setDpr(d)` | Max device pixel ratio (1~2) |
 | `setTrailRenderScale(s)` | Trail offscreen canvas scale (0.5~1) |
+| `setRenderOptions(options)` | Update render options together and recalculate backing-store sizes |
+| `refreshSize()` | Immediately refresh the Canvas from its current CSS size and DPR |
+| `getRenderMetrics()` | Return current size, effective render scale, budget status, and nominal RGBA cost |
 | `setTouchAction(value)` | Mobile touch-action (`'auto'` / `'none'` / `'pan-y'`) |
 
 #### Glow
@@ -241,7 +325,7 @@ new BAClickFX(options?: BAClickFXOptions)
 
 | Method | Description | Default |
 |---|---|---|
-| `setClick(enabled)` | Toggle click effects | `true` |
+| `setClick(enabled)` | Toggle future click effects without affecting active animations or trails | `true` |
 | `setClickTotalLife(v)` | Effect duration (10~60 frames) | `27` |
 | `setClickScaleMul(v)` | Click scale multiplier (0.5~3) | `1.3` |
 | `setClickHaloRadius(v)` | Halo radius (30~200) | `96` |
@@ -290,8 +374,9 @@ new BAClickFX(options?: BAClickFXOptions)
 
 | Method | Description | Default |
 |---|---|---|
-| `setTrail(enabled)` | Toggle trail | `true` |
+| `setTrail(enabled)` | Toggle trail; disabling immediately clears trails and trail shards | `true` |
 | `setTrailAlways(enabled)` | Show on move | `false` |
+| `setTrailOutsideBehavior(mode)` | Input behavior outside the Canvas | `'auto'` |
 | `setTrailBrightness(a)` | Overall brightness (0.1~1) | `0.96` |
 | `setTrailWhiteMix(v)` | Whiteness amount (0~1) | `0.45` |
 | `setTrailWidth(fast, slow?)` | Base line width (0.5~6) | `3` |
@@ -319,6 +404,24 @@ new BAClickFX(options?: BAClickFXOptions)
 | `setTrailMaxCoalescedEvents(v)` | Max coalesced events (1~100) | `24` |
 | `setTrailRailWidth(slow, fast?)` | Rail line width | `0.22, 0.36` |
 | `setTrailRibbon(widthMul, alpha?)` | Ribbon width/opacity | `0, 0` |
+
+`setTrailOutsideBehavior(mode)` only controls trails and does not affect click effects:
+
+- `'auto'`: the default, compatible with 1.1.7. It processes Pointer samples that
+  the browser actually dispatches and does not actively capture the pointer.
+- `'pause-connect'`: while a trail session is active, samples outside the Canvas
+  are ignored while the current anchor, smoothing state, and stroke are retained.
+  Re-entry connects through the existing smoothing, jump threshold, and interpolation logic.
+- `'continue'`: attempts Pointer Capture during a valid press and processes outside
+  samples that the browser dispatches. It is not system-wide global mouse tracking and
+  cannot sample after the browser or operating system stops delivering events.
+
+All modes end the current input on `blur`, `pointerup`, or `pointercancel`. Switching
+modes releases existing Pointer Capture, ends the current stroke, and resets its input
+anchor; already rendered visuals continue to decay with their existing timing. After
+switching to `'continue'`, capture is attempted on the next valid `pointerdown`.
+Read the current mode from `getConfig().trail.outsideBehavior`. This release does not
+add a constructor option or demo control for the setting.
 
 #### Trail Layer Opacity
 
@@ -351,10 +454,10 @@ new BAClickFX(options?: BAClickFXOptions)
 | Method | Description |
 |---|---|
 | `boom(x?, y?)` | Manually trigger click effect (center by default) |
-| `clearTrail()` | Clear all trails |
+| `clearTrail()` | Clear trails and trail shards while preserving the trail toggle, press state, and click effects |
 | `getConfig()` | Return a deep copy of the current config |
 | `resetConfig()` | Restore default config |
-| `destroy()` | Destroy instance: remove canvas, events, animations |
+| `destroy()` | Idempotently release listeners, RAF, timers, Pointer Capture, and owned canvases while preserving an external Canvas node and size |
 
 ---
 
@@ -418,7 +521,11 @@ ba-click-fx/
 │   ├── style.css         # Demo page styles
 │   └── ba-click-fx.d.ts  # TypeScript declarations
 ├── scripts/
-│   └── build.mjs         # Build script
+│   ├── build.mjs         # Build script
+│   ├── verify-sync.cjs   # Demo control synchronization check
+│   ├── verify-package.mjs # Version and entry-point checks
+│   ├── verify-pack.mjs   # Exact npm package file check
+│   └── verify-tarball.mjs # Local package install and entry-point check
 ├── test/
 │   └── smoke.js          # Smoke test
 ├── index.html            # Demo page
@@ -446,6 +553,17 @@ ba-click-fx/
 ## Development Notes
 
 This project was primarily developed and iterated with AI assistance, and has undergone real-world testing, parameter tuning, and effect calibration. The goal is to faithfully reproduce the Blue Archive style web click effects and cursor trails while maintaining pure Canvas 2D rendering, zero runtime dependencies, and easy integration.
+
+Run the unified release checks before publishing:
+
+```bash
+npm ci
+npm run check
+```
+
+`check` runs the build, tests, demo synchronization, version/entry-point checks,
+the exact npm file-list check, and a local package installation check in order. `prepack` rebuilds the distributable files,
+while `prepublishOnly` runs the complete verification; neither command publishes automatically.
 
 ---
 
