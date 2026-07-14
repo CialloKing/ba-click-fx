@@ -572,6 +572,9 @@ export class BAClickFX
     this._onPointerUp = null;
     this._onBlur = null;
     this._onLostPointerCapture = null;
+    // 输入过滤器属于宿主集成策略，不进入可序列化的视觉配置。
+    this._inputFilter =
+      typeof options.inputFilter === 'function' ? options.inputFilter : null;
     this._onDprChange = null;
     this._resizeListenerAttached = false;
     this._visualViewportListenerAttached = false;
@@ -1549,6 +1552,8 @@ export class BAClickFX
 
     this.running = false;
     this._renderSuspended = true;
+    // 销毁时解除宿主回调引用，避免闭包继续持有页面对象。
+    this._inputFilter = null;
     this.isDown = false;
     this._activePointerId = null;
     this.currentTrailStroke = null;
@@ -2932,6 +2937,14 @@ export class BAClickFX
     };
   }
 
+  _clampPointerPos(pos, rect)
+  {
+    // 游戏端会把活动拖尾限制在摄像机边缘；原地修改可避免热路径增加临时对象。
+    pos.x = Math.max(0, Math.min(rect.width, pos.x));
+    pos.y = Math.max(0, Math.min(rect.height, pos.y));
+    return pos;
+  }
+
   _isPointerInsideCanvas(pos, rect)
   {
     return (
@@ -2951,10 +2964,30 @@ export class BAClickFX
     );
   }
 
+  _shouldHandleInputEvent(event)
+  {
+    if (!this._inputFilter)
+    {
+      return true;
+    }
+
+    try
+    {
+      return Boolean(this._inputFilter(event));
+    }
+    catch
+    {
+      // 宿主回调异常不能破坏全局 Pointer 监听；失败时拒绝该次输入更安全。
+      return false;
+    }
+  }
+
   _tryCapturePointer(event, pos, rect)
   {
+    const outsideBehavior = this.config.trail.outsideBehavior;
+
     if (
-      this.config.trail.outsideBehavior !== 'continue' ||
+      (outsideBehavior !== 'continue' && outsideBehavior !== 'clamp') ||
       !this.config.trail.enabled ||
       !this._isPointerInsideCanvas(pos, rect) ||
       event.pointerId == null
@@ -3060,6 +3093,11 @@ export class BAClickFX
       return;
     }
 
+    if (!this._shouldHandleInputEvent(event))
+    {
+      return;
+    }
+
     let events =
       typeof event.getCoalescedEvents === 'function'
         ? event.getCoalescedEvents()
@@ -3104,6 +3142,11 @@ export class BAClickFX
     for (const e of events)
     {
       let pos = this._getPointerPos(e, canvasRect);
+
+      if (outsideBehavior === 'clamp')
+      {
+        pos = this._clampPointerPos(pos, canvasRect);
+      }
 
       if (
         outsideBehavior === 'pause-connect' &&
@@ -3210,6 +3253,11 @@ export class BAClickFX
         return;
       }
 
+      if (!this._shouldHandleInputEvent(event))
+      {
+        return;
+      }
+
       const canvasRect = this.canvas.getBoundingClientRect();
       const pos = this._getPointerPos(event, canvasRect);
 
@@ -3229,15 +3277,21 @@ export class BAClickFX
 
         this.isDown = true;
         // 活动指针必须独立于 capture 成败记录，否则捕获失败会让其他指针接管轨迹。
+        const outsideBehavior = this.config.trail.outsideBehavior;
+
         this._activePointerId =
-          this.config.trail.outsideBehavior === 'continue' &&
+          (outsideBehavior === 'continue' || outsideBehavior === 'clamp') &&
           event.pointerId != null
             ? event.pointerId
             : null;
 
         const shouldPauseOutside =
-          this.config.trail.outsideBehavior === 'pause-connect' &&
+          outsideBehavior === 'pause-connect' &&
           !this._isPointerInsideCanvas(pos, canvasRect);
+        const trailPos =
+          outsideBehavior === 'clamp'
+            ? this._clampPointerPos({ x: pos.x, y: pos.y }, canvasRect)
+            : pos;
 
         if (shouldPauseOutside)
         {
@@ -3249,12 +3303,12 @@ export class BAClickFX
           this.trailSmoothX = null;
           this.trailSmoothY = null;
 
-          this.lastTrailPos = pos;
+          this.lastTrailPos = trailPos;
           this.lastTrailEventTime = event.timeStamp || performance.now();
           this.trailSpeedFactor = Math.max(this.trailSpeedFactor, 0.15);
 
           this._endTrailStroke();
-          this._beginTrailStroke(pos.x, pos.y, this.trailSpeedFactor);
+          this._beginTrailStroke(trailPos.x, trailPos.y, this.trailSpeedFactor);
         }
 
         this._tryCapturePointer(event, pos, canvasRect);
@@ -3629,11 +3683,22 @@ export class BAClickFX
     }
   }
 
-  /** @param {'auto'|'pause-connect'|'continue'} mode */
+  /** @param {Function|null} filter */
+  setInputFilter(filter = null)
+  {
+    if (this._destroyed)
+    {
+      return;
+    }
+
+    this._inputFilter = typeof filter === 'function' ? filter : null;
+  }
+
+  /** @param {'auto'|'pause-connect'|'continue'|'clamp'} mode */
   setTrailOutsideBehavior(mode = 'auto')
   {
     const nextMode =
-      mode === 'pause-connect' || mode === 'continue'
+      mode === 'pause-connect' || mode === 'continue' || mode === 'clamp'
         ? mode
         : 'auto';
 

@@ -1,7 +1,10 @@
 ﻿declare module 'ba-click-fx'
 {
   /** Canvas 边界外的拖尾输入策略 */
-  export type TrailOutsideBehavior = 'auto' | 'pause-connect' | 'continue';
+  export type TrailOutsideBehavior = 'auto' | 'pause-connect' | 'continue' | 'clamp';
+
+  /** 返回 true 接受该次 Pointer 输入，返回 false 忽略；终止事件始终由引擎清理。 */
+  export type BAClickFXInputFilter = (event: PointerEvent) => boolean;
 
   /** Canvas backing store 的画质与总像素预算。 */
   export interface BAClickFXRenderOptions
@@ -214,6 +217,8 @@
     clickEnabled?: boolean;
     /** Canvas touch-action CSS 属性，默认 'auto' */
     touchAction?: 'auto' | 'none' | 'pan-y' | 'pan-x' | 'manipulation';
+    /** 可选宿主输入过滤器；默认 null，接受全部 Pointer 输入。 */
+    inputFilter?: BAClickFXInputFilter | null;
     /** Canvas 画质、缩放下限与可选总像素预算。 */
     render?: BAClickFXRenderOptions;
   }
@@ -250,6 +255,8 @@
     getRenderMetrics(): BAClickFXRenderMetrics;
     /** Canvas touch-action CSS 属性 */
     setTouchAction(value?: 'auto' | 'none' | 'pan-y' | 'pan-x' | 'manipulation'): void;
+    /** 设置宿主输入过滤器；传入 null 恢复接受全部输入。 */
+    setInputFilter(filter?: BAClickFXInputFilter | null): void;
 
     // ═══ 发光 ═══
 
@@ -367,7 +374,8 @@
     /**
      * 设置 Canvas 边界外的拖尾策略。
      * auto 保持浏览器原始分发行为；pause-connect 忽略边界外样本并在重新进入时连接；
-     * continue 在下一次有效按压时尝试 Pointer Capture，但不提供系统级全局鼠标追踪。
+     * continue 在下一次有效按压时尝试 Pointer Capture，但不提供系统级全局鼠标追踪；
+     * clamp 同样尝试捕获，并在平滑与插值前把拖尾样本限制到 Canvas 边缘。
      */
     setTrailOutsideBehavior(mode: TrailOutsideBehavior): void;
     /** 拖尾整体亮度 0.1~1 */

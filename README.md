@@ -133,7 +133,7 @@ const spark = new BAClickFX({
 固定版本（推荐）：
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.10/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.11/dist/ba-click-fx.iife.js"></script>
 <script>
   const spark = new BAClickFX.BAClickFX();
 </script>
@@ -219,6 +219,7 @@ new BAClickFX(options?: BAClickFXOptions)
 | `trailEnabled` | `boolean` | `true` | 启用拖尾轨迹 |
 | `clickEnabled` | `boolean` | `true` | 启用点击特效 |
 | `touchAction` | `string` | `'auto'` | Canvas touch-action CSS（`'none'` 可在移动端保持拖尾） |
+| `inputFilter` | `(event: PointerEvent) => boolean` | `null` | 可选宿主输入过滤器；返回 `false` 忽略该次输入 |
 | `render` | `BAClickFXRenderOptions` | 见下表 | Canvas 画质、缩放下限与可选总像素预算 |
 
 #### 渲染预算与 Canvas 尺寸
@@ -304,6 +305,7 @@ v1.1.10 会让构造选项、渲染选项、`boom()` 和全部公开数值 sette
 | `refreshSize()` | 立即按当前 CSS 布局尺寸和 DPR 刷新 Canvas |
 | `getRenderMetrics()` | 返回当前尺寸、实际渲染倍率、预算状态及理论 RGBA 开销 |
 | `setTouchAction(value)` | 移动端 touch-action (`'auto'` / `'none'` / `'pan-y'`) |
+| `setInputFilter(filter)` | 设置宿主 Pointer 输入过滤器；传入 `null` 恢复接受全部输入 |
 
 #### 发光
 
@@ -405,12 +407,30 @@ v1.1.10 会让构造选项、渲染选项、`boom()` 和全部公开数值 sette
   锚点、平滑状态和 stroke；重新进入后继续使用现有平滑、断笔阈值和插值逻辑连接。
 - `'continue'`：有效按压期间尝试 Pointer Capture，并处理浏览器实际投递的
   边界外样本；这不是系统级全局鼠标追踪，浏览器或操作系统停止分发后无法继续采样。
+- `'clamp'`：与 `continue` 一样在有效按压时尝试 Pointer Capture，但会在平滑、
+  测速和插值之前把每个拖尾样本钳制到 Canvas 边缘，模拟游戏内窗口边界行为。
 
-三种模式都会在 `blur`、`pointerup` 或 `pointercancel` 时结束当前输入。
+四种模式都会在 `blur`、`pointerup` 或 `pointercancel` 时结束当前输入。
 切换模式会释放已有 Pointer Capture、断开当前 stroke 并重置输入锚点，已经绘制的
-视觉内容仍按原有时序自然消散；切换到 `'continue'` 后会在下一次有效
+视觉内容仍按原有时序自然消散；切换到 `'continue'` 或 `'clamp'` 后会在下一次有效
 `pointerdown` 尝试捕获。
-当前模式可从 `getConfig().trail.outsideBehavior` 读取；此版本不增加构造参数或演示控件。
+当前模式可从 `getConfig().trail.outsideBehavior` 读取，也可在演示页的“鼠标离开窗口”
+下拉框中单独验证。
+
+`inputFilter` 和 `setInputFilter()` 用于把宿主页面的按钮、弹窗或其他交互区域排除在
+特效输入之外。过滤发生在 `getBoundingClientRect()`、`getCoalescedEvents()` 和随机
+粒子生成之前；`pointerup`、`pointercancel` 与 `blur` 始终执行清理，避免过滤条件变化
+后遗留按压状态。过滤器异常会安全拒绝当次输入，且不会进入 `CONFIG/getConfig()`：
+
+```js
+const fx = new BAClickFX({
+  inputFilter: event => !event.composedPath().some(
+    node => node instanceof Element && node.matches?.('[data-no-click-fx]'),
+  ),
+});
+
+fx.setInputFilter(null); // 恢复接受全部输入
+```
 
 #### 拖尾图层透明度
 

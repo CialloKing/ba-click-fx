@@ -133,7 +133,7 @@ Drop a single `<script>` tag — no build tools required:
 Fixed version (recommended):
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.10/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.11/dist/ba-click-fx.iife.js"></script>
 <script>
   const spark = new BAClickFX.BAClickFX();
 </script>
@@ -219,6 +219,7 @@ new BAClickFX(options?: BAClickFXOptions)
 | `trailEnabled` | `boolean` | `true` | Enable cursor trail |
 | `clickEnabled` | `boolean` | `true` | Enable click effects |
 | `touchAction` | `string` | `'auto'` | Canvas touch-action CSS (`'none'` for trail on mobile) |
+| `inputFilter` | `(event: PointerEvent) => boolean` | `null` | Optional host input filter; return `false` to ignore the input |
 | `render` | `BAClickFXRenderOptions` | see below | Canvas quality, scale floor, and optional total pixel budget |
 
 #### Render Budget and Canvas Size
@@ -312,6 +313,7 @@ not alter any default visual parameter or Canvas drawing result.
 | `refreshSize()` | Immediately refresh the Canvas from its current CSS size and DPR |
 | `getRenderMetrics()` | Return current size, effective render scale, budget status, and nominal RGBA cost |
 | `setTouchAction(value)` | Mobile touch-action (`'auto'` / `'none'` / `'pan-y'`) |
+| `setInputFilter(filter)` | Set the host Pointer input filter; pass `null` to accept all input again |
 
 #### Glow
 
@@ -415,13 +417,31 @@ not alter any default visual parameter or Canvas drawing result.
 - `'continue'`: attempts Pointer Capture during a valid press and processes outside
   samples that the browser dispatches. It is not system-wide global mouse tracking and
   cannot sample after the browser or operating system stops delivering events.
+- `'clamp'`: also attempts Pointer Capture during a valid press, but clamps every trail
+  sample to the Canvas edge before smoothing, speed calculation, and interpolation.
 
-All modes end the current input on `blur`, `pointerup`, or `pointercancel`. Switching
+All four modes end the current input on `blur`, `pointerup`, or `pointercancel`. Switching
 modes releases existing Pointer Capture, ends the current stroke, and resets its input
 anchor; already rendered visuals continue to decay with their existing timing. After
-switching to `'continue'`, capture is attempted on the next valid `pointerdown`.
-Read the current mode from `getConfig().trail.outsideBehavior`. This release does not
-add a constructor option or demo control for the setting.
+switching to `'continue'` or `'clamp'`, capture is attempted on the next valid `pointerdown`.
+Read the current mode from `getConfig().trail.outsideBehavior`, or verify it with the
+Mouse Leave selector on the demo page.
+
+`inputFilter` and `setInputFilter()` let a host page exclude buttons, dialogs, or other
+interactive regions from effect input. Filtering happens before `getBoundingClientRect()`,
+`getCoalescedEvents()`, and random particle generation. `pointerup`, `pointercancel`, and
+`blur` always perform cleanup so a changing filter cannot leave a stuck press. Filter errors
+safely reject that input, and the callback is not included in `CONFIG/getConfig()`:
+
+```js
+const fx = new BAClickFX({
+  inputFilter: event => !event.composedPath().some(
+    node => node instanceof Element && node.matches?.('[data-no-click-fx]'),
+  ),
+});
+
+fx.setInputFilter(null); // Accept all input again
+```
 
 #### Trail Layer Opacity
 
