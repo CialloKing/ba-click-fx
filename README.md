@@ -4,6 +4,7 @@
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)
 [![npm version](https://img.shields.io/npm/v/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
 [![npm downloads](https://img.shields.io/npm/dm/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-安装-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami)
 
 > 📖 [English version](./README.en.md)
 
@@ -40,10 +41,10 @@ A lightweight **Blue Archive style cursor effect** library for the web. It provi
 - [特性](#特性)
 - [快速开始](#快速开始)
 - [使用方式](#使用方式)
-  - [npm 安装](#1-npm-安装)
-  - [CDN 引入](#2-cdn-引入)
-  - [直接下载](#3-直接下载)
-  - [浏览器插件](#4-浏览器插件)
+  - [浏览器插件](#1-浏览器插件)
+  - [npm 安装](#2-npm-安装)
+  - [CDN 引入](#3-cdn-引入)
+  - [直接下载](#4-直接下载)
 - [常见用法](#常见用法)
 - [API 文档](#api-文档)
 - [效果说明](#效果说明)
@@ -69,7 +70,7 @@ A lightweight **Blue Archive style cursor effect** library for the web. It provi
 - 支持点击、拖拽、移动轨迹和手动触发
 - 纯 Canvas 2D 实现，无图片素材依赖
 - 零外部运行时依赖，适合普通网页、博客、个人主页和前端项目
-- 支持 npm、CDN、直接下载三种接入方式
+- 支持浏览器插件、npm、CDN、直接下载四种接入方式
 - 支持颜色、缩放、透明度、速度、拖尾长度、圆环、碎片、发光等大量可调参数
 - 60+ 可调参数，演示页控制面板可实时预览
 
@@ -98,7 +99,19 @@ npm run build
 
 ## 使用方式
 
-### 1. npm 安装
+### 1. 浏览器插件
+
+不想写代码？直接从 [Chrome 应用商店安装 ba-click-fx-extension](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami)，普通网页即可获得蔚蓝档案风格点击特效和光标拖尾。
+
+- 安装后默认开启，无需给每个网站添加脚本
+- 点击特效与光标拖尾可分别开关，可按网站临时禁用
+- 可调整主题颜色、透明度、特效大小和画质
+- Canvas 位于 Shadow DOM 内，不影响页面布局
+- 纯本地渲染，不请求远程资源
+
+源代码与实现详情请查看 [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension) 仓库。
+
+### 2. npm 安装
 
 ```bash
 npm install ba-click-fx
@@ -126,7 +139,7 @@ const spark = new BAClickFX({
 });
 ```
 
-### 2. CDN 引入
+### 3. CDN 引入
 
 一行 `<script>` 标签即可，无需构建工具：
 
@@ -151,7 +164,7 @@ const spark = new BAClickFX({
 IIFE 构建会把模块对象暴露为全局变量 `BAClickFX`，因此构造函数位于
 `BAClickFX.BAClickFX`；ESM 与 CommonJS 的导入方式不变。
 
-### 3. 直接下载
+### 4. 直接下载
 
 从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载构建产物（`ba-click-fx.js`、`ba-click-fx.iife.js`、`ba-click-fx.cjs`、`ba-click-fx.d.ts`），或直接 clone 仓库使用 `dist/` 目录中的文件，适合静态站点：
 
@@ -162,18 +175,6 @@ IIFE 构建会把模块对象暴露为全局变量 `BAClickFX`，因此构造函
   const spark = new BAClickFX({ target: '#myCanvas' });
 </script>
 ```
-
-### 4. 浏览器插件
-
-不想写代码？安装 [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension) 浏览器插件，普通网页即可获得蔚蓝档案风格点击特效和光标拖尾。
-
-- 安装后默认开启，无需给每个网站添加脚本
-- 点击特效与光标拖尾可分别开关，可按网站临时禁用
-- 可调整主题颜色、透明度、特效大小和画质
-- Canvas 位于 Shadow DOM 内，不影响页面布局
-- 纯本地渲染，不请求远程资源
-
-详见 [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension) 仓库。
 
 ---
 
