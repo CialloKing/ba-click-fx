@@ -4,6 +4,7 @@
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)
 [![npm version](https://img.shields.io/npm/v/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
 [![npm downloads](https://img.shields.io/npm/dm/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami)
 
 > 📖 [中文版](./README.md)
 
@@ -40,10 +41,10 @@ A lightweight **Blue Archive style cursor effect** library for the web. It provi
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
-  - [npm Install](#1-npm-install)
-  - [CDN](#2-cdn)
-  - [Direct Download](#3-direct-download)
-  - [Browser Extension](#4-browser-extension)
+  - [Browser Extension](#1-browser-extension)
+  - [npm Install](#2-npm-install)
+  - [CDN](#3-cdn)
+  - [Direct Download](#4-direct-download)
 - [Common Usage](#common-usage)
 - [API Reference](#api-reference)
 - [Effect Details](#effect-details)
@@ -69,7 +70,7 @@ Open [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top), click and
 - Supports click, drag, move trail, and manual trigger
 - Pure Canvas 2D — no image assets required
 - Zero external runtime dependencies — works on blogs, personal sites, and frontend projects
-- Three integration methods: npm, CDN, direct download
+- Four integration methods: browser extension, npm, CDN, and direct download
 - Extensive configurable parameters for color, scale, opacity, speed, trail length, rings, shards, glow, and more
 - 60+ adjustable parameters, real-time preview via control panel
 
@@ -98,7 +99,19 @@ npm run build
 
 ## Usage
 
-### 1. npm Install
+### 1. Browser Extension
+
+Don't want to write code? Install [ba-click-fx-extension from the Chrome Web Store](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami) to get Blue Archive style click effects and cursor trails on ordinary webpages.
+
+- Enabled by default after install — no scripts needed
+- Toggle click effects and cursor trails independently, disable per-site
+- Adjustable theme color, opacity, effect size, and quality
+- Canvas runs inside Shadow DOM — no layout impact
+- Pure local rendering, no remote requests
+
+See the [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension) repository for source code and implementation details.
+
+### 2. npm Install
 
 ```bash
 npm install ba-click-fx
@@ -126,7 +139,7 @@ const spark = new BAClickFX({
 });
 ```
 
-### 2. CDN
+### 3. CDN
 
 Drop a single `<script>` tag — no build tools required:
 
@@ -151,7 +164,7 @@ Always use the latest version:
 The IIFE build exposes the module object as the global `BAClickFX`, so its
 constructor is `BAClickFX.BAClickFX`. ESM and CommonJS imports are unchanged.
 
-### 3. Direct Download
+### 4. Direct Download
 
 Download build artifacts (`ba-click-fx.js`, `ba-click-fx.iife.js`, `ba-click-fx.cjs`, `ba-click-fx.d.ts`) from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases), or clone the repo and use the `dist/` folder directly — ideal for static sites:
 
@@ -162,18 +175,6 @@ Download build artifacts (`ba-click-fx.js`, `ba-click-fx.iife.js`, `ba-click-fx.
   const spark = new BAClickFX({ target: '#myCanvas' });
 </script>
 ```
-
-### 4. Browser Extension
-
-Don't want to write code? Install the [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension) browser extension to get Blue Archive style click effects and cursor trails on any webpage.
-
-- Enabled by default after install — no scripts needed
-- Toggle click effects and cursor trails independently, disable per-site
-- Adjustable theme color, opacity, effect size, and quality
-- Canvas runs inside Shadow DOM — no layout impact
-- Pure local rendering, no remote requests
-
-See the [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension) repository for details.
 
 ---
 
