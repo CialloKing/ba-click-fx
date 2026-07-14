@@ -124,6 +124,7 @@ try
   type BAClickFXConfig,
   type BAClickFXFilledCircleConfig,
   type BAClickFXGlowConfig,
+  type BAClickFXInputFilter,
   type BAClickFXOptions,
   type BAClickFXRenderMetrics,
   type BAClickFXRenderOptions,
@@ -140,10 +141,13 @@ const renderOptions: BAClickFXRenderOptions =
   maxBackingPixels: 8_000_000,
 };
 
+const inputFilter: BAClickFXInputFilter = event => event.isPrimary;
+
 const options: BAClickFXOptions =
 {
   target: '#fx',
   color: [105, 161, 255],
+  inputFilter,
   render: renderOptions,
 };
 
@@ -158,6 +162,10 @@ const glow: BAClickFXGlowConfig = config.glow;
 const outsideBehavior: TrailOutsideBehavior = trail.outsideBehavior;
 const metrics: BAClickFXRenderMetrics = namedInstance.getRenderMetrics();
 
+namedInstance.setInputFilter(inputFilter);
+namedInstance.setInputFilter(null);
+namedInstance.setTrailOutsideBehavior('clamp');
+
 // 旧属性仍需保持类型兼容，但声明会提示调用方改用安全快照与 setter。
 const legacyLiveConfig: BAClickFXConfig = namedInstance.CONFIG;
 
@@ -167,7 +175,7 @@ const invalidRenderOptions: BAClickFXRenderOptions =
   maxBackingPixels: 'invalid',
 };
 
-// @ts-expect-error 边界外策略仅接受公开的三个字面量。
+// @ts-expect-error 边界外策略仅接受公开的四个字面量。
 namedInstance.setTrailOutsideBehavior('global');
 
 void [

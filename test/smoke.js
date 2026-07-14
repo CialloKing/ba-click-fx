@@ -712,7 +712,7 @@ const allMethods = [
   // 基础
   'setColor', 'setScale', 'setOpacity', 'setSpeed',
   'setDpr', 'setTrailRenderScale', 'setRenderOptions', 'refreshSize', 'getRenderMetrics',
-  'setTouchAction',
+  'setTouchAction', 'setInputFilter',
   // 发光
   'setGlow', 'setFakeGlow', 'setClickFakeGlow',
   // 点击
@@ -772,7 +772,7 @@ for (const m of allMethods)
 }
 
 assert(methodCount === allMethods.length, `全部 ${allMethods.length} 个公共方法存在 (${methodCount}/${allMethods.length})`);
-assert(allMethods.length === 98, `公共方法基线应为 98 个，实际 ${allMethods.length} 个`);
+assert(allMethods.length === 99, `公共方法基线应为 99 个，实际 ${allMethods.length} 个`);
 
 // 检查 prototype 上是否有意外的公共方法（排除 _ 开头和 constructor）
 const protoKeys = Object.getOwnPropertyNames(proto).filter(
@@ -851,6 +851,8 @@ else
       () => first.refreshSize(),
       () => first.getRenderMetrics(),
       () => first.setTouchAction('none'),
+      () => first.setInputFilter(() => true),
+      () => first.setInputFilter(null),
       // 发光
       () => first.setGlow(true),
       () => first.setGlow(false),
@@ -903,6 +905,7 @@ else
       () => first.setTrailAlways(false),
       () => first.setTrailOutsideBehavior('pause-connect'),
       () => first.setTrailOutsideBehavior('continue'),
+      () => first.setTrailOutsideBehavior('clamp'),
       () => first.setTrailOutsideBehavior('auto'),
       () => first.setTrailBrightness(0.9),
       () => first.setTrailWhiteMix(0.3),
@@ -1458,6 +1461,34 @@ else
     });
     assert(outsideEngine.isDown === true, '主动释放后迟到的 lostpointercapture 不应终止当前物理按压');
     dispatchPointer(dom, 'pointerup', outsideTarget, 20, 20, { pointerId: 45 });
+
+    outsideEngine.setTrailOutsideBehavior('clamp');
+    dom.captureAttempts.length = 0;
+    dispatchPointer(dom, 'pointerdown', outsideTarget, 10, 10, { pointerId: 46 });
+    assert(dom.captureAttempts.length === 1 && hasPointerCapture(dom, 46), 'clamp 应在合法按下时尝试 Pointer Capture');
+    const clampRectReads = outsideTarget.rectReadCount;
+
+    dispatchPointer(dom, 'pointermove', outsideTarget, 130, -20, {
+      pointerId: 46,
+      getCoalescedEvents()
+      {
+        return [
+          { clientX: -30, clientY: 40, timeStamp: 80 },
+          { clientX: 50, clientY: 140, timeStamp: 81 },
+          { clientX: 130, clientY: -20, timeStamp: 82 },
+        ];
+      },
+    });
+    assert(outsideTarget.rectReadCount === clampRectReads + 1, 'clamp 的一批合并事件应只读取一次 Canvas 矩形');
+    assert(outsideEngine.lastTrailPos?.x === 100 && outsideEngine.lastTrailPos?.y === 0, 'clamp 应在平滑前保留最后一个边缘坐标');
+    assert(
+      outsideEngine.currentTrailStroke.every(
+        (point) => point.x >= 0 && point.x <= 100 && point.y >= 0 && point.y <= 100,
+      ),
+      'clamp 的全部插值点都应位于 Canvas 边界内',
+    );
+    dispatchPointer(dom, 'pointerup', outsideTarget, 130, -20, { pointerId: 46 });
+    assert(!hasPointerCapture(dom, 46), 'clamp 的 pointerup 应释放 Pointer Capture');
     outsideEngine.destroy();
 
     const captureFailureTarget = new MockCanvas({ width: 100, height: 100 });
@@ -1503,7 +1534,25 @@ else
     assert(captureFailureError === null, 'continue 的 Pointer Capture 失败应安全退化');
     assert(captureFailureEngine.lastTrailPos?.x === 130, 'capture 失败后仍应处理实际投递的外部事件');
     dispatchPointer(dom, 'pointerup', captureFailureTarget, 130, 10, { pointerId: 46 });
+
+    captureFailureEngine.setTrailOutsideBehavior('clamp');
+    captureFailureError = null;
+
+    try
+    {
+      dispatchPointer(dom, 'pointerdown', captureFailureTarget, 10, 10, { pointerId: 48 });
+      dispatchPointer(dom, 'pointermove', captureFailureTarget, 130, -10, { pointerId: 48 });
+    }
+    catch (error)
+    {
+      captureFailureError = error;
+    }
+
+    assert(captureFailureError === null, 'clamp 的 Pointer Capture 失败应安全退化');
+    assert(captureFailureEngine.lastTrailPos?.x === 100 && captureFailureEngine.lastTrailPos?.y === 0, 'clamp 捕获失败后仍应钳制实际投递的外部事件');
+    dispatchPointer(dom, 'pointerup', captureFailureTarget, 130, -10, { pointerId: 48 });
     captureFailureTarget.captureError = null;
+    captureFailureEngine.setTrailOutsideBehavior('continue');
     captureFailureEngine.setTrailAlways(true);
     dom.captureAttempts.length = 0;
     dispatchPointer(dom, 'pointermove', captureFailureTarget, 130, 20, { pointerId: 47, buttons: 0 });
@@ -1511,9 +1560,104 @@ else
     captureFailureEngine.destroy();
 
     // ═══════════════════════════════════════════════
-    // 测试 12: 构造失败回滚与 destroy 完整资源释放
+    // 测试 12: 宿主输入过滤器
     // ═══════════════════════════════════════════════
-    console.log('12. 构造失败回滚与 destroy 完整资源释放');
+    console.log('12. 宿主输入过滤器');
+
+    const filterTarget = new MockCanvas({ width: 100, height: 100 });
+    let acceptInput = false;
+    let filterCalls = 0;
+    const filterEngine = new BAClickFX({
+      target: filterTarget,
+      inputFilter(event)
+      {
+        filterCalls++;
+        return acceptInput && event.target === filterTarget;
+      },
+    });
+
+    filterEngine.setTrailOutsideBehavior('continue');
+    filterEngine.setTrailSmooth(0);
+    filterTarget.resetRectReadCount();
+    dispatchPointer(dom, 'pointerdown', filterTarget, 10, 10, { pointerId: 61 });
+    assert(filterCalls === 1, '构造参数中的输入过滤器应处理 pointerdown');
+    assert(filterTarget.rectReadCount === 0, '被过滤的 pointerdown 不应读取 Canvas 矩形');
+    assert(filterEngine.isDown === false && filterEngine.waves.length === 0, '被过滤的 pointerdown 不应创建点击或拖尾');
+
+    filterEngine.setTrailAlways(true);
+    let rejectedCoalescedReads = 0;
+
+    dispatchPointer(dom, 'pointermove', filterTarget, 20, 20, {
+      pointerId: 61,
+      buttons: 0,
+      getCoalescedEvents()
+      {
+        rejectedCoalescedReads++;
+        return [];
+      },
+    });
+    assert(rejectedCoalescedReads === 0, '被过滤的 hover move 不应读取合并事件');
+    assert(filterTarget.rectReadCount === 0, '被过滤的 hover move 不应读取 Canvas 矩形');
+
+    filterEngine.setTrailAlways(false);
+    acceptInput = true;
+    dispatchPointer(dom, 'pointerdown', filterTarget, 20, 20, { pointerId: 62 });
+    assert(filterEngine.isDown && hasPointerCapture(dom, 62), '通过过滤器的 pointerdown 应正常建立拖尾与捕获');
+    const acceptedPosition = { ...filterEngine.lastTrailPos };
+    const acceptedRectReads = filterTarget.rectReadCount;
+    acceptInput = false;
+    let activeRejectedReads = 0;
+
+    dispatchPointer(dom, 'pointermove', filterTarget, 80, 80, {
+      pointerId: 62,
+      getCoalescedEvents()
+      {
+        activeRejectedReads++;
+        return [];
+      },
+    });
+    assert(activeRejectedReads === 0, '活动拖尾中被过滤的 move 不应读取合并事件');
+    assert(filterTarget.rectReadCount === acceptedRectReads, '活动拖尾中被过滤的 move 不应读取 Canvas 矩形');
+    assert(
+      filterEngine.lastTrailPos?.x === acceptedPosition.x &&
+        filterEngine.lastTrailPos?.y === acceptedPosition.y,
+      '活动拖尾中被过滤的 move 应保留已有连续性锚点',
+    );
+    dispatchPointer(dom, 'pointerup', filterTarget, 80, 80, { pointerId: 62 });
+    assert(!filterEngine.isDown && !hasPointerCapture(dom, 62), '终止事件不得被过滤器阻止清理');
+
+    filterEngine.setInputFilter(() =>
+    {
+      throw new Error('host filter failure');
+    });
+    filterTarget.resetRectReadCount();
+    let throwingFilterError = null;
+
+    try
+    {
+      dispatchPointer(dom, 'pointerdown', filterTarget, 30, 30, { pointerId: 63 });
+    }
+    catch (error)
+    {
+      throwingFilterError = error;
+    }
+
+    assert(throwingFilterError === null, '输入过滤器异常不应破坏全局 Pointer 分发');
+    assert(filterTarget.rectReadCount === 0 && !filterEngine.isDown, '输入过滤器异常应安全拒绝该次输入');
+
+    filterEngine.setInputFilter(null);
+    dispatchPointer(dom, 'pointerdown', filterTarget, 40, 40, { pointerId: 64 });
+    assert(filterEngine.isDown, 'setInputFilter(null) 应恢复接受全部输入');
+    dispatchPointer(dom, 'pointerup', filterTarget, 40, 40, { pointerId: 64 });
+    filterEngine.destroy();
+    assert(filterEngine._inputFilter === null, 'destroy 应释放宿主输入过滤器引用');
+    filterEngine.setInputFilter(() => true);
+    assert(filterEngine._inputFilter === null, 'destroy 后 setInputFilter 不得重新持有宿主回调');
+
+    // ═══════════════════════════════════════════════
+    // 测试 13: 构造失败回滚与 destroy 完整资源释放
+    // ═══════════════════════════════════════════════
+    console.log('13. 构造失败回滚与 destroy 完整资源释放');
 
     for (let failedContext = 1; failedContext <= 3; failedContext++)
     {
@@ -1740,9 +1884,9 @@ else
     assert(dom.body.children.length === 0 && dom.window.listenerCount() === 0, '销毁后已排队回调不得重新分配资源');
 
     // ═══════════════════════════════════════════════
-    // 测试 13: 默认三层尺寸与渲染指标
+    // 测试 14: 默认三层尺寸与渲染指标
     // ═══════════════════════════════════════════════
-    console.log('13. 默认三层尺寸与渲染指标');
+    console.log('14. 默认三层尺寸与渲染指标');
 
     dom.window.devicePixelRatio = 2;
 
@@ -1802,9 +1946,9 @@ else
     defaultRenderEngine.destroy();
 
     // ═══════════════════════════════════════════════
-    // 测试 14: backing 像素预算
+    // 测试 15: backing 像素预算
     // ═══════════════════════════════════════════════
-    console.log('14. backing 像素预算');
+    console.log('15. backing 像素预算');
 
     const budgetTarget = new MockCanvas({ width: 100, height: 80 });
     const budgetEngine = new BAClickFX({
@@ -1935,9 +2079,9 @@ else
     budgetEngine.destroy();
 
     // ═══════════════════════════════════════════════
-    // 测试 15: 尺寸写入最小化
+    // 测试 16: 尺寸写入最小化
     // ═══════════════════════════════════════════════
-    console.log('15. 尺寸写入最小化');
+    console.log('16. 尺寸写入最小化');
 
     const stableTarget = new MockCanvas({ width: 200, height: 120 });
     const stableEngine = new BAClickFX({
@@ -1990,9 +2134,9 @@ else
     stableEngine.destroy();
 
     // ═══════════════════════════════════════════════
-    // 测试 16: 外部 Canvas CSS 与 0×0 暂停恢复
+    // 测试 17: 外部 Canvas CSS 与 0×0 暂停恢复
     // ═══════════════════════════════════════════════
-    console.log('16. 外部 Canvas CSS 与 0×0 暂停恢复');
+    console.log('17. 外部 Canvas CSS 与 0×0 暂停恢复');
 
     dom.window.devicePixelRatio = 1;
 
@@ -2048,9 +2192,9 @@ else
     zeroEngine.destroy();
 
     // ═══════════════════════════════════════════════
-    // 测试 17: 尺寸监听、防抖重绑与清理
+    // 测试 18: 尺寸监听、防抖重绑与清理
     // ═══════════════════════════════════════════════
-    console.log('17. 尺寸监听、防抖重绑与清理');
+    console.log('18. 尺寸监听、防抖重绑与清理');
 
     const observerTarget = new MockCanvas({ width: 140, height: 90 });
     const observerEngine = new BAClickFX({
@@ -2170,9 +2314,9 @@ else
     );
 
     // ═══════════════════════════════════════════════
-    // 测试 18: 渲染选项有限数值校验
+    // 测试 19: 渲染选项有限数值校验
     // ═══════════════════════════════════════════════
-    console.log('18. 渲染选项有限数值校验');
+    console.log('19. 渲染选项有限数值校验');
 
     dom.window.devicePixelRatio = 2;
 
@@ -2245,9 +2389,9 @@ else
     dom.window.devicePixelRatio = 1;
 
     // ═══════════════════════════════════════════════
-    // 测试 19: 主 Canvas 独占与多实例所有权
+    // 测试 20: 主 Canvas 独占与多实例所有权
     // ═══════════════════════════════════════════════
-    console.log('19. 主 Canvas 独占与多实例所有权');
+    console.log('20. 主 Canvas 独占与多实例所有权');
 
     const hostSparkCanvas = new MockCanvas({ width: 320, height: 240 });
 
@@ -2339,9 +2483,9 @@ else
     claimRetryEngine.destroy();
 
     // ═══════════════════════════════════════════════
-    // 测试 20: 全部公开数值入口有限值归一化
+    // 测试 21: 全部公开数值入口有限值归一化
     // ═══════════════════════════════════════════════
-    console.log('20. 全部公开数值入口有限值归一化');
+    console.log('21. 全部公开数值入口有限值归一化');
 
     const numericTarget = new MockCanvas({ width: 200, height: 120 });
     const numericEngine = new BAClickFX({
@@ -2533,9 +2677,9 @@ else
     numericEngine.destroy();
 
     // ═══════════════════════════════════════════════
-    // 测试 21: 拖尾渲染缓存严格等价限流
+    // 测试 22: 拖尾渲染缓存严格等价限流
     // ═══════════════════════════════════════════════
-    console.log('21. 拖尾渲染缓存严格等价限流');
+    console.log('22. 拖尾渲染缓存严格等价限流');
 
     const renderCacheEngine = new BAClickFX({
       target: new MockCanvas({ width: 320, height: 180 }),

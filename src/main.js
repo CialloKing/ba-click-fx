@@ -93,9 +93,15 @@ const I18N = {
     subShardFlicker: '碎片闪烁',
     subArcDetail: '弧段细节',
     subJitter: '半径抖动',
+    subRotationJitter: '旋转随机',
+    subInnerRadius: '内径',
     subNormalGrow: '正常段增长',
     subCollapseTiming: '收缩时序',
+    subGrowEnd: '扩张终点',
     subTrailInput: '输入参数',
+    subTrailSampling: '采样配置',
+    subMoveShards: '移动碎片',
+    subTrailWidth: '宽度',
     labelColor: '主题颜色',
     labelScale: '全局缩放',
     labelOpacity: '不透明度',
@@ -156,6 +162,10 @@ const I18N = {
     labelTrailRailAlpha: '细轨',
     labelTrailGlowWidthMul: '发光宽度',
     labelTrailSoftGlowWidthMul: '柔光宽度',
+    labelTrailCoreWidthSlow: '中心高光宽度（慢）',
+    labelTrailCoreWidthFast: '中心高光宽度（快）',
+    labelTrailHotWidthSlow: '蓝白热点宽度（慢）',
+    labelTrailHotWidthFast: '蓝白热点宽度（快）',
     labelTrailTailDecayMul: '尾部衰减',
     labelTrailHeadDecayMul: '头部衰减',
     labelTrailReleaseDecayMul: '松手衰减',
@@ -210,7 +220,7 @@ const I18N = {
     introP1: 'Blue Archive / 蔚蓝档案 style mouse click effect and cursor trail animation for web. Click, drag, or move your mouse to preview the effect.',
     introP2: 'ba-click-fx is a pure Canvas 2D JavaScript library for mouse click effects, cursor trail animation, glowing rings, particle sparks, and drag trails. Zero external dependencies.',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.10/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.11/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introFAQContent: '<p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p><p><strong>需要图片素材或 WebGL 吗？</strong> 不需要，纯 Canvas 2D 实现，零外部运行时依赖。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和直接 script 引入三种方式。</p>',
   },
@@ -239,9 +249,15 @@ const I18N = {
     subShardFlicker: 'Shard Flicker',
     subArcDetail: 'Arc Detail',
     subJitter: 'Radius Jitter',
+    subRotationJitter: 'Rotation Jitter',
+    subInnerRadius: 'Inner Radius',
     subNormalGrow: 'Normal Grow',
     subCollapseTiming: 'Collapse Timing',
+    subGrowEnd: 'Growth End',
     subTrailInput: 'Input Params',
+    subTrailSampling: 'Sampling',
+    subMoveShards: 'Moving Shards',
+    subTrailWidth: 'Width',
     labelColor: 'Theme Color',
     labelScale: 'Global Scale',
     labelOpacity: 'Opacity',
@@ -302,6 +318,10 @@ const I18N = {
     labelTrailRailAlpha: 'Thin Rail',
     labelTrailGlowWidthMul: 'Glow Width',
     labelTrailSoftGlowWidthMul: 'Soft Glow Width',
+    labelTrailCoreWidthSlow: 'Core Width (Slow)',
+    labelTrailCoreWidthFast: 'Core Width (Fast)',
+    labelTrailHotWidthSlow: 'Hotspot Width (Slow)',
+    labelTrailHotWidthFast: 'Hotspot Width (Fast)',
     labelTrailTailDecayMul: 'Tail Decay',
     labelTrailHeadDecayMul: 'Head Decay',
     labelTrailReleaseDecayMul: 'Release Decay',
@@ -356,7 +376,7 @@ const I18N = {
     introP1: 'Blue Archive style mouse click effect and cursor trail animation for web. Click, drag, or move your mouse to preview the effect.',
     introP2: 'ba-click-fx is a pure Canvas 2D JavaScript library for mouse click effects, cursor trail animation, glowing rings, particle sparks, and drag trails. Zero external dependencies.',
     introInstallSummary: 'Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.10/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.11/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: 'FAQ',
     introFAQContent: '<p><strong>Is ba-click-fx related to Blue Archive?</strong> It is a fan-made visual effect library inspired by the UI click and trail effects of Blue Archive.</p><p><strong>Does it require images or WebGL?</strong> No. It uses pure Canvas 2D and has zero external runtime dependencies.</p><p><strong>Can I use it on a blog or personal homepage?</strong> Yes. It supports npm, CDN, and direct script usage.</p>',
   },
@@ -394,8 +414,9 @@ function switchLanguage(lang)
   const subHeadings = panel.querySelectorAll('.sub-heading');
   const subKeys = [
     'subDisk', 'subDiskTiming', 'subShards', 'subRings', 'subSoftGlow', 'subArcSeg', 'subColorFade',
-    'subArcDetail', 'subJitter', 'subNormalGrow', 'subCollapseTiming',
-    'subShardFlicker', 'subTrailInput',
+    'subArcDetail', 'subJitter', 'subRotationJitter', 'subInnerRadius', 'subNormalGrow',
+    'subCollapseTiming', 'subGrowEnd', 'subShardFlicker', 'subTrailInput',
+    'subTrailSampling', 'subMoveShards', 'subTrailWidth',
   ];
   subHeadings.forEach((h4, i) => { if (t[subKeys[i]]) { h4.textContent = t[subKeys[i]]; } });
 
@@ -434,6 +455,8 @@ function switchLanguage(lang)
     ctrlTrailHotAlpha: 'labelTrailHotAlpha', ctrlTrailGlowAlpha: 'labelTrailGlowAlpha',
     ctrlTrailSoftGlowAlpha: 'labelTrailSoftGlowAlpha', ctrlTrailRailAlpha: 'labelTrailRailAlpha',
     ctrlTrailGlowWidthMul: 'labelTrailGlowWidthMul', ctrlTrailSoftGlowWidthMul: 'labelTrailSoftGlowWidthMul',
+    ctrlTrailCoreWidthSlow: 'labelTrailCoreWidthSlow', ctrlTrailCoreWidthFast: 'labelTrailCoreWidthFast',
+    ctrlTrailHotWidthSlow: 'labelTrailHotWidthSlow', ctrlTrailHotWidthFast: 'labelTrailHotWidthFast',
     ctrlTrailTailDecayMul: 'labelTrailTailDecayMul', ctrlTrailHeadDecayMul: 'labelTrailHeadDecayMul',
     ctrlTrailReleaseDecayMul: 'labelTrailReleaseDecayMul', ctrlTrailSpeedDecay: 'labelTrailSpeedDecay',
     ctrlTrailSpeedMin: 'labelTrailSpeedMin', ctrlTrailSpeedMax: 'labelTrailSpeedMax',
@@ -577,6 +600,10 @@ document.getElementById('langToggle').addEventListener('click', () =>
       trailRailAlpha: c.trail.railAlpha,
       trailGlowWidthMul: c.trail.glowWidthMul,
       trailSoftGlowWidthMul: c.trail.softGlowWidthMul,
+      trailCoreWidthSlow: c.trail.coreWidthSlow,
+      trailCoreWidthFast: c.trail.coreWidthFast,
+      trailHotWidthSlow: c.trail.hotWidthSlow,
+      trailHotWidthFast: c.trail.hotWidthFast,
       trailTailDecayMul: c.trail.tailDecayMul,
       trailHeadDecayMul: c.trail.headDecayMul,
       trailReleaseDecayMul: c.trail.releaseDecayMul,
@@ -883,6 +910,14 @@ document.getElementById('langToggle').addEventListener('click', () =>
 
   ctrlTrailAlways.addEventListener('change', () => { api.setTrailAlways(ctrlTrailAlways.checked); localStorage.setItem('bafx-ctrlTrailAlways', ctrlTrailAlways.checked); });
 
+  const ctrlTrailOutside = document.getElementById('ctrlTrailOutside');
+
+  ctrlTrailOutside.addEventListener('change', () =>
+  {
+    api.setTrailOutsideBehavior(ctrlTrailOutside.value);
+    localStorage.setItem('bafx-ctrlTrailOutside', ctrlTrailOutside.value);
+  });
+
   const ctrlClick = document.getElementById('ctrlClick');
 
   ctrlClick.addEventListener('change', () => { api.setClick(ctrlClick.checked); localStorage.setItem('bafx-ctrlClick', ctrlClick.checked); });
@@ -1028,6 +1063,33 @@ document.getElementById('langToggle').addEventListener('click', () =>
     api.setRingSegmentDetail(ec, cc, lmin, v);
   });
 
+  bindRange('ctrlRingRotJitterMin', 'outRingRotJitterMin', v =>
+  {
+    const max = parseFloat(document.getElementById('ctrlRingRotJitterMax').value);
+
+    api.setRingRotationJitter(v, max);
+  });
+  bindRange('ctrlRingRotJitterMax', 'outRingRotJitterMax', v =>
+  {
+    const min = parseFloat(document.getElementById('ctrlRingRotJitterMin').value);
+
+    api.setRingRotationJitter(min, v);
+  });
+
+  bindRange('ctrlRingSmallRadiusMin', 'outRingSmallRadiusMin', v =>
+  {
+    const max = parseFloat(document.getElementById('ctrlRingSmallRadiusMax').value);
+
+    api.setRingSmallRadius(v, max);
+  });
+  bindRange('ctrlRingSmallRadiusMax', 'outRingSmallRadiusMax', v =>
+  {
+    const min = parseFloat(document.getElementById('ctrlRingSmallRadiusMin').value);
+
+    api.setRingSmallRadius(min, v);
+  });
+  bindRange('ctrlRingRadiusGrowEnd', 'outRingRadiusGrowEnd', v => api.setRingRadiusGrowEnd(v));
+
   bindRange('ctrlRingJitterMin', 'outRingJitterMin', v => {
     const mx = parseFloat(document.getElementById('ctrlRingJitterMax').value);
     api.setRingRadiusJitter(v, mx);
@@ -1067,6 +1129,47 @@ document.getElementById('langToggle').addEventListener('click', () =>
   bindRange('ctrlTrailMaxJumpDistance', 'outTrailMaxJumpDistance', v => api.setTrailMaxJumpDistance(v), true);
   bindRange('ctrlTrailMaxCoalesced', 'outTrailMaxCoalesced', v => api.setTrailMaxCoalescedEvents(v), true);
 
+  bindRange('ctrlTrailSampleStep', 'outTrailSampleStep', v =>
+  {
+    const max = parseFloat(document.getElementById('ctrlTrailSampleMaxPts').value);
+
+    api.setTrailSampling(v, max);
+  });
+  bindRange('ctrlTrailSampleMaxPts', 'outTrailSampleMaxPts', v =>
+  {
+    const step = parseFloat(document.getElementById('ctrlTrailSampleStep').value);
+
+    api.setTrailSampling(step, v);
+  }, true);
+  bindRange('ctrlTrailRenderStep', 'outTrailRenderStep', v =>
+  {
+    const max = parseFloat(document.getElementById('ctrlTrailRenderMaxPts').value);
+
+    api.setTrailRenderSampling(v, max);
+  });
+  bindRange('ctrlTrailRenderMaxPts', 'outTrailRenderMaxPts', v =>
+  {
+    const step = parseFloat(document.getElementById('ctrlTrailRenderStep').value);
+
+    api.setTrailRenderSampling(step, v);
+  }, true);
+  bindRange('ctrlTrailGradientChunk', 'outTrailGradientChunk', v => api.setTrailGradientChunk(v));
+  bindRange('ctrlTrailMaxPoints', 'outTrailMaxPoints', v => api.setTrailMaxPoints(v), true);
+
+  bindRange('ctrlMoveSparkChance', 'outMoveSparkChance', v => api.setMoveSparkChance(v));
+  bindRange('ctrlTrailShardOffsetMin', 'outTrailShardOffsetMin', v =>
+  {
+    const max = parseFloat(document.getElementById('ctrlTrailShardOffsetMax').value);
+
+    api.setTrailShardOffset(v, max);
+  }, true);
+  bindRange('ctrlTrailShardOffsetMax', 'outTrailShardOffsetMax', v =>
+  {
+    const min = parseFloat(document.getElementById('ctrlTrailShardOffsetMin').value);
+
+    api.setTrailShardOffset(min, v);
+  }, true);
+
   // -- 轨迹渲染层宽度 --
   bindRange('ctrlTrailRailWidth', 'outTrailRailWidth', v => api.setTrailRailWidth(v));
   bindRange('ctrlTrailRibbonWidth', 'outTrailRibbonWidth', v => {
@@ -1089,6 +1192,31 @@ document.getElementById('langToggle').addEventListener('click', () =>
   // -- 拖尾发光范围 --
   bindRange('ctrlTrailGlowWidthMul', 'outTrailGlowWidthMul', v => api.setTrailGlowWidthMul(v));
   bindRange('ctrlTrailSoftGlowWidthMul', 'outTrailSoftGlowWidthMul', v => api.setTrailSoftGlowWidthMul(v));
+
+  bindRange('ctrlTrailCoreWidthSlow', 'outTrailCoreWidthSlow', v =>
+  {
+    const fast = parseFloat(document.getElementById('ctrlTrailCoreWidthFast').value);
+
+    api.setTrailCoreWidth(v, fast);
+  });
+  bindRange('ctrlTrailCoreWidthFast', 'outTrailCoreWidthFast', v =>
+  {
+    const slow = parseFloat(document.getElementById('ctrlTrailCoreWidthSlow').value);
+
+    api.setTrailCoreWidth(slow, v);
+  });
+  bindRange('ctrlTrailHotWidthSlow', 'outTrailHotWidthSlow', v =>
+  {
+    const fast = parseFloat(document.getElementById('ctrlTrailHotWidthFast').value);
+
+    api.setTrailHotWidth(v, fast);
+  });
+  bindRange('ctrlTrailHotWidthFast', 'outTrailHotWidthFast', v =>
+  {
+    const slow = parseFloat(document.getElementById('ctrlTrailHotWidthSlow').value);
+
+    api.setTrailHotWidth(slow, v);
+  });
 
   // -- 拖尾碎片闪烁 --
   bindRange('ctrlTrailShardFlicker', 'outTrailShardFlicker', v => {
@@ -1335,6 +1463,12 @@ document.getElementById('langToggle').addEventListener('click', () =>
     api.setTrailGlowWidthMul(DEFAULTS.trailGlowWidthMul);
     setVal('ctrlTrailSoftGlowWidthMul', 'outTrailSoftGlowWidthMul', DEFAULTS.trailSoftGlowWidthMul);
     api.setTrailSoftGlowWidthMul(DEFAULTS.trailSoftGlowWidthMul);
+    setVal('ctrlTrailCoreWidthSlow', 'outTrailCoreWidthSlow', DEFAULTS.trailCoreWidthSlow);
+    setVal('ctrlTrailCoreWidthFast', 'outTrailCoreWidthFast', DEFAULTS.trailCoreWidthFast);
+    api.setTrailCoreWidth(DEFAULTS.trailCoreWidthSlow, DEFAULTS.trailCoreWidthFast);
+    setVal('ctrlTrailHotWidthSlow', 'outTrailHotWidthSlow', DEFAULTS.trailHotWidthSlow);
+    setVal('ctrlTrailHotWidthFast', 'outTrailHotWidthFast', DEFAULTS.trailHotWidthFast);
+    api.setTrailHotWidth(DEFAULTS.trailHotWidthSlow, DEFAULTS.trailHotWidthFast);
 
     // 拖尾消散
     setVal('ctrlTrailTailDecayMul', 'outTrailTailDecayMul', DEFAULTS.trailTailDecayMul);
