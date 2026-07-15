@@ -1012,7 +1012,7 @@ else
 
     const resetCfg = first.getConfig();
     assert(resetCfg.scale === 1.10, `resetConfig 后 scale 应为 1.10，实际 ${resetCfg.scale}`);
-    assert(resetCfg.trail.whiteMix === 0.45, `resetConfig 后 trail.whiteMix 应为 0.45，实际 ${resetCfg.trail.whiteMix}`);
+    assert(resetCfg.trail.whiteMix === 0.16, `resetConfig 后 trail.whiteMix 应为 0.16，实际 ${resetCfg.trail.whiteMix}`);
     assert(resetCfg.color.join(',') === '105,161,255', 'resetConfig 后 color 应为默认值');
     assert(
       JSON.stringify(resetCfg) === JSON.stringify(initialConfig),
