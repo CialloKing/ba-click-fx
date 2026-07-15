@@ -1,5 +1,15 @@
 ﻿# Changelog
 
+## v1.1.12 - 2026-07-15
+
+- Replaced the demo's unstyled Mouse Leave selector with an accessible themed native select, including dark options, focus states, a custom arrow, forced-colors fallback, and bilingual option labels.
+- Fixed five stale `readDefaults()` config paths that displayed `NaN` after resetting rotation jitter, small-radius ring, and trail-gradient controls.
+- Aligned the shard-spacing and ring-alpha HTML defaults with the actual config, and preserved each range output's declared decimal precision during input and reset.
+- Centralized demo setting restoration so invalid range, color, and select values safely restore only the affected control without clearing other preferences.
+- Hardened `BAClickFXDemo.loadSettings()` against malformed JSON roots and reused the same validated restoration path as startup settings.
+- Extended the demo synchronization check to resolve every direct `createConfig()` reference, reject missing or non-finite defaults, and cross-check range HTML values, outputs, and reset config values before release.
+- No Canvas effect configuration, geometry, timing, easing, randomness, drawing, compositing, core API, or TypeScript changes.
+
 ## v1.1.11 - 2026-07-14
 
 - Added the opt-in `clamp` trail boundary mode, which attempts Pointer Capture and clamps each delivered trail sample to the Canvas edge before smoothing and interpolation.
