@@ -160,9 +160,9 @@ export const CONFIG = {
     // 速度因子下降稍快一点：松手后只影响宽度/长度，不拖慢寿命。
     speedDecay: 0.988,
 
-    // 轨迹本体更像 Unity TrailRenderer 的细线，宽度主要交给发光层表现。
-    baseWidthSlow: 3,
-    baseWidthFast: 3,
+    // 4px 线芯承担主体宽度，柔和真实光只负责边缘过渡。
+    baseWidthSlow: 4,
+    baseWidthFast: 4,
 
     coreWidthSlow: 0.3,
     coreWidthFast: 0.52,
@@ -171,22 +171,22 @@ export const CONFIG = {
     hotWidthFast: 0.24,
 
     ribbonWidthMul: 0,
-    glowWidthMul: 1.7,
-    softGlowWidthMul: 2.4,
+    glowWidthMul: 2.4,
+    softGlowWidthMul: 4.0,
     railWidthSlow: 0.22,
     railWidthFast: 0.36,
 
     // 亮度与偏白程度：
     // whiteMix 越大越白；轨迹本体需要偏 cyan，白色只留给极细中心高光。
     alpha: 0.96,
-    whiteMix: 0.45,
+    whiteMix: 0.16,
 
     mainAlpha: 1,
     ribbonAlpha: 0,
-    coreAlpha: 0.78,
-    hotAlpha: 0.34,
-    glowAlpha: 0.18,
-    softGlowAlpha: 0.045,
+    coreAlpha: 0.60,
+    hotAlpha: 0.25,
+    glowAlpha: 0.32,
+    softGlowAlpha: 0.065,
     railAlpha: 0.02,
 
     // 鼠标速度范围，单位 px/ms
@@ -212,13 +212,16 @@ export const CONFIG = {
     moveSparkChance: 0,
 
     // 轨迹真实光影（径向渐变光晕）参数
-    glowRadiusMul: 25,
-    glowIntensity: 0.13,
+    // Unity Bloom 只包裹发亮的线芯，避免大范围雾化遮住轨迹宽度变化。
+    glowRadiusMul: 6,
+    // 采样加密后降低单点强度，保持整体亮度不因重叠次数增加而抬升。
+    glowIntensity: 0.07,
   },
 
   glow: {
     enabled: true,
-    fake: true,
+    // 真实径向光已覆盖默认拖尾的外发光，多层柔光仅作为可选兼容层。
+    fake: false,
     // 原作点击反馈包含明显蓝白径向光，默认开启点击伪发光。
     clickFake: true,
   },
@@ -269,21 +272,21 @@ export function getTrailColor(config = CONFIG)
 }
 
 /**
- * 拖尾中心高光色 = 主题色 + 56% 白（浅蓝，避免纯白过于刺眼）
+ * 拖尾中心高光色 = 主题色 + 20% 白，保留饱和蓝色线芯
  * @param {object} [config=CONFIG]
  * @returns {number[]} [r, g, b]
  */
 export function getTrailCoreColor(config = CONFIG)
 {
-  return mixColor(config.color, [255, 255, 255], 0.36);
+  return mixColor(config.color, [255, 255, 255], 0.20);
 }
 
 /**
- * 拖尾头部热点色 = 主题色 + 74% 白（蓝白，保留蓝色基底）
+ * 拖尾头部热点色 = 主题色 + 42% 白，仅在头部留下短促高亮
  * @param {object} [config=CONFIG]
  * @returns {number[]} [r, g, b]
  */
 export function getTrailHotColor(config = CONFIG)
 {
-  return mixColor(config.color, [255, 255, 255], 0.58);
+  return mixColor(config.color, [255, 255, 255], 0.42);
 }
