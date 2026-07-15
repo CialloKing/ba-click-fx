@@ -6,6 +6,105 @@ import { rgbToHex, hexToRgb } from './utils.js';
 // ── 创建特效引擎实例 ────────────────────────────────────────────────────
 const api = new BAClickFX();
 
+function toFiniteSavedNumber(value)
+{
+  if (
+    value == null ||
+    (typeof value !== 'number' && typeof value !== 'string') ||
+    (typeof value === 'string' && value.trim() === '')
+  )
+  {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function applyDemoControlValue(id, value)
+{
+  const el = document.getElementById(id);
+  let valid = true;
+
+  if (!el)
+  {
+    return false;
+  }
+
+  if (el.type === 'checkbox')
+  {
+    el.checked = value === true || value === 'true';
+  }
+  else if (el.type === 'range')
+  {
+    const number = toFiniteSavedNumber(value);
+
+    if (number == null)
+    {
+      el.value = el.defaultValue;
+      valid = false;
+    }
+    else
+    {
+      el.value = String(number);
+    }
+  }
+  else if (el.type === 'color')
+  {
+    const color = typeof value === 'string' ? value : '';
+
+    if (/^#[0-9a-f]{6}$/i.test(color))
+    {
+      el.value = color;
+    }
+    else
+    {
+      el.value = el.defaultValue;
+      valid = false;
+    }
+  }
+  else if (el.tagName === 'SELECT')
+  {
+    const optionValue = typeof value === 'string' ? value : '';
+    const optionExists = Array.from(el.options).some(option =>
+    {
+      return option.value === optionValue;
+    });
+
+    if (optionExists)
+    {
+      el.value = optionValue;
+    }
+    else
+    {
+      el.selectedIndex = 0;
+      valid = false;
+    }
+  }
+  else
+  {
+    el.value = typeof value === 'string' ? value : '';
+  }
+
+  el.dispatchEvent(new Event('input',
+  {
+    bubbles: true,
+  }));
+  el.dispatchEvent(new Event('change',
+  {
+    bubbles: true,
+  }));
+
+  if (!valid)
+  {
+    // 事件监听器可能写回回退值，因此最后删除损坏项，只保留正常设置。
+    localStorage.removeItem('bafx-' + id);
+    console.warn(`[ba-click-fx demo] ${id} 的持久化值无效，已恢复默认值`);
+  }
+
+  return valid;
+}
+
 // ── 演示页扩展 API（不进入引擎库）────────────────────────────────────────
 api.saveSettings = function ()
 {
@@ -28,25 +127,23 @@ api.loadSettings = function (json)
 {
   let data;
 
-  try { data = JSON.parse(json); } catch (e) { return false; }
+  try
+  {
+    data = JSON.parse(json);
+  }
+  catch
+  {
+    return false;
+  }
+
+  if (!data || typeof data !== 'object' || Array.isArray(data))
+  {
+    return false;
+  }
 
   for (const [id, val] of Object.entries(data))
   {
-    const el = document.getElementById(id);
-
-    if (!el) { continue; }
-
-    if (el.type === 'checkbox')
-    {
-      el.checked = val === 'true';
-    }
-    else
-    {
-      el.value = val;
-    }
-
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
+    applyDemoControlValue(id, val);
   }
 
   return true;
@@ -196,6 +293,10 @@ const I18N = {
     labelTrailGradientChunk: '渐变分段',
     labelTrailMaxPoints: '最大轨迹点数',
     labelTrailOutsideBehavior: '鼠标离开窗口',
+    optionTrailOutsideAuto: '自动',
+    optionTrailOutsidePauseConnect: '暂停-续接',
+    optionTrailOutsideContinue: '保持',
+    optionTrailOutsideClamp: '边缘钳制',
     labelRingJitterMin: '抖动下限',
     labelRingJitterMax: '抖动上限',
     labelRingNormalGrowMin: '增长率下限',
@@ -220,7 +321,7 @@ const I18N = {
     introP1: 'Blue Archive / 蔚蓝档案 style mouse click effect and cursor trail animation for web. Click, drag, or move your mouse to preview the effect.',
     introP2: 'ba-click-fx is a pure Canvas 2D JavaScript library for mouse click effects, cursor trail animation, glowing rings, particle sparks, and drag trails. Zero external dependencies.',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.11/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.12/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introFAQContent: '<p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p><p><strong>需要图片素材或 WebGL 吗？</strong> 不需要，纯 Canvas 2D 实现，零外部运行时依赖。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和直接 script 引入三种方式。</p>',
   },
@@ -352,6 +453,10 @@ const I18N = {
     labelTrailGradientChunk: 'Gradient Chunk',
     labelTrailMaxPoints: 'Max Trail Points',
     labelTrailOutsideBehavior: 'Mouse Leave',
+    optionTrailOutsideAuto: 'Auto',
+    optionTrailOutsidePauseConnect: 'Pause & Connect',
+    optionTrailOutsideContinue: 'Continue',
+    optionTrailOutsideClamp: 'Clamp to Edge',
     labelRingJitterMin: 'Jitter Min',
     labelRingJitterMax: 'Jitter Max',
     labelRingNormalGrowMin: 'Grow Min',
@@ -376,7 +481,7 @@ const I18N = {
     introP1: 'Blue Archive style mouse click effect and cursor trail animation for web. Click, drag, or move your mouse to preview the effect.',
     introP2: 'ba-click-fx is a pure Canvas 2D JavaScript library for mouse click effects, cursor trail animation, glowing rings, particle sparks, and drag trails. Zero external dependencies.',
     introInstallSummary: 'Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.11/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.12/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: 'FAQ',
     introFAQContent: '<p><strong>Is ba-click-fx related to Blue Archive?</strong> It is a fan-made visual effect library inspired by the UI click and trail effects of Blue Archive.</p><p><strong>Does it require images or WebGL?</strong> No. It uses pure Canvas 2D and has zero external runtime dependencies.</p><p><strong>Can I use it on a blog or personal homepage?</strong> Yes. It supports npm, CDN, and direct script usage.</p>',
   },
@@ -492,6 +597,20 @@ function switchLanguage(lang)
     if (!ctrl) { continue; }
     const span = ctrl.parentElement?.querySelector('span');
     if (span) { span.childNodes[0].textContent = t[key] + ' '; }
+  }
+
+  const trailOutsideSelect = document.getElementById('ctrlTrailOutside');
+  const trailOutsideOptionKeys = [
+    'optionTrailOutsideAuto',
+    'optionTrailOutsidePauseConnect',
+    'optionTrailOutsideContinue',
+    'optionTrailOutsideClamp',
+  ];
+
+  // 选项 value 必须保持稳定，语言切换只更新用户可见文本。
+  for (let i = 0; i < trailOutsideOptionKeys.length; i++)
+  {
+    trailOutsideSelect.options[i].textContent = t[trailOutsideOptionKeys[i]];
   }
 
   // 按钮
@@ -638,10 +757,10 @@ document.getElementById('langToggle').addEventListener('click', () =>
       ringClusterChance: c.rings.segmentClusterChance,
       ringLenMulMin: c.rings.lenMulMin,
       ringLenMulMax: c.rings.lenMulMax,
-      ringRotJitterMin: c.rings.rotationJitterMin,
-      ringRotJitterMax: c.rings.rotationJitterMax,
-      ringSmallRadiusMin: c.rings.smallRadiusMin,
-      ringSmallRadiusMax: c.rings.smallRadiusMax,
+      ringRotJitterMin: c.rings.rotationMulMin,
+      ringRotJitterMax: c.rings.rotationMulMax,
+      ringSmallRadiusMin: c.rings.segmentRadiusGrowSmallMin,
+      ringSmallRadiusMax: c.rings.segmentRadiusGrowSmallMax,
       ringRadiusGrowEnd: c.rings.radiusGrowEnd,
       moveSparkChance: c.trail.moveSparkChance,
       trailShardOffsetMin: c.trail.shardOffsetMin,
@@ -650,7 +769,7 @@ document.getElementById('langToggle').addEventListener('click', () =>
       trailSampleMaxPts: c.trail.maxInterpolatedPoints,
       trailRenderStep: c.trail.renderStep,
       trailRenderMaxPts: c.trail.renderMaxPoints,
-      trailGradientChunk: c.trail.gradientChunk,
+      trailGradientChunk: c.trail.gradientChunkLength,
       trailMaxPoints: c.trail.maxPoints,
       trailOutsideBehavior: c.trail.outsideBehavior,
       ringJitterMin: c.rings.radiusJitterMin,
@@ -863,17 +982,61 @@ document.getElementById('langToggle').addEventListener('click', () =>
   }
 
   // -- 工具函数 --
+  function getOutputPrecision(output, intOnly)
+  {
+    if (intOnly)
+    {
+      return 0;
+    }
+
+    const cachedPrecision = Number.parseInt(output.dataset.precision, 10);
+
+    if (Number.isInteger(cachedPrecision) && cachedPrecision >= 0)
+    {
+      return cachedPrecision;
+    }
+
+    const initialText = output.textContent.trim();
+    const decimalIndex = initialText.indexOf('.');
+    const precision = decimalIndex < 0 ? 0 : initialText.length - decimalIndex - 1;
+
+    // 缓存 HTML 声明的显示精度，避免重置后再次从已格式化文本推断。
+    output.dataset.precision = String(precision);
+    return precision;
+  }
+
+  function setOutputNumber(output, value, intOnly = false)
+  {
+    const precision = getOutputPrecision(output, intOnly);
+    const factor = 10 ** precision;
+    const roundedValue = Math.round((value + Number.EPSILON) * factor) / factor;
+
+    output.textContent = roundedValue.toFixed(precision);
+  }
+
   function bindRange(id, outputId, setter, intOnly = false)
   {
     const input = document.getElementById(id);
     const output = document.getElementById(outputId);
 
-    if (!input) { return; }
+    if (!input)
+    {
+      return;
+    }
 
-    input.addEventListener('input', () => {
-      const v = intOnly ? parseInt(input.value, 10) : parseFloat(input.value);
+    input.addEventListener('input', () =>
+    {
+      const inputValue = input.valueAsNumber;
 
-      output.textContent = intOnly ? v : v.toFixed(2);
+      // 非法的持久化值不得进入展示文本、特效 API 或下一次存储。
+      if (!Number.isFinite(inputValue))
+      {
+        return;
+      }
+
+      const v = intOnly ? Math.trunc(inputValue) : inputValue;
+
+      setOutputNumber(output, v, intOnly);
       setter(v);
       localStorage.setItem('bafx-' + id, input.value);
     });
@@ -1250,14 +1413,36 @@ document.getElementById('langToggle').addEventListener('click', () =>
 
     api.setColor(r, g, b);
 
-    const setVal = (id, outId, val, intOnly = false) => {
+    const setVal = (id, outId, val, intOnly = false) =>
+    {
       const el = document.getElementById(id);
       const out = document.getElementById(outId);
 
-      if (!el || !out) { return; }
+      if (!el || !out)
+      {
+        return;
+      }
 
-      el.value = val;
-      out.textContent = intOnly ? val : Number(val).toFixed(2);
+      const requestedValue = Number(val);
+      const htmlDefaultValue = Number(el.defaultValue);
+      const nextValue = Number.isFinite(requestedValue)
+        ? requestedValue
+        : htmlDefaultValue;
+
+      if (!Number.isFinite(nextValue))
+      {
+        console.warn(`[ba-click-fx demo] ${id} 没有可用的有限默认值`);
+        return;
+      }
+
+      if (!Number.isFinite(requestedValue))
+      {
+        // HTML 默认值是最后一道防线，避免配置字段重命名时把 NaN 显示给用户。
+        console.warn(`[ba-click-fx demo] ${id} 的配置默认值无效，已回退到 HTML 默认值`);
+      }
+
+      el.value = String(nextValue);
+      setOutputNumber(out, nextValue, intOnly);
     };
 
     setVal('ctrlScale', 'outScale', DEFAULTS.scale);
@@ -1350,10 +1535,8 @@ document.getElementById('langToggle').addEventListener('click', () =>
 
     setVal('ctrlDiskSize', 'outDiskSize', DEFAULTS.diskSize, true);
     api.setDiskSize(DEFAULTS.diskSize);
-    document.getElementById('ctrlDiskGlowRadius').value = DEFAULTS.diskGlowRadius;
-    document.getElementById('ctrlDiskGlowAlpha').value = DEFAULTS.diskGlowAlpha;
-    document.getElementById('outDiskGlowRadius').textContent = DEFAULTS.diskGlowRadius.toFixed(2);
-    document.getElementById('outDiskGlowAlpha').textContent = DEFAULTS.diskGlowAlpha.toFixed(2);
+    setVal('ctrlDiskGlowRadius', 'outDiskGlowRadius', DEFAULTS.diskGlowRadius);
+    setVal('ctrlDiskGlowAlpha', 'outDiskGlowAlpha', DEFAULTS.diskGlowAlpha);
     api.setDiskGlow(DEFAULTS.diskGlowRadius, DEFAULTS.diskGlowAlpha);
 
     setVal('ctrlClickShardFlicker', 'outClickShardFlicker', DEFAULTS.clickShardFlicker, true);
@@ -1518,21 +1701,8 @@ document.getElementById('langToggle').addEventListener('click', () =>
 
   for (const [id, val] of Object.entries(saved))
   {
-    const el = document.getElementById(id);
-
-    if (!el) { continue; }
-
-    if (el.type === 'checkbox')
-    {
-      el.checked = val === 'true';
-    }
-    else
-    {
-      el.value = val;
-    }
-
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
+    // 设置导入和启动恢复必须共用同一验证路径，避免行为再次分叉。
+    applyDemoControlValue(id, val);
   }
 
   // 按空格键在屏幕中央触发点击特效（仅演示页功能）

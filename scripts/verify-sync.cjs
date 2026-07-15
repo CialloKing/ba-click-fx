@@ -9,10 +9,15 @@
 
 const fs = require('fs');
 const path = require('path');
+const
+{
+  pathToFileURL,
+} = require('url');
 
 const ROOT = path.resolve(__dirname, '..');
 const INDEX_PATH = path.join(ROOT, 'index.html');
 const MAIN_PATH = path.join(ROOT, 'src', 'main.js');
+const CONFIG_PATH = path.join(ROOT, 'src', 'config.js');
 
 let exitCode = 0;
 
@@ -108,11 +113,24 @@ if (missingBind.length === 0) {
 // --- 5. Check readDefaults ---
 console.log('\n\u2014\u2014 readDefaults \u68c0\u67e5 \u2014\u2014');
 const readDefaultsSection = mainJs.match(/function\s+readDefaults\s*\(\s*\)([\s\S]*?)const\s+DEFAULTS/);
+let defaultConfigRefs = [];
+const resetDefaultKeys = new Map();
+
 if (!readDefaultsSection) {
   fail('readDefaults', '\u672a\u627e\u5230 readDefaults \u51fd\u6570');
 } else {
   const defaultsText = readDefaultsSection[1];
   const defaultKeys = new Set([...defaultsText.matchAll(/^\s+(\w+)\s*:/gm)].map(mm => mm[1]));
+  defaultConfigRefs = [...defaultsText.matchAll(/^\s+(\w+)\s*:\s*c\.([\w.]+)\s*,?\s*$/gm)]
+    .map(mm =>
+    {
+      return (
+        {
+          key: mm[1],
+          path: mm[2],
+        }
+      );
+    });
   const defaultCount = defaultKeys.size;
   const expectedMin = CONTROL_IDS.length - nonBindable.size - 2;
   if (defaultCount >= expectedMin) {
@@ -131,8 +149,12 @@ if (!resetSection) {
   const resetText = resetSection[0];
   const resetIds = new Set();
 
-  const setValRegex = /setVal\s*\(\s*'(ctrl[^']+)'/g;
-  while ((m = setValRegex.exec(resetText)) !== null) { resetIds.add(m[1]); }
+  const setValRegex = /setVal\s*\(\s*'(ctrl[^']+)'\s*,\s*'[^']+'\s*,\s*DEFAULTS\.(\w+)/g;
+  while ((m = setValRegex.exec(resetText)) !== null)
+  {
+    resetIds.add(m[1]);
+    resetDefaultKeys.set(m[1], m[2]);
+  }
 
   // Cached const variable pattern: ctrlXxx.checked =
   const checkResetRegex = /(ctrl\w+)\.checked\s*=/g;
@@ -151,12 +173,184 @@ if (!resetSection) {
   }
 }
 
-// --- Summary ---
-console.log('');
-if (exitCode === 0) {
-  console.log('\u2705 \u5168\u90e8\u540c\u6b65\u68c0\u67e5\u901a\u8fc7\uff01');
-} else {
-  console.log('\u274c \u5b58\u5728\u540c\u6b65\u9057\u6f0f\uff0c\u8bf7\u6839\u636e\u4e0a\u65b9\u8f93\u51fa\u4fee\u590d\u3002');
+async function verifyDefaultConfigRefs()
+{
+  console.log('\n\u2014\u2014 readDefaults \u914d\u7f6e\u8def\u5f84\u68c0\u67e5 \u2014\u2014');
+
+  const
+  {
+    createConfig,
+  } = await import(pathToFileURL(CONFIG_PATH).href);
+  const config = createConfig();
+  const defaultValues = new Map();
+  let refsOk = true;
+
+  for (const ref of defaultConfigRefs)
+  {
+    const parts = ref.path.split('.');
+    let value = config;
+    let resolved = true;
+
+    for (const part of parts)
+    {
+      if (
+        value == null ||
+        !Object.prototype.hasOwnProperty.call(value, part)
+      )
+      {
+        resolved = false;
+        break;
+      }
+
+      value = value[part];
+    }
+
+    if (!resolved || value == null)
+    {
+      fail('readDefaults.path', `${ref.key} \u5f15\u7528\u4e86\u4e0d\u5b58\u5728\u7684 c.${ref.path}`);
+      refsOk = false;
+      continue;
+    }
+
+    if (typeof value === 'number' && !Number.isFinite(value))
+    {
+      fail('readDefaults.value', `${ref.key} \u5f15\u7528\u7684 c.${ref.path} \u4e0d\u662f\u6709\u9650\u6570`);
+      refsOk = false;
+    }
+
+    defaultValues.set(ref.key, value);
+  }
+
+  if (refsOk)
+  {
+    pass('readDefaults.path', `\u5168\u90e8 ${defaultConfigRefs.length} \u4e2a\u76f4\u63a5\u914d\u7f6e\u5f15\u7528\u5747\u5b58\u5728\u4e14\u6570\u503c\u6709\u9650`);
+  }
+
+  return defaultValues;
 }
 
-process.exit(exitCode);
+function numbersMatch(left, right)
+{
+  const tolerance = Number.EPSILON * Math.max(1, Math.abs(left), Math.abs(right));
+  return Math.abs(left - right) <= tolerance;
+}
+
+function decimalPrecision(text)
+{
+  const decimalIndex = text.indexOf('.');
+  return decimalIndex < 0 ? 0 : text.length - decimalIndex - 1;
+}
+
+function roundToPrecision(value, precision)
+{
+  const factor = 10 ** precision;
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function verifyRangeDefaults(defaultValues)
+{
+  console.log('\n\u2014\u2014 range \u521d\u59cb\u503c\u68c0\u67e5 \u2014\u2014');
+
+  const rangeTags = [...indexHtml.matchAll(/<input\b[^>]*\btype="range"[^>]*>/g)]
+    .map(match => match[0]);
+  let configMatchCount = 0;
+  let rangesOk = true;
+
+  for (const tag of rangeTags)
+  {
+    const id = tag.match(/\bid="(ctrl[^"]+)"/);
+    const value = tag.match(/\bvalue="([^"]+)"/);
+
+    if (!id || !value)
+    {
+      fail('range.html', `range \u6807\u7b7e\u7f3a\u5c11 id \u6216 value: ${tag}`);
+      rangesOk = false;
+      continue;
+    }
+
+    const controlId = id[1];
+    const declaredValue = Number(value[1]);
+    const outputId = controlId.replace(/^ctrl/, 'out');
+    const outputMatch = indexHtml.match(new RegExp(`<output\\s+id="${outputId}">\\s*([^<]+?)\\s*</output>`));
+    const outputValue = outputMatch ? Number(outputMatch[1]) : Number.NaN;
+
+    if (!Number.isFinite(declaredValue) || !Number.isFinite(outputValue))
+    {
+      fail('range.html', `${controlId} \u7684 HTML \u521d\u59cb\u503c\u6216 ${outputId} \u4e0d\u662f\u6709\u9650\u6570`);
+      rangesOk = false;
+      continue;
+    }
+
+    const outputPrecision = outputMatch ? decimalPrecision(outputMatch[1].trim()) : 0;
+    const expectedOutputValue = roundToPrecision(declaredValue, outputPrecision);
+
+    if (!numbersMatch(expectedOutputValue, outputValue))
+    {
+      fail('range.output', `${controlId}=${declaredValue} \u6309 ${outputPrecision} \u4f4d\u7cbe\u5ea6\u5e94\u663e\u793a ${expectedOutputValue}\uff0c${outputId}=${outputValue}`);
+      rangesOk = false;
+    }
+
+    const defaultKey = resetDefaultKeys.get(controlId);
+
+    if (!defaultKey)
+    {
+      continue;
+    }
+
+    const configValue = defaultValues.get(defaultKey);
+
+    if (typeof configValue !== 'number' || !Number.isFinite(configValue))
+    {
+      fail('range.config', `${controlId} \u7684 DEFAULTS.${defaultKey} \u4e0d\u662f\u6709\u9650\u6570`);
+      rangesOk = false;
+      continue;
+    }
+
+    const declaredPrecision = decimalPrecision(value[1]);
+    const expectedDeclaredValue = roundToPrecision(configValue, declaredPrecision);
+
+    if (!numbersMatch(declaredValue, expectedDeclaredValue))
+    {
+      fail('range.config', `${controlId}=${declaredValue} \u4e0e DEFAULTS.${defaultKey}=${configValue} \u6309 ${declaredPrecision} \u4f4d\u7cbe\u5ea6\u5f97\u5230\u7684 ${expectedDeclaredValue} \u4e0d\u4e00\u81f4`);
+      rangesOk = false;
+    }
+
+    configMatchCount++;
+  }
+
+  if (rangesOk)
+  {
+    pass('range.defaults', `${rangeTags.length} \u4e2a range \u7684\u521d\u59cb\u8f93\u51fa\u4e00\u81f4\uff0c${configMatchCount} \u4e2a\u5df2\u4e0e\u914d\u7f6e\u9ed8\u8ba4\u503c\u4ea4\u53c9\u6821\u9a8c`);
+  }
+}
+
+async function finish()
+{
+  try
+  {
+    // \u5b9e\u9645\u6267\u884c createConfig()\uff0c\u907f\u514d\u9759\u6001 key \u6570\u91cf\u68c0\u67e5\u6f0f\u6389\u5b57\u6bb5\u91cd\u547d\u540d\u3002
+    const defaultValues = await verifyDefaultConfigRefs();
+
+    // \u540c\u65f6\u6821\u9a8c HTML \u58f0\u660e\uff0c\u9632\u6b62\u9875\u9762\u521d\u59cb\u503c\u548c\u91cd\u7f6e\u503c\u518d\u6b21\u5206\u53c9\u3002
+    verifyRangeDefaults(defaultValues);
+  }
+  catch (error)
+  {
+    fail('readDefaults.path', error instanceof Error ? error.message : String(error));
+  }
+
+  console.log('');
+
+  if (exitCode === 0)
+  {
+    console.log('\u2705 \u5168\u90e8\u540c\u6b65\u68c0\u67e5\u901a\u8fc7\uff01');
+  }
+  else
+  {
+    console.log('\u274c \u5b58\u5728\u540c\u6b65\u9057\u6f0f\uff0c\u8bf7\u6839\u636e\u4e0a\u65b9\u8f93\u51fa\u4fee\u590d\u3002');
+  }
+
+  process.exitCode = exitCode;
+}
+
+finish();

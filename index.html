@@ -61,7 +61,7 @@
         <p><strong>npm</strong></p>
         <pre><code>npm install ba-click-fx</code></pre>
         <p><strong>CDN</strong></p>
-        <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.11/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>
+        <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.12/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>
       </div>
     </details>
     <details>
@@ -215,7 +215,7 @@
         <input type="range" id="ctrlClickShardFlicker" min="2" max="30" step="1" value="8" />
       </label>
       <label class="ctrl">
-        <span>间距 <output id="outShardSpacing">220</output></span>
+        <span>间距 <output id="outShardSpacing">120</output></span>
         <input type="range" id="ctrlShardSpacing" min="20" max="500" step="5" value="120" />
       </label>
       <label class="ctrl">
@@ -257,8 +257,8 @@
         <input type="range" id="ctrlRingWidthEndMul" min="0.05" max="1" step="0.05" value="0.55" />
       </label>
       <label class="ctrl">
-        <span>透明度 <output id="outRingAlpha">0.90</output></span>
-        <input type="range" id="ctrlRingAlpha" min="0.1" max="1" step="0.05" value="0.9" />
+        <span>透明度 <output id="outRingAlpha">1.00</output></span>
+        <input type="range" id="ctrlRingAlpha" min="0.1" max="1" step="0.05" value="1" />
       </label>
       <label class="ctrl">
         <span>偏白程度 <output id="outRingWhiteMix">0.75</output></span>
@@ -423,7 +423,7 @@
       </label>
       <label class="ctrl">
         <span>鼠标离开窗口</span>
-        <select id="ctrlTrailOutside">
+        <select class="ctrl-select" id="ctrlTrailOutside">
           <option value="auto">自动</option>
           <option value="pause-connect">暂停-续接</option>
           <option value="continue">保持</option>
