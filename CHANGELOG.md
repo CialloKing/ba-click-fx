@@ -1,5 +1,14 @@
 ﻿# Changelog
 
+## v1.1.13 - 2026-07-15
+
+- Reworked the trail width and opacity profiles so the cursor head is the brightest and widest point, followed by a monotonic fade toward the tail.
+- Added a path-progress blue-to-cyan color ramp, reduced white mixing, and kept the short head highlight without washing out the main trail.
+- Changed the default trail base width to `4.00` and replaced the default multi-layer fake glow with a width-coupled real radial glow.
+- Softened the real glow edge with denser sampling, a ten-stop radial falloff, and higher precision for very low alpha values while keeping the outer radius bounded.
+- Fixed the RGBA string cache so its quantized key and stored alpha always use the same precision, eliminating call-order-dependent low-alpha output.
+- Preserved the previous trail shard size, count, spacing, and random distribution, and made no public API, click-effect geometry, or click timing changes.
+
 ## v1.1.12 - 2026-07-15
 
 - Replaced the demo's unstyled Mouse Leave selector with an accessible themed native select, including dark options, focus states, a custom arrow, forced-colors fallback, and bilingual option labels.
