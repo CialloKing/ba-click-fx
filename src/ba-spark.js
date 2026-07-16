@@ -19,34 +19,6 @@ import { cloneConfig, createConfig, getClickScale, getTrailColor, getTrailCoreCo
 // WeakMap 不延长 Canvas 生命周期，并允许构造失败沿用统一 teardown 释放声明。
 const ACTIVE_CANVAS_ENGINES = new WeakMap();
 const RESIZE_DEBOUNCE_MS = 100;
-// 本体与各层光晕共用同一宽度轮廓；头部最粗，向尾部连续递减。
-const TRAIL_BODY_WIDTH_STOPS = [
-  [0.0, 0.24],
-  [0.28, 0.46],
-  [0.58, 0.82],
-  [0.86, 0.92],
-  [1.0, 1.0],
-];
-const TRAIL_GLOW_ALPHA_STOPS = [
-  [0.0, 0.0],
-  [0.20, 0.12],
-  [0.50, 0.35],
-  [0.80, 0.71],
-  [1.0, 1.0],
-];
-// 只供拖尾真实发光使用；点击和圆环继续保留原来的紧实径向渐变。
-const TRAIL_RADIAL_GLOW_STOPS = [
-  [0.0, 0.42],
-  [0.14, 0.38],
-  [0.32, 0.29],
-  [0.52, 0.19],
-  [0.68, 0.115],
-  [0.80, 0.06],
-  [0.89, 0.028],
-  [0.95, 0.011],
-  [0.98, 0.004],
-  [1.0, 0.0],
-];
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 辅助函数（不依赖实例状态，保持为模块级函数）
@@ -139,57 +111,6 @@ function getTrailStopValue(stops, progress, fallback = 0)
   }
 
   return clamp01(stops[stops.length - 1][1]);
-}
-
-function getTrailColorStopValue(stops, progress, fallback)
-{
-  if (!stops || stops.length === 0)
-  {
-    return fallback;
-  }
-
-  const t = clamp01(progress);
-  const first = stops[0];
-
-  if (t <= first[0] || stops.length === 1)
-  {
-    return first[1];
-  }
-
-  for (let i = 1; i < stops.length; i++)
-  {
-    const previous = stops[i - 1];
-    const next = stops[i];
-
-    if (t <= next[0])
-    {
-      const range = next[0] - previous[0];
-      const localT = range === 0 ? 1 : (t - previous[0]) / range;
-
-      return mixColor(previous[1], next[1], localT);
-    }
-  }
-
-  return stops[stops.length - 1][1];
-}
-
-function getTrailEmissionColor(color)
-{
-  const red = color[0];
-  const green = color[1];
-  const blue = color[2];
-
-  if (blue >= green && green > red)
-  {
-    // 减少红色通道以保留青蓝饱和度；非蓝色自定义主题继续使用调用方原色。
-    return [
-      Math.round(lerp(red, 0, 0.75)),
-      Math.round(lerp(green, blue, 0.50)),
-      blue,
-    ];
-  }
-
-  return color;
 }
 
 function drawEquilateralPath(context, triangleSize)
@@ -1739,7 +1660,7 @@ export class BAClickFX
     context.restore();
   }
 
-  _drawRadialGlow(context, x, y, radius, color, alpha, alphaStops)
+  _drawRadialGlow(context, x, y, radius, color, alpha)
   {
     if (alpha <= 0 || radius <= 0)
     {
@@ -1749,21 +1670,11 @@ export class BAClickFX
     // 不缓存渐变对象：缓存的梯度中心可能与实际绘制位置有微小偏移，导致边缘出现异常圆环
     const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
 
-    if (alphaStops)
-    {
-      for (const stop of alphaStops)
-      {
-        gradient.addColorStop(stop[0], rgbToCss(color, alpha * stop[1]));
-      }
-    }
-    else
-    {
-      gradient.addColorStop(0, rgbToCss(color, alpha * 0.68));
-      gradient.addColorStop(0.2, rgbToCss(color, alpha * 0.48));
-      gradient.addColorStop(0.52, rgbToCss(color, alpha * 0.2));
-      gradient.addColorStop(0.82, rgbToCss(color, alpha * 0.055));
-      gradient.addColorStop(1, rgbToCss(color, 0));
-    }
+    gradient.addColorStop(0, rgbToCss(color, alpha * 0.68));
+    gradient.addColorStop(0.2, rgbToCss(color, alpha * 0.48));
+    gradient.addColorStop(0.52, rgbToCss(color, alpha * 0.2));
+    gradient.addColorStop(0.82, rgbToCss(color, alpha * 0.055));
+    gradient.addColorStop(1, rgbToCss(color, 0));
 
     // 使用 screen 混合而非 lighter：screen 按比例叠加（result = 1 - ∏(1 - a)），
     // 不会像 lighter 加法那样让不平衡的 RGB 通道（如黄色 R=255 B=26）等值化产生灰色环
@@ -2666,12 +2577,10 @@ export class BAClickFX
       const alpha = getTrailStopValue(stops, progress);
       const widthScale = getTrailStopValue(widthStops, progress, 1);
       const lineWidth = Math.max(minWidth, widthValue * widthScale);
-      // TrailRenderer 的 U 坐标等价于路径进度；逐段取色可模拟 UV 材质沿轨迹的色相变化。
-      const color = getTrailColorStopValue(options.colorStops, progress, options.color);
 
       if (alpha > 0 && lineWidth > 0 && i > startIndex)
       {
-        context.strokeStyle = rgbToCss(color, alpha);
+        context.strokeStyle = rgbToCss(options.color, alpha);
         context.lineWidth = lineWidth;
         context.lineCap = 'butt';
         context.lineJoin = 'round';
@@ -2708,8 +2617,6 @@ export class BAClickFX
     const trailColor = getTrailColor(this.config);
     const trailCoreColor = getTrailCoreColor(this.config);
     const trailHotColor = getTrailHotColor(this.config);
-    const trailThemeColor = this.config.color;
-    const trailEmissionColor = getTrailEmissionColor(trailThemeColor);
     const head = renderPoints[renderPoints.length - 1];
     const speedFactor = Math.max(head.speedFactor ?? 0, stroke.speedFactor ?? 0);
 
@@ -2741,16 +2648,17 @@ export class BAClickFX
     const fadeMul = smoothstep(0.05, 0.45, headLifeRatio);
     const tf = this.config.trail.alpha * fadeMul;
 
-    // 拖尾图层定义：按渲染顺序排列，condition 为 falsy 时跳过该层
+    // 拖尾图层定义：按渲染顺序排列，condition 为 falsy 时跳过该层。
+    // 各层头部保持本层峰值，避免 lighter 叠加后出现中段比鼠标头部更亮。
     const layers = [
       // 1. 细暗轨道
       {
         widthValue: railWidth,
         minWidth: 0.08 * this.config.scale,
         color: this.config.color,
-        widthStops: [[0.0, 0.32], [0.35, 0.48], [0.72, 0.68], [1.0, 0.8]],
-        stops: [[0.0, this.config.trail.railAlpha * 0.12 * tf],
-                [0.22, this.config.trail.railAlpha * 0.24 * tf],
+        widthStops: [[0.0, 0.38], [0.35, 0.52], [0.72, 0.72], [1.0, 0.52]],
+        stops: [[0.0, this.config.trail.railAlpha * 0.16 * tf],
+                [0.22, this.config.trail.railAlpha * 0.34 * tf],
                 [0.62, this.config.trail.railAlpha * 0.42 * tf],
                 [1.0, this.config.trail.railAlpha * 0.58 * tf]],
       },
@@ -2759,11 +2667,11 @@ export class BAClickFX
         condition: this.config.glow.fake && this.config.glow.enabled,
         widthValue: baseWidth * this.config.trail.softGlowWidthMul,
         minWidth: baseWidth * 0.05,
-        color: trailEmissionColor,
-        widthStops: TRAIL_BODY_WIDTH_STOPS,
+        color: this.config.color,
+        widthStops: [[0.0, 0.18], [0.42, 0.55], [0.78, 0.92], [1.0, 1.0]],
         stops: [[0.0, 0.0],
-                [0.22, this.config.trail.softGlowAlpha * 0.12 * tf],
-                [0.52, this.config.trail.softGlowAlpha * 0.38 * tf],
+                [0.22, this.config.trail.softGlowAlpha * 0.18 * tf],
+                [0.52, this.config.trail.softGlowAlpha * 0.58 * tf],
                 [0.82, this.config.trail.softGlowAlpha * 0.72 * tf],
                 [1.0, this.config.trail.softGlowAlpha * tf]],
       },
@@ -2772,13 +2680,11 @@ export class BAClickFX
         condition: this.config.glow.fake && this.config.glow.enabled,
         widthValue: baseWidth * this.config.trail.glowWidthMul,
         minWidth: baseWidth * 0.04,
-        color: trailEmissionColor,
-        colorStops: [[0.0, trailColor], [0.28, trailEmissionColor],
-                     [0.72, trailEmissionColor], [1.0, trailThemeColor]],
-        widthStops: TRAIL_BODY_WIDTH_STOPS,
+        color: trailColor,
+        widthStops: [[0.0, 0.22], [0.38, 0.54], [0.76, 0.88], [1.0, 1.0]],
         stops: [[0.0, 0.0],
-                [0.2, this.config.trail.glowAlpha * 0.12 * tf],
-                [0.5, this.config.trail.glowAlpha * 0.34 * tf],
+                [0.2, this.config.trail.glowAlpha * 0.16 * tf],
+                [0.5, this.config.trail.glowAlpha * 0.48 * tf],
                 [0.82, this.config.trail.glowAlpha * 0.72 * tf],
                 [1.0, this.config.trail.glowAlpha * tf]],
       },
@@ -2788,10 +2694,10 @@ export class BAClickFX
         widthValue: baseWidth * this.config.trail.ribbonWidthMul,
         minWidth: baseWidth * 0.05,
         color: trailColor,
-        widthStops: [[0.0, 0.06], [0.26, 0.28], [0.56, 0.58], [0.86, 0.88], [1.0, 1.0]],
+        widthStops: [[0.0, 0.06], [0.26, 0.36], [0.56, 0.88], [0.86, 1.0], [1.0, 0.72]],
         stops: [[0.0, 0.0],
-                [0.18, this.config.trail.ribbonAlpha * 0.06 * tf],
-                [0.48, this.config.trail.ribbonAlpha * 0.28 * tf],
+                [0.18, this.config.trail.ribbonAlpha * 0.08 * tf],
+                [0.48, this.config.trail.ribbonAlpha * 0.36 * tf],
                 [0.78, this.config.trail.ribbonAlpha * 0.66 * tf],
                 [1.0, this.config.trail.ribbonAlpha * tf]],
       },
@@ -2800,10 +2706,7 @@ export class BAClickFX
         widthValue: baseWidth,
         minWidth: baseWidth * 0.14,
         color: trailColor,
-        colorStops: [[0.0, trailThemeColor], [0.28, trailThemeColor],
-                     [0.58, trailEmissionColor], [0.84, trailEmissionColor],
-                     [0.96, trailColor], [1.0, trailCoreColor]],
-        widthStops: TRAIL_BODY_WIDTH_STOPS,
+        widthStops: [[0.0, 0.24], [0.28, 0.46], [0.58, 0.82], [0.86, 1.0], [1.0, 0.88]],
         stops: [[0.0, this.config.trail.mainAlpha * 0.04 * tf],
                 [0.16, this.config.trail.mainAlpha * 0.14 * tf],
                 [0.44, this.config.trail.mainAlpha * 0.48 * tf],
@@ -2815,12 +2718,10 @@ export class BAClickFX
         widthValue: coreWidth,
         minWidth: coreWidth * 0.12,
         color: trailCoreColor,
-        colorStops: [[0.0, trailThemeColor], [0.68, trailEmissionColor],
-                     [0.9, trailColor], [1.0, trailHotColor]],
-        widthStops: [[0.0, 0.12], [0.42, 0.34], [0.72, 0.68], [1.0, 1.0]],
+        widthStops: [[0.0, 0.16], [0.42, 0.42], [0.72, 0.9], [1.0, 0.75]],
         stops: [[0.0, 0.0],
-                [0.34, this.config.trail.coreAlpha * 0.06 * tf],
-                [0.58, this.config.trail.coreAlpha * 0.28 * tf],
+                [0.34, this.config.trail.coreAlpha * 0.08 * tf],
+                [0.58, this.config.trail.coreAlpha * 0.42 * tf],
                 [0.86, this.config.trail.coreAlpha * 0.72 * tf],
                 [1.0, this.config.trail.coreAlpha * tf]],
       },
@@ -2829,12 +2730,10 @@ export class BAClickFX
         widthValue: hotWidth,
         minWidth: hotWidth * 0.1,
         color: trailHotColor,
-        colorStops: [[0.0, trailEmissionColor], [0.82, trailEmissionColor],
-                     [1.0, trailHotColor]],
-        widthStops: [[0.0, 0.0], [0.52, 0.18], [0.78, 0.52], [1.0, 1.0]],
+        widthStops: [[0.0, 0.0], [0.52, 0.35], [0.78, 1.0], [1.0, 0.62]],
         stops: [[0.0, 0.0],
                 [0.46, 0.0],
-                [0.66, this.config.trail.hotAlpha * 0.14 * tf],
+                [0.66, this.config.trail.hotAlpha * 0.28 * tf],
                 [0.86, this.config.trail.hotAlpha * 0.55 * tf],
                 [1.0, this.config.trail.hotAlpha * tf]],
       },
@@ -2851,7 +2750,6 @@ export class BAClickFX
         widthValue: layer.widthValue,
         minWidth: layer.minWidth,
         color: layer.color,
-        colorStops: layer.colorStops,
         widthStops: layer.widthStops,
         stops: layer.stops,
       });
@@ -2861,6 +2759,8 @@ export class BAClickFX
     if (this.config.glow.enabled && renderPoints.length > 1)
     {
       const totalLength = renderPoints[renderPoints.length - 1].distanceFromTail || 1;
+      const glowRadius = baseWidth * this.config.trail.glowRadiusMul;
+      const step = Math.max(glowRadius * 0.4, 4);
       let accum = 0;
 
       for (let i = 0; i < renderPoints.length; i++)
@@ -2873,22 +2773,15 @@ export class BAClickFX
           accum += Math.sqrt(dx * dx + dy * dy);
         }
 
-        const progress = (renderPoints[i].distanceFromTail || 0) / totalLength;
-        const localWidthScale = getTrailStopValue(
-          TRAIL_BODY_WIDTH_STOPS,
-          progress,
-          1,
-        );
-        const glowRadius = baseWidth * this.config.trail.glowRadiusMul * localWidthScale;
-        // 更密的采样让相邻径向渐变连续重叠，避免外缘出现离散圆斑。
-        const glowStep = Math.max(glowRadius * 0.25, 3);
-
-        if (accum >= glowStep || i === 0 || i === renderPoints.length - 1)
+        if (accum >= step || i === 0 || i === renderPoints.length - 1)
         {
           accum = 0;
+          const progress = (renderPoints[i].distanceFromTail || 0) / totalLength;
           const gi = this.config.trail.glowIntensity;
-          const alpha = getTrailStopValue(TRAIL_GLOW_ALPHA_STOPS, progress) *
-            gi * this.config.trail.mainAlpha * tf;
+          const alpha = getTrailStopValue(
+            [[0.0, 0.0], [0.20, gi * 0.12], [0.50, gi * 0.35], [0.80, gi * 0.71], [1.0, gi]],
+            progress,
+          ) * this.config.trail.mainAlpha * tf;
 
           if (alpha > 0.005)
           {
@@ -2897,9 +2790,8 @@ export class BAClickFX
               renderPoints[i].x,
               renderPoints[i].y,
               glowRadius,
-              trailEmissionColor,
+              this.config.color,
               alpha,
-              TRAIL_RADIAL_GLOW_STOPS,
             );
           }
         }
@@ -3747,9 +3639,9 @@ export class BAClickFX
   }
 
   /** @param {number} value */
-  setTrailWhiteMix(value = 0.16)
+  setTrailWhiteMix(value = 0.10)
   {
-    this.config.trail.whiteMix = Math.max(0, Math.min(1, toFiniteNumber(value, 0.16)));
+    this.config.trail.whiteMix = Math.max(0, Math.min(1, toFiniteNumber(value, 0.10)));
     this._requestRender();
   }
 
@@ -3835,10 +3727,10 @@ export class BAClickFX
   }
 
   /** @param {number} baseFast @param {number} [baseSlow] */
-  setTrailWidth(baseFast = 4, baseSlow = 4)
+  setTrailWidth(baseFast = 3, baseSlow = 3)
   {
-    this.config.trail.baseWidthFast = Math.max(0.5, Math.min(6, toFiniteNumber(baseFast, 4)));
-    this.config.trail.baseWidthSlow = Math.max(0.3, Math.min(this.config.trail.baseWidthFast, toFiniteNumber(baseSlow, 4)));
+    this.config.trail.baseWidthFast = Math.max(0.5, Math.min(6, toFiniteNumber(baseFast, 3)));
+    this.config.trail.baseWidthSlow = Math.max(0.3, Math.min(this.config.trail.baseWidthFast, toFiniteNumber(baseSlow, 3)));
     this._requestRender();
   }
 
@@ -3908,13 +3800,13 @@ export class BAClickFX
   }
 
   /** @param {number} main @param {number} core @param {number} hot @param {number} glow @param {number} softGlow @param {number} rail */
-  setTrailLayerAlpha(main = 1, core = 0.60, hot = 0.25, glow = 0.32, softGlow = 0.065, rail = 0.02)
+  setTrailLayerAlpha(main = 1, core = 0.78, hot = 0.34, glow = 0.18, softGlow = 0.045, rail = 0.02)
   {
     this.config.trail.mainAlpha = Math.max(0, Math.min(1, toFiniteNumber(main, 1)));
-    this.config.trail.coreAlpha = Math.max(0, Math.min(1, toFiniteNumber(core, 0.60)));
-    this.config.trail.hotAlpha = Math.max(0, Math.min(1, toFiniteNumber(hot, 0.25)));
-    this.config.trail.glowAlpha = Math.max(0, Math.min(1, toFiniteNumber(glow, 0.32)));
-    this.config.trail.softGlowAlpha = Math.max(0, Math.min(0.5, toFiniteNumber(softGlow, 0.065)));
+    this.config.trail.coreAlpha = Math.max(0, Math.min(1, toFiniteNumber(core, 0.78)));
+    this.config.trail.hotAlpha = Math.max(0, Math.min(1, toFiniteNumber(hot, 0.34)));
+    this.config.trail.glowAlpha = Math.max(0, Math.min(1, toFiniteNumber(glow, 0.18)));
+    this.config.trail.softGlowAlpha = Math.max(0, Math.min(0.5, toFiniteNumber(softGlow, 0.045)));
     this.config.trail.railAlpha = Math.max(0, Math.min(1, toFiniteNumber(rail, 0.02)));
     this._requestRender();
   }
@@ -4099,30 +3991,30 @@ export class BAClickFX
   }
 
   /** @param {number} value */
-  setTrailCoreAlpha(value = 0.60)
+  setTrailCoreAlpha(value = 0.78)
   {
-    this.config.trail.coreAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.60)));
+    this.config.trail.coreAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.78)));
     this._requestRender();
   }
 
   /** @param {number} value */
-  setTrailHotAlpha(value = 0.25)
+  setTrailHotAlpha(value = 0.34)
   {
-    this.config.trail.hotAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.25)));
+    this.config.trail.hotAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.34)));
     this._requestRender();
   }
 
   /** @param {number} value */
-  setTrailGlowAlpha(value = 0.32)
+  setTrailGlowAlpha(value = 0.18)
   {
-    this.config.trail.glowAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.32)));
+    this.config.trail.glowAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.18)));
     this._requestRender();
   }
 
   /** @param {number} value */
-  setTrailSoftGlowAlpha(value = 0.065)
+  setTrailSoftGlowAlpha(value = 0.045)
   {
-    this.config.trail.softGlowAlpha = Math.max(0, Math.min(0.5, toFiniteNumber(value, 0.065)));
+    this.config.trail.softGlowAlpha = Math.max(0, Math.min(0.5, toFiniteNumber(value, 0.045)));
     this._requestRender();
   }
 
@@ -4134,16 +4026,16 @@ export class BAClickFX
   }
 
   /** @param {number} value */
-  setTrailGlowWidthMul(value = 2.4)
+  setTrailGlowWidthMul(value = 1.7)
   {
-    this.config.trail.glowWidthMul = Math.max(0.3, Math.min(8, toFiniteNumber(value, 2.4)));
+    this.config.trail.glowWidthMul = Math.max(0.3, Math.min(8, toFiniteNumber(value, 1.7)));
     this._requestRender();
   }
 
   /** @param {number} value */
-  setTrailSoftGlowWidthMul(value = 4.0)
+  setTrailSoftGlowWidthMul(value = 2.4)
   {
-    this.config.trail.softGlowWidthMul = Math.max(0.5, Math.min(15, toFiniteNumber(value, 4.0)));
+    this.config.trail.softGlowWidthMul = Math.max(0.5, Math.min(15, toFiniteNumber(value, 2.4)));
     this._requestRender();
   }
 
@@ -4398,21 +4290,21 @@ export class BAClickFX
 
   /**
    * 轨迹真实光晕半径倍率（基于 baseWidth）
-   * @param {number} [value=6] - 半径倍率 (4~30)
+   * @param {number} [value=25] - 半径倍率 (4~30)
    */
-  setTrailGlowRadius(value = 6)
+  setTrailGlowRadius(value = 25)
   {
-    this.config.trail.glowRadiusMul = Math.max(4, Math.min(30, toFiniteNumber(value, 6)));
+    this.config.trail.glowRadiusMul = Math.max(4, Math.min(30, toFiniteNumber(value, 25)));
     this._requestRender();
   }
 
   /**
    * 轨迹真实光晕强度（峰值 alpha）
-   * @param {number} [value=0.07] - 峰值透明度 (0.02~0.5)
+   * @param {number} [value=0.13] - 峰值透明度 (0.02~0.5)
    */
-  setTrailGlowIntensity(value = 0.07)
+  setTrailGlowIntensity(value = 0.13)
   {
-    this.config.trail.glowIntensity = Math.max(0.02, Math.min(0.5, toFiniteNumber(value, 0.07)));
+    this.config.trail.glowIntensity = Math.max(0.02, Math.min(0.5, toFiniteNumber(value, 0.13)));
     this._requestRender();
   }
 
