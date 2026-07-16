@@ -1012,7 +1012,16 @@ else
 
     const resetCfg = first.getConfig();
     assert(resetCfg.scale === 1.10, `resetConfig 后 scale 应为 1.10，实际 ${resetCfg.scale}`);
-    assert(resetCfg.trail.whiteMix === 0.16, `resetConfig 后 trail.whiteMix 应为 0.16，实际 ${resetCfg.trail.whiteMix}`);
+    assert(resetCfg.trail.whiteMix === 0.10, `resetConfig 后 trail.whiteMix 应为 0.10，实际 ${resetCfg.trail.whiteMix}`);
+    assert(
+      resetCfg.trail.baseWidthSlow === 3 && resetCfg.trail.baseWidthFast === 3,
+      '轨迹主体基础宽度应恢复 1.1.12 的 3px 默认值',
+    );
+    assert(resetCfg.glow.fake === true, '轨迹多层柔光默认值应恢复 1.1.12 行为');
+    assert(
+      resetCfg.trail.glowRadiusMul === 25 && resetCfg.trail.glowIntensity === 0.13,
+      '真实光晕范围和强度应恢复 1.1.12 默认值',
+    );
     assert(resetCfg.color.join(',') === '105,161,255', 'resetConfig 后 color 应为默认值');
     assert(
       JSON.stringify(resetCfg) === JSON.stringify(initialConfig),
@@ -2889,6 +2898,30 @@ else
     assert(
       ringCommands === legacyCommands,
       '环形缓存前后的拖尾 Canvas 指令、坐标和绘制顺序应完全一致',
+    );
+
+    const trailLayerRenderer = renderCacheEngine._strokeSegmentedTrailPath;
+    const trailLayerOptions = [];
+
+    // 直接检查各层透明度曲线，避免截图测试受设备和 Canvas 实现影响。
+    renderCacheEngine._strokeSegmentedTrailPath = (context, points, options) =>
+    {
+      trailLayerOptions.push(options);
+    };
+    renderCacheEngine._renderTrailStrokeToCanvas(commandStroke);
+    renderCacheEngine._strokeSegmentedTrailPath = trailLayerRenderer;
+
+    const hasDimmerTrailHead = trailLayerOptions.some((options) =>
+    {
+      const finalAlpha = options.stops[options.stops.length - 1][1];
+      const earlierPeak = Math.max(...options.stops.slice(0, -1).map((stop) => stop[1]));
+
+      return finalAlpha < earlierPeak;
+    });
+
+    assert(
+      trailLayerOptions.length === 6 && !hasDimmerTrailHead,
+      '默认六个可见轨迹层的头部亮度均不得低于中段峰值',
     );
 
     const countedStrokes = [

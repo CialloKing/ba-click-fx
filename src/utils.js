@@ -115,10 +115,8 @@ const _rgbCache = new Map();
 const _RGB_CACHE_MAX = 64;
 export function rgbToCss(rgb, alpha = 1)
 {
-  // 万分位可保留柔光外缘的低透明度，同时确保缓存键和值使用同一精度。
-  const alphaStep = Math.round(clamp01(alpha) * 10000);
-  const a = alphaStep / 10000;
-  const key = ((rgb[0] << 16) | (rgb[1] << 8) | rgb[2]) * 10000 + alphaStep;
+  const a = clamp01(alpha);
+  const key = ((rgb[0] << 16) | (rgb[1] << 8) | rgb[2]) * 1000 + Math.round(a * 1000);
   const cached = _rgbCache.get(key);
 
   if (cached !== undefined)
