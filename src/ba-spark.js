@@ -1,4372 +1,994 @@
-﻿/**
- * ba-spark — 蔚蓝档案点击与拖拽特效引擎
+/**
+ * ba-click-fx — Blue Archive 的 UI/FX_Touch 浏览器移植。
  *
- * 纯 Canvas 2D 实现，零外部资源依赖。
- * 作为 ES Module 导入使用，也可通过 Vite 构建为 CJS / IIFE 格式。
- *
- * @example
- *   import { BAClickFX } from './ba-spark.js';
- *   const spark = new BAClickFX();
- *   spark.boom(300, 200);
- *
- * @license MIT
+ * 这不是“相似风格”参数化引擎。实现直接复刻 Unity 中 FXTouch、
+ * ParticleSystem 和 TrailRenderer 的生命周期，只保留宿主接入所需的最小 API。
  */
 
-import { clamp01, clampNumber, toFiniteNumber, rand, easeOutCubic, smoothstep, distance, lerp, rgbToCss, mixColor } from './utils.js';
-import { cloneConfig, createConfig, getClickScale, getTrailColor, getTrailCoreColor, getTrailHotColor } from './config.js';
+import { CONFIG, UNITY_FX_TOUCH, createConfig } from './config.js';
 
-// 同一主 Canvas 不能由多个引擎同时清屏和重设 transform。
-// WeakMap 不延长 Canvas 生命周期，并允许构造失败沿用统一 teardown 释放声明。
-const ACTIVE_CANVAS_ENGINES = new WeakMap();
-const RESIZE_DEBOUNCE_MS = 100;
+const TAU = Math.PI * 2;
+const DEFAULT_FRAME_MS = 1000 / 60;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 辅助函数（不依赖实例状态，保持为模块级函数）
-// ═══════════════════════════════════════════════════════════════════════════
-
-function createClickRingSegments(rings)
+function clamp(value, min, max)
 {
-  const minCount = Math.max(1, Math.floor(rings.segmentCountMin ?? 2));
-  const maxCount = Math.max(
-    minCount,
-    Math.floor(rings.segmentCountMax ?? minCount),
-  );
-  const extraCount =
-    maxCount > minCount &&
-    Math.random() < (rings.segmentExtraChance ?? 0)
-      ? 1
-      : 0;
-  const count = Math.min(maxCount, minCount + extraCount);
-  const segments = [];
-  const smallRadiusIndex = Math.floor(Math.random() * count);
-
-  while (segments.length < count)
-  {
-    const index = segments.length;
-    const shouldCluster =
-      index > 0 &&
-      Math.random() < (rings.segmentClusterChance ?? 0);
-    const shouldUseSmallRadius = index === smallRadiusIndex;
-    let off = Math.random() * Math.PI * 2;
-
-    if (shouldCluster)
-    {
-      const base = segments[Math.floor(Math.random() * segments.length)];
-      const direction = Math.random() < 0.5 ? -1 : 1;
-
-      off = base.off + direction * rand(0.3 * Math.PI, 0.92 * Math.PI);
-    }
-
-    segments.push({
-      off,
-      lenMul: rand(rings.lenMulMin, rings.lenMulMax),
-      radiusOffset: shouldUseSmallRadius
-        ? rand(rings.radiusJitterMin, rings.radiusJitterMax)
-        : 0,
-      radiusGrowMul: shouldUseSmallRadius
-        ? rand(rings.segmentRadiusGrowSmallMin, rings.segmentRadiusGrowSmallMax)
-        : rand(rings.segmentRadiusGrowMin, rings.segmentRadiusGrowMax),
-      rotationMul: rand(rings.rotationMulMin, rings.rotationMulMax),
-      alphaMul: rand(0.92, 1.1),
-      widthMul: rand(0.68, 1.24),
-      collapseBias: rand(-0.16, 0.2),
-    });
-  }
-
-  return segments;
+  return Math.max(min, Math.min(max, value));
 }
 
-function getTrailStopValue(stops, progress, fallback = 0)
+function clamp01(value)
 {
-  if (!stops || stops.length === 0)
-  {
-    return fallback;
-  }
+  return clamp(value, 0, 1);
+}
 
+function random(min, max)
+{
+  return min + Math.random() * (max - min);
+}
+
+function lerp(from, to, progress)
+{
+  return from + (to - from) * progress;
+}
+
+function distance(from, to)
+{
+  return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+function evaluateNumber(keys, progress)
+{
   const t = clamp01(progress);
 
-  if (stops.length === 1)
+  if (t <= keys[0][0])
   {
-    return clamp01(stops[0][1]);
+    return keys[0][1];
   }
 
-  const first = stops[0];
-  if (t <= first[0])
+  for (let index = 1; index < keys.length; index++)
   {
-    return clamp01(first[1]);
-  }
+    const previous = keys[index - 1];
+    const current = keys[index];
 
-  for (let i = 1; i < stops.length; i++)
-  {
-    const prev = stops[i - 1];
-    const next = stops[i];
-
-    if (t <= next[0])
+    if (t <= current[0])
     {
-      const range = next[0] - prev[0];
-      const localT = range === 0 ? 1 : (t - prev[0]) / range;
+      const span = current[0] - previous[0];
+      const localProgress = span > 0 ? (t - previous[0]) / span : 1;
 
-      return clamp01(lerp(prev[1], next[1], localT));
+      return lerp(previous[1], current[1], localProgress);
     }
   }
 
-  return clamp01(stops[stops.length - 1][1]);
+  return keys[keys.length - 1][1];
 }
 
-function drawEquilateralPath(context, triangleSize)
+function evaluateColor(keys, progress)
 {
-  // 路径函数移出粒子热循环，避免每个粒子每帧重复创建相同的闭包。
-  // 指令顺序和计算公式必须保持不变，确保渲染结果完全一致。
-  const halfWidth = triangleSize * Math.sqrt(3) * 0.5;
-  const baseY = triangleSize * 0.5;
+  const t = clamp01(progress);
 
+  if (t <= keys[0][0])
+  {
+    return keys[0][1];
+  }
+
+  for (let index = 1; index < keys.length; index++)
+  {
+    const previous = keys[index - 1];
+    const current = keys[index];
+
+    if (t <= current[0])
+    {
+      const span = current[0] - previous[0];
+      const localProgress = span > 0 ? (t - previous[0]) / span : 1;
+
+      return [
+        lerp(previous[1][0], current[1][0], localProgress),
+        lerp(previous[1][1], current[1][1], localProgress),
+        lerp(previous[1][2], current[1][2], localProgress),
+      ];
+    }
+  }
+
+  return keys[keys.length - 1][1];
+}
+
+function colorToCss(color, alpha = 1)
+{
+  const red = Math.round(clamp(color[0], 0, 255));
+  const green = Math.round(clamp(color[1], 0, 255));
+  const blue = Math.round(clamp(color[2], 0, 255));
+
+  return `rgba(${red}, ${green}, ${blue}, ${clamp01(alpha)})`;
+}
+
+function isCanvas(value)
+{
+  return value?.tagName?.toLowerCase?.() === 'canvas';
+}
+
+function resolveTarget(target)
+{
+  if (typeof target === 'string')
+  {
+    return document.querySelector(target);
+  }
+
+  return target ?? null;
+}
+
+function createCanvas()
+{
+  const canvas = document.createElement('canvas');
+
+  canvas.setAttribute('aria-hidden', 'true');
+  return canvas;
+}
+
+function setOverlayStyle(canvas, fixed)
+{
+  canvas.style.position = fixed ? 'fixed' : 'absolute';
+  canvas.style.inset = '0';
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.pointerEvents = 'none';
+  canvas.style.zIndex = '2147483647';
+}
+
+/**
+ * MeshTri 的贴图溶解不是规则裁掉一段弧线，而是由纹理亮度决定哪些角度仍可见。
+ * 三组低频谐波生成稳定纹理，既保留整圆时刻，也能在消散期形成不规则缺口。
+ */
+function ringNoise(index, count, seed)
+{
+  const angle = ((index + 0.5) / count) * TAU;
+  const value =
+    0.5 +
+    Math.sin(angle * 3 + seed) * 0.23 +
+    Math.sin(angle * 7 + seed * 1.71) * 0.17 +
+    Math.sin(angle * 13 - seed * 0.83) * 0.1;
+
+  return clamp01(value);
+}
+
+function drawDissolvedCircle(context, ring, progress, scale, opacity)
+{
+  const config = UNITY_FX_TOUCH.rings;
+  const radius = ring.radius * evaluateNumber(config.sizeKeys, progress) * scale;
+  const width = lerp(config.widthStart, config.widthEnd, progress) * scale;
+  const threshold = evaluateNumber(config.dissolveKeys, progress);
+  const color = evaluateColor(config.colorKeys, progress);
+  const count = config.segmentCount;
+
+  context.save();
+  context.translate(ring.x, ring.y);
+  context.rotate(ring.rotation);
   context.beginPath();
-  context.moveTo(0, -triangleSize);
-  context.lineTo(halfWidth, baseY);
-  context.lineTo(-halfWidth, baseY);
+
+  for (let index = 0; index < count; index++)
+  {
+    if (ringNoise(index, count, ring.seed) <= threshold)
+    {
+      continue;
+    }
+
+    const startAngle = (index / count) * TAU;
+    const endAngle = ((index + 1.08) / count) * TAU;
+
+    context.moveTo(
+      Math.cos(startAngle) * radius,
+      Math.sin(startAngle) * radius,
+    );
+    context.arc(0, 0, radius, startAngle, endAngle);
+  }
+
+  context.lineCap = 'butt';
+  context.lineJoin = 'round';
+  context.lineWidth = width;
+  context.strokeStyle = colorToCss(color, opacity);
+  context.shadowColor = colorToCss(color, opacity * UNITY_FX_TOUCH.bloom.ringAlpha);
+  context.shadowBlur = UNITY_FX_TOUCH.bloom.ringBlur * scale;
+  context.stroke();
+  context.restore();
+}
+
+function drawDisk(context, wave, progress, scale, opacity)
+{
+  const config = UNITY_FX_TOUCH.disk;
+  const radius = config.radius * evaluateNumber(config.sizeKeys, progress) * scale;
+  const color = evaluateColor(config.colorKeys, progress);
+  const alpha = evaluateNumber(config.alphaKeys, progress) * opacity;
+  const gradient = context.createRadialGradient(
+    wave.x,
+    wave.y,
+    0,
+    wave.x,
+    wave.y,
+    Math.max(radius, 0.01),
+  );
+
+  // FX_TEX_Circle_01 的主体接近纯白遮罩，颜色由 Color over Lifetime 整体相乘；
+  // 中心不能额外保留白点，否则蓝色阶段会变成旧版的发光球。
+  gradient.addColorStop(0, colorToCss(color, alpha));
+  gradient.addColorStop(0.88, colorToCss(color, alpha));
+  gradient.addColorStop(0.97, colorToCss(color, alpha * 0.55));
+  gradient.addColorStop(1, colorToCss(color, 0));
+
+  context.save();
+  context.beginPath();
+  context.arc(wave.x, wave.y, radius, 0, TAU);
+  context.fillStyle = gradient;
+  context.shadowColor = colorToCss(color, alpha * 0.32);
+  context.shadowBlur = UNITY_FX_TOUCH.bloom.diskBlur * scale;
+  context.fill();
+  context.restore();
+}
+
+function drawTriangle(context, particle, scale, opacity)
+{
+  const config = UNITY_FX_TOUCH.shards;
+  const progress = clamp01(particle.ageMs / particle.lifetimeMs);
+  const size = particle.size * evaluateNumber(config.sizeKeys, progress) * scale;
+  const alpha = evaluateNumber(config.alphaKeys, progress) * opacity;
+  const color = evaluateColor(config.colorKeys, progress);
+
+  if (size <= 0 || alpha <= 0)
+  {
+    return;
+  }
+
+  context.save();
+  context.translate(particle.x, particle.y);
+  context.rotate(particle.rotation);
+  context.beginPath();
+  context.moveTo(0, -size * 0.58);
+  context.lineTo(size * 0.52, size * 0.45);
+  context.lineTo(-size * 0.52, size * 0.45);
   context.closePath();
+  context.fillStyle = colorToCss(color, alpha);
+  context.shadowColor = colorToCss(color, alpha * 0.75);
+  context.shadowBlur = UNITY_FX_TOUCH.bloom.shardBlur * scale;
+  context.fill();
+  context.restore();
 }
-
-function getBackingPixelCount(width, height)
-{
-  return Math.max(0, width) * Math.max(0, height);
-}
-
-function reverseArrayRange(values, start, end)
-{
-  while (start < end)
-  {
-    const value = values[start];
-
-    values[start] = values[end];
-    values[end] = value;
-    start++;
-    end--;
-  }
-}
-
-function acquireTrailRenderPoint(result, pool, slotIndex)
-{
-  if (slotIndex < result.length)
-  {
-    return result[slotIndex];
-  }
-
-  // 有效结果缩短时，多余对象进入独立池；再次增长可复用而不产生帧间分配。
-  const point = pool.pop() ?? {
-    x: 0,
-    y: 0,
-    life: 0,
-    maxLife: 0,
-    speedFactor: 0,
-    distanceFromTail: 0,
-  };
-
-  result.push(point);
-  return point;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 内部类
-// ═══════════════════════════════════════════════════════════════════════════
 
 class ClickWave
 {
-  constructor(engine)
+  constructor(x, y)
   {
-    this._engine = engine;
-    this.dead = true;
-  }
-
-  reset(x, y)
-  {
-    const rings = this._engine.config.rings;
-
     this.x = x;
     this.y = y;
-    this.life = 0;
-    this.r = 0;
-    this.dead = false;
+    this.ageMs = 0;
+    this.rings = [];
 
-    this.ring = {
-      ang: Math.random() * Math.PI * 2,
-      rs: rings.rotationSpeed,
-      segs: createClickRingSegments(rings),
-    };
-  }
-
-  update(context, frameScale)
-  {
-    this.life += frameScale;
-
-    this.drawHalo(context);
-    this.drawFilledCircle(context);
-    this.drawRings(context, frameScale);
-    this.drawCenterDot(context);
-
-    if (this.life >= this._engine.config.click.totalLife)
+    for (let index = 0; index < UNITY_FX_TOUCH.rings.count; index++)
     {
-      this.dead = true;
-    }
-  }
-
-  getDiskRadius()
-  {
-    return this._engine.config.filledCircle.rAddRate * getClickScale(this._engine.config);
-  }
-
-  getRingStaticRadius()
-  {
-    return this.getDiskRadius() * this._engine.config.rings.baseRadiusMul;
-  }
-
-  getRingRadiusGrow(progress = 0)
-  {
-    const cfg = this._engine.config.rings;
-    const t = easeOutCubic(clamp01(progress / cfg.radiusGrowEnd));
-
-    return t * cfg.postDiskGrow * this._engine.config.scale;
-  }
-
-  getRingRadius(progress = 0)
-  {
-    return this.getRingStaticRadius() + this.getRingRadiusGrow(progress);
-  }
-
-  drawHalo(context)
-  {
-    if (!this._engine.config.glow.clickFake && !this._engine.config.glow.enabled)
-    {
-      return;
-    }
-
-    const progress = clamp01(this.life / this._engine.config.click.totalLife);
-    const diskProgress = clamp01(this.life / this._engine.config.filledCircle.maxLife);
-    const appear = smoothstep(0.01, 0.2, progress);
-    const fade = 1 - smoothstep(0.84, 1, progress);
-    // 光晕直接使用主题色，不混入白色。混白会让低通道（如黄色 B=26）被拉高，
-    // 多波叠加时低通道追上高通道导致 RGB 等值化产生灰色环。
-    const color = this._engine.config.color;
-    const radius = lerp(
-      this.getDiskRadius() * 2.1,
-      this._engine.config.click.haloRadius * getClickScale(this._engine.config),
-      smoothstep(0.04, 0.54, progress),
-    );
-    const alpha = 0.06 * this._engine.config.opacity * appear * fade;
-
-    this._engine._drawRadialGlow(context, this.x, this.y, radius, color, alpha);
-  }
-
-  drawFilledCircle(context)
-  {
-    const cfg = this._engine.config.filledCircle;
-    const progress = clamp01(this.life / cfg.maxLife);
-
-    this.r = this.getDiskRadius();
-
-    if (progress >= 1)
-    {
-      return;
-    }
-
-    const expandT = easeOutCubic(clamp01(progress / cfg.expandEnd));
-    const fade = 1 - smoothstep(cfg.fadeStart, 1, progress);
-    const radius = this.r * expandT;
-    // 圆盘直接使用主题色，不混白。之前 startColor = mixColor(theme, white, 0.95)
-    // 产生近白色圆盘，多波 source-over 叠加时近白色元素产生灰色调。
-    const color = this._engine.config.color;
-    const alpha = this._engine.config.opacity * fade;
-
-    if (this._engine.config.glow.clickFake || this._engine.config.glow.enabled)
-    {
-      this._engine._drawDiskEdgeGlow(
-        context,
-        this.x,
-        this.y,
-        radius,
-        radius * cfg.glowRadiusMul,
-        color,
-        alpha * cfg.glowAlpha,
-      );
-    }
-
-    this._engine._drawClickDisk(context, this.x, this.y, radius, color, alpha);
-
-    // 白色闪光：极短暂的纯白叠加层，仅在最开始几帧出现然后快速淡出。
-    // 与主题色分开渲染，避免混白导致的灰色环。
-    const flashAlpha = (1 - smoothstep(0, 0.15, progress)) * 0.35 * fade;
-
-    if (flashAlpha > 0.01)
-    {
-      this._engine._drawClickDisk(context, this.x, this.y, radius, [255, 255, 255], flashAlpha);
-    }
-  }
-
-  drawRings(context, frameScale)
-  {
-    const cfg = this._engine.config.rings;
-    const ringLife = this.life - cfg.delay;
-
-    if (ringLife <= 0)
-    {
-      return;
-    }
-
-    const progress = clamp01(ringLife / (cfg.maxLife - cfg.delay));
-
-    if (progress >= 1)
-    {
-      return;
-    }
-
-    this.ring.ang -= this.ring.rs * frameScale;
-
-    const grow = smoothstep(0.02, cfg.growEnd, progress);
-    const collapse = smoothstep(cfg.collapseStart, 1, progress);
-    const fade = 1 - smoothstep(cfg.fadeStart, 1, progress);
-    // 圆环大部分时间维持纯白，最后 colorFadeStart 内渐变至基于主题色的浅色
-    const ringEndColor = mixColor(this._engine.config.color, [255, 255, 255], cfg.colorEndWhiteMix);
-    const colorFadeT = smoothstep(cfg.colorFadeStart, 1, progress);
-    const color = mixColor([255, 255, 255], ringEndColor, colorFadeT);
-    const ringAlpha = cfg.alpha * grow * fade;
-    const glowGrow = Math.max(grow, 0.15);
-    const ringGlowAlpha = cfg.emissionAlpha * glowGrow * fade;
-    const staticRadius = this.getRingStaticRadius();
-    const radiusGrow = this.getRingRadiusGrow(progress);
-    const baseRadius = staticRadius + radiusGrow;
-    const lineWidthMul = lerp(1, 0.72, collapse);
-    // 游戏内圆环宽度收缩是非线性的：前期保持宽度，后期加速变细
-    const lifeWidthMul = lerp(1, cfg.widthEndMul, progress * progress);
-
-    this._engine._drawClickRingGlow(
-      context,
-      this.x,
-      this.y,
-      baseRadius,
-      color,
-      ringGlowAlpha,
-    );
-
-    for (const seg of this.ring.segs)
-    {
-      const segCollapse = smoothstep(
-        cfg.collapseStart + seg.collapseBias,
-        1,
-        progress,
-      );
-      const baseAngle = this.ring.ang * seg.rotationMul + seg.off;
-      const fullLen = cfg.lenFull * seg.lenMul * grow;
-      const targetLen = lerp(fullLen, cfg.lenEnd, segCollapse);
-      const start = baseAngle;
-      const end = baseAngle + targetLen;
-      const radius =
-        staticRadius +
-        radiusGrow * seg.radiusGrowMul +
-        seg.radiusOffset * this._engine.config.scale;
-      const segAlpha = ringAlpha * seg.alphaMul;
-      const segLineWidthMul = lineWidthMul * seg.widthMul * lifeWidthMul;
-      const minWidth = cfg.minW * segLineWidthMul * this._engine.config.scale;
-      const maxWidth = cfg.maxW * segLineWidthMul * this._engine.config.scale;
-
-      this._engine._drawClickArcRibbon(
-        context,
-        this.x,
-        this.y,
-        radius,
-        start,
-        end,
-        minWidth,
-        maxWidth,
-        color,
-        segAlpha,
+      this.rings.push(
+        {
+          x,
+          y,
+          radius: random(
+            UNITY_FX_TOUCH.rings.radiusMin,
+            UNITY_FX_TOUCH.rings.radiusMax,
+          ),
+          rotation: random(0, TAU),
+          angularVelocity:
+            random(
+              UNITY_FX_TOUCH.rings.angularVelocityMin,
+              UNITY_FX_TOUCH.rings.angularVelocityMax,
+            ) * (Math.random() < 0.5 ? -1 : 1),
+          seed: random(0, TAU),
+        },
       );
     }
   }
 
-  drawCenterDot(context)
+  update(deltaMs)
   {
-    const progress = clamp01(this.life / this._engine.config.click.totalLife);
-    const dotAlpha =
-      smoothstep(0.43, 0.52, progress) *
-      (1 - smoothstep(0.82, 1, progress)) *
-      this._engine.config.opacity *
-      0.72;
+    this.ageMs += deltaMs;
 
-    if (dotAlpha <= 0)
+    for (const ring of this.rings)
     {
-      return;
+      ring.rotation += ring.angularVelocity * (deltaMs / 1000);
+    }
+  }
+
+  draw(context, scale, opacity)
+  {
+    const diskProgress = this.ageMs / UNITY_FX_TOUCH.disk.lifetimeMs;
+
+    if (diskProgress < 1)
+    {
+      drawDisk(context, this, diskProgress, scale, opacity);
     }
 
-    const radius = lerp(1.5, 0.75, smoothstep(0.52, 1, progress)) * this._engine.config.scale;
+    const ringProgress = this.ageMs / UNITY_FX_TOUCH.rings.lifetimeMs;
 
-    this._engine._drawCircle(
-      context,
-      this.x,
-      this.y,
-      radius,
-      this._engine.config.color,
-      dotAlpha,
-      radius * 1.8,
-      true,
-    );
+    if (ringProgress < 1)
+    {
+      for (const ring of this.rings)
+      {
+        drawDissolvedCircle(context, ring, ringProgress, scale, opacity);
+      }
+    }
+  }
+
+  get dead()
+  {
+    return this.ageMs >= UNITY_FX_TOUCH.rings.lifetimeMs;
   }
 }
 
-class SparkParticle
+class ShardParticle
 {
-  constructor(engine)
+  constructor(specification)
   {
-    this._engine = engine;
-    this.dead = true;
+    Object.assign(this, specification);
+    this.ageMs = 0;
   }
 
-  reset(x, y, fromClick = true)
+  update(deltaMs)
   {
-    const particleScale = fromClick ? getClickScale(this._engine.config) : this._engine.config.scale;
-    const speedAdjust = particleScale / 1.5;
-    const angle = Math.random() * Math.PI * 2;
-    const speed = fromClick
-      ? rand(4.8, 6.8) * speedAdjust
-      : rand(0.85, 1.8) * speedAdjust;
+    const deltaSeconds = deltaMs / 1000;
 
-    this.x = x;
-    this.y = y;
-    this.vx = Math.cos(angle) * speed;
-    this.vy = Math.sin(angle) * speed;
-
-    this.rotation = Math.random() * Math.PI * 2;
-    this.rotationSpeed = fromClick ? rand(-0.14, 0.14) : rand(-0.08, 0.18);
-
-    this.size = fromClick
-      ? rand(4, 7) * particleScale
-      : rand(2.4, 8.8) * particleScale;
-
-    this.alpha = fromClick ? 1 : rand(0.28, 0.78);
-    this.maxAlpha = this.alpha;
-    this.alphaMul = 1;
-    this.alphaDecay = 0.032;
-    this.friction = fromClick ? 0.9 : 0.95;
-    this.color = fromClick
-      ? [255, 255, 255]
-      : mixColor(this._engine.config.color, [255, 255, 255], rand(0.28, 0.82));
-    this.blur = fromClick ? (2.0 * particleScale) : (2.8 * this._engine.config.scale);
-    this.useFakeGlow = fromClick ? this._engine.config.glow.clickFake : true;
-    this.delay = 0;
-    this.age = 0;
-    this.flickerPeriod = 0;
-    this.flickerMinAlpha = 1;
-    this.flickerPhase = 0;
-    this.flickerSizePulse = 0;
-    this.sizeGrowEnd = 0;
-    this.sizeShrinkStart = 1;
-    this.spawnSizeMul = 1;
-    this.endSizeMul = 1;
-    this.fromClick = fromClick;
-    this.dead = false;
+    this.ageMs += deltaMs;
+    this.x += this.velocityX * deltaSeconds;
+    this.y += this.velocityY * deltaSeconds;
   }
 
-  update(context, frameScale)
+  draw(context, scale, opacity)
   {
-    if (this.delay > 0)
-    {
-      this.delay -= frameScale;
-      return;
-    }
+    drawTriangle(context, this, scale, opacity);
+  }
 
-    this.x += this.vx * frameScale;
-    this.y += this.vy * frameScale;
-
-    this.vx *= Math.pow(this.friction, frameScale);
-    this.vy *= Math.pow(this.friction, frameScale);
-
-    this.rotation += this.rotationSpeed * frameScale;
-    this.alpha -= this.alphaDecay * frameScale;
-
-    let drawAlpha = this.alpha * this.alphaMul;
-    let flickerPulse = 1;
-
-    if (this.flickerPeriod > 0)
-    {
-      const cycle =
-        ((this.age + this.flickerPhase) % this.flickerPeriod) /
-        this.flickerPeriod;
-
-      flickerPulse = (1 - Math.cos(cycle * Math.PI * 2)) / 2;
-      drawAlpha *= lerp(this.flickerMinAlpha, 1, flickerPulse);
-    }
-
-    const lifeProgress =
-      this.maxAlpha > 0
-        ? clamp01(1 - this.alpha / this.maxAlpha)
-        : 1;
-    const growMul = lerp(
-      this.spawnSizeMul,
-      1,
-      smoothstep(0, this.sizeGrowEnd, lifeProgress),
-    );
-    // 消散阶段加速缩水：越接近消失缩小越快
-    const rawShrinkT = clamp01((lifeProgress - this.sizeShrinkStart) / (1 - this.sizeShrinkStart));
-    const shrinkT = rawShrinkT * rawShrinkT;
-    const shrinkMul = lerp(1, this.endSizeMul, shrinkT);
-    const sizeByLife = this.size * growMul * shrinkMul;
-    const size =
-      this.flickerPeriod > 0 && this.flickerSizePulse > 0
-        ? sizeByLife *
-          lerp(1 - this.flickerSizePulse, 1 + this.flickerSizePulse, flickerPulse)
-        : sizeByLife;
-
-    this._engine._drawTriangle(
-      context,
-      this.x,
-      this.y,
-      size,
-      this.rotation,
-      this.color,
-      drawAlpha,
-    );
-
-    this.age += frameScale;
-
-    if (this.alpha <= 0)
-    {
-      this.dead = true;
-    }
+  get dead()
+  {
+    return this.ageMs >= this.lifetimeMs;
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// BAClickFX — 特效引擎
-// ═══════════════════════════════════════════════════════════════════════════
+function createShard(x, y, originAngle, kind, scale)
+{
+  const config = UNITY_FX_TOUCH.shards;
+  const isClick = kind === 'click';
+  const radius = (isClick ? config.clickRadius : config.trailRadius) * scale;
+  const speed = (isClick
+    ? random(config.clickSpeedMin, config.clickSpeedMax)
+    : random(config.trailSpeedMin, config.trailSpeedMax)) * scale;
+  const lifetimeMs = isClick
+    ? random(config.clickLifetimeMinMs, config.clickLifetimeMaxMs)
+    : random(config.trailLifetimeMinMs, config.trailLifetimeMaxMs);
+
+  return new ShardParticle(
+    {
+      kind,
+      x: x + Math.cos(originAngle) * radius,
+      y: y + Math.sin(originAngle) * radius,
+      velocityX: Math.cos(originAngle) * speed,
+      velocityY: Math.sin(originAngle) * speed,
+      // TextureSheetAnimation 在 FX_TEX_Triangle_02_1 的两格中随机选一格，
+      // 原游戏因此只有朝上/朝下两种贴图方向，位置与速度仍由圆形 Shape 随机。
+      rotation: Math.random() < 0.5 ? 0 : Math.PI,
+      lifetimeMs,
+      size: random(config.sizeMin, config.sizeMax),
+    },
+  );
+}
+
+function createTrailPoint(x, y, bornAt)
+{
+  return {
+    x,
+    y,
+    bornAt,
+  };
+}
+
+function interpolateTrailColor(progress)
+{
+  return evaluateColor(UNITY_FX_TOUCH.trail.gradient, progress);
+}
+
+function drawTrailLayer(context, points, scale, opacity, layer)
+{
+  let totalLength = 0;
+  const distances = [0];
+
+  for (let index = 1; index < points.length; index++)
+  {
+    totalLength += distance(points[index - 1], points[index]);
+    distances.push(totalLength);
+  }
+
+  if (totalLength <= 0)
+  {
+    return;
+  }
+
+  context.save();
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  context.lineWidth = layer.width * scale;
+
+  for (let index = 1; index < points.length; index++)
+  {
+    const progress = ((distances[index - 1] + distances[index]) * 0.5) / totalLength;
+    const color = layer.color ?? interpolateTrailColor(progress);
+
+    context.beginPath();
+    context.moveTo(points[index - 1].x, points[index - 1].y);
+    context.lineTo(points[index].x, points[index].y);
+    context.strokeStyle = colorToCss(color, layer.alpha * opacity);
+    context.stroke();
+  }
+
+  context.restore();
+}
+
+function drawTrail(context, points, scale, opacity)
+{
+  const config = UNITY_FX_TOUCH.trail;
+
+  // 原材质为 Additive 高强度纹理；Canvas 只需一层窄光和两层线芯即可逼近，
+  // 不能再叠加旧实现的大半径径向光，否则视觉宽度会明显超过游戏。
+  drawTrailLayer(context, points, scale, opacity,
+    {
+      width: config.outerGlowWidth,
+      alpha: UNITY_FX_TOUCH.bloom.trailAlpha,
+      color: [0, 88, 224],
+    });
+  drawTrailLayer(context, points, scale, opacity,
+    {
+      width: config.width,
+      alpha: 1,
+    });
+  drawTrailLayer(context, points, scale, opacity,
+    {
+      width: config.coreWidth,
+      alpha: 0.72,
+      color: [116, 225, 255],
+    });
+}
 
 export class BAClickFX
 {
   /**
-   * @param {object} [options={}]
-   * @param {string|HTMLElement} [options.target] - 挂载目标元素或选择器。
-   *   不传则自动创建全屏 Canvas 并插入 body。
-   *   传入已有 `<canvas>` 元素则直接复用。
+   * @param {object} [options]
+   * @param {string|HTMLElement} [options.target]
+   * @param {number} [options.scale]
+   * @param {number} [options.opacity]
+   * @param {boolean} [options.clickEnabled]
+   * @param {boolean} [options.trailEnabled]
+   * @param {number} [options.maxDpr]
+   * @param {string} [options.touchAction]
+   * @param {(event: PointerEvent) => boolean} [options.inputFilter]
    */
   constructor(options = {})
   {
-    // 每个实例都持有独立配置，避免多 Canvas/多实例互相污染运行时参数。
-    this.config = createConfig();
+    if (typeof document === 'undefined' || typeof window === 'undefined')
+    {
+      throw new Error('BAClickFX 需要浏览器 DOM 环境');
+    }
 
-    // 生命周期字段先于资源创建初始化，确保构造中途失败也能执行同一套安全回滚。
-    this._destroyed = false;
-    this._ownsCanvas = false;
-    this._claimedCanvas = null;
-    this._originalTouchAction = null;
-    this._originalTouchActionPriority = '';
-    this._appliedTouchAction = null;
-    this._appliedTouchActionPriority = '';
-    this._originalCanvasWidth = null;
-    this._originalCanvasHeight = null;
-    this._originalCanvasStyleWidth = null;
-    this._originalCanvasStyleHeight = null;
-    this._capturedPointerTarget = null;
-    this._capturedPointerId = null;
-    this._activePointerId = null;
-    this._onResize = null;
-    this._onPointerDown = null;
-    this._onPointerMove = null;
-    this._onPointerUp = null;
-    this._onBlur = null;
-    this._onLostPointerCapture = null;
-    // 输入过滤器属于宿主集成策略，不进入可序列化的视觉配置。
-    this._inputFilter =
-      typeof options.inputFilter === 'function' ? options.inputFilter : null;
-    this._onDprChange = null;
-    this._resizeListenerAttached = false;
-    this._visualViewportListenerAttached = false;
-    this._inputListenersAttached = false;
-    this._resizeObserver = null;
-    this._visualViewport = null;
-    this._dprMediaQuery = null;
-    this._dprMediaListenerMode = null;
-    this._resizeTimer = null;
-    this._rafId = null;
-    this._sizePlan = null;
-    this._renderMetrics = null;
-    this._renderSuspended = false;
+    this.config = createConfig(
+      {
+        scale: Number.isFinite(options.scale) ? Math.max(0.01, options.scale) : CONFIG.scale,
+        opacity: Number.isFinite(options.opacity) ? clamp01(options.opacity) : CONFIG.opacity,
+        clickEnabled: options.clickEnabled ?? CONFIG.clickEnabled,
+        trailEnabled: options.trailEnabled ?? CONFIG.trailEnabled,
+        maxDpr: Number.isFinite(options.maxDpr) ? Math.max(1, options.maxDpr) : CONFIG.maxDpr,
+        touchAction: options.touchAction ?? CONFIG.touchAction,
+      },
+    );
+    this.inputFilter = typeof options.inputFilter === 'function'
+      ? options.inputFilter
+      : null;
+    this.host = resolveTarget(options.target);
+    this.ownsCanvas = !isCanvas(this.host);
+    this.canvas = isCanvas(this.host) ? this.host : createCanvas();
 
-    this.canvas = null;
-    this.ctx = null;
-    this.trailCanvas = null;
-    this.trailCtx = null;
-    this.waveCanvas = null;
-    this.waveCtx = null;
+    if (!this.canvas)
+    {
+      throw new Error('BAClickFX 找不到 target');
+    }
+
+    if (this.ownsCanvas)
+    {
+      const parent = this.host ?? document.body;
+
+      setOverlayStyle(this.canvas, !this.host);
+      parent.appendChild(this.canvas);
+    }
+
+    this.canvas.style.touchAction = this.config.touchAction;
+    this.context = this.canvas.getContext('2d');
+
+    if (!this.context)
+    {
+      throw new Error('BAClickFX 无法创建 Canvas 2D 上下文');
+    }
 
     this.width = 0;
     this.height = 0;
     this.dpr = 1;
-
     this.waves = [];
-    this.sparks = [];
+    this.shards = [];
     this.trailStrokes = [];
     this.currentTrailStroke = null;
+    this.activePointerId = null;
+    this.lastPointerPosition = null;
+    this.lastPointerTime = 0;
+    this.trailDistanceSinceShard = 0;
+    this.animationFrame = null;
+    this.lastFrameTime = null;
+    this.destroyed = false;
 
-    this.wavePool = [];
-    this.sparkPool = [];
+    this._onResize = this._resize.bind(this);
+    this._onPointerDown = this._handlePointerDown.bind(this);
+    this._onPointerMove = this._handlePointerMove.bind(this);
+    this._onPointerUp = this._handlePointerUp.bind(this);
+    this._onBlur = this._cancelPointer.bind(this);
+    this._onFrame = this._renderFrame.bind(this);
 
-    this.isDown = false;
-    this.lastTrailPos = null;
-    this.lastTrailEventTime = 0;
-    this.trailSpeedFactor = 0;
-    this.trailShardDistance = 0;
-
-    this.trailSmoothX = null;
-    this.trailSmoothY = null;
-
-    this.lastTime = performance.now();
-    this.running = false;
-    this._renderPointCache = [];
-    this._renderPointPool = [];
-
-    // ── 应用初始配置 ──
-    this._animationLoopBound = this._animationLoop.bind(this);
-
-    if (options.color)
-    {
-      // 构造阶段直接设置 config，不走 setColor()，
-      // 因为 setColor 会调用 clearTrail() 等副作用方法，
-      // 此时 trailStrokes / canvas / ctx 等状态尚未初始化。
-      this.config.color = [
-        toFiniteNumber(options.color[0], this.config.color[0]),
-        toFiniteNumber(options.color[1], this.config.color[1]),
-        toFiniteNumber(options.color[2], this.config.color[2]),
-      ];
-    }
-
-    if (options.scale !== undefined)
-    {
-      this.config.scale = Math.max(0.5, Math.min(3, toFiniteNumber(options.scale, 1.10)));
-    }
-
-    if (options.opacity !== undefined)
-    {
-      this.config.opacity = Math.max(0.1, Math.min(1, toFiniteNumber(options.opacity, 0.5)));
-    }
-
-    if (options.trailAlways !== undefined)
-    {
-      this.config.trail.always = Boolean(options.trailAlways);
-    }
-
-    if (options.trailEnabled !== undefined)
-    {
-      this.config.trail.enabled = Boolean(options.trailEnabled);
-    }
-
-    if (options.clickEnabled !== undefined)
-    {
-      this.config.clickEnabled = Boolean(options.clickEnabled);
-    }
-
-    if (options.touchAction !== undefined)
-    {
-      this.config.touchAction = options.touchAction;
-    }
-
-    if (options.render && typeof options.render === 'object')
-    {
-      this._applyRenderOptions(options.render);
-    }
-
-    try
-    {
-      // ── Canvas 创建 ──
-      this._resolveCanvas(options.target);
-
-      this.ctx = this.canvas.getContext('2d', {
-        alpha: true,
-        desynchronized: true,
-      });
-
-      if (!this.ctx)
+    this._resize();
+    window.addEventListener('resize', this._onResize);
+    window.addEventListener('pointerdown', this._onPointerDown);
+    window.addEventListener('pointermove', this._onPointerMove,
       {
-        throw new Error('[ba-click-fx] 无法获取主 Canvas 2D 上下文');
-      }
-
-      this.trailCanvas = document.createElement('canvas');
-      this.trailCtx = this.trailCanvas.getContext('2d', {
-        alpha: true,
-        desynchronized: true,
+        passive: true,
       });
+    window.addEventListener('pointerup', this._onPointerUp);
+    window.addEventListener('pointercancel', this._onPointerUp);
+    window.addEventListener('blur', this._onBlur);
 
-      if (!this.trailCtx)
-      {
-        throw new Error('[ba-click-fx] 无法获取拖尾 Canvas 2D 上下文');
-      }
-
-      // 波效果隔离画布：每个 ClickWave 独立渲染后 source-over 合成到主画布，
-      // 避免多个波的发光元素在 lighter/screen 下直接叠加导致灰色环
-      this.waveCanvas = document.createElement('canvas');
-      this.waveCtx = this.waveCanvas.getContext('2d', {
-        alpha: true,
-        desynchronized: true,
-      });
-
-      if (!this.waveCtx)
-      {
-        throw new Error('[ba-click-fx] 无法获取波纹 Canvas 2D 上下文');
-      }
-
-      // 首次尺寸设置不提前启动 RAF；所有资源和监听器就绪后再统一申请首帧。
-      this._resizeCanvas(false);
-      this._setupSizeMonitoring();
-      this._setupInput();
-      this._requestRender();
-    }
-    catch (error)
+    if (this.host && !isCanvas(this.host) && typeof ResizeObserver !== 'undefined')
     {
-      this._disposeResources(true);
-      this._destroyed = true;
-      throw error;
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // Canvas 管理
-  // ═══════════════════════════════════════════════════════
-
-  _claimCanvas(canvas)
-  {
-    const activeEngine = ACTIVE_CANVAS_ENGINES.get(canvas);
-
-    if (activeEngine && activeEngine !== this)
-    {
-      throw new Error('[ba-click-fx] 同一 Canvas 不能同时绑定多个 BAClickFX 实例');
-    }
-
-    ACTIVE_CANVAS_ENGINES.set(canvas, this);
-    this._claimedCanvas = canvas;
-  }
-
-  _releaseCanvasClaim()
-  {
-    if (
-      this._claimedCanvas &&
-      ACTIVE_CANVAS_ENGINES.get(this._claimedCanvas) === this
-    )
-    {
-      ACTIVE_CANVAS_ENGINES.delete(this._claimedCanvas);
-    }
-
-    this._claimedCanvas = null;
-  }
-
-  _applyTouchActionToBorrowedCanvas()
-  {
-    const style = this.canvas.style;
-
-    this._originalTouchAction =
-      typeof style.getPropertyValue === 'function'
-        ? style.getPropertyValue('touch-action')
-        : style.touchAction ?? '';
-    this._originalTouchActionPriority =
-      typeof style.getPropertyPriority === 'function'
-        ? style.getPropertyPriority('touch-action')
-        : '';
-    this._originalCanvasWidth = this.canvas.width;
-    this._originalCanvasHeight = this.canvas.height;
-    this._originalCanvasStyleWidth = this.canvas.style.width ?? '';
-    this._originalCanvasStyleHeight = this.canvas.style.height ?? '';
-    this._setCanvasTouchAction(this.config.touchAction);
-  }
-
-  _setCanvasTouchAction(value)
-  {
-    const style = this.canvas.style;
-
-    if (typeof style.setProperty === 'function')
-    {
-      style.setProperty('touch-action', value);
+      this.resizeObserver = new ResizeObserver(this._onResize);
+      this.resizeObserver.observe(this.host);
     }
     else
     {
-      style.touchAction = value;
+      this.resizeObserver = null;
     }
-
-    this._appliedTouchAction = value;
-    this._appliedTouchActionPriority = '';
   }
 
-  _restoreBorrowedCanvasTouchAction()
+  _resize()
   {
-    const style = this.canvas?.style;
-    const currentValue =
-      typeof style?.getPropertyValue === 'function'
-        ? style.getPropertyValue('touch-action')
-        : style?.touchAction ?? '';
-    const currentPriority =
-      typeof style?.getPropertyPriority === 'function'
-        ? style.getPropertyPriority('touch-action')
-        : '';
-
-    if (
-      !this.canvas ||
-      this._ownsCanvas ||
-      this._originalTouchAction == null ||
-      currentValue !== this._appliedTouchAction ||
-      currentPriority !== this._appliedTouchActionPriority
-    )
+    if (this.destroyed)
     {
       return;
     }
 
-    // 仅恢复本实例最后写入的值，避免覆盖宿主运行期间主动做出的样式修改。
-    if (typeof style.setProperty === 'function')
-    {
-      if (this._originalTouchAction || this._originalTouchActionPriority)
-      {
-        style.setProperty(
-          'touch-action',
-          this._originalTouchAction,
-          this._originalTouchActionPriority,
-        );
-      }
-      else
-      {
-        style.removeProperty('touch-action');
-      }
-    }
-    else
-    {
-      style.touchAction = this._originalTouchAction;
-    }
+    const rect = this._getCanvasRect();
+    const width = Math.max(1, rect.width || window.innerWidth || 1);
+    const height = Math.max(1, rect.height || window.innerHeight || 1);
+    const dpr = Math.min(window.devicePixelRatio || 1, this.config.maxDpr);
+
+    this.width = width;
+    this.height = height;
+    this.dpr = dpr;
+    this.canvas.width = Math.round(width * dpr);
+    this.canvas.height = Math.round(height * dpr);
+    this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this._requestRender();
   }
 
-  _restoreBorrowedCanvasSize()
+  _getCanvasRect()
   {
-    if (!this.canvas || this._ownsCanvas || this._originalCanvasWidth == null)
+    if (this.host && !isCanvas(this.host))
     {
-      return;
+      return this.host.getBoundingClientRect();
     }
 
-    // 构造失败的实例从未交给调用方，必须把同步初始化写入完整回滚。
-    this.canvas.width = this._originalCanvasWidth;
-    this.canvas.height = this._originalCanvasHeight;
-    this.canvas.style.width = this._originalCanvasStyleWidth;
-    this.canvas.style.height = this._originalCanvasStyleHeight;
+    if (isCanvas(this.host))
+    {
+      return this.canvas.getBoundingClientRect();
+    }
+
+    return {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
   }
 
-  _resolveCanvas(target)
+  _getPointerPosition(event)
   {
-    if (target)
-    {
-      if (typeof target === 'string')
-      {
-        this.canvas = document.querySelector(target);
-      }
-      else if (target instanceof HTMLElement)
-      {
-        this.canvas = target;
-      }
+    const rect = this._getCanvasRect();
 
-      if (!this.canvas)
-      {
-        throw new Error(`[ba-click-fx] 未找到目标元素: ${target}`);
-      }
-
-      if (this.canvas.tagName !== 'CANVAS')
-      {
-        throw new Error('[ba-click-fx] 目标元素必须是 <canvas>');
-      }
-
-      this._claimCanvas(this.canvas);
-      this._ownsCanvas = false;
-      this._applyTouchActionToBorrowedCanvas();
-      return;
-    }
-
-    // 尝试复用已有的 #sparkCanvas
-    const existing = document.getElementById('sparkCanvas');
-
-    if (
-      existing &&
-      existing.tagName === 'CANVAS' &&
-      !ACTIVE_CANVAS_ENGINES.has(existing)
-    )
-    {
-      this.canvas = existing;
-      this._claimCanvas(this.canvas);
-      this._ownsCanvas = false;
-      this._applyTouchActionToBorrowedCanvas();
-      return;
-    }
-
-    // 自动创建全屏 Canvas
-    this.canvas = document.createElement('canvas');
-
-    if (!existing)
-    {
-      this.canvas.id = 'sparkCanvas';
-    }
-
-    this.canvas.style.cssText =
-      `position:fixed;inset:0;z-index:999999;width:100vw;height:100vh;pointer-events:none;display:block;touch-action:${this.config.touchAction};`;
-
-    const parent = document.body || document.documentElement;
-    if (!parent)
-    {
-      throw new Error('[ba-click-fx] 无法挂载 Canvas：请在 DOM 加载完成后初始化');
-    }
-    parent.appendChild(this.canvas);
-    this._ownsCanvas = true;
-    this._claimCanvas(this.canvas);
-    this._appliedTouchAction = this.config.touchAction;
+    return {
+      x: clamp(event.clientX - rect.left, 0, this.width),
+      y: clamp(event.clientY - rect.top, 0, this.height),
+    };
   }
 
-  _applyRenderOptions(options)
+  _getScale()
   {
-    if (!options || typeof options !== 'object')
+    return this.config.scale * (this.height / UNITY_FX_TOUCH.referenceHeight);
+  }
+
+  _acceptPointerDown(event)
+  {
+    if (event.pointerType === 'mouse' && event.button !== 0)
     {
       return false;
     }
 
-    const hasOwn = (key) => Object.prototype.hasOwnProperty.call(options, key);
-    let changed = false;
-
-    if (hasOwn('maxDpr'))
+    if (this.inputFilter && !this.inputFilter(event))
     {
-      const nextMaxDpr = clampNumber(
-        options.maxDpr,
-        1,
-        2,
-        this.config.maxDpr,
-      );
-
-      if (nextMaxDpr !== this.config.maxDpr)
-      {
-        this.config.maxDpr = nextMaxDpr;
-        changed = true;
-      }
+      return false;
     }
 
-    if (hasOwn('minRenderScale'))
-    {
-      const nextMinRenderScale = clampNumber(
-        options.minRenderScale,
-        0.5,
-        1,
-        this.config.minRenderScale,
-      );
-
-      if (nextMinRenderScale !== this.config.minRenderScale)
-      {
-        this.config.minRenderScale = nextMinRenderScale;
-        changed = true;
-      }
-    }
-
-    if (hasOwn('trailRenderScale'))
-    {
-      const nextTrailRenderScale = clampNumber(
-        options.trailRenderScale,
-        0.5,
-        1,
-        this.config.trailRenderScale,
-      );
-
-      if (nextTrailRenderScale !== this.config.trailRenderScale)
-      {
-        this.config.trailRenderScale = nextTrailRenderScale;
-        changed = true;
-      }
-    }
-
-    if (hasOwn('maxBackingPixels'))
-    {
-      let nextMaxBackingPixels = this.config.maxBackingPixels;
-
-      if (options.maxBackingPixels === null)
-      {
-        nextMaxBackingPixels = null;
-      }
-      else
-      {
-        const numericBudget = toFiniteNumber(options.maxBackingPixels, 0);
-
-        if (Number.isFinite(numericBudget) && numericBudget > 0)
-        {
-          nextMaxBackingPixels = Math.min(
-            Number.MAX_SAFE_INTEGER,
-            Math.max(1, Math.floor(numericBudget)),
-          );
-        }
-      }
-
-      if (nextMaxBackingPixels !== this.config.maxBackingPixels)
-      {
-        this.config.maxBackingPixels = nextMaxBackingPixels;
-        changed = true;
-      }
-    }
-
-    return changed;
+    return true;
   }
 
-  _readCanvasCssSize()
+  _handlePointerDown(event)
   {
-    const rect = this.canvas.getBoundingClientRect();
-    let width = Number.isFinite(rect.width) && rect.width > 0 ? rect.width : 0;
-    let height = Number.isFinite(rect.height) && rect.height > 0 ? rect.height : 0;
-
-    if (this._ownsCanvas)
+    if (this.destroyed || !this._acceptPointerDown(event))
     {
-      // 自有全屏 Canvas 在首次布局尚未产生 rect 时才回退视口；外部 0×0 必须保持暂停。
-      width = width || toFiniteNumber(window.innerWidth, 0);
-      height = height || toFiniteNumber(window.innerHeight, 0);
+      return;
     }
 
-    return {
-      width: Math.max(0, width),
-      height: Math.max(0, height),
-    };
-  }
-
-  _createBackingPlan(cssWidth, cssHeight, ratio, trailRenderScale)
-  {
-    if (cssWidth <= 0 || cssHeight <= 0 || ratio <= 0)
+    // TouchEffectCreater 的 MaxActiveDragEffectCount 为 1：第二根手指不生成点击，
+    // 也不能接管第一根手指正在驱动的 TrailRenderer。
+    if (this.activePointerId !== null)
     {
-      return {
-        mainWidth: 0,
-        mainHeight: 0,
-        trailWidth: 0,
-        trailHeight: 0,
-        waveWidth: 0,
-        waveHeight: 0,
-        totalBackingPixels: 0,
+      return;
+    }
+
+    const position = this._getPointerPosition(event);
+    const pointerId = event.pointerId ?? 1;
+
+    this.activePointerId = pointerId;
+    this.lastPointerPosition = position;
+    this.lastPointerTime = performance.now();
+    this.trailDistanceSinceShard = 0;
+
+    if (this.config.trailEnabled)
+    {
+      this.currentTrailStroke = {
+        active: true,
+        points: [createTrailPoint(position.x, position.y, this.lastPointerTime)],
       };
+      this.trailStrokes.push(this.currentTrailStroke);
     }
 
-    const mainWidth = Math.max(0, Math.floor(cssWidth * ratio));
-    const mainHeight = Math.max(0, Math.floor(cssHeight * ratio));
-    const trailWidth = Math.max(
-      0,
-      Math.floor(cssWidth * ratio * trailRenderScale),
-    );
-    const trailHeight = Math.max(
-      0,
-      Math.floor(cssHeight * ratio * trailRenderScale),
-    );
-    const waveWidth = mainWidth;
-    const waveHeight = mainHeight;
-    const totalBackingPixels =
-      getBackingPixelCount(mainWidth, mainHeight) +
-      getBackingPixelCount(trailWidth, trailHeight) +
-      getBackingPixelCount(waveWidth, waveHeight);
-
-    return {
-      mainWidth,
-      mainHeight,
-      trailWidth,
-      trailHeight,
-      waveWidth,
-      waveHeight,
-      totalBackingPixels,
-    };
-  }
-
-  _createSizePlan()
-  {
-    const cssSize = this._readCanvasCssSize();
-    const rawDevicePixelRatio = toFiniteNumber(window.devicePixelRatio, 1);
-    const devicePixelRatio = rawDevicePixelRatio > 0 ? rawDevicePixelRatio : 1;
-    const maxDpr = clampNumber(this.config.maxDpr, 1, 2, 1);
-    const minRenderScale = clampNumber(
-      this.config.minRenderScale,
-      0.5,
-      1,
-      0.5,
-    );
-    const trailRenderScale = clampNumber(
-      this.config.trailRenderScale,
-      0.5,
-      1,
-      1,
-    );
-    const configuredBudget = this.config.maxBackingPixels;
-    const maxBackingPixels =
-      Number.isFinite(configuredBudget) && configuredBudget > 0
-        ? Math.floor(configuredBudget)
-        : null;
-    const naturalRatio = Math.min(devicePixelRatio, maxDpr);
-    const createPlanForRatio = (effectivePixelRatio) => ({
-      cssWidth: cssSize.width,
-      cssHeight: cssSize.height,
-      devicePixelRatio,
-      effectivePixelRatio,
-      trailRenderScale,
-      maxBackingPixels,
-      ...this._createBackingPlan(
-        cssSize.width,
-        cssSize.height,
-        effectivePixelRatio,
-        trailRenderScale,
-      ),
-    });
-    let plan = createPlanForRatio(naturalRatio);
-
-    if (
-      maxBackingPixels != null &&
-      plan.totalBackingPixels > maxBackingPixels
-    )
+    if (this.config.clickEnabled)
     {
-      const minimumRatio = naturalRatio * minRenderScale;
-      const minimumPlan = createPlanForRatio(minimumRatio);
-
-      if (minimumPlan.totalBackingPixels > maxBackingPixels)
-      {
-        plan = minimumPlan;
-      }
-      else
-      {
-        let lowerRatio = minimumRatio;
-        let upperRatio = naturalRatio;
-
-        // 最低倍率已经确认可满足预算，先保留它作为有限轮二分的可行保底。
-        plan = minimumPlan;
-
-        // floor 后的真实像素数是阶梯函数；二分可保证预算边界不被面积近似突破。
-        for (let i = 0; i < 32; i++)
-        {
-          const middleRatio = (lowerRatio + upperRatio) * 0.5;
-          const middlePlan = createPlanForRatio(middleRatio);
-
-          if (middlePlan.totalBackingPixels <= maxBackingPixels)
-          {
-            lowerRatio = middleRatio;
-            plan = middlePlan;
-          }
-          else
-          {
-            upperRatio = middleRatio;
-          }
-        }
-      }
-    }
-
-    plan.nominalRgbaBytes = plan.totalBackingPixels * 4;
-    plan.budgetExceeded =
-      maxBackingPixels != null &&
-      plan.totalBackingPixels > maxBackingPixels;
-
-    return plan;
-  }
-
-  _setCanvasBackingSize(canvas, width, height)
-  {
-    let changed = false;
-
-    if (canvas.width !== width)
-    {
-      canvas.width = width;
-      changed = true;
-    }
-
-    if (canvas.height !== height)
-    {
-      canvas.height = height;
-      changed = true;
-    }
-
-    return changed;
-  }
-
-  _stabilizeBorrowedIntrinsicSize(plan, mainSizeChanged, previousStyle)
-  {
-    if (
-      this._ownsCanvas ||
-      !mainSizeChanged ||
-      plan.cssWidth <= 0 ||
-      plan.cssHeight <= 0
-    )
-    {
-      return;
-    }
-
-    const rectAfterBackingChange = this.canvas.getBoundingClientRect();
-
-    // 只有 backing 写入真的改变布局时才锁定该维，作者的百分比/样式表尺寸保持原样。
-    if (
-      Math.abs(rectAfterBackingChange.width - plan.cssWidth) > 0.01 &&
-      (this.canvas.style.width ?? '') === previousStyle.width
-    )
-    {
-      this.canvas.style.width = `${plan.cssWidth}px`;
-    }
-
-    if (
-      Math.abs(rectAfterBackingChange.height - plan.cssHeight) > 0.01 &&
-      (this.canvas.style.height ?? '') === previousStyle.height
-    )
-    {
-      this.canvas.style.height = `${plan.cssHeight}px`;
-    }
-  }
-
-  _applySizePlan(plan, shouldRequestRender)
-  {
-    const previousPlan = this._sizePlan;
-    const previousStyle = {
-      width: this.canvas.style.width ?? '',
-      height: this.canvas.style.height ?? '',
-    };
-    const mainSizeChanged = this._setCanvasBackingSize(
-      this.canvas,
-      plan.mainWidth,
-      plan.mainHeight,
-    );
-    const trailSizeChanged = this._setCanvasBackingSize(
-      this.trailCanvas,
-      plan.trailWidth,
-      plan.trailHeight,
-    );
-    const waveSizeChanged = this._setCanvasBackingSize(
-      this.waveCanvas,
-      plan.waveWidth,
-      plan.waveHeight,
-    );
-    const mainTransformChanged =
-      mainSizeChanged ||
-      !previousPlan ||
-      previousPlan.effectivePixelRatio !== plan.effectivePixelRatio;
-    const trailTransformScale =
-      plan.effectivePixelRatio * plan.trailRenderScale;
-    const previousTrailTransformScale = previousPlan
-      ? previousPlan.effectivePixelRatio * previousPlan.trailRenderScale
-      : null;
-    const trailTransformChanged =
-      trailSizeChanged ||
-      previousTrailTransformScale !== trailTransformScale;
-    const waveTransformChanged = waveSizeChanged || mainTransformChanged;
-    const logicalSizeChanged =
-      !previousPlan ||
-      previousPlan.cssWidth !== plan.cssWidth ||
-      previousPlan.cssHeight !== plan.cssHeight;
-    const visualSizeChanged =
-      logicalSizeChanged ||
-      mainTransformChanged ||
-      trailTransformChanged ||
-      waveTransformChanged;
-
-    this._stabilizeBorrowedIntrinsicSize(
-      plan,
-      mainSizeChanged,
-      previousStyle,
-    );
-
-    this.width = plan.cssWidth;
-    this.height = plan.cssHeight;
-    this.dpr = plan.effectivePixelRatio;
-    this._sizePlan = plan;
-    this._renderMetrics = {
-      cssWidth: plan.cssWidth,
-      cssHeight: plan.cssHeight,
-      devicePixelRatio: plan.devicePixelRatio,
-      effectivePixelRatio: plan.effectivePixelRatio,
-      trailRenderScale: plan.trailRenderScale,
-      totalBackingPixels: plan.totalBackingPixels,
-      nominalRgbaBytes: plan.nominalRgbaBytes,
-      maxBackingPixels: plan.maxBackingPixels,
-      budgetExceeded: plan.budgetExceeded,
-    };
-
-    if (mainTransformChanged)
-    {
-      this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    }
-
-    if (trailTransformChanged)
-    {
-      this.trailCtx.setTransform(
-        trailTransformScale,
-        0,
-        0,
-        trailTransformScale,
-        0,
-        0,
-      );
-    }
-
-    if (waveTransformChanged)
-    {
-      this.waveCtx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    }
-
-    this._renderSuspended =
-      this.width <= 0 ||
-      this.height <= 0 ||
-      plan.mainWidth <= 0 ||
-      plan.mainHeight <= 0;
-
-    if (this._renderSuspended && this._rafId != null)
-    {
-      cancelAnimationFrame(this._rafId);
-      this._rafId = null;
-      this.running = false;
-    }
-
-    if (visualSizeChanged)
-    {
-      this._clearCanvas();
-      this._clearTrailCanvas();
-    }
-
-    if (shouldRequestRender && visualSizeChanged)
-    {
-      this._requestRender();
-    }
-
-    return visualSizeChanged;
-  }
-
-  _resizeCanvas(shouldRequestRender = true)
-  {
-    if (this._destroyed)
-    {
-      return false;
-    }
-
-    return this._applySizePlan(
-      this._createSizePlan(),
-      shouldRequestRender,
-    );
-  }
-
-  _setupSizeMonitoring()
-  {
-    this._onResize = this._debouncedResize.bind(this);
-
-    if (!this._ownsCanvas && typeof ResizeObserver === 'function')
-    {
-      this._resizeObserver = new ResizeObserver(this._onResize);
-      this._resizeObserver.observe(this.canvas);
-    }
-    else
-    {
-      this._resizeListenerAttached = true;
-      window.addEventListener('resize', this._onResize);
-    }
-
-    const visualViewport = window.visualViewport;
-
-    if (visualViewport && typeof visualViewport.addEventListener === 'function')
-    {
-      this._visualViewport = visualViewport;
-      this._visualViewportListenerAttached = true;
-      visualViewport.addEventListener('resize', this._onResize);
-    }
-
-    this._onDprChange = () =>
-    {
-      if (this._destroyed)
-      {
-        return;
-      }
-
-      // resolution 查询只会报告一次离开旧 DPR，必须立即按新值重新注册。
-      this._bindDprMediaQuery();
-      this._debouncedResize();
-    };
-    this._bindDprMediaQuery();
-  }
-
-  _removeDprMediaQuery()
-  {
-    const mediaQuery = this._dprMediaQuery;
-    const listenerMode = this._dprMediaListenerMode;
-
-    this._dprMediaQuery = null;
-    this._dprMediaListenerMode = null;
-
-    if (!mediaQuery || !this._onDprChange)
-    {
-      return;
-    }
-
-    if (
-      listenerMode === 'event' &&
-      typeof mediaQuery.removeEventListener === 'function'
-    )
-    {
-      mediaQuery.removeEventListener('change', this._onDprChange);
-    }
-    else if (
-      listenerMode === 'legacy' &&
-      typeof mediaQuery.removeListener === 'function'
-    )
-    {
-      mediaQuery.removeListener(this._onDprChange);
-    }
-  }
-
-  _bindDprMediaQuery()
-  {
-    this._removeDprMediaQuery();
-
-    if (this._destroyed || typeof window.matchMedia !== 'function')
-    {
-      return;
-    }
-
-    const rawDevicePixelRatio = toFiniteNumber(window.devicePixelRatio, 1);
-    const devicePixelRatio = rawDevicePixelRatio > 0 ? rawDevicePixelRatio : 1;
-    const mediaQuery = window.matchMedia(
-      `(resolution: ${devicePixelRatio}dppx)`,
-    );
-
-    this._dprMediaQuery = mediaQuery;
-
-    if (typeof mediaQuery.addEventListener === 'function')
-    {
-      this._dprMediaListenerMode = 'event';
-      mediaQuery.addEventListener('change', this._onDprChange);
-    }
-    else if (typeof mediaQuery.addListener === 'function')
-    {
-      this._dprMediaListenerMode = 'legacy';
-      mediaQuery.addListener(this._onDprChange);
-    }
-  }
-
-  _teardownSizeMonitoring()
-  {
-    if (this._resizeListenerAttached && this._onResize)
-    {
-      window.removeEventListener('resize', this._onResize);
-      this._resizeListenerAttached = false;
-    }
-
-    if (this._resizeObserver)
-    {
-      this._resizeObserver.disconnect();
-      this._resizeObserver = null;
-    }
-
-    if (
-      this._visualViewportListenerAttached &&
-      this._visualViewport &&
-      this._onResize
-    )
-    {
-      this._visualViewport.removeEventListener('resize', this._onResize);
-      this._visualViewportListenerAttached = false;
-    }
-
-    this._visualViewport = null;
-    this._removeDprMediaQuery();
-  }
-
-  _debouncedResize()
-  {
-    if (this._destroyed)
-    {
-      return;
-    }
-
-    if (this._resizeTimer != null)
-    {
-      clearTimeout(this._resizeTimer);
-    }
-
-    this._resizeTimer = setTimeout(() =>
-    {
-      this._resizeTimer = null;
-
-      if (this._destroyed)
-      {
-        return;
-      }
-
-      this._resizeCanvas();
-    }, RESIZE_DEBOUNCE_MS);
-  }
-
-  _clearCanvas()
-  {
-    if (this._destroyed || !this.ctx)
-    {
-      return;
-    }
-
-    this.ctx.clearRect(0, 0, this.width, this.height);
-  }
-
-  _clearTrailCanvas()
-  {
-    if (this._destroyed || !this.trailCtx || !this.trailCanvas)
-    {
-      return;
-    }
-
-    this.trailCtx.save();
-    this.trailCtx.setTransform(1, 0, 0, 1, 0, 0);
-    this.trailCtx.clearRect(0, 0, this.trailCanvas.width, this.trailCanvas.height);
-    this.trailCtx.restore();
-
-    const trailRenderScale =
-      this._sizePlan?.trailRenderScale ??
-      clampNumber(this.config.trailRenderScale, 0.5, 1, 1);
-
-    this.trailCtx.setTransform(
-      this.dpr * trailRenderScale,
-      0,
-      0,
-      this.dpr * trailRenderScale,
-      0,
-      0,
-    );
-  }
-
-  _requestRender()
-  {
-    if (this._destroyed || this._renderSuspended || this.running)
-    {
-      return;
-    }
-
-    this.running = true;
-    this.lastTime = performance.now();
-    this._rafId = requestAnimationFrame(this._animationLoopBound);
-  }
-
-  _disposeResources(restoreBorrowedCanvasSize = false)
-  {
-    this._teardownSizeMonitoring();
-    this._teardownInput();
-    this._releasePointerCapture();
-
-    if (this._resizeTimer != null)
-    {
-      clearTimeout(this._resizeTimer);
-      this._resizeTimer = null;
-    }
-
-    if (this._rafId != null)
-    {
-      cancelAnimationFrame(this._rafId);
-      this._rafId = null;
-    }
-
-    this.running = false;
-    this._renderSuspended = true;
-    // 销毁时解除宿主回调引用，避免闭包继续持有页面对象。
-    this._inputFilter = null;
-    this.isDown = false;
-    this._activePointerId = null;
-    this.currentTrailStroke = null;
-    this.lastTrailPos = null;
-    this.lastTrailEventTime = 0;
-    this.trailSpeedFactor = 0;
-    this.trailShardDistance = 0;
-    this.trailSmoothX = null;
-    this.trailSmoothY = null;
-
-    this.waves.length = 0;
-    this.sparks.length = 0;
-    this.trailStrokes.length = 0;
-    this.wavePool.length = 0;
-    this.sparkPool.length = 0;
-    this._renderPointCache.length = 0;
-    this._renderPointPool.length = 0;
-
-    if (this.trailCanvas)
-    {
-      this.trailCanvas.width = 0;
-      this.trailCanvas.height = 0;
-    }
-
-    if (this.waveCanvas)
-    {
-      this.waveCanvas.width = 0;
-      this.waveCanvas.height = 0;
-    }
-
-    this._restoreBorrowedCanvasTouchAction();
-
-    if (restoreBorrowedCanvasSize)
-    {
-      this._restoreBorrowedCanvasSize();
-    }
-
-    this._releaseCanvasClaim();
-
-    if (this._ownsCanvas && this.canvas)
-    {
-      // 先释放 backing store，再移除节点，避免保留大尺寸图形缓冲。
-      this.canvas.width = 0;
-      this.canvas.height = 0;
-
-      if (this.canvas.parentNode)
-      {
-        this.canvas.parentNode.removeChild(this.canvas);
-      }
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // 绘制方法
-  // ═══════════════════════════════════════════════════════
-
-  // 通用圆形绘制（轨迹头部圆点等）。光晕由 useFakeGlow 多层半透明圆叠加提供，不使用 shadowBlur。
-  // 原因同 _drawClickDisk：lighter 混合模式下 shadowBlur 在多个效果叠加时产生灰色环。
-  _drawCircle(context, x, y, r, color, alpha, blur = 0, useFakeGlow = true)
-  {
-    if (alpha <= 0 || r <= 0)
-    {
-      return;
-    }
-
-    context.save();
-
-    if (useFakeGlow && this.config.glow.fake && this.config.glow.enabled && blur > 0)
-    {
-      context.fillStyle = rgbToCss(color, alpha * 0.12);
-      context.beginPath();
-      context.arc(x, y, r + blur * 1.2, 0, Math.PI * 2);
-      context.fill();
-
-      context.fillStyle = rgbToCss(color, alpha * 0.16);
-      context.beginPath();
-      context.arc(x, y, r + blur * 0.55, 0, Math.PI * 2);
-      context.fill();
-    }
-
-    context.fillStyle = rgbToCss(color, alpha);
-    context.beginPath();
-    context.arc(x, y, r, 0, Math.PI * 2);
-    context.fill();
-
-    context.restore();
-  }
-
-  _drawTriangle(context, x, y, size, rotation, color, alpha)
-  {
-    if (alpha <= 0)
-    {
-      return;
-    }
-
-    context.save();
-    context.translate(x, y);
-    context.rotate(rotation);
-
-    context.fillStyle = rgbToCss(color, alpha);
-    drawEquilateralPath(context, size);
-    context.fill();
-
-    context.restore();
-  }
-
-  _drawRadialGlow(context, x, y, radius, color, alpha)
-  {
-    if (alpha <= 0 || radius <= 0)
-    {
-      return;
-    }
-
-    // 不缓存渐变对象：缓存的梯度中心可能与实际绘制位置有微小偏移，导致边缘出现异常圆环
-    const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
-
-    gradient.addColorStop(0, rgbToCss(color, alpha * 0.68));
-    gradient.addColorStop(0.2, rgbToCss(color, alpha * 0.48));
-    gradient.addColorStop(0.52, rgbToCss(color, alpha * 0.2));
-    gradient.addColorStop(0.82, rgbToCss(color, alpha * 0.055));
-    gradient.addColorStop(1, rgbToCss(color, 0));
-
-    // 使用 screen 混合而非 lighter：screen 按比例叠加（result = 1 - ∏(1 - a)），
-    // 不会像 lighter 加法那样让不平衡的 RGB 通道（如黄色 R=255 B=26）等值化产生灰色环
-    context.save();
-    context.globalCompositeOperation = 'screen';
-    context.fillStyle = gradient;
-    context.beginPath();
-    context.arc(x, y, radius, 0, Math.PI * 2);
-    context.fill();
-    context.restore();
-  }
-
-  // 圆盘本体填充。光晕由 _drawDiskEdgeGlow（径向渐变）提供，不使用 shadowBlur。
-  // 原因：动画循环设置 globalCompositeOperation = 'lighter'（加法混合），
-  // shadowBlur 在 lighter 模式下会将阴影像素加到画布上，快速连点时多个 ClickWave
-  // 的 shadowBlur 光晕叠加导致 RGB 通道趋向等值，产生去饱和的灰色环。
-  _drawClickDisk(context, x, y, radius, color, alpha)
-  {
-    if (alpha <= 0 || radius <= 0)
-    {
-      return;
-    }
-
-    context.save();
-
-    context.fillStyle = rgbToCss(color, alpha);
-    context.beginPath();
-    context.arc(x, y, radius, 0, Math.PI * 2);
-    context.fill();
-    context.restore();
-  }
-
-  _drawDiskEdgeGlow(context, x, y, innerRadius, outerRadius, color, alpha)
-  {
-    if (alpha <= 0 || outerRadius <= innerRadius)
-    {
-      return;
-    }
-
-    // 完整径向渐变：从中心到外缘平滑衰减，避免空心环在 innerRadius 处产生锐利边界。
-    // 旧版使用空心环渐变（innerRadius → outerRadius），多个 ClickWave 在不同半径叠加时
-    // 各环的 innerRadius 边界形成可见的同心灰色环（lighter 混合下亮度跳变）。
-    // 改为从中心 0 开始的完整渐变，消除内侧边界，与圆盘 fill 自然叠加。
-    const gradient = context.createRadialGradient(x, y, 0, x, y, outerRadius);
-
-    gradient.addColorStop(0, rgbToCss(color, alpha));
-    gradient.addColorStop(0.08, rgbToCss(color, alpha * 0.85));
-    gradient.addColorStop(0.20, rgbToCss(color, alpha * 0.55));
-    gradient.addColorStop(0.40, rgbToCss(color, alpha * 0.25));
-    gradient.addColorStop(0.65, rgbToCss(color, alpha * 0.08));
-    gradient.addColorStop(0.85, rgbToCss(color, alpha * 0.02));
-    gradient.addColorStop(1, rgbToCss(color, 0));
-
-    context.save();
-    context.globalCompositeOperation = 'screen';
-    context.fillStyle = gradient;
-    context.beginPath();
-    context.arc(x, y, outerRadius, 0, Math.PI * 2);
-    context.fill();
-    context.restore();
-  }
-
-  // 圆环弧线 ribbon 填充。光晕由 _drawClickRingGlow（双层径向渐变）提供，不使用 shadowBlur。
-  // 原因同 _drawClickDisk：lighter 混合模式下 shadowBlur 在快速连点时叠加产生灰色环。
-  _drawClickArcRibbon(
-    context,
-    x,
-    y,
-    radius,
-    start,
-    end,
-    minWidth,
-    maxWidth,
-    color,
-    alpha,
-  )
-  {
-    const arcLength = Math.abs(end - start);
-
-    if (
-      alpha <= 0 ||
-      radius <= 0 ||
-      maxWidth <= 0 ||
-      arcLength < 0.001
-    )
-    {
-      return;
-    }
-
-    const steps = Math.max(10, Math.min(96, Math.ceil(arcLength / 0.07)));
-
-    context.save();
-
-    context.fillStyle = rgbToCss(color, alpha);
-    context.beginPath();
-
-    for (let i = 0; i <= steps; i++)
-    {
-      const t = i / steps;
-      const angle = lerp(start, end, t);
-      const widthT = smoothstep(0, 1, Math.sin(Math.PI * t));
-      const widthValue = lerp(minWidth, maxWidth, widthT);
-      const outerRadius = radius + widthValue * 0.5;
-      const px = x + Math.cos(angle) * outerRadius;
-      const py = y + Math.sin(angle) * outerRadius;
-
-      if (i === 0)
-      {
-        context.moveTo(px, py);
-      }
-      else
-      {
-        context.lineTo(px, py);
-      }
-    }
-
-    for (let i = steps; i >= 0; i--)
-    {
-      const t = i / steps;
-      const angle = lerp(start, end, t);
-      const widthT = smoothstep(0, 1, Math.sin(Math.PI * t));
-      const widthValue = lerp(minWidth, maxWidth, widthT);
-      const innerRadius = Math.max(0.1, radius - widthValue * 0.5);
-
-      context.lineTo(
-        x + Math.cos(angle) * innerRadius,
-        y + Math.sin(angle) * innerRadius,
-      );
-    }
-
-    context.closePath();
-    context.fill();
-    context.restore();
-  }
-
-  _drawClickRingGlow(context, x, y, radius, color, alpha)
-  {
-    if (alpha <= 0 || radius <= 0)
-    {
-      return;
-    }
-
-    if (!this.config.glow.clickFake && !this.config.glow.enabled)
-    {
-      return;
-    }
-
-    const cfg = this.config.rings;
-
-    this._drawRadialGlow(
-      context,
-      x,
-      y,
-      radius + cfg.softGlowRadiusAdd * getClickScale(this.config),
-      this.config.color,
-      alpha * cfg.softGlowAlpha,
-    );
-
-    this._drawRadialGlow(
-      context,
-      x,
-      y,
-      radius + cfg.glowRadiusAdd * getClickScale(this.config),
-      this.config.color,
-      alpha * cfg.glowAlpha,
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // 对象池
-  // ═══════════════════════════════════════════════════════
-
-  _getWave(x, y)
-  {
-    const wave = this.wavePool.pop() ?? new ClickWave(this);
-
-    wave.reset(x, y);
-    return wave;
-  }
-
-  _releaseWave(wave)
-  {
-    wave.dead = true;
-
-    if (this.wavePool.length < 64)
-    {
-      this.wavePool.push(wave);
-    }
-  }
-
-  _getSpark(x, y, fromClick)
-  {
-    const spark = this.sparkPool.pop() ?? new SparkParticle(this);
-
-    spark.reset(x, y, fromClick);
-    return spark;
-  }
-
-  _releaseSpark(spark)
-  {
-    spark.dead = true;
-
-    if (this.sparkPool.length < 256)
-    {
-      this.sparkPool.push(spark);
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // 碎片生成
-  // ═══════════════════════════════════════════════════════
-
-  _tuneClickShard(spark, centerX, centerY)
-  {
-    const angle = Math.random() * Math.PI * 2;
-    const tangentAngle = angle + Math.PI / 2;
-    const ringRadius = this.config.filledCircle.rAddRate * getClickScale(this.config);
-    const radialSpeed = rand(0.4, 0.7) * this.config.scale;
-    const tangentSpeed = rand(-0.4, 0.4) * this.config.scale;
-    // 偏向蓝色，保留轻微白色高亮以模拟 Additive 叠加
-    const whiteMix = rand(0.3, 0.55);
-
-    spark.x = centerX + Math.cos(angle) * ringRadius;
-    spark.y = centerY + Math.sin(angle) * ringRadius;
-    spark.vx =
-      Math.cos(angle) * radialSpeed +
-      Math.cos(tangentAngle) * tangentSpeed;
-    spark.vy =
-      Math.sin(angle) * radialSpeed +
-      Math.sin(tangentAngle) * tangentSpeed;
-
-    spark.delay = 1.5;
-    spark.size = rand(5.2, 10.0) * this.config.scale;
-    spark.alpha = rand(0.9, 1);
-    spark.maxAlpha = spark.alpha;
-    spark.alphaMul = rand(1.6, 2.0);
-    spark.alphaDecay = rand(0.028, 0.044);
-    spark.friction = rand(0.96, 0.985);
-    // 游戏原始特效的碎片只有正上和正下两个朝向
-    spark.rotation = Math.random() < 0.5 ? 0 : Math.PI;
-    spark.rotationSpeed = 0;
-    spark.color = mixColor(this.config.color, [255, 255, 255], whiteMix);
-    spark.blur = rand(0.8, 2.2) * this.config.scale;
-    spark.useFakeGlow = this.config.glow.clickFake;
-    spark.flickerPeriod = this.config.click.shardFlickerPeriod;
-    spark.flickerMinAlpha = this.config.click.shardFlickerMinAlpha;
-    spark.flickerPhase = 0;
-    spark.flickerSizePulse = 0.08;
-    spark.sizeGrowEnd = rand(0.16, 0.28);
-    spark.sizeShrinkStart = rand(0.62, 0.76);
-    spark.spawnSizeMul = rand(0.02, 0.1);
-    spark.endSizeMul = rand(0.18, 0.36);
-  }
-
-  _tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor)
-  {
-    const cfg = this.config.trail;
-    const isLarge = Math.random() < cfg.shardLargeChance;
-    const scale = this.config.scale;
-    // 速度方向：在轨迹外侧 ±90° 半圆内随机分布，模拟游戏原版碎片向外飘散
-    const spreadAngle = rand(-Math.PI / 2, Math.PI / 2);
-    const speed = rand(0.04, 0.32) * (0.65 + speedFactor * 0.5) * scale;
-    const velAngle = normalAngle + spreadAngle;
-    spark.vx = Math.cos(velAngle) * speed;
-    spark.vy = Math.sin(velAngle) * speed;
-
-    // 偏向蓝色，大碎片稍亮
-    const whiteMix = isLarge ? rand(0.35, 0.6) : rand(0.2, 0.48);
-
-    spark.size = (isLarge ? rand(7.4, 12.2) : rand(4.2, 6.4)) * scale;
-    spark.alpha = isLarge ? rand(0.7, 1) : rand(0.55, 0.85);
-    spark.maxAlpha = spark.alpha;
-    spark.alphaMul = isLarge ? rand(1.6, 2.0) : rand(1.5, 1.8);
-    // 120fps 基准 48 帧 ≈ 60fps 24 帧
-    const lifetime = rand(20, 28);
-
-    spark.alphaDecay = spark.alpha / lifetime;
-    spark.friction = isLarge ? rand(0.978, 0.99) : rand(0.965, 0.982);
-    // 游戏原始特效的轨迹碎片只有正上和正下两个朝向
-    spark.rotation = Math.random() < 0.5 ? 0 : Math.PI;
-    spark.rotationSpeed = 0;
-    spark.color = mixColor(this.config.color, [255, 255, 255], whiteMix);
-    spark.blur = (isLarge ? rand(0.7, 1.6) : rand(0.15, 0.65)) * scale;
-    spark.useFakeGlow = true;
-    spark.flickerPeriod = cfg.shardFlickerPeriod;
-    spark.flickerMinAlpha = isLarge
-      ? cfg.shardFlickerMinAlpha
-      : Math.min(0.34, cfg.shardFlickerMinAlpha + 0.1);
-    spark.flickerPhase = rand(0, cfg.shardFlickerPeriod);
-    spark.flickerSizePulse = cfg.shardFlickerSizePulse;
-    // 120fps 基准中增长 7 帧 ≈ 60fps 中 3.5 帧，峰值提前至 ~12%~18%
-    const peak = rand(0.12, 0.18);
-    spark.sizeGrowEnd = peak;
-    spark.sizeShrinkStart = peak;
-    spark.spawnSizeMul = isLarge ? rand(0.35, 0.55) : rand(0.25, 0.45);
-    spark.endSizeMul = 0;
-  }
-
-  _spawnTrailShards(from, to, speedFactor)
-  {
-    const cfg = this.config.trail;
-    const dist = distance(from, to);
-
-    const baseSpacing =
-      cfg.shardSpacing *
-      this.config.scale *
-      lerp(2.5, 1.8, clamp01(speedFactor));
-
-    this.trailShardDistance += dist;
-    const rawCount = Math.round(this.trailShardDistance / baseSpacing);
-    const attempts = Math.min(2, rawCount);
-
-    if (attempts <= 0)
-    {
-      return;
-    }
-
-    // 按实际 spawn 数量扣除累积距离，防止多 spawn 少扣的累积误差
-    this.trailShardDistance -= attempts * baseSpacing;
-    if (this.trailShardDistance < 0)
-    {
-      this.trailShardDistance = 0;
-    }
-
-    const extraChance = lerp(
-      cfg.shardChanceSlow,
-      cfg.shardChanceFast,
-      clamp01(speedFactor),
-    );
-    const tangentAngle = Math.atan2(to.y - from.y, to.x - from.x);
-
-    for (let i = 0; i < attempts; i++)
-    {
-      if (this.sparks.length >= cfg.maxSparkParticles)
-      {
-        return;
-      }
-
-      const spawnCount =
-        Math.random() < extraChance && this.sparks.length < cfg.maxSparkParticles - 1
-          ? 2
-          : 1;
-
-      for (let j = 0; j < spawnCount; j++)
-      {
-        const t = rand(0.16, 0.98);
-        const side = Math.random() < 0.5 ? -1 : 1;
-        const normalAngle =
-          tangentAngle +
-          side * Math.PI / 2 +
-          rand(-0.24, 0.24);
-        const offset =
-          rand(cfg.shardOffsetMin, cfg.shardOffsetMax) *
-          this.config.scale *
-          (0.82 + speedFactor * 0.22);
-        const tangentOffset = rand(-8, 10) * this.config.scale;
-        const x =
-          lerp(from.x, to.x, t) +
-          Math.cos(normalAngle) * offset +
-          Math.cos(tangentAngle) * tangentOffset;
-        const y =
-          lerp(from.y, to.y, t) +
-          Math.sin(normalAngle) * offset +
-          Math.sin(tangentAngle) * tangentOffset;
-        const spark = this._getSpark(x, y, false);
-
-        this._tuneTrailShard(spark, tangentAngle, normalAngle, speedFactor);
-        this.sparks.push(spark);
-      }
-    }
-  }
-
-  _createClickEffect(x, y)
-  {
-    if (this._destroyed)
-    {
-      return;
-    }
-
-    this.waves.push(this._getWave(x, y));
-
-    for (let i = 0; i < this.config.sparksCount; i++)
-    {
-      const spark = this._getSpark(x, y, true);
-
-      this._tuneClickShard(spark, x, y);
-      this.sparks.push(spark);
+      this._spawnClick(position.x, position.y);
     }
 
     this._requestRender();
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // 拖尾轨迹管理
-  // ═══════════════════════════════════════════════════════
-
-  _resetTrailInput()
-  {
-    this.lastTrailPos = null;
-    this.lastTrailEventTime = 0;
-    this.trailShardDistance = 0;
-  }
-
-  _resetTrailContinuity()
-  {
-    this._resetTrailInput();
-    this.trailSpeedFactor = 0;
-    this.trailSmoothX = null;
-    this.trailSmoothY = null;
-  }
-
-  _endTrailStroke()
-  {
-    if (this.currentTrailStroke)
-    {
-      this.currentTrailStroke.released = true;
-    }
-
-    this.currentTrailStroke = null;
-  }
-
-  _resetTrailAll()
-  {
-    this._resetTrailContinuity();
-    this._endTrailStroke();
-    this.trailStrokes.length = 0;
-    this._clearTrailCanvas();
-  }
-
-  _removeTrailSparks()
-  {
-    for (let i = this.sparks.length - 1; i >= 0; i--)
-    {
-      const spark = this.sparks[i];
-
-      if (!spark.fromClick)
-      {
-        this.sparks.splice(i, 1);
-        this._releaseSpark(spark);
-      }
-    }
-  }
-
-  _clearTrailEffects()
-  {
-    this._resetTrailAll();
-    this._removeTrailSparks();
-  }
-
-  _hasTrailState()
-  {
-    if (
-      this.isDown ||
-      this.lastTrailPos ||
-      this.currentTrailStroke ||
-      this.trailStrokes.length > 0
-    )
-    {
-      return true;
-    }
-
-    return this.sparks.some((spark) => !spark.fromClick);
-  }
-
-  _updateTrailSpeed(from, to, eventTime)
-  {
-    const dist = distance(from, to);
-
-    if (this.lastTrailEventTime <= 0)
-    {
-      this.lastTrailEventTime = eventTime;
-      return 0;
-    }
-
-    const dt = Math.max(1, eventTime - this.lastTrailEventTime);
-    const speed = dist / dt;
-    const factor = clamp01(
-      (speed - this.config.trail.speedMin) /
-        (this.config.trail.speedMax - this.config.trail.speedMin),
-    );
-
-    this.trailSpeedFactor = Math.max(this.trailSpeedFactor, factor);
-    this.lastTrailEventTime = eventTime;
-
-    return factor;
-  }
-
-  _createTrailStroke(initialSpeedFactor = 0)
-  {
-    const stroke = [];
-
-    stroke.speedFactor = clamp01(initialSpeedFactor);
-    stroke.released = false;
-
-    this.trailStrokes.push(stroke);
-    this.currentTrailStroke = stroke;
-
-    return stroke;
-  }
-
-  _beginTrailStroke(x, y, speedFactor = 0)
-  {
-    const stroke = this._createTrailStroke(speedFactor);
-
-    this._addTrailPoint(x, y, speedFactor, stroke);
-    return stroke;
-  }
-
-  _getTrailMaxLength(stroke = this.currentTrailStroke)
-  {
-    const speedFactor = stroke ? (stroke.speedFactor ?? 0) : this.trailSpeedFactor;
-
-    return lerp(
-      this.config.trail.lengthSlow,
-      this.config.trail.lengthFast,
-      clamp01(speedFactor),
-    );
-  }
-
-  _trimOldestTrailPointsByCount(count)
-  {
-    if (count > this.config.trail.maxPoints && this.trailStrokes.length > 0)
-    {
-      const oldest = this.trailStrokes[0];
-      const excess = count - this.config.trail.maxPoints;
-
-      if (oldest.length > 0)
-      {
-        const removeCount = Math.min(oldest.length, excess);
-
-        oldest.splice(0, removeCount);
-      }
-
-      if (oldest.length === 0)
-      {
-        if (oldest === this.currentTrailStroke)
-        {
-          this.currentTrailStroke = null;
-        }
-
-        this.trailStrokes.shift();
-      }
-    }
-
-    while (this.trailStrokes.length > 64)
-    {
-      const removed = this.trailStrokes.shift();
-
-      if (removed === this.currentTrailStroke)
-      {
-        this.currentTrailStroke = null;
-      }
-    }
-  }
-
-  _trimTrailPoints(stroke = this.currentTrailStroke)
-  {
-    if (!stroke || stroke.length < 2)
-    {
-      return;
-    }
-
-    let totalLength = 0;
-
-    for (let i = stroke.length - 1; i > 0; i--)
-    {
-      totalLength += distance(stroke[i], stroke[i - 1]);
-    }
-
-    const maxLength = this._getTrailMaxLength(stroke);
-    let excessCount = 0;
-
-    while (totalLength > maxLength && (excessCount + 1) < stroke.length - 7)
-    {
-      totalLength -= distance(stroke[excessCount], stroke[excessCount + 1]);
-      excessCount++;
-    }
-
-    if (excessCount > 0)
-    {
-      stroke.splice(0, excessCount);
-    }
-  }
-
-  _addTrailPoint(x, y, speedFactor = 0, stroke = this.currentTrailStroke, skipTrim = false)
-  {
-    const targetStroke = stroke || this._createTrailStroke(speedFactor);
-
-    targetStroke.speedFactor = Math.max(
-      targetStroke.speedFactor ?? 0,
-      clamp01(speedFactor),
-    );
-
-    const life = lerp(
-      this.config.trail.lifeSlow,
-      this.config.trail.lifeFast,
-      clamp01(speedFactor),
-    );
-
-    targetStroke.push({
-      x,
-      y,
-      life,
-      maxLife: life,
-      speedFactor: clamp01(speedFactor),
-      distanceFromTail: 0,
-    });
-
-    if (!skipTrim)
-    {
-      this._trimTrailPoints(targetStroke);
-    }
-
-    this._requestRender();
-  }
-
-  _addInterpolatedTrailPoints(from, to, speedFactor)
-  {
-    const dist = distance(from, to);
-
-    if (dist < this.config.trail.minDistance)
-    {
-      return;
-    }
-
-    if (dist > this.config.trail.maxJumpDistance)
-    {
-      this._endTrailStroke();
-      this._beginTrailStroke(to.x, to.y, speedFactor);
-      this.lastTrailPos = to;
-      return;
-    }
-
-    const stroke = this.currentTrailStroke || this._createTrailStroke(speedFactor);
-    // 高速时动态扩大采样步长，降低点密度避免过载
-    const speedAdjustedStep = this.config.trail.sampleStep *
-      (1 + clamp01(speedFactor) * 2);
-    const steps = Math.min(
-      this.config.trail.maxInterpolatedPoints,
-      Math.max(2, Math.ceil(dist / speedAdjustedStep)),
-    );
-
-    for (let i = 1; i <= steps; i++)
-    {
-      const t = i / steps;
-
-      this._addTrailPoint(
-        lerp(from.x, to.x, t),
-        lerp(from.y, to.y, t),
-        speedFactor,
-        stroke,
-        true,
-      );
-    }
-
-    this._trimTrailPoints(stroke);
-  }
-
-  _updateTrailPoints(frameScale)
-  {
-    if (this.trailStrokes.length === 0)
-    {
-      return;
-    }
-
-    const aliveStrokes = [];
-    let alivePointCount = 0;
-
-    for (const stroke of this.trailStrokes)
-    {
-      if (stroke.length === 0)
-      {
-        continue;
-      }
-
-      const isActiveStroke =
-        stroke === this.currentTrailStroke &&
-        !stroke.released &&
-        (this.isDown || this.config.trail.always);
-
-      const releaseMul = isActiveStroke ? 1 : this.config.trail.releaseDecayMul;
-
-      for (let i = 0; i < stroke.length; i++)
-      {
-        const p = stroke[i];
-        const indexFactor =
-          stroke.length > 1 ? i / (stroke.length - 1) : 1;
-        const decayMul = lerp(
-          this.config.trail.tailDecayMul,
-          this.config.trail.headDecayMul,
-          indexFactor,
-        );
-
-        p.life -= frameScale * decayMul * releaseMul;
-      }
-
-      let deadCount = 0;
-
-      while (deadCount < stroke.length && stroke[deadCount].life <= 0)
-      {
-        deadCount++;
-      }
-
-      if (deadCount > 0)
-      {
-        stroke.splice(0, deadCount);
-      }
-
-      stroke.speedFactor = clamp01(
-        (stroke.speedFactor ?? 0) * Math.pow(this.config.trail.speedDecay, frameScale),
-      );
-
-      this._trimTrailPoints(stroke);
-
-      if (stroke.length > 0)
-      {
-        aliveStrokes.push(stroke);
-        alivePointCount += stroke.length;
-      }
-      else if (stroke === this.currentTrailStroke)
-      {
-        this.currentTrailStroke = null;
-      }
-    }
-
-    this.trailStrokes = aliveStrokes;
-
-    if (this.currentTrailStroke && !this.trailStrokes.includes(this.currentTrailStroke))
-    {
-      this.currentTrailStroke = null;
-    }
-
-    this.trailSpeedFactor *= Math.pow(this.config.trail.speedDecay, frameScale);
-
-    // 存活点已在本轮遍历中统计，直接复用以避免再次扫描全部 stroke。
-    this._trimOldestTrailPointsByCount(alivePointCount);
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // 拖尾渲染
-  // ═══════════════════════════════════════════════════════
-
-  _buildTrailRenderPoints(points)
-  {
-    if (points.length < 2)
-    {
-      return points;
-    }
-
-    // 环形缓存只保存前向去重结果的最终后缀；候选仍全部按原顺序计算，
-    // 因此输出点、浮点公式和绘制顺序与先生成再截断完全一致。
-    const result = this._renderPointCache;
-    const pool = this._renderPointPool;
-    let acceptedCount = 0;
-    const maxR = Math.max(
-      1,
-      Math.floor(toFiniteNumber(this.config.trail.renderMaxPoints, 2400)),
-    );
-
-    for (let i = 0; i < points.length - 1; i++)
-    {
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      const segLen = distance(p1, p2);
-      const steps = Math.max(1, Math.ceil(segLen / this.config.trail.renderStep));
-
-      for (let s = 0; s < steps; s++)
-      {
-        const t = s / steps;
-        const x = lerp(p1.x, p2.x, t);
-        const y = lerp(p1.y, p2.y, t);
-
-        // 跳过与上一点距离过近的冗余点
-        if (acceptedCount > 0)
-        {
-          const previous = result[(acceptedCount - 1) % maxR];
-
-          if (Math.hypot(x - previous.x, y - previous.y) < 0.2)
-          {
-            continue;
-          }
-        }
-
-        const slotIndex = acceptedCount % maxR;
-        const point = acquireTrailRenderPoint(result, pool, slotIndex);
-
-        point.x = x;
-        point.y = y;
-        point.life = lerp(p1.life, p2.life, t);
-        point.maxLife = lerp(p1.maxLife, p2.maxLife, t);
-        point.speedFactor = lerp(p1.speedFactor ?? 0, p2.speedFactor ?? 0, t);
-        point.distanceFromTail = 0;
-        acceptedCount++;
-      }
-    }
-
-    // 追加尾部最后一点
-    const last = points[points.length - 1];
-    const previous = acceptedCount > 0
-      ? result[(acceptedCount - 1) % maxR]
-      : null;
-
-    if (
-      !previous ||
-      Math.hypot(last.x - previous.x, last.y - previous.y) >= 0.2
-    )
-    {
-      const slotIndex = acceptedCount % maxR;
-      const tailPoint = acquireTrailRenderPoint(result, pool, slotIndex);
-
-      tailPoint.x = last.x;
-      tailPoint.y = last.y;
-      tailPoint.life = last.life;
-      tailPoint.maxLife = last.maxLife;
-      tailPoint.speedFactor = last.speedFactor ?? 0;
-      tailPoint.distanceFromTail = 0;
-      acceptedCount++;
-    }
-
-    const resultLength = Math.min(acceptedCount, maxR);
-
-    for (let i = resultLength; i < result.length; i++)
-    {
-      pool.push(result[i]);
-    }
-
-    result.length = resultLength;
-
-    if (acceptedCount > maxR)
-    {
-      const firstIndex = acceptedCount % maxR;
-
-      if (firstIndex > 0)
-      {
-        // 三次原地翻转恢复环形后缀的时间顺序，不创建临时点数组。
-        reverseArrayRange(result, 0, firstIndex - 1);
-        reverseArrayRange(result, firstIndex, resultLength - 1);
-        reverseArrayRange(result, 0, resultLength - 1);
-      }
-    }
-
-    if (result.length === 0)
-    {
-      return points;
-    }
-
-    let total = 0;
-    result[0].distanceFromTail = 0;
-
-    for (let i = 1; i < result.length; i++)
-    {
-      total += distance(result[i - 1], result[i]);
-      result[i].distanceFromTail = total;
-    }
-
-    result.totalLength = total;
-
-    return result;
-  }
-
-  _strokeSegmentedTrailPath(context, points, options)
-  {
-    const {
-      widthValue,
-      stops,
-      widthStops,
-      minWidth = 0,
-      maxChunks = 128,
-    } = options;
-    const totalLength =
-      points.totalLength ??
-      points[points.length - 1]?.distanceFromTail ??
-      0;
-
-    if (points.length < 2 || widthValue <= 0 || totalLength <= 0)
-    {
-      return;
-    }
-
-    // 分段间距取固定值和动态值中较大者：短拖尾保持细腻，长拖尾自动扩大间距
-    const minChunk = Math.max(1, this.config.trail.gradientChunkLength ?? 1.5);
-    const chunkLength = Math.max(minChunk, totalLength / maxChunks);
-
-    let startIndex = 0;
-
-    for (let i = 1; i < points.length; i++)
-    {
-      const currentLength =
-        points[i].distanceFromTail - points[startIndex].distanceFromTail;
-      const isLastPoint = i === points.length - 1;
-
-      if (currentLength < chunkLength && !isLastPoint)
-      {
-        continue;
-      }
-
-      const midpointDistance =
-        (points[startIndex].distanceFromTail + points[i].distanceFromTail) / 2;
-      const progress = midpointDistance / totalLength;
-      const alpha = getTrailStopValue(stops, progress);
-      const widthScale = getTrailStopValue(widthStops, progress, 1);
-      const lineWidth = Math.max(minWidth, widthValue * widthScale);
-
-      if (alpha > 0 && lineWidth > 0 && i > startIndex)
-      {
-        context.strokeStyle = rgbToCss(options.color, alpha);
-        context.lineWidth = lineWidth;
-        context.lineCap = 'butt';
-        context.lineJoin = 'round';
-
-        context.beginPath();
-        context.moveTo(points[startIndex].x, points[startIndex].y);
-
-        for (let j = startIndex + 1; j <= i; j++)
-        {
-          context.lineTo(points[j].x, points[j].y);
-        }
-
-        context.stroke();
-      }
-
-      startIndex = i;
-    }
-  }
-
-  _renderTrailStrokeToCanvas(stroke)
-  {
-    if (!stroke || stroke.length < 2)
-    {
-      return;
-    }
-
-    const renderPoints = this._buildTrailRenderPoints(stroke);
-
-    if (renderPoints.length < 2)
-    {
-      return;
-    }
-
-    const trailColor = getTrailColor(this.config);
-    const trailCoreColor = getTrailCoreColor(this.config);
-    const trailHotColor = getTrailHotColor(this.config);
-    const head = renderPoints[renderPoints.length - 1];
-    const speedFactor = Math.max(head.speedFactor ?? 0, stroke.speedFactor ?? 0);
-
-    const baseWidth = lerp(
-      this.config.trail.baseWidthSlow,
-      this.config.trail.baseWidthFast,
-      speedFactor,
-    ) * this.config.scale;
-
-    const coreWidth = lerp(
-      this.config.trail.coreWidthSlow,
-      this.config.trail.coreWidthFast,
-      speedFactor,
-    ) * this.config.scale;
-
-    const hotWidth = lerp(
-      this.config.trail.hotWidthSlow,
-      this.config.trail.hotWidthFast,
-      speedFactor,
-    ) * this.config.scale;
-
-    const railWidth = lerp(
-      this.config.trail.railWidthSlow,
-      this.config.trail.railWidthFast,
-      speedFactor,
-    ) * this.config.scale;
-
-    const headLifeRatio = head.maxLife > 0 ? clamp01(head.life / head.maxLife) : 1;
-    const fadeMul = smoothstep(0.05, 0.45, headLifeRatio);
-    const tf = this.config.trail.alpha * fadeMul;
-
-    // 拖尾图层定义：按渲染顺序排列，condition 为 falsy 时跳过该层。
-    // 各层头部保持本层峰值，避免 lighter 叠加后出现中段比鼠标头部更亮。
-    const layers = [
-      // 1. 细暗轨道
-      {
-        widthValue: railWidth,
-        minWidth: 0.08 * this.config.scale,
-        color: this.config.color,
-        widthStops: [[0.0, 0.38], [0.35, 0.52], [0.72, 0.72], [1.0, 0.52]],
-        stops: [[0.0, this.config.trail.railAlpha * 0.16 * tf],
-                [0.22, this.config.trail.railAlpha * 0.34 * tf],
-                [0.62, this.config.trail.railAlpha * 0.42 * tf],
-                [1.0, this.config.trail.railAlpha * 0.58 * tf]],
-      },
-      // 2. 柔和外光
-      {
-        condition: this.config.glow.fake && this.config.glow.enabled,
-        widthValue: baseWidth * this.config.trail.softGlowWidthMul,
-        minWidth: baseWidth * 0.05,
-        color: this.config.color,
-        widthStops: [[0.0, 0.18], [0.42, 0.55], [0.78, 0.92], [1.0, 1.0]],
-        stops: [[0.0, 0.0],
-                [0.22, this.config.trail.softGlowAlpha * 0.18 * tf],
-                [0.52, this.config.trail.softGlowAlpha * 0.58 * tf],
-                [0.82, this.config.trail.softGlowAlpha * 0.72 * tf],
-                [1.0, this.config.trail.softGlowAlpha * tf]],
-      },
-      // 2b. 蓝色发光
-      {
-        condition: this.config.glow.fake && this.config.glow.enabled,
-        widthValue: baseWidth * this.config.trail.glowWidthMul,
-        minWidth: baseWidth * 0.04,
-        color: trailColor,
-        widthStops: [[0.0, 0.22], [0.38, 0.54], [0.76, 0.88], [1.0, 1.0]],
-        stops: [[0.0, 0.0],
-                [0.2, this.config.trail.glowAlpha * 0.16 * tf],
-                [0.5, this.config.trail.glowAlpha * 0.48 * tf],
-                [0.82, this.config.trail.glowAlpha * 0.72 * tf],
-                [1.0, this.config.trail.glowAlpha * tf]],
-      },
-      // 3. 半透明 Ribbon 层
-      {
-        condition: this.config.trail.ribbonAlpha > 0 && this.config.trail.ribbonWidthMul > 0,
-        widthValue: baseWidth * this.config.trail.ribbonWidthMul,
-        minWidth: baseWidth * 0.05,
-        color: trailColor,
-        widthStops: [[0.0, 0.06], [0.26, 0.36], [0.56, 0.88], [0.86, 1.0], [1.0, 0.72]],
-        stops: [[0.0, 0.0],
-                [0.18, this.config.trail.ribbonAlpha * 0.08 * tf],
-                [0.48, this.config.trail.ribbonAlpha * 0.36 * tf],
-                [0.78, this.config.trail.ribbonAlpha * 0.66 * tf],
-                [1.0, this.config.trail.ribbonAlpha * tf]],
-      },
-      // 4. 主蓝色轨迹
-      {
-        widthValue: baseWidth,
-        minWidth: baseWidth * 0.14,
-        color: trailColor,
-        widthStops: [[0.0, 0.24], [0.28, 0.46], [0.58, 0.82], [0.86, 1.0], [1.0, 0.88]],
-        stops: [[0.0, this.config.trail.mainAlpha * 0.04 * tf],
-                [0.16, this.config.trail.mainAlpha * 0.14 * tf],
-                [0.44, this.config.trail.mainAlpha * 0.48 * tf],
-                [0.74, this.config.trail.mainAlpha * 0.82 * tf],
-                [1.0, this.config.trail.mainAlpha * tf]],
-      },
-      // 5. 中心浅蓝高光
-      {
-        widthValue: coreWidth,
-        minWidth: coreWidth * 0.12,
-        color: trailCoreColor,
-        widthStops: [[0.0, 0.16], [0.42, 0.42], [0.72, 0.9], [1.0, 0.75]],
-        stops: [[0.0, 0.0],
-                [0.34, this.config.trail.coreAlpha * 0.08 * tf],
-                [0.58, this.config.trail.coreAlpha * 0.42 * tf],
-                [0.86, this.config.trail.coreAlpha * 0.72 * tf],
-                [1.0, this.config.trail.coreAlpha * tf]],
-      },
-      // 6. 蓝白高光
-      {
-        widthValue: hotWidth,
-        minWidth: hotWidth * 0.1,
-        color: trailHotColor,
-        widthStops: [[0.0, 0.0], [0.52, 0.35], [0.78, 1.0], [1.0, 0.62]],
-        stops: [[0.0, 0.0],
-                [0.46, 0.0],
-                [0.66, this.config.trail.hotAlpha * 0.28 * tf],
-                [0.86, this.config.trail.hotAlpha * 0.55 * tf],
-                [1.0, this.config.trail.hotAlpha * tf]],
-      },
-    ];
-
-    for (const layer of layers)
-    {
-      if (layer.condition === false)
-      {
-        continue;
-      }
-
-      this._strokeSegmentedTrailPath(this.trailCtx, renderPoints, {
-        widthValue: layer.widthValue,
-        minWidth: layer.minWidth,
-        color: layer.color,
-        widthStops: layer.widthStops,
-        stops: layer.stops,
-      });
-    }
-
-    // 真实光影：沿轨迹画径向渐变圆，模拟自发光柔和光晕（与圆盘/圆环同技术）
-    if (this.config.glow.enabled && renderPoints.length > 1)
-    {
-      const totalLength = renderPoints[renderPoints.length - 1].distanceFromTail || 1;
-      const glowRadius = baseWidth * this.config.trail.glowRadiusMul;
-      const step = Math.max(glowRadius * 0.4, 4);
-      let accum = 0;
-
-      for (let i = 0; i < renderPoints.length; i++)
-      {
-        if (i > 0)
-        {
-          const dx = renderPoints[i].x - renderPoints[i - 1].x;
-          const dy = renderPoints[i].y - renderPoints[i - 1].y;
-
-          accum += Math.sqrt(dx * dx + dy * dy);
-        }
-
-        if (accum >= step || i === 0 || i === renderPoints.length - 1)
-        {
-          accum = 0;
-          const progress = (renderPoints[i].distanceFromTail || 0) / totalLength;
-          const gi = this.config.trail.glowIntensity;
-          const alpha = getTrailStopValue(
-            [[0.0, 0.0], [0.20, gi * 0.12], [0.50, gi * 0.35], [0.80, gi * 0.71], [1.0, gi]],
-            progress,
-          ) * this.config.trail.mainAlpha * tf;
-
-          if (alpha > 0.005)
-          {
-            this._drawRadialGlow(
-              this.trailCtx,
-              renderPoints[i].x,
-              renderPoints[i].y,
-              glowRadius,
-              this.config.color,
-              alpha,
-            );
-          }
-        }
-      }
-    }
-  }
-
-  _renderTrailToCanvas()
-  {
-    this._clearTrailCanvas();
-
-    if (!this.config.trail.enabled || this.trailStrokes.length === 0)
-    {
-      return;
-    }
-
-    this.trailCtx.save();
-    this.trailCtx.globalCompositeOperation = 'lighter';
-
-    for (const stroke of this.trailStrokes)
-    {
-      this._renderTrailStrokeToCanvas(stroke);
-    }
-
-    this.trailCtx.restore();
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // 动画循环
-  // ═══════════════════════════════════════════════════════
-
-  _updateSparks(context, clickFrameScale, trailFrameScale)
-  {
-    for (let i = this.sparks.length - 1; i >= 0; i--)
-    {
-      const spark = this.sparks[i];
-      const frameScale = spark.fromClick ? clickFrameScale : trailFrameScale;
-
-      spark.update(context, frameScale);
-
-      if (spark.dead)
-      {
-        this.sparks.splice(i, 1);
-        this._releaseSpark(spark);
-      }
-    }
-  }
-
-  _hasActiveEffects()
-  {
-    return (
-      this.waves.length > 0 ||
-      this.sparks.length > 0 ||
-      this.trailStrokes.length > 0
-    );
-  }
-
-  _animationLoop(now)
-  {
-    // RAF ID 在回调开始时已经失效，先清空可准确反映当前是否仍有排队帧。
-    this._rafId = null;
-
-    if (this._destroyed)
-    {
-      this.running = false;
-      return;
-    }
-
-    if (this._renderSuspended)
-    {
-      this.running = false;
-      return;
-    }
-
-    const deltaMs = Math.min(now - this.lastTime, this.config.maxDeltaMs);
-
-    this.lastTime = now;
-
-    const baseFrameScale = deltaMs / this.config.baseFrameMs;
-    const clickFrameScale = baseFrameScale * this.config.clickSpeed;
-    const trailFrameScale = baseFrameScale * this.config.trailSpeed;
-
-    this._clearCanvas();
-
-    this._updateTrailPoints(trailFrameScale);
-    this._renderTrailToCanvas();
-
-    this.ctx.save();
-    this.ctx.globalCompositeOperation = 'source-over';
-
-    this.ctx.drawImage(this.trailCanvas, 0, 0, this.width, this.height);
-
-    // 从旧到新渲染：旧波先画（底层），新波后画（顶层）。
-    // 新波的白色闪光在最上层最明显，不会被旧波覆盖。
-    for (let i = 0; i < this.waves.length; i++)
-    {
-      const wave = this.waves[i];
-
-      // 清除波画布
-      this.waveCtx.save();
-      this.waveCtx.setTransform(1, 0, 0, 1, 0, 0);
-      this.waveCtx.clearRect(0, 0, this.waveCanvas.width, this.waveCanvas.height);
-      this.waveCtx.restore();
-
-      // 在隔离画布上渲染波（内部发光方法自行设置 screen）
-      wave.update(this.waveCtx, clickFrameScale);
-
-      // source-over 合成到主画布
-      this.ctx.drawImage(this.waveCanvas, 0, 0, this.width, this.height);
-    }
-
-    // 清理已结束的波（从后往前 splice 避免索引偏移）
-    for (let i = this.waves.length - 1; i >= 0; i--)
-    {
-      if (this.waves[i].dead)
-      {
-        this._releaseWave(this.waves[i]);
-        this.waves.splice(i, 1);
-      }
-    }
-
-    this._updateSparks(this.ctx, clickFrameScale, trailFrameScale);
-
-    this.ctx.restore();
-
-    if (this._hasActiveEffects())
-    {
-      this._rafId = requestAnimationFrame(this._animationLoopBound);
-    }
-    else
-    {
-      this.running = false;
-      this._clearCanvas();
-      this._clearTrailCanvas();
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // 输入处理
-  // ═══════════════════════════════════════════════════════
-
-  // 预分配平滑坐标对象，避免每帧创建新对象
-  _smoothPosCache = { x: 0, y: 0 };
-
-  _getPointerPos(event, rect = this.canvas.getBoundingClientRect())
-  {
-    return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
-  }
-
-  _clampPointerPos(pos, rect)
-  {
-    // 游戏端会把活动拖尾限制在摄像机边缘；原地修改可避免热路径增加临时对象。
-    pos.x = Math.max(0, Math.min(rect.width, pos.x));
-    pos.y = Math.max(0, Math.min(rect.height, pos.y));
-    return pos;
-  }
-
-  _isPointerInsideCanvas(pos, rect)
-  {
-    return (
-      pos.x >= 0 &&
-      pos.y >= 0 &&
-      pos.x < rect.width &&
-      pos.y < rect.height
-    );
-  }
-
-  _isForeignActivePointer(event)
-  {
-    return (
-      this._activePointerId != null &&
-      event.pointerId != null &&
-      event.pointerId !== this._activePointerId
-    );
-  }
-
-  _shouldHandleInputEvent(event)
-  {
-    if (!this._inputFilter)
-    {
-      return true;
-    }
-
-    try
-    {
-      return Boolean(this._inputFilter(event));
-    }
-    catch
-    {
-      // 宿主回调异常不能破坏全局 Pointer 监听；失败时拒绝该次输入更安全。
-      return false;
-    }
-  }
-
-  _tryCapturePointer(event, pos, rect)
-  {
-    const outsideBehavior = this.config.trail.outsideBehavior;
-
-    if (
-      (outsideBehavior !== 'continue' && outsideBehavior !== 'clamp') ||
-      !this.config.trail.enabled ||
-      !this._isPointerInsideCanvas(pos, rect) ||
-      event.pointerId == null
-    )
-    {
-      return;
-    }
-
-    const target = event.target;
-
-    if (!target || typeof target.setPointerCapture !== 'function')
-    {
-      return;
-    }
-
-    this._releasePointerCapture();
-
-    try
-    {
-      target.setPointerCapture(event.pointerId);
-      this._capturedPointerTarget = target;
-      this._capturedPointerId = event.pointerId;
-    }
-    catch
-    {
-      // 捕获能力取决于事件目标和浏览器；失败时退化为现有 Pointer 分发行为。
-    }
-  }
-
-  _releasePointerCapture(pointerId = null)
-  {
-    if (!this._capturedPointerTarget)
-    {
-      return;
-    }
-
-    if (pointerId != null && pointerId !== this._capturedPointerId)
-    {
-      return;
-    }
-
-    const target = this._capturedPointerTarget;
-    const capturedPointerId = this._capturedPointerId;
-
-    this._capturedPointerTarget = null;
-    this._capturedPointerId = null;
-
-    if (typeof target.releasePointerCapture !== 'function')
-    {
-      return;
-    }
-
-    try
-    {
-      if (
-        typeof target.hasPointerCapture === 'function' &&
-        !target.hasPointerCapture(capturedPointerId)
-      )
-      {
-        return;
-      }
-
-      target.releasePointerCapture(capturedPointerId);
-    }
-    catch
-    {
-      // Pointer 可能已被浏览器隐式释放；内部状态仍必须完成清理。
-    }
   }
 
   _handlePointerMove(event)
   {
-    if (this._destroyed)
+    if (
+      this.destroyed ||
+      this.activePointerId === null ||
+      (event.pointerId ?? 1) !== this.activePointerId ||
+      !this.config.trailEnabled
+    )
     {
       return;
     }
 
-    if (this._isForeignActivePointer(event))
+    const coalesced = typeof event.getCoalescedEvents === 'function'
+      ? event.getCoalescedEvents()
+      : [event];
+    const events = coalesced.length > 0 ? coalesced : [event];
+
+    for (const sample of events)
     {
-      return;
-    }
-
-    const shouldDrawTrail =
-      this.config.trail.enabled &&
-      (this.config.trail.always || this.isDown);
-
-    if (!shouldDrawTrail)
-    {
-      if (!this.config.trail.enabled)
-      {
-        this.isDown = false;
-        this._activePointerId = null;
-        this._releasePointerCapture();
-        this._resetTrailContinuity();
-      }
-      else
-      {
-        this._resetTrailInput();
-      }
-
-      // 门禁必须早于合并事件读取，关闭拖尾时才不会继续隐藏采样。
-      this._endTrailStroke();
-      return;
-    }
-
-    if (!this._shouldHandleInputEvent(event))
-    {
-      return;
-    }
-
-    let events =
-      typeof event.getCoalescedEvents === 'function'
-        ? event.getCoalescedEvents()
-        : [event];
-
-    if (events.length === 0)
-    {
-      events = [event];
-    }
-
-    if (events.length > this.config.trail.maxCoalescedEvents)
-    {
-      const max = this.config.trail.maxCoalescedEvents;
-
-      if (max === 1)
-      {
-        // 上限为 1 时通用采样公式的分母为 0；保留最后一个事件以延续最新坐标。
-        events = [events[events.length - 1]];
-      }
-      else
-      {
-        const sampled = [];
-
-        for (let i = 0; i < max; i++)
-        {
-          const index = Math.round((events.length - 1) * (i / (max - 1)));
-
-          sampled.push(events[index]);
-        }
-
-        events = sampled;
-      }
-    }
-
-    let latestPos = null;
-    let frameNewSteps = 0;
-    const MAX_NEW_STEPS = 1024;
-    // 同一批合并事件在一次同步分发中共享画布位置，只读取一次可避免重复触发布局查询。
-    const canvasRect = this.canvas.getBoundingClientRect();
-    const outsideBehavior = this.config.trail.outsideBehavior;
-
-    for (const e of events)
-    {
-      let pos = this._getPointerPos(e, canvasRect);
-
-      if (outsideBehavior === 'clamp')
-      {
-        pos = this._clampPointerPos(pos, canvasRect);
-      }
-
-      if (
-        outsideBehavior === 'pause-connect' &&
-        !this._isPointerInsideCanvas(pos, canvasRect)
-      )
-      {
-        // 保留离开前的连续性状态，让回到 Canvas 的首个样本沿用既有断笔规则。
-        continue;
-      }
-
-      // 本帧插值点数已接近上限，跳过剩余合并事件的轨迹插值
-      const skipTrail = frameNewSteps >= MAX_NEW_STEPS;
-
-      latestPos = pos;
-
-      const sf = this.config.trail.smoothFactor;
-
-      if (sf > 0)
-      {
-        if (this.trailSmoothX == null)
-        {
-          this.trailSmoothX = pos.x;
-          this.trailSmoothY = pos.y;
-        }
-        else
-        {
-          this.trailSmoothX = this.trailSmoothX * sf + pos.x * (1 - sf);
-          this.trailSmoothY = this.trailSmoothY * sf + pos.y * (1 - sf);
-        }
-
-        this._smoothPosCache.x = this.trailSmoothX;
-        this._smoothPosCache.y = this.trailSmoothY;
-        pos = this._smoothPosCache;
-      }
-
-      if (!this.lastTrailPos)
-      {
-        this.lastTrailPos = { x: pos.x, y: pos.y };
-        this.lastTrailEventTime = e.timeStamp || performance.now();
-
-        if (!this.currentTrailStroke)
-        {
-          this._beginTrailStroke(pos.x, pos.y, this.trailSpeedFactor);
-        }
-
-        latestPos = pos;
-        continue;
-      }
-
-      const eventTime = e.timeStamp || performance.now();
-      const speedFactor = this._updateTrailSpeed(this.lastTrailPos, pos, eventTime);
-
-      const estDist = distance(this.lastTrailPos, pos);
-      const speedStep = this.config.trail.sampleStep * (1 + clamp01(speedFactor) * 2);
-      frameNewSteps += Math.ceil(estDist / speedStep);
-
-      if (!skipTrail)
-      {
-        this._addInterpolatedTrailPoints(this.lastTrailPos, pos, speedFactor);
-      }
-
-      // 碎片轻量，不受帧上限限制，始终正常累积距离
-      this._spawnTrailShards(this.lastTrailPos, pos, speedFactor);
-
-      this.lastTrailPos = { x: pos.x, y: pos.y };
-    }
-
-    if (!latestPos)
-    {
-      return;
-    }
-
-    if (latestPos && Math.random() < this.config.trail.moveSparkChance)
-    {
-      const angle = Math.random() * Math.PI * 2;
-      const offset = rand(5, 22) * this.config.scale;
-      const spark = this._getSpark(
-        latestPos.x + Math.cos(angle) * offset,
-        latestPos.y + Math.sin(angle) * offset,
-        false,
+      this._appendPointerSample(
+        this._getPointerPosition(sample),
+        performance.now(),
       );
-
-      this._tuneTrailShard(spark, angle, angle, this.trailSpeedFactor);
-      this.sparks.push(spark);
     }
 
     this._requestRender();
   }
 
-  _setupInput()
+  _appendPointerSample(position, now)
   {
-    this._onPointerDown = (event) =>
-    {
-      if (this._destroyed)
-      {
-        return;
-      }
-
-      const trailEnabled = this.config.trail.enabled;
-      const clickEnabled = this.config.clickEnabled;
-
-      if (!trailEnabled && !clickEnabled)
-      {
-        return;
-      }
-
-      if (!this._shouldHandleInputEvent(event))
-      {
-        return;
-      }
-
-      const canvasRect = this.canvas.getBoundingClientRect();
-      const pos = this._getPointerPos(event, canvasRect);
-
-      if (trailEnabled)
-      {
-        const isForeignPointer = this._isForeignActivePointer(event);
-
-        if (isForeignPointer)
-        {
-          if (clickEnabled)
-          {
-            this._createClickEffect(pos.x, pos.y);
-          }
-
-          return;
-        }
-
-        this.isDown = true;
-        // 活动指针必须独立于 capture 成败记录，否则捕获失败会让其他指针接管轨迹。
-        const outsideBehavior = this.config.trail.outsideBehavior;
-
-        this._activePointerId =
-          (outsideBehavior === 'continue' || outsideBehavior === 'clamp') &&
-          event.pointerId != null
-            ? event.pointerId
-            : null;
-
-        const shouldPauseOutside =
-          outsideBehavior === 'pause-connect' &&
-          !this._isPointerInsideCanvas(pos, canvasRect);
-        const trailPos =
-          outsideBehavior === 'clamp'
-            ? this._clampPointerPos({ x: pos.x, y: pos.y }, canvasRect)
-            : pos;
-
-        if (shouldPauseOutside)
-        {
-          this._resetTrailContinuity();
-          this._endTrailStroke();
-        }
-        else
-        {
-          this.trailSmoothX = null;
-          this.trailSmoothY = null;
-
-          this.lastTrailPos = trailPos;
-          this.lastTrailEventTime = event.timeStamp || performance.now();
-          this.trailSpeedFactor = Math.max(this.trailSpeedFactor, 0.15);
-
-          this._endTrailStroke();
-          this._beginTrailStroke(trailPos.x, trailPos.y, this.trailSpeedFactor);
-        }
-
-        this._tryCapturePointer(event, pos, canvasRect);
-      }
-
-      if (clickEnabled)
-      {
-        this._createClickEffect(pos.x, pos.y);
-      }
-    };
-
-    this._onPointerMove = this._handlePointerMove.bind(this);
-
-    this._onPointerUp = (event) =>
-    {
-      if (this._destroyed)
-      {
-        return;
-      }
-
-      if (event && this._isForeignActivePointer(event))
-      {
-        return;
-      }
-
-      this.isDown = false;
-      this._activePointerId = null;
-      this._resetTrailInput();
-      this._endTrailStroke();
-      this._releasePointerCapture(event ? event.pointerId : null);
-
-      if (this._hasActiveEffects())
-      {
-        this._requestRender();
-      }
-    };
-
-    this._onBlur = () =>
-    {
-      if (this._destroyed)
-      {
-        return;
-      }
-
-      this.isDown = false;
-      this._activePointerId = null;
-      this._resetTrailContinuity();
-      this._endTrailStroke();
-      this._releasePointerCapture();
-
-      if (this._hasActiveEffects())
-      {
-        this._requestRender();
-      }
-    };
-
-    this._onLostPointerCapture = (event) =>
-    {
-      if (event.pointerId !== this._capturedPointerId)
-      {
-        return;
-      }
-
-      // 主动释放会先清空 pointerId；只有意外丢失捕获才需要按 cancel 结束输入。
-      this._onPointerUp(event);
-    };
-
-    // 标记先于注册，若浏览器在中途抛错，构造回滚仍会尝试移除全部处理器。
-    this._inputListenersAttached = true;
-    window.addEventListener('pointerdown', this._onPointerDown);
-    window.addEventListener('pointermove', this._onPointerMove, { passive: true });
-    window.addEventListener('pointerup', this._onPointerUp);
-    window.addEventListener('pointercancel', this._onPointerUp);
-    window.addEventListener('blur', this._onBlur);
-    window.addEventListener('lostpointercapture', this._onLostPointerCapture);
-  }
-
-  _teardownInput()
-  {
-    if (!this._inputListenersAttached)
+    if (!this.currentTrailStroke || !this.lastPointerPosition)
     {
       return;
     }
 
+    const from = this.lastPointerPosition;
+    const segmentLength = distance(from, position);
+    const scale = this._getScale();
+    const vertexDistance = Math.max(
+      0.5,
+      UNITY_FX_TOUCH.trail.minVertexDistance * scale,
+    );
+
+    if (segmentLength < vertexDistance)
+    {
+      return;
+    }
+
+    const count = Math.min(512, Math.floor(segmentLength / vertexDistance));
+
+    for (let index = 1; index <= count; index++)
+    {
+      const progress = index / count;
+      const x = lerp(from.x, position.x, progress);
+      const y = lerp(from.y, position.y, progress);
+      const bornAt = lerp(this.lastPointerTime, now, progress);
+
+      this.currentTrailStroke.points.push(createTrailPoint(x, y, bornAt));
+    }
+
+    this._spawnTrailShards(from, position, scale);
+    this.lastPointerPosition = position;
+    this.lastPointerTime = now;
+  }
+
+  _spawnTrailShards(from, to, scale)
+  {
+    const segmentLength = distance(from, to);
+    const spacing = Math.max(1, UNITY_FX_TOUCH.shards.trailSpacing * scale);
+    let nextDistance = spacing - this.trailDistanceSinceShard;
+    let spawned = 0;
+
+    while (nextDistance <= segmentLength && spawned < 32)
+    {
+      const progress = segmentLength > 0 ? nextDistance / segmentLength : 0;
+      const x = lerp(from.x, to.x, progress);
+      const y = lerp(from.y, to.y, progress);
+      const angle = random(0, TAU);
+
+      if (this.shards.length < UNITY_FX_TOUCH.shards.maxCount)
+      {
+        this.shards.push(createShard(x, y, angle, 'trail', scale));
+      }
+
+      nextDistance += spacing;
+      spawned++;
+    }
+
+    this.trailDistanceSinceShard = (this.trailDistanceSinceShard + segmentLength) % spacing;
+  }
+
+  _handlePointerUp(event)
+  {
+    if (
+      this.destroyed ||
+      this.activePointerId === null ||
+      (event.pointerId ?? 1) !== this.activePointerId
+    )
+    {
+      return;
+    }
+
+    this._releaseActivePointer();
+  }
+
+  _cancelPointer()
+  {
+    if (this.activePointerId !== null)
+    {
+      this._releaseActivePointer();
+    }
+  }
+
+  _releaseActivePointer()
+  {
+    if (this.currentTrailStroke)
+    {
+      // Unity 松开时只停止更新根节点；已有 TrailRenderer 顶点仍按 0.3 秒自然过期。
+      this.currentTrailStroke.active = false;
+    }
+
+    this.currentTrailStroke = null;
+    this.activePointerId = null;
+    this.lastPointerPosition = null;
+    this.lastPointerTime = 0;
+    this.trailDistanceSinceShard = 0;
+    this._requestRender();
+  }
+
+  _spawnClick(x, y)
+  {
+    const scale = this._getScale();
+
+    this.waves.push(new ClickWave(x, y));
+
+    for (let index = 0; index < UNITY_FX_TOUCH.shards.clickCount; index++)
+    {
+      this.shards.push(createShard(x, y, random(0, TAU), 'click', scale));
+    }
+  }
+
+  _requestRender()
+  {
+    if (this.destroyed || this.animationFrame !== null)
+    {
+      return;
+    }
+
+    this.lastFrameTime = this.lastFrameTime ?? performance.now();
+    this.animationFrame = requestAnimationFrame(this._onFrame);
+  }
+
+  _renderFrame(now)
+  {
+    if (this.destroyed)
+    {
+      return;
+    }
+
+    this.animationFrame = null;
+    const deltaMs = clamp(now - (this.lastFrameTime ?? now), 0, DEFAULT_FRAME_MS * 4);
+    const scale = this._getScale();
+
+    this.lastFrameTime = now;
+    this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.context.clearRect(0, 0, this.width, this.height);
+    this.context.save();
+    this.context.globalCompositeOperation = 'lighter';
+
+    this._updateTrail(now, scale);
+    this._updateWaves(deltaMs, scale);
+    this._updateShards(deltaMs, scale);
+
+    this.context.restore();
+
+    if (this._hasVisibleEffects())
+    {
+      this._requestRender();
+    }
+    else
+    {
+      this.lastFrameTime = null;
+    }
+  }
+
+  _updateTrail(now, scale)
+  {
+    const lifetime = UNITY_FX_TOUCH.trail.lifetimeMs;
+
+    for (let strokeIndex = this.trailStrokes.length - 1; strokeIndex >= 0; strokeIndex--)
+    {
+      const stroke = this.trailStrokes[strokeIndex];
+
+      while (
+        stroke.points.length > 0 &&
+        now - stroke.points[0].bornAt >= lifetime
+      )
+      {
+        stroke.points.shift();
+      }
+
+      if (stroke.points.length >= 2)
+      {
+        drawTrail(this.context, stroke.points, scale, this.config.opacity);
+      }
+
+      if (!stroke.active && stroke.points.length === 0)
+      {
+        this.trailStrokes.splice(strokeIndex, 1);
+      }
+    }
+  }
+
+  _updateWaves(deltaMs, scale)
+  {
+    for (let index = this.waves.length - 1; index >= 0; index--)
+    {
+      const wave = this.waves[index];
+
+      wave.update(deltaMs);
+      wave.draw(this.context, scale, this.config.opacity);
+
+      if (wave.dead)
+      {
+        this.waves.splice(index, 1);
+      }
+    }
+  }
+
+  _updateShards(deltaMs, scale)
+  {
+    for (let index = this.shards.length - 1; index >= 0; index--)
+    {
+      const shard = this.shards[index];
+
+      shard.update(deltaMs);
+      shard.draw(this.context, scale, this.config.opacity);
+
+      if (shard.dead)
+      {
+        this.shards.splice(index, 1);
+      }
+    }
+  }
+
+  _hasVisibleEffects()
+  {
+    return (
+      this.activePointerId !== null ||
+      this.waves.length > 0 ||
+      this.shards.length > 0 ||
+      this.trailStrokes.length > 0
+    );
+  }
+
+  /** 在 Canvas 局部坐标触发一次 FX_Touch 点击粒子。 */
+  boom(x = this.width / 2, y = this.height / 2)
+  {
+    if (this.destroyed || !this.config.clickEnabled)
+    {
+      return;
+    }
+
+    this._spawnClick(
+      clamp(Number(x) || 0, 0, this.width),
+      clamp(Number(y) || 0, 0, this.height),
+    );
+    this._requestRender();
+  }
+
+  /** 清除拖尾顶点和拖拽产生的碎片，不影响仍在播放的点击。 */
+  clearTrail()
+  {
+    this.trailStrokes.length = 0;
+    this.currentTrailStroke = null;
+    this.shards = this.shards.filter((shard) => shard.kind !== 'trail');
+    this.context.clearRect(0, 0, this.width, this.height);
+    this._requestRender();
+  }
+
+  /** 立即清除所有视觉对象。 */
+  clear()
+  {
+    this.waves.length = 0;
+    this.shards.length = 0;
+    this.trailStrokes.length = 0;
+    this.currentTrailStroke = null;
+    this.context.clearRect(0, 0, this.width, this.height);
+  }
+
+  getConfig()
+  {
+    return {
+      ...this.config,
+      unity: UNITY_FX_TOUCH,
+    };
+  }
+
+  destroy()
+  {
+    if (this.destroyed)
+    {
+      return;
+    }
+
+    this.destroyed = true;
+    window.removeEventListener('resize', this._onResize);
     window.removeEventListener('pointerdown', this._onPointerDown);
     window.removeEventListener('pointermove', this._onPointerMove);
     window.removeEventListener('pointerup', this._onPointerUp);
     window.removeEventListener('pointercancel', this._onPointerUp);
     window.removeEventListener('blur', this._onBlur);
-    window.removeEventListener('lostpointercapture', this._onLostPointerCapture);
-    this._inputListenersAttached = false;
-  }
+    this.resizeObserver?.disconnect();
 
-  // ══════════════════════════════════════════════════════════════════════
-  // 公开 API
-  // ══════════════════════════════════════════════════════════════════════
-
-  /**
-   * 销毁实例：移除 Canvas、事件监听、停止动画。
-   * 调用后实例不可再用。
-   */
-  destroy()
-  {
-    if (this._destroyed)
+    if (this.animationFrame !== null)
     {
-      return;
+      cancelAnimationFrame(this.animationFrame);
+      this.animationFrame = null;
     }
 
-    // 先封闭所有异步入口，已排队的回调即使被执行也只能安全返回。
-    this._destroyed = true;
-    this._disposeResources();
-  }
+    this.clear();
 
-  /** @param {number} r @param {number} g @param {number} b */
-  setColor(r, g, b)
-  {
-    const currentColor = this.config.color;
-
-    // 非有限通道保留当前值；有限小数和越界值继续维持既有公开行为。
-    this.config.color = [
-      toFiniteNumber(r, currentColor[0]),
-      toFiniteNumber(g, currentColor[1]),
-      toFiniteNumber(b, currentColor[2]),
-    ];
-    // 切换主题色时清空拖尾轨迹和画布，避免旧颜色与新颜色在 lighter 混合模式下
-    // 叠加导致 RGB 通道趋向等值产生灰色异常圆环
-    this.clearTrail();
-    this._clearCanvas();
-    this._clearTrailCanvas();
-    this._requestRender();
-  }
-
-  /** @param {number} scale */
-  setScale(scale)
-  {
-    this.config.scale = Math.max(0.5, Math.min(3, toFiniteNumber(scale, 1.10)));
-    this._requestRender();
-  }
-
-  /** @param {number} opacity */
-  setOpacity(opacity)
-  {
-    this.config.opacity = Math.max(0.1, Math.min(1, toFiniteNumber(opacity, 0.5)));
-    this._requestRender();
-  }
-
-  /** @param {number} clickSpeed @param {number} [trailSpeed=clickSpeed] */
-  setSpeed(clickSpeed, trailSpeed = clickSpeed)
-  {
-    this.config.clickSpeed = Math.max(0.2, Math.min(3, toFiniteNumber(clickSpeed, 1)));
-    this.config.trailSpeed = Math.max(0.2, Math.min(3, toFiniteNumber(trailSpeed, 1)));
-    this._requestRender();
-  }
-
-  /** @param {number} maxDpr */
-  setDpr(maxDpr)
-  {
-    this.setRenderOptions({ maxDpr });
-  }
-
-  /** @param {number} value */
-  setTrailRenderScale(value)
-  {
-    this.setRenderOptions({ trailRenderScale: value });
-  }
-
-  /**
-   * 批量更新渲染预算与 backing store 参数。
-   * @param {object} [options={}]
-   */
-  setRenderOptions(options = {})
-  {
-    if (!this._applyRenderOptions(options))
+    if (this.ownsCanvas)
     {
-      return;
+      this.canvas.remove();
     }
-
-    this.refreshSize();
-  }
-
-  /** 立即重新测量 Canvas；同时取消尚未执行的自动尺寸刷新。 */
-  refreshSize()
-  {
-    if (this._destroyed)
-    {
-      return;
-    }
-
-    if (this._resizeTimer != null)
-    {
-      clearTimeout(this._resizeTimer);
-      this._resizeTimer = null;
-    }
-
-    this._resizeCanvas();
-  }
-
-  /** @returns {object} 当前实际 backing store 指标快照 */
-  getRenderMetrics()
-  {
-    const metrics = this._renderMetrics ?? {
-      cssWidth: 0,
-      cssHeight: 0,
-      devicePixelRatio: 1,
-      effectivePixelRatio: 1,
-      trailRenderScale: 1,
-      totalBackingPixels: 0,
-      nominalRgbaBytes: 0,
-      maxBackingPixels: null,
-      budgetExceeded: false,
-    };
-    const totalBackingPixels =
-      getBackingPixelCount(this.canvas?.width ?? 0, this.canvas?.height ?? 0) +
-      getBackingPixelCount(
-        this.trailCanvas?.width ?? 0,
-        this.trailCanvas?.height ?? 0,
-      ) +
-      getBackingPixelCount(
-        this.waveCanvas?.width ?? 0,
-        this.waveCanvas?.height ?? 0,
-      );
-
-    return {
-      ...metrics,
-      totalBackingPixels,
-      nominalRgbaBytes: totalBackingPixels * 4,
-      budgetExceeded:
-        metrics.maxBackingPixels != null &&
-        totalBackingPixels > metrics.maxBackingPixels,
-    };
-  }
-
-  /**
-   * 设置 Canvas touch-action CSS 属性。
-   * 'auto' — 页面滚动正常，拖尾会被中断（默认）
-   * 'none' — 拖尾完整，禁止页面滚动
-   * @param {'auto'|'none'|'pan-y'|'pan-x'|'manipulation'} value
-   */
-  setTouchAction(value = 'auto')
-  {
-    this.config.touchAction = value;
-
-    if (this._destroyed)
-    {
-      return;
-    }
-
-    this._setCanvasTouchAction(value);
-    this._requestRender();
-  }
-
-  /** @param {boolean} enabled */
-  setGlow(enabled)
-  {
-    this.config.glow.enabled = Boolean(enabled);
-    this._requestRender();
-  }
-
-  /** @param {boolean} enabled */
-  setFakeGlow(enabled)
-  {
-    this.config.glow.fake = Boolean(enabled);
-    this._requestRender();
-  }
-
-  /** @param {boolean} enabled */
-  setClickFakeGlow(enabled)
-  {
-    this.config.glow.clickFake = Boolean(enabled);
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setRingRotationSpeed(value = 0.008)
-  {
-    this.config.rings.rotationSpeed = Math.max(0, Math.min(0.05, toFiniteNumber(value, 0.008)));
-    this._requestRender();
-  }
-
-  /** @param {number} value 圆环光晕强度 */
-  setRingEmission(value = 0.35)
-  {
-    this.config.rings.emissionAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.35)));
-    this._requestRender();
-  }
-
-  /** @param {number} value @param {number} [maxValue] 圆环最小/最大线宽 */
-  setRingWidth(value = 0.9, maxValue = 4.0)
-  {
-    this.config.rings.minW = Math.max(0.3, Math.min(3, toFiniteNumber(value, 0.9)));
-    this.config.rings.maxW = Math.max(this.config.rings.minW, Math.min(10, toFiniteNumber(maxValue, 4.0)));
-    this._requestRender();
-  }
-
-  /** @param {number} value 圆环宽度随生命周期收缩的终点倍率 (0~1) */
-  setRingWidthEndMul(value = 0.35)
-  {
-    this.config.rings.widthEndMul = Math.max(0.05, Math.min(1, toFiniteNumber(value, 0.35)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setRingAlpha(value = 0.9)
-  {
-    this.config.rings.alpha = Math.max(0.1, Math.min(1, toFiniteNumber(value, 0.9)));
-    this._requestRender();
-  }
-
-  /** @param {number} value 圆环颜色中白色的混合比例 (0~1) */
-  setRingWhiteMix(value = 0.75)
-  {
-    this.config.rings.whiteMix = Math.max(0, Math.min(1, toFiniteNumber(value, 0.75)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailBrightness(value = 0.96)
-  {
-    this.config.trail.alpha = Math.max(0.1, Math.min(1, toFiniteNumber(value, 0.96)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailWhiteMix(value = 0.10)
-  {
-    this.config.trail.whiteMix = Math.max(0, Math.min(1, toFiniteNumber(value, 0.10)));
-    this._requestRender();
-  }
-
-  /** @param {boolean} enabled */
-  setTrail(enabled)
-  {
-    const nextEnabled = Boolean(enabled);
-
-    this.config.trail.enabled = nextEnabled;
-
-    if (nextEnabled)
-    {
-      return;
-    }
-
-    const hadTrailState = this._hasTrailState();
-
-    // 重复禁用也执行清理，修复调用方直接修改配置后可能留下的内部脏状态。
-    this.isDown = false;
-    this._activePointerId = null;
-    this._releasePointerCapture();
-    this._clearTrailEffects();
-
-    if (hadTrailState)
-    {
-      this._requestRender();
-    }
-  }
-
-  /** @param {boolean} enabled */
-  setClick(enabled)
-  {
-    this.config.clickEnabled = Boolean(enabled);
-  }
-
-  /** @param {boolean} enabled */
-  setTrailAlways(enabled)
-  {
-    this.config.trail.always = Boolean(enabled);
-    this._resetTrailInput();
-    this._endTrailStroke();
-
-    if (this._hasActiveEffects())
-    {
-      this._requestRender();
-    }
-  }
-
-  /** @param {Function|null} filter */
-  setInputFilter(filter = null)
-  {
-    if (this._destroyed)
-    {
-      return;
-    }
-
-    this._inputFilter = typeof filter === 'function' ? filter : null;
-  }
-
-  /** @param {'auto'|'pause-connect'|'continue'|'clamp'} mode */
-  setTrailOutsideBehavior(mode = 'auto')
-  {
-    const nextMode =
-      mode === 'pause-connect' || mode === 'continue' || mode === 'clamp'
-        ? mode
-        : 'auto';
-
-    if (this.config.trail.outsideBehavior === nextMode)
-    {
-      return;
-    }
-
-    this.config.trail.outsideBehavior = nextMode;
-    this._activePointerId = null;
-    this._releasePointerCapture();
-    this._resetTrailContinuity();
-    this._endTrailStroke();
-
-    if (this._hasActiveEffects())
-    {
-      this._requestRender();
-    }
-  }
-
-  /** @param {number} baseFast @param {number} [baseSlow] */
-  setTrailWidth(baseFast = 3, baseSlow = 3)
-  {
-    this.config.trail.baseWidthFast = Math.max(0.5, Math.min(6, toFiniteNumber(baseFast, 3)));
-    this.config.trail.baseWidthSlow = Math.max(0.3, Math.min(this.config.trail.baseWidthFast, toFiniteNumber(baseSlow, 3)));
-    this._requestRender();
-  }
-
-  /** @param {number} lengthSlow @param {number} [lengthFast] */
-  setTrailLength(lengthSlow = 900, lengthFast = 4200)
-  {
-    this.config.trail.lengthSlow = Math.max(20, Math.min(5000, toFiniteNumber(lengthSlow, 900)));
-    this.config.trail.lengthFast = Math.max(this.config.trail.lengthSlow + 20, Math.min(8000, toFiniteNumber(lengthFast, 4200)));
-    this._requestRender();
-  }
-
-  /** @param {number} lifeSlow @param {number} [lifeFast] */
-  setTrailLife(lifeSlow = 22, lifeFast = 22)
-  {
-    this.config.trail.lifeSlow = Math.max(5, Math.min(400, toFiniteNumber(lifeSlow, 22)));
-    this.config.trail.lifeFast = Math.max(this.config.trail.lifeSlow, Math.min(600, toFiniteNumber(lifeFast, 22)));
-    this._requestRender();
-  }
-
-  /** @param {number} tailDecayMul @param {number} headDecayMul @param {number} releaseDecayMul */
-  setTrailDecay(tailDecayMul = 1.28, headDecayMul = 0.95, releaseDecayMul = 1.18)
-  {
-    this.config.trail.tailDecayMul = Math.max(0.1, Math.min(5, toFiniteNumber(tailDecayMul, 1.28)));
-    this.config.trail.headDecayMul = Math.max(0.1, Math.min(this.config.trail.tailDecayMul, toFiniteNumber(headDecayMul, 0.95)));
-    this.config.trail.releaseDecayMul = Math.max(0.5, Math.min(12, toFiniteNumber(releaseDecayMul, 1.18)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailSpeedDecay(value = 0.988)
-  {
-    this.config.trail.speedDecay = Math.max(0.8, Math.min(0.999, toFiniteNumber(value, 0.988)));
-    this._requestRender();
-  }
-
-  /** @param {number} speedMin @param {number} speedMax */
-  setTrailSpeedRange(speedMin = 0.035, speedMax = 2.2)
-  {
-    this.config.trail.speedMin = Math.max(0, toFiniteNumber(speedMin, 0.035));
-    this.config.trail.speedMax = Math.max(this.config.trail.speedMin + 0.1, toFiniteNumber(speedMax, 2.2));
-    this._requestRender();
-  }
-
-  /** @param {number} sampleStep @param {number} maxInterpolatedPoints */
-  setTrailSampling(sampleStep = 0.85, maxInterpolatedPoints = 80)
-  {
-    this.config.trail.sampleStep = Math.max(0.3, Math.min(12, toFiniteNumber(sampleStep, 0.85)));
-    this.config.trail.maxInterpolatedPoints = Math.max(2, Math.min(160, toFiniteNumber(maxInterpolatedPoints, 80)));
-    this._requestRender();
-  }
-
-  /** @param {number} renderStep @param {number} renderMaxPoints */
-  setTrailRenderSampling(renderStep = 0.75, renderMaxPoints = 2400)
-  {
-    this.config.trail.renderStep = Math.max(0.3, Math.min(8, toFiniteNumber(renderStep, 0.75)));
-    this.config.trail.renderMaxPoints = Math.max(60, Math.min(3600, toFiniteNumber(renderMaxPoints, 2400)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailSmooth(value = 0.5)
-  {
-    this.config.trail.smoothFactor = Math.max(0, Math.min(0.9, toFiniteNumber(value, 0.5)));
-    this.trailSmoothX = null;
-    this.trailSmoothY = null;
-    this._requestRender();
-  }
-
-  /** @param {number} main @param {number} core @param {number} hot @param {number} glow @param {number} softGlow @param {number} rail */
-  setTrailLayerAlpha(main = 1, core = 0.78, hot = 0.34, glow = 0.18, softGlow = 0.045, rail = 0.02)
-  {
-    this.config.trail.mainAlpha = Math.max(0, Math.min(1, toFiniteNumber(main, 1)));
-    this.config.trail.coreAlpha = Math.max(0, Math.min(1, toFiniteNumber(core, 0.78)));
-    this.config.trail.hotAlpha = Math.max(0, Math.min(1, toFiniteNumber(hot, 0.34)));
-    this.config.trail.glowAlpha = Math.max(0, Math.min(1, toFiniteNumber(glow, 0.18)));
-    this.config.trail.softGlowAlpha = Math.max(0, Math.min(0.5, toFiniteNumber(softGlow, 0.045)));
-    this.config.trail.railAlpha = Math.max(0, Math.min(1, toFiniteNumber(rail, 0.02)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setMoveSparkChance(value = 0)
-  {
-    this.config.trail.moveSparkChance = Math.max(0, Math.min(0.05, toFiniteNumber(value, 0)));
-  }
-
-  /** @param {number} value */
-  setShardSpacing(value = 220)
-  {
-    this.config.trail.shardSpacing = Math.max(20, Math.min(500, toFiniteNumber(value, 220)));
-    this._requestRender();
-  }
-
-  /** @param {number} slow @param {number} fast */
-  setShardChance(slow = 0.04, fast = 0.18)
-  {
-    this.config.trail.shardChanceSlow = Math.max(0, Math.min(1, toFiniteNumber(slow, 0.04)));
-    this.config.trail.shardChanceFast = Math.max(this.config.trail.shardChanceSlow, Math.min(1, toFiniteNumber(fast, 0.18)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setShardLargeChance(value = 0.62)
-  {
-    this.config.trail.shardLargeChance = Math.max(0, Math.min(1, toFiniteNumber(value, 0.62)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setMaxShards(value = 38)
-  {
-    this.config.trail.maxSparkParticles = Math.max(0, Math.min(200, toFiniteNumber(value, 38)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setSparksCount(value = 4)
-  {
-    this.config.sparksCount = Math.max(0, Math.min(12, toFiniteNumber(value, 4)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setClickTotalLife(value = 27)
-  {
-    this.config.click.totalLife = Math.max(10, Math.min(60, toFiniteNumber(value, 27)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setClickScaleMul(value = 1.3)
-  {
-    this.config.click.scaleMul = Math.max(0.5, Math.min(3, toFiniteNumber(value, 1.3)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setClickHaloRadius(value = 96)
-  {
-    this.config.click.haloRadius = Math.max(30, Math.min(200, toFiniteNumber(value, 96)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setRingDelay(value = 2)
-  {
-    this.config.rings.delay = Math.max(0, Math.min(10, toFiniteNumber(value, 2)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setRingMaxLife(value = 27)
-  {
-    this.config.rings.maxLife = Math.max(10, Math.min(60, toFiniteNumber(value, 27)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setRingBaseRadiusMul(value = 0.47)
-  {
-    this.config.rings.baseRadiusMul = Math.max(0.2, Math.min(1, toFiniteNumber(value, 0.47)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setRingRadiusGrowEnd(value = 0.66)
-  {
-    this.config.rings.radiusGrowEnd = Math.max(0.2, Math.min(1, toFiniteNumber(value, 0.66)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setRingPostDiskGrow(value = 24)
-  {
-    this.config.rings.postDiskGrow = Math.max(5, Math.min(60, toFiniteNumber(value, 24)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setRingGlowRadiusAdd(value = 54)
-  {
-    this.config.rings.glowRadiusAdd = Math.max(10, Math.min(150, toFiniteNumber(value, 54)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setRingSoftGlowRadiusAdd(value = 96)
-  {
-    this.config.rings.softGlowRadiusAdd = Math.max(20, Math.min(200, toFiniteNumber(value, 96)));
-    this._requestRender();
-  }
-
-  /** @param {number} value 圆环颜色衰减起始进度 (0~1) */
-  setRingColorFadeStart(value = 0.56)
-  {
-    this.config.rings.colorFadeStart = Math.max(0, Math.min(1, toFiniteNumber(value, 0.56)));
-    this._requestRender();
-  }
-
-  /** @param {number} value 圆环消失时白混合比例 (0~1) */
-  setRingColorEndWhiteMix(value = 0.97)
-  {
-    this.config.rings.colorEndWhiteMix = Math.max(0, Math.min(1, toFiniteNumber(value, 0.97)));
-    this._requestRender();
-  }
-
-  /** @param {number} value 圆环内层柔光透明度 (0~1) */
-  setRingGlowAlpha(value = 0.15)
-  {
-    this.config.rings.glowAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.15)));
-    this._requestRender();
-  }
-
-  /** @param {number} value 圆环外层柔光透明度 (0~1) */
-  setRingSoftGlowAlpha(value = 0.08)
-  {
-    this.config.rings.softGlowAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.08)));
-    this._requestRender();
-  }
-
-  /** @param {number} period @param {number} [minAlpha] 点击碎片闪烁周期与最低亮度 */
-  setClickShardFlicker(period = 8, minAlpha = 0.45)
-  {
-    this.config.click.shardFlickerPeriod = Math.max(2, Math.min(30, toFiniteNumber(period, 8)));
-    this.config.click.shardFlickerMinAlpha = Math.max(0, Math.min(1, toFiniteNumber(minAlpha, 0.45)));
-    this._requestRender();
-  }
-
-  /** @param {number} period @param {number} [minAlpha] @param {number} [sizePulse] 轨迹碎片闪烁参数 */
-  setTrailShardFlicker(period = 8, minAlpha = 0.35, sizePulse = 0.16)
-  {
-    this.config.trail.shardFlickerPeriod = Math.max(2, Math.min(30, toFiniteNumber(period, 8)));
-    this.config.trail.shardFlickerMinAlpha = Math.max(0, Math.min(1, toFiniteNumber(minAlpha, 0.35)));
-    this.config.trail.shardFlickerSizePulse = Math.max(0, Math.min(0.5, toFiniteNumber(sizePulse, 0.16)));
-    this._requestRender();
-  }
-
-  /** @param {number} value 圆盘增长速度 (10~50) */
-  setDiskSize(value = 26)
-  {
-    this.config.filledCircle.rAddRate = Math.max(10, Math.min(50, toFiniteNumber(value, 26)));
-    this._requestRender();
-  }
-
-  /** @param {number} radiusMul @param {number} [alpha] 圆盘柔光范围倍数与透明度 */
-  setDiskGlow(radiusMul = 4.2, alpha = 0.13)
-  {
-    this.config.filledCircle.glowRadiusMul = Math.max(1, Math.min(10, toFiniteNumber(radiusMul, 4.2)));
-    this.config.filledCircle.glowAlpha = Math.max(0, Math.min(1, toFiniteNumber(alpha, 0.13)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailMainAlpha(value = 1)
-  {
-    this.config.trail.mainAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 1)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailCoreAlpha(value = 0.78)
-  {
-    this.config.trail.coreAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.78)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailHotAlpha(value = 0.34)
-  {
-    this.config.trail.hotAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.34)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailGlowAlpha(value = 0.18)
-  {
-    this.config.trail.glowAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.18)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailSoftGlowAlpha(value = 0.045)
-  {
-    this.config.trail.softGlowAlpha = Math.max(0, Math.min(0.5, toFiniteNumber(value, 0.045)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailRailAlpha(value = 0.02)
-  {
-    this.config.trail.railAlpha = Math.max(0, Math.min(1, toFiniteNumber(value, 0.02)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailGlowWidthMul(value = 1.7)
-  {
-    this.config.trail.glowWidthMul = Math.max(0.3, Math.min(8, toFiniteNumber(value, 1.7)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailSoftGlowWidthMul(value = 2.4)
-  {
-    this.config.trail.softGlowWidthMul = Math.max(0.5, Math.min(15, toFiniteNumber(value, 2.4)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailTailDecayMul(value = 1.28)
-  {
-    this.config.trail.tailDecayMul = Math.max(0.1, Math.min(5, toFiniteNumber(value, 1.28)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailHeadDecayMul(value = 0.95)
-  {
-    this.config.trail.headDecayMul = Math.max(0.1, Math.min(5, toFiniteNumber(value, 0.95)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailReleaseDecayMul(value = 1.18)
-  {
-    this.config.trail.releaseDecayMul = Math.max(0.5, Math.min(12, toFiniteNumber(value, 1.18)));
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailSpeedMin(value = 0.035)
-  {
-    this.config.trail.speedMin = Math.max(0.005, Math.min(0.5, toFiniteNumber(value, 0.035)));
-    // 确保 speedMin < speedMax，防止 _updateTrailSpeed 除零
-    if (this.config.trail.speedMin >= this.config.trail.speedMax)
-    {
-      this.config.trail.speedMax = this.config.trail.speedMin + 0.005;
-    }
-
-    this._requestRender();
-  }
-
-  /** @param {number} value */
-  setTrailSpeedMax(value = 2.2)
-  {
-    this.config.trail.speedMax = Math.max(0.5, Math.min(5, toFiniteNumber(value, 2.2)));
-    // 确保 speedMax > speedMin，防止 _updateTrailSpeed 除零
-    if (this.config.trail.speedMax <= this.config.trail.speedMin)
-    {
-      this.config.trail.speedMin = this.config.trail.speedMax - 0.005;
-    }
-
-    this._requestRender();
-  }
-
-  /** @param {number} lenFull @param {number} [lenEnd] 圆环弧长（饱满弧度与消散弧度） */
-  setRingArcLength(lenFull = 1.5 * Math.PI, lenEnd = Math.PI / 3)
-  {
-    this.config.rings.lenFull = Math.max(0.5, Math.min(6.28, toFiniteNumber(lenFull, 4.71)));
-    this.config.rings.lenEnd = Math.max(0.1, Math.min(this.config.rings.lenFull, toFiniteNumber(lenEnd, 1.05)));
-    this._requestRender();
-  }
-
-  /** @param {number} min @param {number} [max] 圆环旋转速度随机抖动范围 */
-  setRingRotationJitter(min = 0.54, max = 1.58)
-  {
-    this.config.rings.rotationMulMin = Math.max(0.1, Math.min(5, toFiniteNumber(min, 0.54)));
-    this.config.rings.rotationMulMax = Math.max(this.config.rings.rotationMulMin, Math.min(5, toFiniteNumber(max, 1.58)));
-    this._requestRender();
-  }
-
-  /** @param {number} min @param {number} [max] 圆环弧段数量 */
-  setRingSegmentCount(min = 2, max = 2)
-  {
-    this.config.rings.segmentCountMin = Math.max(1, Math.min(8, toFiniteNumber(min, 2)));
-    this.config.rings.segmentCountMax = Math.max(this.config.rings.segmentCountMin, Math.min(8, toFiniteNumber(max, 2)));
-    this._requestRender();
-  }
-
-  /** @param {number} min @param {number} [max] 小半径弧段的 growMul 范围 */
-  setRingSmallRadius(min = 0.75, max = 0.92)
-  {
-    this.config.rings.segmentRadiusGrowSmallMin = Math.max(0.3, Math.min(1.5, toFiniteNumber(min, 0.75)));
-    this.config.rings.segmentRadiusGrowSmallMax = Math.max(this.config.rings.segmentRadiusGrowSmallMin, Math.min(1.5, toFiniteNumber(max, 0.92)));
-    this._requestRender();
-  }
-
-  /** @param {number} min @param {number} [max] 轨迹碎片偏移范围 */
-  setTrailShardOffset(min = 2, max = 36)
-  {
-    this.config.trail.shardOffsetMin = Math.max(0, Math.min(100, toFiniteNumber(min, 2)));
-    this.config.trail.shardOffsetMax = Math.max(this.config.trail.shardOffsetMin, Math.min(100, toFiniteNumber(max, 36)));
-    this._requestRender();
-  }
-
-  /** @param {number} slow @param {number} [fast] 拖尾中心高光线宽 */
-  setTrailCoreWidth(slow = 0.3, fast = 0.52)
-  {
-    this.config.trail.coreWidthSlow = Math.max(0.05, Math.min(5, toFiniteNumber(slow, 0.3)));
-    this.config.trail.coreWidthFast = Math.max(this.config.trail.coreWidthSlow, Math.min(5, toFiniteNumber(fast, 0.52)));
-    this._requestRender();
-  }
-
-  /** @param {number} slow @param {number} [fast] 拖尾蓝白热点线宽 */
-  setTrailHotWidth(slow = 0.1, fast = 0.24)
-  {
-    this.config.trail.hotWidthSlow = Math.max(0.05, Math.min(5, toFiniteNumber(slow, 0.1)));
-    this.config.trail.hotWidthFast = Math.max(this.config.trail.hotWidthSlow, Math.min(5, toFiniteNumber(fast, 0.24)));
-    this._requestRender();
-  }
-
-  /** @param {number} value 拖尾分段渐变长度，越小越细腻 (0.3~10) */
-  setTrailGradientChunk(value = 1.5)
-  {
-    this.config.trail.gradientChunkLength = Math.max(0.3, Math.min(10, toFiniteNumber(value, 1.5)));
-    this._requestRender();
-  }
-
-  /** @param {number} value 拖尾原始点数上限 */
-  setTrailMaxPoints(value = 12000)
-  {
-    this.config.trail.maxPoints = Math.max(500, Math.min(30000, toFiniteNumber(value, 12000)));
-    this._requestRender();
-  }
-
-  // ── 圆盘时序 ──
-
-  /**
-   * 圆盘动画时序参数
-   * @param {number} maxLife - 圆盘存在帧数 (5~30, 默认 12.5)
-   * @param {number} [expandEnd=0.84] - 扩张到最大的时间比例 (0.1~1)
-   * @param {number} [colorEnd=0.34] - 白→蓝颜色过渡终点 (0.05~1)
-   * @param {number} [fadeStart=0.78] - 开始淡出的时机 (0.1~1)
-   */
-  setDiskTiming(maxLife = 12.5, expandEnd = 0.84, colorEnd = 0.34, fadeStart = 0.78)
-  {
-    this.config.filledCircle.maxLife = Math.max(5, Math.min(30, toFiniteNumber(maxLife, 12.5)));
-    this.config.filledCircle.expandEnd = Math.max(0.1, Math.min(1, toFiniteNumber(expandEnd, 0.84)));
-    this.config.filledCircle.colorEnd = Math.max(0.05, Math.min(1, toFiniteNumber(colorEnd, 0.34)));
-    this.config.filledCircle.fadeStart = Math.max(0.1, Math.min(1, toFiniteNumber(fadeStart, 0.78)));
-    this._requestRender();
-  }
-
-  // ── 弧线环精细调参 ──
-
-  /**
-   * 圆环弧段细节：额外弧段概率、聚拢概率、弧长随机倍率范围
-   * @param {number} [extraChance=0] - 额外弧段出现概率 (0~1)
-   * @param {number} [clusterChance=0.38] - 弧段聚拢概率 (0~1)
-   * @param {number} [lenMulMin=0.46] - 弧长倍率下限 (0.1~1)
-   * @param {number} [lenMulMax=1.38] - 弧长倍率上限 (1~3)
-   */
-  setRingSegmentDetail(extraChance = 0, clusterChance = 0.38, lenMulMin = 0.46, lenMulMax = 1.38)
-  {
-    this.config.rings.segmentExtraChance = Math.max(0, Math.min(1, toFiniteNumber(extraChance, 0)));
-    this.config.rings.segmentClusterChance = Math.max(0, Math.min(1, toFiniteNumber(clusterChance, 0.38)));
-    this.config.rings.lenMulMin = Math.max(0.1, Math.min(1, toFiniteNumber(lenMulMin, 0.46)));
-    this.config.rings.lenMulMax = Math.max(this.config.rings.lenMulMin, Math.min(3, toFiniteNumber(lenMulMax, 1.38)));
-    this._requestRender();
-  }
-
-  /**
-   * 圆环半径抖动范围（模拟手绘感）
-   * @param {number} [min=0.3] - 抖动下限 (0~2)
-   * @param {number} [max=0.8] - 抖动上限 (min~2)
-   */
-  setRingRadiusJitter(min = 0.3, max = 0.8)
-  {
-    this.config.rings.radiusJitterMin = Math.max(0, Math.min(2, toFiniteNumber(min, 0.3)));
-    this.config.rings.radiusJitterMax = Math.max(this.config.rings.radiusJitterMin, Math.min(2, toFiniteNumber(max, 0.8)));
-    this._requestRender();
-  }
-
-  /**
-   * 正常弧段半径增长率范围
-   * @param {number} [min=1.0] - 增长率下限 (0.3~2)
-   * @param {number} [max=1.0] - 增长率上限 (min~2)
-   */
-  setRingNormalGrow(min = 1.0, max = 1.0)
-  {
-    this.config.rings.segmentRadiusGrowMin = Math.max(0.3, Math.min(2, toFiniteNumber(min, 1.0)));
-    this.config.rings.segmentRadiusGrowMax = Math.max(this.config.rings.segmentRadiusGrowMin, Math.min(2, toFiniteNumber(max, 1.0)));
-    this._requestRender();
-  }
-
-  /**
-   * 圆环收缩/淡出时序
-   * @param {number} [growEnd=0.16] - 弧长增长终点 (0.05~0.5)
-   * @param {number} [collapseStart=0.16] - 开始收缩的时间点 (0.05~1)
-   * @param {number} [fadeStart=1.0] - 开始淡出的时间点 (0.1~1)
-   */
-  setRingCollapseTiming(growEnd = 0.16, collapseStart = 0.16, fadeStart = 1.0)
-  {
-    this.config.rings.growEnd = Math.max(0.05, Math.min(0.5, toFiniteNumber(growEnd, 0.16)));
-    this.config.rings.collapseStart = Math.max(0.05, Math.min(1, toFiniteNumber(collapseStart, 0.16)));
-    this.config.rings.fadeStart = Math.max(0.1, Math.min(1, toFiniteNumber(fadeStart, 1.0)));
-    this._requestRender();
-  }
-
-  // ── 轨迹输入参数 ──
-
-  /**
-   * 轨迹采样最小间距（相邻点间距阈值）
-   * @param {number} [value=0.06] - 最小距离 (0.01~5)
-   */
-  setTrailMinDistance(value = 0.06)
-  {
-    this.config.trail.minDistance = Math.max(0.01, Math.min(5, toFiniteNumber(value, 0.06)));
-    this._requestRender();
-  }
-
-  /**
-   * 轨迹断笔距离阈值：超过此距离视为新的笔画
-   * @param {number} [value=420] - 最大跳跃距离 (50~2000)
-   */
-  setTrailMaxJumpDistance(value = 420)
-  {
-    this.config.trail.maxJumpDistance = Math.max(50, Math.min(2000, toFiniteNumber(value, 420)));
-    this._requestRender();
-  }
-
-  /**
-   * 高频事件处理上限（getCoalescedEvents 最大处理数）
-   * @param {number} [value=24] - 最大合并事件数 (1~100)
-   */
-  setTrailMaxCoalescedEvents(value = 24)
-  {
-    this.config.trail.maxCoalescedEvents = Math.max(1, Math.min(100, toFiniteNumber(value, 24)));
-    this._requestRender();
-  }
-
-  // ── 轨迹渲染层宽度 ──
-
-  /**
-   * 轨道线层宽度（最底层的细线）
-   * @param {number} [slow=0.22] - 低速时宽度 (0.05~3)
-   * @param {number} [fast=0.36] - 高速时宽度 (slow~3)
-   */
-  setTrailRailWidth(slow = 0.22, fast = 0.36)
-  {
-    this.config.trail.railWidthSlow = Math.max(0.05, Math.min(3, toFiniteNumber(slow, 0.22)));
-    this.config.trail.railWidthFast = Math.max(this.config.trail.railWidthSlow, Math.min(3, toFiniteNumber(fast, 0.36)));
-    this._requestRender();
-  }
-
-  /**
-   * 能量带层（ribbon）宽度倍率和透明度，默认关闭
-   * @param {number} [widthMul=0] - 宽度倍率，0 = 关闭该层 (0~5)
-   * @param {number} [alpha=0] - 透明度 (0~1)
-   */
-  setTrailRibbon(widthMul = 0, alpha = 0)
-  {
-    this.config.trail.ribbonWidthMul = Math.max(0, Math.min(5, toFiniteNumber(widthMul, 0)));
-    this.config.trail.ribbonAlpha = Math.max(0, Math.min(1, toFiniteNumber(alpha, 0)));
-    this._requestRender();
-  }
-
-  /**
-   * 轨迹真实光晕半径倍率（基于 baseWidth）
-   * @param {number} [value=25] - 半径倍率 (4~30)
-   */
-  setTrailGlowRadius(value = 25)
-  {
-    this.config.trail.glowRadiusMul = Math.max(4, Math.min(30, toFiniteNumber(value, 25)));
-    this._requestRender();
-  }
-
-  /**
-   * 轨迹真实光晕强度（峰值 alpha）
-   * @param {number} [value=0.13] - 峰值透明度 (0.02~0.5)
-   */
-  setTrailGlowIntensity(value = 0.13)
-  {
-    this.config.trail.glowIntensity = Math.max(0.02, Math.min(0.5, toFiniteNumber(value, 0.13)));
-    this._requestRender();
-  }
-
-  /** 清除所有拖尾轨迹 */
-  clearTrail()
-  {
-    const hadTrailState = this._hasTrailState();
-
-    this._clearTrailEffects();
-
-    if (hadTrailState)
-    {
-      this._requestRender();
-    }
-  }
-
-  /**
-   * 手动触发点击特效
-   * @param {number} [x=window.innerWidth/2]
-   * @param {number} [y=window.innerHeight/2]
-   */
-  boom(x = window.innerWidth / 2, y = window.innerHeight / 2)
-  {
-    if (this.config.clickEnabled)
-    {
-      this._createClickEffect(
-        toFiniteNumber(x, window.innerWidth / 2),
-        toFiniteNumber(y, window.innerHeight / 2),
-      );
-    }
-  }
-
-  /** @returns {object} 当前配置的深拷贝 */
-  getConfig()
-  {
-    return cloneConfig(this.config);
-  }
-
-  /** 恢复所有配置为默认值 */
-  resetConfig()
-  {
-    this.isDown = false;
-    this._activePointerId = null;
-    this._releasePointerCapture();
-    this._resetTrailContinuity();
-    this._endTrailStroke();
-    this.config = createConfig();
-
-    if (!this._destroyed)
-    {
-      this._setCanvasTouchAction(this.config.touchAction);
-    }
-
-    this.refreshSize();
-  }
-
-  /** 直接引用当前实例配置对象（只读推荐） */
-  get CONFIG()
-  {
-    return this.config;
   }
 }
 
+export { CONFIG, UNITY_FX_TOUCH, createConfig };
 
 export default BAClickFX;

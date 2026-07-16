@@ -120,74 +120,53 @@ try
   const typeConsumerSource = `import BAClickFXDefault,
 {
   BAClickFX,
-  type BAClickFXClickConfig,
+  CONFIG,
+  UNITY_FX_TOUCH,
+  createConfig,
   type BAClickFXConfig,
-  type BAClickFXFilledCircleConfig,
-  type BAClickFXGlowConfig,
   type BAClickFXInputFilter,
   type BAClickFXOptions,
-  type BAClickFXRenderMetrics,
-  type BAClickFXRenderOptions,
-  type BAClickFXRingsConfig,
-  type BAClickFXTrailConfig,
-  type TrailOutsideBehavior,
+  type UnityFxTouchConfig,
 } from 'ba-click-fx';
-
-const renderOptions: BAClickFXRenderOptions =
-{
-  maxDpr: 2,
-  minRenderScale: 0.5,
-  trailRenderScale: 1,
-  maxBackingPixels: 8_000_000,
-};
 
 const inputFilter: BAClickFXInputFilter = event => event.isPrimary;
 
 const options: BAClickFXOptions =
 {
   target: '#fx',
-  color: [105, 161, 255],
+  scale: 1,
+  opacity: 1,
+  clickEnabled: true,
+  trailEnabled: true,
+  maxDpr: 2,
   inputFilter,
-  render: renderOptions,
 };
 
 const namedInstance = new BAClickFX(options);
 const defaultInstance = new BAClickFXDefault();
 const config: BAClickFXConfig = namedInstance.getConfig();
-const filledCircle: BAClickFXFilledCircleConfig = config.filledCircle;
-const click: BAClickFXClickConfig = config.click;
-const rings: BAClickFXRingsConfig = config.rings;
-const trail: BAClickFXTrailConfig = config.trail;
-const glow: BAClickFXGlowConfig = config.glow;
-const outsideBehavior: TrailOutsideBehavior = trail.outsideBehavior;
-const metrics: BAClickFXRenderMetrics = namedInstance.getRenderMetrics();
+const defaults: BAClickFXConfig = createConfig();
+const unity: UnityFxTouchConfig = UNITY_FX_TOUCH;
+const defaultScale: number = CONFIG.scale;
 
-namedInstance.setInputFilter(inputFilter);
-namedInstance.setInputFilter(null);
-namedInstance.setTrailOutsideBehavior('clamp');
+namedInstance.boom(300, 200);
+namedInstance.clearTrail();
+namedInstance.clear();
+namedInstance.destroy();
 
-// 旧属性仍需保持类型兼容，但声明会提示调用方改用安全快照与 setter。
-const legacyLiveConfig: BAClickFXConfig = namedInstance.CONFIG;
-
-const invalidRenderOptions: BAClickFXRenderOptions =
+const invalidOptions: BAClickFXOptions =
 {
-  // @ts-expect-error maxBackingPixels 只接受数字或 null。
-  maxBackingPixels: 'invalid',
+  // @ts-expect-error scale 只接受数字。
+  scale: 'invalid',
 };
-
-// @ts-expect-error 边界外策略仅接受公开的四个字面量。
-namedInstance.setTrailOutsideBehavior('global');
 
 void [
   defaultInstance,
-  filledCircle,
-  click,
-  rings,
-  glow,
-  outsideBehavior,
-  metrics,
-  legacyLiveConfig,
-  invalidRenderOptions,
+  config,
+  defaults,
+  unity,
+  defaultScale,
+  invalidOptions,
 ];
 `;
   const typeScriptConfig =
