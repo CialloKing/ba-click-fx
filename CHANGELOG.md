@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## v1.1.14 - 2026-07-16
+
+- Restored the v1.1.12 trail layers, widths, colors, multi-layer glow, radial glow profile, and default glow range and intensity after visual review.
+- Reduced the default trail white mix to `0.10` so the line keeps more of the configured blue color.
+- Adjusted every visible trail layer to increase toward its endpoint, preventing the middle of the trail from appearing brighter than the cursor head.
+- Added regression coverage for the restored v1.1.12 defaults and the trail-head brightness invariant.
+- No public API or TypeScript declaration changes.
+
 ## v1.1.13 - 2026-07-15
 
 - Reworked the trail width and opacity profiles so the cursor head is the brightest and widest point, followed by a monotonic fade toward the tail.
