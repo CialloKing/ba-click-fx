@@ -1,760 +1,187 @@
-﻿html,
-body {
-  margin: 0;
+:root
+{
+  color: #eef9ff;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  background: #020d20;
+  font-synthesis: none;
+}
+
+*
+{
+  box-sizing: border-box;
+}
+
+html,
+body
+{
   width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body
+{
   min-height: 100vh;
-  overflow-x: hidden;
-  color: white;
-  font-family:
-    Inter,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 68% 38%, rgba(30, 96, 165, 0.2), transparent 24rem),
+    radial-gradient(circle at 18% 76%, rgba(16, 73, 139, 0.18), transparent 30rem),
+    linear-gradient(145deg, #06162d 0%, #020a19 58%, #01050d 100%);
 }
 
-body {
-  position: relative;
-}
-
-/* ── Floating Hero ──────────────────────────────────────────────────────── */
-
-.hero-float {
-  position: fixed;
-  top: 20px;
-  left: 24px;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.hero-float h1 {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: rgba(255, 255, 255, 0.82);
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.5);
-}
-
-.hero-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 14px;
-  border: 1px solid rgba(125, 239, 255, 0.35);
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 500;
-  color: rgba(125, 239, 255, 0.8);
-  background: rgba(125, 239, 255, 0.08);
-  text-decoration: none;
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease,
-    transform 0.18s ease;
-}
-
-.hero-link::after {
-  content: '↗';
-  font-size: 11px;
-  opacity: 0.6;
-}
-
-.hero-link:hover {
-  background: rgba(125, 239, 255, 0.18);
-  border-color: rgba(125, 239, 255, 0.7);
-  color: rgba(255, 255, 255, 0.95);
-  transform: translateY(-1px);
-}
-
-.lang-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 5px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 16px;
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.06);
-  cursor: pointer;
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease;
-}
-
-.lang-toggle:hover {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.4);
-  color: rgba(255, 255, 255, 0.9);
-}
-
-/* ── Button ────────────────────────────────────────────────────────────── */
-
-button {
-  padding: 12px 20px;
-  border: 1px solid rgba(125, 239, 255, 0.45);
-  border-radius: 10px;
-  color: white;
-  background: rgba(125, 239, 255, 0.12);
-  cursor: pointer;
-  backdrop-filter: blur(8px);
-  font-size: 15px;
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    transform 160ms ease;
-}
-
-button:hover {
-  background: rgba(125, 239, 255, 0.22);
-  border-color: rgba(125, 239, 255, 0.75);
-  transform: translateY(-1px);
-}
-
-button:active {
-  transform: translateY(0);
-}
-
-/* ── Hint Bar ───────────────────────────────────────────────────────────── */
-
-.hint-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 14px 48px;
-  background: rgba(8, 13, 22, 0.85);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(125, 239, 255, 0.15);
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.6);
-  transition: transform 0.3s ease, opacity 0.3s ease;
-}
-
-.hint-bar.hidden {
-  transform: translateY(100%);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.hint-sep {
-  opacity: 0.3;
-}
-
-kbd {
-  display: inline-block;
-  padding: 2px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  font-family: inherit;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.hint-dismiss {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  padding: 4px 8px;
-  border: none;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 14px;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.hint-dismiss:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: rgba(255, 255, 255, 0.7);
-  transform: translateY(-50%);
-}
-
-/* ── Panel Toggle ───────────────────────────────────────────────────────── */
-
-.panel-toggle {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  z-index: 200;
-  width: 42px;
-  height: 42px;
-  padding: 0;
-  border: 1px solid rgba(125, 239, 255, 0.35);
-  border-radius: 50%;
-  background: rgba(10, 16, 30, 0.75);
-  backdrop-filter: blur(10px);
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 18px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    transform 0.2s ease;
-}
-
-.panel-toggle:hover {
-  background: rgba(24, 158, 255, 0.2);
-  border-color: rgba(125, 239, 255, 0.7);
-  transform: rotate(30deg);
-}
-
-.panel-toggle.active {
-  background: rgba(24, 158, 255, 0.25);
-  border-color: rgba(125, 239, 255, 0.8);
-}
-
-/* ── Control Panel ──────────────────────────────────────────────────────── */
-
-.panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  z-index: 150;
-  width: 280px;
-  max-width: 85vw;
-  height: 100vh;
-  overflow-y: auto;
-  background: rgba(8, 13, 22, 0.92);
-  backdrop-filter: blur(16px);
-  border-left: 1px solid rgba(125, 239, 255, 0.15);
-  padding: 24px 20px 32px;
-  box-sizing: border-box;
-  transform: translateX(100%);
-  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.panel.open {
-  transform: translateX(0);
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.panel-header h2 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.panel-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.panel-pin {
-  padding: 5px 9px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.35);
-  font-size: 15px;
-  cursor: pointer;
-  line-height: 1;
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease;
-}
-
-.panel-pin:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.25);
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.panel-pin.pinned {
-  background: rgba(24, 158, 255, 0.22);
-  border-color: rgba(125, 239, 255, 0.5);
-  color: rgba(125, 239, 255, 0.95);
-  box-shadow: 0 0 8px rgba(24, 158, 255, 0.25);
-}
-
-.panel-close {
-  padding: 4px 8px;
-  border: none;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 16px;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.panel-close:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.8);
-  transform: none;
-}
-
-/* ── Panel Sections ─────────────────────────────────────────────────────── */
-
-.panel-section {
-  margin-bottom: 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.panel-section:last-of-type {
-  border-bottom: none;
-}
-
-.panel-section h3 {
-  margin: 0 0 12px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(125, 239, 255, 0.6);
-}
-
-.sub-heading {
-  margin: 14px 0 8px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: rgba(125, 239, 255, 0.4);
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  padding-top: 10px;
-}
-
-/* ── Controls ───────────────────────────────────────────────────────────── */
-
-.ctrl {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.75);
-  cursor: default;
-}
-
-.ctrl:last-child {
-  margin-bottom: 0;
-}
-
-.ctrl span {
-  flex-shrink: 0;
-}
-
-.ctrl output {
-  display: inline-block;
-  min-width: 32px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: rgba(125, 239, 255, 0.8);
-  font-size: 12px;
-}
-
-/* Native select behavior is retained; only the closed control follows the panel theme. */
-.ctrl-select
+body::before
 {
-  width: 140px;
-  min-width: 0;
-  max-width: 58%;
-  height: 28px;
-  padding: 0 30px 0 10px;
-  border: 1px solid rgba(125, 239, 255, 0.28);
-  border-radius: 6px;
-  outline: none;
-  appearance: none;
-  color-scheme: dark;
-  background-color: rgba(24, 158, 255, 0.08);
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.18;
   background-image:
-    linear-gradient(45deg, transparent 50%, rgba(125, 239, 255, 0.8) 50%),
-    linear-gradient(135deg, rgba(125, 239, 255, 0.8) 50%, transparent 50%);
-  background-position:
-    calc(100% - 13px) 11px,
-    calc(100% - 9px) 11px;
-  background-repeat: no-repeat;
-  background-size: 4px 4px;
-  color: rgba(255, 255, 255, 0.82);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition:
-    background-color 0.18s ease,
-    border-color 0.18s ease,
-    box-shadow 0.18s ease;
+    linear-gradient(rgba(126, 207, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(126, 207, 255, 0.08) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(to bottom right, black, transparent 72%);
 }
 
-.ctrl-select:hover
+.content
 {
-  border-color: rgba(125, 239, 255, 0.5);
-  background-color: rgba(24, 158, 255, 0.14);
-}
-
-.ctrl-select:active
-{
-  background-color: rgba(24, 158, 255, 0.2);
-}
-
-.ctrl-select:focus-visible
-{
-  border-color: rgba(125, 239, 255, 0.75);
-  box-shadow: 0 0 0 2px rgba(24, 158, 255, 0.2);
-}
-
-.ctrl-select option
-{
-  background: rgb(16, 24, 39);
-  color: rgba(255, 255, 255, 0.9);
-}
-
-@media (forced-colors: active)
-{
-  .ctrl-select
-  {
-    padding-right: 4px;
-    border: 1px solid ButtonText;
-    appearance: auto;
-    background: Canvas;
-    color: CanvasText;
-    box-shadow: none;
-  }
-}
-
-/* Range slider */
-.ctrl input[type="range"] {
-  flex: 1;
-  min-width: 0;
-  height: 4px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 2px;
-  outline: none;
-  cursor: pointer;
-}
-
-.ctrl input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
-  border: none;
-  border-radius: 50%;
-  background: rgb(24, 158, 255);
-  cursor: pointer;
-  transition: transform 0.15s ease;
-}
-
-.ctrl input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-}
-
-/* Color picker */
-.ctrl input[type="color"] {
-  width: 32px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-  background: none;
-  cursor: pointer;
-}
-
-/* Toggle switch */
-.ctrl.toggle {
-  cursor: pointer;
-}
-
-.ctrl.toggle input[type="checkbox"] {
-  display: none;
-}
-
-.toggle-track {
   position: relative;
-  width: 36px;
-  height: 20px;
-  flex-shrink: 0;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.12);
-  transition: background 0.2s ease;
-}
-
-.toggle-track::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.5);
-  transition: transform 0.2s ease, background 0.2s ease;
-}
-
-.ctrl.toggle input:checked + .toggle-track {
-  background: rgba(24, 158, 255, 0.4);
-}
-
-.ctrl.toggle input:checked + .toggle-track::after {
-  transform: translateX(16px);
-  background: rgb(24, 158, 255);
-}
-
-/* ── Panel Actions ──────────────────────────────────────────────────────── */
-
-.panel-actions {
-  margin-top: 8px;
-}
-
-.btn-reset {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 13px;
-  cursor: pointer;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.btn-reset:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.85);
-  border-color: rgba(255, 255, 255, 0.3);
-  transform: none;
-}
-
-/* ── Panel Overlay ─────────────────────────────────────────────────────── */
-
-.panel-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 149;
-  background: rgba(0, 0, 0, 0.35);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.panel-overlay.open {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* ── Theme Presets ──────────────────────────────────────────────────────── */
-
-.theme-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.theme-btn {
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  border-radius: 50%;
-  cursor: pointer;
-  transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease,
-    transform 0.18s ease;
-  flex-shrink: 0;
-}
-
-.theme-btn:hover {
-  border-color: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 0 10px rgba(125, 239, 255, 0.3);
-  transform: scale(1.12);
-}
-
-.theme-btn.active {
-  border-color: rgba(125, 239, 255, 0.8);
-  box-shadow: 0 0 14px rgba(24, 158, 255, 0.45);
-}
-
-/* ── Custom Background ──────────────────────────────────────────────────── */
-
-.custom-bg-ctrl {
-  margin-bottom: 6px;
-}
-
-.custom-bg-input {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 12px;
-  font-family: inherit;
-  box-sizing: border-box;
-  outline: none;
-  transition: border-color 0.18s ease;
-  margin-bottom: 8px;
-}
-
-.custom-bg-input:focus {
-  border-color: rgba(125, 239, 255, 0.5);
-}
-
-.custom-bg-input::placeholder {
-  color: rgba(255, 255, 255, 0.3);
-}
-
-.custom-bg-apply {
-  width: 100%;
-  margin-bottom: 0;
-}
-
-/* ── Canvas ─────────────────────────────────────────────────────────────── */
-
-#sparkCanvas {
-  position: fixed;
-  inset: 0;
-  z-index: 999999;
-  width: 100vw;
-  height: 100vh;
-  pointer-events: none;
-  display: block;
-}
-
-/* ── Intro Section (SEO) ────────────────────────────────────────────────── */
-
-.intro-section {
-  position: fixed;
-  bottom: 60px;
-  left: 50%;
-  transform: translateX(-50%);
   z-index: 1;
-  max-width: 600px;
-  padding: 16px 24px;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(8px);
-  text-align: center;
-  pointer-events: auto;
+  width: min(580px, calc(100% - 48px));
+  padding: clamp(32px, 7vw, 88px) 0 0 clamp(0px, 4vw, 52px);
 }
 
-/* 介绍区块关闭后仍保留在 DOM 中供 SEO 抓取 */
-.intro-section.hidden {
-  display: none;
+.eyebrow
+{
+  margin: 0 0 18px;
+  color: #70d4ff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
 }
 
-.intro-dismiss {
-  position: absolute;
-  top: 6px;
-  right: 10px;
-  padding: 2px 6px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.4);
+h1
+{
+  margin: 0;
+  color: #f5fbff;
+  font-size: clamp(42px, 6vw, 76px);
+  font-weight: 760;
+  letter-spacing: -0.055em;
+  line-height: 0.98;
+  text-shadow: 0 0 32px rgba(62, 181, 255, 0.12);
+}
+
+.summary
+{
+  max-width: 500px;
+  margin: 26px 0 28px;
+  color: rgba(218, 239, 255, 0.68);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+button
+{
+  padding: 12px 19px;
+  border: 1px solid rgba(105, 213, 255, 0.55);
+  border-radius: 8px;
+  color: #eafaff;
+  font: inherit;
   font-size: 14px;
+  font-weight: 650;
   cursor: pointer;
-  line-height: 1;
-  transition: color 0.18s;
+  background: linear-gradient(135deg, rgba(16, 118, 181, 0.72), rgba(14, 72, 132, 0.58));
+  box-shadow: 0 8px 28px rgba(0, 81, 147, 0.24);
+  transition: transform 140ms ease, border-color 140ms ease;
 }
 
-.intro-dismiss:hover {
-  color: rgba(255, 255, 255, 0.8);
+button:hover
+{
+  border-color: #b5efff;
+  transform: translateY(-1px);
 }
 
-.intro-section h2 {
-  margin: 0 0 8px;
-  font-size: 18px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.75);
+button:active
+{
+  transform: translateY(1px);
 }
 
-.intro-section p {
-  margin: 0 0 6px;
-  font-size: 13px;
-  line-height: 1.55;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.intro-section nav {
-  margin-top: 10px;
+.facts
+{
   display: flex;
-  justify-content: center;
-  gap: 14px;
+  gap: 12px;
+  margin: 34px 0 0;
 }
 
-.intro-section nav a {
-  color: rgba(125, 239, 255, 0.7);
-  font-size: 13px;
+.facts div
+{
+  min-width: 112px;
+  padding: 13px 15px;
+  border: 1px solid rgba(105, 200, 255, 0.13);
+  border-radius: 8px;
+  background: rgba(5, 25, 49, 0.48);
+  backdrop-filter: blur(8px);
+}
+
+.facts dt
+{
+  color: rgba(185, 221, 243, 0.48);
+  font-size: 11px;
+}
+
+.facts dd
+{
+  margin: 5px 0 0;
+  color: #dff8ff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+footer
+{
+  position: fixed;
+  z-index: 1;
+  right: 24px;
+  bottom: 20px;
+  left: 24px;
+  display: flex;
+  justify-content: space-between;
+  color: rgba(196, 226, 245, 0.4);
+  font-size: 12px;
+}
+
+footer a
+{
+  color: rgba(112, 212, 255, 0.65);
   text-decoration: none;
-  transition: color 0.18s;
 }
 
-.intro-section nav a:hover {
-  color: rgba(125, 239, 255, 1);
-}
+@media (max-width: 600px)
+{
+  .content
+  {
+    width: calc(100% - 32px);
+    padding-top: 34px;
+  }
 
-.intro-section details {
-  margin-top: 8px;
-  text-align: left;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-}
+  .facts
+  {
+    flex-wrap: wrap;
+  }
 
-.intro-section summary {
-  cursor: pointer;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 13px;
-  padding: 4px 0;
-}
+  .facts div
+  {
+    min-width: calc(50% - 6px);
+  }
 
-.intro-section summary:hover {
-  color: rgba(255, 255, 255, 0.8);
-}
+  footer
+  {
+    right: 16px;
+    left: 16px;
+  }
 
-.intro-section details p {
-  margin: 6px 0 2px;
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.intro-section details strong {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.intro-section pre {
-  margin: 2px 0 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  overflow-x: auto;
-}
-
-.intro-section code {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  footer span
+  {
+    display: none;
+  }
 }
