@@ -171,15 +171,14 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
   context.rotate(ring.rotation);
   context.beginPath();
 
-  // 外沿和内沿组成一条连续弧带。溶解只移动两个端点，不再对每个角度
-  // 独立阈值化，因此不会把一枚 MeshTri 切成许多短弧。
+  // 外沿和内沿组成一条连续弧带。Unity 的阈值沿 MeshTri UV 单向推进：
+  // localProgress=0 是固定端，只有 localProgress=1 的活动端收缩并形成软边。
   for (let index = 0; index <= steps; index++)
   {
     const localProgress = index / steps;
     const angle = -arcLength * localProgress;
     const taper = shouldTaper
-      ? smoothstep(0, config.taperRatio, localProgress) *
-        smoothstep(0, config.taperRatio, 1 - localProgress)
+      ? smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
       : 1;
     const outerRadius = radius + width * 0.5 * taper;
     const x = Math.cos(angle) * outerRadius;
@@ -200,8 +199,7 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
     const localProgress = index / steps;
     const angle = -arcLength * localProgress;
     const taper = shouldTaper
-      ? smoothstep(0, config.taperRatio, localProgress) *
-        smoothstep(0, config.taperRatio, 1 - localProgress)
+      ? smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
       : 1;
     const innerRadius = Math.max(0, radius - width * 0.5 * taper);
 

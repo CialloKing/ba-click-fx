@@ -61,7 +61,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
         [1, 1],
       ],
       arcSamples: 96,
-      taperRatio: 0.1,
+      // Shader 的溶解阈值沿网格 UV 推进：起点保持完整，只有活动端形成软边。
+      dissolveEdgeRatio: 0.1,
     },
     shards:
     {
@@ -112,16 +113,20 @@ export const UNITY_FX_TOUCH = Object.freeze(
     trail:
     {
       lifetimeMs: 300,
-      width: 2,
+      // 0.005 世界单位在 1.35 正交相机下是 2px 几何带；原材质 23.968628
+      // 倍 HDR 亮度经过 Bloom 后会形成约 3px 的可见亮芯。
+      geometryWidth: 2,
+      width: 3,
       minVertexDistance: 4,
-      outerGlowWidth: 5.5,
-      coreWidth: 0.65,
+      outerGlowWidth: 7,
+      coreWidth: 1.25,
       gradient:
       [
         [0, [0, 0, 0]],
         [0.5794156, [0, 24, 72]],
-        [0.9794156, [0, 100, 255]],
-        [1, [0, 100, 255]],
+        // HDR 加法材质会把原始 (0, 0.391, 1) 的头部压到青白高光。
+        [0.9794156, [0, 238, 255]],
+        [1, [0, 238, 255]],
       ],
     },
     bloom:
