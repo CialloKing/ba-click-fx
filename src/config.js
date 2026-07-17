@@ -159,10 +159,10 @@ export const UNITY_FX_TOUCH = Object.freeze(
     },
     bloom:
     {
-      ringBlur: 7,
-      ringAlpha: 0.22,
-      diskBlur: 8,
-      shardBlur: 5,
+      ringBlur: 80,
+      ringAlpha: 0.9,
+      diskBlur: 65,
+      shardBlur: 0,
       trailAlpha: 0.18,
     },
   },

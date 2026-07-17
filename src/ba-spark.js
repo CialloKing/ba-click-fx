@@ -502,7 +502,7 @@ function drawDisk(context, wave, progress, scale, opacity, fxConfig = UNITY_FX_T
   context.beginPath();
   context.arc(wave.x, wave.y, radius, 0, TAU);
   context.fillStyle = gradient;
-  context.shadowColor = colorToCss(color, alpha * 0.32);
+  context.shadowColor = colorToCss(color, alpha * 0.5);
   context.shadowBlur = bloomCfg.diskBlur * scale;
   context.fill();
   context.restore();
