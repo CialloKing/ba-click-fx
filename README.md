@@ -27,14 +27,20 @@
 - 溶解圆环（MeshTri）、中心光盘（ring）、点击碎片（Ring 3/4）、拖尾轨迹（TrailRenderer）
 - 所有粒子参数锁定为游戏原始值：颜色渐变、大小曲线、旋转速度、溶解阈值、HDR 强度
 - 纯 Canvas 2D，无图片素材、无 WebGL、无外部运行时依赖
-- 支持 npm、CDN、直接下载
+- 支持浏览器插件、npm、CDN、直接下载四种接入方式
 - 自定义主题色（HSL hue 偏移）
 - 可调参 API：运行时修改圆环 HDR、半径、宽度、寿命、碎片数量、拖尾宽度、Bloom 强度等
 - 按窗口高度自动缩放，保持与游戏 UI 一致的相对比例
 
 ---
 
-## 快速开始
+## 使用方式
+
+### 1. 浏览器插件
+
+不想写代码？直接从 [Chrome 应用商店安装 ba-click-fx-extension](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami)，普通网页即可获得蔚蓝档案风格点击特效和光标拖尾。源代码：[ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension)。
+
+### 2. npm 安装
 
 ```bash
 npm install ba-click-fx
@@ -45,13 +51,46 @@ import { BAClickFX } from 'ba-click-fx';
 const fx = new BAClickFX();
 ```
 
-CDN：
+### 3. CDN 引入
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/ba-click-fx/dist/ba-click-fx.iife.js"></script>
 <script>
   const fx = new BAClickFX.BAClickFX();
 </script>
+```
+
+### 4. 直接下载
+
+从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载构建产物，适合静态站点：
+
+```html
+<script type="module">
+  import { BAClickFX } from './ba-click-fx.js';
+  const fx = new BAClickFX();
+</script>
+```
+
+---
+
+## 常见用法
+
+挂载到指定 canvas：
+
+```js
+const fx = new BAClickFX({ target: '#myCanvas' });
+```
+
+手动触发点击特效：
+
+```js
+fx.boom(window.innerWidth / 2, window.innerHeight / 2);
+```
+
+页面卸载时销毁：
+
+```js
+fx.destroy();
 ```
 
 ---
@@ -126,6 +165,23 @@ npm test
 
 ---
 
+## 效果说明
+
+点击任意空白区域生成：
+
+- **中心光盘** — 白色→蓝色渐变短圆盘，持续 200ms
+- **溶解圆环** — 2 枚旋转环带，弧线从完整逐渐缩短至消失，持续 600ms
+- **点击碎片** — 4 枚三角形粒子从点击位置飞溅，持续 600~700ms
+
+按住拖动时：
+
+- **拖尾轨迹** — 0.3 秒 TrailRenderer，渐变蓝色光轨 + Bloom 光晕
+- **移动碎片** — 按距离间隔生成的三角形碎片
+
+所有参数均从游戏 `FX_Touch.prefab` 的 Unity ParticleSystem / TrailRenderer 配置中逐项提取。
+
+---
+
 ## 项目结构
 
 ```
@@ -138,6 +194,27 @@ dist/              # 构建产物（ESM / CJS / IIFE）
 test/
 └── smoke.js       # 48 项移植验证测试
 ```
+
+---
+
+## 本地开发
+
+```bash
+git clone https://github.com/CialloKing/ba-click-fx.git
+cd ba-click-fx
+npm install
+npm run dev
+npm run build
+npm test
+```
+
+---
+
+## 致谢
+
+- 蔚蓝档案 (Blue Archive) 游戏 UI 特效为原始设计参考
+- 粒子参数提取自国际服 `uiuserinteraction_fx` Bundle (2026-04-06)
+- 参考 Unity 源码：FXTouch.cs、TouchEffectCreater.cs、InputWrapper.cs 等
 
 ---
 

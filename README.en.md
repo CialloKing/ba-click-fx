@@ -27,14 +27,20 @@
 - Dissolve rings (MeshTri), centre disk (ring), click shards (Ring 3/4), drag trail (TrailRenderer)
 - All particle parameters locked to the game's original values
 - Pure Canvas 2D — no images, no WebGL, zero runtime dependencies
-- npm, CDN, and direct download
+- Browser extension, npm, CDN, and direct download
 - Custom theme colour via HSL hue shifting
 - Runtime-tweakable FX parameters via `setFxParam()`
 - Auto-scales with window height, matching the game's UI-relative proportions
 
 ---
 
-## Quick Start
+## Installation
+
+### 1. Browser Extension
+
+Install [ba-click-fx-extension](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami) from the Chrome Web Store. Source: [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension).
+
+### 2. npm
 
 ```bash
 npm install ba-click-fx
@@ -45,13 +51,46 @@ import { BAClickFX } from 'ba-click-fx';
 const fx = new BAClickFX();
 ```
 
-CDN:
+### 3. CDN
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.0/dist/ba-click-fx.iife.js"></script>
 <script>
   const fx = new BAClickFX.BAClickFX();
 </script>
+```
+
+### 4. Direct Download
+
+Download from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases):
+
+```html
+<script type="module">
+  import { BAClickFX } from './ba-click-fx.js';
+  const fx = new BAClickFX();
+</script>
+```
+
+---
+
+## Common Usage
+
+Mount to a specific canvas:
+
+```js
+const fx = new BAClickFX({ target: '#myCanvas' });
+```
+
+Trigger a click effect manually:
+
+```js
+fx.boom(window.innerWidth / 2, window.innerHeight / 2);
+```
+
+Destroy on page unload:
+
+```js
+fx.destroy();
 ```
 
 ---
@@ -113,6 +152,23 @@ new BAClickFX(options?: {
 
 ---
 
+## Effects
+
+On click:
+
+- **Center disk** — white→blue gradient short disk, 200ms
+- **Dissolve rings** — 2 rotating ring bands, arc shortens until disappearance, 600ms
+- **Click shards** — 4 triangle particles burst from click point, 600~700ms
+
+On drag:
+
+- **Cursor trail** — 0.3s TrailRenderer, gradient blue light trail + Bloom glow
+- **Moving shards** — triangle particles generated at distance intervals
+
+All parameters extracted directly from the game's `FX_Touch.prefab` Unity ParticleSystem / TrailRenderer configuration.
+
+---
+
 ## Development
 
 ```bash
@@ -123,6 +179,14 @@ npm run dev
 npm run build
 npm test
 ```
+
+---
+
+## Credits
+
+- Blue Archive UI effects as the original design reference
+- Particle parameters extracted from the global server `uiuserinteraction_fx` Bundle (2026-04-06)
+- Unity source reference: FXTouch.cs, TouchEffectCreater.cs, InputWrapper.cs
 
 ---
 
