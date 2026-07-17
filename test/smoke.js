@@ -82,6 +82,7 @@ class ContextMock
     this.fillCount = 0;
     this.currentPath = [];
     this.filledPaths = [];
+    this.filledStyles = [];
     this.strokeWidths = [];
   }
 
@@ -118,6 +119,7 @@ class ContextMock
   {
     this.fillCount++;
     this.filledPaths.push(this.currentPath.map((point) => [...point]));
+    this.filledStyles.push(this.fillStyle);
   }
 
   createRadialGradient()
@@ -244,9 +246,27 @@ assert(UNITY_FX_TOUCH.disk.lifetimeMs === 200, '短圆盘持续 0.2 秒');
 assert(UNITY_FX_TOUCH.rings.count === 2, 'MeshTri burst 一次生成 2 枚圆环');
 assert(UNITY_FX_TOUCH.rings.lifetimeMs === 600, '溶解圆环持续 0.6 秒');
 assert(UNITY_FX_TOUCH.rings.rotationDirection === -1, '两枚圆环只按逆时针方向旋转');
+assert(
+  UNITY_FX_TOUCH.rings.angularVelocityMultiplier === 11.170107 &&
+    UNITY_FX_TOUCH.rings.angularVelocityMinKeys[1][1] === 0.45561826 &&
+    UNITY_FX_TOUCH.rings.angularVelocityMaxKeys[1][1] === -0.06509134,
+  '圆环角速度使用 Unity Rotation over Lifetime 的两条衰减曲线',
+);
+assert(UNITY_FX_TOUCH.rings.hdrIntensity === 5.992157, '圆环材质保留 5.992157 倍 HDR 强度');
 assert(UNITY_FX_TOUCH.rings.arcSamples > 0, '圆环使用连续弧带而不是离散短弧');
+assert(UNITY_FX_TOUCH.rings.dissolveDirection === 1, '圆环活动端只沿逆时针方向推进');
 assert(UNITY_FX_TOUCH.rings.dissolveEdgeRatio > 0, '圆环只在活动端保留溶解软边');
 assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');
+assert(
+  Math.abs(UNITY_FX_TOUCH.shards.clickSpeedMin - 36.945888) < 0.000001 &&
+    Math.abs(UNITY_FX_TOUCH.shards.clickSpeedMax - 49.261184) < 0.000001,
+  '点击碎片速度包含 ParticleSystem 的 0.3078824 Local 缩放',
+);
+assert(
+  Math.abs(UNITY_FX_TOUCH.shards.trailSpeedMin - 24.630592) < 0.000001 &&
+    Math.abs(UNITY_FX_TOUCH.shards.trailSpeedMax - 36.945888) < 0.000001,
+  '拖拽碎片速度包含 ParticleSystem 的 0.3078824 Local 缩放',
+);
 assert(UNITY_FX_TOUCH.shards.trailSpacing === 80, '拖拽每 80px 生成一枚碎片');
 assert(UNITY_FX_TOUCH.trail.lifetimeMs === 300, 'TrailRenderer.time 为 0.3 秒');
 assert(UNITY_FX_TOUCH.trail.geometryWidth === 2, '1080p TrailRenderer 几何带宽为 2px');
@@ -282,7 +302,83 @@ assert(
   '每次生成的两枚圆环实际角速度均为逆时针',
 );
 assert(effect.shards.length === 4, '按下立即生成 4 枚点击碎片');
+assert(
+  effect.shards.every((shard) =>
+  {
+    const speed = Math.hypot(shard.velocityX, shard.velocityY);
+
+    return speed >= UNITY_FX_TOUCH.shards.clickSpeedMin &&
+      speed <= UNITY_FX_TOUCH.shards.clickSpeedMax;
+  }),
+  '四枚点击碎片实际使用 Local 缩放后的飞溅速度',
+);
 assert(effect.trailStrokes.length === 1, '按下创建一个 TrailRenderer 行程');
+
+const probeWave = effect.waves[0];
+const savedRingAge = probeWave.ageMs;
+const savedRings = probeWave.rings;
+const probeRing = savedRings[0];
+const savedRingRotation = probeRing.rotation;
+const savedAngularBlend = probeRing.angularBlend;
+const savedAngularVelocity = probeRing.angularVelocity;
+
+probeWave.rings = [probeRing];
+probeWave.ageMs = 0;
+probeRing.rotation = 0;
+probeRing.angularBlend = 0.5;
+probeWave.update(16);
+const initialAngularSpeed = Math.abs(probeRing.angularVelocity);
+
+probeWave.ageMs = 480;
+probeWave.update(16);
+const lateAngularSpeed = Math.abs(probeRing.angularVelocity);
+
+assert(lateAngularSpeed < initialAngularSpeed, '圆环角速度随生命周期衰减而不是全程高速旋转');
+assert(probeRing.angularVelocity <= 0, '圆环角速度末期只减速、不反向');
+
+function sampleRingEndpoints(ageMs)
+{
+  probeWave.ageMs = ageMs;
+  probeWave.rings = [probeRing];
+  probeRing.rotation = 0;
+  effect.context.filledPaths = [];
+  effect.context.filledStyles = [];
+  probeWave.draw(effect.context, 1, 1);
+
+  const path = effect.context.filledPaths[0];
+  const activeIndex = path.length / 2 - 1;
+
+  return {
+    fixed: path[0],
+    active: path[activeIndex],
+    fillStyle: effect.context.filledStyles[0],
+  };
+}
+
+const earlierRingEndpoints = sampleRingEndpoints(240);
+const laterRingEndpoints = sampleRingEndpoints(300);
+const activeEdgeCross =
+  earlierRingEndpoints.active[0] * laterRingEndpoints.active[1] -
+  earlierRingEndpoints.active[1] * laterRingEndpoints.active[0];
+
+assert(
+  Math.abs(earlierRingEndpoints.fixed[1]) < 0.000001 &&
+    Math.abs(laterRingEndpoints.fixed[1]) < 0.000001,
+  '圆环缩短前后固定端保持在同一局部方向',
+);
+assert(activeEdgeCross < 0, '圆环活动端只沿逆时针方向追向固定端');
+assert(
+  laterRingEndpoints.fillStyle.startsWith('rgba(255, 255, 255,'),
+  '圆环生命周期末期仍由 HDR 材质保持白色高亮核心',
+);
+
+probeWave.ageMs = savedRingAge;
+probeWave.rings = savedRings;
+probeRing.rotation = savedRingRotation;
+probeRing.angularBlend = savedAngularBlend;
+probeRing.angularVelocity = savedAngularVelocity;
+effect.context.filledPaths = [];
+effect.context.filledStyles = [];
 
 dom.windowMock.dispatch('pointerdown',
   {
@@ -303,6 +399,18 @@ dom.windowMock.dispatch('pointermove',
   });
 assert(effect.trailStrokes[0].points.length > 2, '拖拽按 4px 最小顶点距离采样');
 assert(effect.shards.some((shard) => shard.kind === 'trail'), '拖过 80px 后生成距离粒子');
+assert(
+  effect.shards
+    .filter((shard) => shard.kind === 'trail')
+    .every((shard) =>
+    {
+      const speed = Math.hypot(shard.velocityX, shard.velocityY);
+
+      return speed >= UNITY_FX_TOUCH.shards.trailSpeedMin &&
+        speed <= UNITY_FX_TOUCH.shards.trailSpeedMax;
+    }),
+  '拖拽碎片实际使用 Local 缩放后的飞溅速度',
+);
 
 effect.context.strokeCount = 0;
 effect.context.filledPaths = [];

@@ -12,6 +12,7 @@ const root = path.resolve(__dirname, '..');
 const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const mainJs = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8');
 const engineJs = fs.readFileSync(path.join(root, 'src', 'ba-spark.js'), 'utf8');
+const configJs = fs.readFileSync(path.join(root, 'src', 'config.js'), 'utf8');
 
 function verify(condition, message)
 {
@@ -31,8 +32,23 @@ verify(/pointerdown/.test(engineJs) && /pointerup/.test(engineJs), '按下、拖
 verify(!/ringNoise/.test(engineJs), '圆环溶解保持为单个连续弧带');
 verify(/rotationDirection/.test(engineJs), '圆环旋转方向由 Unity 参数固定为逆时针');
 verify(
+  /evaluateUnitySmoothCurve/.test(engineJs) &&
+    /angularVelocityMinKeys/.test(configJs) &&
+    /angularVelocityMaxKeys/.test(configJs),
+  '圆环角速度使用 Unity 双曲线并随生命周期衰减',
+);
+verify(
+  /hdrIntensity: 5\.992157/.test(configJs) && /const hdrColor/.test(engineJs),
+  '圆环核心保留原材质 HDR 强度',
+);
+verify(
   !/smoothstep\(0, config\.dissolveEdgeRatio, localProgress\)/.test(engineJs),
   '圆环固定端不参与溶解收缩',
+);
+verify(
+  /const sweep = config\.dissolveDirection \* arcLength/.test(engineJs) &&
+    /const angle = sweep \* localProgress/.test(engineJs),
+  '圆环活动端只沿逆时针方向推进',
 );
 
 console.log('\n✅ Unity 参数同步检查通过\n');
