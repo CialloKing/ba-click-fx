@@ -8,7 +8,7 @@ const modulePath = process.argv.includes('--source')
   ? '../src/ba-spark.js'
   : '../dist/ba-click-fx.js';
 const module = await import(modulePath);
-const { BAClickFX, CONFIG, UNITY_FX_TOUCH, createConfig } = module;
+const { BAClickFX, CONFIG, UNITY_FX_TOUCH, createConfig, SIZE_CORRECTION } = module;
 
 let passed = 0;
 
@@ -252,7 +252,7 @@ assert(
     UNITY_FX_TOUCH.rings.angularVelocityMaxKeys[1][1] === -0.06509134,
   '圆环角速度使用 Unity Rotation over Lifetime 的两条衰减曲线',
 );
-assert(UNITY_FX_TOUCH.rings.hdrIntensity === 5.992157, '圆环材质保留 5.992157 倍 HDR 强度');
+assert(UNITY_FX_TOUCH.rings.hdrIntensity === 1.53, '圆环材质使用 Canvas 适配的 HDR 强度');
 assert(UNITY_FX_TOUCH.rings.arcSamples > 0, '圆环使用连续弧带而不是离散短弧');
 assert(UNITY_FX_TOUCH.rings.dissolveDirection === 1, '圆环活动端只沿逆时针方向推进');
 assert(UNITY_FX_TOUCH.rings.dissolveEdgeRatio > 0, '圆环只在活动端保留溶解软边');
@@ -270,7 +270,7 @@ assert(
 assert(UNITY_FX_TOUCH.shards.trailSpacing === 80, '拖拽每 80px 生成一枚碎片');
 assert(UNITY_FX_TOUCH.trail.lifetimeMs === 300, 'TrailRenderer.time 为 0.3 秒');
 assert(UNITY_FX_TOUCH.trail.geometryWidth === 2, '1080p TrailRenderer 几何带宽为 2px');
-assert(UNITY_FX_TOUCH.trail.width === 3, 'HDR 与 Bloom 合成后的可见亮芯为 3px');
+assert(UNITY_FX_TOUCH.trail.width === 4, 'HDR 与 Bloom 合成后的可见亮芯为 4px');
 
 console.log('\n配置隔离');
 const leftConfig = createConfig();
@@ -307,8 +307,9 @@ assert(
   {
     const speed = Math.hypot(shard.velocityX, shard.velocityY);
 
-    return speed >= UNITY_FX_TOUCH.shards.clickSpeedMin &&
-      speed <= UNITY_FX_TOUCH.shards.clickSpeedMax;
+    // 速度在 createShard 中乘以了含 SIZE_CORRECTION 的 scale
+    return speed >= UNITY_FX_TOUCH.shards.clickSpeedMin * SIZE_CORRECTION &&
+      speed <= UNITY_FX_TOUCH.shards.clickSpeedMax * SIZE_CORRECTION;
   }),
   '四枚点击碎片实际使用 Local 缩放后的飞溅速度',
 );
@@ -367,9 +368,13 @@ assert(
   '圆环缩短前后固定端保持在同一局部方向',
 );
 assert(activeEdgeCross < 0, '圆环活动端只沿逆时针方向追向固定端');
+// Canvas 2D 无 HDR/Tonemap，hdrIntensity 降为 1.5 后末期粒子保留青蓝色调
+const fillColor = laterRingEndpoints.fillStyle;
+const fillMatch = fillColor.match(/rgba\((\d+),\s*(\d+),\s*(\d+)/);
+
 assert(
-  laterRingEndpoints.fillStyle.startsWith('rgba(255, 255, 255,'),
-  '圆环生命周期末期仍由 HDR 材质保持白色高亮核心',
+  fillMatch && Number(fillMatch[3]) > Number(fillMatch[1]) + 50,
+  '圆环生命周期末期仍由 HDR 材质保持蓝色高亮核心',
 );
 
 probeWave.ageMs = savedRingAge;
@@ -406,8 +411,8 @@ assert(
     {
       const speed = Math.hypot(shard.velocityX, shard.velocityY);
 
-      return speed >= UNITY_FX_TOUCH.shards.trailSpeedMin &&
-        speed <= UNITY_FX_TOUCH.shards.trailSpeedMax;
+      return speed >= UNITY_FX_TOUCH.shards.trailSpeedMin * SIZE_CORRECTION &&
+        speed <= UNITY_FX_TOUCH.shards.trailSpeedMax * SIZE_CORRECTION;
     }),
   '拖拽碎片实际使用 Local 缩放后的飞溅速度',
 );
@@ -421,18 +426,20 @@ assert(effect.context.fillCount > 0, '运行帧实际绘制圆盘与三角粒子
 const ringPath = effect.context.filledPaths
   .filter((path) => path.length > 12)
   .sort((left, right) => right.length - left.length)[0];
-const fixedOuterRadius = Math.hypot(ringPath[0][0], ringPath[0][1]);
-const fixedInnerRadius = Math.hypot(
-  ringPath[ringPath.length - 1][0],
-  ringPath[ringPath.length - 1][1],
+// 双向尖角后两端 taper→0，检查中段宽度代替端点
+const midIndex = Math.floor(ringPath.length / 4);
+const midOuterRadius = Math.hypot(ringPath[midIndex][0], ringPath[midIndex][1]);
+const midInnerRadius = Math.hypot(
+  ringPath[ringPath.length - 1 - midIndex][0],
+  ringPath[ringPath.length - 1 - midIndex][1],
 );
 assert(
-  fixedOuterRadius - fixedInnerRadius > 1,
-  '圆环固定端保持完整宽度，只有另一端随溶解阈值缩短',
+  midOuterRadius - midInnerRadius > 1,
+  '圆环中段保持完整宽度，两端均为尖角',
 );
 assert(
-  effect.context.strokeWidths.includes(UNITY_FX_TOUCH.trail.width),
-  '拖尾实际使用 3px HDR 可见亮芯',
+  effect.context.strokeWidths.some((w) => Math.abs(w - UNITY_FX_TOUCH.trail.width * SIZE_CORRECTION) < 0.01),
+  '拖尾实际使用 4px HDR 可见亮芯',
 );
 assert(
   effect.context.strokeCount <= effect.trailStrokes[0].points.length + 2,
