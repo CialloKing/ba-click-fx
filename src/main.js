@@ -100,6 +100,7 @@ bindRange('ctrlDpr', 'outDpr', (v) => effect.updateConfig({ maxDpr: Math.round(v
 
 bindToggle('ctrlClick', (checked) => effect.updateConfig({ clickEnabled: checked }));
 bindToggle('ctrlTrail', (checked) => effect.updateConfig({ trailEnabled: checked }));
+bindToggle('ctrlTrailAlways', (checked) => effect.updateConfig({ trailAlways: checked }));
 
 // ── 特效参数 → setFxParam ──────────────────────────────────────────────
 bindRange('ctrlRingHdr', 'outRingHdr', (v) => effect.setFxParam('rings.hdrIntensity', v));
@@ -140,6 +141,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('outDpr').textContent = '2';
   document.getElementById('ctrlClick').checked = true;
   document.getElementById('ctrlTrail').checked = true;
+  document.getElementById('ctrlTrailAlways').checked = false;
   document.getElementById('ctrlColor').value = '#69a1ff';
   effect.setThemeColor('#69a1ff');
 
@@ -297,8 +299,102 @@ window.addEventListener('keydown', (event) =>
 let currentLang = localStorage.getItem('bafx-lang') || 'zh';
 
 const I18N = {
-  zh: { langToggle: 'EN' },
-  en: { langToggle: '中文' },
+  zh: {
+    langToggle: 'EN',
+    hintClick: '🖱 点击任意处',
+    hintDrag: '按住拖动留下光轨',
+    hintKey: '按 <kbd>空格</kbd> 触发中心特效',
+    hintDismissTitle: '关闭提示',
+    introDismissTitle: '关闭',
+    panelTitle: '控制面板',
+    panelPinTitle: '固定面板',
+    panelCloseTitle: '关闭面板',
+    panelToggleTitle: '控制面板',
+    sectionBasic: '基础',
+    sectionTheme: '背景主题',
+    sectionClick: '点击特效',
+    sectionTrail: '拖尾轨迹',
+    labelColor: '主题颜色',
+    labelScale: '全局缩放',
+    labelOpacity: '不透明度',
+    labelDpr: '最大 DPR',
+    labelClickEnabled: '启用点击特效',
+    labelRingHdr: '圆环 HDR 强度',
+    labelRingRadMin: '圆环起始半径',
+    labelRingRadMax: '圆环终止半径',
+    labelRingWStart: '圆环起始宽度',
+    labelRingWEnd: '圆环终止宽度',
+    labelRingLife: '圆环寿命',
+    labelClickShards: '点击碎片数量',
+    labelMaxShards: '碎片上限',
+    labelBloomRing: 'Bloom 圆环模糊',
+    labelTrailEnabled: '启用拖尾',
+    labelTrailAlways: '始终显示',
+    labelTrailW: '拖尾宽度',
+    labelTrailGlowW: '外发光宽度',
+    labelTrailLife: '拖尾寿命',
+    labelShardSpacing: '碎片间距',
+    labelBloomTrail: 'Bloom 拖尾透明度',
+    btnReset: '重置默认',
+    customBgLabel: '自定义背景',
+    customBgPlaceholder: 'CSS background 值或图片 URL…',
+    btnApplyBg: '应用背景',
+    introTitle: 'ba-click-fx',
+    introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
+    introP2: '从 Unity FX_Touch.prefab 逐参数移植的纯 Canvas 2D 特效库——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
+    introInstallSummary: '安装方式 / Installation',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.14/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introFAQSummary: '常见问题 / FAQ',
+    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 不需要，纯 Canvas 2D，零运行时依赖。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+  },
+  en: {
+    langToggle: '中文',
+    hintClick: '🖱 Click anywhere',
+    hintDrag: 'Hold and drag to leave trails',
+    hintKey: 'Press <kbd>Space</kbd> to trigger effect',
+    hintDismissTitle: 'Dismiss',
+    introDismissTitle: 'Close',
+    panelTitle: 'Control Panel',
+    panelPinTitle: 'Pin Panel',
+    panelCloseTitle: 'Close Panel',
+    panelToggleTitle: 'Control Panel',
+    sectionBasic: 'Basic',
+    sectionTheme: 'Background Theme',
+    sectionClick: 'Click Effect',
+    sectionTrail: 'Cursor Trail',
+    labelColor: 'Theme Color',
+    labelScale: 'Global Scale',
+    labelOpacity: 'Opacity',
+    labelDpr: 'Max DPR',
+    labelClickEnabled: 'Enable Click',
+    labelRingHdr: 'Ring HDR Intensity',
+    labelRingRadMin: 'Ring Radius Min',
+    labelRingRadMax: 'Ring Radius Max',
+    labelRingWStart: 'Ring Width Start',
+    labelRingWEnd: 'Ring Width End',
+    labelRingLife: 'Ring Lifetime',
+    labelClickShards: 'Click Shard Count',
+    labelMaxShards: 'Max Shards',
+    labelBloomRing: 'Bloom Ring Blur',
+    labelTrailEnabled: 'Enable Trail',
+    labelTrailAlways: 'Always Show',
+    labelTrailW: 'Trail Width',
+    labelTrailGlowW: 'Outer Glow Width',
+    labelTrailLife: 'Trail Lifetime',
+    labelShardSpacing: 'Shard Spacing',
+    labelBloomTrail: 'Bloom Trail Alpha',
+    btnReset: 'Reset Defaults',
+    customBgLabel: 'Custom Background',
+    customBgPlaceholder: 'CSS background or image URL…',
+    btnApplyBg: 'Apply',
+    introTitle: 'ba-click-fx',
+    introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
+    introP2: 'Pure Canvas 2D effect library ported from Unity FX_Touch.prefab — dissolve rings, click shards, drag trails. Zero runtime dependencies.',
+    introInstallSummary: '安装方式 / Installation',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.14/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introFAQSummary: '常见问题 / FAQ',
+    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> No — pure Canvas 2D, zero runtime dependencies.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+  },
 };
 
 function switchLanguage(lang)
@@ -306,9 +402,115 @@ function switchLanguage(lang)
   currentLang = lang;
   localStorage.setItem('bafx-lang', lang);
 
-  const dict = I18N[lang] || I18N.zh;
+  const d = I18N[lang] || I18N.zh;
 
-  document.getElementById('langToggle').textContent = dict.langToggle;
+  document.getElementById('langToggle').textContent = d.langToggle;
+
+  // 提示栏：保留 dismiss 按钮，替换内容
+  const hintBar = document.getElementById('hintBar');
+  const hintDismiss = document.getElementById('hintDismiss');
+
+  hintBar.querySelectorAll('span:not(.hint-sep)').forEach((s, i) =>
+  {
+    const texts = [d.hintClick, d.hintDrag, d.hintKey];
+
+    if (i < 3) { s.innerHTML = texts[i]; }
+  });
+
+  // 面板标题 + 按钮 title
+  document.querySelector('.panel-header h2').textContent = d.panelTitle;
+  document.getElementById('panelPin').title = d.panelPinTitle;
+  document.getElementById('panelClose').title = d.panelCloseTitle;
+  document.getElementById('panelToggle').title = d.panelToggleTitle;
+  document.getElementById('hintDismiss').title = d.hintDismissTitle || 'Close';
+  document.getElementById('introDismiss').title = d.introDismissTitle || 'Close';
+
+  // 段落标题
+  const h3s = document.querySelectorAll('.panel-section h3');
+
+  if (h3s[0]) { h3s[0].textContent = d.sectionBasic; }
+
+  if (h3s[1]) { h3s[1].textContent = d.sectionTheme; }
+
+  if (h3s[2]) { h3s[2].textContent = d.sectionClick; }
+
+  if (h3s[3]) { h3s[3].textContent = d.sectionTrail; }
+
+  // 控件标签：span 中可能包含 <output>，只替换文本前缀
+  const labelMap = {
+    ctrlColor: d.labelColor,
+    ctrlScale: d.labelScale,
+    ctrlOpacity: d.labelOpacity,
+    ctrlDpr: d.labelDpr,
+    ctrlClick: d.labelClickEnabled,
+    ctrlRingHdr: d.labelRingHdr,
+    ctrlRingRadMin: d.labelRingRadMin,
+    ctrlRingRadMax: d.labelRingRadMax,
+    ctrlRingWStart: d.labelRingWStart,
+    ctrlRingWEnd: d.labelRingWEnd,
+    ctrlRingLife: d.labelRingLife,
+    ctrlClickShards: d.labelClickShards,
+    ctrlMaxShards: d.labelMaxShards,
+    ctrlBloomRing: d.labelBloomRing,
+    ctrlTrail: d.labelTrailEnabled,
+    ctrlTrailAlways: d.labelTrailAlways,
+    ctrlTrailW: d.labelTrailW,
+    ctrlTrailGlowW: d.labelTrailGlowW,
+    ctrlTrailLife: d.labelTrailLife,
+    ctrlShardSpacing: d.labelShardSpacing,
+    ctrlBloomTrail: d.labelBloomTrail,
+  };
+
+  Object.entries(labelMap).forEach(([id, text]) =>
+  {
+    const el = document.getElementById(id);
+
+    if (!el)
+    {
+      return;
+    }
+
+    const span = el.closest('label')?.querySelector('span:first-child');
+
+    if (!span)
+    {
+      return;
+    }
+
+    const output = span.querySelector('output');
+
+    if (output)
+    {
+      // 保留 output 及其后的文本节点（如 " ms"），只替换第一个文本节点
+      for (const node of span.childNodes)
+      {
+        if (node.nodeType === Node.TEXT_NODE)
+        {
+          node.textContent = text + ' ';
+          break;
+        }
+      }
+    }
+    else
+    {
+      span.textContent = text;
+    }
+  });
+
+  // 按钮
+  document.getElementById('btnReset').textContent = d.btnReset;
+  document.getElementById('customBgCtrl')?.querySelector('span') && (document.getElementById('customBgCtrl').querySelector('span').textContent = d.customBgLabel);
+  document.getElementById('ctrlCustomBg').placeholder = d.customBgPlaceholder;
+  document.getElementById('btnApplyBg').textContent = d.btnApplyBg;
+
+  // 介绍区
+  document.getElementById('introTitle').textContent = d.introTitle;
+  document.getElementById('introP1').textContent = d.introP1;
+  document.getElementById('introP2').textContent = d.introP2;
+  document.getElementById('introInstallSummary').textContent = d.introInstallSummary;
+  document.getElementById('introInstallContent').innerHTML = d.introInstallContent;
+  document.getElementById('introFAQSummary').textContent = d.introFAQSummary;
+  document.getElementById('introFAQContent').innerHTML = d.introFAQContent;
 }
 
 document.getElementById('langToggle').addEventListener('click', () =>
