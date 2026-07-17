@@ -9,6 +9,46 @@ import { CONFIG, UNITY_FX_TOUCH, createConfig, SIZE_CORRECTION } from './config.
 
 const TAU = Math.PI * 2;
 const DEFAULT_FRAME_MS = 1000 / 60;
+// ── 共享 HSL 转换 ──────────────────────────────────────────────────────
+function rgbToHsl(r, g, b)
+{
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  const l = (max + min) / 2;
+
+  if (d === 0) { return [0, 0, l]; }
+
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+
+  if (max === r) { h = (g - b) / d + (g < b ? 6 : 0); }
+  else if (max === g) { h = (b - r) / d + 2; }
+  else { h = (r - g) / d + 4; }
+
+  return [h / 6, s, l];
+}
+
+function hslToRgb(h, s, l)
+{
+  const hueToRgb = (p, q, t) =>
+  {
+    if (t < 0) { t += 1; }
+    if (t > 1) { t -= 1; }
+    if (t < 1 / 6) { return p + (q - p) * 6 * t; }
+    if (t < 1 / 2) { return q; }
+    if (t < 2 / 3) { return p + (q - p) * (2 / 3 - t) * 6; }
+    return p;
+  };
+
+  if (s === 0) { return [l, l, l]; }
+
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+
+  return [hueToRgb(p, q, h + 1 / 3), hueToRgb(p, q, h), hueToRgb(p, q, h - 1 / 3)];
+}
+
 
 // ── 主题色偏移 ──────────────────────────────────────────────────────────
 // 游戏中代表蓝色的关键色 (76,167,255)，hue≈212°；以此为基准计算偏移量。
@@ -16,74 +56,19 @@ const DEFAULT_FRAME_MS = 1000 / 60;
 
 let themeHueShift = 0;
 const BASE_BLUE = [76, 167, 255];
-const BASE_BLUE_HUE = (() =>
-{
-  const r = BASE_BLUE[0] / 255;
-  const g = BASE_BLUE[1] / 255;
-  const b = BASE_BLUE[2] / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-
-  if (max === min)
-  {
-    return 0;
-  }
-
-  const d = max - min;
-  let h;
-
-  if (max === r)
-  {
-    h = (g - b) / d + (g < b ? 6 : 0);
-  }
-  else if (max === g)
-  {
-    h = (b - r) / d + 2;
-  }
-  else
-  {
-    h = (r - g) / d + 4;
-  }
-
-  return h / 6;
-})();
+const BASE_BLUE_HUE = rgbToHsl(BASE_BLUE[0] / 255, BASE_BLUE[1] / 255, BASE_BLUE[2] / 255)[0];
 
 /** 将主题色 hex 转为 hue 偏移量，返回计算值供实例存储。 */
 function computeThemeHueShift(hex)
 {
-  if (!/^#[0-9a-f]{6}$/i.test(hex))
-  {
-    return 0;
-  }
-
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) { return 0; }
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
   const b = parseInt(hex.slice(5, 7), 16) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-
-  if (max === min)
-  {
-    return 0;
-  }
-
-  const d = max - min;
-  let h;
-
-  if (max === r)
-  {
-    h = (g - b) / d + (g < b ? 6 : 0);
-  }
-  else if (max === g)
-  {
-    h = (b - r) / d + 2;
-  }
-  else
-  {
-    h = (r - g) / d + 4;
-  }
-
-  return (h / 6) - BASE_BLUE_HUE;
+  const [h] = rgbToHsl(r, g, b);
+  const s = rgbToHsl(r, g, b)[1];
+  if (s < 0.02) { return 0; }
+  return h - BASE_BLUE_HUE;
 }
 
 /**
@@ -93,74 +78,13 @@ function computeThemeHueShift(hex)
  */
 function applyThemeHue(rgb)
 {
-  if (themeHueShift === 0)
-  {
-    return rgb;
-  }
-
-  const r = rgb[0] / 255;
-  const g = rgb[1] / 255;
-  const b = rgb[2] / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const d = max - min;
-
-  // 饱和度极低（< 2%）视为灰度，不偏移
-  if (d < 0.02)
-  {
-    return rgb;
-  }
-
-  const l = (max + min) / 2;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  let h;
-
-  if (d === 0)
-  {
-    return rgb;
-  }
-
-  if (max === r)
-  {
-    h = (g - b) / d + (g < b ? 6 : 0);
-  }
-  else if (max === g)
-  {
-    h = (b - r) / d + 2;
-  }
-  else
-  {
-    h = (r - g) / d + 4;
-  }
-
-  let newHue = (h / 6) + themeHueShift;
-
-  // hue 环绕
+  if (themeHueShift === 0) { return rgb; }
+  const [h, s, l] = rgbToHsl(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
+  if (s < 0.02) { return rgb; }
+  let newHue = h + themeHueShift;
   newHue = newHue - Math.floor(newHue);
-
-  // HSL → RGB
-  const hueToRgb = (p, q, t) =>
-  {
-    if (t < 0) { t += 1; }
-
-    if (t > 1) { t -= 1; }
-
-    if (t < 1 / 6) { return p + (q - p) * 6 * t; }
-
-    if (t < 1 / 2) { return q; }
-
-    if (t < 2 / 3) { return p + (q - p) * (2 / 3 - t) * 6; }
-
-    return p;
-  };
-
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-  const newR = hueToRgb(p, q, newHue + 1 / 3);
-  const newG = hueToRgb(p, q, newHue);
-  const newB = hueToRgb(p, q, newHue - 1 / 3);
-
-  return [Math.round(newR * 255), Math.round(newG * 255), Math.round(newB * 255)];
+  const [nr, ng, nb] = hslToRgb(newHue, s, l);
+  return [Math.round(nr * 255), Math.round(ng * 255), Math.round(nb * 255)];
 }
 
 function clamp(value, min, max)
@@ -264,7 +188,7 @@ function evaluateColor(keys, progress)
 
   if (t <= keys[0][0])
   {
-    return keys[0][1];
+    return [...keys[0][1]];
   }
 
   for (let index = 1; index < keys.length; index++)
@@ -285,7 +209,7 @@ function evaluateColor(keys, progress)
     }
   }
 
-  return keys[keys.length - 1][1];
+  return [...keys[keys.length - 1][1]];
 }
 
 function colorToCss(color, alpha = 1)
