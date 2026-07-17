@@ -210,7 +210,7 @@ new BAClickFX(options?: {
 
 ## 和其他项目的区别
 
-`ba-click-fx` 更关注网页版《蔚蓝档案》点击反馈的细节还原，v1.2.0 起改为从游戏 Unity Prefab 逐参数移植，保证特效与游戏内视觉效果一致。
+`ba-click-fx` 更关注《蔚蓝档案》游戏内点击反馈的细节还原，v1.2.0 起改为从游戏 Unity Prefab 逐参数移植，保证特效与游戏内视觉效果一致。
 
 相比通用 cursor effects，本项目重点实现：
 
@@ -277,8 +277,6 @@ npm run check
 ## 致谢
 
 - 蔚蓝档案 (Blue Archive) 游戏 UI 特效为原始设计参考
-- 粒子参数提取自国际服 `uiuserinteraction_fx` Bundle (2026-04-06)
-- 参考 Unity 源码：FXTouch.cs、TouchEffectCreater.cs、InputWrapper.cs 等
 - [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
 - [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark)
 - [ZM-Kimu/Blue-Archive-Touch-Effect](https://github.com/ZM-Kimu/Blue-Archive-Touch-Effect)
