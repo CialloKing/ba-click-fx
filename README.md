@@ -4,584 +4,140 @@
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)
 [![npm version](https://img.shields.io/npm/v/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
 [![npm downloads](https://img.shields.io/npm/dm/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
-[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-安装-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami)
 
 > 📖 [English version](./README.en.md)
 
-**蔚蓝档案 (Blue Archive) 风格网页鼠标点击特效与光标拖尾动画库。**
+**从 Blue Archive Unity UI/FX_Touch 逐参数移植的网页点击特效与光标拖尾动画库。**
 
-`ba-click-fx` 是一个网页版《蔚蓝档案》(Blue Archive) 点击与拖拽特效库，使用纯 **Canvas 2D** 实现游戏风格的鼠标点击动画、蓝色圆盘、旋转圆环、碎片粒子、拖尾光轨和拖拽轨迹效果。零外部运行时依赖，支持鼠标点击、触摸、拖拽等多种交互方式。
-
-A lightweight **Blue Archive style cursor effect** library for the web. It provides **mouse click effects**, **touch effects**, **cursor trail animation**, **particle sparks**, **glowing rings**, and **drag trails** with zero external runtime dependencies.
+`ba-click-fx` 将游戏《蔚蓝档案》的 `FX_Touch.prefab` 中 ParticleSystem 和 TrailRenderer 的完整参数——颜色曲线、大小曲线、旋转速度、溶解阈值、HDR 强度、TrailRenderer 时间与宽度——逐项还原为纯 **Canvas 2D** 实现。零外部运行时依赖。
 
 **在线演示：** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
-> 🖱 点击、拖拽或移动鼠标即可预览特效。Click, drag, or move your mouse on the demo page to preview.
-
 <p align="center">
-  <img
-    src="./docs/assets/ba-click-fx-demo.gif"
-    alt="ba-click-fx Blue Archive style click effect and cursor trail demo"
-    width="45%"
-  >
+  <img src="./docs/assets/ba-click-fx-demo.gif" alt="demo" width="45%">
   &nbsp;&nbsp;
-  <img
-    src="./docs/assets/blue-archive-reference.gif"
-    alt="Blue Archive in-game click effect and cursor trail reference"
-    width="45%"
-  >
+  <img src="./docs/assets/blue-archive-reference.gif" alt="game reference" width="45%">
 </p>
-<p align="center"><sub>ba-click-fx 项目演示（左） · 游戏内效果参考（右，仅用于效果对比）</sub></p>
-
----
-
-## 目录
-
-- [在线演示](#在线演示)
-- [特性](#特性)
-- [快速开始](#快速开始)
-- [使用方式](#使用方式)
-  - [浏览器插件](#1-浏览器插件)
-  - [npm 安装](#2-npm-安装)
-  - [CDN 引入](#3-cdn-引入)
-  - [直接下载](#4-直接下载)
-- [常见用法](#常见用法)
-- [API 文档](#api-文档)
-- [效果说明](#效果说明)
-- [和其他项目的区别](#和其他项目的区别)
-- [项目结构](#项目结构)
-- [开发说明](#开发说明)
-- [致谢](#致谢)
-- [许可](#许可)
-
----
-
-## 在线演示
-
-打开 [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)，随意点击、拖动鼠标即可预览效果。页面右上角 ⚙ 可打开控制面板，实时调整颜色、大小、拖尾长度、碎片数量等参数。
 
 ---
 
 ## 特性
 
-- Blue Archive / 蔚蓝档案风格点击特效
-- Mouse click effect / touch effect / cursor trail effect
-- 蓝色圆盘、旋转圆环、碎片粒子、拖尾光轨
-- 支持点击、拖拽、移动轨迹和手动触发
-- 纯 Canvas 2D 实现，无图片素材依赖
-- 零外部运行时依赖，适合普通网页、博客、个人主页和前端项目
-- 支持浏览器插件、npm、CDN、直接下载四种接入方式
-- 支持颜色、缩放、透明度、速度、拖尾长度、圆环、碎片、发光等大量可调参数
-- 60+ 可调参数，演示页控制面板可实时预览
+- 从 Unity FX_Touch.prefab 逐参数移植，非"相似风格"模拟
+- 溶解圆环（MeshTri）、中心光盘（ring）、点击碎片（Ring 3/4）、拖尾轨迹（TrailRenderer）
+- 所有粒子参数锁定为游戏原始值：颜色渐变、大小曲线、旋转速度、溶解阈值、HDR 强度
+- 纯 Canvas 2D，无图片素材、无 WebGL、无外部运行时依赖
+- 支持 npm、CDN、直接下载
+- 自定义主题色（HSL hue 偏移）
+- 可调参 API：运行时修改圆环 HDR、半径、宽度、寿命、碎片数量、拖尾宽度、Bloom 强度等
+- 按窗口高度自动缩放，保持与游戏 UI 一致的相对比例
 
 ---
 
 ## 快速开始
 
-只想看效果？打开 [在线演示](https://ba-click-fx.cialloking.top) 随便点击、拖拽即可。
+```bash
+npm install ba-click-fx
+```
 
-本地运行：
+```js
+import { BAClickFX } from 'ba-click-fx';
+const fx = new BAClickFX();
+```
+
+CDN：
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx/dist/ba-click-fx.iife.js"></script>
+<script>
+  const fx = new BAClickFX.BAClickFX();
+</script>
+```
+
+---
+
+## API
+
+### 构造函数
+
+```ts
+new BAClickFX(options?: {
+  target?: string | HTMLElement,   // 挂载目标，默认全屏
+  scale?: number,                  // 全局缩放，默认 1
+  opacity?: number,                // 不透明度 0~1，默认 1
+  clickEnabled?: boolean,         // 启用点击特效，默认 true
+  trailEnabled?: boolean,         // 启用拖尾，默认 true
+  trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
+  maxDpr?: number,                // 最大设备像素比，默认 2
+  touchAction?: string,           // Canvas touch-action，默认 'auto'
+  inputFilter?: (e: PointerEvent) => boolean,
+})
+```
+
+### 实例方法
+
+| 方法 | 说明 |
+|---|---|
+| `boom(x, y)` | 在指定坐标触发点击特效 |
+| `clear()` | 清除全部视觉对象 |
+| `clearTrail()` | 仅清除拖尾和碎片 |
+| `destroy()` | 销毁实例，移除事件监听和 Canvas |
+| `updateConfig({...})` | 运行时更新 scale/opacity/clickEnabled/trailEnabled/trailAlways/maxDpr/touchAction |
+| `setThemeColor('#ff6969')` | 设置主题色，所有蓝色系特效 hue 偏移到此颜色 |
+| `setFxParam('rings.hdrIntensity', 1.5)` | 点号路径修改任意特效参数 |
+| `getFxConfig()` | 返回当前完整特效配置深拷贝 |
+| `resetFxConfig()` | 重置所有特效参数为游戏默认值 |
+| `getConfig()` | 返回当前实例配置（含 Unity 参数的只读快照） |
+
+### 可调特效参数（setFxParam 路径）
+
+| 路径 | 默认值 | 说明 |
+|---|---|---|
+| `rings.hdrIntensity` | 1.0 | 圆环 HDR 强度 |
+| `rings.radiusMin` | 51 | 圆环起始半径 |
+| `rings.radiusMax` | 59 | 圆环终止半径 |
+| `rings.widthStart` | 5.2 | 圆环起始宽度 |
+| `rings.widthEnd` | 2.4 | 圆环终止宽度 |
+| `rings.lifetimeMs` | 600 | 圆环寿命 (ms) |
+| `shards.clickCount` | 4 | 点击碎片数量 |
+| `shards.maxCount` | 96 | 碎片上限 |
+| `shards.trailSpacing` | 80 | 拖尾碎片间距 |
+| `bloom.ringBlur` | 80 | 圆环光晕模糊 |
+| `bloom.ringAlpha` | 0.9 | 圆环光晕强度 |
+| `bloom.diskBlur` | 65 | 光盘光晕模糊 |
+| `bloom.trailAlpha` | 0.18 | 拖尾光晕强度 |
+| `trail.width` | 2.5 | 拖尾渐变层宽度 |
+| `trail.coreWidth` | 1.7 | 拖尾核心层宽度 |
+| `trail.outerGlowWidth` | 9 | 拖尾外发光宽度 |
+| `trail.lifetimeMs` | 300 | 拖尾寿命 (ms) |
+
+---
+
+## 本地开发
 
 ```bash
 git clone https://github.com/CialloKing/ba-click-fx.git
 cd ba-click-fx
 npm install
 npm run dev
-```
-
-构建：
-
-```bash
 npm run build
+npm test
 ```
-
----
-
-## 使用方式
-
-### 1. 浏览器插件
-
-不想写代码？直接从 [Chrome 应用商店安装 ba-click-fx-extension](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami)，普通网页即可获得蔚蓝档案风格点击特效和光标拖尾。
-
-- 安装后默认开启，无需给每个网站添加脚本
-- 点击特效与光标拖尾可分别开关，可按网站临时禁用
-- 可调整主题颜色、透明度、特效大小和画质
-- Canvas 位于 Shadow DOM 内，不影响页面布局
-- 纯本地渲染，不请求远程资源
-
-源代码与实现详情请查看 [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension) 仓库。
-
-### 2. npm 安装
-
-```bash
-npm install ba-click-fx
-```
-
-最简用法：
-
-```js
-import { BAClickFX } from 'ba-click-fx';
-
-const spark = new BAClickFX();
-```
-
-带自定义配置：
-
-```js
-import { BAClickFX } from 'ba-click-fx';
-
-const spark = new BAClickFX({
-  color: [105, 161, 255],
-  scale: 1.1,
-  opacity: 0.5,
-  trailEnabled: true,
-  trailAlways: false,
-});
-```
-
-### 3. CDN 引入
-
-一行 `<script>` 标签即可，无需构建工具：
-
-固定版本（推荐）：
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.1.14/dist/ba-click-fx.iife.js"></script>
-<script>
-  const spark = new BAClickFX.BAClickFX();
-</script>
-```
-
-始终使用最新版本：
-
-```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx/dist/ba-click-fx.iife.js"></script>
-<script>
-  const spark = new BAClickFX.BAClickFX();
-</script>
-```
-
-IIFE 构建会把模块对象暴露为全局变量 `BAClickFX`，因此构造函数位于
-`BAClickFX.BAClickFX`；ESM 与 CommonJS 的导入方式不变。
-
-### 4. 直接下载
-
-从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载构建产物（`ba-click-fx.js`、`ba-click-fx.iife.js`、`ba-click-fx.cjs`、`ba-click-fx.d.ts`），或直接 clone 仓库使用 `dist/` 目录中的文件，适合静态站点：
-
-```html
-<canvas id="myCanvas"></canvas>
-<script type="module">
-  import { BAClickFX } from './ba-click-fx.js';
-  const spark = new BAClickFX({ target: '#myCanvas' });
-</script>
-```
-
----
-
-## 常见用法
-
-挂载到指定 canvas：
-
-```js
-const fx = new BAClickFX({
-  target: '#myCanvas',
-});
-```
-
-手动触发点击特效：
-
-```js
-fx.boom(window.innerWidth / 2, window.innerHeight / 2);
-```
-
-页面卸载时销毁：
-
-```js
-fx.destroy();
-```
-
----
-
-## API 文档
-
-### 构造函数
-
-```ts
-new BAClickFX(options?: BAClickFXOptions)
-```
-
-| 选项 | 类型 | 默认值 | 说明 |
-|---|---|---|---|
-| `target` | `string \| HTMLElement` | 自动创建 | 挂载目标：CSS 选择器或已有 `<canvas>` |
-| `color` | `[r, g, b]` | `[105, 161, 255]` | 主题颜色 |
-| `scale` | `number` | `1.10` | 全局缩放 (0.5~3) |
-| `opacity` | `number` | `0.50` | 不透明度 (0.1~1) |
-| `trailAlways` | `boolean` | `false` | 鼠标移动时也显示拖尾 |
-| `trailEnabled` | `boolean` | `true` | 启用拖尾轨迹 |
-| `clickEnabled` | `boolean` | `true` | 启用点击特效 |
-| `touchAction` | `string` | `'auto'` | Canvas touch-action CSS（`'none'` 可在移动端保持拖尾） |
-| `inputFilter` | `(event: PointerEvent) => boolean` | `null` | 可选宿主输入过滤器；返回 `false` 忽略该次输入 |
-| `render` | `BAClickFXRenderOptions` | 见下表 | Canvas 画质、缩放下限与可选总像素预算 |
-
-#### 渲染预算与 Canvas 尺寸
-
-`render` 中的所有字段都可省略：
-
-| 选项 | 类型 | 默认值 | 说明 |
-|---|---|---|---|
-| `maxDpr` | `number` | `1` | 最大设备像素比 |
-| `minRenderScale` | `number` | `0.5` | 启用预算时允许使用的最低渲染倍率 |
-| `trailRenderScale` | `number` | `1` | 拖尾离屏 Canvas 相对主 Canvas 的渲染倍率 |
-| `maxBackingPixels` | `number \| null` | `null` | 主 Canvas 与内部 Canvas 的总 backing 像素预算；`null` 表示不启用预算 |
-
-默认 `maxBackingPixels: null` 时不会因预算降低渲染倍率；对于非零布局尺寸，默认视觉
-效果和 Canvas backing 尺寸与 v1.1.8 完全相同。启用预算只会调整内部渲染分辨率，
-不会修改颜色、透明度、几何、时序、缓动、随机分布、绘制公式或混合顺序。
-
-```js
-const fx = new BAClickFX({
-  target: '#myCanvas',
-  render: {
-    maxDpr: 2,
-    minRenderScale: 0.5,
-    trailRenderScale: 1,
-    maxBackingPixels: 12_000_000,
-  },
-});
-
-fx.setRenderOptions({ maxBackingPixels: 8_000_000 });
-fx.refreshSize();
-console.log(fx.getRenderMetrics());
-```
-
-外部 Canvas 由 `ResizeObserver` 跟踪尺寸，自有全屏 Canvas 监听窗口尺寸；两者还会
-跟踪 `visualViewport` 和跨显示器 DPR 变化，并共享约 100ms 的防抖刷新。外部 Canvas
-的 CSS 布局尺寸为 `0 × 0` 时，引擎不会回退到窗口大小并分配全屏 backing store，而是
-暂停渲染；布局恢复为非零尺寸后会自动恢复。`refreshSize()` 是立即重新测量的显式兜底，
-适用于标签页、折叠面板或宿主已知布局刚刚变化的场景。
-
-同一张主 Canvas 同时只能绑定一个存活的 `BAClickFX` 实例，避免实例之间互相清屏或
-改写 transform。多个不传 `target` 的实例会各自创建独立 Canvas；原实例 `destroy()`
-后，外部 Canvas 可再次绑定。
-
-`getRenderMetrics()` 返回 `cssWidth`、`cssHeight`、`devicePixelRatio`、
-`effectivePixelRatio`、`trailRenderScale`、`totalBackingPixels`、
-`nominalRgbaBytes`、`maxBackingPixels` 和 `budgetExceeded`。其中
-`nominalRgbaBytes` 等于总 backing 像素数按 RGBA 每像素 4 字节计算的理论下限，
-不是浏览器实际 RAM 或 GPU 显存占用；`budgetExceeded` 表示达到最低渲染倍率后仍无法
-满足预算。
-
-为严格保持零视觉差异，v1.1.9 延期了局部 click-wave scratch Canvas；生产环境仍使用
-与 v1.1.8 相同的逐 wave 全尺寸隔离合成路径。
-
-#### 数值输入与 TypeScript 配置类型
-
-v1.1.10 会让构造选项、渲染选项、`boom()` 和全部公开数值 setter 安全处理
-`NaN`、`Infinity`、无法转换的值及 `Symbol`，并回退到各 API 原有的稳定默认值。
-颜色 setter 的无效通道会保留当前通道值。有限数字、数值字符串和
-`Number(null) === 0` 的既有转换与钳制行为保持不变。
-
-`getConfig()` 现在返回完整的 `BAClickFXConfig` 类型，其嵌套结构也分别导出
-`BAClickFXFilledCircleConfig`、`BAClickFXClickConfig`、`BAClickFXRingsConfig`、
-`BAClickFXTrailConfig` 与 `BAClickFXGlowConfig`。`CONFIG` 仍为兼容旧代码而保留，
-但它是可绕过 setter 校验与尺寸同步的实时引用，因此已标记为 deprecated；读取配置请优先使用
-`getConfig()` 快照，通过 setter 或 `setRenderOptions()` 修改配置。
-
-这些调整只增强输入边界、类型提示和内部缓存复用，不修改任何默认视觉参数或 Canvas 绘制结果。
-
-### 实例方法
-
-#### 基础
-
-| 方法 | 说明 |
-|---|---|
-| `setColor(r, g, b)` | 主题颜色 (0~255) |
-| `setScale(s)` | 全局缩放 (0.5~3) |
-| `setOpacity(o)` | 不透明度 (0.1~1) |
-| `setClick(enabled)` | 开关后续点击特效；已开始的点击动画会自然结束 |
-| `setSpeed(click, trail?)` | 点击/拖拽速度 (0.2~3) |
-| `setDpr(d)` | 最大设备像素比 (1~2) |
-| `setTrailRenderScale(s)` | 拖尾离屏画布缩放 (0.5~1) |
-| `setRenderOptions(options)` | 批量更新渲染选项并重新计算 backing store 尺寸 |
-| `refreshSize()` | 立即按当前 CSS 布局尺寸和 DPR 刷新 Canvas |
-| `getRenderMetrics()` | 返回当前尺寸、实际渲染倍率、预算状态及理论 RGBA 开销 |
-| `setTouchAction(value)` | 移动端 touch-action (`'auto'` / `'none'` / `'pan-y'`) |
-| `setInputFilter(filter)` | 设置宿主 Pointer 输入过滤器；传入 `null` 恢复接受全部输入 |
-
-#### 发光
-
-| 方法 | 说明 |
-|---|---|
-| `setGlow(enabled)` | 真实光影（轨迹径向渐变光晕 + 点击 shadowBlur） |
-| `setFakeGlow(enabled)` | 多层柔光（推荐） |
-| `setClickFakeGlow(enabled)` | 点击特效柔光 |
-
-#### 点击
-
-| 方法 | 说明 | 默认值 |
-|---|---|---|
-| `setClick(enabled)` | 开关后续点击特效；不影响已有动画或拖尾 | `true` |
-| `setClickTotalLife(v)` | 特效总时长 (10~60 帧) | `27` |
-| `setClickScaleMul(v)` | 点击缩放倍率 (0.5~3) | `1.3` |
-| `setClickHaloRadius(v)` | 光晕半径 (30~200) | `96` |
-| `setClickShardFlicker(period, minAlpha?)` | 碎片闪烁周期/最低亮度 | `8, 0.45` |
-| `setSparksCount(n)` | 点击碎片数量 (0~12) | `4` |
-
-#### 圆盘
-
-| 方法 | 说明 | 默认值 |
-|---|---|---|
-| `setDiskSize(v)` | 圆盘增长速度 (10~50) | `26` |
-| `setDiskGlow(radiusMul, alpha?)` | 柔光范围倍数/透明度 | `4.2, 0.13` |
-| `setDiskTiming(maxLife, expandEnd?, colorEnd?, fadeStart?)` | 圆盘动画时序 | `12.5, 0.84, 0.34, 0.78` |
-
-#### 圆环
-
-| 方法 | 说明 | 默认值 |
-|---|---|---|
-| `setRingRotationSpeed(v)` | 旋转角速度 (0~0.05) | `0.008` |
-| `setRingEmission(v)` | 光晕强度 (0~1) | `0.35` |
-| `setRingWidth(v, maxValue?)` | 弧线最小/最大宽度 (0.3~3, 1~10) | `0.9, 4.0` |
-| `setRingAlpha(v)` | 圆环透明度 (0.1~1) | `0.9` |
-| `setRingDelay(v)` | 出现延迟 (0~10) | `2` |
-| `setRingMaxLife(v)` | 总时长 (10~60) | `27` |
-| `setRingBaseRadiusMul(v)` | 起始半径倍率 (0.2~1) | `0.47` |
-| `setRingPostDiskGrow(v)` | 扩张量 (5~60) | `24` |
-| `setRingGlowRadiusAdd(v)` | 发光半径 (10~150) | `54` |
-| `setRingSoftGlowRadiusAdd(v)` | 柔光半径 (20~200) | `96` |
-| `setRingRadiusGrowEnd(v)` | 扩张进度阈值 (0.2~1) | `0.66` |
-| `setRingWidthEndMul(v)` | 宽度收缩 (0.05~1) | `0.55` |
-| `setRingWhiteMix(v)` | 偏白程度 (0~1) | `0.75` |
-| `setRingGlowAlpha(v)` | 内层光晕透明度 (0~1) | `0.15` |
-| `setRingSoftGlowAlpha(v)` | 外层光晕透明度 (0~0.5) | `0.08` |
-| `setRingColorFadeStart(v)` | 颜色衰减起点 (0~1) | `0.56` |
-| `setRingColorEndWhiteMix(v)` | 末尾白混合 (0~1) | `0.97` |
-| `setRingArcLength(full, end?)` | 弧长 (0.5~6.28) | `4.71, 1.05` |
-| `setRingSegmentCount(min, max?)` | 弧段数量 (1~8) | `2` |
-| `setRingSegmentDetail(extra, cluster, lenMin, lenMax)` | 弧段细节参数 | `0, 0.38, 0.46, 1.38` |
-| `setRingRotationJitter(min, max?)` | 旋转抖动 (0.1~5) | `0.54, 1.58` |
-| `setRingSmallRadius(min, max?)` | 小半径弧段增长 (0.3~1.5) | `0.75, 0.92` |
-| `setRingRadiusJitter(min, max?)` | 半径抖动 (0~2) | `0.3, 0.8` |
-| `setRingNormalGrow(min, max?)` | 正常段增长 (0.3~2) | `1.0` |
-| `setRingCollapseTiming(growEnd, collapse, fade)` | 收缩时序 | `0.16, 0.16, 1.0` |
-
-#### 拖尾
-
-| 方法 | 说明 | 默认值 |
-|---|---|---|
-| `setTrail(enabled)` | 开关拖尾；关闭时立即清理轨迹与拖尾碎片 | `true` |
-| `setTrailAlways(enabled)` | 移动时也显示 | `false` |
-| `setTrailOutsideBehavior(mode)` | Canvas 边界外输入策略 | `'auto'` |
-| `setTrailBrightness(a)` | 整体亮度 (0.1~1) | `0.96` |
-| `setTrailWhiteMix(v)` | 偏白程度 (0~1) | `0.45` |
-| `setTrailWidth(fast, slow?)` | 基础线宽 (0.5~6) | `3` |
-| `setTrailLength(slow, fast?)` | 轨迹长度上限 | `900, 4200` |
-| `setTrailLife(slow, fast?)` | 消散速度 (5~400) | `22` |
-| `setTrailDecay(tail, head, release)` | 尾部/头部/松手消散倍率 | `1.28, 0.95, 1.18` |
-| `setTrailSmooth(f)` | 鼠标平滑 (0~0.9) | `0.5` |
-| `setTrailSpeedRange(min, max)` | 速度映射区间 (px/ms) | `0.035, 2.2` |
-| `setTrailSpeedMin(v)` | 最小速度阈值 (0.005~0.5) | `0.035` |
-| `setTrailSpeedMax(v)` | 最大速度阈值 (0.5~5) | `2.2` |
-| `setTrailSpeedDecay(d)` | 速度衰减率 (0.8~0.999) | `0.988` |
-| `setTrailTailDecayMul(v)` | 单独设置尾部衰减 | `1.28` |
-| `setTrailHeadDecayMul(v)` | 单独设置头部衰减 | `0.95` |
-| `setTrailReleaseDecayMul(v)` | 单独设置松手衰减 | `1.18` |
-| `setTrailSampling(step, max)` | 输入采样间距与最大点数 | `0.85, 80` |
-| `setTrailRenderSampling(step, max)` | 渲染重采样间距与最大点数 | `0.75, 2400` |
-| `setTrailGradientChunk(v)` | 分段渐变长度 (0.3~10) | `1.5` |
-| `setTrailMaxPoints(v)` | 原始点数上限 (500~30000) | `12000` |
-| `setTrailCoreWidth(slow, fast?)` | 中心高光线宽 | `0.3, 0.52` |
-| `setTrailHotWidth(slow, fast?)` | 蓝白热点线宽 | `0.1, 0.24` |
-| `setTrailGlowRadius(v)` | 真实光晕半径倍率 (4~30) | `25` |
-| `setTrailGlowIntensity(v)` | 真实光晕强度 (0.02~0.5) | `0.13` |
-| `setTrailMinDistance(v)` | 采样最小间距 (0.01~5) | `0.06` |
-| `setTrailMaxJumpDistance(v)` | 断笔距离 (50~2000) | `420` |
-| `setTrailMaxCoalescedEvents(v)` | 合并事件上限 (1~100) | `24` |
-| `setTrailRailWidth(slow, fast?)` | 轨道线宽度 | `0.22, 0.36` |
-| `setTrailRibbon(widthMul, alpha?)` | 能量带宽度/透明度 | `0, 0` |
-
-`setTrailOutsideBehavior(mode)` 只控制拖尾，不影响点击特效：
-
-- `'auto'`：默认值，保持 1.1.7 的兼容行为；处理浏览器实际投递的 Pointer
-  样本，不主动捕获指针。
-- `'pause-connect'`：拖尾会话活跃时忽略 Canvas 边界外样本，但保留当前
-  锚点、平滑状态和 stroke；重新进入后继续使用现有平滑、断笔阈值和插值逻辑连接。
-- `'continue'`：有效按压期间尝试 Pointer Capture，并处理浏览器实际投递的
-  边界外样本；这不是系统级全局鼠标追踪，浏览器或操作系统停止分发后无法继续采样。
-- `'clamp'`：与 `continue` 一样在有效按压时尝试 Pointer Capture，但会在平滑、
-  测速和插值之前把每个拖尾样本钳制到 Canvas 边缘，模拟游戏内窗口边界行为。
-
-四种模式都会在 `blur`、`pointerup` 或 `pointercancel` 时结束当前输入。
-切换模式会释放已有 Pointer Capture、断开当前 stroke 并重置输入锚点，已经绘制的
-视觉内容仍按原有时序自然消散；切换到 `'continue'` 或 `'clamp'` 后会在下一次有效
-`pointerdown` 尝试捕获。
-当前模式可从 `getConfig().trail.outsideBehavior` 读取，也可在演示页的“鼠标离开窗口”
-下拉框中单独验证。
-
-`inputFilter` 和 `setInputFilter()` 用于把宿主页面的按钮、弹窗或其他交互区域排除在
-特效输入之外。过滤发生在 `getBoundingClientRect()`、`getCoalescedEvents()` 和随机
-粒子生成之前；`pointerup`、`pointercancel` 与 `blur` 始终执行清理，避免过滤条件变化
-后遗留按压状态。过滤器异常会安全拒绝当次输入，且不会进入 `CONFIG/getConfig()`：
-
-```js
-const fx = new BAClickFX({
-  inputFilter: event => !event.composedPath().some(
-    node => node instanceof Element && node.matches?.('[data-no-click-fx]'),
-  ),
-});
-
-fx.setInputFilter(null); // 恢复接受全部输入
-```
-
-#### 拖尾图层透明度
-
-| 方法 | 说明 | 默认值 |
-|---|---|---|
-| `setTrailMainAlpha(v)` | 主轨迹 | `1` |
-| `setTrailCoreAlpha(v)` | 中心高光 | `0.78` |
-| `setTrailHotAlpha(v)` | 蓝白热点 | `0.34` |
-| `setTrailGlowAlpha(v)` | 蓝色发光 | `0.18` |
-| `setTrailSoftGlowAlpha(v)` | 柔和外光 | `0.045` |
-| `setTrailRailAlpha(v)` | 细轨 | `0.02` |
-| `setTrailGlowWidthMul(v)` | 发光宽度 (0.3~8) | `1.7` |
-| `setTrailSoftGlowWidthMul(v)` | 柔光宽度 (0.5~15) | `2.4` |
-| `setTrailLayerAlpha(main, core, hot, glow, soft, rail)` | 一次性设置所有层透明度 | — |
-
-#### 碎片
-
-| 方法 | 说明 | 默认值 |
-|---|---|---|
-| `setMaxShards(n)` | 最大碎片数 (0~200) | `38` |
-| `setShardSpacing(d)` | 间距 (20~500) | `120` |
-| `setShardChance(slow, fast)` | 额外概率 | `0.04, 0.18` |
-| `setShardLargeChance(p)` | 大碎片概率 | `0.62` |
-| `setMoveSparkChance(v)` | 移动随机撒点概率 (0~0.05) | `0` |
-| `setTrailShardFlicker(period, minAlpha?, sizePulse?)` | 拖尾碎片闪烁参数 | `8, 0.35, 0.16` |
-| `setTrailShardOffset(min, max?)` | 碎片偏移范围 (0~100) | `2, 36` |
-
-#### 生命周期
-
-| 方法 | 说明 |
-|---|---|
-| `boom(x?, y?)` | 手动触发点击特效，默认屏幕中央 |
-| `clearTrail()` | 清除轨迹与拖尾碎片；保留拖尾开关、按压状态和点击特效 |
-| `getConfig()` | 返回当前配置深拷贝 |
-| `resetConfig()` | 恢复默认配置 |
-| `destroy()` | 幂等销毁：释放监听器、RAF、定时器、Pointer Capture 和自有 Canvas；保留外部 Canvas 节点及尺寸 |
-
----
-
-## 效果说明
-
-### 点击特效
-
-| 元素 | 表现 |
-|---|---|
-| 圆盘 | 白色闪光 → 蓝色圆盘，快速扩张后消散 |
-| 圆环 | 2 段高亮弧线，逆时针旋转收缩 |
-| 碎片 | 三角粒子从圆盘边缘爆射，脉冲闪烁 |
-
-### 拖尾光轨
-
-6 层叠加渲染，模拟 Unity TrailRenderer + ParticleSystem：
-
-| 层 | 说明 |
-|---|---|
-| 暗轨线 | 残留在旧轨迹上的细蓝线 |
-| 柔和外光 | 宽而淡的扩散光晕 |
-| Ribbon 能量带 | 半透明带状材质 |
-| 主蓝色轨迹 | 核心轨迹，宽度沿路径变细 |
-| 中心高光 | 浅蓝高亮芯线 |
-| 蓝白热点 | 最近弧线持续发亮 |
-
-碎片沿轨迹按距离散布，支持大/小两种尺寸随机混合。
-
----
-
-## 和其他项目的区别
-
-`ba-click-fx` 更关注网页版《蔚蓝档案》点击反馈的细节还原，而不是普通网页烟花或简单鼠标拖尾效果。
-
-相比通用 cursor effects，本项目重点实现：
-
-- 游戏风格的点击圆盘、旋转圆环和碎片爆发
-- 更接近原游戏观感的蓝色拖尾光轨
-- 拖尾从尾部到头部连续消散，而不是整条轨迹同时淡出
-- 鼠标快速移动时保持连续轨迹
-- 点击、拖拽、移动轨迹、手动触发都可控制
-- 60+ 参数可调，适合继续校准游戏原版效果
-
-Related projects:
-
-- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
-- [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark)
-- [ZM-Kimu/Blue-Archive-Touch-Effect](https://github.com/ZM-Kimu/Blue-Archive-Touch-Effect)
 
 ---
 
 ## 项目结构
 
 ```
-ba-click-fx/
-├── src/
-│   ├── ba-spark.js      # 特效引擎（BAClickFX 类）
-│   ├── main.js           # 演示页面入口 + 控制面板 UI
-│   ├── config.js         # 所有可调参数
-│   ├── utils.js          # 纯数学工具
-│   ├── style.css         # 演示页样式
-│   └── ba-click-fx.d.ts  # TypeScript 声明
-├── scripts/
-│   ├── build.mjs         # 构建脚本
-│   ├── verify-sync.cjs   # 演示控件同步检查
-│   ├── verify-package.mjs # 版本与入口检查
-│   ├── verify-pack.mjs   # npm 包精确文件检查
-│   └── verify-tarball.mjs # 本地包安装与入口验证
-├── test/
-│   └── smoke.js          # 冒烟测试
-├── index.html            # 演示页面
-├── dist/                 # 构建输出
-│   ├── index.html        # 演示页
-│   ├── ba-click-fx.js    # ESM 库
-│   ├── ba-click-fx.cjs   # CommonJS
-│   ├── ba-click-fx.iife.js  # IIFE CDN
-│   └── ba-click-fx.d.ts  # TypeScript 声明
-├── vite.config.js        # 演示页 Vite 配置
-├── vite.lib.config.js    # 库模式 Vite 配置
-└── package.json
+src/
+├── ba-spark.js    # 主引擎：ParticleSystem + TrailRenderer 生命周期
+├── config.js      # Unity FX_Touch 粒子参数只读快照
+├── main.js        # 演示页入口
+└── style.css      # 演示页样式
+dist/              # 构建产物（ESM / CJS / IIFE）
+test/
+└── smoke.js       # 48 项移植验证测试
 ```
-
-### 架构特点
-
-- **双层 Canvas**：主 Canvas 渲染点击特效，离屏 trailCanvas 独立渲染拖尾 → `lighter` 混合
-- **对象池**：ClickWave 和 SparkParticle 回收复用，避免 GC 抖动
-- **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`
-- **60fps 基准**：所有帧数参数归一化到 60fps，运行时缩放适配任意刷新率
-- **零外部依赖**：仅依赖标准 Canvas 2D API
-
----
-
-## 开发说明
-
-本项目主要通过 AI 生成和迭代完成（**绝无手写代码**），并经过实际运行测试、参数调校和效果校准。项目目标是尽可能还原《蔚蓝档案》风格的网页点击特效与拖尾轨迹，同时保持纯 Canvas 2D、零运行时依赖和易集成的特性。
-
-发布前统一执行：
-
-```bash
-npm ci
-npm run check
-```
-
-`check` 会按顺序完成构建、测试、演示同步、版本/入口、npm 精确文件清单和本地包安装检查。
-`prepack` 会重新构建发行产物，`prepublishOnly` 会执行完整检查；两者都不会自动发布。
-
----
-
-## 致谢
-
-- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor) — 蔚蓝档案光标特效实现
-- [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark) — 蔚蓝档案点击特效早期 Web 实现
-
-上面的这两个项目对于鼠标轨迹的还原都不够像游戏内的原始特效，本项目在前两个项目的基础上优化了点击特效和轨迹特效，并且增加了大量可自定义选项。
 
 ---
 

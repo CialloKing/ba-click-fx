@@ -1,5 +1,21 @@
 ﻿# Changelog
 
+## v2.0.0 — Unity FX_Touch Direct Port
+
+- **Architecture**: Replaced the fully parameterized engine with a direct parameter-level port of the Blue Archive `FX_Touch.prefab` ParticleSystem and TrailRenderer.
+- All visual parameters (colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity, TrailRenderer time/width) are now locked to the game's original values.
+- New constructor API: `scale`, `opacity`, `clickEnabled`, `trailEnabled`, `trailAlways`, `maxDpr`, `touchAction`, `inputFilter`.
+- New runtime configuration: `updateConfig()`, `setThemeColor()`, `setFxParam()`, `getFxConfig()`, `resetFxConfig()`.
+- Control panel updated with sliders for key parameters: ring HDR/radius/width/lifetime, shard count/max/spacing, trail width/glow/lifetime, bloom blur/alpha.
+- Bidirectional taper on dissolve ring endpoints matching `FX_TEX_Grad_Ring3` texture alpha falloff.
+- Ring width now follows the game's `sizeOverLifetime.y` curve (fast inflation in first 8% of lifetime).
+- Global `SIZE_CORRECTION` factor (0.92) compensates for orthographicSize deviation.
+- Trail gradient layer uses alpha-based fade-out (`progress^0.5`) with uniform blue tint to prevent dark artifacts on light backgrounds.
+- Bloom glow significantly increased: ring blur 80, disk blur 65, ring alpha 0.9.
+- Shard glow removed.
+- I18N bilingual support for the demo page.
+- 48 smoke tests covering all Unity parameter assertions and lifecycle behaviours.
+
 ## v1.1.14 - 2026-07-16
 
 - Restored the v1.1.12 trail layers, widths, colors, multi-layer glow, radial glow profile, and default glow range and intensity after visual review.
