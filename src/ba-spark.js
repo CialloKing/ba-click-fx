@@ -776,7 +776,7 @@ export class BAClickFX
     this.width = 0;
     this.height = 0;
     this.dpr = 1;
-    this.fxConfig = JSON.parse(JSON.stringify(UNITY_FX_TOUCH));
+    this.fxConfig = structuredClone(UNITY_FX_TOUCH);
     this._themeHueShift = 0;
     this.waves = [];
     this.shards = [];
@@ -1348,13 +1348,13 @@ export class BAClickFX
   /** @returns {object} 当前完整特效配置的深拷贝 */
   getFxConfig()
   {
-    return JSON.parse(JSON.stringify(this.fxConfig));
+    return structuredClone(this.fxConfig);
   }
 
   /** 重置所有特效参数为游戏默认值 */
   resetFxConfig()
   {
-    this.fxConfig = JSON.parse(JSON.stringify(UNITY_FX_TOUCH));
+    this.fxConfig = structuredClone(UNITY_FX_TOUCH);
     this._requestRender();
   }
 
@@ -1382,7 +1382,7 @@ export class BAClickFX
   {
     return {
       ...this.config,
-      unity: JSON.parse(JSON.stringify(UNITY_FX_TOUCH)),
+      unity: structuredClone(UNITY_FX_TOUCH),
     };
   }
 
