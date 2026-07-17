@@ -186,7 +186,7 @@ Shards scatter along the trail at distance intervals.
 
 ## How It Differs
 
-`ba-click-fx` focuses on faithfully porting the Blue Archive in-game click FX. As of v1.2.0, parameters are extracted directly from the Unity Prefab for pixel-level accuracy.
+`ba-click-fx` focuses on faithfully recreating the Blue Archive in-game click FX with pixel-level accuracy.
 
 Compared to generic cursor effects:
 
@@ -242,8 +242,6 @@ npm test
 ## Credits
 
 - Blue Archive UI effects as original design reference
-- Particle parameters extracted from global server `uiuserinteraction_fx` Bundle (2026-04-06)
-- Unity source reference: FXTouch.cs, TouchEffectCreater.cs, InputWrapper.cs
 - [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
 - [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark)
 - [ZM-Kimu/Blue-Archive-Touch-Effect](https://github.com/ZM-Kimu/Blue-Archive-Touch-Effect)
