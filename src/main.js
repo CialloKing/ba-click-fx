@@ -155,7 +155,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlRingLife', 'outRingLife', 600],
     ['ctrlClickShards', 'outClickShards', 4],
     ['ctrlMaxShards', 'outMaxShards', 96],
-    ['ctrlBloomRing', 'outBloomRing', 7],
+    ['ctrlBloomRing', 'outBloomRing', 80],
     ['ctrlTrailW', 'outTrailW', 4],
     ['ctrlTrailGlowW', 'outTrailGlowW', 9],
     ['ctrlTrailLife', 'outTrailLife', 300],
@@ -171,7 +171,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
 
     const out = document.getElementById(outId);
 
-    if (out) { out.textContent = Number.isInteger(val) ? String(val) : val.toFixed(2); }
+    if (out) { out.textContent = val.toFixed(2); }
   });
 
   effect.resetFxConfig();
