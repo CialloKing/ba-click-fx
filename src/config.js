@@ -8,7 +8,7 @@ const SHARD_UNIT_TO_REFERENCE_PIXELS =
 
 // 游戏相机 orthographicSize 实际约 1.47，代码中声明的 1.35 导致所有
 // 世界单位→像素的硬编码常量整体偏大约 8%；此因子统一修正到游戏视觉比例。
-export const SIZE_CORRECTION = 0.92;
+export const SIZE_CORRECTION = 0.85;
 
 /**
  * FX_Touch 的 Unity 2021.3 粒子参数。
