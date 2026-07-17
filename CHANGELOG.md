@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.2.2 — 类型定义同步
+
+- 补全 .d.ts：BAClickFXOptions/BAClickFXConfig 新增 trailAlways
+- 补全 .d.ts：BAClickFX 类新增 updateConfig/setThemeColor/setFxParam/getFxConfig/resetFxConfig 声明
+
 ## v1.2.1 — 修复 trailAlways 功能缺失
 
 - 恢复 trailAlways 功能（v1.2.0 git 回退时被误删）
