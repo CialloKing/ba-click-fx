@@ -1420,7 +1420,7 @@ export class BAClickFX
     this.trailStrokes.length = 0;
     this.currentTrailStroke = null;
     this.shards = this.shards.filter((shard) => shard.kind !== 'trail');
-    this.context.clearRect(0, 0, this.width, this.height);
+    // 不在此处 clearRect；_requestRender 下一帧会完整重绘，不影响点击特效
     this._requestRender();
   }
 

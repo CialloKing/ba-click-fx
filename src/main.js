@@ -574,6 +574,51 @@ switchLanguage(currentLang);
     effect.updateConfig({ trailEnabled: false });
   }
 
+  // 恢复始终显示拖尾
+  if (localStorage.getItem('bafx-ctrlTrailAlways') === 'true')
+  {
+    const el = document.getElementById('ctrlTrailAlways');
+
+    if (el)
+    {
+      el.checked = true;
+    }
+
+    effect.updateConfig({ trailAlways: true });
+  }
+
+  // 恢复 FX 参数滑块
+  const fxSliders = [
+    ['ctrlRingHdr', 'rings.hdrIntensity'],
+    ['ctrlRingRadMin', 'rings.radiusMin'],
+    ['ctrlRingRadMax', 'rings.radiusMax'],
+    ['ctrlRingWStart', 'rings.widthStart'],
+    ['ctrlRingWEnd', 'rings.widthEnd'],
+    ['ctrlRingLife', 'rings.lifetimeMs'],
+    ['ctrlClickShards', 'shards.clickCount'],
+    ['ctrlMaxShards', 'shards.maxCount'],
+    ['ctrlBloomRing', 'bloom.ringBlur'],
+    ['ctrlTrailW', 'trail.width'],
+    ['ctrlTrailGlowW', 'trail.outerGlowWidth'],
+    ['ctrlTrailLife', 'trail.lifetimeMs'],
+    ['ctrlShardSpacing', 'shards.trailSpacing'],
+    ['ctrlBloomTrail', 'bloom.trailAlpha'],
+  ];
+
+  fxSliders.forEach(([elId, paramPath]) =>
+  {
+    const saved = localStorage.getItem('bafx-' + elId);
+
+    if (saved)
+    {
+      const el = document.getElementById(elId);
+
+      if (el) { el.value = saved; }
+
+      effect.setFxParam(paramPath, parseFloat(saved));
+    }
+  });
+
   // 恢复主题颜色
   const savedColor = localStorage.getItem('bafx-ctrlColor');
 
