@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.2.1 — 修复 trailAlways 功能缺失
+
+- 恢复 trailAlways 功能（v1.2.0 git 回退时被误删）
+- 修复 _acceptPointerDown 将 button=-1（移动未按键）误拦截
+
 ## v1.2.0 — Unity FX_Touch Direct Port
 
 - **Architecture**: Replaced the fully parameterized engine with a direct parameter-level port of the Blue Archive `FX_Touch.prefab` ParticleSystem and TrailRenderer.
