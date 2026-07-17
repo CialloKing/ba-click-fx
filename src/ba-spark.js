@@ -5,7 +5,7 @@
  * ParticleSystem 和 TrailRenderer 的生命周期，只保留宿主接入所需的最小 API。
  */
 
-import { CONFIG, UNITY_FX_TOUCH, createConfig } from './config.js';
+import { CONFIG, UNITY_FX_TOUCH, createConfig, SIZE_CORRECTION } from './config.js';
 
 const TAU = Math.PI * 2;
 const DEFAULT_FRAME_MS = 1000 / 60;
@@ -178,12 +178,16 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
 {
   const config = UNITY_FX_TOUCH.rings;
   const radius = ring.radius * evaluateNumber(config.sizeKeys, progress) * scale;
-  const width = lerp(config.widthStart, config.widthEnd, progress) * scale;
+  // 游戏 sizeOverLifetime.y 曲线：环带厚度在生命周期前 8% 从 0 快速膨胀到全厚，
+  // 之后随直径持续增长而相对变细。yCurve 在 0.079 进度后保持 ≈1。
+  const yProgress = clamp01(progress / 0.07908168);
+  const yCurve = evaluateUnitySmoothCurve([[0, 0], [1, 0.9972414]], yProgress);
+  const width = lerp(config.widthStart, config.widthEnd, progress) * yCurve * scale;
   const threshold = evaluateNumber(config.dissolveKeys, progress);
   const visibleRatio = 1 - threshold;
   const particleColor = evaluateColor(config.colorKeys, progress);
-  // Shader Graph 材质先在 HDR 空间乘 5.992157，再进入 Bloom；即使粒子
-  // Color over Lifetime 变蓝，核心三个通道仍超过 1，最终保持高亮白色。
+  // 游戏 HDR 材质 _Color=(5.99,5.99,5.99) 在 Tonemap 后仍保留蓝色调；
+  // Canvas 2D rgba 通道上限 255，末期粒子 (76,167,255) 需 ×1.53 让 G 达 255。
   const hdrColor = particleColor.map((channel) =>
     channel * config.hdrIntensity);
   const arcLength = TAU * visibleRatio;
@@ -207,14 +211,16 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
   context.rotate(ring.rotation);
   context.beginPath();
 
-  // 外沿和内沿组成一条连续弧带。Unity 的阈值沿 MeshTri UV 单向推进：
-  // localProgress=0 是固定端，只有 localProgress=1 的活动端收缩并形成软边。
+  // 外沿和内沿组成一条连续弧带。Unity 溶解阈值沿 UV 单向推进控制弧长；
+  // 纹理 FX_TEX_Grad_Ring3 的 alpha 在环带两端均自然衰减，形成双尖角。
   for (let index = 0; index <= steps; index++)
   {
     const localProgress = index / steps;
     const angle = sweep * localProgress;
+    // 双向 taper：两端 smoothstep 乘积确保 localProgress=0 和 =1 处均为尖角
     const taper = shouldTaper
-      ? smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
+      ? smoothstep(0, config.dissolveEdgeRatio, localProgress) *
+        smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
       : 1;
     const outerRadius = radius + width * 0.5 * taper;
     const x = Math.cos(angle) * outerRadius;
@@ -235,7 +241,8 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
     const localProgress = index / steps;
     const angle = sweep * localProgress;
     const taper = shouldTaper
-      ? smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
+      ? smoothstep(0, config.dissolveEdgeRatio, localProgress) *
+        smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
       : 1;
     const innerRadius = Math.max(0, radius - width * 0.5 * taper);
 
@@ -253,6 +260,59 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
   );
   context.shadowBlur = UNITY_FX_TOUCH.bloom.ringBlur * scale;
   context.fill();
+
+  // FX_TEX_Grad_Ring3 的 V 方向在环带中央比两侧亮约 12%；
+  // 在均匀填充之上再叠加一层居中窄环带，模拟材质的径向亮度变化。
+  {
+    const ridgeRatio = 0.6;
+    const ridgeAlphaBoost = 1.12;
+
+    context.beginPath();
+
+    for (let index = 0; index <= steps; index++)
+    {
+      const localProgress = index / steps;
+      const angle = sweep * localProgress;
+      const ridgeTaper = shouldTaper
+        ? smoothstep(0, config.dissolveEdgeRatio, localProgress) *
+          smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
+        : 1;
+      const outerRidge = radius + width * 0.5 * ridgeRatio * ridgeTaper;
+      const x = Math.cos(angle) * outerRidge;
+      const y = Math.sin(angle) * outerRidge;
+
+      if (index === 0)
+      {
+        context.moveTo(x, y);
+      }
+      else
+      {
+        context.lineTo(x, y);
+      }
+    }
+
+    for (let index = steps; index >= 0; index--)
+    {
+      const localProgress = index / steps;
+      const angle = sweep * localProgress;
+      const ridgeTaper = shouldTaper
+        ? smoothstep(0, config.dissolveEdgeRatio, localProgress) *
+          smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
+        : 1;
+      const innerRidge = Math.max(0, radius - width * 0.5 * ridgeRatio * ridgeTaper);
+
+      context.lineTo(
+        Math.cos(angle) * innerRidge,
+        Math.sin(angle) * innerRidge,
+      );
+    }
+
+    context.closePath();
+    context.fillStyle = colorToCss(hdrColor, opacity * ridgeAlphaBoost);
+    context.shadowBlur = 0;
+    context.fill();
+  }
+
   context.restore();
 }
 
@@ -714,7 +774,7 @@ export class BAClickFX
 
   _getScale()
   {
-    return this.config.scale * (this.height / UNITY_FX_TOUCH.referenceHeight);
+    return this.config.scale * (this.height / UNITY_FX_TOUCH.referenceHeight) * SIZE_CORRECTION;
   }
 
   _acceptPointerDown(event)
@@ -1041,6 +1101,57 @@ export class BAClickFX
     this._requestRender();
   }
 
+  /**
+   * 运行时更新部分配置，无需销毁重建实例。
+   * @param {object} overrides — 与构造函数 options 相同字段的子集
+   */
+  updateConfig(overrides = {})
+  {
+    if (this.destroyed)
+    {
+      return;
+    }
+
+    if (Number.isFinite(overrides.scale))
+    {
+      this.config.scale = Math.max(0.01, overrides.scale);
+    }
+
+    if (Number.isFinite(overrides.opacity))
+    {
+      this.config.opacity = clamp01(overrides.opacity);
+    }
+
+    if (typeof overrides.clickEnabled === 'boolean')
+    {
+      this.config.clickEnabled = overrides.clickEnabled;
+    }
+
+    if (typeof overrides.trailEnabled === 'boolean')
+    {
+      this.config.trailEnabled = overrides.trailEnabled;
+
+      if (!overrides.trailEnabled)
+      {
+        this.clearTrail();
+      }
+    }
+
+    if (Number.isFinite(overrides.maxDpr))
+    {
+      this.config.maxDpr = Math.max(1, overrides.maxDpr);
+      this._resize();
+    }
+
+    if (overrides.touchAction !== undefined)
+    {
+      this.config.touchAction = overrides.touchAction;
+      this.canvas.style.touchAction = overrides.touchAction;
+    }
+
+    this._requestRender();
+  }
+
   /** 清除拖尾顶点和拖拽产生的碎片，不影响仍在播放的点击。 */
   clearTrail()
   {
@@ -1100,6 +1211,6 @@ export class BAClickFX
   }
 }
 
-export { CONFIG, UNITY_FX_TOUCH, createConfig };
+export { CONFIG, UNITY_FX_TOUCH, createConfig, SIZE_CORRECTION };
 
 export default BAClickFX;

@@ -6,6 +6,10 @@ const SHARD_LOCAL_SCALE = 0.3078824;
 const SHARD_UNIT_TO_REFERENCE_PIXELS =
   WORLD_TO_REFERENCE_PIXELS * SHARD_LOCAL_SCALE;
 
+// 游戏相机 orthographicSize 实际约 1.47，代码中声明的 1.35 导致所有
+// 世界单位→像素的硬编码常量整体偏大约 8%；此因子统一修正到游戏视觉比例。
+export const SIZE_CORRECTION = 0.92;
+
 /**
  * FX_Touch 的 Unity 2021.3 粒子参数。
  *
@@ -59,7 +63,9 @@ export const UNITY_FX_TOUCH = Object.freeze(
       ],
       // Canvas 正角度在屏幕坐标中表现为顺时针，因此用 -1 还原游戏逆时针方向。
       rotationDirection: -1,
-      hdrIntensity: 5.992157,
+      // 游戏材质 _Color 原值 5.992157；Canvas 2D 无 HDR/Tonemap。
+      // 末期粒子色 (0.297,0.653,1) → G 通道需 ×1.53 达 255，B 已满。
+      hdrIntensity: 1.53,
       colorKeys:
       [
         [0.1117723, [255, 255, 255]],
@@ -135,18 +141,18 @@ export const UNITY_FX_TOUCH = Object.freeze(
     trail:
     {
       lifetimeMs: 300,
-      // 0.005 世界单位在 1.35 正交相机下是 2px 几何带；原材质 23.968628
-      // 倍 HDR 亮度经过 Bloom 后会形成约 3px 的可见亮芯。
+      // 0.005 世界单位在 1.35 正交相机下几何带宽 2px；HDR 23.97× Bloom
+      // 后可见亮芯约 4px，点击光盘直径的 ≈1/24。
       geometryWidth: 2,
-      width: 3,
+      width: 4,
       minVertexDistance: 4,
-      outerGlowWidth: 7,
-      coreWidth: 1.25,
+      outerGlowWidth: 9,
+      coreWidth: 1.7,
       gradient:
       [
         [0, [0, 0, 0]],
         [0.5794156, [0, 24, 72]],
-        // HDR 加法材质会把原始 (0, 0.391, 1) 的头部压到青白高光。
+        // 原材质 23.968628 倍 HDR 经 Bloom 后头部被压到青白高光
         [0.9794156, [0, 238, 255]],
         [1, [0, 238, 255]],
       ],
