@@ -61,6 +61,35 @@ function evaluateNumber(keys, progress)
   return keys[keys.length - 1][1];
 }
 
+function evaluateUnitySmoothCurve(keys, progress)
+{
+  const t = clamp01(progress);
+
+  if (t <= keys[0][0])
+  {
+    return keys[0][1];
+  }
+
+  for (let index = 1; index < keys.length; index++)
+  {
+    const previous = keys[index - 1];
+    const current = keys[index];
+
+    if (t <= current[0])
+    {
+      const span = current[0] - previous[0];
+      const localProgress = span > 0 ? (t - previous[0]) / span : 1;
+      // 原 AnimationCurve 两端切线均为 0，因此区间插值就是 Hermite smoothstep。
+      const easedProgress = localProgress * localProgress *
+        (3 - 2 * localProgress);
+
+      return lerp(previous[1], current[1], easedProgress);
+    }
+  }
+
+  return keys[keys.length - 1][1];
+}
+
 function evaluateColor(keys, progress)
 {
   const t = clamp01(progress);
@@ -152,8 +181,15 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
   const width = lerp(config.widthStart, config.widthEnd, progress) * scale;
   const threshold = evaluateNumber(config.dissolveKeys, progress);
   const visibleRatio = 1 - threshold;
-  const color = evaluateColor(config.colorKeys, progress);
+  const particleColor = evaluateColor(config.colorKeys, progress);
+  // Shader Graph 材质先在 HDR 空间乘 5.992157，再进入 Bloom；即使粒子
+  // Color over Lifetime 变蓝，核心三个通道仍超过 1，最终保持高亮白色。
+  const hdrColor = particleColor.map((channel) =>
+    channel * config.hdrIntensity);
   const arcLength = TAU * visibleRatio;
+  // 正向 sweep 在弧长下降时让活动端角度下降，即沿 Canvas 的逆时针方向
+  // 追向固定端；使用负向 sweep 会和圆环旋转对冲，视觉上变成两头消失。
+  const sweep = config.dissolveDirection * arcLength;
 
   if (arcLength <= 0.001)
   {
@@ -176,7 +212,7 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
   for (let index = 0; index <= steps; index++)
   {
     const localProgress = index / steps;
-    const angle = -arcLength * localProgress;
+    const angle = sweep * localProgress;
     const taper = shouldTaper
       ? smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
       : 1;
@@ -197,7 +233,7 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
   for (let index = steps; index >= 0; index--)
   {
     const localProgress = index / steps;
-    const angle = -arcLength * localProgress;
+    const angle = sweep * localProgress;
     const taper = shouldTaper
       ? smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
       : 1;
@@ -210,8 +246,11 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
   }
 
   context.closePath();
-  context.fillStyle = colorToCss(color, opacity);
-  context.shadowColor = colorToCss(color, opacity * UNITY_FX_TOUCH.bloom.ringAlpha);
+  context.fillStyle = colorToCss(hdrColor, opacity);
+  context.shadowColor = colorToCss(
+    particleColor,
+    opacity * UNITY_FX_TOUCH.bloom.ringAlpha,
+  );
   context.shadowBlur = UNITY_FX_TOUCH.bloom.ringBlur * scale;
   context.fill();
   context.restore();
@@ -277,6 +316,23 @@ function drawTriangle(context, particle, scale, opacity)
   context.restore();
 }
 
+function evaluateRingAngularVelocity(angularBlend, progress)
+{
+  const config = UNITY_FX_TOUCH.rings;
+  const minVelocity = evaluateUnitySmoothCurve(
+    config.angularVelocityMinKeys,
+    progress,
+  );
+  const maxVelocity = evaluateUnitySmoothCurve(
+    config.angularVelocityMaxKeys,
+    progress,
+  );
+  // maxCurve 末端有极小负值；游戏画面在该阶段只表现为停转，没有可见反转。
+  const velocity = Math.max(0, lerp(minVelocity, maxVelocity, angularBlend));
+
+  return velocity * config.angularVelocityMultiplier * config.rotationDirection;
+}
+
 class ClickWave
 {
   constructor(x, y)
@@ -288,6 +344,8 @@ class ClickWave
 
     for (let index = 0; index < UNITY_FX_TOUCH.rings.count; index++)
     {
+      const angularBlend = Math.random();
+
       this.rings.push(
         {
           x,
@@ -297,11 +355,8 @@ class ClickWave
             UNITY_FX_TOUCH.rings.radiusMax,
           ),
           rotation: random(0, TAU),
-          angularVelocity:
-            random(
-              UNITY_FX_TOUCH.rings.angularVelocityMin,
-              UNITY_FX_TOUCH.rings.angularVelocityMax,
-            ) * UNITY_FX_TOUCH.rings.rotationDirection,
+          angularBlend,
+          angularVelocity: evaluateRingAngularVelocity(angularBlend, 0),
         },
       );
     }
@@ -309,10 +364,19 @@ class ClickWave
 
   update(deltaMs)
   {
+    const previousAgeMs = this.ageMs;
+
     this.ageMs += deltaMs;
 
     for (const ring of this.rings)
     {
+      const sampleAgeMs = (previousAgeMs + this.ageMs) * 0.5;
+      const progress = sampleAgeMs / UNITY_FX_TOUCH.rings.lifetimeMs;
+
+      ring.angularVelocity = evaluateRingAngularVelocity(
+        ring.angularBlend,
+        progress,
+      );
       ring.rotation += ring.angularVelocity * (deltaMs / 1000);
     }
   }

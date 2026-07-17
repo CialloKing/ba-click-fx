@@ -1,3 +1,11 @@
+const REFERENCE_HEIGHT = 1080;
+const REFERENCE_ORTHOGRAPHIC_SIZE = 1.35;
+const WORLD_TO_REFERENCE_PIXELS =
+  REFERENCE_HEIGHT / (REFERENCE_ORTHOGRAPHIC_SIZE * 2);
+const SHARD_LOCAL_SCALE = 0.3078824;
+const SHARD_UNIT_TO_REFERENCE_PIXELS =
+  WORLD_TO_REFERENCE_PIXELS * SHARD_LOCAL_SCALE;
+
 /**
  * FX_Touch 的 Unity 2021.3 粒子参数。
  *
@@ -6,7 +14,7 @@
  */
 export const UNITY_FX_TOUCH = Object.freeze(
   {
-    referenceHeight: 1080,
+    referenceHeight: REFERENCE_HEIGHT,
     rootDurationMs: 1000,
     disk:
     {
@@ -38,10 +46,20 @@ export const UNITY_FX_TOUCH = Object.freeze(
       radiusMax: 59,
       widthStart: 5.2,
       widthEnd: 2.4,
-      angularVelocityMin: 6,
-      angularVelocityMax: 11,
+      angularVelocityMultiplier: 11.170107,
+      angularVelocityMinKeys:
+      [
+        [0.14903903, 1],
+        [1, 0.45561826],
+      ],
+      angularVelocityMaxKeys:
+      [
+        [0.15865384, 0.79881656],
+        [1, -0.06509134],
+      ],
       // Canvas 正角度在屏幕坐标中表现为顺时针，因此用 -1 还原游戏逆时针方向。
       rotationDirection: -1,
+      hdrIntensity: 5.992157,
       colorKeys:
       [
         [0.1117723, [255, 255, 255]],
@@ -61,6 +79,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
         [1, 1],
       ],
       arcSamples: 96,
+      // Canvas 正角度为顺时针；弧长下降时，正向端点会沿逆时针单向回退。
+      dissolveDirection: 1,
       // Shader 的溶解阈值沿网格 UV 推进：起点保持完整，只有活动端形成软边。
       dissolveEdgeRatio: 0.1,
     },
@@ -69,16 +89,18 @@ export const UNITY_FX_TOUCH = Object.freeze(
       clickCount: 4,
       clickLifetimeMinMs: 600,
       clickLifetimeMaxMs: 700,
-      clickRadius: 37,
-      clickSpeedMin: 108,
-      clickSpeedMax: 144,
+      // Ring (3)/(4) 使用 Local scalingMode；发射位置、尺寸和速度都必须乘
+      // 子节点的 0.3078824 缩放，不能只缩放其中两项。
+      clickRadius: 0.3 * SHARD_UNIT_TO_REFERENCE_PIXELS,
+      clickSpeedMin: 0.3 * SHARD_UNIT_TO_REFERENCE_PIXELS,
+      clickSpeedMax: 0.4 * SHARD_UNIT_TO_REFERENCE_PIXELS,
       trailLifetimeMinMs: 200,
       trailLifetimeMaxMs: 400,
-      trailRadius: 18,
-      trailSpeedMin: 80,
-      trailSpeedMax: 120,
-      sizeMin: 12,
-      sizeMax: 25,
+      trailRadius: 0.15 * SHARD_UNIT_TO_REFERENCE_PIXELS,
+      trailSpeedMin: 0.2 * SHARD_UNIT_TO_REFERENCE_PIXELS,
+      trailSpeedMax: 0.3 * SHARD_UNIT_TO_REFERENCE_PIXELS,
+      sizeMin: 0.1 * SHARD_UNIT_TO_REFERENCE_PIXELS,
+      sizeMax: 0.2 * SHARD_UNIT_TO_REFERENCE_PIXELS,
       sizeKeys:
       [
         [0, 0],
