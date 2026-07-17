@@ -1,6 +1,6 @@
 ﻿# Changelog
 
-## v2.0.0 — Unity FX_Touch Direct Port
+## v1.2.0 — Unity FX_Touch Direct Port
 
 - **Architecture**: Replaced the fully parameterized engine with a direct parameter-level port of the Blue Archive `FX_Touch.prefab` ParticleSystem and TrailRenderer.
 - All visual parameters (colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity, TrailRenderer time/width) are now locked to the game's original values.
