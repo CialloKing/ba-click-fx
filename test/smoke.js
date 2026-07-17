@@ -252,7 +252,7 @@ assert(
     UNITY_FX_TOUCH.rings.angularVelocityMaxKeys[1][1] === -0.06509134,
   '圆环角速度使用 Unity Rotation over Lifetime 的两条衰减曲线',
 );
-assert(UNITY_FX_TOUCH.rings.hdrIntensity === 1.53, '圆环材质使用 Canvas 适配的 HDR 强度');
+assert(UNITY_FX_TOUCH.rings.hdrIntensity === 1.0, '圆环材质使用 Canvas 适配的 HDR 强度');
 assert(UNITY_FX_TOUCH.rings.arcSamples > 0, '圆环使用连续弧带而不是离散短弧');
 assert(UNITY_FX_TOUCH.rings.dissolveDirection === 1, '圆环活动端只沿逆时针方向推进');
 assert(UNITY_FX_TOUCH.rings.dissolveEdgeRatio > 0, '圆环只在活动端保留溶解软边');

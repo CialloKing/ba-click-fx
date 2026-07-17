@@ -63,9 +63,9 @@ export const UNITY_FX_TOUCH = Object.freeze(
       ],
       // Canvas 正角度在屏幕坐标中表现为顺时针，因此用 -1 还原游戏逆时针方向。
       rotationDirection: -1,
-      // 游戏材质 _Color 原值 5.992157；Canvas 2D 无 HDR/Tonemap。
-      // 末期粒子色 (0.297,0.653,1) → G 通道需 ×1.53 达 255，B 已满。
-      hdrIntensity: 1.53,
+      // 游戏材质 _Color 原值 5.992157；Canvas 2D uniform 乘法无 Tonemap，
+      // 降为 1.0 让粒子后期 (76,167,255) 即 R<G<B 的青蓝色调自然呈现。
+      hdrIntensity: 1.0,
       colorKeys:
       [
         [0.1117723, [255, 255, 255]],
