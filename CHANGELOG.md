@@ -1,5 +1,20 @@
 ﻿# Changelog
 
+## v1.2.3 — 健壮性全面提升
+
+- 4 处深拷贝改用 structuredClone
+- 删除死代码 src/utils.js
+- RGB↔HSL 提取共享函数，消除三处重复
+- evaluateColor 首尾 keyframe 返回数组副本
+- setFxParam 新增范围校验
+- 曲线求值器加空数组保护
+- getConfig 返回深拷贝
+- themeHueShift 实例级安全
+- 补全 localStorage 恢复（trailAlways + FX 滑块）
+- clearTrail 移除多余 clearRect
+- ctrlBloomRing 默认值与 config 对齐
+- 重置按钮 intOnly 格式一致
+
 ## v1.2.2 — 类型定义同步
 
 - 补全 .d.ts：BAClickFXOptions/BAClickFXConfig 新增 trailAlways
