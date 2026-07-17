@@ -174,6 +174,7 @@ export const CONFIG = Object.freeze(
     opacity: 1,
     clickEnabled: true,
     trailEnabled: true,
+    trailAlways: false,
     maxDpr: 2,
     touchAction: 'auto',
   },
