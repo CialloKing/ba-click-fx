@@ -10,6 +10,162 @@ import { CONFIG, UNITY_FX_TOUCH, createConfig, SIZE_CORRECTION } from './config.
 const TAU = Math.PI * 2;
 const DEFAULT_FRAME_MS = 1000 / 60;
 
+// ── 主题色偏移 ──────────────────────────────────────────────────────────
+// 游戏中代表蓝色的关键色 (76,167,255)，hue≈212°；以此为基准计算偏移量。
+
+let themeHueShift = 0;
+const BASE_BLUE = [76, 167, 255];
+const BASE_BLUE_HUE = (() =>
+{
+  // 预计算基准蓝色的 hue（归一化 0~1）
+  const r = BASE_BLUE[0] / 255;
+  const g = BASE_BLUE[1] / 255;
+  const b = BASE_BLUE[2] / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+
+  if (max === min)
+  {
+    return 0;
+  }
+
+  const d = max - min;
+  let h;
+
+  if (max === r)
+  {
+    h = (g - b) / d + (g < b ? 6 : 0);
+  }
+  else if (max === g)
+  {
+    h = (b - r) / d + 2;
+  }
+  else
+  {
+    h = (r - g) / d + 4;
+  }
+
+  return h / 6;
+})();
+
+/** 将主题色 hex 转为 hue 偏移量存储到模块变量。 */
+export function setThemeHueShift(hex)
+{
+  if (!/^#[0-9a-f]{6}$/i.test(hex))
+  {
+    themeHueShift = 0;
+    return;
+  }
+
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+
+  if (max === min)
+  {
+    // 灰度主题色不偏移
+    themeHueShift = 0;
+    return;
+  }
+
+  const d = max - min;
+  let h;
+
+  if (max === r)
+  {
+    h = (g - b) / d + (g < b ? 6 : 0);
+  }
+  else if (max === g)
+  {
+    h = (b - r) / d + 2;
+  }
+  else
+  {
+    h = (r - g) / d + 4;
+  }
+
+  themeHueShift = (h / 6) - BASE_BLUE_HUE;
+}
+
+/**
+ * 对 RGB 数组应用主题色 hue 偏移；灰度色（饱和度极低）保持原样。
+ * @param {number[]} rgb — [r, g, b]，可能超过 0~255（HDR 中间值）
+ * @returns {number[]}
+ */
+function applyThemeHue(rgb)
+{
+  if (themeHueShift === 0)
+  {
+    return rgb;
+  }
+
+  const r = rgb[0] / 255;
+  const g = rgb[1] / 255;
+  const b = rgb[2] / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+
+  // 饱和度极低（< 2%）视为灰度，不偏移
+  if (d < 0.02)
+  {
+    return rgb;
+  }
+
+  const l = (max + min) / 2;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+
+  if (d === 0)
+  {
+    return rgb;
+  }
+
+  if (max === r)
+  {
+    h = (g - b) / d + (g < b ? 6 : 0);
+  }
+  else if (max === g)
+  {
+    h = (b - r) / d + 2;
+  }
+  else
+  {
+    h = (r - g) / d + 4;
+  }
+
+  let newHue = (h / 6) + themeHueShift;
+
+  // hue 环绕
+  newHue = newHue - Math.floor(newHue);
+
+  // HSL → RGB
+  const hueToRgb = (p, q, t) =>
+  {
+    if (t < 0) { t += 1; }
+
+    if (t > 1) { t -= 1; }
+
+    if (t < 1 / 6) { return p + (q - p) * 6 * t; }
+
+    if (t < 1 / 2) { return q; }
+
+    if (t < 2 / 3) { return p + (q - p) * (2 / 3 - t) * 6; }
+
+    return p;
+  };
+
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const newR = hueToRgb(p, q, newHue + 1 / 3);
+  const newG = hueToRgb(p, q, newHue);
+  const newB = hueToRgb(p, q, newHue - 1 / 3);
+
+  return [Math.round(newR * 255), Math.round(newG * 255), Math.round(newB * 255)];
+}
+
 function clamp(value, min, max)
 {
   return Math.max(min, Math.min(max, value));
@@ -122,9 +278,11 @@ function evaluateColor(keys, progress)
 
 function colorToCss(color, alpha = 1)
 {
-  const red = Math.round(clamp(color[0], 0, 255));
-  const green = Math.round(clamp(color[1], 0, 255));
-  const blue = Math.round(clamp(color[2], 0, 255));
+  // 在 clamp 之前应用主题色 hue 偏移，保留 HDR 亮度信息
+  const themed = applyThemeHue(color);
+  const red = Math.round(clamp(themed[0], 0, 255));
+  const green = Math.round(clamp(themed[1], 0, 255));
+  const blue = Math.round(clamp(themed[2], 0, 255));
 
   return `rgba(${red}, ${green}, ${blue}, ${clamp01(alpha)})`;
 }
@@ -186,8 +344,8 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
   const threshold = evaluateNumber(config.dissolveKeys, progress);
   const visibleRatio = 1 - threshold;
   const particleColor = evaluateColor(config.colorKeys, progress);
-  // 游戏 HDR 材质 _Color=(5.99,5.99,5.99) 在 Tonemap 后仍保留蓝色调；
-  // Canvas 2D rgba 通道上限 255，末期粒子 (76,167,255) 需 ×1.53 让 G 达 255。
+  // 游戏 Tonemap 对各通道非均匀压缩；Canvas 2D 的均匀乘法会让红色通道
+  // 相对偏高。降为 1.0 让粒子自身的蓝色调主导，shadowBlur 辉光不受影响。
   const hdrColor = particleColor.map((channel) =>
     channel * config.hdrIntensity);
   const arcLength = TAU * visibleRatio;
@@ -1098,6 +1256,17 @@ export class BAClickFX
       clamp(Number(x) || 0, 0, this.width),
       clamp(Number(y) || 0, 0, this.height),
     );
+    this._requestRender();
+  }
+
+  /**
+   * 设置主题色；所有蓝色系特效的 hue 将以此为基准偏移。
+   * 传入空字符串或无效值可恢复默认蓝色。
+   * @param {string} hex — CSS 十六进制颜色，如 "#ff6969"
+   */
+  setThemeColor(hex)
+  {
+    setThemeHueShift(hex);
     this._requestRender();
   }
 

@@ -99,6 +99,18 @@ bindRange('ctrlDpr', 'outDpr', (v) => effect.updateConfig({ maxDpr: Math.round(v
 bindToggle('ctrlClick', (checked) => effect.updateConfig({ clickEnabled: checked }));
 bindToggle('ctrlTrail', (checked) => effect.updateConfig({ trailEnabled: checked }));
 
+// ── 主题颜色 ────────────────────────────────────────────────────────────
+const ctrlColor = document.getElementById('ctrlColor');
+
+if (ctrlColor)
+{
+  ctrlColor.addEventListener('input', () =>
+  {
+    effect.setThemeColor(ctrlColor.value);
+    localStorage.setItem('bafx-ctrlColor', ctrlColor.value);
+  });
+}
+
 // ── 重置 ────────────────────────────────────────────────────────────────
 document.getElementById('btnReset').addEventListener('click', () =>
 {
@@ -110,6 +122,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('outDpr').textContent = '2';
   document.getElementById('ctrlClick').checked = true;
   document.getElementById('ctrlTrail').checked = true;
+  document.getElementById('ctrlColor').value = '#69a1ff';
+  effect.setThemeColor('#69a1ff');
 
   effect.updateConfig({ scale: 1, opacity: 1, clickEnabled: true, trailEnabled: true, maxDpr: 2 });
   applyTheme('蔚蓝');
@@ -307,6 +321,19 @@ switchLanguage(currentLang);
     }
 
     effect.updateConfig({ trailEnabled: false });
+  }
+
+  // 恢复主题颜色
+  const savedColor = localStorage.getItem('bafx-ctrlColor');
+
+  if (savedColor && /^#[0-9a-f]{6}$/i.test(savedColor))
+  {
+    if (ctrlColor)
+    {
+      ctrlColor.value = savedColor;
+    }
+
+    effect.setThemeColor(savedColor);
   }
 
   const theme = localStorage.getItem('bafx-theme');
