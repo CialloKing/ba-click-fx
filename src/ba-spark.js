@@ -805,6 +805,7 @@ export class BAClickFX
         opacity: Number.isFinite(options.opacity) ? clamp01(options.opacity) : CONFIG.opacity,
         clickEnabled: options.clickEnabled ?? CONFIG.clickEnabled,
         trailEnabled: options.trailEnabled ?? CONFIG.trailEnabled,
+        trailAlways: options.trailAlways ?? CONFIG.trailAlways,
         maxDpr: Number.isFinite(options.maxDpr) ? Math.max(1, options.maxDpr) : CONFIG.maxDpr,
         touchAction: options.touchAction ?? CONFIG.touchAction,
       },
@@ -940,7 +941,8 @@ export class BAClickFX
 
   _acceptPointerDown(event)
   {
-    if (event.pointerType === 'mouse' && event.button !== 0)
+    // button: 0=左键, -1=未按键(移动事件)；仅 >0 的非左键实际点击需拦截
+    if (event.pointerType === 'mouse' && event.button > 0)
     {
       return false;
     }
@@ -962,13 +964,20 @@ export class BAClickFX
 
     // TouchEffectCreater 的 MaxActiveDragEffectCount 为 1：第二根手指不生成点击，
     // 也不能接管第一根手指正在驱动的 TrailRenderer。
-    if (this.activePointerId !== null)
+    // 例外：始终显示模式下的拖尾可以被实际点击接管。
+    if (this.activePointerId !== null && !this.config.trailAlways)
     {
       return;
     }
 
     const position = this._getPointerPosition(event);
     const pointerId = event.pointerId ?? 1;
+
+    // 始终显示模式下点击：停止旧 stroke 发射顶点，旧顶点仍按 0.3 秒自然过期
+    if (this.activePointerId !== null && this.config.trailAlways && this.currentTrailStroke)
+    {
+      this.currentTrailStroke.active = false;
+    }
 
     this.activePointerId = pointerId;
     this.lastPointerPosition = position;
@@ -994,11 +1003,40 @@ export class BAClickFX
 
   _handlePointerMove(event)
   {
+    if (this.destroyed || !this.config.trailEnabled)
+    {
+      return;
+    }
+
+    // 始终显示模式：无激活指针时自动开始拖尾
     if (
-      this.destroyed ||
+      this.activePointerId === null &&
+      this.config.trailAlways &&
+      this._acceptPointerDown(event)
+    )
+    {
+      const position = this._getPointerPosition(event);
+      const now = performance.now();
+
+      this.activePointerId = event.pointerId ?? 1;
+      this.lastPointerPosition = position;
+      this.lastPointerTime = now;
+      this.trailDistanceSinceShard = 0;
+      this.currentTrailStroke = {
+        active: true,
+        points: [
+          createTrailPoint(position.x, position.y, now),
+          createTrailPoint(position.x + 0.5, position.y + 0.5, now),
+        ],
+      };
+      this.trailStrokes.push(this.currentTrailStroke);
+      this._requestRender();
+      return;
+    }
+
+    if (
       this.activePointerId === null ||
-      (event.pointerId ?? 1) !== this.activePointerId ||
-      !this.config.trailEnabled
+      (event.pointerId ?? 1) !== this.activePointerId
     )
     {
       return;
@@ -1307,6 +1345,11 @@ export class BAClickFX
       {
         this.clearTrail();
       }
+    }
+
+    if (typeof overrides.trailAlways === 'boolean')
+    {
+      this.config.trailAlways = overrides.trailAlways;
     }
 
     if (Number.isFinite(overrides.maxDpr))
