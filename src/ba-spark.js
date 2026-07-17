@@ -65,8 +65,7 @@ function computeThemeHueShift(hex)
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
   const b = parseInt(hex.slice(5, 7), 16) / 255;
-  const [h] = rgbToHsl(r, g, b);
-  const s = rgbToHsl(r, g, b)[1];
+  const [h, s] = rgbToHsl(r, g, b);
   if (s < 0.02) { return 0; }
   return h - BASE_BLUE_HUE;
 }
