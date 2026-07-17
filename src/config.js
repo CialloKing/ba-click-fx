@@ -40,6 +40,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
       widthEnd: 2.4,
       angularVelocityMin: 6,
       angularVelocityMax: 11,
+      // Canvas 正角度在屏幕坐标中表现为顺时针，因此用 -1 还原游戏逆时针方向。
+      rotationDirection: -1,
       colorKeys:
       [
         [0.1117723, [255, 255, 255]],
@@ -58,7 +60,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
         [0.2, 0],
         [1, 1],
       ],
-      segmentCount: 144,
+      arcSamples: 96,
+      taperRatio: 0.1,
     },
     shards:
     {
