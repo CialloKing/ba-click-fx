@@ -12,12 +12,12 @@ const DEFAULT_FRAME_MS = 1000 / 60;
 
 // ── 主题色偏移 ──────────────────────────────────────────────────────────
 // 游戏中代表蓝色的关键色 (76,167,255)，hue≈212°；以此为基准计算偏移量。
+// 模块级缓存，_renderFrame 前推入实例值，渲染后清空，保证多实例安全。
 
 let themeHueShift = 0;
 const BASE_BLUE = [76, 167, 255];
 const BASE_BLUE_HUE = (() =>
 {
-  // 预计算基准蓝色的 hue（归一化 0~1）
   const r = BASE_BLUE[0] / 255;
   const g = BASE_BLUE[1] / 255;
   const b = BASE_BLUE[2] / 255;
@@ -48,13 +48,12 @@ const BASE_BLUE_HUE = (() =>
   return h / 6;
 })();
 
-/** 将主题色 hex 转为 hue 偏移量存储到模块变量。 */
-export function setThemeHueShift(hex)
+/** 将主题色 hex 转为 hue 偏移量，返回计算值供实例存储。 */
+function computeThemeHueShift(hex)
 {
   if (!/^#[0-9a-f]{6}$/i.test(hex))
   {
-    themeHueShift = 0;
-    return;
+    return 0;
   }
 
   const r = parseInt(hex.slice(1, 3), 16) / 255;
@@ -65,9 +64,7 @@ export function setThemeHueShift(hex)
 
   if (max === min)
   {
-    // 灰度主题色不偏移
-    themeHueShift = 0;
-    return;
+    return 0;
   }
 
   const d = max - min;
@@ -86,7 +83,7 @@ export function setThemeHueShift(hex)
     h = (r - g) / d + 4;
   }
 
-  themeHueShift = (h / 6) - BASE_BLUE_HUE;
+  return (h / 6) - BASE_BLUE_HUE;
 }
 
 /**
@@ -857,6 +854,7 @@ export class BAClickFX
     this.height = 0;
     this.dpr = 1;
     this.fxConfig = JSON.parse(JSON.stringify(UNITY_FX_TOUCH));
+    this._themeHueShift = 0;
     this.waves = [];
     this.shards = [];
     this.trailStrokes = [];
@@ -1211,6 +1209,9 @@ export class BAClickFX
     this.lastFrameTime = now;
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
+    // 推入当前实例的主题色偏移，渲染完成后清空，保证多实例安全
+    const prevHueShift = themeHueShift;
+    themeHueShift = this._themeHueShift;
     this.context.save();
     this.context.globalCompositeOperation = 'lighter';
 
@@ -1219,6 +1220,7 @@ export class BAClickFX
     this._updateShards(deltaMs, scale);
 
     this.context.restore();
+    themeHueShift = prevHueShift;
 
     if (this._hasVisibleEffects())
     {
@@ -1322,7 +1324,7 @@ export class BAClickFX
    */
   setThemeColor(hex)
   {
-    setThemeHueShift(hex);
+    this._themeHueShift = computeThemeHueShift(hex);
     this._requestRender();
   }
 
