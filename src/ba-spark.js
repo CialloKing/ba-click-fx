@@ -193,6 +193,11 @@ function distance(from, to)
 
 function evaluateNumber(keys, progress)
 {
+  if (!keys || keys.length === 0)
+  {
+    return 0;
+  }
+
   const t = clamp01(progress);
 
   if (t <= keys[0][0])
@@ -219,6 +224,11 @@ function evaluateNumber(keys, progress)
 
 function evaluateUnitySmoothCurve(keys, progress)
 {
+  if (!keys || keys.length === 0)
+  {
+    return 0;
+  }
+
   const t = clamp01(progress);
 
   if (t <= keys[0][0])
@@ -248,6 +258,11 @@ function evaluateUnitySmoothCurve(keys, progress)
 
 function evaluateColor(keys, progress)
 {
+  if (!keys || keys.length === 0)
+  {
+    return [0, 0, 0];
+  }
+
   const t = clamp01(progress);
 
   if (t <= keys[0][0])
@@ -1396,7 +1411,11 @@ export class BAClickFX
 
     if (typeof target[lastKey] === 'number')
     {
-      target[lastKey] = value;
+      // 防止除零和负数：时间/距离类参数最小值 1
+      const isTimeOrDistance = /(Ms|Spacing|Count|Radius|Width|Blur)$/.test(lastKey);
+      const min = isTimeOrDistance ? 1 : 0.01;
+
+      target[lastKey] = Math.max(min, value);
       this._requestRender();
     }
   }
@@ -1438,7 +1457,7 @@ export class BAClickFX
   {
     return {
       ...this.config,
-      unity: UNITY_FX_TOUCH,
+      unity: JSON.parse(JSON.stringify(UNITY_FX_TOUCH)),
     };
   }
 
