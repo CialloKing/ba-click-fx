@@ -147,23 +147,23 @@ document.getElementById('btnReset').addEventListener('click', () =>
 
   // 重置特效参数
   const fxDefaults = [
-    ['ctrlRingHdr', 'outRingHdr', 1],
-    ['ctrlRingRadMin', 'outRingRadMin', 51],
-    ['ctrlRingRadMax', 'outRingRadMax', 59],
-    ['ctrlRingWStart', 'outRingWStart', 5.2],
-    ['ctrlRingWEnd', 'outRingWEnd', 2.4],
-    ['ctrlRingLife', 'outRingLife', 600],
-    ['ctrlClickShards', 'outClickShards', 4],
-    ['ctrlMaxShards', 'outMaxShards', 96],
-    ['ctrlBloomRing', 'outBloomRing', 80],
-    ['ctrlTrailW', 'outTrailW', 4],
-    ['ctrlTrailGlowW', 'outTrailGlowW', 9],
-    ['ctrlTrailLife', 'outTrailLife', 300],
-    ['ctrlShardSpacing', 'outShardSpacing', 80],
-    ['ctrlBloomTrail', 'outBloomTrail', 0.18],
+    ['ctrlRingHdr', 'outRingHdr', 1, false],
+    ['ctrlRingRadMin', 'outRingRadMin', 51, true],
+    ['ctrlRingRadMax', 'outRingRadMax', 59, true],
+    ['ctrlRingWStart', 'outRingWStart', 5.2, false],
+    ['ctrlRingWEnd', 'outRingWEnd', 2.4, false],
+    ['ctrlRingLife', 'outRingLife', 600, true],
+    ['ctrlClickShards', 'outClickShards', 4, true],
+    ['ctrlMaxShards', 'outMaxShards', 96, true],
+    ['ctrlBloomRing', 'outBloomRing', 80, false],
+    ['ctrlTrailW', 'outTrailW', 4, false],
+    ['ctrlTrailGlowW', 'outTrailGlowW', 9, false],
+    ['ctrlTrailLife', 'outTrailLife', 300, true],
+    ['ctrlShardSpacing', 'outShardSpacing', 80, true],
+    ['ctrlBloomTrail', 'outBloomTrail', 0.18, false],
   ];
 
-  fxDefaults.forEach(([id, outId, val]) =>
+  fxDefaults.forEach(([id, outId, val, intOnly]) =>
   {
     const el = document.getElementById(id);
 
@@ -171,7 +171,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
 
     const out = document.getElementById(outId);
 
-    if (out) { out.textContent = val.toFixed(2); }
+    if (out) { out.textContent = intOnly ? String(val) : val.toFixed(2); }
   });
 
   effect.resetFxConfig();
