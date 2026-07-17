@@ -12,6 +12,8 @@ declare module 'ba-click-fx'
     opacity?: number;
     clickEnabled?: boolean;
     trailEnabled?: boolean;
+    /** 无需按下鼠标，移动即显示拖尾。默认 false。 */
+    trailAlways?: boolean;
     /** Canvas backing store 的设备像素比上限，默认 2。 */
     maxDpr?: number;
     touchAction?: CSSStyleDeclaration['touchAction'];
@@ -25,6 +27,7 @@ declare module 'ba-click-fx'
     opacity: number;
     clickEnabled: boolean;
     trailEnabled: boolean;
+    trailAlways: boolean;
     maxDpr: number;
     touchAction: string;
   }
@@ -42,6 +45,7 @@ declare module 'ba-click-fx'
 
   export const CONFIG: Readonly<BAClickFXConfig>;
   export const UNITY_FX_TOUCH: UnityFxTouchConfig;
+  export const SIZE_CORRECTION: number;
   export function createConfig(overrides?: Partial<BAClickFXConfig>): BAClickFXConfig;
 
   export class BAClickFX
@@ -54,6 +58,22 @@ declare module 'ba-click-fx'
 
     /** 在 Canvas 局部坐标触发一次游戏原版 FX_Touch 点击。 */
     boom(x?: number, y?: number): void;
+
+    /** 运行时更新 scale/opacity/clickEnabled/trailEnabled/trailAlways/maxDpr/touchAction。 */
+    updateConfig(overrides: Partial<BAClickFXOptions>): void;
+
+    /** 设置主题色（CSS 十六进制），所有蓝色系特效的 hue 将以此偏移。传入空字符串恢复默认。 */
+    setThemeColor(hex: string): void;
+
+    /** 通过点号路径修改特效参数，如 'rings.hdrIntensity'。 */
+    setFxParam(path: string, value: number): void;
+
+    /** 返回当前完整特效配置的深拷贝（与 UNITY_FX_TOUCH 同结构）。 */
+    getFxConfig(): Record<string, unknown>;
+
+    /** 重置所有特效参数为游戏默认值。 */
+    resetFxConfig(): void;
+
     clearTrail(): void;
     clear(): void;
     getConfig(): BAClickFXConfig & { readonly unity: UnityFxTouchConfig };
