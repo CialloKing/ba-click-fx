@@ -742,11 +742,13 @@ function drawTrailLayer(context, points, scale, opacity, layer)
   {
     const progress = ((distances[index - 1] + distances[index]) * 0.5) / totalLength;
     const color = interpolateTrailColor(progress);
+    // 尾部 fadeAlpha→0 透明融入背景，颜色保持蓝色调不产生灰色伪影
+    const fadeAlpha = Math.pow(progress, 0.5);
 
     context.beginPath();
     context.moveTo(points[index - 1].x, points[index - 1].y);
     context.lineTo(points[index].x, points[index].y);
-    context.strokeStyle = colorToCss(color, layer.alpha * opacity);
+    context.strokeStyle = colorToCss(color, layer.alpha * opacity * fadeAlpha);
     context.stroke();
   }
 
