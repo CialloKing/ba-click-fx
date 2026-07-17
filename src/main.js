@@ -52,7 +52,7 @@ function applyTheme(name)
 }
 
 // ── 控件绑定 ────────────────────────────────────────────────────────────
-function bindRange(id, outId, onChange)
+function bindRange(id, outId, onChange, intOnly = false)
 {
   const el = document.getElementById(id);
   const out = document.getElementById(outId);
@@ -66,13 +66,15 @@ function bindRange(id, outId, onChange)
   {
     const value = parseFloat(el.value);
 
-    out.textContent = value.toFixed(2);
+    out.textContent = intOnly ? String(Math.round(value)) : value.toFixed(2);
     onChange(value);
     localStorage.setItem('bafx-' + id, el.value);
   });
 
   // 初始化输出值
-  out.textContent = parseFloat(el.value).toFixed(2);
+  const initVal = parseFloat(el.value);
+
+  out.textContent = intOnly ? String(Math.round(initVal)) : initVal.toFixed(2);
 }
 
 function bindToggle(id, onChange)
@@ -99,6 +101,22 @@ bindRange('ctrlDpr', 'outDpr', (v) => effect.updateConfig({ maxDpr: Math.round(v
 bindToggle('ctrlClick', (checked) => effect.updateConfig({ clickEnabled: checked }));
 bindToggle('ctrlTrail', (checked) => effect.updateConfig({ trailEnabled: checked }));
 
+// ── 特效参数 → setFxParam ──────────────────────────────────────────────
+bindRange('ctrlRingHdr', 'outRingHdr', (v) => effect.setFxParam('rings.hdrIntensity', v));
+bindRange('ctrlRingRadMin', 'outRingRadMin', (v) => effect.setFxParam('rings.radiusMin', v), true);
+bindRange('ctrlRingRadMax', 'outRingRadMax', (v) => effect.setFxParam('rings.radiusMax', v), true);
+bindRange('ctrlRingWStart', 'outRingWStart', (v) => effect.setFxParam('rings.widthStart', v));
+bindRange('ctrlRingWEnd', 'outRingWEnd', (v) => effect.setFxParam('rings.widthEnd', v));
+bindRange('ctrlRingLife', 'outRingLife', (v) => effect.setFxParam('rings.lifetimeMs', v), true);
+bindRange('ctrlClickShards', 'outClickShards', (v) => effect.setFxParam('shards.clickCount', v), true);
+bindRange('ctrlMaxShards', 'outMaxShards', (v) => effect.setFxParam('shards.maxCount', v), true);
+bindRange('ctrlBloomRing', 'outBloomRing', (v) => effect.setFxParam('bloom.ringBlur', v));
+bindRange('ctrlTrailW', 'outTrailW', (v) => effect.setFxParam('trail.width', v));
+bindRange('ctrlTrailGlowW', 'outTrailGlowW', (v) => effect.setFxParam('trail.outerGlowWidth', v));
+bindRange('ctrlTrailLife', 'outTrailLife', (v) => effect.setFxParam('trail.lifetimeMs', v), true);
+bindRange('ctrlShardSpacing', 'outShardSpacing', (v) => effect.setFxParam('shards.trailSpacing', v), true);
+bindRange('ctrlBloomTrail', 'outBloomTrail', (v) => effect.setFxParam('bloom.trailAlpha', v));
+
 // ── 主题颜色 ────────────────────────────────────────────────────────────
 const ctrlColor = document.getElementById('ctrlColor');
 
@@ -124,6 +142,37 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlTrail').checked = true;
   document.getElementById('ctrlColor').value = '#69a1ff';
   effect.setThemeColor('#69a1ff');
+
+  // 重置特效参数
+  const fxDefaults = [
+    ['ctrlRingHdr', 'outRingHdr', 1],
+    ['ctrlRingRadMin', 'outRingRadMin', 51],
+    ['ctrlRingRadMax', 'outRingRadMax', 59],
+    ['ctrlRingWStart', 'outRingWStart', 5.2],
+    ['ctrlRingWEnd', 'outRingWEnd', 2.4],
+    ['ctrlRingLife', 'outRingLife', 600],
+    ['ctrlClickShards', 'outClickShards', 4],
+    ['ctrlMaxShards', 'outMaxShards', 96],
+    ['ctrlBloomRing', 'outBloomRing', 7],
+    ['ctrlTrailW', 'outTrailW', 4],
+    ['ctrlTrailGlowW', 'outTrailGlowW', 9],
+    ['ctrlTrailLife', 'outTrailLife', 300],
+    ['ctrlShardSpacing', 'outShardSpacing', 80],
+    ['ctrlBloomTrail', 'outBloomTrail', 0.18],
+  ];
+
+  fxDefaults.forEach(([id, outId, val]) =>
+  {
+    const el = document.getElementById(id);
+
+    if (el) { el.value = String(val); }
+
+    const out = document.getElementById(outId);
+
+    if (out) { out.textContent = Number.isInteger(val) ? String(val) : val.toFixed(2); }
+  });
+
+  effect.resetFxConfig();
 
   effect.updateConfig({ scale: 1, opacity: 1, clickEnabled: true, trailEnabled: true, maxDpr: 2 });
   applyTheme('蔚蓝');

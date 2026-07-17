@@ -332,26 +332,27 @@ function smoothstep(edge0, edge1, value)
   return progress * progress * (3 - 2 * progress);
 }
 
-function drawDissolvedCircle(context, ring, progress, scale, opacity)
+function drawDissolvedCircle(context, ring, progress, scale, opacity, fxConfig = UNITY_FX_TOUCH)
 {
-  const config = UNITY_FX_TOUCH.rings;
-  const radius = ring.radius * evaluateNumber(config.sizeKeys, progress) * scale;
+  const ringCfg = fxConfig.rings;
+  const bloomCfg = fxConfig.bloom;
+  const radius = ring.radius * evaluateNumber(ringCfg.sizeKeys, progress) * scale;
   // 游戏 sizeOverLifetime.y 曲线：环带厚度在生命周期前 8% 从 0 快速膨胀到全厚，
   // 之后随直径持续增长而相对变细。yCurve 在 0.079 进度后保持 ≈1。
   const yProgress = clamp01(progress / 0.07908168);
   const yCurve = evaluateUnitySmoothCurve([[0, 0], [1, 0.9972414]], yProgress);
-  const width = lerp(config.widthStart, config.widthEnd, progress) * yCurve * scale;
-  const threshold = evaluateNumber(config.dissolveKeys, progress);
+  const width = lerp(ringCfg.widthStart, ringCfg.widthEnd, progress) * yCurve * scale;
+  const threshold = evaluateNumber(ringCfg.dissolveKeys, progress);
   const visibleRatio = 1 - threshold;
-  const particleColor = evaluateColor(config.colorKeys, progress);
+  const particleColor = evaluateColor(ringCfg.colorKeys, progress);
   // 游戏 Tonemap 对各通道非均匀压缩；Canvas 2D 的均匀乘法会让红色通道
   // 相对偏高。降为 1.0 让粒子自身的蓝色调主导，shadowBlur 辉光不受影响。
   const hdrColor = particleColor.map((channel) =>
-    channel * config.hdrIntensity);
+    channel * ringCfg.hdrIntensity);
   const arcLength = TAU * visibleRatio;
   // 正向 sweep 在弧长下降时让活动端角度下降，即沿 Canvas 的逆时针方向
   // 追向固定端；使用负向 sweep 会和圆环旋转对冲，视觉上变成两头消失。
-  const sweep = config.dissolveDirection * arcLength;
+  const sweep = ringCfg.dissolveDirection * arcLength;
 
   if (arcLength <= 0.001)
   {
@@ -360,7 +361,7 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
 
   const steps = Math.max(
     6,
-    Math.ceil(config.arcSamples * visibleRatio),
+    Math.ceil(ringCfg.arcSamples * visibleRatio),
   );
   const shouldTaper = visibleRatio < 0.995;
 
@@ -377,8 +378,8 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
     const angle = sweep * localProgress;
     // 双向 taper：两端 smoothstep 乘积确保 localProgress=0 和 =1 处均为尖角
     const taper = shouldTaper
-      ? smoothstep(0, config.dissolveEdgeRatio, localProgress) *
-        smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
+      ? smoothstep(0, ringCfg.dissolveEdgeRatio, localProgress) *
+        smoothstep(0, ringCfg.dissolveEdgeRatio, 1 - localProgress)
       : 1;
     const outerRadius = radius + width * 0.5 * taper;
     const x = Math.cos(angle) * outerRadius;
@@ -399,8 +400,8 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
     const localProgress = index / steps;
     const angle = sweep * localProgress;
     const taper = shouldTaper
-      ? smoothstep(0, config.dissolveEdgeRatio, localProgress) *
-        smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
+      ? smoothstep(0, ringCfg.dissolveEdgeRatio, localProgress) *
+        smoothstep(0, ringCfg.dissolveEdgeRatio, 1 - localProgress)
       : 1;
     const innerRadius = Math.max(0, radius - width * 0.5 * taper);
 
@@ -432,8 +433,8 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
       const localProgress = index / steps;
       const angle = sweep * localProgress;
       const ridgeTaper = shouldTaper
-        ? smoothstep(0, config.dissolveEdgeRatio, localProgress) *
-          smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
+        ? smoothstep(0, ringCfg.dissolveEdgeRatio, localProgress) *
+          smoothstep(0, ringCfg.dissolveEdgeRatio, 1 - localProgress)
         : 1;
       const outerRidge = radius + width * 0.5 * ridgeRatio * ridgeTaper;
       const x = Math.cos(angle) * outerRidge;
@@ -454,8 +455,8 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
       const localProgress = index / steps;
       const angle = sweep * localProgress;
       const ridgeTaper = shouldTaper
-        ? smoothstep(0, config.dissolveEdgeRatio, localProgress) *
-          smoothstep(0, config.dissolveEdgeRatio, 1 - localProgress)
+        ? smoothstep(0, ringCfg.dissolveEdgeRatio, localProgress) *
+          smoothstep(0, ringCfg.dissolveEdgeRatio, 1 - localProgress)
         : 1;
       const innerRidge = Math.max(0, radius - width * 0.5 * ridgeRatio * ridgeTaper);
 
@@ -474,12 +475,13 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
   context.restore();
 }
 
-function drawDisk(context, wave, progress, scale, opacity)
+function drawDisk(context, wave, progress, scale, opacity, fxConfig = UNITY_FX_TOUCH)
 {
-  const config = UNITY_FX_TOUCH.disk;
-  const radius = config.radius * evaluateNumber(config.sizeKeys, progress) * scale;
-  const color = evaluateColor(config.colorKeys, progress);
-  const alpha = evaluateNumber(config.alphaKeys, progress) * opacity;
+  const diskCfg = fxConfig.disk;
+  const bloomCfg = fxConfig.bloom;
+  const radius = diskCfg.radius * evaluateNumber(diskCfg.sizeKeys, progress) * scale;
+  const color = evaluateColor(diskCfg.colorKeys, progress);
+  const alpha = evaluateNumber(diskCfg.alphaKeys, progress) * opacity;
   const gradient = context.createRadialGradient(
     wave.x,
     wave.y,
@@ -501,18 +503,19 @@ function drawDisk(context, wave, progress, scale, opacity)
   context.arc(wave.x, wave.y, radius, 0, TAU);
   context.fillStyle = gradient;
   context.shadowColor = colorToCss(color, alpha * 0.32);
-  context.shadowBlur = UNITY_FX_TOUCH.bloom.diskBlur * scale;
+  context.shadowBlur = bloomCfg.diskBlur * scale;
   context.fill();
   context.restore();
 }
 
-function drawTriangle(context, particle, scale, opacity)
+function drawTriangle(context, particle, scale, opacity, fxConfig = UNITY_FX_TOUCH)
 {
-  const config = UNITY_FX_TOUCH.shards;
+  const shardCfg = fxConfig.shards;
+  const bloomCfg = fxConfig.bloom;
   const progress = clamp01(particle.ageMs / particle.lifetimeMs);
-  const size = particle.size * evaluateNumber(config.sizeKeys, progress) * scale;
-  const alpha = evaluateNumber(config.alphaKeys, progress) * opacity;
-  const color = evaluateColor(config.colorKeys, progress);
+  const size = particle.size * evaluateNumber(shardCfg.sizeKeys, progress) * scale;
+  const alpha = evaluateNumber(shardCfg.alphaKeys, progress) * opacity;
+  const color = evaluateColor(shardCfg.colorKeys, progress);
 
   if (size <= 0 || alpha <= 0)
   {
@@ -529,38 +532,40 @@ function drawTriangle(context, particle, scale, opacity)
   context.closePath();
   context.fillStyle = colorToCss(color, alpha);
   context.shadowColor = colorToCss(color, alpha * 0.75);
-  context.shadowBlur = UNITY_FX_TOUCH.bloom.shardBlur * scale;
+  context.shadowBlur = bloomCfg.shardBlur * scale;
   context.fill();
   context.restore();
 }
 
-function evaluateRingAngularVelocity(angularBlend, progress)
+function evaluateRingAngularVelocity(angularBlend, progress, ringCfg = UNITY_FX_TOUCH.rings)
 {
-  const config = UNITY_FX_TOUCH.rings;
   const minVelocity = evaluateUnitySmoothCurve(
-    config.angularVelocityMinKeys,
+    ringCfg.angularVelocityMinKeys,
     progress,
   );
   const maxVelocity = evaluateUnitySmoothCurve(
-    config.angularVelocityMaxKeys,
+    ringCfg.angularVelocityMaxKeys,
     progress,
   );
   // maxCurve 末端有极小负值；游戏画面在该阶段只表现为停转，没有可见反转。
   const velocity = Math.max(0, lerp(minVelocity, maxVelocity, angularBlend));
 
-  return velocity * config.angularVelocityMultiplier * config.rotationDirection;
+  return velocity * ringCfg.angularVelocityMultiplier * ringCfg.rotationDirection;
 }
 
 class ClickWave
 {
-  constructor(x, y)
+  constructor(x, y, fxConfig)
   {
+    this.fx = fxConfig;
     this.x = x;
     this.y = y;
     this.ageMs = 0;
     this.rings = [];
 
-    for (let index = 0; index < UNITY_FX_TOUCH.rings.count; index++)
+    const ringCfg = fxConfig.rings;
+
+    for (let index = 0; index < ringCfg.count; index++)
     {
       const angularBlend = Math.random();
 
@@ -568,13 +573,10 @@ class ClickWave
         {
           x,
           y,
-          radius: random(
-            UNITY_FX_TOUCH.rings.radiusMin,
-            UNITY_FX_TOUCH.rings.radiusMax,
-          ),
+          radius: random(ringCfg.radiusMin, ringCfg.radiusMax),
           rotation: random(0, TAU),
           angularBlend,
-          angularVelocity: evaluateRingAngularVelocity(angularBlend, 0),
+          angularVelocity: evaluateRingAngularVelocity(angularBlend, 0, ringCfg),
         },
       );
     }
@@ -582,6 +584,7 @@ class ClickWave
 
   update(deltaMs)
   {
+    const ringCfg = this.fx.rings;
     const previousAgeMs = this.ageMs;
 
     this.ageMs += deltaMs;
@@ -589,11 +592,12 @@ class ClickWave
     for (const ring of this.rings)
     {
       const sampleAgeMs = (previousAgeMs + this.ageMs) * 0.5;
-      const progress = sampleAgeMs / UNITY_FX_TOUCH.rings.lifetimeMs;
+      const progress = sampleAgeMs / ringCfg.lifetimeMs;
 
       ring.angularVelocity = evaluateRingAngularVelocity(
         ring.angularBlend,
         progress,
+        ringCfg,
       );
       ring.rotation += ring.angularVelocity * (deltaMs / 1000);
     }
@@ -601,27 +605,27 @@ class ClickWave
 
   draw(context, scale, opacity)
   {
-    const diskProgress = this.ageMs / UNITY_FX_TOUCH.disk.lifetimeMs;
+    const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
 
     if (diskProgress < 1)
     {
-      drawDisk(context, this, diskProgress, scale, opacity);
+      drawDisk(context, this, diskProgress, scale, opacity, this.fx);
     }
 
-    const ringProgress = this.ageMs / UNITY_FX_TOUCH.rings.lifetimeMs;
+    const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
 
     if (ringProgress < 1)
     {
       for (const ring of this.rings)
       {
-        drawDissolvedCircle(context, ring, ringProgress, scale, opacity);
+        drawDissolvedCircle(context, ring, ringProgress, scale, opacity, this.fx);
       }
     }
   }
 
   get dead()
   {
-    return this.ageMs >= UNITY_FX_TOUCH.rings.lifetimeMs;
+    return this.ageMs >= this.fx.rings.lifetimeMs;
   }
 }
 
@@ -642,9 +646,9 @@ class ShardParticle
     this.y += this.velocityY * deltaSeconds;
   }
 
-  draw(context, scale, opacity)
+  draw(context, scale, opacity, fxConfig = UNITY_FX_TOUCH)
   {
-    drawTriangle(context, this, scale, opacity);
+    drawTriangle(context, this, scale, opacity, fxConfig);
   }
 
   get dead()
@@ -653,17 +657,16 @@ class ShardParticle
   }
 }
 
-function createShard(x, y, originAngle, kind, scale)
+function createShard(x, y, originAngle, kind, scale, shardCfg = UNITY_FX_TOUCH.shards)
 {
-  const config = UNITY_FX_TOUCH.shards;
   const isClick = kind === 'click';
-  const radius = (isClick ? config.clickRadius : config.trailRadius) * scale;
+  const radius = (isClick ? shardCfg.clickRadius : shardCfg.trailRadius) * scale;
   const speed = (isClick
-    ? random(config.clickSpeedMin, config.clickSpeedMax)
-    : random(config.trailSpeedMin, config.trailSpeedMax)) * scale;
+    ? random(shardCfg.clickSpeedMin, shardCfg.clickSpeedMax)
+    : random(shardCfg.trailSpeedMin, shardCfg.trailSpeedMax)) * scale;
   const lifetimeMs = isClick
-    ? random(config.clickLifetimeMinMs, config.clickLifetimeMaxMs)
-    : random(config.trailLifetimeMinMs, config.trailLifetimeMaxMs);
+    ? random(shardCfg.clickLifetimeMinMs, shardCfg.clickLifetimeMaxMs)
+    : random(shardCfg.trailLifetimeMinMs, shardCfg.trailLifetimeMaxMs);
 
   return new ShardParticle(
     {
@@ -672,11 +675,9 @@ function createShard(x, y, originAngle, kind, scale)
       y: y + Math.sin(originAngle) * radius,
       velocityX: Math.cos(originAngle) * speed,
       velocityY: Math.sin(originAngle) * speed,
-      // TextureSheetAnimation 在 FX_TEX_Triangle_02_1 的两格中随机选一格，
-      // 原游戏因此只有朝上/朝下两种贴图方向，位置与速度仍由圆形 Shape 随机。
       rotation: Math.random() < 0.5 ? 0 : Math.PI,
       lifetimeMs,
-      size: random(config.sizeMin, config.sizeMax),
+      size: random(shardCfg.sizeMin, shardCfg.sizeMax),
     },
   );
 }
@@ -690,9 +691,9 @@ function createTrailPoint(x, y, bornAt)
   };
 }
 
-function interpolateTrailColor(progress)
+function interpolateTrailColor(progress, trailCfg = UNITY_FX_TOUCH.trail)
 {
-  return evaluateColor(UNITY_FX_TOUCH.trail.gradient, progress);
+  return evaluateColor(trailCfg.gradient, progress);
 }
 
 function drawTrailLayer(context, points, scale, opacity, layer)
@@ -752,26 +753,25 @@ function drawTrailLayer(context, points, scale, opacity, layer)
   context.restore();
 }
 
-function drawTrail(context, points, scale, opacity)
+function drawTrail(context, points, scale, opacity, fxConfig = UNITY_FX_TOUCH)
 {
-  const config = UNITY_FX_TOUCH.trail;
+  const trailCfg = fxConfig.trail;
+  const bloomCfg = fxConfig.bloom;
 
-  // 原材质为 Additive 高强度纹理；Canvas 只需一层窄光和两层线芯即可逼近，
-  // 不能再叠加旧实现的大半径径向光，否则视觉宽度会明显超过游戏。
   drawTrailLayer(context, points, scale, opacity,
     {
-      width: config.outerGlowWidth,
-      alpha: UNITY_FX_TOUCH.bloom.trailAlpha,
+      width: trailCfg.outerGlowWidth,
+      alpha: bloomCfg.trailAlpha,
       color: [0, 88, 224],
     });
   drawTrailLayer(context, points, scale, opacity,
     {
-      width: config.width,
+      width: trailCfg.width,
       alpha: 1,
     });
   drawTrailLayer(context, points, scale, opacity,
     {
-      width: config.coreWidth,
+      width: trailCfg.coreWidth,
       alpha: 0.72,
       color: [116, 225, 255],
     });
@@ -838,6 +838,7 @@ export class BAClickFX
     this.width = 0;
     this.height = 0;
     this.dpr = 1;
+    this.fxConfig = JSON.parse(JSON.stringify(UNITY_FX_TOUCH));
     this.waves = [];
     this.shards = [];
     this.trailStrokes = [];
@@ -1029,7 +1030,7 @@ export class BAClickFX
     const scale = this._getScale();
     const vertexDistance = Math.max(
       0.5,
-      UNITY_FX_TOUCH.trail.minVertexDistance * scale,
+      this.fxConfig.trail.minVertexDistance * scale,
     );
 
     if (segmentLength < vertexDistance)
@@ -1057,7 +1058,7 @@ export class BAClickFX
   _spawnTrailShards(from, to, scale)
   {
     const segmentLength = distance(from, to);
-    const spacing = Math.max(1, UNITY_FX_TOUCH.shards.trailSpacing * scale);
+    const spacing = Math.max(1, this.fxConfig.shards.trailSpacing * scale);
     let nextDistance = spacing - this.trailDistanceSinceShard;
     let spawned = 0;
 
@@ -1068,9 +1069,9 @@ export class BAClickFX
       const y = lerp(from.y, to.y, progress);
       const angle = random(0, TAU);
 
-      if (this.shards.length < UNITY_FX_TOUCH.shards.maxCount)
+      if (this.shards.length < this.fxConfig.shards.maxCount)
       {
-        this.shards.push(createShard(x, y, angle, 'trail', scale));
+        this.shards.push(createShard(x, y, angle, 'trail', scale, this.fxConfig.shards));
       }
 
       nextDistance += spacing;
@@ -1122,11 +1123,11 @@ export class BAClickFX
   {
     const scale = this._getScale();
 
-    this.waves.push(new ClickWave(x, y));
+    this.waves.push(new ClickWave(x, y, this.fxConfig));
 
-    for (let index = 0; index < UNITY_FX_TOUCH.shards.clickCount; index++)
+    for (let index = 0; index < this.fxConfig.shards.clickCount; index++)
     {
-      this.shards.push(createShard(x, y, random(0, TAU), 'click', scale));
+      this.shards.push(createShard(x, y, random(0, TAU), 'click', scale, this.fxConfig.shards));
     }
   }
 
@@ -1176,7 +1177,7 @@ export class BAClickFX
 
   _updateTrail(now, scale)
   {
-    const lifetime = UNITY_FX_TOUCH.trail.lifetimeMs;
+    const lifetime = this.fxConfig.trail.lifetimeMs;
 
     for (let strokeIndex = this.trailStrokes.length - 1; strokeIndex >= 0; strokeIndex--)
     {
@@ -1192,7 +1193,7 @@ export class BAClickFX
 
       if (stroke.points.length >= 2)
       {
-        drawTrail(this.context, stroke.points, scale, this.config.opacity);
+        drawTrail(this.context, stroke.points, scale, this.config.opacity, this.fxConfig);
       }
 
       if (!stroke.active && stroke.points.length === 0)
@@ -1209,7 +1210,7 @@ export class BAClickFX
       const wave = this.waves[index];
 
       wave.update(deltaMs);
-      wave.draw(this.context, scale, this.config.opacity);
+      wave.draw(this.context, scale, this.config.opacity, this.fxConfig);
 
       if (wave.dead)
       {
@@ -1225,7 +1226,7 @@ export class BAClickFX
       const shard = this.shards[index];
 
       shard.update(deltaMs);
-      shard.draw(this.context, scale, this.config.opacity);
+      shard.draw(this.context, scale, this.config.opacity, this.fxConfig);
 
       if (shard.dead)
       {
@@ -1318,6 +1319,53 @@ export class BAClickFX
       this.canvas.style.touchAction = overrides.touchAction;
     }
 
+    this._requestRender();
+  }
+
+  /**
+   * 设置特效参数。path 支持点号路径，如 'rings.hdrIntensity'。
+   * @param {string} path — 参数路径
+   * @param {number} value — 新值
+   */
+  setFxParam(path, value)
+  {
+    if (this.destroyed || !Number.isFinite(value))
+    {
+      return;
+    }
+
+    const keys = path.split('.');
+    let target = this.fxConfig;
+
+    for (let i = 0; i < keys.length - 1; i++)
+    {
+      if (!target[keys[i]])
+      {
+        return;
+      }
+
+      target = target[keys[i]];
+    }
+
+    const lastKey = keys[keys.length - 1];
+
+    if (typeof target[lastKey] === 'number')
+    {
+      target[lastKey] = value;
+      this._requestRender();
+    }
+  }
+
+  /** @returns {object} 当前完整特效配置的深拷贝 */
+  getFxConfig()
+  {
+    return JSON.parse(JSON.stringify(this.fxConfig));
+  }
+
+  /** 重置所有特效参数为游戏默认值 */
+  resetFxConfig()
+  {
+    this.fxConfig = JSON.parse(JSON.stringify(UNITY_FX_TOUCH));
     this._requestRender();
   }
 
