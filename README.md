@@ -261,7 +261,7 @@ ba-click-fx/
 
 ## 开发说明
 
-本项目主要通过 AI 生成和迭代完成，并经过实际运行测试、参数调校和效果校准。项目目标是尽可能还原《蔚蓝档案》风格的网页点击特效与拖尾轨迹，同时保持纯 Canvas 2D、零运行时依赖和易集成的特性。
+本项目主要通过 AI 生成和迭代完成（**绝无手写代码**），并经过实际运行测试、参数调校和效果校准。项目目标是尽可能还原《蔚蓝档案》风格的网页点击特效与拖尾轨迹，同时保持纯 Canvas 2D、零运行时依赖和易集成的特性。
 
 发布前统一执行：
 
@@ -276,10 +276,10 @@ npm run check
 
 ## 致谢
 
-- 蔚蓝档案 (Blue Archive) 游戏 UI 特效为原始设计参考
 - [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
 - [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark)
-- [ZM-Kimu/Blue-Archive-Touch-Effect](https://github.com/ZM-Kimu/Blue-Archive-Touch-Effect)
+
+上面的这两个项目对于特效的还原对比游戏内的原始特效还有一些差距，本项目在前两个项目的基础上优化了点击特效和轨迹特效，并且增加了大量可自定义选项。
 
 ---
 
