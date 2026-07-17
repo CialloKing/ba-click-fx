@@ -133,20 +133,16 @@ function setOverlayStyle(canvas, fixed)
   canvas.style.zIndex = '2147483647';
 }
 
-/**
- * MeshTri 的贴图溶解不是规则裁掉一段弧线，而是由纹理亮度决定哪些角度仍可见。
- * 三组低频谐波生成稳定纹理，既保留整圆时刻，也能在消散期形成不规则缺口。
- */
-function ringNoise(index, count, seed)
+function smoothstep(edge0, edge1, value)
 {
-  const angle = ((index + 0.5) / count) * TAU;
-  const value =
-    0.5 +
-    Math.sin(angle * 3 + seed) * 0.23 +
-    Math.sin(angle * 7 + seed * 1.71) * 0.17 +
-    Math.sin(angle * 13 - seed * 0.83) * 0.1;
+  if (edge0 === edge1)
+  {
+    return value < edge0 ? 0 : 1;
+  }
 
-  return clamp01(value);
+  const progress = clamp01((value - edge0) / (edge1 - edge0));
+
+  return progress * progress * (3 - 2 * progress);
 }
 
 function drawDissolvedCircle(context, ring, progress, scale, opacity)
@@ -155,38 +151,71 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity)
   const radius = ring.radius * evaluateNumber(config.sizeKeys, progress) * scale;
   const width = lerp(config.widthStart, config.widthEnd, progress) * scale;
   const threshold = evaluateNumber(config.dissolveKeys, progress);
+  const visibleRatio = 1 - threshold;
   const color = evaluateColor(config.colorKeys, progress);
-  const count = config.segmentCount;
+  const arcLength = TAU * visibleRatio;
+
+  if (arcLength <= 0.001)
+  {
+    return;
+  }
+
+  const steps = Math.max(
+    6,
+    Math.ceil(config.arcSamples * visibleRatio),
+  );
+  const shouldTaper = visibleRatio < 0.995;
 
   context.save();
   context.translate(ring.x, ring.y);
   context.rotate(ring.rotation);
   context.beginPath();
 
-  for (let index = 0; index < count; index++)
+  // 外沿和内沿组成一条连续弧带。溶解只移动两个端点，不再对每个角度
+  // 独立阈值化，因此不会把一枚 MeshTri 切成许多短弧。
+  for (let index = 0; index <= steps; index++)
   {
-    if (ringNoise(index, count, ring.seed) <= threshold)
+    const localProgress = index / steps;
+    const angle = -arcLength * localProgress;
+    const taper = shouldTaper
+      ? smoothstep(0, config.taperRatio, localProgress) *
+        smoothstep(0, config.taperRatio, 1 - localProgress)
+      : 1;
+    const outerRadius = radius + width * 0.5 * taper;
+    const x = Math.cos(angle) * outerRadius;
+    const y = Math.sin(angle) * outerRadius;
+
+    if (index === 0)
     {
-      continue;
+      context.moveTo(x, y);
     }
-
-    const startAngle = (index / count) * TAU;
-    const endAngle = ((index + 1.08) / count) * TAU;
-
-    context.moveTo(
-      Math.cos(startAngle) * radius,
-      Math.sin(startAngle) * radius,
-    );
-    context.arc(0, 0, radius, startAngle, endAngle);
+    else
+    {
+      context.lineTo(x, y);
+    }
   }
 
-  context.lineCap = 'butt';
-  context.lineJoin = 'round';
-  context.lineWidth = width;
-  context.strokeStyle = colorToCss(color, opacity);
+  for (let index = steps; index >= 0; index--)
+  {
+    const localProgress = index / steps;
+    const angle = -arcLength * localProgress;
+    const taper = shouldTaper
+      ? smoothstep(0, config.taperRatio, localProgress) *
+        smoothstep(0, config.taperRatio, 1 - localProgress)
+      : 1;
+    const innerRadius = Math.max(0, radius - width * 0.5 * taper);
+
+    context.lineTo(
+      Math.cos(angle) * innerRadius,
+      Math.sin(angle) * innerRadius,
+    );
+  }
+
+  context.closePath();
+  context.fillStyle = colorToCss(color, opacity);
   context.shadowColor = colorToCss(color, opacity * UNITY_FX_TOUCH.bloom.ringAlpha);
   context.shadowBlur = UNITY_FX_TOUCH.bloom.ringBlur * scale;
-  context.stroke();
+  context.fill();
   context.restore();
 }
 
@@ -274,8 +303,7 @@ class ClickWave
             random(
               UNITY_FX_TOUCH.rings.angularVelocityMin,
               UNITY_FX_TOUCH.rings.angularVelocityMax,
-            ) * (Math.random() < 0.5 ? -1 : 1),
-          seed: random(0, TAU),
+            ) * UNITY_FX_TOUCH.rings.rotationDirection,
         },
       );
     }
@@ -404,14 +432,35 @@ function drawTrailLayer(context, points, scale, opacity, layer)
   }
 
   context.save();
-  context.lineCap = 'round';
   context.lineJoin = 'round';
   context.lineWidth = layer.width * scale;
+
+  if (layer.color)
+  {
+    // 固定颜色的光晕和线芯必须整条只描边一次；逐段 round cap 会在每个
+    // TrailRenderer 顶点叠出一颗亮点，形成用户看到的“珍珠项链”。
+    context.lineCap = 'round';
+    context.strokeStyle = colorToCss(layer.color, layer.alpha * opacity);
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+
+    for (let index = 1; index < points.length; index++)
+    {
+      context.lineTo(points[index].x, points[index].y);
+    }
+
+    context.stroke();
+    context.restore();
+    return;
+  }
+
+  // 颜色渐变仍按路径距离采样，但使用 butt cap，邻接段不会生成圆形光点。
+  context.lineCap = 'butt';
 
   for (let index = 1; index < points.length; index++)
   {
     const progress = ((distances[index - 1] + distances[index]) * 0.5) / totalLength;
-    const color = layer.color ?? interpolateTrailColor(progress);
+    const color = interpolateTrailColor(progress);
 
     context.beginPath();
     context.moveTo(points[index - 1].x, points[index - 1].y);

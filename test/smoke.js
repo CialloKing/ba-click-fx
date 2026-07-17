@@ -227,6 +227,8 @@ assert(UNITY_FX_TOUCH.rootDurationMs === 1000, '根粒子持续 1 秒');
 assert(UNITY_FX_TOUCH.disk.lifetimeMs === 200, '短圆盘持续 0.2 秒');
 assert(UNITY_FX_TOUCH.rings.count === 2, 'MeshTri burst 一次生成 2 枚圆环');
 assert(UNITY_FX_TOUCH.rings.lifetimeMs === 600, '溶解圆环持续 0.6 秒');
+assert(UNITY_FX_TOUCH.rings.rotationDirection === -1, '两枚圆环只按逆时针方向旋转');
+assert(UNITY_FX_TOUCH.rings.arcSamples > 0, '圆环使用连续弧带而不是离散短弧');
 assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');
 assert(UNITY_FX_TOUCH.shards.trailSpacing === 80, '拖拽每 80px 生成一枚碎片');
 assert(UNITY_FX_TOUCH.trail.lifetimeMs === 300, 'TrailRenderer.time 为 0.3 秒');
@@ -257,6 +259,10 @@ dom.windowMock.dispatch('pointerdown',
   });
 assert(effect.activePointerId === 7, '按下后只跟踪当前 Pointer');
 assert(effect.waves.length === 1, '按下生成一组点击圆盘与圆环');
+assert(
+  effect.waves[0].rings.every((ring) => ring.angularVelocity < 0),
+  '每次生成的两枚圆环实际角速度均为逆时针',
+);
 assert(effect.shards.length === 4, '按下立即生成 4 枚点击碎片');
 assert(effect.trailStrokes.length === 1, '按下创建一个 TrailRenderer 行程');
 
@@ -280,9 +286,14 @@ dom.windowMock.dispatch('pointermove',
 assert(effect.trailStrokes[0].points.length > 2, '拖拽按 4px 最小顶点距离采样');
 assert(effect.shards.some((shard) => shard.kind === 'trail'), '拖过 80px 后生成距离粒子');
 
-now = flushFrames(dom, now, 2);
-assert(effect.context.strokeCount > 0, '运行帧实际绘制溶解环和细轨迹');
+effect.context.strokeCount = 0;
+now = flushFrames(dom, now, 1);
+assert(effect.context.strokeCount > 0, '运行帧实际绘制细轨迹');
 assert(effect.context.fillCount > 0, '运行帧实际绘制圆盘与三角粒子');
+assert(
+  effect.context.strokeCount <= effect.trailStrokes[0].points.length + 2,
+  '固定颜色拖尾层整条描边，不在每个顶点重复生成光点',
+);
 
 dom.windowMock.dispatch('pointerup',
   {
