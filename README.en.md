@@ -4,6 +4,7 @@
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)
 [![npm version](https://img.shields.io/npm/v/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
 [![npm downloads](https://img.shields.io/npm/dm/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami)
 
 > 📖 [中文版](./README.md)
 
@@ -13,11 +14,29 @@
 
 **Live Demo:** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
+> 🖱 Click, drag, or move your mouse on the demo page to preview.
+
 <p align="center">
   <img src="./docs/assets/ba-click-fx-demo.gif" alt="demo" width="45%">
   &nbsp;&nbsp;
   <img src="./docs/assets/blue-archive-reference.gif" alt="game reference" width="45%">
 </p>
+<p align="center"><sub>ba-click-fx demo (left) · In-game reference (right)</sub></p>
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Common Usage](#common-usage)
+- [API Reference](#api-reference)
+- [Effects](#effects)
+- [How It Differs](#how-it-differs)
+- [Project Structure](#project-structure)
+- [Development](#development)
+- [Credits](#credits)
+- [License](#license)
 
 ---
 
@@ -25,7 +44,7 @@
 
 - Parameter-level port from the Unity FX_Touch.prefab — not a "lookalike"
 - Dissolve rings (MeshTri), centre disk (ring), click shards (Ring 3/4), drag trail (TrailRenderer)
-- All particle parameters locked to the game's original values
+- All particle parameters locked to the game's original values: colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity
 - Pure Canvas 2D — no images, no WebGL, zero runtime dependencies
 - Browser extension, npm, CDN, and direct download
 - Custom theme colour via HSL hue shifting
@@ -60,14 +79,17 @@ const fx = new BAClickFX();
 </script>
 ```
 
+The IIFE build exposes the module as `BAClickFX`; the constructor is at `BAClickFX.BAClickFX`.
+
 ### 4. Direct Download
 
-Download from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases):
+Download from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) (`ba-click-fx.js`, `ba-click-fx.iife.js`, `ba-click-fx.cjs`, `ba-click-fx.d.ts`):
 
 ```html
+<canvas id="myCanvas"></canvas>
 <script type="module">
   import { BAClickFX } from './ba-click-fx.js';
-  const fx = new BAClickFX();
+  const fx = new BAClickFX({ target: '#myCanvas' });
 </script>
 ```
 
@@ -75,27 +97,15 @@ Download from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releas
 
 ## Common Usage
 
-Mount to a specific canvas:
-
 ```js
 const fx = new BAClickFX({ target: '#myCanvas' });
-```
-
-Trigger a click effect manually:
-
-```js
 fx.boom(window.innerWidth / 2, window.innerHeight / 2);
-```
-
-Destroy on page unload:
-
-```js
 fx.destroy();
 ```
 
 ---
 
-## API
+## API Reference
 
 ### Constructor
 
@@ -106,7 +116,7 @@ new BAClickFX(options?: {
   opacity?: number,              // default 1
   clickEnabled?: boolean,        // default true
   trailEnabled?: boolean,        // default true
-  trailAlways?: boolean,         // default false — show trail on mouse move without pressing
+  trailAlways?: boolean,         // default false
   maxDpr?: number,               // default 2
   touchAction?: string,          // default 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
@@ -121,22 +131,20 @@ new BAClickFX(options?: {
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
 | `destroy()` | Destroy instance, remove listeners and canvas |
-| `updateConfig({...})` | Update scale/opacity/clickEnabled/trailEnabled/trailAlways/maxDpr/touchAction at runtime |
-| `setThemeColor('#ff6969')` | Set a theme colour — hue-shifts all blue-tinted effects |
+| `updateConfig({...})` | Update config at runtime |
+| `setThemeColor('#ff6969')` | Set theme colour via HSL hue-shift |
 | `setFxParam('rings.hdrIntensity', 1.5)` | Modify any FX parameter by dot-path |
-| `getFxConfig()` | Return a deep copy of the current FX configuration |
+| `getFxConfig()` | Deep copy of current FX configuration |
 | `resetFxConfig()` | Reset all FX parameters to game defaults |
-| `getConfig()` | Return current instance config including a read-only snapshot of Unity params |
+| `getConfig()` | Current config including read-only Unity params snapshot |
 
-### Tunable FX Parameters (setFxParam paths)
+### Tunable FX Parameters
 
 | Path | Default | Description |
 |---|---|---|
 | `rings.hdrIntensity` | 1.0 | Ring HDR intensity |
-| `rings.radiusMin` | 51 | Ring start radius |
-| `rings.radiusMax` | 59 | Ring end radius |
-| `rings.widthStart` | 5.2 | Ring start width |
-| `rings.widthEnd` | 2.4 | Ring end width |
+| `rings.radiusMin` / `rings.radiusMax` | 51 / 59 | Ring radius range |
+| `rings.widthStart` / `rings.widthEnd` | 5.2 / 2.4 | Ring width range |
 | `rings.lifetimeMs` | 600 | Ring lifetime (ms) |
 | `shards.clickCount` | 4 | Click shard count |
 | `shards.maxCount` | 96 | Max shards |
@@ -154,18 +162,67 @@ new BAClickFX(options?: {
 
 ## Effects
 
-On click:
+### Click FX
 
-- **Center disk** — white→blue gradient short disk, 200ms
-- **Dissolve rings** — 2 rotating ring bands, arc shortens until disappearance, 600ms
-- **Click shards** — 4 triangle particles burst from click point, 600~700ms
+| Element | Behaviour |
+|---|---|
+| Center disk | White→blue gradient, rapid expansion, 200ms |
+| Dissolve rings | 2 rotating ring bands, arc shrinks to zero, 600ms |
+| Click shards | 4 triangle particles burst from click point |
 
-On drag:
+### Cursor Trail
 
-- **Cursor trail** — 0.3s TrailRenderer, gradient blue light trail + Bloom glow
-- **Moving shards** — triangle particles generated at distance intervals
+3-layer compositing, simulating Unity TrailRenderer + Bloom:
 
-All parameters extracted directly from the game's `FX_Touch.prefab` Unity ParticleSystem / TrailRenderer configuration.
+| Layer | Description |
+|---|---|
+| Core | Gradient blue bright core, alpha fade-out at tail |
+| Outer glow | Wide subtle glow simulating Bloom diffusion |
+| Gradient fill | Blue→transparent colour ramp along the path |
+
+Shards scatter along the trail at distance intervals.
+
+---
+
+## How It Differs
+
+`ba-click-fx` focuses on faithfully porting the Blue Archive in-game click FX. As of v1.2.0, parameters are extracted directly from the Unity Prefab for pixel-level accuracy.
+
+Compared to generic cursor effects:
+
+- Game-accurate dissolve rings, center disk, and shard burst
+- Parameter-level reproduction of Unity ParticleSystem curves
+- Trail fades continuously from head to tail, not all at once
+- Auto-scales with window height for consistent UI proportions
+- 14 tunable parameters + custom theme colour
+
+Related projects:
+
+- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
+- [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark)
+- [ZM-Kimu/Blue-Archive-Touch-Effect](https://github.com/ZM-Kimu/Blue-Archive-Touch-Effect)
+
+---
+
+## Project Structure
+
+```
+ba-click-fx/
+├── src/
+│   ├── ba-spark.js      # Engine: ParticleSystem + TrailRenderer lifecycle
+│   ├── main.js           # Demo page + control panel UI
+│   ├── config.js         # Unity FX_Touch parameter snapshot
+│   ├── utils.js          # Pure math utilities
+│   └── style.css         # Demo page styles
+├── scripts/
+│   ├── build.mjs         # Build script
+│   └── verify-*.mjs/cjs  # Release verification
+├── test/
+│   └── smoke.js          # 48 port-verification tests
+├── index.html            # Demo page
+├── dist/                 # Build output (ESM / CJS / IIFE)
+└── package.json
+```
 
 ---
 
@@ -184,9 +241,12 @@ npm test
 
 ## Credits
 
-- Blue Archive UI effects as the original design reference
-- Particle parameters extracted from the global server `uiuserinteraction_fx` Bundle (2026-04-06)
+- Blue Archive UI effects as original design reference
+- Particle parameters extracted from global server `uiuserinteraction_fx` Bundle (2026-04-06)
 - Unity source reference: FXTouch.cs, TouchEffectCreater.cs, InputWrapper.cs
+- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
+- [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark)
+- [ZM-Kimu/Blue-Archive-Touch-Effect](https://github.com/ZM-Kimu/Blue-Archive-Touch-Effect)
 
 ---
 
