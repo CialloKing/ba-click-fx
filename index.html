@@ -55,23 +55,23 @@
       <a href="https://github.com/CialloKing/ba-click-fx">GitHub</a>
       <a href="https://www.npmjs.com/package/ba-click-fx">npm</a>
     </nav>
-    <details>
-      <summary id="introInstallSummary">安装方式 / Installation</summary>
+    
+      <summary id="introInstallSummary">安装方式 / Installation
       <div id="introInstallContent">
         <p><strong>npm</strong></p>
         <pre><code>npm install ba-click-fx</code></pre>
         <p><strong>CDN</strong></p>
         <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.4/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>
       </div>
-    </details>
-    <details>
-      <summary id="introFAQSummary">常见问题 / FAQ</summary>
+    
+    
+      <summary id="introFAQSummary">常见问题 / FAQ
       <div id="introFAQContent">
         <p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p>
         <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要，纯 Canvas 2D 实现，零外部运行时依赖。</p>
         <p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和直接 script 引入三种方式。</p>
       </div>
-    </details>
+    
   </section>
 
   <!-- 底部交互提示 -->
@@ -102,6 +102,7 @@
     <section class="panel-section">
       <h3>基础</h3>
       <label class="ctrl">
+      <details open><summary>显示</summary>
         <span>主题颜色</span>
         <input type="color" id="ctrlColor" value="#69a1ff" />
       </label>
@@ -119,11 +120,9 @@
       </label>
     </section>
 
-      </details>
-    </section>
-
-      </details>
-    </section>
+      
+          </details>
+</section>
 
     <!-- ── 背景主题 ── -->
     <section class="panel-section">
@@ -153,6 +152,7 @@
         <span class="toggle-track"></span>
       </label>
       <label class="ctrl">
+      <details open><summary>圆环参数</summary>
         <span>圆环 HDR 强度 <output id="outRingHdr">1.00</output></span>
         <input type="range" id="ctrlRingHdr" min="0" max="5" step="0.05" value="1" />
       </label>
@@ -177,7 +177,9 @@
         <input type="range" id="ctrlRingLife" min="50" max="2000" step="10" value="600" />
       </label>
       <label class="ctrl">
-        <span>点击碎片数量 <output id="outClickShards">4</output></span>
+        </details>
+      <details open><summary>碎片参数</summary>
+      <span>点击碎片数量 <output id="outClickShards">4</output></span>
         <input type="range" id="ctrlClickShards" min="0" max="12" step="1" value="4" />
       </label>
       <label class="ctrl">
@@ -185,6 +187,8 @@
         <input type="range" id="ctrlMaxShards" min="0" max="500" step="5" value="96" />
       </label>
       <label class="ctrl">
+      </details>
+      <details open><summary>Bloom</summary>
         <span>Bloom 圆环模糊 <output id="outBloomRing">80</output></span>
         <input type="range" id="ctrlBloomRing" min="0" max="200" step="5" value="80" />
       </label>
@@ -229,6 +233,8 @@
         <input type="range" id="ctrlClickShardLifeMax" min="100" max="1000" step="10" value="700" />
       </label>
       <label class="ctrl toggle">
+      </details>
+      <details open><summary>Hit / Flare</summary>
         <span>启用 Hit 撞击爆发</span>
         <input type="checkbox" id="ctrlHitEnabled" />
         <span class="toggle-track"></span>
@@ -258,6 +264,7 @@
         <span>Flare 射线数 <output id="outFlareRays">6</output></span>
         <input type="range" id="ctrlFlareRays" min="3" max="12" step="1" value="6" />
       </label>
+      </details>
     </section>
 
     <!-- ── 拖尾轨迹 ── -->
@@ -274,6 +281,7 @@
         <span class="toggle-track"></span>
       </label>
       <label class="ctrl">
+      <details open><summary>轨迹图层</summary>
         <span>拖尾宽度 <output id="outTrailW">4.00</output></span>
         <input type="range" id="ctrlTrailW" min="1" max="25" step="0.1" value="4" />
       </label>
@@ -286,10 +294,14 @@
         <input type="range" id="ctrlTrailLife" min="50" max="2000" step="10" value="300" />
       </label>
       <label class="ctrl">
+      </details>
+      <details open><summary>碎片</summary>
         <span>碎片间距 <output id="outShardSpacing">80</output></span>
         <input type="range" id="ctrlShardSpacing" min="10" max="500" step="5" value="80" />
       </label>
       <label class="ctrl">
+      </details>
+      <details open><summary>Bloom</summary>
         <span>Bloom 拖尾透明度 <output id="outBloomTrail">0.00</output></span>
         <input type="range" id="ctrlBloomTrail" min="0" max="1" step="0.01" value="0" />
       </label>
@@ -321,6 +333,7 @@
         <span>Bloom 碎片模糊 <output id="outBloomShard">0</output></span>
         <input type="range" id="ctrlBloomShard" min="0" max="50" step="5" value="0" />
       </label>
+      </details>
     </section>
 
     <div class="panel-actions">
