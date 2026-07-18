@@ -161,7 +161,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlTrailGlowW', 'outTrailGlowW', 9, false],
     ['ctrlTrailLife', 'outTrailLife', 300, true],
     ['ctrlShardSpacing', 'outShardSpacing', 80, true],
-    ['ctrlBloomTrail', 'outBloomTrail', 0.18, false],
+    ['ctrlBloomTrail', 'outBloomTrail', 0, false],
     ['ctrlTrailOpacity', 'outTrailOpacity', 1, false],
   ];
 
