@@ -165,7 +165,7 @@ export const UNITY_FX_TOUCH = Object.freeze(
       ringAlpha: 0.9,
       diskBlur: 65,
       shardBlur: 0,
-      trailAlpha: 0.18,
+      trailAlpha: 0.00,
     },
   },
 );
