@@ -134,13 +134,10 @@ bindRange('ctrlClickShardLifeMin', 'outClickShardLifeMin', (v) => effect.setFxPa
 bindRange('ctrlClickShardLifeMax', 'outClickShardLifeMax', (v) => effect.setFxParam('shards.clickLifetimeMaxMs', v), true);
 
 // ── Hit / Flare ────────────────────────────────────────────────────────
-bindToggle('ctrlHitEnabled', (c) => { effect.fxConfig.hit.enabled = c; effect._requestRender(); });
+bindToggle('ctrlHitEnabled', (c) => effect.setFxParam('hit.enabled', c));
 bindRange('ctrlHitRadius', 'outHitRadius', (v) => effect.setFxParam('hit.radius', v), true);
 bindRange('ctrlHitLife', 'outHitLife', (v) => effect.setFxParam('hit.lifetimeMs', v), true);
-bindToggle('ctrlFlareEnabled', (c) => { effect.fxConfig.flare.enabled = c; effect._requestRender(); });
-bindRange('ctrlFlareRadius', 'outFlareRadius', (v) => effect.setFxParam('flare.radius', v), true);
-bindRange('ctrlFlareLife', 'outFlareLife', (v) => effect.setFxParam('flare.lifetimeMs', v), true);
-bindRange('ctrlFlareRays', 'outFlareRays', (v) => effect.setFxParam('flare.rayCount', v), true);
+bindToggle('ctrlFlareEnabled', (c) => effect.setFxParam('flare.enabled', c));
 bindRange('ctrlFlareRadius', 'outFlareRadius', (v) => effect.setFxParam('flare.radius', v), true);
 bindRange('ctrlFlareLife', 'outFlareLife', (v) => effect.setFxParam('flare.lifetimeMs', v), true);
 bindRange('ctrlFlareRays', 'outFlareRays', (v) => effect.setFxParam('flare.rayCount', v), true);
@@ -175,6 +172,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlClick').checked = true;
   document.getElementById('ctrlTrail').checked = true;
   document.getElementById('ctrlTrailAlways').checked = false;
+  document.getElementById('ctrlHitEnabled').checked = false;
+  document.getElementById('ctrlFlareEnabled').checked = false;
   document.getElementById('ctrlColor').value = '#69a1ff';
   effect.setThemeColor('#69a1ff');
 
@@ -704,6 +703,25 @@ switchLanguage(currentLang);
     ['ctrlBloomTrail', 'bloom.trailAlpha'],
   ];
 
+
+  // 新增参数
+  ['ctrlTrailOpacity', 'trail.trailOpacity'],
+  ['ctrlRingCount', 'rings.count'],
+  ['ctrlDiskRadius', 'disk.radius'],
+  ['ctrlDiskLife', 'disk.lifetimeMs'],
+  ['ctrlDissolveEdge', 'rings.dissolveEdgeRatio'],
+  ['ctrlAngVelMul', 'rings.angularVelocityMultiplier'],
+  ['ctrlArcSamples', 'rings.arcSamples'],
+  ['ctrlRingDir', 'rings.rotationDirection'],
+  ['ctrlRootDuration', 'rootDurationMs'],
+  ['ctrlClickShardLifeMin', 'shards.clickLifetimeMinMs'],
+  ['ctrlClickShardLifeMax', 'shards.clickLifetimeMaxMs'],
+  ['ctrlGeomWidth', 'trail.geometryWidth'],
+  ['ctrlMinVertDist', 'trail.minVertexDistance'],
+  ['ctrlTrailShardLifeMin', 'shards.trailLifetimeMinMs'],
+  ['ctrlTrailShardLifeMax', 'shards.trailLifetimeMaxMs'],
+  ['ctrlBloomDisk', 'bloom.diskBlur'],
+  ['ctrlBloomShard', 'bloom.shardBlur'],
   fxSliders.forEach(([elId, paramPath]) =>
   {
     const saved = localStorage.getItem('bafx-' + elId);
