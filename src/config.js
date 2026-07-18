@@ -148,6 +148,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
       minVertexDistance: 4,
       outerGlowWidth: 9,
       coreWidth: 1.7,
+      // 拖尾整体透明度，可通过 setFxParam 调整
+      trailOpacity: 1.0,
       gradient:
       [
         // 统一蓝色调，尾部靠 fadeAlpha 透明淡出，避免浅色背景灰色伪影

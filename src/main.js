@@ -117,6 +117,7 @@ bindRange('ctrlTrailGlowW', 'outTrailGlowW', (v) => effect.setFxParam('trail.out
 bindRange('ctrlTrailLife', 'outTrailLife', (v) => effect.setFxParam('trail.lifetimeMs', v), true);
 bindRange('ctrlShardSpacing', 'outShardSpacing', (v) => effect.setFxParam('shards.trailSpacing', v), true);
 bindRange('ctrlBloomTrail', 'outBloomTrail', (v) => effect.setFxParam('bloom.trailAlpha', v));
+bindRange('ctrlTrailOpacity', 'outTrailOpacity', (v) => effect.setFxParam('trail.trailOpacity', v));
 
 // ── 主题颜色 ────────────────────────────────────────────────────────────
 const ctrlColor = document.getElementById('ctrlColor');
@@ -161,6 +162,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlTrailLife', 'outTrailLife', 300, true],
     ['ctrlShardSpacing', 'outShardSpacing', 80, true],
     ['ctrlBloomTrail', 'outBloomTrail', 0.18, false],
+    ['ctrlTrailOpacity', 'outTrailOpacity', 1, false],
   ];
 
   fxDefaults.forEach(([id, outId, val, intOnly]) =>
@@ -335,6 +337,7 @@ const I18N = {
     labelTrailLife: '拖尾寿命',
     labelShardSpacing: '碎片间距',
     labelBloomTrail: 'Bloom 拖尾透明度',
+    labelTrailOpacity: '拖尾整体透明度',
     btnReset: '重置默认',
     customBgLabel: '自定义背景',
     customBgPlaceholder: 'CSS background 值或图片 URL…',
@@ -383,6 +386,7 @@ const I18N = {
     labelTrailLife: 'Trail Lifetime',
     labelShardSpacing: 'Shard Spacing',
     labelBloomTrail: 'Bloom Trail Alpha',
+    labelTrailOpacity: 'Trail Overall Opacity',
     btnReset: 'Reset Defaults',
     customBgLabel: 'Custom Background',
     customBgPlaceholder: 'CSS background or image URL…',
@@ -459,6 +463,7 @@ function switchLanguage(lang)
     ctrlTrailLife: d.labelTrailLife,
     ctrlShardSpacing: d.labelShardSpacing,
     ctrlBloomTrail: d.labelBloomTrail,
+    ctrlTrailOpacity: d.labelTrailOpacity,
   };
 
   Object.entries(labelMap).forEach(([id, text]) =>
