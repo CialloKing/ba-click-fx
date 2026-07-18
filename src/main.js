@@ -86,8 +86,6 @@ function bindToggle(id, onChange)
     onChange(el.checked);
     localStorage.setItem('bafx-' + id, String(el.checked));
   });
-  // 初始同步
-  onChange(el.checked);
 }
 
 // ── 基础控件 → updateConfig ─────────────────────────────────────────────
