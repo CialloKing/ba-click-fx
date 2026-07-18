@@ -189,20 +189,54 @@ export const UNITY_FX_TOUCH = Object.freeze(
       trailOpacity: 1.0,
       gradient:
       [
-        // 统一蓝色调，尾部靠 fadeAlpha 透明淡出，避免浅色背景灰色伪影
-        [0, [0, 100, 220]],
-        [0.5794156, [0, 150, 235]],
-        [0.9794156, [0, 238, 255]],
-        [1, [0, 238, 255]],
+        // Unity TrailRenderer 的 0 端位于最新点；这里按“旧点到新点”的
+        // Canvas 点序反转原始 Gradient，保留资源中的精确关键帧。
+        [0, [0, 0, 0]],
+        [0.5794156, [0, 24.191827, 72]],
+        [0.97941558, [0, 99.598249, 255]],
+        [1, [0, 99.598249, 255]],
+      ],
+      textureLongitudinalKeys:
+      [
+        // FX_TEX_Trail_03 使用 Stretch UV 且按 sRGB 导入，而 Unity 工程运行在
+        // Linear 色彩空间。这里预先转成线性能量并反转为旧点→新点，避免中段
+        // 亮度被放大后过早进入 Bloom。
+        [0, 0],
+        [0.248532, 0],
+        [0.311155, 0.002428251],
+        [0.373777, 0.021219072],
+        [0.436399, 0.068478133],
+        [0.499022, 0.144128269],
+        [0.561644, 0.462077113],
+        [0.624266, 0.672443723],
+        [0.686888, 0.791298368],
+        [0.749511, 0.930109875],
+        [0.812133, 1],
+        [1, 1],
       ],
     },
     bloom:
     {
+      // BundleBaseline 的 URP Bloom 对照值；软件管线使用 Float32 中间亮度，
+      // 最终再量化为普通 ImageData，因此不依赖实验性的 float16 Canvas。
+      threshold: 1.0,
+      softKnee: 0.5,
+      intensity: 0.45,
+      scatter: 0.35,
+      resolutionScale: 0.5,
+      iterations: 3,
+      emissionRange: 23.968628,
+      ringEmission: 5.992157,
+      diskEmission: 2.0,
+      trailEmission: 23.968628,
+      // 原资源的纹理、顶点色和材质 Alpha 均为 1；头尾差异由 RGB
+      // Gradient × Stretch 纹理产生，不能再用全局 Alpha 把头部一并压暗。
+      trailEmissionAlpha: 1,
       ringBlur: 80,
-      ringAlpha: 0.9,
+      ringAlpha: 0.35,
       diskBlur: 65,
-      shardBlur: 0,
-      trailAlpha: 0.00,
+      diskAlpha: 0.65,
+      trailAlpha: 0.18,
     },
   },
 );
@@ -214,6 +248,7 @@ export const CONFIG = Object.freeze(
     clickEnabled: true,
     trailEnabled: true,
     trailAlways: false,
+    softwareBloomEnabled: true,
     maxDpr: 2,
     touchAction: 'auto',
   },

@@ -93,6 +93,8 @@ bindRange('ctrlScale', 'outScale', (v) => effect.updateConfig({ scale: v }));
 bindRange('ctrlOpacity', 'outOpacity', (v) => effect.updateConfig({ opacity: v }));
 bindRange('ctrlDpr', 'outDpr', (v) => effect.updateConfig({ maxDpr: Math.round(v) }));
 
+bindToggle('ctrlSoftwareBloom', (checked) =>
+  effect.updateConfig({ softwareBloomEnabled: checked }));
 bindToggle('ctrlClick', (checked) => effect.updateConfig({ clickEnabled: checked }));
 bindToggle('ctrlTrail', (checked) => effect.updateConfig({ trailEnabled: checked }));
 bindToggle('ctrlTrailAlways', (checked) => effect.updateConfig({ trailAlways: checked }));
@@ -107,11 +109,22 @@ bindRange('ctrlRingLife', 'outRingLife', (v) => effect.setFxParam('rings.lifetim
 bindRange('ctrlClickShards', 'outClickShards', (v) => effect.setFxParam('shards.clickCount', v), true);
 bindRange('ctrlMaxShards', 'outMaxShards', (v) => effect.setFxParam('shards.maxCount', v), true);
 bindRange('ctrlBloomRing', 'outBloomRing', (v) => effect.setFxParam('bloom.ringBlur', v));
+bindRange('ctrlBloomThreshold', 'outBloomThreshold', (v) =>
+  effect.setFxParam('bloom.threshold', v));
+bindRange('ctrlBloomIntensity', 'outBloomIntensity', (v) =>
+  effect.setFxParam('bloom.intensity', v));
+bindRange('ctrlBloomScatter', 'outBloomScatter', (v) =>
+  effect.setFxParam('bloom.scatter', v));
 bindRange('ctrlTrailW', 'outTrailW', (v) => effect.setFxParam('trail.width', v));
 bindRange('ctrlTrailGlowW', 'outTrailGlowW', (v) => effect.setFxParam('trail.outerGlowWidth', v));
 bindRange('ctrlTrailLife', 'outTrailLife', (v) => effect.setFxParam('trail.lifetimeMs', v), true);
 bindRange('ctrlShardSpacing', 'outShardSpacing', (v) => effect.setFxParam('shards.trailSpacing', v), true);
-bindRange('ctrlBloomTrail', 'outBloomTrail', (v) => effect.setFxParam('bloom.trailAlpha', v));
+bindRange('ctrlBloomTrail', 'outBloomTrail', (v) =>
+{
+  // 软件卷积会摊薄亮线，原生单路径滤镜不会；保持不同标定避免回退过亮。
+  effect.setFxParam('bloom.trailEmissionAlpha', v);
+  effect.setFxParam('bloom.trailAlpha', v * 0.18);
+});
 bindRange('ctrlTrailOpacity', 'outTrailOpacity', (v) => effect.setFxParam('trail.trailOpacity', v));
 
 // ── 新暴露的数值参数 ──────────────────────────────────────────────────
@@ -125,7 +138,11 @@ bindRange('ctrlRingDir', 'outRingDir', (v) =>
 {
   effect.setFxParam('rings.rotationDirection', Math.round(v));
   const out = document.getElementById('outRingDir');
-  if (out) { out.textContent = v < 0 ? '逆时针' : '顺时针'; }
+
+  if (out)
+  {
+    out.textContent = v < 0 ? '逆时针' : '顺时针';
+  }
 });
 bindRange('ctrlRootDuration', 'outRootDuration', (v) => effect.setFxParam('rootDurationMs', v), true);
 bindRange('ctrlClickShardLifeMin', 'outClickShardLifeMin', (v) => effect.setFxParam('shards.clickLifetimeMinMs', v), true);
@@ -144,7 +161,6 @@ bindRange('ctrlMinVertDist', 'outMinVertDist', (v) => effect.setFxParam('trail.m
 bindRange('ctrlTrailShardLifeMin', 'outTrailShardLifeMin', (v) => effect.setFxParam('shards.trailLifetimeMinMs', v), true);
 bindRange('ctrlTrailShardLifeMax', 'outTrailShardLifeMax', (v) => effect.setFxParam('shards.trailLifetimeMaxMs', v), true);
 bindRange('ctrlBloomDisk', 'outBloomDisk', (v) => effect.setFxParam('bloom.diskBlur', v));
-bindRange('ctrlBloomShard', 'outBloomShard', (v) => effect.setFxParam('bloom.shardBlur', v));
 
 // ── 主题颜色 ────────────────────────────────────────────────────────────
 const ctrlColor = document.getElementById('ctrlColor');
@@ -167,6 +183,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('outOpacity').textContent = '1.00';
   document.getElementById('ctrlDpr').value = '2';
   document.getElementById('outDpr').textContent = '2';
+  document.getElementById('ctrlSoftwareBloom').checked = true;
   document.getElementById('ctrlClick').checked = true;
   document.getElementById('ctrlTrail').checked = true;
   document.getElementById('ctrlTrailAlways').checked = false;
@@ -186,11 +203,14 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlClickShards', 'outClickShards', 4, true],
     ['ctrlMaxShards', 'outMaxShards', 96, true],
     ['ctrlBloomRing', 'outBloomRing', 80, false],
+    ['ctrlBloomThreshold', 'outBloomThreshold', 1, false],
+    ['ctrlBloomIntensity', 'outBloomIntensity', 0.45, false],
+    ['ctrlBloomScatter', 'outBloomScatter', 0.35, false],
     ['ctrlTrailW', 'outTrailW', 4, false],
     ['ctrlTrailGlowW', 'outTrailGlowW', 9, false],
     ['ctrlTrailLife', 'outTrailLife', 300, true],
     ['ctrlShardSpacing', 'outShardSpacing', 80, true],
-    ['ctrlBloomTrail', 'outBloomTrail', 0, false],
+    ['ctrlBloomTrail', 'outBloomTrail', 1, false],
     ['ctrlTrailOpacity', 'outTrailOpacity', 1, false],
     // 新暴露参数
     ['ctrlRingCount', 'outRingCount', 2, true],
@@ -208,23 +228,37 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlTrailShardLifeMin', 'outTrailShardLifeMin', 200, true],
     ['ctrlTrailShardLifeMax', 'outTrailShardLifeMax', 400, true],
     ['ctrlBloomDisk', 'outBloomDisk', 65, false],
-    ['ctrlBloomShard', 'outBloomShard', 0, false],
   ];
 
   fxDefaults.forEach(([id, outId, val, intOnly]) =>
   {
     const el = document.getElementById(id);
 
-    if (el) { el.value = String(val); }
+    if (el)
+    {
+      el.value = String(val);
+    }
 
     const out = document.getElementById(outId);
 
-    if (out) { out.textContent = intOnly ? String(val) : val.toFixed(2); }
+    if (out)
+    {
+      out.textContent = intOnly ? String(val) : val.toFixed(2);
+    }
   });
 
   effect.resetFxConfig();
 
-  effect.updateConfig({ scale: 1, opacity: 1, clickEnabled: true, trailEnabled: true, maxDpr: 2 });
+  effect.updateConfig(
+    {
+      scale: 1,
+      opacity: 1,
+      clickEnabled: true,
+      trailEnabled: true,
+      softwareBloomEnabled: true,
+      maxDpr: 2,
+    },
+  );
   applyTheme('蔚蓝');
 
   for (const key of Object.keys(localStorage))
@@ -366,6 +400,7 @@ const I18N = {
     labelScale: '全局缩放',
     labelOpacity: '不透明度',
     labelDpr: '最大 DPR',
+    labelSoftwareBloom: 'JavaScript 软件 Bloom',
     labelClickEnabled: '启用点击特效',
     labelRingHdr: '圆环 HDR 强度',
     labelRingRadMin: '圆环起始半径',
@@ -376,13 +411,16 @@ const I18N = {
     labelClickShards: '点击碎片数量',
     labelMaxShards: '碎片上限',
     labelBloomRing: 'Bloom 圆环模糊',
+    labelBloomThreshold: 'Bloom 阈值',
+    labelBloomIntensity: 'Bloom 强度',
+    labelBloomScatter: 'Bloom 扩散',
     labelTrailEnabled: '启用拖尾',
     labelTrailAlways: '始终显示',
     labelTrailW: '拖尾宽度',
     labelTrailGlowW: '外发光宽度',
     labelTrailLife: '拖尾寿命',
     labelShardSpacing: '碎片间距',
-    labelBloomTrail: 'Bloom 拖尾透明度',
+    labelBloomTrail: 'Bloom 拖尾发射校准',
     labelTrailOpacity: '拖尾整体透明度',
     labelRingCount: '圆环数量',
     labelDiskRadius: '光盘半径',
@@ -399,7 +437,6 @@ const I18N = {
     labelTrailShardLifeMin: '拖尾碎片最短寿命',
     labelTrailShardLifeMax: '拖尾碎片最长寿命',
     labelBloomDisk: 'Bloom 光盘模糊',
-    labelBloomShard: 'Bloom 碎片模糊',
     btnReset: '重置默认',
     customBgLabel: '自定义背景',
     customBgPlaceholder: 'CSS background 值或图片 URL…',
@@ -431,6 +468,7 @@ const I18N = {
     labelScale: 'Global Scale',
     labelOpacity: 'Opacity',
     labelDpr: 'Max DPR',
+    labelSoftwareBloom: 'JavaScript Software Bloom',
     labelClickEnabled: 'Enable Click',
     labelRingHdr: 'Ring HDR Intensity',
     labelRingRadMin: 'Ring Radius Min',
@@ -441,13 +479,16 @@ const I18N = {
     labelClickShards: 'Click Shard Count',
     labelMaxShards: 'Max Shards',
     labelBloomRing: 'Bloom Ring Blur',
+    labelBloomThreshold: 'Bloom Threshold',
+    labelBloomIntensity: 'Bloom Intensity',
+    labelBloomScatter: 'Bloom Scatter',
     labelTrailEnabled: 'Enable Trail',
     labelTrailAlways: 'Always Show',
     labelTrailW: 'Trail Width',
     labelTrailGlowW: 'Outer Glow Width',
     labelTrailLife: 'Trail Lifetime',
     labelShardSpacing: 'Shard Spacing',
-    labelBloomTrail: 'Bloom Trail Alpha',
+    labelBloomTrail: 'Bloom Trail Emission Scale',
     labelTrailOpacity: 'Trail Overall Opacity',
     labelRingCount: 'Ring Count',
     labelDiskRadius: 'Disk Radius',
@@ -461,7 +502,6 @@ const I18N = {
     labelTrailShardLifeMin: 'Trail Shard Life Min',
     labelTrailShardLifeMax: 'Trail Shard Life Max',
     labelBloomDisk: 'Bloom Disk Blur',
-    labelBloomShard: 'Bloom Shard Blur',
     btnReset: 'Reset Defaults',
     customBgLabel: 'Custom Background',
     customBgPlaceholder: 'CSS background or image URL…',
@@ -493,7 +533,10 @@ function switchLanguage(lang)
   {
     const texts = [d.hintClick, d.hintDrag, d.hintKey];
 
-    if (i < 3) { s.innerHTML = texts[i]; }
+    if (i < 3)
+    {
+      s.innerHTML = texts[i];
+    }
   });
 
   // 面板标题 + 按钮 title
@@ -507,13 +550,25 @@ function switchLanguage(lang)
   // 段落标题
   const h3s = document.querySelectorAll('.panel-section h3');
 
-  if (h3s[0]) { h3s[0].textContent = d.sectionBasic; }
+  if (h3s[0])
+  {
+    h3s[0].textContent = d.sectionBasic;
+  }
 
-  if (h3s[1]) { h3s[1].textContent = d.sectionTheme; }
+  if (h3s[1])
+  {
+    h3s[1].textContent = d.sectionTheme;
+  }
 
-  if (h3s[2]) { h3s[2].textContent = d.sectionClick; }
+  if (h3s[2])
+  {
+    h3s[2].textContent = d.sectionClick;
+  }
 
-  if (h3s[3]) { h3s[3].textContent = d.sectionTrail; }
+  if (h3s[3])
+  {
+    h3s[3].textContent = d.sectionTrail;
+  }
 
   // 控件标签：span 中可能包含 <output>，只替换文本前缀
   const labelMap = {
@@ -521,6 +576,7 @@ function switchLanguage(lang)
     ctrlScale: d.labelScale,
     ctrlOpacity: d.labelOpacity,
     ctrlDpr: d.labelDpr,
+    ctrlSoftwareBloom: d.labelSoftwareBloom,
     ctrlClick: d.labelClickEnabled,
     ctrlRingHdr: d.labelRingHdr,
     ctrlRingRadMin: d.labelRingRadMin,
@@ -531,6 +587,9 @@ function switchLanguage(lang)
     ctrlClickShards: d.labelClickShards,
     ctrlMaxShards: d.labelMaxShards,
     ctrlBloomRing: d.labelBloomRing,
+    ctrlBloomThreshold: d.labelBloomThreshold,
+    ctrlBloomIntensity: d.labelBloomIntensity,
+    ctrlBloomScatter: d.labelBloomScatter,
     ctrlTrail: d.labelTrailEnabled,
     ctrlTrailAlways: d.labelTrailAlways,
     ctrlTrailW: d.labelTrailW,
@@ -554,7 +613,6 @@ function switchLanguage(lang)
     ctrlTrailShardLifeMin: d.labelTrailShardLifeMin,
     ctrlTrailShardLifeMax: d.labelTrailShardLifeMax,
     ctrlBloomDisk: d.labelBloomDisk,
-    ctrlBloomShard: d.labelBloomShard,
   };
 
   Object.entries(labelMap).forEach(([id, text]) =>
@@ -658,6 +716,18 @@ switchLanguage(currentLang);
     effect.updateConfig({ clickEnabled: false });
   }
 
+  if (localStorage.getItem('bafx-ctrlSoftwareBloom') === 'false')
+  {
+    const el = document.getElementById('ctrlSoftwareBloom');
+
+    if (el)
+    {
+      el.checked = false;
+    }
+
+    effect.updateConfig({ softwareBloomEnabled: false });
+  }
+
   if (localStorage.getItem('bafx-ctrlTrail') === 'false')
   {
     const el = document.getElementById('ctrlTrail');
@@ -694,11 +764,14 @@ switchLanguage(currentLang);
     ['ctrlClickShards', 'shards.clickCount'],
     ['ctrlMaxShards', 'shards.maxCount'],
     ['ctrlBloomRing', 'bloom.ringBlur'],
+    ['ctrlBloomThreshold', 'bloom.threshold'],
+    ['ctrlBloomIntensity', 'bloom.intensity'],
+    ['ctrlBloomScatter', 'bloom.scatter'],
     ['ctrlTrailW', 'trail.width'],
     ['ctrlTrailGlowW', 'trail.outerGlowWidth'],
     ['ctrlTrailLife', 'trail.lifetimeMs'],
     ['ctrlShardSpacing', 'shards.trailSpacing'],
-    ['ctrlBloomTrail', 'bloom.trailAlpha'],
+    ['ctrlBloomTrail', 'bloom.trailEmissionAlpha'],
     ['ctrlTrailOpacity', 'trail.trailOpacity'],
     ['ctrlRingCount', 'rings.count'],
     ['ctrlDiskRadius', 'disk.radius'],
@@ -715,7 +788,6 @@ switchLanguage(currentLang);
     ['ctrlTrailShardLifeMin', 'shards.trailLifetimeMinMs'],
     ['ctrlTrailShardLifeMax', 'shards.trailLifetimeMaxMs'],
     ['ctrlBloomDisk', 'bloom.diskBlur'],
-    ['ctrlBloomShard', 'bloom.shardBlur'],
     ['ctrlHitRadius', 'hit.radius'],
     ['ctrlHitLife', 'hit.lifetimeMs'],
     ['ctrlFlareRadius', 'flare.radius'],
@@ -727,14 +799,24 @@ switchLanguage(currentLang);
   if (localStorage.getItem('bafx-ctrlHitEnabled') === 'true')
   {
     const el = document.getElementById('ctrlHitEnabled');
-    if (el) { el.checked = true; }
+
+    if (el)
+    {
+      el.checked = true;
+    }
+
     effect.setFxParam('hit.enabled', true);
   }
 
   if (localStorage.getItem('bafx-ctrlFlareEnabled') === 'true')
   {
     const el = document.getElementById('ctrlFlareEnabled');
-    if (el) { el.checked = true; }
+
+    if (el)
+    {
+      el.checked = true;
+    }
+
     effect.setFxParam('flare.enabled', true);
   }
 
@@ -746,9 +828,16 @@ switchLanguage(currentLang);
     {
       const el = document.getElementById(elId);
 
-      if (el) { el.value = saved; }
-
-      effect.setFxParam(paramPath, parseFloat(saved));
+      if (el)
+      {
+        // 复用真实 input 处理器，确保输出文本和联动参数一并恢复。
+        el.value = saved;
+        el.dispatchEvent(new Event('input'));
+      }
+      else
+      {
+        effect.setFxParam(paramPath, parseFloat(saved));
+      }
     }
   });
 
