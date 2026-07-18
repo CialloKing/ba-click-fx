@@ -14,6 +14,8 @@ declare module 'ba-click-fx'
     trailEnabled?: boolean;
     /** 无需按下鼠标，移动即显示拖尾。默认 false。 */
     trailAlways?: boolean;
+    /** 使用 Float32 中间缓冲执行纯 JavaScript 软件 Bloom。默认 true。 */
+    softwareBloomEnabled?: boolean;
     /** Canvas backing store 的设备像素比上限，默认 2。 */
     maxDpr?: number;
     touchAction?: CSSStyleDeclaration['touchAction'];
@@ -28,6 +30,7 @@ declare module 'ba-click-fx'
     clickEnabled: boolean;
     trailEnabled: boolean;
     trailAlways: boolean;
+    softwareBloomEnabled: boolean;
     maxDpr: number;
     touchAction: string;
   }
@@ -59,7 +62,7 @@ declare module 'ba-click-fx'
     /** 在 Canvas 局部坐标触发一次游戏原版 FX_Touch 点击。 */
     boom(x?: number, y?: number): void;
 
-    /** 运行时更新 scale/opacity/clickEnabled/trailEnabled/trailAlways/maxDpr/touchAction。 */
+    /** 运行时更新基础开关、软件 Bloom、DPR 与触摸行为。 */
     updateConfig(overrides: Partial<BAClickFXOptions>): void;
 
     /** 设置主题色（CSS 十六进制），所有蓝色系特效的 hue 将以此偏移。传入空字符串恢复默认。 */

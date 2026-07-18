@@ -138,6 +138,7 @@ const options: BAClickFXOptions =
   opacity: 1,
   clickEnabled: true,
   trailEnabled: true,
+  softwareBloomEnabled: true,
   maxDpr: 2,
   inputFilter,
 };
@@ -148,8 +149,10 @@ const config: BAClickFXConfig = namedInstance.getConfig();
 const defaults: BAClickFXConfig = createConfig();
 const unity: UnityFxTouchConfig = UNITY_FX_TOUCH;
 const defaultScale: number = CONFIG.scale;
+const softwareBloomEnabled: boolean = config.softwareBloomEnabled;
 
 namedInstance.boom(300, 200);
+namedInstance.updateConfig({ softwareBloomEnabled: false });
 namedInstance.clearTrail();
 namedInstance.clear();
 namedInstance.destroy();
@@ -158,6 +161,8 @@ const invalidOptions: BAClickFXOptions =
 {
   // @ts-expect-error scale 只接受数字。
   scale: 'invalid',
+  // @ts-expect-error 软件 Bloom 开关只接受布尔值。
+  softwareBloomEnabled: 'invalid',
 };
 
 void [
@@ -166,6 +171,7 @@ void [
   defaults,
   unity,
   defaultScale,
+  softwareBloomEnabled,
   invalidOptions,
 ];
 `;

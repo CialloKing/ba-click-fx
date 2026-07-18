@@ -55,23 +55,23 @@
       <a href="https://github.com/CialloKing/ba-click-fx">GitHub</a>
       <a href="https://www.npmjs.com/package/ba-click-fx">npm</a>
     </nav>
-    
-      <summary id="introInstallSummary">安装方式 / Installation
+    <details>
+      <summary id="introInstallSummary">安装方式 / Installation</summary>
       <div id="introInstallContent">
         <p><strong>npm</strong></p>
         <pre><code>npm install ba-click-fx</code></pre>
         <p><strong>CDN</strong></p>
         <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.5/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>
       </div>
-    
-    
-      <summary id="introFAQSummary">常见问题 / FAQ
+    </details>
+    <details>
+      <summary id="introFAQSummary">常见问题 / FAQ</summary>
       <div id="introFAQContent">
         <p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p>
         <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要，纯 Canvas 2D 实现，零外部运行时依赖。</p>
         <p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和直接 script 引入三种方式。</p>
       </div>
-    
+    </details>
   </section>
 
   <!-- 底部交互提示 -->
@@ -118,9 +118,11 @@
         <span>最大 DPR <output id="outDpr">2</output></span>
         <input type="range" id="ctrlDpr" min="1" max="3" step="1" value="2" />
       </label>
-    </section>
-
-      
+      <label class="ctrl toggle">
+        <span>JavaScript 软件 Bloom</span>
+        <input type="checkbox" id="ctrlSoftwareBloom" checked />
+        <span class="toggle-track"></span>
+      </label>
       </details>
     </section>
 
@@ -191,6 +193,18 @@
       <label class="ctrl">
         <span>Bloom 圆环模糊 <output id="outBloomRing">80</output></span>
         <input type="range" id="ctrlBloomRing" min="0" max="200" step="5" value="80" />
+      </label>
+      <label class="ctrl">
+        <span>Bloom 阈值 <output id="outBloomThreshold">1.00</output></span>
+        <input type="range" id="ctrlBloomThreshold" min="0" max="5" step="0.05" value="1" />
+      </label>
+      <label class="ctrl">
+        <span>Bloom 强度 <output id="outBloomIntensity">0.45</output></span>
+        <input type="range" id="ctrlBloomIntensity" min="0" max="2" step="0.05" value="0.45" />
+      </label>
+      <label class="ctrl">
+        <span>Bloom 扩散 <output id="outBloomScatter">0.35</output></span>
+        <input type="range" id="ctrlBloomScatter" min="0" max="1" step="0.05" value="0.35" />
       </label>
       <label class="ctrl">
         <span>圆环数量 <output id="outRingCount">2</output></span>
@@ -300,10 +314,10 @@
         <input type="range" id="ctrlShardSpacing" min="10" max="500" step="5" value="80" />
       </label>
       </details>
-      <details><summary>Bloomm</summary>
+      <details><summary>Bloom</summary>
       <label class="ctrl">
-        <span>Bloom 拖尾透明度 <output id="outBloomTrail">0.00</output></span>
-        <input type="range" id="ctrlBloomTrail" min="0" max="1" step="0.01" value="0" />
+        <span>Bloom 拖尾发射校准 <output id="outBloomTrail">1.00</output></span>
+        <input type="range" id="ctrlBloomTrail" min="0" max="1" step="0.01" value="1" />
       </label>
       <label class="ctrl">
         <span>拖尾整体透明度 <output id="outTrailOpacity">1.00</output></span>
@@ -328,10 +342,6 @@
       <label class="ctrl">
         <span>Bloom 光盘模糊 <output id="outBloomDisk">65</output></span>
         <input type="range" id="ctrlBloomDisk" min="0" max="200" step="5" value="65" />
-      </label>
-      <label class="ctrl">
-        <span>Bloom 碎片模糊 <output id="outBloomShard">0</output></span>
-        <input type="range" id="ctrlBloomShard" min="0" max="50" step="5" value="0" />
       </label>
     </section>
 

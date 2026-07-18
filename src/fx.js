@@ -6,6 +6,7 @@
  */
 
 import { CONFIG, UNITY_FX_TOUCH, createConfig, SIZE_CORRECTION } from './config.js';
+import { SoftwareBloomRenderer } from './software-bloom.js';
 
 const TAU = Math.PI * 2;
 const DEFAULT_FRAME_MS = 1000 / 60;
@@ -17,14 +18,26 @@ function rgbToHsl(r, g, b)
   const d = max - min;
   const l = (max + min) / 2;
 
-  if (d === 0) { return [0, 0, l]; }
+  if (d === 0)
+  {
+    return [0, 0, l];
+  }
 
   const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
   let h;
 
-  if (max === r) { h = (g - b) / d + (g < b ? 6 : 0); }
-  else if (max === g) { h = (b - r) / d + 2; }
-  else { h = (r - g) / d + 4; }
+  if (max === r)
+  {
+    h = (g - b) / d + (g < b ? 6 : 0);
+  }
+  else if (max === g)
+  {
+    h = (b - r) / d + 2;
+  }
+  else
+  {
+    h = (r - g) / d + 4;
+  }
 
   return [h / 6, s, l];
 }
@@ -33,15 +46,38 @@ function hslToRgb(h, s, l)
 {
   const hueToRgb = (p, q, t) =>
   {
-    if (t < 0) { t += 1; }
-    if (t > 1) { t -= 1; }
-    if (t < 1 / 6) { return p + (q - p) * 6 * t; }
-    if (t < 1 / 2) { return q; }
-    if (t < 2 / 3) { return p + (q - p) * (2 / 3 - t) * 6; }
+    if (t < 0)
+    {
+      t += 1;
+    }
+
+    if (t > 1)
+    {
+      t -= 1;
+    }
+
+    if (t < 1 / 6)
+    {
+      return p + (q - p) * 6 * t;
+    }
+
+    if (t < 1 / 2)
+    {
+      return q;
+    }
+
+    if (t < 2 / 3)
+    {
+      return p + (q - p) * (2 / 3 - t) * 6;
+    }
+
     return p;
   };
 
-  if (s === 0) { return [l, l, l]; }
+  if (s === 0)
+  {
+    return [l, l, l];
+  }
 
   const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
   const p = 2 * l - q;
@@ -61,12 +97,20 @@ const BASE_BLUE_HUE = rgbToHsl(BASE_BLUE[0] / 255, BASE_BLUE[1] / 255, BASE_BLUE
 /** 将主题色 hex 转为 hue 偏移量，返回计算值供实例存储。 */
 function computeThemeHueShift(hex)
 {
-  if (!/^#[0-9a-f]{6}$/i.test(hex)) { return 0; }
+  if (!/^#[0-9a-f]{6}$/i.test(hex))
+  {
+    return 0;
+  }
+
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
   const b = parseInt(hex.slice(5, 7), 16) / 255;
   const [h, s] = rgbToHsl(r, g, b);
-  if (s < 0.02) { return 0; }
+  if (s < 0.02)
+  {
+    return 0;
+  }
+
   return h - BASE_BLUE_HUE;
 }
 
@@ -77,9 +121,18 @@ function computeThemeHueShift(hex)
  */
 function applyThemeHue(rgb)
 {
-  if (themeHueShift === 0) { return rgb; }
+  if (themeHueShift === 0)
+  {
+    return rgb;
+  }
+
   const [h, s, l] = rgbToHsl(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
-  if (s < 0.02) { return rgb; }
+
+  if (s < 0.02)
+  {
+    return rgb;
+  }
+
   let newHue = h + themeHueShift;
   newHue = newHue - Math.floor(newHue);
   const [nr, ng, nb] = hslToRgb(newHue, s, l);
@@ -222,6 +275,22 @@ function colorToCss(color, alpha = 1)
   return `rgba(${red}, ${green}, ${blue}, ${clamp01(alpha)})`;
 }
 
+/**
+ * 将已知的材质发射强度压入 8 位遮罩；软件 Bloom 回读后会乘回 emissionRange。
+ * Alpha 被预先烘入 RGB，Canvas 自身的 Alpha 只负责路径边缘的抗锯齿覆盖率。
+ */
+function colorToEmissionCss(color, alpha, emission, emissionRange)
+{
+  const themed = applyThemeHue(color);
+  const scale = clamp01(alpha) * Math.max(0, emission) /
+    Math.max(1, emissionRange);
+  const red = Math.round(clamp(themed[0] * scale, 0, 255));
+  const green = Math.round(clamp(themed[1] * scale, 0, 255));
+  const blue = Math.round(clamp(themed[2] * scale, 0, 255));
+
+  return `rgb(${red}, ${green}, ${blue})`;
+}
+
 function isCanvas(value)
 {
   return value?.tagName?.toLowerCase?.() === 'canvas';
@@ -267,7 +336,15 @@ function smoothstep(edge0, edge1, value)
   return progress * progress * (3 - 2 * progress);
 }
 
-function drawDissolvedCircle(context, ring, progress, scale, opacity, fxConfig = UNITY_FX_TOUCH)
+function drawDissolvedCircle(
+  context,
+  ring,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  useNativeBloom = true,
+)
 {
   const ringCfg = fxConfig.rings;
   const bloomCfg = fxConfig.bloom;
@@ -350,9 +427,9 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity, fxConfig =
   context.fillStyle = colorToCss(hdrColor, opacity);
   context.shadowColor = colorToCss(
     particleColor,
-    opacity * UNITY_FX_TOUCH.bloom.ringAlpha,
+    opacity * bloomCfg.ringAlpha,
   );
-  context.shadowBlur = UNITY_FX_TOUCH.bloom.ringBlur * scale;
+  context.shadowBlur = useNativeBloom ? bloomCfg.ringBlur * scale : 0;
   context.fill();
 
   // FX_TEX_Grad_Ring3 的 V 方向在环带中央比两侧亮约 12%；
@@ -410,7 +487,57 @@ function drawDissolvedCircle(context, ring, progress, scale, opacity, fxConfig =
   context.restore();
 }
 
-function drawDisk(context, wave, progress, scale, opacity, fxConfig = UNITY_FX_TOUCH)
+function drawDissolvedCircleEmission(
+  context,
+  ring,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
+{
+  const ringCfg = fxConfig.rings;
+  const bloomCfg = fxConfig.bloom;
+  const radius = ring.radius * evaluateNumber(ringCfg.sizeKeys, progress) * scale;
+  const yProgress = clamp01(progress / 0.07908168);
+  const yCurve = evaluateUnitySmoothCurve([[0, 0], [1, 0.9972414]], yProgress);
+  const width = lerp(ringCfg.widthStart, ringCfg.widthEnd, progress) * yCurve * scale;
+  const visibleRatio = 1 - evaluateNumber(ringCfg.dissolveKeys, progress);
+  const arcLength = TAU * visibleRatio;
+
+  if (arcLength <= 0.001 || width <= 0)
+  {
+    return;
+  }
+
+  const color = evaluateColor(ringCfg.colorKeys, progress);
+
+  context.save();
+  context.translate(ring.x, ring.y);
+  context.rotate(ring.rotation);
+  context.beginPath();
+  context.arc(0, 0, radius, 0, ringCfg.dissolveDirection * arcLength);
+  context.lineCap = 'round';
+  context.lineWidth = Math.max(0.5, width);
+  context.strokeStyle = colorToEmissionCss(
+    color,
+    opacity * bloomCfg.ringAlpha,
+    bloomCfg.ringEmission,
+    bloomCfg.emissionRange,
+  );
+  context.stroke();
+  context.restore();
+}
+
+function drawDisk(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  useNativeBloom = true,
+)
 {
   const diskCfg = fxConfig.disk;
   const bloomCfg = fxConfig.bloom;
@@ -437,16 +564,73 @@ function drawDisk(context, wave, progress, scale, opacity, fxConfig = UNITY_FX_T
   context.beginPath();
   context.arc(wave.x, wave.y, radius, 0, TAU);
   context.fillStyle = gradient;
-  context.shadowColor = colorToCss(color, alpha * 0.5);
-  context.shadowBlur = bloomCfg.diskBlur * scale;
+  context.shadowColor = colorToCss(color, alpha * bloomCfg.diskAlpha);
+  context.shadowBlur = useNativeBloom ? bloomCfg.diskBlur * scale : 0;
   context.fill();
   context.restore();
 }
 
-function drawTriangle(context, particle, scale, opacity, fxConfig = UNITY_FX_TOUCH)
+function drawDiskEmission(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
+{
+  const diskCfg = fxConfig.disk;
+  const bloomCfg = fxConfig.bloom;
+  const radius = diskCfg.radius * evaluateNumber(diskCfg.sizeKeys, progress) * scale;
+  const color = evaluateColor(diskCfg.colorKeys, progress);
+  const alpha = evaluateNumber(diskCfg.alphaKeys, progress) * opacity *
+    bloomCfg.diskAlpha;
+  const gradient = context.createRadialGradient(
+    wave.x,
+    wave.y,
+    0,
+    wave.x,
+    wave.y,
+    Math.max(radius, 0.01),
+  );
+
+  gradient.addColorStop(
+    0,
+    colorToEmissionCss(
+      color,
+      alpha,
+      bloomCfg.diskEmission,
+      bloomCfg.emissionRange,
+    ),
+  );
+  gradient.addColorStop(
+    0.88,
+    colorToEmissionCss(
+      color,
+      alpha,
+      bloomCfg.diskEmission,
+      bloomCfg.emissionRange,
+    ),
+  );
+  gradient.addColorStop(1, 'rgb(0, 0, 0)');
+
+  context.save();
+  context.beginPath();
+  context.arc(wave.x, wave.y, radius, 0, TAU);
+  context.fillStyle = gradient;
+  context.fill();
+  context.restore();
+}
+
+function drawTriangle(
+  context,
+  particle,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
 {
   const shardCfg = fxConfig.shards;
-  const bloomCfg = fxConfig.bloom;
   const progress = clamp01(particle.ageMs / particle.lifetimeMs);
   const size = particle.size * evaluateNumber(shardCfg.sizeKeys, progress) * scale;
   const alpha = evaluateNumber(shardCfg.alphaKeys, progress) * opacity;
@@ -466,8 +650,9 @@ function drawTriangle(context, particle, scale, opacity, fxConfig = UNITY_FX_TOU
   context.lineTo(-size * 0.52, size * 0.45);
   context.closePath();
   context.fillStyle = colorToCss(color, alpha);
-  context.shadowColor = colorToCss(color, alpha * 0.75);
-  context.shadowBlur = bloomCfg.shardBlur * scale;
+  // 三角碎片在原图中是清晰本体；显式清空阴影，避免继承上一层发光状态。
+  context.shadowColor = 'transparent';
+  context.shadowBlur = 0;
   context.fill();
   context.restore();
 }
@@ -495,7 +680,10 @@ function drawHit(context, wave, progress, scale, opacity, fxConfig)
   const alpha = evaluateNumber(cfg.alphaKeys, progress) * opacity;
   const color = evaluateColor(cfg.colorKeys, progress);
 
-  if (alpha <= 0) { return; }
+  if (alpha <= 0)
+  {
+    return;
+  }
 
   context.save();
   context.beginPath();
@@ -512,7 +700,10 @@ function drawFlare(context, wave, progress, scale, opacity, fxConfig)
   const alpha = evaluateNumber(cfg.alphaKeys, progress) * opacity;
   const color = evaluateColor(cfg.colorKeys, progress);
 
-  if (alpha <= 0) { return; }
+  if (alpha <= 0)
+  {
+    return;
+  }
 
   context.save();
   context.translate(wave.x, wave.y);
@@ -584,7 +775,7 @@ class ClickWave
     }
   }
 
-  draw(context, scale, opacity)
+  draw(context, scale, opacity, useNativeBloom = true)
   {
     // Hit：撞击爆发，极短极亮
     const hitProgress = this.ageMs / this.fx.hit.lifetimeMs;
@@ -606,7 +797,15 @@ class ClickWave
 
     if (diskProgress < 1)
     {
-      drawDisk(context, this, diskProgress, scale, opacity, this.fx);
+      drawDisk(
+        context,
+        this,
+        diskProgress,
+        scale,
+        opacity,
+        this.fx,
+        useNativeBloom,
+      );
     }
 
     const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
@@ -615,7 +814,42 @@ class ClickWave
     {
       for (const ring of this.rings)
       {
-        drawDissolvedCircle(context, ring, ringProgress, scale, opacity, this.fx);
+        drawDissolvedCircle(
+          context,
+          ring,
+          ringProgress,
+          scale,
+          opacity,
+          this.fx,
+          useNativeBloom,
+        );
+      }
+    }
+  }
+
+  drawBloom(context, scale, opacity)
+  {
+    const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
+
+    if (diskProgress < 1)
+    {
+      drawDiskEmission(context, this, diskProgress, scale, opacity, this.fx);
+    }
+
+    const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
+
+    if (ringProgress < 1)
+    {
+      for (const ring of this.rings)
+      {
+        drawDissolvedCircleEmission(
+          context,
+          ring,
+          ringProgress,
+          scale,
+          opacity,
+          this.fx,
+        );
       }
     }
   }
@@ -643,7 +877,12 @@ class ShardParticle
     this.y += this.velocityY * deltaSeconds;
   }
 
-  draw(context, scale, opacity, fxConfig = UNITY_FX_TOUCH)
+  draw(
+    context,
+    scale,
+    opacity,
+    fxConfig = UNITY_FX_TOUCH,
+  )
   {
     drawTriangle(context, this, scale, opacity, fxConfig);
   }
@@ -693,7 +932,7 @@ function interpolateTrailColor(progress, trailCfg = UNITY_FX_TOUCH.trail)
   return evaluateColor(trailCfg.gradient, progress);
 }
 
-function drawTrailLayer(context, points, scale, opacity, layer)
+function measureTrail(points)
 {
   let totalLength = 0;
   const distances = [0];
@@ -704,77 +943,237 @@ function drawTrailLayer(context, points, scale, opacity, layer)
     distances.push(totalLength);
   }
 
-  if (totalLength <= 0)
+  return {
+    distances,
+    totalLength,
+  };
+}
+
+function evaluateTrailMaterialColor(
+  progress,
+  trailCfg,
+  materialIntensity,
+)
+{
+  const gradientColor = interpolateTrailColor(progress, trailCfg);
+  const textureIntensity = evaluateNumber(
+    trailCfg.textureLongitudinalKeys,
+    progress,
+  );
+
+  // 原 Shader 先将顶点色与 Stretch 纹理相乘，再施加 _Intensity。
+  return gradientColor.map((channel) =>
+    channel * textureIntensity * materialIntensity);
+}
+
+function drawTrailLayer(
+  context,
+  points,
+  measurement,
+  scale,
+  opacity,
+  trailCfg,
+  layer,
+)
+{
+  if (measurement.totalLength <= 0)
   {
     return;
   }
 
   context.save();
   context.lineJoin = 'round';
-  context.lineWidth = layer.width * scale;
-
-  if (layer.color)
-  {
-    // 固定颜色的光晕和线芯必须整条只描边一次；逐段 round cap 会在每个
-    // TrailRenderer 顶点叠出一颗亮点，形成用户看到的“珍珠项链”。
-    context.lineCap = 'round';
-    context.strokeStyle = colorToCss(layer.color, layer.alpha * opacity);
-    context.beginPath();
-    context.moveTo(points[0].x, points[0].y);
-
-    for (let index = 1; index < points.length; index++)
-    {
-      context.lineTo(points[index].x, points[index].y);
-    }
-
-    context.stroke();
-    context.restore();
-    return;
-  }
-
-  // 颜色渐变仍按路径距离采样，但使用 butt cap，邻接段不会生成圆形光点。
   context.lineCap = 'butt';
+  context.lineWidth = layer.width * scale;
 
   for (let index = 1; index < points.length; index++)
   {
-    const progress = ((distances[index - 1] + distances[index]) * 0.5) / totalLength;
-    const color = interpolateTrailColor(progress);
-    // 尾部 fadeAlpha→0 透明融入背景，0.35 次方让淡出更柔和
-    const fadeAlpha = Math.pow(progress, 0.35);
+    const progress = (
+      measurement.distances[index - 1] + measurement.distances[index]
+    ) * 0.5 / measurement.totalLength;
+    const color = evaluateTrailMaterialColor(
+      progress,
+      trailCfg,
+      layer.materialIntensity,
+    );
 
     context.beginPath();
     context.moveTo(points[index - 1].x, points[index - 1].y);
     context.lineTo(points[index].x, points[index].y);
-    context.strokeStyle = colorToCss(color, layer.alpha * opacity * fadeAlpha);
+    context.strokeStyle = colorToCss(color, layer.alpha * opacity);
+    context.shadowBlur = 0;
+    context.shadowColor = 'transparent';
     context.stroke();
   }
 
   context.restore();
 }
 
-function drawTrail(context, points, scale, opacity, fxConfig = UNITY_FX_TOUCH)
+/**
+ * 原生回退只模糊一次完整路径，避免每个采样段的 shadowBlur 在接缝处累加。
+ * CanvasGradient 沿首尾弦近似 Stretch UV；默认软件 Bloom 仍使用精确弧长采样。
+ */
+function drawNativeTrailBloom(
+  context,
+  points,
+  measurement,
+  scale,
+  opacity,
+  trailCfg,
+  bloomCfg,
+)
+{
+  if (
+    measurement.totalLength <= 0 ||
+    typeof context.createLinearGradient !== 'function' ||
+    typeof context.filter !== 'string'
+  )
+  {
+    return;
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+
+  // 首尾重合时线性渐变会退化成纯色；宁可省略回退光晕，也不要把暗尾提亮。
+  if (distance(first, last) <= 0.5)
+  {
+    return;
+  }
+
+  const gradient = context.createLinearGradient(
+    first.x,
+    first.y,
+    last.x,
+    last.y,
+  );
+  const sampleCount = 16;
+
+  for (let sample = 0; sample <= sampleCount; sample++)
+  {
+    const progress = sample / sampleCount;
+    const color = evaluateTrailMaterialColor(
+      progress,
+      trailCfg,
+      bloomCfg.trailEmission,
+    );
+
+    gradient.addColorStop(
+      progress,
+      colorToCss(color, bloomCfg.trailAlpha * opacity),
+    );
+  }
+
+  context.save();
+  context.filter = `blur(${trailCfg.outerGlowWidth * scale}px)`;
+  context.lineJoin = 'round';
+  context.lineCap = 'round';
+  context.lineWidth = trailCfg.width * scale;
+  context.beginPath();
+  context.moveTo(first.x, first.y);
+
+  for (let index = 1; index < points.length; index++)
+  {
+    context.lineTo(points[index].x, points[index].y);
+  }
+
+  context.strokeStyle = gradient;
+  context.shadowBlur = 0;
+  context.shadowColor = 'transparent';
+  context.stroke();
+  context.restore();
+}
+
+function drawTrail(
+  context,
+  points,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  useNativeBloom = true,
+)
 {
   const trailCfg = fxConfig.trail;
   const bloomCfg = fxConfig.bloom;
   const trailOpacity = opacity * (trailCfg.trailOpacity ?? 1.0);
+  const measurement = measureTrail(points);
 
-  drawTrailLayer(context, points, scale, trailOpacity,
-    {
-      width: trailCfg.outerGlowWidth,
-      alpha: bloomCfg.trailAlpha,
-      color: [0, 88, 224],
-    });
-  drawTrailLayer(context, points, scale, trailOpacity,
+  if (useNativeBloom)
+  {
+    drawNativeTrailBloom(
+      context,
+      points,
+      measurement,
+      scale,
+      trailOpacity,
+      trailCfg,
+      bloomCfg,
+    );
+  }
+
+  drawTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
     {
       width: trailCfg.width,
-      alpha: 1,
+      alpha: 0.42,
+      materialIntensity: bloomCfg.trailEmission,
     });
-  drawTrailLayer(context, points, scale, trailOpacity,
+  drawTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
     {
       width: trailCfg.coreWidth,
-      alpha: 0.72,
-      color: [116, 225, 255],
+      alpha: 0.8,
+      materialIntensity: bloomCfg.trailEmission,
     });
+}
+
+function drawTrailEmission(
+  context,
+  points,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
+{
+  const trailCfg = fxConfig.trail;
+  const bloomCfg = fxConfig.bloom;
+  const trailOpacity = opacity * (trailCfg.trailOpacity ?? 1.0) *
+    bloomCfg.trailEmissionAlpha;
+  const measurement = measureTrail(points);
+
+  if (measurement.totalLength <= 0 || trailOpacity <= 0)
+  {
+    return;
+  }
+
+  context.save();
+  context.lineJoin = 'round';
+  // 相邻段在 lighter 遮罩中不得以 round cap 重叠，否则每个采样点都会变亮。
+  context.lineCap = 'butt';
+  context.lineWidth = Math.max(0.5, trailCfg.geometryWidth * scale);
+
+  for (let index = 1; index < points.length; index++)
+  {
+    const progress = (
+      measurement.distances[index - 1] + measurement.distances[index]
+    ) * 0.5 / measurement.totalLength;
+    const color = interpolateTrailColor(progress, trailCfg);
+    const textureIntensity = evaluateNumber(
+      trailCfg.textureLongitudinalKeys,
+      progress,
+    );
+
+    context.beginPath();
+    context.moveTo(points[index - 1].x, points[index - 1].y);
+    context.lineTo(points[index].x, points[index].y);
+    context.strokeStyle = colorToEmissionCss(
+      color,
+      trailOpacity * textureIntensity,
+      bloomCfg.trailEmission,
+      bloomCfg.emissionRange,
+    );
+    context.stroke();
+  }
+
+  context.restore();
 }
 
 export class BAClickFX
@@ -786,6 +1185,7 @@ export class BAClickFX
    * @param {number} [options.opacity]
    * @param {boolean} [options.clickEnabled]
    * @param {boolean} [options.trailEnabled]
+   * @param {boolean} [options.softwareBloomEnabled]
    * @param {number} [options.maxDpr]
    * @param {string} [options.touchAction]
    * @param {(event: PointerEvent) => boolean} [options.inputFilter]
@@ -804,6 +1204,8 @@ export class BAClickFX
         clickEnabled: options.clickEnabled ?? CONFIG.clickEnabled,
         trailEnabled: options.trailEnabled ?? CONFIG.trailEnabled,
         trailAlways: options.trailAlways ?? CONFIG.trailAlways,
+        softwareBloomEnabled: options.softwareBloomEnabled ??
+          CONFIG.softwareBloomEnabled,
         maxDpr: Number.isFinite(options.maxDpr) ? Math.max(1, options.maxDpr) : CONFIG.maxDpr,
         touchAction: options.touchAction ?? CONFIG.touchAction,
       },
@@ -835,6 +1237,9 @@ export class BAClickFX
     {
       throw new Error('BAClickFX 无法创建 Canvas 2D 上下文');
     }
+
+    // 两个内部 Canvas 仅承担发射遮罩和 ImageData 暂存，不会插入 DOM。
+    this.bloomRenderer = new SoftwareBloomRenderer(() => createCanvas());
 
     this.width = 0;
     this.height = 0;
@@ -1191,6 +1596,7 @@ export class BAClickFX
     this.animationFrame = null;
     const deltaMs = clamp(now - (this.lastFrameTime ?? now), 0, DEFAULT_FRAME_MS * 4);
     const scale = this._getScale();
+    const useSoftwareBloom = this._usesSoftwareBloom();
 
     this.lastFrameTime = now;
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -1201,9 +1607,14 @@ export class BAClickFX
     this.context.save();
     this.context.globalCompositeOperation = 'lighter';
 
-    this._updateTrail(now, scale);
-    this._updateWaves(deltaMs, scale);
+    this._updateTrail(now, scale, !useSoftwareBloom);
+    this._updateWaves(deltaMs, scale, !useSoftwareBloom);
     this._updateShards(deltaMs, scale);
+
+    if (useSoftwareBloom && this._hasVisibleEffects())
+    {
+      this._renderSoftwareBloom(scale);
+    }
 
     this.context.restore();
     themeHueShift = prevHueShift;
@@ -1218,7 +1629,131 @@ export class BAClickFX
     }
   }
 
-  _updateTrail(now, scale)
+  _usesSoftwareBloom()
+  {
+    return this.config.softwareBloomEnabled && this.bloomRenderer.available;
+  }
+
+  _getSoftwareBloomBounds(scale)
+  {
+    let minimumX = Infinity;
+    let minimumY = Infinity;
+    let maximumX = -Infinity;
+    let maximumY = -Infinity;
+    const includeCircle = (x, y, radius) =>
+    {
+      minimumX = Math.min(minimumX, x - radius);
+      minimumY = Math.min(minimumY, y - radius);
+      maximumX = Math.max(maximumX, x + radius);
+      maximumY = Math.max(maximumY, y + radius);
+    };
+
+    for (const wave of this.waves)
+    {
+      let ringRadius = 0;
+
+      for (const ring of wave.rings)
+      {
+        ringRadius = Math.max(ringRadius, ring.radius);
+      }
+
+      const sourceRadius = Math.max(
+        this.fxConfig.disk.radius,
+        ringRadius + this.fxConfig.rings.widthStart,
+      ) * scale;
+
+      includeCircle(wave.x, wave.y, sourceRadius);
+    }
+
+    const trailRadius = Math.max(
+      1,
+      this.fxConfig.trail.geometryWidth * scale * 0.5,
+    );
+
+    for (const stroke of this.trailStrokes)
+    {
+      if (stroke.points.length < 2)
+      {
+        continue;
+      }
+
+      for (const point of stroke.points)
+      {
+        includeCircle(point.x, point.y, trailRadius);
+      }
+    }
+
+    if (!Number.isFinite(minimumX))
+    {
+      return null;
+    }
+
+    // 区域必须覆盖卷积核完整支撑范围，否则边界会把光晕切成硬边。
+    const bloomCfg = this.fxConfig.bloom;
+    const padding = bloomCfg.ringBlur * scale *
+      (0.55 + bloomCfg.scatter) + 8;
+
+    return {
+      x: minimumX - padding,
+      y: minimumY - padding,
+      width: maximumX - minimumX + padding * 2,
+      height: maximumY - minimumY + padding * 2,
+    };
+  }
+
+  _renderSoftwareBloom(scale)
+  {
+    const bloomCfg = this.fxConfig.bloom;
+    const bounds = this._getSoftwareBloomBounds(scale);
+    const bloomContext = this.bloomRenderer.beginFrame(
+      this.width,
+      this.height,
+      bloomCfg.resolutionScale,
+      bounds,
+    );
+
+    if (!bloomContext)
+    {
+      return;
+    }
+
+    bloomContext.save();
+
+    for (const stroke of this.trailStrokes)
+    {
+      if (stroke.points.length >= 2)
+      {
+        drawTrailEmission(
+          bloomContext,
+          stroke.points,
+          scale,
+          this.config.opacity,
+          this.fxConfig,
+        );
+      }
+    }
+
+    for (const wave of this.waves)
+    {
+      wave.drawBloom(bloomContext, scale, this.config.opacity);
+    }
+
+    bloomContext.restore();
+    this.bloomRenderer.composite(
+      this.context,
+      {
+        encodingRange: bloomCfg.emissionRange,
+        threshold: bloomCfg.threshold,
+        softKnee: bloomCfg.softKnee,
+        intensity: bloomCfg.intensity,
+        scatter: bloomCfg.scatter,
+        iterations: bloomCfg.iterations,
+        blurRadius: bloomCfg.ringBlur * scale,
+      },
+    );
+  }
+
+  _updateTrail(now, scale, useNativeBloom)
   {
     const lifetime = this.fxConfig.trail.lifetimeMs;
 
@@ -1236,7 +1771,14 @@ export class BAClickFX
 
       if (stroke.points.length >= 2)
       {
-        drawTrail(this.context, stroke.points, scale, this.config.opacity, this.fxConfig);
+        drawTrail(
+          this.context,
+          stroke.points,
+          scale,
+          this.config.opacity,
+          this.fxConfig,
+          useNativeBloom,
+        );
       }
 
       if (!stroke.active && stroke.points.length === 0)
@@ -1246,14 +1788,19 @@ export class BAClickFX
     }
   }
 
-  _updateWaves(deltaMs, scale)
+  _updateWaves(deltaMs, scale, useNativeBloom)
   {
     for (let index = this.waves.length - 1; index >= 0; index--)
     {
       const wave = this.waves[index];
 
       wave.update(deltaMs);
-      wave.draw(this.context, scale, this.config.opacity, this.fxConfig);
+      wave.draw(
+        this.context,
+        scale,
+        this.config.opacity,
+        useNativeBloom,
+      );
 
       if (wave.dead)
       {
@@ -1269,7 +1816,12 @@ export class BAClickFX
       const shard = this.shards[index];
 
       shard.update(deltaMs);
-      shard.draw(this.context, scale, this.config.opacity, this.fxConfig);
+      shard.draw(
+        this.context,
+        scale,
+        this.config.opacity,
+        this.fxConfig,
+      );
 
       if (shard.dead)
       {
@@ -1353,6 +1905,11 @@ export class BAClickFX
     if (typeof overrides.trailAlways === 'boolean')
     {
       this.config.trailAlways = overrides.trailAlways;
+    }
+
+    if (typeof overrides.softwareBloomEnabled === 'boolean')
+    {
+      this.config.softwareBloomEnabled = overrides.softwareBloomEnabled;
     }
 
     if (Number.isFinite(overrides.maxDpr))
@@ -1481,6 +2038,7 @@ export class BAClickFX
     }
 
     this.clear();
+    this.bloomRenderer.destroy();
 
     if (this.ownsCanvas)
     {

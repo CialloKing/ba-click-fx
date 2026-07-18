@@ -68,11 +68,12 @@
     "preview": "vite preview",
     "test": "node test/smoke.js",
     "test:source": "node test/smoke.js --source",
+    "test:bloom": "node test/software-bloom.js",
     "verify:sync": "node scripts/verify-sync.cjs",
     "verify:package": "node scripts/verify-package.mjs",
     "verify:pack": "node scripts/verify-pack.mjs",
     "verify:tarball": "node scripts/verify-tarball.mjs",
-    "check": "npm run build && npm run test:source && npm test && npm run verify:sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
+    "check": "npm run build && npm run test:bloom && npm run test:source && npm test && npm run verify:sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
     "prepack": "npm run build",
     "prepublishOnly": "npm run check"
   },
