@@ -5,7 +5,7 @@ export default defineConfig({
     target: 'es2020',
     emptyOutDir: false,  // 不清空 dist,保留 demo 构建产物
     lib: {
-      entry: 'src/ba-spark.js',
+      entry: 'src/fx.js',
       name: 'BAClickFX',
       formats: ['es', 'cjs', 'iife'],
       fileName: (format) =>
