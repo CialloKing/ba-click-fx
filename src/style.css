@@ -352,6 +352,25 @@ kbd {
   color: rgba(125, 239, 255, 0.6);
 }
 
+.panel-section details {
+  margin-bottom: 8px;
+}
+
+.panel-section summary {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(160, 210, 240, 0.7);
+  padding: 4px 0;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(105, 200, 255, 0.1);
+  outline: none;
+}
+
+.panel-section summary:hover {
+  color: rgba(125, 239, 255, 0.9);
+}
+
 .sub-heading {
   margin: 14px 0 8px;
   font-size: 10px;
