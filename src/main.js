@@ -119,6 +119,21 @@ bindRange('ctrlShardSpacing', 'outShardSpacing', (v) => effect.setFxParam('shard
 bindRange('ctrlBloomTrail', 'outBloomTrail', (v) => effect.setFxParam('bloom.trailAlpha', v));
 bindRange('ctrlTrailOpacity', 'outTrailOpacity', (v) => effect.setFxParam('trail.trailOpacity', v));
 
+// ── 新暴露的数值参数 ──────────────────────────────────────────────────
+bindRange('ctrlRingCount', 'outRingCount', (v) => effect.setFxParam('rings.count', v), true);
+bindRange('ctrlDiskRadius', 'outDiskRadius', (v) => effect.setFxParam('disk.radius', v), true);
+bindRange('ctrlDiskLife', 'outDiskLife', (v) => effect.setFxParam('disk.lifetimeMs', v), true);
+bindRange('ctrlDissolveEdge', 'outDissolveEdge', (v) => effect.setFxParam('rings.dissolveEdgeRatio', v));
+bindRange('ctrlAngVelMul', 'outAngVelMul', (v) => effect.setFxParam('rings.angularVelocityMultiplier', v));
+bindRange('ctrlClickShardLifeMin', 'outClickShardLifeMin', (v) => effect.setFxParam('shards.clickLifetimeMinMs', v), true);
+bindRange('ctrlClickShardLifeMax', 'outClickShardLifeMax', (v) => effect.setFxParam('shards.clickLifetimeMaxMs', v), true);
+bindRange('ctrlGeomWidth', 'outGeomWidth', (v) => effect.setFxParam('trail.geometryWidth', v));
+bindRange('ctrlMinVertDist', 'outMinVertDist', (v) => effect.setFxParam('trail.minVertexDistance', v));
+bindRange('ctrlTrailShardLifeMin', 'outTrailShardLifeMin', (v) => effect.setFxParam('shards.trailLifetimeMinMs', v), true);
+bindRange('ctrlTrailShardLifeMax', 'outTrailShardLifeMax', (v) => effect.setFxParam('shards.trailLifetimeMaxMs', v), true);
+bindRange('ctrlBloomDisk', 'outBloomDisk', (v) => effect.setFxParam('bloom.diskBlur', v));
+bindRange('ctrlBloomShard', 'outBloomShard', (v) => effect.setFxParam('bloom.shardBlur', v));
+
 // ── 主题颜色 ────────────────────────────────────────────────────────────
 const ctrlColor = document.getElementById('ctrlColor');
 
@@ -163,6 +178,20 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlShardSpacing', 'outShardSpacing', 80, true],
     ['ctrlBloomTrail', 'outBloomTrail', 0, false],
     ['ctrlTrailOpacity', 'outTrailOpacity', 1, false],
+    // 新暴露参数
+    ['ctrlRingCount', 'outRingCount', 2, true],
+    ['ctrlDiskRadius', 'outDiskRadius', 48, true],
+    ['ctrlDiskLife', 'outDiskLife', 200, true],
+    ['ctrlDissolveEdge', 'outDissolveEdge', 0.1, false],
+    ['ctrlAngVelMul', 'outAngVelMul', 11.17, false],
+    ['ctrlClickShardLifeMin', 'outClickShardLifeMin', 600, true],
+    ['ctrlClickShardLifeMax', 'outClickShardLifeMax', 700, true],
+    ['ctrlGeomWidth', 'outGeomWidth', 2, false],
+    ['ctrlMinVertDist', 'outMinVertDist', 4, false],
+    ['ctrlTrailShardLifeMin', 'outTrailShardLifeMin', 200, true],
+    ['ctrlTrailShardLifeMax', 'outTrailShardLifeMax', 400, true],
+    ['ctrlBloomDisk', 'outBloomDisk', 65, false],
+    ['ctrlBloomShard', 'outBloomShard', 0, false],
   ];
 
   fxDefaults.forEach(([id, outId, val, intOnly]) =>
@@ -338,6 +367,19 @@ const I18N = {
     labelShardSpacing: '碎片间距',
     labelBloomTrail: 'Bloom 拖尾透明度',
     labelTrailOpacity: '拖尾整体透明度',
+    labelRingCount: '圆环数量',
+    labelDiskRadius: '光盘半径',
+    labelDiskLife: '光盘寿命',
+    labelDissolveEdge: '溶解边缘',
+    labelAngVelMul: '旋转速度倍率',
+    labelClickShardLifeMin: '点击碎片最短寿命',
+    labelClickShardLifeMax: '点击碎片最长寿命',
+    labelGeomWidth: '几何带宽',
+    labelMinVertDist: '最小采样间距',
+    labelTrailShardLifeMin: '拖尾碎片最短寿命',
+    labelTrailShardLifeMax: '拖尾碎片最长寿命',
+    labelBloomDisk: 'Bloom 光盘模糊',
+    labelBloomShard: 'Bloom 碎片模糊',
     btnReset: '重置默认',
     customBgLabel: '自定义背景',
     customBgPlaceholder: 'CSS background 值或图片 URL…',
@@ -387,6 +429,19 @@ const I18N = {
     labelShardSpacing: 'Shard Spacing',
     labelBloomTrail: 'Bloom Trail Alpha',
     labelTrailOpacity: 'Trail Overall Opacity',
+    labelRingCount: 'Ring Count',
+    labelDiskRadius: 'Disk Radius',
+    labelDiskLife: 'Disk Lifetime',
+    labelDissolveEdge: 'Dissolve Edge',
+    labelAngVelMul: 'Rotation Speed',
+    labelClickShardLifeMin: 'Click Shard Life Min',
+    labelClickShardLifeMax: 'Click Shard Life Max',
+    labelGeomWidth: 'Geometry Width',
+    labelMinVertDist: 'Min Vertex Distance',
+    labelTrailShardLifeMin: 'Trail Shard Life Min',
+    labelTrailShardLifeMax: 'Trail Shard Life Max',
+    labelBloomDisk: 'Bloom Disk Blur',
+    labelBloomShard: 'Bloom Shard Blur',
     btnReset: 'Reset Defaults',
     customBgLabel: 'Custom Background',
     customBgPlaceholder: 'CSS background or image URL…',
@@ -464,6 +519,19 @@ function switchLanguage(lang)
     ctrlShardSpacing: d.labelShardSpacing,
     ctrlBloomTrail: d.labelBloomTrail,
     ctrlTrailOpacity: d.labelTrailOpacity,
+    ctrlRingCount: d.labelRingCount,
+    ctrlDiskRadius: d.labelDiskRadius,
+    ctrlDiskLife: d.labelDiskLife,
+    ctrlDissolveEdge: d.labelDissolveEdge,
+    ctrlAngVelMul: d.labelAngVelMul,
+    ctrlClickShardLifeMin: d.labelClickShardLifeMin,
+    ctrlClickShardLifeMax: d.labelClickShardLifeMax,
+    ctrlGeomWidth: d.labelGeomWidth,
+    ctrlMinVertDist: d.labelMinVertDist,
+    ctrlTrailShardLifeMin: d.labelTrailShardLifeMin,
+    ctrlTrailShardLifeMax: d.labelTrailShardLifeMax,
+    ctrlBloomDisk: d.labelBloomDisk,
+    ctrlBloomShard: d.labelBloomShard,
   };
 
   Object.entries(labelMap).forEach(([id, text]) =>
