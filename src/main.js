@@ -134,18 +134,13 @@ bindRange('ctrlClickShardLifeMin', 'outClickShardLifeMin', (v) => effect.setFxPa
 bindRange('ctrlClickShardLifeMax', 'outClickShardLifeMax', (v) => effect.setFxParam('shards.clickLifetimeMaxMs', v), true);
 
 // ── Hit / Flare ────────────────────────────────────────────────────────
-bindToggle('ctrlHitEnabled', (c) =>
-{
-  effect.setFxParam('hit.enabled', c);
-  console.log('Hit enabled:', c, effect.getFxConfig().hit.enabled);
-});
+bindToggle('ctrlHitEnabled', (c) => { effect.fxConfig.hit.enabled = c; effect._requestRender(); });
 bindRange('ctrlHitRadius', 'outHitRadius', (v) => effect.setFxParam('hit.radius', v), true);
 bindRange('ctrlHitLife', 'outHitLife', (v) => effect.setFxParam('hit.lifetimeMs', v), true);
-bindToggle('ctrlFlareEnabled', (c) =>
-{
-  effect.setFxParam('flare.enabled', c);
-  console.log('Flare enabled:', c, effect.getFxConfig().flare.enabled);
-});
+bindToggle('ctrlFlareEnabled', (c) => { effect.fxConfig.flare.enabled = c; effect._requestRender(); });
+bindRange('ctrlFlareRadius', 'outFlareRadius', (v) => effect.setFxParam('flare.radius', v), true);
+bindRange('ctrlFlareLife', 'outFlareLife', (v) => effect.setFxParam('flare.lifetimeMs', v), true);
+bindRange('ctrlFlareRays', 'outFlareRays', (v) => effect.setFxParam('flare.rayCount', v), true);
 bindRange('ctrlFlareRadius', 'outFlareRadius', (v) => effect.setFxParam('flare.radius', v), true);
 bindRange('ctrlFlareLife', 'outFlareLife', (v) => effect.setFxParam('flare.lifetimeMs', v), true);
 bindRange('ctrlFlareRays', 'outFlareRays', (v) => effect.setFxParam('flare.rayCount', v), true);
