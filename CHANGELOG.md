@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## v1.2.5 — 面板折叠分组 + 健壮性修复
+
+- 面板 8 个可折叠分组，默认仅展开圆环参数和轨迹图层
+- 修复 setFxParam boolean 死代码（Number.isFinite 拦截）
+- ba-spark.js 重命名为 fx.js
+- restoreSettings 补全 17 个新滑块 + Hit/Flare 开关恢复
+
 ## v1.2.4 — Hit/Flare 点击层 + 面板扩展
 
 - 新增 Hit（撞击爆发）+ Flare（星形闪光）点击层，默认关闭
