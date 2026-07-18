@@ -225,6 +225,36 @@
         <span>点击碎片最长寿命 <output id="outClickShardLifeMax">700</output> ms</span>
         <input type="range" id="ctrlClickShardLifeMax" min="100" max="1000" step="10" value="700" />
       </label>
+      <label class="ctrl toggle">
+        <span>启用 Hit 撞击爆发</span>
+        <input type="checkbox" id="ctrlHitEnabled" />
+        <span class="toggle-track"></span>
+      </label>
+      <label class="ctrl">
+        <span>Hit 半径 <output id="outHitRadius">24</output></span>
+        <input type="range" id="ctrlHitRadius" min="10" max="60" step="1" value="24" />
+      </label>
+      <label class="ctrl">
+        <span>Hit 寿命 <output id="outHitLife">80</output> ms</span>
+        <input type="range" id="ctrlHitLife" min="20" max="200" step="10" value="80" />
+      </label>
+      <label class="ctrl toggle">
+        <span>启用 Flare 闪光</span>
+        <input type="checkbox" id="ctrlFlareEnabled" />
+        <span class="toggle-track"></span>
+      </label>
+      <label class="ctrl">
+        <span>Flare 半径 <output id="outFlareRadius">36</output></span>
+        <input type="range" id="ctrlFlareRadius" min="10" max="80" step="1" value="36" />
+      </label>
+      <label class="ctrl">
+        <span>Flare 寿命 <output id="outFlareLife">150</output> ms</span>
+        <input type="range" id="ctrlFlareLife" min="50" max="300" step="10" value="150" />
+      </label>
+      <label class="ctrl">
+        <span>Flare 射线数 <output id="outFlareRays">6</output></span>
+        <input type="range" id="ctrlFlareRays" min="3" max="12" step="1" value="6" />
+      </label>
     </section>
 
     <!-- ── 拖尾轨迹 ── -->
