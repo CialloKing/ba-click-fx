@@ -239,12 +239,21 @@ npm test
 
 ---
 
-## Credits
+## Acknowledgements and Third-Party Licenses
 
-- Blue Archive UI effects as original design reference
-- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
+The early Canvas 2D click-effect implementation of this project was developed
+with reference to the implementation approach, parameter design, and visual
+behavior of the following MIT-licensed projects:
+
 - [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark)
-- [ZM-Kimu/Blue-Archive-Touch-Effect](https://github.com/ZM-Kimu/Blue-Archive-Touch-Effect)
+- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
+
+The current version has since been substantially refactored, including its
+trail sampling, speed response, curve reconstruction, length control, and
+dissipation systems.
+
+See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for the applicable
+copyright notices and MIT license text.
 
 ---
 

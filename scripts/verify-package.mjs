@@ -92,12 +92,13 @@ const expectedFiles = [
   'README.md',
   'README.en.md',
   'LICENSE',
+  'THIRD_PARTY_NOTICES.md',
 ].sort();
 const configuredFiles = packageJson.files.map(normalizePath).sort();
 
 verify(
   JSON.stringify(configuredFiles) === JSON.stringify(expectedFiles),
-  'package files whitelist differs from the expected seven explicit entries',
+  'package files whitelist differs from the expected entries',
 );
 
 const entryFiles = new Set([

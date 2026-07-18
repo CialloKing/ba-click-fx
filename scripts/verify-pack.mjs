@@ -39,6 +39,7 @@ const expectedFiles = [
   'LICENSE',
   'README.en.md',
   'README.md',
+  'THIRD_PARTY_NOTICES.md',
   'dist/ba-click-fx.cjs',
   'dist/ba-click-fx.d.ts',
   'dist/ba-click-fx.iife.js',
@@ -49,7 +50,7 @@ const packedFiles = packageResult.files.map((file) => file.path).sort();
 
 verify(packageResult.name === packageJson.name, 'packed package name is incorrect');
 verify(packageResult.version === packageJson.version, 'packed package version is incorrect');
-verify(packageResult.entryCount === expectedFiles.length, 'packed package must contain exactly 8 files');
+verify(packageResult.entryCount === expectedFiles.length, `packed package must contain exactly ${expectedFiles.length} files`);
 verify(
   JSON.stringify(packedFiles) === JSON.stringify(expectedFiles),
   `packed file list differs from the expected list:\n${packedFiles.join('\n')}`,
