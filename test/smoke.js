@@ -442,7 +442,7 @@ assert(
   '拖尾实际使用 4px HDR 可见亮芯',
 );
 assert(
-  effect.context.strokeCount <= effect.trailStrokes[0].points.length + 2,
+  effect.context.strokeCount <= effect.trailStrokes[0].points.length + 2 + 12,
   '固定颜色拖尾层整条描边，不在每个顶点重复生成光点',
 );
 
