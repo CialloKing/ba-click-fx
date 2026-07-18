@@ -1,5 +1,5 @@
 import './style.css';
-import { BAClickFX } from './ba-spark.js';
+import { BAClickFX } from './fx.js';
 
 // ── 创建特效引擎 ────────────────────────────────────────────────────────
 const effect = new BAClickFX(
@@ -699,27 +699,45 @@ switchLanguage(currentLang);
     ['ctrlTrailLife', 'trail.lifetimeMs'],
     ['ctrlShardSpacing', 'shards.trailSpacing'],
     ['ctrlBloomTrail', 'bloom.trailAlpha'],
+    ['ctrlTrailOpacity', 'trail.trailOpacity'],
+    ['ctrlRingCount', 'rings.count'],
+    ['ctrlDiskRadius', 'disk.radius'],
+    ['ctrlDiskLife', 'disk.lifetimeMs'],
+    ['ctrlDissolveEdge', 'rings.dissolveEdgeRatio'],
+    ['ctrlAngVelMul', 'rings.angularVelocityMultiplier'],
+    ['ctrlArcSamples', 'rings.arcSamples'],
+    ['ctrlRingDir', 'rings.rotationDirection'],
+    ['ctrlRootDuration', 'rootDurationMs'],
+    ['ctrlClickShardLifeMin', 'shards.clickLifetimeMinMs'],
+    ['ctrlClickShardLifeMax', 'shards.clickLifetimeMaxMs'],
+    ['ctrlGeomWidth', 'trail.geometryWidth'],
+    ['ctrlMinVertDist', 'trail.minVertexDistance'],
+    ['ctrlTrailShardLifeMin', 'shards.trailLifetimeMinMs'],
+    ['ctrlTrailShardLifeMax', 'shards.trailLifetimeMaxMs'],
+    ['ctrlBloomDisk', 'bloom.diskBlur'],
+    ['ctrlBloomShard', 'bloom.shardBlur'],
+    ['ctrlHitRadius', 'hit.radius'],
+    ['ctrlHitLife', 'hit.lifetimeMs'],
+    ['ctrlFlareRadius', 'flare.radius'],
+    ['ctrlFlareLife', 'flare.lifetimeMs'],
+    ['ctrlFlareRays', 'flare.rayCount'],
   ];
 
+  // 恢复 Hit/Flare 开关
+  if (localStorage.getItem('bafx-ctrlHitEnabled') === 'true')
+  {
+    const el = document.getElementById('ctrlHitEnabled');
+    if (el) { el.checked = true; }
+    effect.setFxParam('hit.enabled', true);
+  }
 
-  // 新增参数
-  ['ctrlTrailOpacity', 'trail.trailOpacity'],
-  ['ctrlRingCount', 'rings.count'],
-  ['ctrlDiskRadius', 'disk.radius'],
-  ['ctrlDiskLife', 'disk.lifetimeMs'],
-  ['ctrlDissolveEdge', 'rings.dissolveEdgeRatio'],
-  ['ctrlAngVelMul', 'rings.angularVelocityMultiplier'],
-  ['ctrlArcSamples', 'rings.arcSamples'],
-  ['ctrlRingDir', 'rings.rotationDirection'],
-  ['ctrlRootDuration', 'rootDurationMs'],
-  ['ctrlClickShardLifeMin', 'shards.clickLifetimeMinMs'],
-  ['ctrlClickShardLifeMax', 'shards.clickLifetimeMaxMs'],
-  ['ctrlGeomWidth', 'trail.geometryWidth'],
-  ['ctrlMinVertDist', 'trail.minVertexDistance'],
-  ['ctrlTrailShardLifeMin', 'shards.trailLifetimeMinMs'],
-  ['ctrlTrailShardLifeMax', 'shards.trailLifetimeMaxMs'],
-  ['ctrlBloomDisk', 'bloom.diskBlur'],
-  ['ctrlBloomShard', 'bloom.shardBlur'],
+  if (localStorage.getItem('bafx-ctrlFlareEnabled') === 'true')
+  {
+    const el = document.getElementById('ctrlFlareEnabled');
+    if (el) { el.checked = true; }
+    effect.setFxParam('flare.enabled', true);
+  }
+
   fxSliders.forEach(([elId, paramPath]) =>
   {
     const saved = localStorage.getItem('bafx-' + elId);

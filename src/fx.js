@@ -1377,7 +1377,7 @@ export class BAClickFX
    */
   setFxParam(path, value)
   {
-    if (this.destroyed || !Number.isFinite(value))
+    if (this.destroyed)
     {
       return;
     }
@@ -1397,17 +1397,22 @@ export class BAClickFX
 
     const lastKey = keys[keys.length - 1];
 
-    if (typeof target[lastKey] === 'number')
+    if (typeof target[lastKey] === 'boolean')
     {
+      target[lastKey] = !!value;
+      this._requestRender();
+    }
+    else if (typeof target[lastKey] === 'number')
+    {
+      if (!Number.isFinite(value))
+      {
+        return;
+      }
+
       const isTimeOrDistance = /(Ms|Spacing|Count|Radius|Width|Blur)$/.test(lastKey);
       const min = isTimeOrDistance ? 1 : 0;
 
       target[lastKey] = Math.max(min, value);
-      this._requestRender();
-    }
-    else if (typeof target[lastKey] === 'boolean')
-    {
-      target[lastKey] = value;
       this._requestRender();
     }
   }

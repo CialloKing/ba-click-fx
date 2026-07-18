@@ -209,7 +209,7 @@ Related projects:
 ```
 ba-click-fx/
 ├── src/
-│   ├── ba-spark.js      # Engine: ParticleSystem + TrailRenderer lifecycle
+│   ├── fx.js            # Engine: ParticleSystem + TrailRenderer lifecycle
 │   ├── main.js           # Demo page + control panel UI
 │   ├── config.js         # Unity FX_Touch parameter snapshot
 │   ├── utils.js          # Pure math utilities

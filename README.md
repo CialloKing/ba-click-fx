@@ -233,7 +233,7 @@ Related projects:
 ```
 ba-click-fx/
 ├── src/
-│   ├── ba-spark.js      # 主引擎：ParticleSystem + TrailRenderer 生命周期
+│   ├── fx.js            # 主引擎：ParticleSystem + TrailRenderer 生命周期
 │   ├── main.js           # 演示页面入口 + 控制面板 UI
 │   ├── config.js         # Unity FX_Touch 粒子参数只读快照
 │   ├── utils.js          # 纯数学工具

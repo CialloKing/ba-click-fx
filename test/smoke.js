@@ -5,7 +5,7 @@
  */
 
 const modulePath = process.argv.includes('--source')
-  ? '../src/ba-spark.js'
+  ? '../src/fx.js'
   : '../dist/ba-click-fx.js';
 const module = await import(modulePath);
 const { BAClickFX, CONFIG, UNITY_FX_TOUCH, createConfig, SIZE_CORRECTION } = module;
