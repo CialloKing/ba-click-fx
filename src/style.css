@@ -353,6 +353,7 @@ kbd {
 }
 
 .panel-section details {
+  display: block;
   margin-bottom: 8px;
 }
 
