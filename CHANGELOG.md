@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## v1.2.4 — Hit/Flare 点击层 + 面板扩展
+
+- 新增 Hit（撞击爆发）+ Flare（星形闪光）点击层，默认关闭
+- 面板从 19 滑块扩展至 36 滑块，新增可折叠分组
+- 弧线采样精度、旋转方向、根持续时间 API
+- 修复 setFxParam boolean 类型 + bindToggle 初始同步
+
 ## v1.2.3 — 健壮性全面提升
 
 - 4 处深拷贝改用 structuredClone
