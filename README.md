@@ -274,12 +274,16 @@ npm run check
 
 ---
 
-## 致谢
+## 致谢与第三方许可
 
-- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
+本项目早期的 Canvas 2D 点击特效实现曾参考以下 MIT 许可项目的实现方式、参数设计和视觉表现：
+
 - [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark)
+- [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
 
-上面的这两个项目对于特效的还原对比游戏内的原始特效还有一些差距，本项目在前两个项目的基础上优化了点击特效和轨迹特效，并且增加了大量可自定义选项。
+当前版本已经过大幅重构，包括独立的拖尾采样、速度响应、曲线重建、长度控制和消散系统。
+
+相关版权声明和 MIT 许可文本请参阅 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 
 ---
 

@@ -26,7 +26,8 @@
     "dist/ba-click-fx.d.ts",
     "README.md",
     "README.en.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "keywords": [
     "blue-archive",
