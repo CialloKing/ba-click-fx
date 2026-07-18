@@ -491,7 +491,7 @@ function evaluateRingAngularVelocity(angularBlend, progress, ringCfg = UNITY_FX_
 function drawHit(context, wave, progress, scale, opacity, fxConfig)
 {
   const cfg = fxConfig.hit;
-  const radius = cfg.radius * scale;
+  const radius = cfg.radius * scale * (1 + progress);
   const alpha = evaluateNumber(cfg.alphaKeys, progress) * opacity;
   const color = evaluateColor(cfg.colorKeys, progress);
 
@@ -501,8 +501,8 @@ function drawHit(context, wave, progress, scale, opacity, fxConfig)
   context.beginPath();
   context.arc(wave.x, wave.y, radius, 0, TAU);
   context.fillStyle = colorToCss(color, alpha);
-  context.shadowColor = colorToCss(color, alpha * 0.5);
-  context.shadowBlur = 6 * scale;
+  context.shadowColor = colorToCss(color, alpha);
+  context.shadowBlur = 12 * scale;
   context.fill();
   context.restore();
 }
@@ -518,18 +518,20 @@ function drawFlare(context, wave, progress, scale, opacity, fxConfig)
 
   context.save();
   context.translate(wave.x, wave.y);
+  context.shadowColor = colorToCss(color, alpha);
+  context.shadowBlur = 6 * scale;
 
   for (let i = 0; i < cfg.rayCount; i++)
   {
-    const angle = (TAU / cfg.rayCount) * i;
-    const endX = Math.cos(angle) * radius;
-    const endY = Math.sin(angle) * radius;
+    const angle = (TAU / cfg.rayCount) * i + progress * 0.5;
+    const innerR = radius * 0.2;
+    const outerR = radius;
 
     context.beginPath();
-    context.moveTo(0, 0);
-    context.lineTo(endX, endY);
+    context.moveTo(Math.cos(angle) * innerR, Math.sin(angle) * innerR);
+    context.lineTo(Math.cos(angle) * outerR, Math.sin(angle) * outerR);
     context.strokeStyle = colorToCss(color, alpha);
-    context.lineWidth = 1.5 * scale;
+    context.lineWidth = 3 * scale;
     context.stroke();
   }
 
