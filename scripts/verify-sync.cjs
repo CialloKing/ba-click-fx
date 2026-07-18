@@ -11,7 +11,7 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const mainJs = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8');
-const engineJs = fs.readFileSync(path.join(root, 'src', 'ba-spark.js'), 'utf8');
+const engineJs = fs.readFileSync(path.join(root, 'src', 'fx.js'), 'utf8');
 const configJs = fs.readFileSync(path.join(root, 'src', 'config.js'), 'utf8');
 
 function verify(condition, message)
