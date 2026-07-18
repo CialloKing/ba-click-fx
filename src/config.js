@@ -22,7 +22,7 @@ export const UNITY_FX_TOUCH = Object.freeze(
     rootDurationMs: 1000,
     hit:
     {
-      enabled: false,
+      enabled: true,
       lifetimeMs: 80,
       radius: 24,
       colorKeys:
@@ -40,7 +40,7 @@ export const UNITY_FX_TOUCH = Object.freeze(
     },
     flare:
     {
-      enabled: false,
+      enabled: true,
       lifetimeMs: 150,
       radius: 36,
       rayCount: 6,
