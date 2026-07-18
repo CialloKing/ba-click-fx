@@ -1399,7 +1399,7 @@ export class BAClickFX
 
     const lastKey = keys[keys.length - 1];
 
-    if (typeof target[lastKey] === 'number')
+    if (typeof target[lastKey] === 'number' || typeof target[lastKey] === 'boolean')
     {
       // 防止除零和负数：时间/距离类参数最小值 1
       const isTimeOrDistance = /(Ms|Spacing|Count|Radius|Width|Blur)$/.test(lastKey);

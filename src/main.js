@@ -130,6 +130,15 @@ bindRange('ctrlRingDir', 'outRingDir', (v) =>
 bindRange('ctrlRootDuration', 'outRootDuration', (v) => effect.setFxParam('rootDurationMs', v), true);
 bindRange('ctrlClickShardLifeMin', 'outClickShardLifeMin', (v) => effect.setFxParam('shards.clickLifetimeMinMs', v), true);
 bindRange('ctrlClickShardLifeMax', 'outClickShardLifeMax', (v) => effect.setFxParam('shards.clickLifetimeMaxMs', v), true);
+
+// ── Hit / Flare ────────────────────────────────────────────────────────
+bindToggle('ctrlHitEnabled', (c) => effect.setFxParam('hit.enabled', c));
+bindRange('ctrlHitRadius', 'outHitRadius', (v) => effect.setFxParam('hit.radius', v), true);
+bindRange('ctrlHitLife', 'outHitLife', (v) => effect.setFxParam('hit.lifetimeMs', v), true);
+bindToggle('ctrlFlareEnabled', (c) => effect.setFxParam('flare.enabled', c));
+bindRange('ctrlFlareRadius', 'outFlareRadius', (v) => effect.setFxParam('flare.radius', v), true);
+bindRange('ctrlFlareLife', 'outFlareLife', (v) => effect.setFxParam('flare.lifetimeMs', v), true);
+bindRange('ctrlFlareRays', 'outFlareRays', (v) => effect.setFxParam('flare.rayCount', v), true);
 bindRange('ctrlGeomWidth', 'outGeomWidth', (v) => effect.setFxParam('trail.geometryWidth', v));
 bindRange('ctrlMinVertDist', 'outMinVertDist', (v) => effect.setFxParam('trail.minVertexDistance', v));
 bindRange('ctrlTrailShardLifeMin', 'outTrailShardLifeMin', (v) => effect.setFxParam('shards.trailLifetimeMinMs', v), true);
