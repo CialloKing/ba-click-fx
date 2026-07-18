@@ -146,6 +146,62 @@ if (ctrlColor)
   });
 }
 
+// ── 导入/导出 ────────────────────────────────────────────────────────────
+document.getElementById('btnExport').addEventListener('click', () =>
+{
+  const config = effect.getFxConfig();
+  const json = JSON.stringify(config, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+
+  a.href = url;
+  a.download = 'ba-click-fx-config.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('btnImport').addEventListener('click', () =>
+{
+  const input = document.createElement('input');
+
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) =>
+  {
+    const file = e.target.files[0];
+
+    if (!file) { return; }
+
+    const reader = new FileReader();
+
+    reader.onload = (ev) =>
+    {
+      try
+      {
+        const config = JSON.parse(ev.target.result);
+
+        Object.entries(config).forEach(([section, params]) =>
+        {
+          if (typeof params === 'object')
+          {
+            Object.entries(params).forEach(([key, val]) =>
+            {
+              if (typeof val === 'number')
+              {
+                effect.setFxParam(`${section}.${key}`, val);
+              }
+            });
+          }
+        });
+      }
+      catch { /* ignore invalid JSON */ }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+});
+
 // ── 重置 ────────────────────────────────────────────────────────────────
 document.getElementById('btnReset').addEventListener('click', () =>
 {
@@ -381,6 +437,8 @@ const I18N = {
     labelBloomDisk: 'Bloom 光盘模糊',
     labelBloomShard: 'Bloom 碎片模糊',
     btnReset: '重置默认',
+    btnExport: '导出配置',
+    btnImport: '导入配置',
     customBgLabel: '自定义背景',
     customBgPlaceholder: 'CSS background 值或图片 URL…',
     btnApplyBg: '应用背景',
