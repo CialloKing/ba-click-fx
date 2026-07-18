@@ -20,6 +20,43 @@ export const UNITY_FX_TOUCH = Object.freeze(
   {
     referenceHeight: REFERENCE_HEIGHT,
     rootDurationMs: 1000,
+    hit:
+    {
+      enabled: false,
+      lifetimeMs: 80,
+      radius: 24,
+      colorKeys:
+      [
+        [0, [255, 255, 255]],
+        [0.5, [180, 220, 255]],
+        [1, [61, 100, 255]],
+      ],
+      alphaKeys:
+      [
+        [0, 1],
+        [0.4, 0.8],
+        [1, 0],
+      ],
+    },
+    flare:
+    {
+      enabled: false,
+      lifetimeMs: 150,
+      radius: 36,
+      rayCount: 6,
+      colorKeys:
+      [
+        [0, [255, 255, 255]],
+        [0.3, [180, 220, 255]],
+        [1, [61, 100, 255]],
+      ],
+      alphaKeys:
+      [
+        [0, 0.7],
+        [0.5, 0.3],
+        [1, 0],
+      ],
+    },
     disk:
     {
       lifetimeMs: 200,

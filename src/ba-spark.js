@@ -488,6 +488,54 @@ function evaluateRingAngularVelocity(angularBlend, progress, ringCfg = UNITY_FX_
   return velocity * ringCfg.angularVelocityMultiplier * ringCfg.rotationDirection;
 }
 
+function drawHit(context, wave, progress, scale, opacity, fxConfig)
+{
+  const cfg = fxConfig.hit;
+  const radius = cfg.radius * scale;
+  const alpha = evaluateNumber(cfg.alphaKeys, progress) * opacity;
+  const color = evaluateColor(cfg.colorKeys, progress);
+
+  if (alpha <= 0) { return; }
+
+  context.save();
+  context.beginPath();
+  context.arc(wave.x, wave.y, radius, 0, TAU);
+  context.fillStyle = colorToCss(color, alpha);
+  context.shadowColor = colorToCss(color, alpha * 0.5);
+  context.shadowBlur = 6 * scale;
+  context.fill();
+  context.restore();
+}
+
+function drawFlare(context, wave, progress, scale, opacity, fxConfig)
+{
+  const cfg = fxConfig.flare;
+  const radius = cfg.radius * scale;
+  const alpha = evaluateNumber(cfg.alphaKeys, progress) * opacity;
+  const color = evaluateColor(cfg.colorKeys, progress);
+
+  if (alpha <= 0) { return; }
+
+  context.save();
+  context.translate(wave.x, wave.y);
+
+  for (let i = 0; i < cfg.rayCount; i++)
+  {
+    const angle = (TAU / cfg.rayCount) * i;
+    const endX = Math.cos(angle) * radius;
+    const endY = Math.sin(angle) * radius;
+
+    context.beginPath();
+    context.moveTo(0, 0);
+    context.lineTo(endX, endY);
+    context.strokeStyle = colorToCss(color, alpha);
+    context.lineWidth = 1.5 * scale;
+    context.stroke();
+  }
+
+  context.restore();
+}
+
 class ClickWave
 {
   constructor(x, y, fxConfig)
@@ -540,6 +588,22 @@ class ClickWave
 
   draw(context, scale, opacity)
   {
+    // Hit：撞击爆发，极短极亮
+    const hitProgress = this.ageMs / this.fx.hit.lifetimeMs;
+
+    if (this.fx.hit.enabled && hitProgress < 1)
+    {
+      drawHit(context, this, hitProgress, scale, opacity, this.fx);
+    }
+
+    // Flare：星形闪光
+    const flareProgress = this.ageMs / this.fx.flare.lifetimeMs;
+
+    if (this.fx.flare.enabled && flareProgress < 1)
+    {
+      drawFlare(context, this, flareProgress, scale, opacity, this.fx);
+    }
+
     const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
 
     if (diskProgress < 1)
