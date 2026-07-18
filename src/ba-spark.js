@@ -677,8 +677,8 @@ function drawTrailLayer(context, points, scale, opacity, layer)
   {
     const progress = ((distances[index - 1] + distances[index]) * 0.5) / totalLength;
     const color = interpolateTrailColor(progress);
-    // 尾部 fadeAlpha→0 透明融入背景，颜色保持蓝色调不产生灰色伪影
-    const fadeAlpha = Math.pow(progress, 0.5);
+    // 尾部 fadeAlpha→0 透明融入背景，0.35 次方让淡出更柔和
+    const fadeAlpha = Math.pow(progress, 0.35);
 
     context.beginPath();
     context.moveTo(points[index - 1].x, points[index - 1].y);
@@ -694,19 +694,20 @@ function drawTrail(context, points, scale, opacity, fxConfig = UNITY_FX_TOUCH)
 {
   const trailCfg = fxConfig.trail;
   const bloomCfg = fxConfig.bloom;
+  const trailOpacity = opacity * (trailCfg.trailOpacity ?? 1.0);
 
-  drawTrailLayer(context, points, scale, opacity,
+  drawTrailLayer(context, points, scale, trailOpacity,
     {
       width: trailCfg.outerGlowWidth,
       alpha: bloomCfg.trailAlpha,
       color: [0, 88, 224],
     });
-  drawTrailLayer(context, points, scale, opacity,
+  drawTrailLayer(context, points, scale, trailOpacity,
     {
       width: trailCfg.width,
       alpha: 1,
     });
-  drawTrailLayer(context, points, scale, opacity,
+  drawTrailLayer(context, points, scale, trailOpacity,
     {
       width: trailCfg.coreWidth,
       alpha: 0.72,
