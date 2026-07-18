@@ -272,7 +272,7 @@ function openPanel()
 {
   panel.classList.add('open');
   panelOverlay.classList.add('open');
-  panelToggle.style.right = '296px';
+  panelToggle.style.right = '356px';
 }
 
 function closePanel()
