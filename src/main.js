@@ -120,6 +120,14 @@ bindRange('ctrlDiskRadius', 'outDiskRadius', (v) => effect.setFxParam('disk.radi
 bindRange('ctrlDiskLife', 'outDiskLife', (v) => effect.setFxParam('disk.lifetimeMs', v), true);
 bindRange('ctrlDissolveEdge', 'outDissolveEdge', (v) => effect.setFxParam('rings.dissolveEdgeRatio', v));
 bindRange('ctrlAngVelMul', 'outAngVelMul', (v) => effect.setFxParam('rings.angularVelocityMultiplier', v));
+bindRange('ctrlArcSamples', 'outArcSamples', (v) => effect.setFxParam('rings.arcSamples', v), true);
+bindRange('ctrlRingDir', 'outRingDir', (v) =>
+{
+  effect.setFxParam('rings.rotationDirection', Math.round(v));
+  const out = document.getElementById('outRingDir');
+  if (out) { out.textContent = v < 0 ? '逆时针' : '顺时针'; }
+});
+bindRange('ctrlRootDuration', 'outRootDuration', (v) => effect.setFxParam('rootDurationMs', v), true);
 bindRange('ctrlClickShardLifeMin', 'outClickShardLifeMin', (v) => effect.setFxParam('shards.clickLifetimeMinMs', v), true);
 bindRange('ctrlClickShardLifeMax', 'outClickShardLifeMax', (v) => effect.setFxParam('shards.clickLifetimeMaxMs', v), true);
 bindRange('ctrlGeomWidth', 'outGeomWidth', (v) => effect.setFxParam('trail.geometryWidth', v));
@@ -179,6 +187,9 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlDiskLife', 'outDiskLife', 200, true],
     ['ctrlDissolveEdge', 'outDissolveEdge', 0.1, false],
     ['ctrlAngVelMul', 'outAngVelMul', 11.17, false],
+    ['ctrlArcSamples', 'outArcSamples', 96, true],
+    ['ctrlRingDir', 'outRingDir', -1, true],
+    ['ctrlRootDuration', 'outRootDuration', 1000, true],
     ['ctrlClickShardLifeMin', 'outClickShardLifeMin', 600, true],
     ['ctrlClickShardLifeMax', 'outClickShardLifeMax', 700, true],
     ['ctrlGeomWidth', 'outGeomWidth', 2, false],
@@ -367,6 +378,9 @@ const I18N = {
     labelDiskLife: '光盘寿命',
     labelDissolveEdge: '溶解边缘',
     labelAngVelMul: '旋转速度倍率',
+    labelArcSamples: '弧线采样精度',
+    labelRingDir: '旋转方向',
+    labelRootDuration: '根持续时间',
     labelClickShardLifeMin: '点击碎片最短寿命',
     labelClickShardLifeMax: '点击碎片最长寿命',
     labelGeomWidth: '几何带宽',
@@ -519,6 +533,9 @@ function switchLanguage(lang)
     ctrlDiskLife: d.labelDiskLife,
     ctrlDissolveEdge: d.labelDissolveEdge,
     ctrlAngVelMul: d.labelAngVelMul,
+    ctrlArcSamples: d.labelArcSamples,
+    ctrlRingDir: d.labelRingDir,
+    ctrlRootDuration: d.labelRootDuration,
     ctrlClickShardLifeMin: d.labelClickShardLifeMin,
     ctrlClickShardLifeMax: d.labelClickShardLifeMax,
     ctrlGeomWidth: d.labelGeomWidth,
