@@ -101,8 +101,8 @@
     <!-- ── 基础 ── -->
     <section class="panel-section">
       <h3>基础</h3>
-      <label class="ctrl">
       <details open><summary>显示</summary>
+      <label class="ctrl">
         <span>主题颜色</span>
         <input type="color" id="ctrlColor" value="#69a1ff" />
       </label>
@@ -121,8 +121,8 @@
     </section>
 
       
-          </details>
-</section>
+      </details>
+    </section>
 
     <!-- ── 背景主题 ── -->
     <section class="panel-section">
@@ -151,8 +151,8 @@
         <input type="checkbox" id="ctrlClick" checked />
         <span class="toggle-track"></span>
       </label>
-      <label class="ctrl">
       <details open><summary>圆环参数</summary>
+      <label class="ctrl">
         <span>圆环 HDR 强度 <output id="outRingHdr">1.00</output></span>
         <input type="range" id="ctrlRingHdr" min="0" max="5" step="0.05" value="1" />
       </label>
@@ -176,19 +176,19 @@
         <span>圆环寿命 <output id="outRingLife">600</output> ms</span>
         <input type="range" id="ctrlRingLife" min="50" max="2000" step="10" value="600" />
       </label>
-      <label class="ctrl">
-        </details>
+      </details>
       <details open><summary>碎片参数</summary>
-      <span>点击碎片数量 <output id="outClickShards">4</output></span>
+      <label class="ctrl">
+        <span>点击碎片数量 <output id="outClickShards">4</output></span>
         <input type="range" id="ctrlClickShards" min="0" max="12" step="1" value="4" />
       </label>
       <label class="ctrl">
         <span>碎片上限 <output id="outMaxShards">96</output></span>
         <input type="range" id="ctrlMaxShards" min="0" max="500" step="5" value="96" />
       </label>
-      <label class="ctrl">
       </details>
       <details open><summary>Bloom</summary>
+      <label class="ctrl">
         <span>Bloom 圆环模糊 <output id="outBloomRing">80</output></span>
         <input type="range" id="ctrlBloomRing" min="0" max="200" step="5" value="80" />
       </label>
@@ -232,9 +232,9 @@
         <span>点击碎片最长寿命 <output id="outClickShardLifeMax">700</output> ms</span>
         <input type="range" id="ctrlClickShardLifeMax" min="100" max="1000" step="10" value="700" />
       </label>
-      <label class="ctrl toggle">
       </details>
       <details open><summary>Hit / Flare</summary>
+      <label class="ctrl toggle">
         <span>启用 Hit 撞击爆发</span>
         <input type="checkbox" id="ctrlHitEnabled" />
         <span class="toggle-track"></span>
@@ -280,8 +280,8 @@
         <input type="checkbox" id="ctrlTrailAlways" />
         <span class="toggle-track"></span>
       </label>
-      <label class="ctrl">
       <details open><summary>轨迹图层</summary>
+      <label class="ctrl">
         <span>拖尾宽度 <output id="outTrailW">4.00</output></span>
         <input type="range" id="ctrlTrailW" min="1" max="25" step="0.1" value="4" />
       </label>
@@ -293,15 +293,15 @@
         <span>拖尾寿命 <output id="outTrailLife">300</output> ms</span>
         <input type="range" id="ctrlTrailLife" min="50" max="2000" step="10" value="300" />
       </label>
-      <label class="ctrl">
       </details>
       <details open><summary>碎片</summary>
+      <label class="ctrl">
         <span>碎片间距 <output id="outShardSpacing">80</output></span>
         <input type="range" id="ctrlShardSpacing" min="10" max="500" step="5" value="80" />
       </label>
-      <label class="ctrl">
       </details>
       <details open><summary>Bloom</summary>
+      <label class="ctrl">
         <span>Bloom 拖尾透明度 <output id="outBloomTrail">0.00</output></span>
         <input type="range" id="ctrlBloomTrail" min="0" max="1" step="0.01" value="0" />
       </label>
@@ -333,9 +333,9 @@
         <span>Bloom 碎片模糊 <output id="outBloomShard">0</output></span>
         <input type="range" id="ctrlBloomShard" min="0" max="50" step="5" value="0" />
       </label>
-      </details>
     </section>
 
+      </details>
     <div class="panel-actions">
       <button id="btnReset" class="btn-reset">重置默认</button>
     </div>
