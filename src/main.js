@@ -70,11 +70,6 @@ function bindRange(id, outId, onChange, intOnly = false)
     onChange(value);
     localStorage.setItem('bafx-' + id, el.value);
   });
-
-  // 初始化输出值
-  const initVal = parseFloat(el.value);
-
-  out.textContent = intOnly ? String(Math.round(initVal)) : initVal.toFixed(2);
 }
 
 function bindToggle(id, onChange)
