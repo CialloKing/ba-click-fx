@@ -661,23 +661,31 @@ function drawDissolvedCircle(
   opacity,
   fxConfig = UNITY_FX_TOUCH,
   useNativeBloom = true,
+  legacy = false,
 )
 {
   const ringCfg = fxConfig.rings;
   const bloomCfg = fxConfig.bloom;
   const geometry = resolveRingGeometry(ring, progress, scale, ringCfg);
   const particleColor = evaluateColor(ringCfg.colorKeys, progress);
-  // Apply Active Color Space 会先把粒子 sRGB 顶点色解码到 Linear，再送入 Shader。
-  const materialEnergy = evaluateSrgbGradientEnergy(
-    ringCfg.colorKeys,
-    progress,
-    ringCfg.hdrIntensity,
-  );
 
   if (geometry.width <= 0.001)
   {
     return;
   }
+
+  const colorForLuminance = legacy
+    ? (luminance) => colorToCss(particleColor, opacity * luminance)
+    : (luminance) =>
+      {
+        const materialEnergy = evaluateSrgbGradientEnergy(
+          ringCfg.colorKeys,
+          progress,
+          ringCfg.hdrIntensity,
+        );
+
+        return linearEnergyToAdditiveCss(materialEnergy, opacity * luminance);
+      };
 
   context.save();
   context.translate(ring.x, ring.y);
@@ -688,10 +696,7 @@ function drawDissolvedCircle(
     geometry.width,
     geometry.threshold,
     ringCfg,
-    (luminance) => linearEnergyToAdditiveCss(
-      materialEnergy,
-      opacity * luminance,
-    ),
+    colorForLuminance,
     useNativeBloom
       ? {
           blur: bloomCfg.ringBlur * scale,
@@ -756,6 +761,7 @@ function drawDisk(
   opacity,
   fxConfig = UNITY_FX_TOUCH,
   useNativeBloom = true,
+  legacy = false,
 )
 {
   const diskCfg = fxConfig.disk;
@@ -763,10 +769,6 @@ function drawDisk(
   const radius = diskCfg.radius * evaluateNumber(diskCfg.sizeKeys, progress) * scale;
   const color = evaluateColor(diskCfg.colorKeys, progress);
   const alpha = evaluateNumber(diskCfg.alphaKeys, progress) * opacity;
-  const materialEnergy = colorToLinearEnergy(
-    color,
-    bloomCfg.diskEmission,
-  );
   const gradient = context.createRadialGradient(
     wave.x,
     wave.y,
@@ -776,15 +778,26 @@ function drawDisk(
     Math.max(radius, 0.01),
   );
 
-  // FX_TEX_Circle_01 的主体接近纯白遮罩，颜色由 Color over Lifetime 整体相乘；
-  // 中心不能额外保留白点，否则蓝色阶段会变成旧版的发光球。
-  gradient.addColorStop(0, linearEnergyToAdditiveCss(materialEnergy, alpha));
-  gradient.addColorStop(0.88, linearEnergyToAdditiveCss(materialEnergy, alpha));
-  gradient.addColorStop(
-    0.97,
-    linearEnergyToAdditiveCss(materialEnergy, alpha * 0.55),
-  );
-  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  if (legacy)
+  {
+    // main 分支风格：sRGB 颜色 + 标准 alpha
+    gradient.addColorStop(0, colorToCss(color, alpha));
+    gradient.addColorStop(0.88, colorToCss(color, alpha));
+    gradient.addColorStop(0.97, colorToCss(color, alpha * 0.55));
+    gradient.addColorStop(1, colorToCss(color, 0));
+  }
+  else
+  {
+    const materialEnergy = colorToLinearEnergy(color, bloomCfg.diskEmission);
+
+    gradient.addColorStop(0, linearEnergyToAdditiveCss(materialEnergy, alpha));
+    gradient.addColorStop(0.88, linearEnergyToAdditiveCss(materialEnergy, alpha));
+    gradient.addColorStop(
+      0.97,
+      linearEnergyToAdditiveCss(materialEnergy, alpha * 0.55),
+    );
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  }
 
   context.save();
   context.beginPath();
@@ -1001,7 +1014,7 @@ class ClickWave
     }
   }
 
-  draw(context, scale, opacity, useNativeBloom = true)
+  draw(context, scale, opacity, useNativeBloom = true, legacy = false)
   {
     // Hit：撞击爆发，极短极亮
     const hitProgress = this.ageMs / this.fx.hit.lifetimeMs;
@@ -1031,6 +1044,7 @@ class ClickWave
         opacity,
         this.fx,
         useNativeBloom,
+        legacy,
       );
     }
 
@@ -1048,6 +1062,7 @@ class ClickWave
           opacity,
           this.fx,
           useNativeBloom,
+          legacy,
         );
       }
     }
@@ -1318,6 +1333,64 @@ function drawNativeTrailBloom(
   context.restore();
 }
 
+/**
+ * main 分支风格的拖尾层：sRGB 颜色 + 标准 alpha，无 HDR 编码。
+ * layer.color 为固定颜色时整条一次描边（round cap）；
+ * 无 color 时按路径距离采样 gradient（butt cap 逐段）。
+ */
+function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trailCfg, layer)
+{
+  if (measurement.totalLength <= 0)
+  {
+    return;
+  }
+
+  context.save();
+  context.lineJoin = 'round';
+  context.lineWidth = Math.max(0.5, layer.width * scale);
+
+  if (layer.color)
+  {
+    context.lineCap = 'round';
+    context.strokeStyle = colorToCss(layer.color, layer.alpha * opacity);
+    context.shadowColor = colorToCss(layer.color, layer.alpha * opacity * 0.5);
+    context.shadowBlur = (layer.blur ?? 0) * scale;
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+
+    for (let index = 1; index < points.length; index++)
+    {
+      context.lineTo(points[index].x, points[index].y);
+    }
+
+    context.stroke();
+    context.restore();
+    return;
+  }
+
+  // 渐变色：逐段 butt cap
+  context.lineCap = 'butt';
+  const distances = measurement.distances;
+  const totalLength = measurement.totalLength;
+
+  for (let index = 1; index < points.length; index++)
+  {
+    const progress = ((distances[index - 1] + distances[index]) * 0.5) / totalLength;
+    const color = interpolateTrailColor(progress, trailCfg);
+    const fadeAlpha = Math.pow(progress, 0.5);
+
+    context.beginPath();
+    context.moveTo(points[index - 1].x, points[index - 1].y);
+    context.lineTo(points[index].x, points[index].y);
+    context.strokeStyle = colorToCss(color, layer.alpha * opacity * fadeAlpha);
+    context.shadowBlur = 0;
+    context.shadowColor = 'transparent';
+    context.stroke();
+  }
+
+  context.restore();
+}
+
 function drawTrail(
   context,
   points,
@@ -1325,12 +1398,37 @@ function drawTrail(
   opacity,
   fxConfig = UNITY_FX_TOUCH,
   useNativeBloom = true,
+  legacy = false,
 )
 {
   const trailCfg = fxConfig.trail;
   const bloomCfg = fxConfig.bloom;
   const trailOpacity = opacity * (trailCfg.trailOpacity ?? 1.0);
   const measurement = measureTrail(points);
+
+  if (legacy)
+  {
+    // main 分支风格：三层 sRGB 描边
+    drawLegacyTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
+      {
+        width: trailCfg.outerGlowWidth,
+        alpha: bloomCfg.trailAlpha,
+        color: [0, 88, 224],
+        blur: bloomCfg.trailAlpha > 0 ? 12 : 0,
+      });
+    drawLegacyTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
+      {
+        width: trailCfg.width,
+        alpha: 1,
+      });
+    drawLegacyTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
+      {
+        width: trailCfg.coreWidth ?? 1.7,
+        alpha: 0.72,
+        color: [116, 225, 255],
+      });
+    return;
+  }
 
   if (useNativeBloom)
   {
@@ -1436,6 +1534,7 @@ export class BAClickFX
         clickEnabled: options.clickEnabled ?? CONFIG.clickEnabled,
         trailEnabled: options.trailEnabled ?? CONFIG.trailEnabled,
         trailAlways: options.trailAlways ?? CONFIG.trailAlways,
+        renderingMode: options.renderingMode === 'legacy' ? 'legacy' : CONFIG.renderingMode,
         softwareBloomEnabled: options.softwareBloomEnabled ??
           CONFIG.softwareBloomEnabled,
         lightBackgroundContrastAlpha: Number.isFinite(
@@ -1857,7 +1956,8 @@ export class BAClickFX
     this.animationFrame = null;
     const deltaMs = clamp(now - (this.lastFrameTime ?? now), 0, DEFAULT_FRAME_MS * 4);
     const scale = this._getScale();
-    const useSoftwareBloom = this._usesSoftwareBloom();
+    const legacy = this._isLegacy;
+    const useSoftwareBloom = !legacy && this._usesSoftwareBloom();
 
     this.lastFrameTime = now;
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -1868,10 +1968,14 @@ export class BAClickFX
     this.context.save();
     this.context.globalCompositeOperation = 'lighter';
 
-    this._updateTrail(now, scale, !useSoftwareBloom);
-    this._updateWaves(deltaMs, scale, !useSoftwareBloom);
+    this._updateTrail(now, scale, !useSoftwareBloom, legacy);
+    this._updateWaves(deltaMs, scale, !useSoftwareBloom, legacy);
     this._updateShards(deltaMs, scale);
-    this._renderLightBackgroundContrast(scale);
+
+    if (!legacy)
+    {
+      this._renderLightBackgroundContrast(scale);
+    }
 
     if (useSoftwareBloom && this._hasVisibleEffects())
     {
@@ -1894,6 +1998,11 @@ export class BAClickFX
   _usesSoftwareBloom()
   {
     return this.config.softwareBloomEnabled && this.bloomRenderer.available;
+  }
+
+  get _isLegacy()
+  {
+    return this.config.renderingMode === 'legacy';
   }
 
   _renderLightBackgroundContrast(scale)
@@ -2102,7 +2211,7 @@ export class BAClickFX
     );
   }
 
-  _updateTrail(now, scale, useNativeBloom)
+  _updateTrail(now, scale, useNativeBloom, legacy = false)
   {
     const lifetime = this.fxConfig.trail.lifetimeMs;
 
@@ -2127,6 +2236,7 @@ export class BAClickFX
           this.config.opacity,
           this.fxConfig,
           useNativeBloom,
+          legacy,
         );
       }
 
@@ -2137,7 +2247,7 @@ export class BAClickFX
     }
   }
 
-  _updateWaves(deltaMs, scale, useNativeBloom)
+  _updateWaves(deltaMs, scale, useNativeBloom, legacy = false)
   {
     for (let index = this.waves.length - 1; index >= 0; index--)
     {
@@ -2149,6 +2259,7 @@ export class BAClickFX
         scale,
         this.config.opacity,
         useNativeBloom,
+        legacy,
       );
 
       if (wave.dead)
@@ -2254,6 +2365,11 @@ export class BAClickFX
     if (typeof overrides.trailAlways === 'boolean')
     {
       this.config.trailAlways = overrides.trailAlways;
+    }
+
+    if (overrides.renderingMode === 'enhanced' || overrides.renderingMode === 'legacy')
+    {
+      this.config.renderingMode = overrides.renderingMode;
     }
 
     if (typeof overrides.softwareBloomEnabled === 'boolean')

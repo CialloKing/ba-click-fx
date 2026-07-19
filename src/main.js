@@ -93,11 +93,35 @@ bindRange('ctrlScale', 'outScale', (v) => effect.updateConfig({ scale: v }));
 bindRange('ctrlOpacity', 'outOpacity', (v) => effect.updateConfig({ opacity: v }));
 bindRange('ctrlDpr', 'outDpr', (v) => effect.updateConfig({ maxDpr: Math.round(v) }));
 
-bindToggle('ctrlSoftwareBloom', (checked) =>
-  effect.updateConfig({ softwareBloomEnabled: checked }));
 bindToggle('ctrlClick', (checked) => effect.updateConfig({ clickEnabled: checked }));
 bindToggle('ctrlTrail', (checked) => effect.updateConfig({ trailEnabled: checked }));
 bindToggle('ctrlTrailAlways', (checked) => effect.updateConfig({ trailAlways: checked }));
+
+// ── 渲染模式 → renderingMode + softwareBloomEnabled ───────────────────
+const ctrlRenderMode = document.getElementById('ctrlRenderMode');
+
+if (ctrlRenderMode)
+{
+  ctrlRenderMode.addEventListener('change', () =>
+  {
+    const mode = ctrlRenderMode.value;
+
+    if (mode === 'software-bloom')
+    {
+      effect.updateConfig({ renderingMode: 'enhanced', softwareBloomEnabled: true });
+    }
+    else if (mode === 'native-bloom')
+    {
+      effect.updateConfig({ renderingMode: 'enhanced', softwareBloomEnabled: false });
+    }
+    else
+    {
+      effect.updateConfig({ renderingMode: 'legacy' });
+    }
+
+    localStorage.setItem('bafx-ctrlRenderMode', mode);
+  });
+}
 
 // ── 特效参数 → setFxParam ──────────────────────────────────────────────
 bindRange('ctrlRingHdr', 'outRingHdr', (v) => effect.setFxParam('rings.hdrIntensity', v));
@@ -182,7 +206,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('outOpacity').textContent = '1.00';
   document.getElementById('ctrlDpr').value = '2';
   document.getElementById('outDpr').textContent = '2';
-  document.getElementById('ctrlSoftwareBloom').checked = true;
+  document.getElementById('ctrlRenderMode').value = 'software-bloom';
   document.getElementById('ctrlClick').checked = true;
   document.getElementById('ctrlTrail').checked = true;
   document.getElementById('ctrlTrailAlways').checked = false;
@@ -255,7 +279,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
       trailEnabled: true,
       trailAlways: false,
       softwareBloomEnabled: true,
-      lightBackgroundContrastAlpha: 0.08,
+      lightBackgroundContrastAlpha: 0.35,
       maxDpr: 2,
     },
   );
@@ -400,7 +424,10 @@ const I18N = {
     labelScale: '全局缩放',
     labelOpacity: '不透明度',
     labelDpr: '最大 DPR',
-    labelSoftwareBloom: 'JavaScript 软件 Bloom',
+    labelRenderMode: '渲染模式',
+    renderSoftwareBloom: '软件 Bloom',
+    renderNativeBloom: '原生辉光',
+    renderLegacy: 'Legacy',
     labelClickEnabled: '启用点击特效',
     labelRingHdr: '圆环 HDR 强度',
     labelRingRadMin: '圆环起始半径',
@@ -467,7 +494,10 @@ const I18N = {
     labelScale: 'Global Scale',
     labelOpacity: 'Opacity',
     labelDpr: 'Max DPR',
-    labelSoftwareBloom: 'JavaScript Software Bloom',
+    labelRenderMode: 'Render Mode',
+    renderSoftwareBloom: 'Software Bloom',
+    renderNativeBloom: 'Native Glow',
+    renderLegacy: 'Legacy',
     labelClickEnabled: 'Enable Click',
     labelRingHdr: 'Ring HDR Intensity',
     labelRingRadMin: 'Ring Radius Min',
@@ -574,7 +604,7 @@ function switchLanguage(lang)
     ctrlScale: d.labelScale,
     ctrlOpacity: d.labelOpacity,
     ctrlDpr: d.labelDpr,
-    ctrlSoftwareBloom: d.labelSoftwareBloom,
+    ctrlRenderMode: d.labelRenderMode,
     ctrlClick: d.labelClickEnabled,
     ctrlRingHdr: d.labelRingHdr,
     ctrlRingRadMin: d.labelRingRadMin,
@@ -648,6 +678,21 @@ function switchLanguage(lang)
     }
   });
 
+  // 渲染模式下拉选项文本
+  const renderModeOptions = {
+    'software-bloom': d.renderSoftwareBloom,
+    'native-bloom': d.renderNativeBloom,
+    'legacy': d.renderLegacy,
+  };
+
+  document.querySelectorAll('#ctrlRenderMode option').forEach((opt) =>
+  {
+    if (renderModeOptions[opt.value])
+    {
+      opt.textContent = renderModeOptions[opt.value];
+    }
+  });
+
   // 按钮
   document.getElementById('btnReset').textContent = d.btnReset;
   document.getElementById('customBgCtrl')?.querySelector('span') && (document.getElementById('customBgCtrl').querySelector('span').textContent = d.customBgLabel);
@@ -713,16 +758,25 @@ switchLanguage(currentLang);
     effect.updateConfig({ clickEnabled: false });
   }
 
-  if (localStorage.getItem('bafx-ctrlSoftwareBloom') === 'false')
+  const savedRenderMode = localStorage.getItem('bafx-ctrlRenderMode');
+
+  if (savedRenderMode && savedRenderMode !== 'software-bloom')
   {
-    const el = document.getElementById('ctrlSoftwareBloom');
+    const el = document.getElementById('ctrlRenderMode');
 
     if (el)
     {
-      el.checked = false;
+      el.value = savedRenderMode;
     }
 
-    effect.updateConfig({ softwareBloomEnabled: false });
+    if (savedRenderMode === 'native-bloom')
+    {
+      effect.updateConfig({ renderingMode: 'enhanced', softwareBloomEnabled: false });
+    }
+    else if (savedRenderMode === 'legacy')
+    {
+      effect.updateConfig({ renderingMode: 'legacy' });
+    }
   }
 
   if (localStorage.getItem('bafx-ctrlTrail') === 'false')
