@@ -101,8 +101,8 @@ bindToggle('ctrlTrailAlways', (checked) => effect.updateConfig({ trailAlways: ch
 
 // ── 特效参数 → setFxParam ──────────────────────────────────────────────
 bindRange('ctrlRingHdr', 'outRingHdr', (v) => effect.setFxParam('rings.hdrIntensity', v));
-bindRange('ctrlRingRadMin', 'outRingRadMin', (v) => effect.setFxParam('rings.radiusMin', v), true);
-bindRange('ctrlRingRadMax', 'outRingRadMax', (v) => effect.setFxParam('rings.radiusMax', v), true);
+bindRange('ctrlRingRadMin', 'outRingRadMin', (v) => effect.setFxParam('rings.radiusMin', v));
+bindRange('ctrlRingRadMax', 'outRingRadMax', (v) => effect.setFxParam('rings.radiusMax', v));
 bindRange('ctrlRingWStart', 'outRingWStart', (v) => effect.setFxParam('rings.widthStart', v));
 bindRange('ctrlRingWEnd', 'outRingWEnd', (v) => effect.setFxParam('rings.widthEnd', v));
 bindRange('ctrlRingLife', 'outRingLife', (v) => effect.setFxParam('rings.lifetimeMs', v), true);
@@ -131,7 +131,6 @@ bindRange('ctrlTrailOpacity', 'outTrailOpacity', (v) => effect.setFxParam('trail
 bindRange('ctrlRingCount', 'outRingCount', (v) => effect.setFxParam('rings.count', v), true);
 bindRange('ctrlDiskRadius', 'outDiskRadius', (v) => effect.setFxParam('disk.radius', v), true);
 bindRange('ctrlDiskLife', 'outDiskLife', (v) => effect.setFxParam('disk.lifetimeMs', v), true);
-bindRange('ctrlDissolveEdge', 'outDissolveEdge', (v) => effect.setFxParam('rings.dissolveEdgeRatio', v));
 bindRange('ctrlAngVelMul', 'outAngVelMul', (v) => effect.setFxParam('rings.angularVelocityMultiplier', v));
 bindRange('ctrlArcSamples', 'outArcSamples', (v) => effect.setFxParam('rings.arcSamples', v), true);
 bindRange('ctrlRingDir', 'outRingDir', (v) =>
@@ -194,11 +193,11 @@ document.getElementById('btnReset').addEventListener('click', () =>
 
   // 重置特效参数
   const fxDefaults = [
-    ['ctrlRingHdr', 'outRingHdr', 1, false],
-    ['ctrlRingRadMin', 'outRingRadMin', 51, true],
-    ['ctrlRingRadMax', 'outRingRadMax', 59, true],
-    ['ctrlRingWStart', 'outRingWStart', 5.2, false],
-    ['ctrlRingWEnd', 'outRingWEnd', 2.4, false],
+    ['ctrlRingHdr', 'outRingHdr', 5.992157, false],
+    ['ctrlRingRadMin', 'outRingRadMin', 51.0560832, false],
+    ['ctrlRingRadMax', 'outRingRadMax', 59.5654304, false],
+    ['ctrlRingWStart', 'outRingWStart', 1, false],
+    ['ctrlRingWEnd', 'outRingWEnd', 1, false],
     ['ctrlRingLife', 'outRingLife', 600, true],
     ['ctrlClickShards', 'outClickShards', 4, true],
     ['ctrlMaxShards', 'outMaxShards', 96, true],
@@ -206,7 +205,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlBloomThreshold', 'outBloomThreshold', 1, false],
     ['ctrlBloomIntensity', 'outBloomIntensity', 0.45, false],
     ['ctrlBloomScatter', 'outBloomScatter', 0.35, false],
-    ['ctrlTrailW', 'outTrailW', 4, false],
+    ['ctrlTrailW', 'outTrailW', 2, false],
     ['ctrlTrailGlowW', 'outTrailGlowW', 9, false],
     ['ctrlTrailLife', 'outTrailLife', 300, true],
     ['ctrlShardSpacing', 'outShardSpacing', 80, true],
@@ -216,7 +215,6 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlRingCount', 'outRingCount', 2, true],
     ['ctrlDiskRadius', 'outDiskRadius', 48, true],
     ['ctrlDiskLife', 'outDiskLife', 200, true],
-    ['ctrlDissolveEdge', 'outDissolveEdge', 0.1, false],
     ['ctrlAngVelMul', 'outAngVelMul', 11.17, false],
     ['ctrlArcSamples', 'outArcSamples', 96, true],
     ['ctrlRingDir', 'outRingDir', -1, true],
@@ -255,7 +253,9 @@ document.getElementById('btnReset').addEventListener('click', () =>
       opacity: 1,
       clickEnabled: true,
       trailEnabled: true,
+      trailAlways: false,
       softwareBloomEnabled: true,
+      lightBackgroundContrastAlpha: 0.08,
       maxDpr: 2,
     },
   );
@@ -405,8 +405,8 @@ const I18N = {
     labelRingHdr: '圆环 HDR 强度',
     labelRingRadMin: '圆环起始半径',
     labelRingRadMax: '圆环终止半径',
-    labelRingWStart: '圆环起始宽度',
-    labelRingWEnd: '圆环终止宽度',
+    labelRingWStart: '圆环起始厚度倍率',
+    labelRingWEnd: '圆环终止厚度倍率',
     labelRingLife: '圆环寿命',
     labelClickShards: '点击碎片数量',
     labelMaxShards: '碎片上限',
@@ -425,7 +425,6 @@ const I18N = {
     labelRingCount: '圆环数量',
     labelDiskRadius: '光盘半径',
     labelDiskLife: '光盘寿命',
-    labelDissolveEdge: '溶解边缘',
     labelAngVelMul: '旋转速度倍率',
     labelArcSamples: '弧线采样精度',
     labelRingDir: '旋转方向',
@@ -473,8 +472,8 @@ const I18N = {
     labelRingHdr: 'Ring HDR Intensity',
     labelRingRadMin: 'Ring Radius Min',
     labelRingRadMax: 'Ring Radius Max',
-    labelRingWStart: 'Ring Width Start',
-    labelRingWEnd: 'Ring Width End',
+    labelRingWStart: 'Ring Start Width Scale',
+    labelRingWEnd: 'Ring End Width Scale',
     labelRingLife: 'Ring Lifetime',
     labelClickShards: 'Click Shard Count',
     labelMaxShards: 'Max Shards',
@@ -493,7 +492,6 @@ const I18N = {
     labelRingCount: 'Ring Count',
     labelDiskRadius: 'Disk Radius',
     labelDiskLife: 'Disk Lifetime',
-    labelDissolveEdge: 'Dissolve Edge',
     labelAngVelMul: 'Rotation Speed',
     labelClickShardLifeMin: 'Click Shard Life Min',
     labelClickShardLifeMax: 'Click Shard Life Max',
@@ -601,7 +599,6 @@ function switchLanguage(lang)
     ctrlRingCount: d.labelRingCount,
     ctrlDiskRadius: d.labelDiskRadius,
     ctrlDiskLife: d.labelDiskLife,
-    ctrlDissolveEdge: d.labelDissolveEdge,
     ctrlAngVelMul: d.labelAngVelMul,
     ctrlArcSamples: d.labelArcSamples,
     ctrlRingDir: d.labelRingDir,
@@ -776,7 +773,6 @@ switchLanguage(currentLang);
     ['ctrlRingCount', 'rings.count'],
     ['ctrlDiskRadius', 'disk.radius'],
     ['ctrlDiskLife', 'disk.lifetimeMs'],
-    ['ctrlDissolveEdge', 'rings.dissolveEdgeRatio'],
     ['ctrlAngVelMul', 'rings.angularVelocityMultiplier'],
     ['ctrlArcSamples', 'rings.arcSamples'],
     ['ctrlRingDir', 'rings.rotationDirection'],

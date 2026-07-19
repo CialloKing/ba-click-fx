@@ -16,6 +16,8 @@ declare module 'ba-click-fx'
     trailAlways?: boolean;
     /** 使用 Float32 中间缓冲执行纯 JavaScript 软件 Bloom。默认 true。 */
     softwareBloomEnabled?: boolean;
+    /** 浅色背景的非 Bloom 淡青轮廓强度，默认 0.08；设为 0 可关闭。 */
+    lightBackgroundContrastAlpha?: number;
     /** Canvas backing store 的设备像素比上限，默认 2。 */
     maxDpr?: number;
     touchAction?: CSSStyleDeclaration['touchAction'];
@@ -31,6 +33,7 @@ declare module 'ba-click-fx'
     trailEnabled: boolean;
     trailAlways: boolean;
     softwareBloomEnabled: boolean;
+    lightBackgroundContrastAlpha: number;
     maxDpr: number;
     touchAction: string;
   }

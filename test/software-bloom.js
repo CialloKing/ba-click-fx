@@ -1,15 +1,18 @@
 /**
  * Software Bloom 数值管线测试。
  *
- * 这些检查只依赖 TypedArray，确保阈值、扩散和 Canvas 编码可以脱离 DOM 验证。
+ * 这些检查只依赖 TypedArray，确保 HDR 解码、URP 金字塔和 Canvas 编码
+ * 可以脱离 DOM 验证。
  */
 
 import {
-  applyBlurPasses,
   calculateBloomContribution,
+  decodeEmissionMask,
+  downsampleGaussian,
   encodeAdditiveBloom,
-  extractBrightPass,
-  separableBoxBlur,
+  linearToSrgb,
+  prefilterBloom,
+  upsampleAndMixBloom,
 } from '../src/software-bloom.js';
 
 let passed = 0;
@@ -30,7 +33,25 @@ function approximatelyEqual(left, right, epsilon = 0.000001)
   return Math.abs(left - right) <= epsilon;
 }
 
-console.log('\nSoftware Bloom 阈值');
+function arraysApproximatelyEqual(left, right, epsilon = 0.000001)
+{
+  if (left.length !== right.length)
+  {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index++)
+  {
+    if (!approximatelyEqual(left[index], right[index], epsilon))
+    {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+console.log('\nSoftware Bloom 阈值与色彩空间');
 const belowKnee = calculateBloomContribution(0.4, 1, 0.5);
 const insideKnee = calculateBloomContribution(0.75, 1, 0.5);
 const atThreshold = calculateBloomContribution(1, 1, 0.5);
@@ -38,184 +59,308 @@ const aboveThreshold = calculateBloomContribution(2, 1, 0.5);
 
 assert(belowKnee === 0, '低于 soft-knee 区间的亮度被完全剔除');
 assert(
-  insideKnee > 0 && insideKnee < atThreshold,
-  'soft-knee 在阈值下方平滑引入 Bloom',
+  approximatelyEqual(insideKnee, 0.03124843757812109),
+  'soft-knee 在阈值下方按 URP 公式平滑引入 Bloom',
 );
 assert(
-  atThreshold < aboveThreshold && approximatelyEqual(aboveThreshold, 1),
-  '超过阈值后高亮贡献单调增加',
+  approximatelyEqual(atThreshold, 0.12499375031248436),
+  '阈值位置仍保留连续的 soft-knee 贡献',
+);
+assert(
+  approximatelyEqual(aboveThreshold, 1),
+  '超过阈值后采用线性高亮贡献',
 );
 
+assert(
+  linearToSrgb(-1) === 0 && approximatelyEqual(linearToSrgb(2), 1),
+  '线性转 sRGB 会夹紧显示范围',
+);
+assert(
+  approximatelyEqual(linearToSrgb(0.0031308), 0.040449936),
+  '线性转 sRGB 在低亮度段使用线性分支',
+);
+assert(
+  approximatelyEqual(linearToSrgb(0.18), 0.46135612950044164),
+  '线性转 sRGB 在中间调使用标准幂函数分支',
+);
+
+console.log('\nSoftware Bloom HDR 发射解码');
 const encodedMask = new Uint8ClampedArray([
-  10, 10, 10, 255,
   255, 128, 64, 255,
+  255, 0, 0, 128,
+  255, 255, 255, 0,
 ]);
-const brightPass = new Float32Array(6);
+const decodedMask = new Float32Array(9);
 
-extractBrightPass(encodedMask, brightPass, 2, 1, 0.5);
-assert(
-  brightPass[0] === 0 && brightPass[1] === 0 && brightPass[2] === 0,
-  '高亮提取会归零阈值下的像素',
-);
-assert(
-  brightPass[3] > brightPass[4] && brightPass[4] > brightPass[5],
-  '高亮提取保留原始 RGB 色调比例',
-);
-
-console.log('\nSoftware Bloom 扩散');
-const impulse = new Float32Array(5 * 5 * 3);
-const scratch = new Float32Array(impulse.length);
-const blurred = new Float32Array(impulse.length);
-const center = (2 * 5 + 2) * 3;
-const neighbor = (2 * 5 + 1) * 3;
-
-impulse[center] = 8;
-impulse[center + 1] = 4;
-impulse[center + 2] = 2;
-separableBoxBlur(impulse, scratch, blurred, 5, 5, 1);
+decodeEmissionMask(encodedMask, decodedMask, 8);
 
 assert(
-  blurred[neighbor] > 0 && blurred[neighbor + 1] > 0 && blurred[neighbor + 2] > 0,
-  '单点高亮会扩散到周围像素',
+  arraysApproximatelyEqual(
+    decodedMask.slice(0, 3),
+    [8, 128 / 255 * 8, 64 / 255 * 8],
+  ),
+  '发射遮罩按 encodingRange 解码线性 HDR 通道',
 );
 assert(
-  blurred[center] > 0 && blurred[0] === 0,
-  '连续窗口保留局部能量且不会产生远距离稀疏副本',
+  approximatelyEqual(decodedMask[3], 128 / 255 * 8) &&
+    decodedMask[4] === 0 &&
+    decodedMask[5] === 0,
+  '发射遮罩的 Alpha 作为覆盖率参与解码',
 );
 assert(
-  impulse[0] === 0 && impulse[center] === 8,
-  '模糊过程不修改输入缓冲',
+  decodedMask[6] === 0 &&
+    decodedMask[7] === 0 &&
+    decodedMask[8] === 0,
+  '零 Alpha 像素不会向 Bloom 注入能量',
 );
 
-const chainWidth = 33;
-const chainHeight = 33;
-const chainSource = new Float32Array(chainWidth * chainHeight * 3);
-const chainScratch = new Float32Array(chainSource.length);
-const chainAlternate = new Float32Array(chainSource.length);
-const chainCenterPixel = Math.floor(chainWidth / 2);
-const chainCenter = (chainCenterPixel * chainWidth + chainCenterPixel) * 3;
+console.log('\nSoftware Bloom URP 预过滤');
+const prefilterSource = new Float32Array(4 * 4 * 3);
 
-chainSource[chainCenter] = 9;
-const chainOutput = applyBlurPasses(
-  chainSource,
-  chainScratch,
-  chainAlternate,
-  chainWidth,
-  chainHeight,
-  1,
-  3,
-);
-const chainSample = (offset) =>
-  chainOutput[(chainCenterPixel * chainWidth + chainCenterPixel + offset) * 3];
-let chainEnergy = 0;
-
-for (let index = 0; index < chainOutput.length; index += 3)
+for (let pixel = 0; pixel < 16; pixel++)
 {
-  chainEnergy += chainOutput[index];
+  const offset = pixel * 3;
+
+  prefilterSource[offset] = 2;
+  prefilterSource[offset + 1] = 1;
+  prefilterSource[offset + 2] = 0.5;
+}
+
+const prefilterOutput = new Float32Array(2 * 2 * 3);
+
+prefilterBloom(
+  prefilterSource,
+  4,
+  4,
+  prefilterOutput,
+  2,
+  2,
+  1,
+  0.5,
+);
+
+assert(
+  arraysApproximatelyEqual(
+    prefilterOutput,
+    [
+      1, 0.5, 0.25,
+      1, 0.5, 0.25,
+      1, 0.5, 0.25,
+      1, 0.5, 0.25,
+    ],
+  ),
+  'HQ 13-tap 预过滤保持均匀场并按阈值缩放色调',
+);
+assert(
+  prefilterSource[0] === 2 && prefilterSource[2] === 0.5,
+  '预过滤不会修改输入缓冲',
+);
+
+console.log('\nSoftware Bloom Gaussian 降采样');
+const downsampleWidth = 16;
+const downsampleHeight = 16;
+const downsampleOutputWidth = 8;
+const downsampleOutputHeight = 8;
+const impulse = new Float32Array(downsampleWidth * downsampleHeight * 3);
+const downsampleScratch = new Float32Array(
+  downsampleOutputWidth * downsampleOutputHeight * 3,
+);
+const downsampleOutput = new Float32Array(downsampleScratch.length);
+const impulseCenters = [
+  (7 * downsampleWidth + 7) * 3,
+  (7 * downsampleWidth + 8) * 3,
+  (8 * downsampleWidth + 7) * 3,
+  (8 * downsampleWidth + 8) * 3,
+];
+
+// 2×2 对称脉冲使能量中心落在偶数纹理的像素边界上，符合 URP 的 16→8 mip。
+for (const center of impulseCenters)
+{
+  impulse[center] = 2.25;
+}
+downsampleGaussian(
+  impulse,
+  downsampleWidth,
+  downsampleHeight,
+  downsampleScratch,
+  downsampleOutput,
+  downsampleOutputWidth,
+  downsampleOutputHeight,
+);
+
+const centerRow = [];
+let downsampleEnergy = 0;
+let leakedChannelEnergy = 0;
+
+for (let pixel = 0; pixel < downsampleOutput.length / 3; pixel++)
+{
+  const offset = pixel * 3;
+
+  downsampleEnergy += downsampleOutput[offset];
+  leakedChannelEnergy += downsampleOutput[offset + 1] +
+    downsampleOutput[offset + 2];
+}
+
+for (let x = 0; x < downsampleOutputWidth; x++)
+{
+  centerRow.push(
+    downsampleOutput[(3 * downsampleOutputWidth + x) * 3],
+  );
 }
 
 assert(
-  chainSample(0) > chainSample(2) &&
-    chainSample(2) > chainSample(4) &&
-    chainSample(4) > chainSample(6) &&
-    chainSample(6) > 0,
-  '完整三次卷积从中心到支撑边缘连续衰减',
+  approximatelyEqual(centerRow[3], centerRow[4]) &&
+    centerRow[3] > centerRow[2] &&
+    centerRow[2] > centerRow[1] &&
+    centerRow[1] > centerRow[0] &&
+    centerRow[0] > 0,
+  '2× floor mip 的 9-tap Gaussian 从双像素中心对称连续衰减',
 );
 assert(
-  chainSample(7) === 0,
-  '最终卷积不会在支撑范围外生成衍射副本',
+  approximatelyEqual(centerRow[3], 0.09999269247055054),
+  '两阶段 Gaussian 使用 URP 的固定采样权重',
 );
 assert(
-  approximatelyEqual(chainEnergy, 9, 0.00001),
-  '完整模糊链守恒 HDR 高亮能量',
+  approximatelyEqual(downsampleEnergy, 2.177618645131588, 0.00001),
+  '16→8 floor 降采样得到确定的离散 HDR 能量',
+);
+assert(
+  leakedChannelEnergy === 0 &&
+    impulseCenters.every((center) => impulse[center] === 2.25),
+  'Gaussian 不串色且不会修改输入缓冲',
 );
 
-const evenWidth = 9;
-const evenHeight = 7;
-const evenSource = new Float32Array(evenWidth * evenHeight * 3);
-const evenScratch = new Float32Array(evenSource.length);
-const evenAlternate = new Float32Array(evenSource.length);
-const referenceScratch = new Float32Array(evenSource.length);
-const referenceFirstPass = new Float32Array(evenSource.length);
-const referenceSecondScratch = new Float32Array(evenSource.length);
-const referenceSecondPass = new Float32Array(evenSource.length);
+console.log('\nSoftware Bloom 金字塔上采样');
+const uniformHigh = new Float32Array(4 * 4 * 3);
+const uniformLow = new Float32Array(2 * 2 * 3);
 
-evenSource[(3 * evenWidth + 2) * 3] = 5;
-evenSource[(4 * evenWidth + 6) * 3 + 1] = 3;
-evenSource[(1 * evenWidth + 4) * 3 + 2] = 7;
+for (let pixel = 0; pixel < 16; pixel++)
+{
+  const offset = pixel * 3;
 
-// 用两次独立卷积作为参照，专门防止偶数迭代时返回错误的 ping-pong 缓冲。
-separableBoxBlur(
-  evenSource,
-  referenceScratch,
-  referenceFirstPass,
-  evenWidth,
-  evenHeight,
-  1,
-);
-separableBoxBlur(
-  referenceFirstPass,
-  referenceSecondScratch,
-  referenceSecondPass,
-  evenWidth,
-  evenHeight,
+  uniformHigh[offset] = 2;
+  uniformHigh[offset + 1] = 1;
+  uniformHigh[offset + 2] = 0.5;
+}
+
+for (let pixel = 0; pixel < 4; pixel++)
+{
+  const offset = pixel * 3;
+
+  uniformLow[offset] = 6;
+  uniformLow[offset + 1] = 3;
+  uniformLow[offset + 2] = 1.5;
+}
+
+const uniformMixed = new Float32Array(uniformHigh.length);
+
+upsampleAndMixBloom(
+  uniformHigh,
+  4,
+  4,
+  uniformLow,
   2,
-);
-const evenOutput = applyBlurPasses(
-  evenSource,
-  evenScratch,
-  evenAlternate,
-  evenWidth,
-  evenHeight,
-  1,
   2,
+  uniformMixed,
+  0.365,
+  true,
 );
 
 assert(
-  evenOutput.every((value, index) =>
-    approximatelyEqual(value, referenceSecondPass[index], 0.000001)),
-  '偶数次卷积返回正确的 ping-pong 缓冲结果',
+  arraysApproximatelyEqual(
+    uniformMixed.slice(0, 3),
+    [3.46, 1.73, 0.865],
+  ),
+  '反向金字塔按映射后的 scatter 混合高低 mip',
 );
 
-console.log('\nSoftware Bloom 编码');
+const cornerLow = new Float32Array([
+  4, 0, 0,
+  0, 0, 0,
+  0, 0, 0,
+  0, 0, 0,
+]);
+const zeroHigh = new Float32Array(4 * 4 * 3);
+const bicubicMixed = new Float32Array(zeroHigh.length);
+const bilinearMixed = new Float32Array(zeroHigh.length);
+
+upsampleAndMixBloom(
+  zeroHigh,
+  4,
+  4,
+  cornerLow,
+  2,
+  2,
+  bicubicMixed,
+  0.5,
+  true,
+);
+upsampleAndMixBloom(
+  zeroHigh,
+  4,
+  4,
+  cornerLow,
+  2,
+  2,
+  bilinearMixed,
+  0.5,
+  false,
+);
+
+assert(
+  arraysApproximatelyEqual(
+    [bicubicMixed[0], bicubicMixed[3], bicubicMixed[6], bicubicMixed[9]],
+    [
+      1.7286376953125,
+      1.2686361074447632,
+      0.5907389521598816,
+      0.1307373046875,
+    ],
+  ),
+  '高质量上采样使用 B-spline bicubic 平滑低 mip',
+);
+assert(
+  arraysApproximatelyEqual(
+    [bilinearMixed[0], bilinearMixed[3], bilinearMixed[6], bilinearMixed[9]],
+    [2, 1.5, 0.5, 0],
+  ),
+  '关闭高质量过滤时回退为双线性上采样',
+);
+
+console.log('\nSoftware Bloom 加色编码');
 const hdrBloom = new Float32Array([
   4, 2, 1,
   0, 0, 0,
   0.25, 1, 3,
+  0.25, 0.0625, 0,
 ]);
-const rgba = new Uint8ClampedArray(12);
+const rgba = new Uint8ClampedArray(16);
 
 encodeAdditiveBloom(hdrBloom, rgba, 0.45);
 
-for (let pixel = 0; pixel < rgba.length / 4; pixel++)
-{
-  const offset = pixel * 4;
-  const red = rgba[offset];
-  const green = rgba[offset + 1];
-  const blue = rgba[offset + 2];
-  const alpha = rgba[offset + 3];
-  const hasColor = red > 0 || green > 0 || blue > 0;
-
-  assert(
-    red >= 0 && red <= 255 &&
-      green >= 0 && green <= 255 &&
-      blue >= 0 && blue <= 255 &&
-      alpha >= 0 && alpha <= 255,
-    `第 ${pixel + 1} 个编码像素保持在 RGBA8 范围内`,
-  );
-  assert(
-    !hasColor || alpha > 0,
-    `第 ${pixel + 1} 个非黑像素具有可合成的 Alpha`,
-  );
-}
-
 assert(
-  rgba[0] >= rgba[1] && rgba[1] >= rgba[2],
-  '暖色 HDR 输入编码后仍保持通道顺序',
+  arraysApproximatelyEqual(
+    rgba,
+    [
+      255, 243, 179, 255,
+      0, 0, 0, 0,
+      94, 179, 255, 255,
+      255, 126, 0, 94,
+    ],
+    0,
+  ),
+  '线性 HDR 经过 Bloom 强度和 sRGB 转换后编码为确定的 RGBA8',
 );
 assert(
-  rgba[8] <= rgba[9] && rgba[9] <= rgba[10],
-  '蓝色 HDR 输入编码后仍保持通道顺序',
+  rgba[4] === 0 &&
+    rgba[5] === 0 &&
+    rgba[6] === 0 &&
+    rgba[7] === 0,
+  '零能量严格编码为透明像素，避免浅色背景被黑色覆盖',
+);
+assert(
+  rgba[12] === 255 && rgba[15] < 255,
+  '低亮度贡献使用反预乘颜色和非零 Alpha 保存加色结果',
 );
 
 console.log(`\n✅ ${passed} 项 Software Bloom 数值检查通过\n`);

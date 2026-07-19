@@ -139,6 +139,7 @@ const options: BAClickFXOptions =
   clickEnabled: true,
   trailEnabled: true,
   softwareBloomEnabled: true,
+  lightBackgroundContrastAlpha: 0.08,
   maxDpr: 2,
   inputFilter,
 };
@@ -150,6 +151,8 @@ const defaults: BAClickFXConfig = createConfig();
 const unity: UnityFxTouchConfig = UNITY_FX_TOUCH;
 const defaultScale: number = CONFIG.scale;
 const softwareBloomEnabled: boolean = config.softwareBloomEnabled;
+const lightBackgroundContrastAlpha: number =
+  config.lightBackgroundContrastAlpha;
 
 namedInstance.boom(300, 200);
 namedInstance.updateConfig({ softwareBloomEnabled: false });
@@ -172,6 +175,7 @@ void [
   unity,
   defaultScale,
   softwareBloomEnabled,
+  lightBackgroundContrastAlpha,
   invalidOptions,
 ];
 `;

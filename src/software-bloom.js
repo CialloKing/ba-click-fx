@@ -1,5 +1,53 @@
 const RGB_CHANNELS = 3;
+const RGBA_CHANNELS = 4;
 const REGION_QUANTUM = 64;
+const MAX_PYRAMID_LEVELS = 16;
+const DEFAULT_SKIP_ITERATIONS = 1;
+
+// URP 12 Bloom.shader 的 9-tap 水平 Gaussian 权重。
+const GAUSSIAN_HORIZONTAL_WEIGHTS = Object.freeze(
+  [
+    0.01621622,
+    0.05405405,
+    0.12162162,
+    0.19459459,
+    0.22702703,
+    0.19459459,
+    0.12162162,
+    0.05405405,
+    0.01621622,
+  ],
+);
+
+// URP 借助双线性采样把纵向 9 taps 合并为 5 taps。
+const GAUSSIAN_VERTICAL_TAPS = Object.freeze(
+  [
+    [-3.23076923, 0.07027027],
+    [-1.38461538, 0.31621622],
+    [0, 0.22702703],
+    [1.38461538, 0.31621622],
+    [3.23076923, 0.07027027],
+  ],
+);
+
+// URP 高质量预过滤的 13 taps，重复采样项已合并为等价权重。
+const PREFILTER_TAPS = Object.freeze(
+  [
+    [-1, -1, 0.03125],
+    [0, -1, 0.0625],
+    [1, -1, 0.03125],
+    [-0.5, -0.5, 0.125],
+    [0.5, -0.5, 0.125],
+    [-1, 0, 0.0625],
+    [0, 0, 0.125],
+    [1, 0, 0.0625],
+    [-0.5, 0.5, 0.125],
+    [0.5, 0.5, 0.125],
+    [-1, 1, 0.03125],
+    [0, 1, 0.0625],
+    [1, 1, 0.03125],
+  ],
+);
 
 function clamp(value, minimum, maximum)
 {
@@ -11,8 +59,42 @@ function clamp01(value)
   return clamp(value, 0, 1);
 }
 
+function calculatePyramidLevelCount(
+  displayWidth,
+  displayHeight,
+  resolutionScale,
+  skipIterations,
+)
+{
+  const safeScale = clamp(resolutionScale, 0.1, 0.75);
+  const maxSize = Math.max(
+    1,
+    Math.floor(displayWidth * safeScale),
+    Math.floor(displayHeight * safeScale),
+  );
+  const iterations = Math.floor(Math.log2(maxSize) - 1) -
+    clamp(Math.round(skipIterations), 0, 16);
+
+  return clamp(iterations, 1, MAX_PYRAMID_LEVELS);
+}
+
 /**
- * 计算带 Soft Knee 的高亮贡献。独立成纯函数，方便锁定阈值行为。
+ * 将线性亮度转换为普通 Canvas/ImageData 使用的 sRGB 编码。
+ */
+export function linearToSrgb(value)
+{
+  const linear = clamp01(value);
+
+  if (linear <= 0.0031308)
+  {
+    return linear * 12.92;
+  }
+
+  return 1.055 * Math.pow(linear, 1 / 2.4) - 0.055;
+}
+
+/**
+ * 计算带 Soft Knee 的高亮贡献，与 URP Bloom.shader 的预过滤公式一致。
  */
 export function calculateBloomContribution(brightness, threshold, softKnee)
 {
@@ -21,14 +103,45 @@ export function calculateBloomContribution(brightness, threshold, softKnee)
   let soft = brightness - safeThreshold + knee;
 
   soft = clamp(soft, 0, knee * 2);
-  soft = (soft * soft) / (knee * 4);
+  soft = (soft * soft) / (knee * 4 + 0.0001);
 
   return Math.max(brightness - safeThreshold, soft, 0);
 }
 
+function writeThresholdedColor(
+  red,
+  green,
+  blue,
+  output,
+  outputIndex,
+  threshold,
+  softKnee,
+)
+{
+  const brightness = Math.max(red, green, blue);
+
+  if (brightness <= 0)
+  {
+    output[outputIndex] = 0;
+    output[outputIndex + 1] = 0;
+    output[outputIndex + 2] = 0;
+    return;
+  }
+
+  const contribution = calculateBloomContribution(
+    brightness,
+    threshold,
+    softKnee,
+  );
+  const multiplier = contribution / Math.max(brightness, 0.0001);
+
+  output[outputIndex] = Math.max(0, red * multiplier);
+  output[outputIndex + 1] = Math.max(0, green * multiplier);
+  output[outputIndex + 2] = Math.max(0, blue * multiplier);
+}
+
 /**
- * 将 8 位发射遮罩还原为 Float32 HDR 高亮缓冲。
- * 遮罩 RGB 保存线性能量比例，Alpha 只保存 Canvas 抗锯齿覆盖率。
+ * 小数组测试和非缩放调用使用的直接高亮提取。
  */
 export function extractBrightPass(
   source,
@@ -38,167 +151,579 @@ export function extractBrightPass(
   softKnee,
 )
 {
-  const pixelCount = source.length / 4;
+  const pixelCount = source.length / RGBA_CHANNELS;
   const safeEncodingRange = Math.max(1, encodingRange);
 
   for (let pixel = 0; pixel < pixelCount; pixel++)
   {
-    const sourceIndex = pixel * 4;
+    const sourceIndex = pixel * RGBA_CHANNELS;
     const outputIndex = pixel * RGB_CHANNELS;
     const coverage = source[sourceIndex + 3] / 255;
-    const red = (source[sourceIndex] / 255) * safeEncodingRange * coverage;
-    const green = (source[sourceIndex + 1] / 255) * safeEncodingRange * coverage;
-    const blue = (source[sourceIndex + 2] / 255) * safeEncodingRange * coverage;
-    const brightness = Math.max(red, green, blue);
 
-    if (brightness <= 0)
-    {
-      output[outputIndex] = 0;
-      output[outputIndex + 1] = 0;
-      output[outputIndex + 2] = 0;
-      continue;
-    }
-
-    const contribution = calculateBloomContribution(
-      brightness,
+    writeThresholdedColor(
+      source[sourceIndex] / 255 * safeEncodingRange * coverage,
+      source[sourceIndex + 1] / 255 * safeEncodingRange * coverage,
+      source[sourceIndex + 2] / 255 * safeEncodingRange * coverage,
+      output,
+      outputIndex,
       threshold,
       softKnee,
     );
-    const scale = contribution / brightness;
-
-    output[outputIndex] = red * scale;
-    output[outputIndex + 1] = green * scale;
-    output[outputIndex + 2] = blue * scale;
   }
 }
 
 /**
- * 使用滑动窗口执行水平、垂直两次箱式模糊。
- * 连续覆盖窗口不会把稀疏采样核印到细圆环上，三次迭代可近似高斯光晕。
+ * ImageData 被当作线性 HDR 的定点封装；这里只解码，不做显示色彩转换。
  */
-export function separableBoxBlur(
+export function decodeEmissionMask(
   source,
+  output,
+  encodingRange,
+  width = 0,
+  height = 0,
+)
+{
+  const pixelCount = source.length / RGBA_CHANNELS;
+  const safeEncodingRange = Math.max(1, encodingRange);
+  let minimumX = width;
+  let minimumY = height;
+  let maximumX = -1;
+  let maximumY = -1;
+
+  for (let pixel = 0; pixel < pixelCount; pixel++)
+  {
+    const sourceIndex = pixel * RGBA_CHANNELS;
+    const outputIndex = pixel * RGB_CHANNELS;
+    const coverage = source[sourceIndex + 3] / 255;
+
+    const red = source[sourceIndex] / 255 *
+      safeEncodingRange * coverage;
+    const green = source[sourceIndex + 1] / 255 *
+      safeEncodingRange * coverage;
+    const blue = source[sourceIndex + 2] / 255 *
+      safeEncodingRange * coverage;
+
+    output[outputIndex] = red;
+    output[outputIndex + 1] = green;
+    output[outputIndex + 2] = blue;
+
+    if (width > 0 && height > 0 && Math.max(red, green, blue) > 0)
+    {
+      const x = pixel % width;
+      const y = Math.floor(pixel / width);
+
+      minimumX = Math.min(minimumX, x);
+      minimumY = Math.min(minimumY, y);
+      maximumX = Math.max(maximumX, x);
+      maximumY = Math.max(maximumY, y);
+    }
+  }
+
+  if (maximumX < minimumX || maximumY < minimumY)
+  {
+    return null;
+  }
+
+  return {
+    minimumX,
+    minimumY,
+    maximumX,
+    maximumY,
+  };
+}
+
+function addBilinearRgb(
+  source,
+  width,
+  height,
+  x,
+  y,
+  weight,
+  output,
+  outputIndex,
+)
+{
+  const safeX = clamp(x, 0, width - 1);
+  const safeY = clamp(y, 0, height - 1);
+  const left = Math.floor(safeX);
+  const top = Math.floor(safeY);
+  const right = Math.min(left + 1, width - 1);
+  const bottom = Math.min(top + 1, height - 1);
+  const horizontal = safeX - left;
+  const vertical = safeY - top;
+  const topLeftWeight = (1 - horizontal) * (1 - vertical) * weight;
+  const topRightWeight = horizontal * (1 - vertical) * weight;
+  const bottomLeftWeight = (1 - horizontal) * vertical * weight;
+  const bottomRightWeight = horizontal * vertical * weight;
+  const topLeftIndex = (top * width + left) * RGB_CHANNELS;
+  const topRightIndex = (top * width + right) * RGB_CHANNELS;
+  const bottomLeftIndex = (bottom * width + left) * RGB_CHANNELS;
+  const bottomRightIndex = (bottom * width + right) * RGB_CHANNELS;
+
+  for (let channel = 0; channel < RGB_CHANNELS; channel++)
+  {
+    output[outputIndex + channel] +=
+      source[topLeftIndex + channel] * topLeftWeight +
+      source[topRightIndex + channel] * topRightWeight +
+      source[bottomLeftIndex + channel] * bottomLeftWeight +
+      source[bottomRightIndex + channel] * bottomRightWeight;
+  }
+}
+
+function calculateBicubicAxis(position, output)
+{
+  // Filtering.hlsl 用 4 次双线性读取重建 cubic B-spline；这里保留同一
+  // 权重与坐标，避免为每个通道创建数组并执行 16 次标量读取。
+  const coordinate = position + 1;
+  const cell = Math.floor(coordinate);
+  const fraction = coordinate - cell;
+  const rightmost = 1 / 6 + fraction * (
+    -0.5 + fraction * (0.5 - fraction / 6)
+  );
+  const middleRight = 2 / 3 + fraction * (
+    -1 + 0.5 * fraction
+  ) * fraction;
+  const middleLeft = 1 / 6 + fraction * (
+    0.5 + fraction * (0.5 - 0.5 * fraction)
+  );
+  const leftmost = 1 - middleRight - middleLeft - rightmost;
+  const firstWeight = rightmost + middleRight;
+  const secondWeight = middleLeft + leftmost;
+
+  output.firstPosition = cell - 2 + middleRight / firstWeight;
+  output.secondPosition = cell + leftmost / secondWeight;
+  output.firstWeight = firstWeight;
+  output.secondWeight = secondWeight;
+}
+
+function addBicubicRgb(
+  source,
+  width,
+  height,
+  horizontal,
+  vertical,
+  weight,
+  output,
+  outputIndex,
+)
+{
+  addBilinearRgb(
+    source,
+    width,
+    height,
+    horizontal.firstPosition,
+    vertical.firstPosition,
+    weight * horizontal.firstWeight * vertical.firstWeight,
+    output,
+    outputIndex,
+  );
+  addBilinearRgb(
+    source,
+    width,
+    height,
+    horizontal.secondPosition,
+    vertical.firstPosition,
+    weight * horizontal.secondWeight * vertical.firstWeight,
+    output,
+    outputIndex,
+  );
+  addBilinearRgb(
+    source,
+    width,
+    height,
+    horizontal.firstPosition,
+    vertical.secondPosition,
+    weight * horizontal.firstWeight * vertical.secondWeight,
+    output,
+    outputIndex,
+  );
+  addBilinearRgb(
+    source,
+    width,
+    height,
+    horizontal.secondPosition,
+    vertical.secondPosition,
+    weight * horizontal.secondWeight * vertical.secondWeight,
+    output,
+    outputIndex,
+  );
+}
+
+/**
+ * 从全分辨率发射遮罩生成半分辨率 mip0，并执行 URP HQ 13-tap 预过滤。
+ */
+export function prefilterBloom(
+  source,
+  sourceWidth,
+  sourceHeight,
+  output,
+  outputWidth,
+  outputHeight,
+  threshold,
+  softKnee,
+  clampMax = 65472,
+  highQualityFiltering = true,
+  sourceTexelAspect = sourceHeight / sourceWidth,
+  sourceBounds = null,
+)
+{
+  const scaleX = sourceWidth / outputWidth;
+  const scaleY = sourceHeight / outputHeight;
+  // URP 12 有意用 _SourceTex_TexelSize.x 同时偏移两个轴；换算到
+  // 源像素坐标后，横向为 1px，纵向为纹理高宽比，而不是各自 1px。
+  const tapScaleX = 1;
+  const tapScaleY = sourceTexelAspect;
+  let startX = 0;
+  let startY = 0;
+  let endX = outputWidth;
+  let endY = outputHeight;
+  let activeMinimumX = outputWidth;
+  let activeMinimumY = outputHeight;
+  let activeMaximumX = -1;
+  let activeMaximumY = -1;
+
+  output.fill(0);
+
+  if (sourceBounds)
+  {
+    // 发射图通常只占带 padding 区域的一小部分；只预过滤可能读取到
+    // 非零源像素的输出，空白区保持清零，避免长轨迹每帧做数百万次无效 taps。
+    const horizontalPadding = highQualityFiltering ? 3 : 1;
+    const verticalPadding = highQualityFiltering
+      ? Math.ceil(Math.abs(tapScaleY)) + 2
+      : 1;
+
+    startX = clamp(
+      Math.floor((sourceBounds.minimumX - horizontalPadding) / scaleX) - 1,
+      0,
+      outputWidth,
+    );
+    startY = clamp(
+      Math.floor((sourceBounds.minimumY - verticalPadding) / scaleY) - 1,
+      0,
+      outputHeight,
+    );
+    endX = clamp(
+      Math.ceil((sourceBounds.maximumX + horizontalPadding + 1) / scaleX) + 1,
+      0,
+      outputWidth,
+    );
+    endY = clamp(
+      Math.ceil((sourceBounds.maximumY + verticalPadding + 1) / scaleY) + 1,
+      0,
+      outputHeight,
+    );
+  }
+
+  for (let y = startY; y < endY; y++)
+  {
+    const sourceY = (y + 0.5) * scaleY - 0.5;
+
+    for (let x = startX; x < endX; x++)
+    {
+      const sourceX = (x + 0.5) * scaleX - 0.5;
+      const outputIndex = (y * outputWidth + x) * RGB_CHANNELS;
+
+      output[outputIndex] = 0;
+      output[outputIndex + 1] = 0;
+      output[outputIndex + 2] = 0;
+
+      if (!highQualityFiltering)
+      {
+        addBilinearRgb(
+          source,
+          sourceWidth,
+          sourceHeight,
+          sourceX,
+          sourceY,
+          1,
+          output,
+          outputIndex,
+        );
+      }
+      else
+      {
+        for (const [offsetX, offsetY, weight] of PREFILTER_TAPS)
+        {
+          const sampleX = sourceX + offsetX * tapScaleX;
+          const sampleY = sourceY + offsetY * tapScaleY;
+
+          addBilinearRgb(
+            source,
+            sourceWidth,
+            sourceHeight,
+            sampleX,
+            sampleY,
+            weight,
+            output,
+            outputIndex,
+          );
+        }
+      }
+
+      writeThresholdedColor(
+        Math.min(clampMax, output[outputIndex]),
+        Math.min(clampMax, output[outputIndex + 1]),
+        Math.min(clampMax, output[outputIndex + 2]),
+        output,
+        outputIndex,
+        threshold,
+        softKnee,
+      );
+
+      if (Math.max(
+        output[outputIndex],
+        output[outputIndex + 1],
+        output[outputIndex + 2],
+      ) > 0)
+      {
+        activeMinimumX = Math.min(activeMinimumX, x);
+        activeMinimumY = Math.min(activeMinimumY, y);
+        activeMaximumX = Math.max(activeMaximumX, x);
+        activeMaximumY = Math.max(activeMaximumY, y);
+      }
+    }
+  }
+
+  if (activeMaximumX < activeMinimumX || activeMaximumY < activeMinimumY)
+  {
+    return null;
+  }
+
+  return {
+    minimumX: activeMinimumX,
+    minimumY: activeMinimumY,
+    maximumX: activeMaximumX,
+    maximumY: activeMaximumY,
+  };
+}
+
+/**
+ * 对上一层执行 URP 的“2×降采样 + 9-tap Gaussian”两阶段卷积。
+ */
+export function downsampleGaussian(
+  source,
+  sourceWidth,
+  sourceHeight,
   scratch,
   output,
-  width,
-  height,
-  radius,
+  outputWidth,
+  outputHeight,
+  sourceBounds = null,
 )
 {
-  const safeRadius = Math.max(1, Math.round(radius));
-  const windowSize = safeRadius * 2 + 1;
-  const inverseWindow = 1 / windowSize;
+  const scaleX = sourceWidth / outputWidth;
+  const scaleY = sourceHeight / outputHeight;
+  let horizontalStartX = 0;
+  let horizontalStartY = 0;
+  let horizontalEndX = outputWidth;
+  let horizontalEndY = outputHeight;
+  let outputStartY = 0;
+  let outputEndY = outputHeight;
 
-  for (let y = 0; y < height; y++)
+  scratch.fill(0);
+  output.fill(0);
+
+  if (sourceBounds)
   {
-    let red = 0;
-    let green = 0;
-    let blue = 0;
-
-    for (let offset = -safeRadius; offset <= safeRadius; offset++)
-    {
-      const x = clamp(offset, 0, width - 1);
-      const index = (y * width + x) * RGB_CHANNELS;
-
-      red += source[index];
-      green += source[index + 1];
-      blue += source[index + 2];
-    }
-
-    for (let x = 0; x < width; x++)
-    {
-      const index = (y * width + x) * RGB_CHANNELS;
-
-      scratch[index] = red * inverseWindow;
-      scratch[index + 1] = green * inverseWindow;
-      scratch[index + 2] = blue * inverseWindow;
-
-      const removeX = clamp(x - safeRadius, 0, width - 1);
-      const addX = clamp(x + safeRadius + 1, 0, width - 1);
-      const removeIndex = (y * width + removeX) * RGB_CHANNELS;
-      const addIndex = (y * width + addX) * RGB_CHANNELS;
-
-      red += source[addIndex] - source[removeIndex];
-      green += source[addIndex + 1] - source[removeIndex + 1];
-      blue += source[addIndex + 2] - source[removeIndex + 2];
-    }
-  }
-
-  for (let x = 0; x < width; x++)
-  {
-    let red = 0;
-    let green = 0;
-    let blue = 0;
-
-    for (let offset = -safeRadius; offset <= safeRadius; offset++)
-    {
-      const y = clamp(offset, 0, height - 1);
-      const index = (y * width + x) * RGB_CHANNELS;
-
-      red += scratch[index];
-      green += scratch[index + 1];
-      blue += scratch[index + 2];
-    }
-
-    for (let y = 0; y < height; y++)
-    {
-      const index = (y * width + x) * RGB_CHANNELS;
-
-      output[index] = red * inverseWindow;
-      output[index + 1] = green * inverseWindow;
-      output[index + 2] = blue * inverseWindow;
-
-      const removeY = clamp(y - safeRadius, 0, height - 1);
-      const addY = clamp(y + safeRadius + 1, 0, height - 1);
-      const removeIndex = (removeY * width + x) * RGB_CHANNELS;
-      const addIndex = (addY * width + x) * RGB_CHANNELS;
-
-      red += scratch[addIndex] - scratch[removeIndex];
-      green += scratch[addIndex + 1] - scratch[removeIndex + 1];
-      blue += scratch[addIndex + 2] - scratch[removeIndex + 2];
-    }
-  }
-}
-
-/**
- * 连续执行完整的模糊链并返回最后一级结果。
- * 缓冲区由调用方复用；偶数次迭代会覆盖 source，这是软件 Bloom 的预期行为。
- */
-export function applyBlurPasses(
-  source,
-  scratch,
-  alternate,
-  width,
-  height,
-  baseRadius,
-  iterations,
-)
-{
-  const safeIterations = clamp(Math.round(iterations), 1, 6);
-  const safeBaseRadius = Math.max(1, Math.round(baseRadius));
-  let input = source;
-  let output = alternate;
-
-  for (let iteration = 0; iteration < safeIterations; iteration++)
-  {
-    separableBoxBlur(
-      input,
-      scratch,
-      output,
-      width,
-      height,
-      safeBaseRadius * (iteration + 1),
+    horizontalStartX = clamp(
+      Math.floor((sourceBounds.minimumX - 9) / scaleX) - 1,
+      0,
+      outputWidth,
     );
-    input = output;
-    output = output === alternate ? source : alternate;
+    horizontalStartY = clamp(
+      Math.floor((sourceBounds.minimumY - 1) / scaleY) - 1,
+      0,
+      outputHeight,
+    );
+    horizontalEndX = clamp(
+      Math.ceil((sourceBounds.maximumX + 10) / scaleX) + 1,
+      0,
+      outputWidth,
+    );
+    horizontalEndY = clamp(
+      Math.ceil((sourceBounds.maximumY + 2) / scaleY) + 1,
+      0,
+      outputHeight,
+    );
+    outputStartY = Math.max(0, horizontalStartY - 5);
+    outputEndY = Math.min(outputHeight, horizontalEndY + 5);
   }
 
-  return input;
+  for (let y = horizontalStartY; y < horizontalEndY; y++)
+  {
+    const sourceY = (y + 0.5) * scaleY - 0.5;
+
+    for (let x = horizontalStartX; x < horizontalEndX; x++)
+    {
+      const sourceX = (x + 0.5) * scaleX - 0.5;
+      const outputIndex = (y * outputWidth + x) * RGB_CHANNELS;
+
+      for (let tap = -4; tap <= 4; tap++)
+      {
+        addBilinearRgb(
+          source,
+          sourceWidth,
+          sourceHeight,
+          // FragBlurH 固定跨 2 个 source texel；奇数 mip 不能改用尺寸比，
+          // 否则 135→67 一类层级会逐级把光晕错误地拉宽。
+          sourceX + tap * 2,
+          sourceY,
+          GAUSSIAN_HORIZONTAL_WEIGHTS[tap + 4],
+          scratch,
+          outputIndex,
+        );
+      }
+    }
+  }
+
+  for (let y = outputStartY; y < outputEndY; y++)
+  {
+    for (let x = horizontalStartX; x < horizontalEndX; x++)
+    {
+      const outputIndex = (y * outputWidth + x) * RGB_CHANNELS;
+
+      for (const [offset, weight] of GAUSSIAN_VERTICAL_TAPS)
+      {
+        addBilinearRgb(
+          scratch,
+          outputWidth,
+          outputHeight,
+          x,
+          y + offset,
+          weight,
+          output,
+          outputIndex,
+        );
+      }
+    }
+  }
+
+  return {
+    minimumX: horizontalStartX,
+    minimumY: outputStartY,
+    maximumX: Math.max(horizontalStartX, horizontalEndX - 1),
+    maximumY: Math.max(outputStartY, outputEndY - 1),
+  };
 }
 
 /**
- * 将 HDR Bloom 编码为可参与 lighter 合成的非预乘 RGBA。
- * Alpha 取最大颜色分量，确保 Canvas 预乘后恰好恢复目标加色能量。
+ * URP 的反向金字塔合成：每级保留 high mip，再按 scatter 混入 low mip。
+ */
+export function upsampleAndMixBloom(
+  high,
+  highWidth,
+  highHeight,
+  low,
+  lowWidth,
+  lowHeight,
+  output,
+  scatter,
+  highQualityFiltering = true,
+  highBounds = null,
+  lowBounds = null,
+)
+{
+  const mix = clamp01(scatter);
+  const keep = 1 - mix;
+  const scaleX = lowWidth / highWidth;
+  const scaleY = lowHeight / highHeight;
+  const horizontalBicubic = {};
+  const verticalBicubic = {};
+  let startX = 0;
+  let startY = 0;
+  let endX = highWidth;
+  let endY = highHeight;
+
+  output.fill(0);
+
+  if (highBounds && lowBounds)
+  {
+    const lowStartX = Math.floor((lowBounds.minimumX - 3) / scaleX) - 2;
+    const lowStartY = Math.floor((lowBounds.minimumY - 3) / scaleY) - 2;
+    const lowEndX = Math.ceil((lowBounds.maximumX + 4) / scaleX) + 2;
+    const lowEndY = Math.ceil((lowBounds.maximumY + 4) / scaleY) + 2;
+
+    startX = clamp(
+      Math.min(highBounds.minimumX, lowStartX),
+      0,
+      highWidth,
+    );
+    startY = clamp(
+      Math.min(highBounds.minimumY, lowStartY),
+      0,
+      highHeight,
+    );
+    endX = clamp(
+      Math.max(highBounds.maximumX + 1, lowEndX),
+      0,
+      highWidth,
+    );
+    endY = clamp(
+      Math.max(highBounds.maximumY + 1, lowEndY),
+      0,
+      highHeight,
+    );
+  }
+
+  for (let y = startY; y < endY; y++)
+  {
+    const lowY = (y + 0.5) * scaleY - 0.5;
+
+    if (highQualityFiltering)
+    {
+      calculateBicubicAxis(lowY, verticalBicubic);
+    }
+
+    for (let x = startX; x < endX; x++)
+    {
+      const lowX = (x + 0.5) * scaleX - 0.5;
+      const outputIndex = (y * highWidth + x) * RGB_CHANNELS;
+
+      output[outputIndex] = high[outputIndex] * keep;
+      output[outputIndex + 1] = high[outputIndex + 1] * keep;
+      output[outputIndex + 2] = high[outputIndex + 2] * keep;
+
+      if (highQualityFiltering)
+      {
+        calculateBicubicAxis(lowX, horizontalBicubic);
+        addBicubicRgb(
+          low,
+          lowWidth,
+          lowHeight,
+          horizontalBicubic,
+          verticalBicubic,
+          mix,
+          output,
+          outputIndex,
+        );
+        continue;
+      }
+
+      addBilinearRgb(
+        low,
+        lowWidth,
+        lowHeight,
+        lowX,
+        lowY,
+        mix,
+        output,
+        outputIndex,
+      );
+    }
+  }
+
+  return {
+    minimumX: startX,
+    minimumY: startY,
+    maximumX: Math.max(startX, endX - 1),
+    maximumY: Math.max(startY, endY - 1),
+  };
+}
+
+/**
+ * 将线性 HDR Bloom 转成可由透明 Canvas 保存的 sRGB 加色贡献。
+ * Alpha 取最大 sRGB 通道，反预乘后写入 ImageData；零能量严格输出零 Alpha。
  */
 export function encodeAdditiveBloom(source, output, intensity)
 {
@@ -208,15 +733,11 @@ export function encodeAdditiveBloom(source, output, intensity)
   for (let pixel = 0; pixel < pixelCount; pixel++)
   {
     const sourceIndex = pixel * RGB_CHANNELS;
-    const outputIndex = pixel * 4;
-    const redEnergy = source[sourceIndex] * safeIntensity;
-    const greenEnergy = source[sourceIndex + 1] * safeIntensity;
-    const blueEnergy = source[sourceIndex + 2] * safeIntensity;
-    // 基准 Volume 没有 Tonemapping；这里让普通 8 位 Canvas 自然截断 SDR 峰值。
-    const red = clamp01(redEnergy);
-    const green = clamp01(greenEnergy);
-    const blue = clamp01(blueEnergy);
-    const alpha = clamp01(Math.max(red, green, blue));
+    const outputIndex = pixel * RGBA_CHANNELS;
+    const red = linearToSrgb(source[sourceIndex] * safeIntensity);
+    const green = linearToSrgb(source[sourceIndex + 1] * safeIntensity);
+    const blue = linearToSrgb(source[sourceIndex + 2] * safeIntensity);
+    const alpha = Math.max(red, green, blue);
 
     if (alpha <= 0.00001)
     {
@@ -235,7 +756,7 @@ export function encodeAdditiveBloom(source, output, intensity)
 }
 
 /**
- * 一个实例只持有一套可复用缓冲；不在模块顶层访问 DOM，保证包可在 SSR 中加载。
+ * 一个实例只持有一套局部金字塔缓冲；模块加载时不访问 DOM，兼容 SSR。
  */
 export class SoftwareBloomRenderer
 {
@@ -251,6 +772,8 @@ export class SoftwareBloomRenderer
       },
     );
     this.outputContext = this.outputCanvas?.getContext?.('2d', { alpha: true });
+    this.sourceWidth = 0;
+    this.sourceHeight = 0;
     this.width = 0;
     this.height = 0;
     this.originX = 0;
@@ -258,9 +781,10 @@ export class SoftwareBloomRenderer
     this.regionWidth = 0;
     this.regionHeight = 0;
     this.resolutionScale = 0;
-    this.bright = new Float32Array(0);
-    this.blurA = new Float32Array(0);
-    this.blurB = new Float32Array(0);
+    this.displayWidth = 0;
+    this.displayHeight = 0;
+    this.sourceLinear = new Float32Array(0);
+    this.levels = [];
     this.outputImageData = null;
     this.available = Boolean(
       this.sourceContext &&
@@ -271,33 +795,90 @@ export class SoftwareBloomRenderer
     );
   }
 
-  _resize(regionWidth, regionHeight, resolutionScale)
+  _resize(
+    regionWidth,
+    regionHeight,
+    resolutionScale,
+    displayWidth,
+    displayHeight,
+    skipIterations,
+    samplingScale,
+  )
   {
     const safeScale = clamp(resolutionScale, 0.1, 0.75);
-    const width = Math.max(1, Math.ceil(regionWidth * safeScale));
-    const height = Math.max(1, Math.ceil(regionHeight * safeScale));
+    // Unity 按 RenderTexture 物理像素执行后处理；高 DPR 页面也必须先以
+    // 物理像素光栅化发射几何，再从半分辨率 mip0 开始，不能停留在 CSS 像素。
+    const sourceWidth = Math.max(1, Math.round(regionWidth * samplingScale));
+    const sourceHeight = Math.max(1, Math.round(regionHeight * samplingScale));
+    const width = Math.max(1, Math.floor(sourceWidth * safeScale));
+    const height = Math.max(1, Math.floor(sourceHeight * safeScale));
+    const desiredLevelCount = calculatePyramidLevelCount(
+      displayWidth,
+      displayHeight,
+      safeScale,
+      skipIterations,
+    );
+    const dimensions = [];
+    let levelWidth = width;
+    let levelHeight = height;
+
+    for (let level = 0; level < desiredLevelCount; level++)
+    {
+      dimensions.push([levelWidth, levelHeight]);
+
+      if (levelWidth === 1 && levelHeight === 1)
+      {
+        break;
+      }
+
+      levelWidth = Math.max(1, levelWidth >> 1);
+      levelHeight = Math.max(1, levelHeight >> 1);
+    }
+
+    const sameDimensions =
+      sourceWidth === this.sourceWidth &&
+      sourceHeight === this.sourceHeight &&
+      width === this.width &&
+      height === this.height &&
+      dimensions.length === this.levels.length &&
+      dimensions.every(([nextWidth, nextHeight], index) =>
+        this.levels[index]?.width === nextWidth &&
+          this.levels[index]?.height === nextHeight);
 
     this.regionWidth = regionWidth;
     this.regionHeight = regionHeight;
     this.resolutionScale = safeScale;
+    this.displayWidth = displayWidth;
+    this.displayHeight = displayHeight;
 
-    if (width === this.width && height === this.height)
+    if (sameDimensions)
     {
       return true;
     }
 
+    this.sourceWidth = sourceWidth;
+    this.sourceHeight = sourceHeight;
     this.width = width;
     this.height = height;
-    this.sourceCanvas.width = width;
-    this.sourceCanvas.height = height;
+    this.sourceCanvas.width = sourceWidth;
+    this.sourceCanvas.height = sourceHeight;
     this.outputCanvas.width = width;
     this.outputCanvas.height = height;
+    this.sourceLinear = new Float32Array(
+      sourceWidth * sourceHeight * RGB_CHANNELS,
+    );
+    this.levels = dimensions.map(([nextWidth, nextHeight]) =>
+    {
+      const length = nextWidth * nextHeight * RGB_CHANNELS;
 
-    const floatLength = width * height * RGB_CHANNELS;
-
-    this.bright = new Float32Array(floatLength);
-    this.blurA = new Float32Array(floatLength);
-    this.blurB = new Float32Array(floatLength);
+      return {
+        width: nextWidth,
+        height: nextHeight,
+        down: new Float32Array(length),
+        up: new Float32Array(length),
+        scratch: new Float32Array(length),
+      };
+    });
 
     try
     {
@@ -313,40 +894,80 @@ export class SoftwareBloomRenderer
     return true;
   }
 
-  beginFrame(displayWidth, displayHeight, resolutionScale, bounds)
+  beginFrame(
+    displayWidth,
+    displayHeight,
+    resolutionScale,
+    bounds,
+    skipIterations = DEFAULT_SKIP_ITERATIONS,
+    samplingScale = 1,
+  )
   {
     if (!this.available || !bounds)
     {
       return null;
     }
 
-    const left = clamp(
-      Math.floor(bounds.x / REGION_QUANTUM) * REGION_QUANTUM,
-      0,
-      displayWidth,
+    const safeSamplingScale = clamp(samplingScale, 1, 4);
+    const pixelDisplayWidth = Math.max(1, Math.round(
+      displayWidth * safeSamplingScale,
+    ));
+    const pixelDisplayHeight = Math.max(1, Math.round(
+      displayHeight * safeSamplingScale,
+    ));
+    const levelCount = calculatePyramidLevelCount(
+      pixelDisplayWidth,
+      pixelDisplayHeight,
+      resolutionScale,
+      skipIterations,
     );
-    const top = clamp(
-      Math.floor(bounds.y / REGION_QUANTUM) * REGION_QUANTUM,
-      0,
-      displayHeight,
+    const regionQuantum = Math.max(
+      REGION_QUANTUM,
+      2 ** Math.max(0, levelCount - 1),
     );
-    const right = clamp(
-      Math.ceil((bounds.x + bounds.width) / REGION_QUANTUM) * REGION_QUANTUM,
+    const leftPixels = clamp(
+      Math.floor(bounds.x * safeSamplingScale / regionQuantum) * regionQuantum,
       0,
-      displayWidth,
+      pixelDisplayWidth,
     );
-    const bottom = clamp(
-      Math.ceil((bounds.y + bounds.height) / REGION_QUANTUM) * REGION_QUANTUM,
+    const topPixels = clamp(
+      Math.floor(bounds.y * safeSamplingScale / regionQuantum) * regionQuantum,
       0,
-      displayHeight,
+      pixelDisplayHeight,
     );
+    const rightPixels = clamp(
+      Math.ceil(
+        (bounds.x + bounds.width) * safeSamplingScale / regionQuantum,
+      ) * regionQuantum,
+      0,
+      pixelDisplayWidth,
+    );
+    const bottomPixels = clamp(
+      Math.ceil(
+        (bounds.y + bounds.height) * safeSamplingScale / regionQuantum,
+      ) * regionQuantum,
+      0,
+      pixelDisplayHeight,
+    );
+    const left = leftPixels / safeSamplingScale;
+    const top = topPixels / safeSamplingScale;
+    const right = rightPixels / safeSamplingScale;
+    const bottom = bottomPixels / safeSamplingScale;
     const regionWidth = right - left;
     const regionHeight = bottom - top;
 
     if (
       regionWidth <= 0 ||
       regionHeight <= 0 ||
-      !this._resize(regionWidth, regionHeight, resolutionScale)
+      !this._resize(
+        regionWidth,
+        regionHeight,
+        resolutionScale,
+        pixelDisplayWidth,
+        pixelDisplayHeight,
+        skipIterations,
+        safeSamplingScale,
+      )
     )
     {
       return null;
@@ -355,12 +976,11 @@ export class SoftwareBloomRenderer
     this.originX = left;
     this.originY = top;
 
-    const scaleX = this.width / regionWidth;
-    const scaleY = this.height / regionHeight;
+    const scaleX = this.sourceWidth / regionWidth;
+    const scaleY = this.sourceHeight / regionHeight;
 
-    // 先在像素坐标中清空，再切回带世界坐标偏移的局部高分辨率区域。
     this.sourceContext.setTransform(1, 0, 0, 1, 0, 0);
-    this.sourceContext.clearRect(0, 0, this.width, this.height);
+    this.sourceContext.clearRect(0, 0, this.sourceWidth, this.sourceHeight);
     this.sourceContext.setTransform(
       scaleX,
       0,
@@ -376,7 +996,11 @@ export class SoftwareBloomRenderer
 
   composite(targetContext, settings)
   {
-    if (!this.available || !this.outputImageData)
+    if (
+      !this.available ||
+      !this.outputImageData ||
+      this.levels.length === 0
+    )
     {
       return false;
     }
@@ -388,51 +1012,106 @@ export class SoftwareBloomRenderer
       sourceImageData = this.sourceContext.getImageData(
         0,
         0,
-        this.width,
-        this.height,
+        this.sourceWidth,
+        this.sourceHeight,
       );
     }
     catch
     {
-      // 回读失败后永久退回原生 shadowBlur，避免每帧重复抛异常。
+      // 回读失败后永久使用原生回退，避免每帧重复触发异常。
       this.available = false;
       return false;
     }
 
-    extractBrightPass(
+    const emissionBounds = decodeEmissionMask(
       sourceImageData.data,
-      this.bright,
+      this.sourceLinear,
       settings.encodingRange,
+      this.sourceWidth,
+      this.sourceHeight,
+    );
+
+    const firstLevel = this.levels[0];
+
+    const activeBounds = [];
+
+    activeBounds[0] = prefilterBloom(
+      this.sourceLinear,
+      this.sourceWidth,
+      this.sourceHeight,
+      firstLevel.down,
+      firstLevel.width,
+      firstLevel.height,
       settings.threshold,
       settings.softKnee,
+      settings.clamp ?? 65472,
+      settings.highQualityFiltering !== false,
+      this.displayHeight / this.displayWidth,
+      emissionBounds,
     );
 
-    const iterations = clamp(Math.round(settings.iterations), 1, 6);
-    const scatter = clamp01(settings.scatter);
-    const bufferRadius = Math.max(
-      1,
-      settings.blurRadius * this.resolutionScale * (0.55 + scatter),
-    );
-    const radiusDivisor = iterations * (iterations + 1) * 0.5;
-    const baseRadius = Math.max(1, Math.round(bufferRadius / radiusDivisor));
-    const blurred = applyBlurPasses(
-      this.bright,
-      this.blurA,
-      this.blurB,
-      this.width,
-      this.height,
-      baseRadius,
-      iterations,
-    );
+    if (!activeBounds[0])
+    {
+      this.outputImageData.data.fill(0);
+      this.outputContext.putImageData(this.outputImageData, 0, 0);
+      return this._drawOutput(targetContext);
+    }
 
-    // 只输出完整卷积链的结果。把首轮箱式模糊混回去会暴露矩形核边界，
-    // 在细圆环和拖尾外侧形成肉眼可见的硬带。
+    for (let level = 1; level < this.levels.length; level++)
+    {
+      const previous = this.levels[level - 1];
+      const current = this.levels[level];
+
+      activeBounds[level] = downsampleGaussian(
+        previous.down,
+        previous.width,
+        previous.height,
+        current.scratch,
+        current.down,
+        current.width,
+        current.height,
+        activeBounds[level - 1],
+      );
+    }
+
+    // Unity 将用户 scatter 从 0..1 映射到 0.05..0.95。
+    const scatter = 0.05 + clamp01(settings.scatter) * 0.9;
+    let bloom = this.levels.at(-1).down;
+    let bloomBounds = activeBounds.at(-1);
+
+    for (let level = this.levels.length - 2; level >= 0; level--)
+    {
+      const current = this.levels[level];
+      const lower = this.levels[level + 1];
+
+      bloomBounds = upsampleAndMixBloom(
+        current.down,
+        current.width,
+        current.height,
+        bloom,
+        lower.width,
+        lower.height,
+        current.up,
+        scatter,
+        settings.highQualityFiltering !== false,
+        activeBounds[level],
+        bloomBounds,
+      );
+      bloom = current.up;
+    }
+
     encodeAdditiveBloom(
-      blurred,
+      bloom,
       this.outputImageData.data,
       settings.intensity,
     );
     this.outputContext.putImageData(this.outputImageData, 0, 0);
+
+    return this._drawOutput(targetContext);
+  }
+
+  _drawOutput(targetContext)
+  {
     targetContext.imageSmoothingEnabled = true;
     targetContext.imageSmoothingQuality = 'high';
     targetContext.drawImage(
@@ -453,6 +1132,8 @@ export class SoftwareBloomRenderer
     this.outputCanvas.width = 0;
     this.outputCanvas.height = 0;
     this.available = false;
+    this.sourceLinear = new Float32Array(0);
+    this.levels = [];
     this.outputImageData = null;
   }
 }
