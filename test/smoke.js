@@ -23,11 +23,34 @@ function assert(condition, message)
   console.log(`  ✓ ${message}`);
 }
 
+function getCssChannels(value)
+{
+  return String(value).match(/[\d.]+/g)?.map(Number) ?? [];
+}
+
 function getCssColorEnergy(value)
 {
-  const channels = String(value).match(/[\d.]+/g)?.slice(0, 3).map(Number) ?? [];
+  const channels = getCssChannels(value).slice(0, 3);
 
   return channels.length === 3 ? Math.max(...channels) : 0;
+}
+
+function getCssAlpha(value)
+{
+  return getCssChannels(value)[3] ?? 1;
+}
+
+function getCssPremultipliedEnergy(value)
+{
+  return getCssColorEnergy(value) * getCssAlpha(value);
+}
+
+function getCssPremultipliedSum(value)
+{
+  const channels = getCssChannels(value);
+  const alpha = channels[3] ?? 1;
+
+  return channels.slice(0, 3).reduce((sum, channel) => sum + channel, 0) * alpha;
 }
 
 class EventTargetMock
@@ -99,7 +122,10 @@ class ContextMock
     this.strokedPaths = [];
     this.fillShadowBlurs = [];
     this.fillShadowColors = [];
+    this.radialGradients = [];
     this.linearGradients = [];
+    this.conicGradients = [];
+    this.fillRects = [];
     this.drawImageCalls = [];
     this.putImageDataCount = 0;
     this.hasVisiblePixels = false;
@@ -194,9 +220,28 @@ class ContextMock
     this.hasVisiblePixels = true;
   }
 
-  createRadialGradient()
+  fillRect(...args)
   {
-    return new GradientMock();
+    this.fillRects.push(
+      {
+        args,
+        fillStyle: this.fillStyle,
+        compositeOperation: this.globalCompositeOperation,
+      },
+    );
+
+    if (args[2] > 0 && args[3] > 0)
+    {
+      this.hasVisiblePixels = true;
+    }
+  }
+
+  createRadialGradient(...args)
+  {
+    const gradient = new GradientMock();
+
+    this.radialGradients.push({ args, gradient });
+    return gradient;
   }
 
   createLinearGradient(...args)
@@ -204,6 +249,14 @@ class ContextMock
     const gradient = new GradientMock();
 
     this.linearGradients.push({ args, gradient });
+    return gradient;
+  }
+
+  createConicGradient(...args)
+  {
+    const gradient = new GradientMock();
+
+    this.conicGradients.push({ args, gradient });
     return gradient;
   }
 
@@ -296,12 +349,14 @@ function installDom()
   const body = new EventTargetMock();
   const frames = new Map();
   const createdCanvases = [];
+  const appendedCanvases = [];
   let nextFrameId = 1;
   let appendedCanvas = null;
 
   body.appendChild = (canvas) =>
   {
     appendedCanvas = canvas;
+    appendedCanvases.push(canvas);
   };
   windowMock.innerWidth = 1920;
   windowMock.innerHeight = 1080;
@@ -344,6 +399,7 @@ function installDom()
     windowMock,
     frames,
     createdCanvases,
+    appendedCanvases,
     get appendedCanvas()
     {
       return appendedCanvas;
@@ -383,10 +439,41 @@ assert(
     UNITY_FX_TOUCH.rings.angularVelocityMaxKeys[1][1] === -0.06509134,
   '圆环角速度使用 Unity Rotation over Lifetime 的两条衰减曲线',
 );
-assert(UNITY_FX_TOUCH.rings.hdrIntensity === 1.0, '圆环材质使用 Canvas 适配的 HDR 强度');
-assert(UNITY_FX_TOUCH.rings.arcSamples > 0, '圆环使用连续弧带而不是离散短弧');
-assert(UNITY_FX_TOUCH.rings.dissolveDirection === 1, '圆环活动端只沿逆时针方向推进');
-assert(UNITY_FX_TOUCH.rings.dissolveEdgeRatio > 0, '圆环只在活动端保留溶解软边');
+assert(
+  UNITY_FX_TOUCH.rings.hdrIntensity === 5.992157,
+  '圆环使用 FX_MAT_Touch_Tri3 的原始白色 HDR 强度',
+);
+assert(UNITY_FX_TOUCH.rings.arcSamples > 0, '圆环使用连续环带而不是离散短弧');
+assert(
+  JSON.stringify(UNITY_FX_TOUCH.rings.sizeKeys) === JSON.stringify(
+    [
+      [0.007209778, 0.42050898, 2.4004734, 2.4004734],
+      [0.21392822, 0.7159773, 0.9115745, 0.9115745],
+      [1, 1, 0, 0],
+    ],
+  ) &&
+    JSON.stringify(UNITY_FX_TOUCH.rings.dissolveKeys) === JSON.stringify(
+      [
+        [0, 1, 0, 0],
+        [0.2, 0, 0, 2.4249368],
+        [1, 1, 0.27735636, 0.27735636],
+      ],
+    ),
+  '圆环尺寸与溶解曲线保留 Unity 的四字段 Hermite 关键帧',
+);
+assert(
+  UNITY_FX_TOUCH.rings.bandToOuterRadius === 0.0598573766034603 &&
+    UNITY_FX_TOUCH.rings.widthStart === 1 &&
+    UNITY_FX_TOUCH.rings.widthEnd === 1,
+  '圆环宽度按 MeshTri 外半径比例计算，生命周期倍率保持 1',
+);
+assert(
+  UNITY_FX_TOUCH.rings.textureAlphaKeys.length === 17 &&
+    UNITY_FX_TOUCH.rings.textureAlphaKeys[0][0] === 0 &&
+    UNITY_FX_TOUCH.rings.textureAlphaKeys.at(-1)[0] === 1 &&
+    UNITY_FX_TOUCH.rings.textureRadialAlphaKeys[8][1] === 1,
+  '圆环使用 FX_TEX_Grad_Ring3 完整 U 向与径向 Alpha 采样',
+);
 assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');
 assert(
   Math.abs(UNITY_FX_TOUCH.shards.clickSpeedMin - 36.945888) < 0.000001 &&
@@ -401,7 +488,7 @@ assert(
 assert(UNITY_FX_TOUCH.shards.trailSpacing === 80, '拖拽每 80px 生成一枚碎片');
 assert(UNITY_FX_TOUCH.trail.lifetimeMs === 300, 'TrailRenderer.time 为 0.3 秒');
 assert(UNITY_FX_TOUCH.trail.geometryWidth === 2, '1080p TrailRenderer 几何带宽为 2px');
-assert(UNITY_FX_TOUCH.trail.width === 4, 'HDR 与 Bloom 合成后的可见亮芯为 4px');
+assert(UNITY_FX_TOUCH.trail.width === 2, '清晰拖尾本体使用 Unity 的 2px 带宽');
 assert(
   UNITY_FX_TOUCH.trail.gradient[0][1].every((channel) => channel === 0) &&
     UNITY_FX_TOUCH.trail.gradient.at(-1)[1][2] === 255,
@@ -423,13 +510,22 @@ assert(
 assert(
   UNITY_FX_TOUCH.bloom.threshold === 1 &&
     UNITY_FX_TOUCH.bloom.intensity === 0.45 &&
-    UNITY_FX_TOUCH.bloom.scatter === 0.35,
+    UNITY_FX_TOUCH.bloom.scatter === 0.35 &&
+    UNITY_FX_TOUCH.bloom.skipIterations === 1 &&
+    UNITY_FX_TOUCH.bloom.highQualityFiltering === true &&
+    !('iterations' in UNITY_FX_TOUCH.bloom),
   '软件 Bloom 保留 Unity 运行工程的 Volume 参数',
 );
 assert(
   UNITY_FX_TOUCH.bloom.trailEmissionAlpha === 1 &&
+    UNITY_FX_TOUCH.bloom.ringEmissionAlpha === 0.65 &&
+    UNITY_FX_TOUCH.bloom.diskEmissionAlpha === 1 &&
     UNITY_FX_TOUCH.bloom.trailAlpha === 0.18,
-  '软件 HDR 发射与原生阴影回退分别标定',
+  '软件 HDR 发射使用资源 Alpha，原生阴影回退单独标定',
+);
+assert(
+  CONFIG.lightBackgroundContrastAlpha === 0.08,
+  '浅色背景对比层仅保留 0.08 的微弱青色轮廓',
 );
 
 console.log('\n配置隔离');
@@ -442,10 +538,45 @@ assert(rightConfig.scale === CONFIG.scale, '实例配置互不污染');
 console.log('\n指针生命周期');
 const dom = installDom();
 const effect = new BAClickFX();
+const originalBloomBeginFrame = effect.bloomRenderer.beginFrame.bind(
+  effect.bloomRenderer,
+);
+const originalBloomComposite = effect.bloomRenderer.composite.bind(
+  effect.bloomRenderer,
+);
+let lastBloomBeginFrameArgs = null;
+let lastBloomCompositeSettings = null;
+
+effect.bloomRenderer.beginFrame = (...args) =>
+{
+  lastBloomBeginFrameArgs = args;
+  return originalBloomBeginFrame(...args);
+};
+effect.bloomRenderer.composite = (context, settings) =>
+{
+  lastBloomCompositeSettings = settings;
+  return originalBloomComposite(context, settings);
+};
+
 let now = flushFrames(dom, performance.now(), 1);
 
-assert(dom.appendedCanvas === effect.canvas, '默认创建全屏 Canvas');
+assert(
+  dom.appendedCanvas === effect.contrastCanvas &&
+    dom.appendedCanvases.length === 2 &&
+    dom.appendedCanvases[0] === effect.canvas &&
+    dom.appendedCanvases[1] === effect.contrastCanvas,
+  '默认按主加色层、对比层的顺序创建两张全屏 Canvas',
+);
 assert(effect.width === 1920 && effect.height === 1080, '按 CSS 尺寸建立 1080p 坐标系');
+assert(
+  effect.canvas.style.mixBlendMode === 'plus-lighter',
+  '自有叠加 Canvas 使用元素级加色混合，不会在浅色 DOM 背景上压黑',
+);
+assert(
+  effect.contrastCanvas.style.mixBlendMode === 'darken' &&
+    Number(effect.contrastCanvas.style.zIndex) > Number(effect.canvas.style.zIndex),
+  '微弱对比 Canvas 使用 darken 并位于主加色层上方',
+);
 
 dom.windowMock.dispatch('pointerdown',
   {
@@ -497,44 +628,76 @@ const lateAngularSpeed = Math.abs(probeRing.angularVelocity);
 assert(lateAngularSpeed < initialAngularSpeed, '圆环角速度随生命周期衰减而不是全程高速旋转');
 assert(probeRing.angularVelocity <= 0, '圆环角速度末期只减速、不反向');
 
-function sampleRingEndpoints(ageMs)
+function sampleRingGradients(ageMs)
 {
   probeWave.ageMs = ageMs;
   probeWave.rings = [probeRing];
   probeRing.rotation = 0;
-  effect.context.filledPaths = [];
-  effect.context.filledStyles = [];
-  probeWave.draw(effect.context, 1, 1);
+  effect.context.conicGradients = [];
+  const fillStart = effect.context.fillCount;
+  const fillStyleStart = effect.context.filledStyles.length;
 
-  const path = effect.context.filledPaths[0];
-  const activeIndex = path.length / 2 - 1;
+  probeWave.draw(effect.context, 1, 1, false);
 
   return {
-    fixed: path[0],
-    active: path[activeIndex],
-    fillStyle: effect.context.filledStyles[0],
+    gradients: effect.context.conicGradients.map((entry) => entry.gradient),
+    fillStyles: effect.context.filledStyles.slice(fillStyleStart),
+    fillCount: effect.context.fillCount - fillStart,
   };
 }
 
-const earlierRingEndpoints = sampleRingEndpoints(240);
-const laterRingEndpoints = sampleRingEndpoints(300);
-const activeEdgeCross =
-  earlierRingEndpoints.active[0] * laterRingEndpoints.active[1] -
-  earlierRingEndpoints.active[1] * laterRingEndpoints.active[0];
+const earlierRing = sampleRingGradients(240);
+const laterRing = sampleRingGradients(300);
+const earlierStops = earlierRing.gradients.flatMap((gradient) => gradient.stops);
+const laterStops = laterRing.gradients.flatMap((gradient) => gradient.stops);
+const earlierSurvivingStops = earlierStops.filter(([, color]) =>
+  getCssAlpha(color) > 0);
+const laterSurvivingStops = laterStops.filter(([, color]) =>
+  getCssAlpha(color) > 0);
 
 assert(
-  Math.abs(earlierRingEndpoints.fixed[1]) < 0.000001 &&
-    Math.abs(laterRingEndpoints.fixed[1]) < 0.000001,
-  '圆环缩短前后固定端保持在同一局部方向',
+  earlierRing.fillCount === UNITY_FX_TOUCH.rings.radialSamples &&
+    earlierRing.gradients.length === UNITY_FX_TOUCH.rings.radialSamples &&
+    earlierRing.fillStyles.every((style, index) =>
+      style === earlierRing.gradients[index]),
+  '圆环用 radialSamples 条 conic gradient 环带还原纹理径向亮度',
 );
-assert(activeEdgeCross < 0, '圆环活动端只沿逆时针方向追向固定端');
-// Canvas 2D 无 HDR/Tonemap，hdrIntensity 降为 1.5 后末期粒子保留青蓝色调
-const fillColor = laterRingEndpoints.fillStyle;
-const fillMatch = fillColor.match(/rgba\((\d+),\s*(\d+),\s*(\d+)/);
+assert(
+  earlierRing.gradients.every((gradient) =>
+    gradient.stops.length === UNITY_FX_TOUCH.rings.arcSamples + 1 &&
+      gradient.stops[0][0] === 0 &&
+      gradient.stops.at(-1)[0] === 1),
+  '每条径向环带都完整采样 0..1 的纹理 U 坐标',
+);
+assert(
+  earlierStops.every(([, color]) =>
+  {
+    const alpha = getCssAlpha(color);
+
+    return alpha === 0 || alpha === 1;
+  }),
+  '原 Shader 的二值 clip 使采样点只保留或丢弃，不额外生成溶解软边',
+);
+assert(
+  laterSurvivingStops.length < earlierSurvivingStops.length,
+  '生命周期晚期溶解阈值升高，通过 clip 的纹理采样点更少',
+);
+const colorProbeIndex = Math.round(0.3125 * UNITY_FX_TOUCH.rings.arcSamples);
+const edgeProbeColor = earlierRing.gradients[0].stops[colorProbeIndex][1];
+const centerProbeColor = earlierRing.gradients[
+  Math.floor(UNITY_FX_TOUCH.rings.radialSamples * 0.5)
+].stops[colorProbeIndex][1];
+const particleChannels = getCssChannels(centerProbeColor);
 
 assert(
-  fillMatch && Number(fillMatch[3]) > Number(fillMatch[1]) + 50,
-  '圆环生命周期末期仍由 HDR 材质保持蓝色高亮核心',
+  particleChannels[0] < particleChannels[1] &&
+    particleChannels[0] < particleChannels[2],
+  '圆环粒子 RGB 在 Unity Linear 空间插值后保留红低于绿蓝的青蓝色调',
+);
+assert(
+  getCssPremultipliedSum(centerProbeColor) >
+    getCssPremultipliedSum(edgeProbeColor),
+  '纹理径向中心采样比环带边缘更亮',
 );
 
 probeWave.ageMs = savedRingAge;
@@ -542,8 +705,7 @@ probeWave.rings = savedRings;
 probeRing.rotation = savedRingRotation;
 probeRing.angularBlend = savedAngularBlend;
 probeRing.angularVelocity = savedAngularVelocity;
-effect.context.filledPaths = [];
-effect.context.filledStyles = [];
+effect.context.conicGradients = [];
 
 dom.windowMock.dispatch('pointerdown',
   {
@@ -588,20 +750,35 @@ effect.context.fillShadowBlurs = [];
 effect.context.fillShadowColors = [];
 effect.context.strokeShadowBlurs = [];
 effect.context.drawImageCalls = [];
+effect.context.conicGradients = [];
 effect.bloomRenderer.sourceContext.strokeStyles = [];
 effect.bloomRenderer.sourceContext.strokeLineCaps = [];
 effect.bloomRenderer.sourceContext.strokeShadowBlurs = [];
+effect.bloomRenderer.sourceContext.conicGradients = [];
+effect.bloomRenderer.sourceContext.radialGradients = [];
 const bloomSourceFillStart = effect.bloomRenderer.sourceContext.fillCount;
 now = flushFrames(dom, now, 1);
 assert(effect.context.strokeCount > 0, '运行帧实际绘制连续轨迹');
 assert(effect.context.fillCount > 0, '运行帧实际绘制圆盘与三角粒子');
 const softwareBloomDrawCount = effect.context.drawImageCalls.length;
-const bloomCanvases = dom.createdCanvases.filter((canvas) => canvas !== effect.canvas);
+const bloomCanvases = dom.createdCanvases.filter((canvas) =>
+  canvas !== effect.canvas && canvas !== effect.contrastCanvas);
 
 assert(softwareBloomDrawCount > 0, '软件 Bloom 将低分辨率结果绘回主 Canvas');
 assert(
   effect.context.drawImageCalls.at(-1).compositeOperation === 'lighter',
   '软件 Bloom 使用 lighter 进行加色合成',
+);
+assert(
+  lastBloomBeginFrameArgs?.length === 6 &&
+    lastBloomBeginFrameArgs[4] === UNITY_FX_TOUCH.bloom.skipIterations &&
+    lastBloomBeginFrameArgs[5] === effect.dpr,
+  '软件 Bloom 同时传入 URP skipIterations 与物理像素采样倍率',
+);
+assert(
+  lastBloomCompositeSettings?.highQualityFiltering === true &&
+    !('iterations' in lastBloomCompositeSettings),
+  '软件 Bloom 合成启用 URP 高质量上采样且不再传旧迭代数',
 );
 assert(
   bloomCanvases.some((canvas) => canvas.context.putImageDataCount > 0),
@@ -612,8 +789,40 @@ assert(
   '软件 Bloom 只处理特效包围区域，不回读整张主画面',
 );
 assert(
-  effect.bloomRenderer.sourceContext.fillCount - bloomSourceFillStart === 1,
-  '三角形碎片不写入 Bloom 发射缓冲，仅光盘产生填充发射',
+  effect.bloomRenderer.sourceContext.fillCount - bloomSourceFillStart ===
+    1 + UNITY_FX_TOUCH.rings.count * UNITY_FX_TOUCH.rings.radialSamples,
+  '三角形碎片不写入 Bloom，发射填充只包含光盘与圆环径向采样带',
+);
+assert(
+  effect.context.conicGradients.length ===
+      UNITY_FX_TOUCH.rings.count * UNITY_FX_TOUCH.rings.radialSamples &&
+    effect.bloomRenderer.sourceContext.conicGradients.length ===
+      UNITY_FX_TOUCH.rings.count * UNITY_FX_TOUCH.rings.radialSamples,
+  '可见圆环与 Bloom 发射源都使用完整径向 conic gradient 填充',
+);
+const ringEmissionStops = effect.bloomRenderer.sourceContext
+  .conicGradients[0].gradient.stops;
+const peakRingEmission = ringEmissionStops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
+  0,
+);
+
+assert(
+  peakRingEmission > 0,
+  '圆环通过专用发射采样写入 Bloom，不复用原生阴影 Alpha',
+);
+const contrastTint = effect.contrastContext.fillRects.at(-1);
+
+assert(
+  contrastTint?.compositeOperation === 'source-in' &&
+    getCssAlpha(contrastTint.fillStyle) === CONFIG.lightBackgroundContrastAlpha,
+  '对比层内部用 source-in 将微弱青色只限制在特效遮罩中',
+);
+assert(
+  contrastTint.args[2] === effect.contrastCanvas.width &&
+    contrastTint.args[3] === effect.contrastCanvas.height &&
+    effect.contrastContext.hasVisiblePixels,
+  '对比层着色覆盖完整内部 Canvas 且保留可见遮罩',
 );
 assert(
   effect.context.fillShadowBlurs.every((blur) => !blur),
@@ -624,24 +833,6 @@ assert(
     effect.bloomRenderer.sourceContext.strokeShadowBlurs.every((blur) => !blur),
   '软件 Bloom 开启时可见与发射拖尾都不叠加 shadowBlur',
 );
-const ringPath = effect.context.filledPaths
-  .filter((path) => path.length > 12)
-  .sort((left, right) => right.length - left.length)[0];
-// 双向尖角后两端 taper→0，检查中段宽度代替端点
-const midIndex = Math.floor(ringPath.length / 4);
-const midOuterRadius = Math.hypot(ringPath[midIndex][0], ringPath[midIndex][1]);
-const midInnerRadius = Math.hypot(
-  ringPath[ringPath.length - 1 - midIndex][0],
-  ringPath[ringPath.length - 1 - midIndex][1],
-);
-assert(
-  midOuterRadius - midInnerRadius > 1,
-  '圆环中段保持完整宽度，两端均为尖角',
-);
-assert(
-  effect.context.strokeWidths.some((w) => Math.abs(w - UNITY_FX_TOUCH.trail.width * SIZE_CORRECTION) < 0.01),
-  '拖尾实际使用 4px HDR 可见亮芯',
-);
 const trailSegmentCount = effect.trailStrokes[0].points.length - 1;
 const visibleTrailStyles = effect.context.strokeStyles.slice(0, trailSegmentCount);
 const bloomTrailStyles = effect.bloomRenderer.sourceContext.strokeStyles.slice(
@@ -650,8 +841,20 @@ const bloomTrailStyles = effect.bloomRenderer.sourceContext.strokeStyles.slice(
 );
 
 assert(
-  getCssColorEnergy(visibleTrailStyles.at(-1)) >
-    getCssColorEnergy(visibleTrailStyles[0]) + 100,
+  effect.context.strokeWidths
+    .slice(0, trailSegmentCount)
+    .every((width) => Math.abs(
+      width - UNITY_FX_TOUCH.trail.width * SIZE_CORRECTION,
+    ) < 0.01),
+  '可见拖尾只绘制一层 2px Unity 几何带',
+);
+assert(
+  visibleTrailStyles[0] === 'rgba(0, 0, 0, 0)',
+  '拖尾零纹理能量严格编码为透明，不会在浅色背景形成黑段',
+);
+assert(
+  getCssPremultipliedEnergy(visibleTrailStyles.at(-1)) >
+    getCssPremultipliedEnergy(visibleTrailStyles[0]) + 100,
   '可见拖尾按原 Gradient 与 Stretch 纹理由尾部向头部增强',
 );
 assert(
@@ -708,7 +911,7 @@ assert(
   effect.context.strokeShadowBlurs
     .slice(nativeStrokeStart)
     .every((blur) => !blur),
-  '原生回退拖尾不对采样分段叠加 shadowBlur',
+  '原生回退不在拖尾分段接缝叠加 shadowBlur',
 );
 const nativeFilteredStrokeIndices = effect.context.strokeFilters
   .slice(nativeFilterStart)
@@ -753,6 +956,9 @@ effect.clear();
 assert(effect.waves.length === 0 && effect.shards.length === 0, 'clear() 清除全部视觉对象');
 
 effect.destroy();
-assert(effect.destroyed && effect.canvas.removed, 'destroy() 移除监听和自有 Canvas');
+assert(
+  effect.destroyed && effect.canvas.removed && effect.contrastCanvas.removed,
+  'destroy() 移除监听与两张自有 Canvas',
+);
 
 console.log(`\n✅ ${passed} 项 FX_Touch 移植检查通过\n`);

@@ -83,10 +83,13 @@ export const UNITY_FX_TOUCH = Object.freeze(
     {
       count: 2,
       lifetimeMs: 600,
-      radiusMin: 51,
-      radiusMax: 59,
-      widthStart: 5.2,
-      widthEnd: 2.4,
+      // MeshTri 的外半径由 Start Size 0.12~0.14 换算而来；环宽始终随网格同比缩放。
+      radiusMin: 51.0560832,
+      radiusMax: 59.5654304,
+      bandToOuterRadius: 0.0598573766034603,
+      // 保留两个运行时调节入口，但它们是资源环宽的倍率，不再是独立像素宽度。
+      widthStart: 1,
+      widthEnd: 1,
       angularVelocityMultiplier: 11.170107,
       angularVelocityMinKeys:
       [
@@ -100,9 +103,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
       ],
       // Canvas 正角度在屏幕坐标中表现为顺时针，因此用 -1 还原游戏逆时针方向。
       rotationDirection: -1,
-      // 游戏材质 _Color 原值 5.992157；Canvas 2D uniform 乘法无 Tonemap，
-      // 降为 1.0 让粒子后期 (76,167,255) 即 R<G<B 的青蓝色调自然呈现。
-      hdrIntensity: 1.0,
+      // FX_MAT_Touch_Tri3 的白色 HDR 强度；Shader 还会乘入粒子顶点 RGB。
+      hdrIntensity: 5.992157,
       colorKeys:
       [
         [0.1117723, [255, 255, 255]],
@@ -111,21 +113,63 @@ export const UNITY_FX_TOUCH = Object.freeze(
       ],
       sizeKeys:
       [
-        [0.007209778, 0.420509],
-        [0.2139282, 0.7159773],
-        [1, 1],
+        [0.007209778, 0.42050898, 2.4004734, 2.4004734],
+        [0.21392822, 0.7159773, 0.9115745, 0.9115745],
+        [1, 1, 0, 0],
       ],
       dissolveKeys:
       [
-        [0, 1],
-        [0.2, 0],
-        [1, 1],
+        [0, 1, 0, 0],
+        [0.2, 0, 0, 2.4249368],
+        [1, 1, 0.27735636, 0.27735636],
       ],
       arcSamples: 96,
-      // Canvas 正角度为顺时针；弧长下降时，正向端点会沿逆时针单向回退。
+      radialSamples: 8,
+      // 控制纹理 U 的朝向；可见区间不再重映射或人为固定端点。
       dissolveDirection: 1,
-      // Shader 的溶解阈值沿网格 UV 推进：起点保持完整，只有活动端形成软边。
-      dissolveEdgeRatio: 0.1,
+      textureAlphaKeys:
+      [
+        // FX_TEX_Grad_Ring3 的 U 向中线 Alpha；原 Shader 对它执行二值 clip。
+        [0, 0.02745098],
+        [0.0625, 0.043137255],
+        [0.125, 0.117647059],
+        [0.1875, 0.223529412],
+        [0.25, 0.37254902],
+        [0.3125, 0.533333333],
+        [0.375, 0.721568627],
+        [0.4375, 0.890196078],
+        [0.5, 1],
+        [0.5625, 0.88627451],
+        [0.625, 0.717647059],
+        [0.6875, 0.537254902],
+        [0.75, 0.364705882],
+        [0.8125, 0.22745098],
+        [0.875, 0.109803922],
+        [0.9375, 0.035294118],
+        [1, 0.031372549],
+      ],
+      textureRadialAlphaKeys:
+      [
+        // 同一纹理 U=0.5 截面的 V 向 Alpha，除以中心 255 后归一化。
+        // 这组二维覆盖让环带中心比内外沿更亮，而不是一条均匀纯色描边。
+        [0, 0.890196078],
+        [0.0625, 0.898039216],
+        [0.125, 0.91372549],
+        [0.1875, 0.933333333],
+        [0.25, 0.952941176],
+        [0.3125, 0.964705882],
+        [0.375, 0.97254902],
+        [0.4375, 0.988235294],
+        [0.5, 1],
+        [0.5625, 0.988235294],
+        [0.625, 0.976470588],
+        [0.6875, 0.964705882],
+        [0.75, 0.952941176],
+        [0.8125, 0.933333333],
+        [0.875, 0.925490196],
+        [0.9375, 0.905882353],
+        [1, 0.882352941],
+      ],
     },
     shards:
     {
@@ -179,12 +223,11 @@ export const UNITY_FX_TOUCH = Object.freeze(
     {
       lifetimeMs: 300,
       // 0.005 世界单位在 1.35 正交相机下几何带宽 2px；HDR 23.97× Bloom
-      // 后可见亮芯约 4px，点击光盘直径的 ≈1/24。
+      // 后自然扩张为约 4px 的可见亮芯，点击光盘直径的 ≈1/24。
       geometryWidth: 2,
-      width: 4,
+      width: 2,
       minVertexDistance: 4,
       outerGlowWidth: 9,
-      coreWidth: 1.7,
       // 拖尾整体透明度，可通过 setFxParam 调整
       trailOpacity: 1.0,
       gradient:
@@ -221,17 +264,26 @@ export const UNITY_FX_TOUCH = Object.freeze(
       // 最终再量化为普通 ImageData，因此不依赖实验性的 float16 Canvas。
       threshold: 1.0,
       softKnee: 0.5,
+      clamp: 65472,
       intensity: 0.45,
       scatter: 0.35,
       resolutionScale: 0.5,
-      iterations: 3,
+      skipIterations: 1,
+      highQualityFiltering: true,
       emissionRange: 23.968628,
-      ringEmission: 5.992157,
       diskEmission: 2.0,
       trailEmission: 23.968628,
+      // Unity TrailRenderer 的连续三角带在亮芯附近保留更多子像素覆盖；
+      // Canvas 分段 stroke 需要该覆盖校准，才能得到相同的 Bloom 截面。
+      trailCoverageScale: 1.75,
       // 原资源的纹理、顶点色和材质 Alpha 均为 1；头尾差异由 RGB
       // Gradient × Stretch 纹理产生，不能再用全局 Alpha 把头部一并压暗。
       trailEmissionAlpha: 1,
+      // 局部裁剪 CPU 金字塔的圆环能量略高于 Unity 全屏链路；单独校准，
+      // 不牵连已经匹配的圆盘与拖尾 Bloom。
+      ringEmissionAlpha: 0.65,
+      diskEmissionAlpha: 1,
+      // 以下 Alpha 只用于无法回读像素时的原生模糊回退。
       ringBlur: 80,
       ringAlpha: 0.35,
       diskBlur: 65,
@@ -249,6 +301,8 @@ export const CONFIG = Object.freeze(
     trailEnabled: true,
     trailAlways: false,
     softwareBloomEnabled: true,
+    // 严格加色在纯白背景上没有对比度；独立 darken 层只补回极弱的淡青轮廓。
+    lightBackgroundContrastAlpha: 0.08,
     maxDpr: 2,
     touchAction: 'auto',
   },

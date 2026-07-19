@@ -48,7 +48,7 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 - 溶解圆环（MeshTri）、中心光盘（ring）、点击碎片（Ring 3/4）、拖尾轨迹（TrailRenderer）
 - 所有粒子参数锁定为游戏原始值：颜色渐变、大小曲线、旋转速度、溶解阈值、HDR 强度
 - 纯 Canvas 2D，无图片素材、无 WebGL、无外部运行时依赖
-- 纯 JavaScript 软件 Bloom：1/2 分辨率 Float32 高亮提取与可分离模糊，默认开启并可随时回退
+- 纯 JavaScript 软件 Bloom：兼容 URP 12 处理结构的 Float32 mip 金字塔，默认开启并可随时回退
 - 支持浏览器插件、npm、CDN、直接下载四种接入方式
 - 自定义主题色（HSL hue 偏移）
 - 可调参 API：运行时修改圆环 HDR、半径、宽度、寿命、碎片数量、拖尾宽度、Bloom 强度等
@@ -141,6 +141,7 @@ new BAClickFX(options?: {
   trailEnabled?: boolean,         // 启用拖尾，默认 true
   trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
   softwareBloomEnabled?: boolean, // 启用 JavaScript 软件 Bloom，默认 true
+  lightBackgroundContrastAlpha?: number, // 浅色背景兼容层强度，默认 0.08；设为 0 可关闭
   maxDpr?: number,                // 最大设备像素比，默认 2
   touchAction?: string,           // Canvas touch-action，默认 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
@@ -155,9 +156,9 @@ new BAClickFX(options?: {
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 仅清除拖尾和碎片 |
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |
-| `updateConfig({...})` | 运行时更新 scale/opacity/clickEnabled/trailEnabled/trailAlways/softwareBloomEnabled/maxDpr/touchAction |
+| `updateConfig({...})` | 运行时更新 scale/opacity/clickEnabled/trailEnabled/trailAlways/softwareBloomEnabled/lightBackgroundContrastAlpha/maxDpr/touchAction |
 | `setThemeColor('#ff6969')` | 设置主题色，所有蓝色系特效 hue 偏移到此颜色 |
-| `setFxParam('rings.hdrIntensity', 1.5)` | 点号路径修改任意特效参数 |
+| `setFxParam('rings.hdrIntensity', 5.992157)` | 点号路径修改任意特效参数 |
 | `getFxConfig()` | 返回当前完整特效配置深拷贝 |
 | `resetFxConfig()` | 重置所有特效参数为游戏默认值 |
 | `getConfig()` | 返回当前实例配置（含 Unity 参数的只读快照） |
@@ -166,29 +167,34 @@ new BAClickFX(options?: {
 
 | 路径 | 默认值 | 说明 |
 |---|---|---|
-| `rings.hdrIntensity` | 1.0 | 圆环 HDR 强度 |
-| `rings.radiusMin` | 51 | 圆环起始半径 |
-| `rings.radiusMax` | 59 | 圆环终止半径 |
-| `rings.widthStart` | 5.2 | 圆环起始宽度 |
-| `rings.widthEnd` | 2.4 | 圆环终止宽度 |
+| `rings.hdrIntensity` | 5.992157 | 圆环 HDR 强度 |
+| `rings.radiusMin` | 51.0560832 | MeshTri 随机外半径下限；生命周期大小曲线应用前的基准值 |
+| `rings.radiusMax` | 59.5654304 | MeshTri 随机外半径上限；生命周期大小曲线应用前的基准值 |
+| `rings.bandToOuterRadius` | 0.0598573766 | 原网格环宽与外半径的固定比值 |
+| `rings.widthStart` | 1 | 生命周期起点的资源环宽倍率，不是独立像素宽度 |
+| `rings.widthEnd` | 1 | 生命周期终点的资源环宽倍率，不是独立像素宽度 |
 | `rings.lifetimeMs` | 600 | 圆环寿命 (ms) |
 | `shards.clickCount` | 4 | 点击碎片数量 |
 | `shards.maxCount` | 96 | 碎片上限 |
 | `shards.trailSpacing` | 80 | 拖尾碎片间距 |
 | `bloom.threshold` | 1.0 | 高亮提取阈值 |
 | `bloom.softKnee` | 0.5 | 阈值过渡柔和度 |
+| `bloom.clamp` | 65472 | URP 预过滤 HDR 上限 |
 | `bloom.intensity` | 0.45 | 软件 Bloom 合成强度 |
 | `bloom.scatter` | 0.35 | 光晕扩散范围 |
 | `bloom.resolutionScale` | 0.5 | Bloom 缓冲区相对分辨率（内部限制为 0.1~0.75） |
-| `bloom.iterations` | 3 | 可分离箱式模糊迭代次数 |
-| `bloom.ringBlur` | 80 | 圆环光晕模糊 |
-| `bloom.ringAlpha` | 0.35 | 圆环光晕强度 |
-| `bloom.diskBlur` | 65 | 光盘光晕模糊 |
-| `bloom.diskAlpha` | 0.65 | 光盘光晕强度 |
+| `bloom.skipIterations` | 1 | 略过最深层 mip 的迭代数 |
+| `bloom.highQualityFiltering` | true | 启用高质量双三次 scatter 上采样 |
+| `bloom.ringEmissionAlpha` | 0.65 | 软件 Bloom 圆环 HDR 发射校准 |
+| `bloom.diskEmissionAlpha` | 1.0 | 软件 Bloom 光盘 HDR 发射校准 |
+| `bloom.ringBlur` | 80 | 像素回读不可用时的圆环原生模糊半径 |
+| `bloom.ringAlpha` | 0.35 | 像素回读不可用时的圆环原生模糊强度 |
+| `bloom.diskBlur` | 65 | 像素回读不可用时的光盘原生模糊半径 |
+| `bloom.diskAlpha` | 0.65 | 像素回读不可用时的光盘原生模糊强度 |
+| `bloom.trailCoverageScale` | 1.75 | Canvas 拖尾几何对 Unity 三角带子像素覆盖率的校准 |
 | `bloom.trailEmissionAlpha` | 1.0 | 软件 Bloom 拖尾 HDR 发射校准 |
 | `bloom.trailAlpha` | 0.18 | 原生单路径模糊回退强度 |
-| `trail.width` | 4 | 拖尾渐变层宽度 |
-| `trail.coreWidth` | 1.7 | 拖尾核心层宽度 |
+| `trail.width` | 2 | 拖尾清晰几何带宽度 |
 | `trail.outerGlowWidth` | 9 | 原生单路径回退光晕半径 |
 | `trail.lifetimeMs` | 300 | 拖尾寿命 (ms) |
 
@@ -204,13 +210,17 @@ new BAClickFX(options?: {
 | 溶解圆环 | 2 枚旋转环带，弧线从完整逐渐缩短至消失，持续 600ms |
 | 点击碎片 | 4 枚三角形粒子从点击位置飞溅，脉冲闪烁 |
 
+圆环的 `radiusMin` / `radiusMax` 是从 MeshTri 的 Start Size 与相机比例换算出的外半径基准值；实际外半径还会乘 Unity 生命周期大小曲线。默认 `widthStart` / `widthEnd` 均为 `1`，只调节资源环宽，实际环宽始终按 `外半径 × 0.0598573766 × 环宽倍率` 计算。
+
+原 Shader 使用 `Blend SrcAlpha One, One One`。ParticleSystemRenderer 的 Apply Active Color Space 会把粒子 sRGB 顶点色解码到 Linear，再与白色 HDR 材质相乘；圆环因此不能按普通 sRGB 颜色直接相乘。溶解不是连续压低所有像素的透明度，而是以阈值对二维纹理 Alpha 做二值 clip，通过测试的像素继续保留原纹理 Alpha。大小和溶解阈值均使用资源关键帧及其入/出切线执行 Unity 三次 Hermite 插值，而不是线性插值或通用 smoothstep。
+
 ### 拖尾轨迹
 
 拖尾按 Unity 原资源的同一条渲染链近似：
 
 | 层 | 说明 |
 |---|---|
-| 几何带与亮芯 | 2px 原始几何带近似为 4px 渐变层与 1.7px 亮芯 |
+| 几何带与亮芯 | 直接绘制原始 2px HDR 几何带，再由 Bloom 自然扩张为柔和亮芯 |
 | 纵向包络 | 将原 TrailRenderer Gradient 反向到 Canvas 点序，再乘 `FX_TEX_Trail_03` 经 sRGB→Linear 换算的 Stretch 纹理亮度 |
 | Bloom | 只对 HDR 发射缓冲做软件模糊；三角碎片不写入该缓冲 |
 
@@ -218,14 +228,17 @@ new BAClickFX(options?: {
 
 ### JavaScript 软件 Bloom
 
-默认的 `softwareBloomEnabled: true` 会把圆环、光盘和拖尾的 HDR 发射亮度先绘制到局部 1/2 分辨率遮罩，再由 JavaScript 回读像素并完成以下处理。三角形碎片只绘制清晰本体，不参与 Bloom：
+默认的 `softwareBloomEnabled: true` 会把圆环、光盘和拖尾的 HDR 发射亮度先绘制到局部遮罩，再由 JavaScript 回读像素并按兼容 URP 12 Bloom 的结构处理。三角形碎片只绘制清晰本体，不参与 Bloom：
 
 1. 将 8 位遮罩解码到可复用的 Float32 RGB 缓冲区。
-2. 使用带 Soft Knee 的阈值提取亮部。
-3. 通过多次连续可分离箱式模糊生成近似高斯光晕，并且只输出完整卷积链的最终结果，避免中间箱式核形成硬边。
-4. 按 `bloom.intensity` 和 `bloom.scatter` 合成后，以 `lighter` 模式叠加回主画布。
+2. 以高质量 13-tap 预过滤执行带 Soft Knee 的阈值提取，生成 1/2 分辨率 mip0。
+3. 使用可分离 9-tap Gaussian 下采样建立 mip 金字塔；`bloom.skipIterations` 控制略过的最深层迭代。
+4. 按 `bloom.scatter` 从低分辨率 mip 向上混合；开启 `bloom.highQualityFiltering` 时使用双三次采样。
+5. 将线性 Bloom 能量转换为 sRGB 加色 RGBA，按 `bloom.intensity` 以 `lighter` 叠加到主画布；主特效层再以 `plus-lighter` 混合叠加到 DOM 背景。
 
-这条管线用于获得接近 Unity Bloom 的视觉观感，并非逐像素复刻 URP 后处理。渲染器只处理当前特效及完整模糊半径覆盖的量化包围区域，避免提高采样率后回读整张画面。页面始终只有一个可见 Canvas；Bloom 工作缓冲区不会挂载到 DOM，也不使用 WebGL、float16 Canvas 或外部依赖。若运行环境不支持 Canvas 像素回读/写回，圆环和光盘会退回原生 `shadowBlur`，拖尾则用一次完整路径滤镜模糊，避免逐段阴影随采样密度累积。
+严格加色在纯白背景上必然失去对比度。由库自动创建覆盖层时，主特效层上方还会放置一个独立的 `darken` 兼容层：它只用 `0.08` Alpha 的淡青色补足清晰轮廓，不接收或产生 Bloom。兼容层必须位于加色层上方，否则主层会把刚补出的淡青对比重新加回纯白。该层是为网页浅色背景增加可见性的有意兼容偏差，并非 Unity 加色管线的一部分；将 `lightBackgroundContrastAlpha` 设为 `0` 可关闭。直接传入已有 Canvas 时无法插入这层独立背景合成层。
+
+这条管线用于获得接近 URP 12 Bloom 的视觉观感，并非逐像素复刻 GPU 后处理。渲染器只处理当前特效及完整模糊半径覆盖的量化包围区域，避免回读整张画面。Bloom 工作缓冲区不会挂载到 DOM，也不使用 WebGL、float16 Canvas 或外部依赖。若运行环境不支持 Canvas 像素回读/写回，圆环和光盘会退回原生 `shadowBlur`，拖尾则用一次完整路径滤镜模糊，避免逐段阴影随采样密度累积。三角形碎片始终只绘制清晰本体，不写入 Bloom 发射缓冲。
 
 ---
 
@@ -257,7 +270,7 @@ ba-click-fx/
 │   ├── fx.js            # 主引擎：ParticleSystem + TrailRenderer 生命周期
 │   ├── main.js           # 演示页面入口 + 控制面板 UI
 │   ├── config.js         # Unity FX_Touch 粒子参数只读快照
-│   ├── software-bloom.js # Float32 高亮提取、可分离模糊与加色合成
+│   ├── software-bloom.js # URP 12 风格 Float32 mip Bloom 与加色合成
 │   ├── utils.js          # 纯数学工具
 │   └── style.css         # 演示页样式
 ├── scripts/
@@ -275,8 +288,9 @@ ba-click-fx/
 
 ### 架构特点
 
-- **单个可见 Canvas**：所有特效最终在同一主画布上通过 `lighter` 混合渲染
-- **软件 Bloom**：局部 1/2 分辨率工作画布 + Float32 JavaScript 缓冲区；像素读回不可用时回退 `shadowBlur`
+- **主特效层**：内部特效通过 `lighter` 合成，主 Canvas 再以 `plus-lighter` 叠加到 DOM 背景
+- **浅色背景兼容层**：自动覆盖层模式额外使用不参与 Bloom 的 `darken` Canvas，以 0.08 Alpha 淡青色维持纯白背景可见性
+- **软件 Bloom**：局部工作画布 + Float32 Gaussian mip 金字塔；像素读回不可用时回退 `shadowBlur`
 - **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`
 - **零外部依赖**：仅依赖标准 Canvas 2D API，不使用 WebGL
 

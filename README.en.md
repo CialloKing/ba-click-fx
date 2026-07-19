@@ -46,7 +46,7 @@
 - Dissolve rings (MeshTri), centre disk (ring), click shards (Ring 3/4), drag trail (TrailRenderer)
 - All particle parameters locked to the game's original values: colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity
 - Pure Canvas 2D — no images, no WebGL, zero runtime dependencies
-- Pure JavaScript software Bloom — half-resolution Float32 bright-pass and separable blur, enabled by default with automatic fallback
+- Pure JavaScript software Bloom — a URP 12-compatible Float32 mip pyramid, enabled by default with automatic fallback
 - Browser extension, npm, CDN, and direct download
 - Custom theme colour via HSL hue shifting
 - Runtime-tweakable FX parameters via `setFxParam()`
@@ -119,6 +119,7 @@ new BAClickFX(options?: {
   trailEnabled?: boolean,        // default true
   trailAlways?: boolean,         // default false
   softwareBloomEnabled?: boolean, // JavaScript software Bloom, default true
+  lightBackgroundContrastAlpha?: number, // light-background compatibility layer, default 0.08; 0 disables it
   maxDpr?: number,               // default 2
   touchAction?: string,          // default 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
@@ -133,9 +134,9 @@ new BAClickFX(options?: {
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
 | `destroy()` | Destroy instance, remove listeners and canvas |
-| `updateConfig({...})` | Update config at runtime, including `softwareBloomEnabled` |
+| `updateConfig({...})` | Update config at runtime, including `softwareBloomEnabled` and `lightBackgroundContrastAlpha` |
 | `setThemeColor('#ff6969')` | Set theme colour via HSL hue-shift |
-| `setFxParam('rings.hdrIntensity', 1.5)` | Modify any FX parameter by dot-path |
+| `setFxParam('rings.hdrIntensity', 5.992157)` | Modify any FX parameter by dot-path |
 | `getFxConfig()` | Deep copy of current FX configuration |
 | `resetFxConfig()` | Reset all FX parameters to game defaults |
 | `getConfig()` | Current config including read-only Unity params snapshot |
@@ -144,27 +145,32 @@ new BAClickFX(options?: {
 
 | Path | Default | Description |
 |---|---|---|
-| `rings.hdrIntensity` | 1.0 | Ring HDR intensity |
-| `rings.radiusMin` / `rings.radiusMax` | 51 / 59 | Ring radius range |
-| `rings.widthStart` / `rings.widthEnd` | 5.2 / 2.4 | Ring width range |
+| `rings.hdrIntensity` | 5.992157 | Ring HDR intensity |
+| `rings.radiusMin` / `rings.radiusMax` | 51.0560832 / 59.5654304 | Random MeshTri outer-radius range before the lifetime size curve |
+| `rings.bandToOuterRadius` | 0.0598573766 | Fixed source-mesh band-width-to-outer-radius ratio |
+| `rings.widthStart` / `rings.widthEnd` | 1 / 1 | Source ring-width multipliers, not independent pixel widths |
 | `rings.lifetimeMs` | 600 | Ring lifetime (ms) |
 | `shards.clickCount` | 4 | Click shard count |
 | `shards.maxCount` | 96 | Max shards |
 | `shards.trailSpacing` | 80 | Trail shard spacing |
 | `bloom.threshold` | 1.0 | Bright-pass threshold |
 | `bloom.softKnee` | 0.5 | Soft transition around the threshold |
+| `bloom.clamp` | 65472 | URP prefilter HDR clamp |
 | `bloom.intensity` | 0.45 | Software Bloom composite intensity |
 | `bloom.scatter` | 0.35 | Glow spread |
 | `bloom.resolutionScale` | 0.5 | Bloom buffer scale (internally clamped to 0.1–0.75) |
-| `bloom.iterations` | 3 | Separable box-blur iterations |
-| `bloom.ringBlur` | 80 | Ring glow blur |
-| `bloom.ringAlpha` | 0.35 | Ring glow intensity |
-| `bloom.diskBlur` | 65 | Disk glow blur |
-| `bloom.diskAlpha` | 0.65 | Disk glow intensity |
+| `bloom.skipIterations` | 1 | Number of deepest mip iterations to skip |
+| `bloom.highQualityFiltering` | true | Enable high-quality bicubic scatter upsampling |
+| `bloom.ringEmissionAlpha` | 0.65 | HDR ring emission scale for software Bloom |
+| `bloom.diskEmissionAlpha` | 1.0 | HDR disk emission scale for software Bloom |
+| `bloom.ringBlur` | 80 | Native ring blur radius when pixel readback is unavailable |
+| `bloom.ringAlpha` | 0.35 | Native ring blur intensity when pixel readback is unavailable |
+| `bloom.diskBlur` | 65 | Native disk blur radius when pixel readback is unavailable |
+| `bloom.diskAlpha` | 0.65 | Native disk blur intensity when pixel readback is unavailable |
+| `bloom.trailCoverageScale` | 1.75 | Canvas trail-geometry calibration for Unity strip subpixel coverage |
 | `bloom.trailEmissionAlpha` | 1.0 | HDR trail emission scale for software Bloom |
 | `bloom.trailAlpha` | 0.18 | Native single-path blur fallback intensity |
-| `trail.width` | 4 | Trail gradient layer width |
-| `trail.coreWidth` | 1.7 | Trail core layer width |
+| `trail.width` | 2 | Crisp trail geometry width |
 | `trail.outerGlowWidth` | 9 | Native single-path fallback glow radius |
 | `trail.lifetimeMs` | 300 | Trail lifetime (ms) |
 
@@ -180,13 +186,17 @@ new BAClickFX(options?: {
 | Dissolve rings | 2 rotating ring bands, arc shrinks to zero, 600ms |
 | Click shards | 4 triangle particles burst from click point |
 
+`radiusMin` and `radiusMax` are the outer-radius baselines converted from the MeshTri Start Size and camera scale; the rendered outer radius also follows Unity's lifetime size curve. The default `widthStart` and `widthEnd` values are both `1` and only scale the source band. Actual band width is always calculated as `outer radius × 0.0598573766 × width multiplier`.
+
+The original shader uses `Blend SrcAlpha One, One One`. ParticleSystemRenderer's Apply Active Color Space decodes the particle's sRGB vertex colour to Linear before multiplying it by the white HDR material, so the ring colour cannot be treated as an ordinary sRGB multiplication. Dissolve applies a binary threshold clip to the two-dimensional texture alpha instead of continuously reducing every pixel's opacity; pixels that pass the clip retain their sampled texture alpha. Size and dissolve thresholds use the source keyframes and their in/out tangents with Unity cubic Hermite interpolation, rather than linear interpolation or a generic smoothstep.
+
 ### Cursor Trail
 
 The trail follows the same rendering chain as the Unity source asset:
 
 | Layer | Description |
 |---|---|
-| Geometry and core | The original 2px strip is approximated by a 4px gradient body and a 1.7px core |
+| Geometry and core | Draw the original 2px HDR strip directly, then let Bloom expand it into a soft core |
 | Longitudinal envelope | The original TrailRenderer gradient is reversed into Canvas point order, then multiplied by the stretched `FX_TEX_Trail_03` brightness converted from sRGB to linear energy |
 | Bloom | Only the HDR emission buffer is blurred; triangle shards never enter that buffer |
 
@@ -194,14 +204,17 @@ Shards scatter along the trail at distance intervals.
 
 ### JavaScript Software Bloom
 
-With the default `softwareBloomEnabled: true`, the renderer draws HDR emission from rings, disks, and trails into a local half-resolution mask, reads the pixels back, and processes them in JavaScript. Triangular shards keep their crisp body colour and do not participate in Bloom:
+With the default `softwareBloomEnabled: true`, the renderer draws HDR emission from rings, disks, and trails into a local mask, reads the pixels back, and follows a URP 12-compatible Bloom structure in JavaScript. Triangular shards keep their crisp body colour and do not participate in Bloom:
 
 1. Decode the 8-bit mask into reusable Float32 RGB buffers.
-2. Extract highlights with a soft-knee threshold.
-3. Build a Gaussian-like glow through continuous separable box-blur passes, outputting only the completed convolution chain so intermediate box kernels cannot leave hard bands.
-4. Apply `bloom.intensity` and `bloom.scatter`, then add the result back to the main canvas with `lighter` compositing.
+2. Run a high-quality 13-tap prefilter with a soft-knee threshold to produce half-resolution mip0.
+3. Build the mip pyramid with separable 9-tap Gaussian downsampling; `bloom.skipIterations` controls how many deepest iterations are omitted.
+4. Mix from low-resolution mips back upward according to `bloom.scatter`, using bicubic sampling when `bloom.highQualityFiltering` is enabled.
+5. Convert linear Bloom energy to additive sRGB RGBA, apply `bloom.intensity`, composite it onto the main canvas with `lighter`, then blend the main FX layer over the DOM background with `plus-lighter`.
 
-This pipeline targets the visual character of Unity Bloom rather than a pixel-identical URP post-process. The renderer processes only a quantised bounding region covering the active effects and the full blur support, so the higher sampling rate does not require a full-frame readback. The page still exposes only one visible canvas: Bloom working canvases are never attached to the DOM, and the implementation uses neither WebGL, float16 Canvas, nor external dependencies. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`; the trail uses one filtered full-path stroke so glow cannot accumulate with segment density.
+Strict additive blending necessarily loses all contrast over a pure-white background. When the library owns the overlay, it therefore places an independent `darken` compatibility layer above the main FX layer. This layer uses a pale-cyan mask at `0.08` alpha to restore only the crisp silhouette and neither receives nor generates Bloom. It must remain above the additive layer; otherwise the main layer would add the recovered cyan contrast straight back to white. This is a deliberate web-compatibility deviation, not part of Unity's additive pipeline; set `lightBackgroundContrastAlpha` to `0` to disable it. An existing Canvas supplied as the target cannot receive this separate backdrop-compositing layer.
+
+This pipeline targets the visual character of URP 12 Bloom rather than a pixel-identical GPU post-process. The renderer processes only a quantised bounding region covering the active effects and the full blur support, avoiding a full-frame readback. Bloom working canvases are never attached to the DOM, and the implementation uses neither WebGL, float16 Canvas, nor external dependencies. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`; the trail uses one filtered full-path stroke so glow cannot accumulate with segment density. Triangle shards always render only their crisp body and never write to the Bloom emission buffer.
 
 ---
 
@@ -233,7 +246,7 @@ ba-click-fx/
 │   ├── fx.js            # Engine: ParticleSystem + TrailRenderer lifecycle
 │   ├── main.js           # Demo page + control panel UI
 │   ├── config.js         # Unity FX_Touch parameter snapshot
-│   ├── software-bloom.js # Float32 bright-pass, separable blur, additive composite
+│   ├── software-bloom.js # URP 12-style Float32 mip Bloom and additive composite
 │   ├── utils.js          # Pure math utilities
 │   └── style.css         # Demo page styles
 ├── scripts/
@@ -248,8 +261,9 @@ ba-click-fx/
 
 ### Architecture
 
-- **One visible canvas:** all effects are ultimately composited onto the same main canvas with `lighter`.
-- **Software Bloom:** local half-resolution working canvases plus Float32 JavaScript buffers, with a `shadowBlur` fallback when pixel readback is unavailable.
+- **Main FX layer:** effects use `lighter` internally, then the main canvas blends over the DOM background with `plus-lighter`.
+- **Light-background compatibility layer:** owned-overlay mode adds a non-Bloom `darken` canvas with a pale-cyan mask at 0.08 alpha so effects remain visible on pure white.
+- **Software Bloom:** local working canvases plus a Float32 Gaussian mip pyramid, with a `shadowBlur` fallback when pixel readback is unavailable.
 - **On-demand rendering:** `requestAnimationFrame` stops when no effects are active.
 - **Zero external dependencies:** standard Canvas 2D APIs only; no WebGL.
 

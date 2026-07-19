@@ -10,6 +10,7 @@ import { SoftwareBloomRenderer } from './software-bloom.js';
 
 const TAU = Math.PI * 2;
 const DEFAULT_FRAME_MS = 1000 / 60;
+const LIGHT_BACKGROUND_CONTRAST_COLOR = [76, 255, 255];
 // ── 共享 HSL 转换 ──────────────────────────────────────────────────────
 function rgbToHsl(r, g, b)
 {
@@ -195,6 +196,47 @@ function evaluateNumber(keys, progress)
   return keys[keys.length - 1][1];
 }
 
+function evaluateUnityHermiteCurve(keys, progress)
+{
+  if (!keys || keys.length === 0)
+  {
+    return 0;
+  }
+
+  const t = clamp01(progress);
+
+  if (t <= keys[0][0])
+  {
+    return keys[0][1];
+  }
+
+  for (let index = 1; index < keys.length; index++)
+  {
+    const previous = keys[index - 1];
+    const current = keys[index];
+
+    if (t <= current[0])
+    {
+      const span = current[0] - previous[0];
+      const localProgress = span > 0 ? (t - previous[0]) / span : 1;
+      const squared = localProgress * localProgress;
+      const cubed = squared * localProgress;
+      const previousOutSlope = previous[3] ?? 0;
+      const currentInSlope = current[2] ?? 0;
+      const h00 = 2 * cubed - 3 * squared + 1;
+      const h10 = cubed - 2 * squared + localProgress;
+      const h01 = -2 * cubed + 3 * squared;
+      const h11 = cubed - squared;
+
+      // Unity 的切线以“每单位曲线时间的变化量”保存，需乘当前关键帧跨度。
+      return h00 * previous[1] + h10 * previousOutSlope * span +
+        h01 * current[1] + h11 * currentInSlope * span;
+    }
+  }
+
+  return keys[keys.length - 1][1];
+}
+
 function evaluateUnitySmoothCurve(keys, progress)
 {
   if (!keys || keys.length === 0)
@@ -275,20 +317,90 @@ function colorToCss(color, alpha = 1)
   return `rgba(${red}, ${green}, ${blue}, ${clamp01(alpha)})`;
 }
 
+function srgbToLinearChannel(channel)
+{
+  const normalized = clamp01(channel / 255);
+
+  if (normalized <= 0.04045)
+  {
+    return normalized / 12.92;
+  }
+
+  return ((normalized + 0.055) / 1.055) ** 2.4;
+}
+
+function colorToLinearEnergy(color, intensity = 1, decodeSrgb = false)
+{
+  const themed = applyThemeHue(color);
+  const safeIntensity = Math.max(0, intensity);
+
+  return themed.map((channel) =>
+  {
+    const linear = decodeSrgb
+      ? srgbToLinearChannel(channel)
+      : clamp01(channel / 255);
+
+    return linear * safeIntensity;
+  });
+}
+
+function evaluateSrgbGradientEnergy(keys, progress, intensity)
+{
+  const linearKeys = keys.map(([time, color]) =>
+  [
+    time,
+    applyThemeHue(color).map(srgbToLinearChannel),
+  ]);
+  const safeIntensity = Math.max(0, intensity);
+
+  // ParticleSystem 在 Linear 项目中先转换各 Gradient key，再在 active space 插值。
+  return evaluateColor(linearKeys, progress).map((channel) =>
+    channel * safeIntensity);
+}
+
+/**
+ * 将 Shader 线性能量按 Unity 捕获图的通道值编码为预乘加色贡献；
+ * 清晰本体不做额外 gamma 提亮，零 RGB 必然得到零 Alpha。
+ */
+function linearEnergyToAdditiveCss(color, opacity = 1)
+{
+  const safeOpacity = clamp01(opacity);
+  const red = clamp01(color[0] * safeOpacity);
+  const green = clamp01(color[1] * safeOpacity);
+  const blue = clamp01(color[2] * safeOpacity);
+  const alpha = Math.max(red, green, blue);
+
+  if (alpha <= 0.00001)
+  {
+    return 'rgba(0, 0, 0, 0)';
+  }
+
+  return `rgba(${Math.round(red / alpha * 255)}, ${
+    Math.round(green / alpha * 255)}, ${
+    Math.round(blue / alpha * 255)}, ${alpha})`;
+}
+
+function linearEnergyToEmissionCss(color, opacity, emissionRange)
+{
+  const scale = clamp01(opacity) / Math.max(1, emissionRange);
+  const red = Math.round(clamp(color[0] * scale * 255, 0, 255));
+  const green = Math.round(clamp(color[1] * scale * 255, 0, 255));
+  const blue = Math.round(clamp(color[2] * scale * 255, 0, 255));
+
+  return `rgb(${red}, ${green}, ${blue})`;
+}
+
 /**
  * 将已知的材质发射强度压入 8 位遮罩；软件 Bloom 回读后会乘回 emissionRange。
  * Alpha 被预先烘入 RGB，Canvas 自身的 Alpha 只负责路径边缘的抗锯齿覆盖率。
  */
 function colorToEmissionCss(color, alpha, emission, emissionRange)
 {
-  const themed = applyThemeHue(color);
-  const scale = clamp01(alpha) * Math.max(0, emission) /
-    Math.max(1, emissionRange);
-  const red = Math.round(clamp(themed[0] * scale, 0, 255));
-  const green = Math.round(clamp(themed[1] * scale, 0, 255));
-  const blue = Math.round(clamp(themed[2] * scale, 0, 255));
-
-  return `rgb(${red}, ${green}, ${blue})`;
+  return linearEnergyToEmissionCss(
+    colorToLinearEnergy(color, emission),
+    alpha,
+    emissionRange,
+  );
 }
 
 function isCanvas(value)
@@ -314,26 +426,231 @@ function createCanvas()
   return canvas;
 }
 
-function setOverlayStyle(canvas, fixed)
+function setOverlayStyle(
+  canvas,
+  fixed,
+  zIndex = '2147483647',
+  mixBlendMode = 'plus-lighter',
+)
 {
   canvas.style.position = fixed ? 'fixed' : 'absolute';
   canvas.style.inset = '0';
   canvas.style.width = '100%';
   canvas.style.height = '100%';
   canvas.style.pointerEvents = 'none';
-  canvas.style.zIndex = '2147483647';
+  canvas.style.zIndex = zIndex;
+  canvas.style.mixBlendMode = mixBlendMode;
 }
 
-function smoothstep(edge0, edge1, value)
+function evaluateRingTextureAlpha(
+  angularProgress,
+  radialProgress,
+  ringCfg,
+)
 {
-  if (edge0 === edge1)
+  const angularAlpha = evaluateNumber(
+    ringCfg.textureAlphaKeys,
+    angularProgress,
+  );
+  const radialAlpha = evaluateNumber(
+    ringCfg.textureRadialAlphaKeys,
+    radialProgress,
+  );
+
+  // FX_TEX_Grad_Ring3 的二维 Alpha 接近可分离分布；U 控制圆周，
+  // V 让环带中央比内外沿约亮 12%。
+  return clamp01(angularAlpha * radialAlpha);
+}
+
+function evaluateRingLuminance(
+  angularProgress,
+  radialProgress,
+  threshold,
+  ringCfg,
+)
+{
+  const textureAlpha = evaluateRingTextureAlpha(
+    angularProgress,
+    radialProgress,
+    ringCfg,
+  );
+  // 原始 Fragment Shader 只执行二值 clip；通过测试的像素仍保留纹理 Alpha，
+  // 所以环带中心与内外沿不会被压成相同颜色。
+  return textureAlpha >= threshold ? textureAlpha : 0;
+}
+
+function createDissolvedRingGradient(
+  context,
+  ringCfg,
+  threshold,
+  radialProgress,
+  colorForLuminance,
+)
+{
+  if (typeof context.createConicGradient !== 'function')
   {
-    return value < edge0 ? 0 : 1;
+    return null;
   }
 
-  const progress = clamp01((value - edge0) / (edge1 - edge0));
+  const gradient = context.createConicGradient(0, 0, 0);
+  const sampleCount = Math.max(32, ringCfg.arcSamples);
+  const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
+  const stops = [];
 
-  return progress * progress * (3 - 2 * progress);
+  for (let sample = 0; sample <= sampleCount; sample++)
+  {
+    const angularProgress = sample / sampleCount;
+    const textureProgress = direction > 0
+      ? angularProgress
+      : 1 - angularProgress;
+    const luminance = evaluateRingLuminance(
+      textureProgress,
+      radialProgress,
+      threshold,
+      ringCfg,
+    );
+    stops.push([angularProgress, colorForLuminance(luminance)]);
+  }
+
+  for (const [stop, color] of stops)
+  {
+    gradient.addColorStop(stop, color);
+  }
+
+  return gradient;
+}
+
+function fillDissolvedRingFallback(
+  context,
+  radius,
+  width,
+  threshold,
+  ringCfg,
+  radialProgress,
+  colorForLuminance,
+)
+{
+  const circumference = TAU * radius;
+  const segmentCount = Math.max(
+    ringCfg.arcSamples,
+    Math.ceil(circumference),
+  );
+  const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
+
+  for (let segment = 0; segment < segmentCount; segment++)
+  {
+    const angularStart = segment / segmentCount;
+    const angularEnd = (segment + 1) / segmentCount;
+    const angularProgress = (angularStart + angularEnd) * 0.5;
+    const textureProgress = direction > 0
+      ? angularProgress
+      : 1 - angularProgress;
+    const luminance = evaluateRingLuminance(
+      textureProgress,
+      radialProgress,
+      threshold,
+      ringCfg,
+    );
+
+    if (luminance <= 0)
+    {
+      continue;
+    }
+
+    context.beginPath();
+    context.arc(
+      0,
+      0,
+      radius,
+      angularStart * TAU,
+      angularEnd * TAU,
+      false,
+    );
+    context.lineCap = 'butt';
+    context.lineWidth = Math.max(0.5, width);
+    context.strokeStyle = colorForLuminance(luminance);
+    context.stroke();
+  }
+}
+
+function fillDissolvedRing(
+  context,
+  radius,
+  width,
+  threshold,
+  ringCfg,
+  colorForLuminance,
+  nativeShadow = null,
+)
+{
+  const radialSamples = Math.max(1, Math.round(ringCfg.radialSamples));
+  const innerEdge = Math.max(0, radius - width * 0.5);
+  const bandWidth = width / radialSamples;
+
+  for (let band = 0; band < radialSamples; band++)
+  {
+    const innerRadius = innerEdge + bandWidth * band;
+    const outerRadius = innerEdge + bandWidth * (band + 1);
+    const radialProgress = (band + 0.5) / radialSamples;
+    const gradient = createDissolvedRingGradient(
+      context,
+      ringCfg,
+      threshold,
+      radialProgress,
+      colorForLuminance,
+    );
+
+    if (!gradient)
+    {
+      fillDissolvedRingFallback(
+        context,
+        (innerRadius + outerRadius) * 0.5,
+        bandWidth,
+        threshold,
+        ringCfg,
+        radialProgress,
+        colorForLuminance,
+      );
+      continue;
+    }
+
+    // 只有中线带产生一次原生 shadow，避免多条 V 采样带重复叠亮光晕。
+    const isCenterBand = band === Math.floor(radialSamples * 0.5);
+
+    context.shadowBlur = isCenterBand && nativeShadow
+      ? nativeShadow.blur
+      : 0;
+    context.shadowColor = isCenterBand && nativeShadow
+      ? nativeShadow.color
+      : 'transparent';
+    context.beginPath();
+    context.arc(0, 0, outerRadius, 0, TAU, false);
+    context.arc(0, 0, innerRadius, TAU, 0, true);
+    context.closePath();
+    context.fillStyle = gradient;
+    context.fill();
+  }
+}
+
+function resolveRingGeometry(ring, progress, scale, ringCfg)
+{
+  const size = evaluateUnityHermiteCurve(ringCfg.sizeKeys, progress);
+  const outerRadius = ring.radius * size * scale;
+  const widthMultiplier = lerp(
+    ringCfg.widthStart,
+    ringCfg.widthEnd,
+    progress,
+  );
+  const width = outerRadius * ringCfg.bandToOuterRadius * widthMultiplier;
+
+  return {
+    radius: outerRadius - width * 0.5,
+    width,
+    threshold: clamp01(evaluateUnityHermiteCurve(
+      ringCfg.dissolveKeys,
+      progress,
+    )),
+  };
 }
 
 function drawDissolvedCircle(
@@ -348,141 +665,43 @@ function drawDissolvedCircle(
 {
   const ringCfg = fxConfig.rings;
   const bloomCfg = fxConfig.bloom;
-  const radius = ring.radius * evaluateNumber(ringCfg.sizeKeys, progress) * scale;
-  // 游戏 sizeOverLifetime.y 曲线：环带厚度在生命周期前 8% 从 0 快速膨胀到全厚，
-  // 之后随直径持续增长而相对变细。yCurve 在 0.079 进度后保持 ≈1。
-  const yProgress = clamp01(progress / 0.07908168);
-  const yCurve = evaluateUnitySmoothCurve([[0, 0], [1, 0.9972414]], yProgress);
-  const width = lerp(ringCfg.widthStart, ringCfg.widthEnd, progress) * yCurve * scale;
-  const threshold = evaluateNumber(ringCfg.dissolveKeys, progress);
-  const visibleRatio = 1 - threshold;
+  const geometry = resolveRingGeometry(ring, progress, scale, ringCfg);
   const particleColor = evaluateColor(ringCfg.colorKeys, progress);
-  // 游戏 Tonemap 对各通道非均匀压缩；Canvas 2D 的均匀乘法会让红色通道
-  // 相对偏高。降为 1.0 让粒子自身的蓝色调主导，shadowBlur 辉光不受影响。
-  const hdrColor = particleColor.map((channel) =>
-    channel * ringCfg.hdrIntensity);
-  const arcLength = TAU * visibleRatio;
-  // 正向 sweep 在弧长下降时让活动端角度下降，即沿 Canvas 的逆时针方向
-  // 追向固定端；使用负向 sweep 会和圆环旋转对冲，视觉上变成两头消失。
-  const sweep = ringCfg.dissolveDirection * arcLength;
+  // Apply Active Color Space 会先把粒子 sRGB 顶点色解码到 Linear，再送入 Shader。
+  const materialEnergy = evaluateSrgbGradientEnergy(
+    ringCfg.colorKeys,
+    progress,
+    ringCfg.hdrIntensity,
+  );
 
-  if (arcLength <= 0.001)
+  if (geometry.width <= 0.001)
   {
     return;
   }
 
-  const steps = Math.max(
-    6,
-    Math.ceil(ringCfg.arcSamples * visibleRatio),
-  );
-  const shouldTaper = visibleRatio < 0.995;
-
   context.save();
   context.translate(ring.x, ring.y);
   context.rotate(ring.rotation);
-  context.beginPath();
-
-  // 外沿和内沿组成一条连续弧带。Unity 溶解阈值沿 UV 单向推进控制弧长；
-  // 纹理 FX_TEX_Grad_Ring3 的 alpha 在环带两端均自然衰减，形成双尖角。
-  for (let index = 0; index <= steps; index++)
-  {
-    const localProgress = index / steps;
-    const angle = sweep * localProgress;
-    // 双向 taper：两端 smoothstep 乘积确保 localProgress=0 和 =1 处均为尖角
-    const taper = shouldTaper
-      ? smoothstep(0, ringCfg.dissolveEdgeRatio, localProgress) *
-        smoothstep(0, ringCfg.dissolveEdgeRatio, 1 - localProgress)
-      : 1;
-    const outerRadius = radius + width * 0.5 * taper;
-    const x = Math.cos(angle) * outerRadius;
-    const y = Math.sin(angle) * outerRadius;
-
-    if (index === 0)
-    {
-      context.moveTo(x, y);
-    }
-    else
-    {
-      context.lineTo(x, y);
-    }
-  }
-
-  for (let index = steps; index >= 0; index--)
-  {
-    const localProgress = index / steps;
-    const angle = sweep * localProgress;
-    const taper = shouldTaper
-      ? smoothstep(0, ringCfg.dissolveEdgeRatio, localProgress) *
-        smoothstep(0, ringCfg.dissolveEdgeRatio, 1 - localProgress)
-      : 1;
-    const innerRadius = Math.max(0, radius - width * 0.5 * taper);
-
-    context.lineTo(
-      Math.cos(angle) * innerRadius,
-      Math.sin(angle) * innerRadius,
-    );
-  }
-
-  context.closePath();
-  context.fillStyle = colorToCss(hdrColor, opacity);
-  context.shadowColor = colorToCss(
-    particleColor,
-    opacity * bloomCfg.ringAlpha,
+  fillDissolvedRing(
+    context,
+    geometry.radius,
+    geometry.width,
+    geometry.threshold,
+    ringCfg,
+    (luminance) => linearEnergyToAdditiveCss(
+      materialEnergy,
+      opacity * luminance,
+    ),
+    useNativeBloom
+      ? {
+          blur: bloomCfg.ringBlur * scale,
+          color: colorToCss(
+            particleColor,
+            opacity * bloomCfg.ringAlpha,
+          ),
+        }
+      : null,
   );
-  context.shadowBlur = useNativeBloom ? bloomCfg.ringBlur * scale : 0;
-  context.fill();
-
-  // FX_TEX_Grad_Ring3 的 V 方向在环带中央比两侧亮约 12%；
-  // 在均匀填充之上再叠加一层居中窄环带，模拟材质的径向亮度变化。
-  {
-    const ridgeRatio = 0.6;
-    const ridgeAlphaBoost = 1.12;
-
-    context.beginPath();
-
-    for (let index = 0; index <= steps; index++)
-    {
-      const localProgress = index / steps;
-      const angle = sweep * localProgress;
-      const ridgeTaper = shouldTaper
-        ? smoothstep(0, ringCfg.dissolveEdgeRatio, localProgress) *
-          smoothstep(0, ringCfg.dissolveEdgeRatio, 1 - localProgress)
-        : 1;
-      const outerRidge = radius + width * 0.5 * ridgeRatio * ridgeTaper;
-      const x = Math.cos(angle) * outerRidge;
-      const y = Math.sin(angle) * outerRidge;
-
-      if (index === 0)
-      {
-        context.moveTo(x, y);
-      }
-      else
-      {
-        context.lineTo(x, y);
-      }
-    }
-
-    for (let index = steps; index >= 0; index--)
-    {
-      const localProgress = index / steps;
-      const angle = sweep * localProgress;
-      const ridgeTaper = shouldTaper
-        ? smoothstep(0, ringCfg.dissolveEdgeRatio, localProgress) *
-          smoothstep(0, ringCfg.dissolveEdgeRatio, 1 - localProgress)
-        : 1;
-      const innerRidge = Math.max(0, radius - width * 0.5 * ridgeRatio * ridgeTaper);
-
-      context.lineTo(
-        Math.cos(angle) * innerRidge,
-        Math.sin(angle) * innerRidge,
-      );
-    }
-
-    context.closePath();
-    context.fillStyle = colorToCss(hdrColor, opacity * ridgeAlphaBoost);
-    context.shadowBlur = 0;
-    context.fill();
-  }
 
   context.restore();
 }
@@ -498,34 +717,34 @@ function drawDissolvedCircleEmission(
 {
   const ringCfg = fxConfig.rings;
   const bloomCfg = fxConfig.bloom;
-  const radius = ring.radius * evaluateNumber(ringCfg.sizeKeys, progress) * scale;
-  const yProgress = clamp01(progress / 0.07908168);
-  const yCurve = evaluateUnitySmoothCurve([[0, 0], [1, 0.9972414]], yProgress);
-  const width = lerp(ringCfg.widthStart, ringCfg.widthEnd, progress) * yCurve * scale;
-  const visibleRatio = 1 - evaluateNumber(ringCfg.dissolveKeys, progress);
-  const arcLength = TAU * visibleRatio;
+  const geometry = resolveRingGeometry(ring, progress, scale, ringCfg);
 
-  if (arcLength <= 0.001 || width <= 0)
+  if (geometry.width <= 0.001)
   {
     return;
   }
 
-  const color = evaluateColor(ringCfg.colorKeys, progress);
+  const materialEnergy = evaluateSrgbGradientEnergy(
+    ringCfg.colorKeys,
+    progress,
+    ringCfg.hdrIntensity,
+  );
 
   context.save();
   context.translate(ring.x, ring.y);
   context.rotate(ring.rotation);
-  context.beginPath();
-  context.arc(0, 0, radius, 0, ringCfg.dissolveDirection * arcLength);
-  context.lineCap = 'round';
-  context.lineWidth = Math.max(0.5, width);
-  context.strokeStyle = colorToEmissionCss(
-    color,
-    opacity * bloomCfg.ringAlpha,
-    bloomCfg.ringEmission,
-    bloomCfg.emissionRange,
+  fillDissolvedRing(
+    context,
+    geometry.radius,
+    geometry.width,
+    geometry.threshold,
+    ringCfg,
+    (luminance) => linearEnergyToEmissionCss(
+      materialEnergy,
+      opacity * luminance * bloomCfg.ringEmissionAlpha,
+      bloomCfg.emissionRange,
+    ),
   );
-  context.stroke();
   context.restore();
 }
 
@@ -544,6 +763,10 @@ function drawDisk(
   const radius = diskCfg.radius * evaluateNumber(diskCfg.sizeKeys, progress) * scale;
   const color = evaluateColor(diskCfg.colorKeys, progress);
   const alpha = evaluateNumber(diskCfg.alphaKeys, progress) * opacity;
+  const materialEnergy = colorToLinearEnergy(
+    color,
+    bloomCfg.diskEmission,
+  );
   const gradient = context.createRadialGradient(
     wave.x,
     wave.y,
@@ -555,10 +778,13 @@ function drawDisk(
 
   // FX_TEX_Circle_01 的主体接近纯白遮罩，颜色由 Color over Lifetime 整体相乘；
   // 中心不能额外保留白点，否则蓝色阶段会变成旧版的发光球。
-  gradient.addColorStop(0, colorToCss(color, alpha));
-  gradient.addColorStop(0.88, colorToCss(color, alpha));
-  gradient.addColorStop(0.97, colorToCss(color, alpha * 0.55));
-  gradient.addColorStop(1, colorToCss(color, 0));
+  gradient.addColorStop(0, linearEnergyToAdditiveCss(materialEnergy, alpha));
+  gradient.addColorStop(0.88, linearEnergyToAdditiveCss(materialEnergy, alpha));
+  gradient.addColorStop(
+    0.97,
+    linearEnergyToAdditiveCss(materialEnergy, alpha * 0.55),
+  );
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
   context.save();
   context.beginPath();
@@ -584,7 +810,7 @@ function drawDiskEmission(
   const radius = diskCfg.radius * evaluateNumber(diskCfg.sizeKeys, progress) * scale;
   const color = evaluateColor(diskCfg.colorKeys, progress);
   const alpha = evaluateNumber(diskCfg.alphaKeys, progress) * opacity *
-    bloomCfg.diskAlpha;
+    bloomCfg.diskEmissionAlpha;
   const gradient = context.createRadialGradient(
     wave.x,
     wave.y,
@@ -667,8 +893,8 @@ function evaluateRingAngularVelocity(angularBlend, progress, ringCfg = UNITY_FX_
     ringCfg.angularVelocityMaxKeys,
     progress,
   );
-  // maxCurve 末端有极小负值；游戏画面在该阶段只表现为停转，没有可见反转。
-  const velocity = Math.max(0, lerp(minVelocity, maxVelocity, angularBlend));
+  // 保留 maxCurve 末端的微小负值；它属于资源本身，不能人为钳成停转。
+  const velocity = lerp(minVelocity, maxVelocity, angularBlend);
 
   return velocity * ringCfg.angularVelocityMultiplier * ringCfg.rotationDirection;
 }
@@ -949,7 +1175,7 @@ function measureTrail(points)
   };
 }
 
-function evaluateTrailMaterialColor(
+function evaluateTrailLinearEnergy(
   progress,
   trailCfg,
   materialIntensity,
@@ -961,8 +1187,10 @@ function evaluateTrailMaterialColor(
     progress,
   );
 
-  // 原 Shader 先将顶点色与 Stretch 纹理相乘，再施加 _Intensity。
-  return gradientColor.map((channel) =>
+  const gradientEnergy = colorToLinearEnergy(gradientColor);
+
+  // 原 Shader 先将线性顶点色与已解码的 Stretch 纹理相乘，再施加 _Intensity。
+  return gradientEnergy.map((channel) =>
     channel * textureIntensity * materialIntensity);
 }
 
@@ -991,7 +1219,7 @@ function drawTrailLayer(
     const progress = (
       measurement.distances[index - 1] + measurement.distances[index]
     ) * 0.5 / measurement.totalLength;
-    const color = evaluateTrailMaterialColor(
+    const color = evaluateTrailLinearEnergy(
       progress,
       trailCfg,
       layer.materialIntensity,
@@ -1000,7 +1228,10 @@ function drawTrailLayer(
     context.beginPath();
     context.moveTo(points[index - 1].x, points[index - 1].y);
     context.lineTo(points[index].x, points[index].y);
-    context.strokeStyle = colorToCss(color, layer.alpha * opacity);
+    context.strokeStyle = linearEnergyToAdditiveCss(
+      color,
+      layer.alpha * opacity,
+    );
     context.shadowBlur = 0;
     context.shadowColor = 'transparent';
     context.stroke();
@@ -1052,7 +1283,7 @@ function drawNativeTrailBloom(
   for (let sample = 0; sample <= sampleCount; sample++)
   {
     const progress = sample / sampleCount;
-    const color = evaluateTrailMaterialColor(
+    const color = evaluateTrailLinearEnergy(
       progress,
       trailCfg,
       bloomCfg.trailEmission,
@@ -1060,7 +1291,10 @@ function drawNativeTrailBloom(
 
     gradient.addColorStop(
       progress,
-      colorToCss(color, bloomCfg.trailAlpha * opacity),
+      linearEnergyToAdditiveCss(
+        color,
+        bloomCfg.trailAlpha * opacity,
+      ),
     );
   }
 
@@ -1068,7 +1302,7 @@ function drawNativeTrailBloom(
   context.filter = `blur(${trailCfg.outerGlowWidth * scale}px)`;
   context.lineJoin = 'round';
   context.lineCap = 'round';
-  context.lineWidth = trailCfg.width * scale;
+  context.lineWidth = trailCfg.geometryWidth * scale;
   context.beginPath();
   context.moveTo(first.x, first.y);
 
@@ -1111,16 +1345,11 @@ function drawTrail(
     );
   }
 
+  // Unity 只绘制一条 2px HDR 几何带；可见宽度由后续 Bloom 自然扩张。
   drawTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
     {
       width: trailCfg.width,
-      alpha: 0.42,
-      materialIntensity: bloomCfg.trailEmission,
-    });
-  drawTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
-    {
-      width: trailCfg.coreWidth,
-      alpha: 0.8,
+      alpha: 1,
       materialIntensity: bloomCfg.trailEmission,
     });
 }
@@ -1148,26 +1377,28 @@ function drawTrailEmission(
   context.lineJoin = 'round';
   // 相邻段在 lighter 遮罩中不得以 round cap 重叠，否则每个采样点都会变亮。
   context.lineCap = 'butt';
-  context.lineWidth = Math.max(0.5, trailCfg.geometryWidth * scale);
+  context.lineWidth = Math.max(
+    0.5,
+    trailCfg.geometryWidth * scale * bloomCfg.trailCoverageScale,
+  );
 
   for (let index = 1; index < points.length; index++)
   {
     const progress = (
       measurement.distances[index - 1] + measurement.distances[index]
     ) * 0.5 / measurement.totalLength;
-    const color = interpolateTrailColor(progress, trailCfg);
-    const textureIntensity = evaluateNumber(
-      trailCfg.textureLongitudinalKeys,
+    const energy = evaluateTrailLinearEnergy(
       progress,
+      trailCfg,
+      bloomCfg.trailEmission,
     );
 
     context.beginPath();
     context.moveTo(points[index - 1].x, points[index - 1].y);
     context.lineTo(points[index].x, points[index].y);
-    context.strokeStyle = colorToEmissionCss(
-      color,
-      trailOpacity * textureIntensity,
-      bloomCfg.trailEmission,
+    context.strokeStyle = linearEnergyToEmissionCss(
+      energy,
+      trailOpacity,
       bloomCfg.emissionRange,
     );
     context.stroke();
@@ -1186,6 +1417,7 @@ export class BAClickFX
    * @param {boolean} [options.clickEnabled]
    * @param {boolean} [options.trailEnabled]
    * @param {boolean} [options.softwareBloomEnabled]
+   * @param {number} [options.lightBackgroundContrastAlpha]
    * @param {number} [options.maxDpr]
    * @param {string} [options.touchAction]
    * @param {(event: PointerEvent) => boolean} [options.inputFilter]
@@ -1206,6 +1438,11 @@ export class BAClickFX
         trailAlways: options.trailAlways ?? CONFIG.trailAlways,
         softwareBloomEnabled: options.softwareBloomEnabled ??
           CONFIG.softwareBloomEnabled,
+        lightBackgroundContrastAlpha: Number.isFinite(
+          options.lightBackgroundContrastAlpha,
+        )
+          ? clamp01(options.lightBackgroundContrastAlpha)
+          : CONFIG.lightBackgroundContrastAlpha,
         maxDpr: Number.isFinite(options.maxDpr) ? Math.max(1, options.maxDpr) : CONFIG.maxDpr,
         touchAction: options.touchAction ?? CONFIG.touchAction,
       },
@@ -1216,6 +1453,7 @@ export class BAClickFX
     this.host = resolveTarget(options.target);
     this.ownsCanvas = !isCanvas(this.host);
     this.canvas = isCanvas(this.host) ? this.host : createCanvas();
+    this.contrastCanvas = this.ownsCanvas ? createCanvas() : null;
 
     if (!this.canvas)
     {
@@ -1226,12 +1464,27 @@ export class BAClickFX
     {
       const parent = this.host ?? document.body;
 
-      setOverlayStyle(this.canvas, !this.host);
+      // 该层不含 Bloom，只在浅色背景上补足加色混合无法产生的颜色对比。
+      setOverlayStyle(
+        this.canvas,
+        !this.host,
+        '2147483646',
+        'plus-lighter',
+      );
+      setOverlayStyle(
+        this.contrastCanvas,
+        !this.host,
+        '2147483647',
+        'darken',
+      );
       parent.appendChild(this.canvas);
+      // 必须置于加色主层上方，否则主层会再次把白底上的微弱青色补偿加回纯白。
+      parent.appendChild(this.contrastCanvas);
     }
 
     this.canvas.style.touchAction = this.config.touchAction;
     this.context = this.canvas.getContext('2d');
+    this.contrastContext = this.contrastCanvas?.getContext('2d') ?? null;
 
     if (!this.context)
     {
@@ -1305,6 +1558,14 @@ export class BAClickFX
     this.canvas.width = Math.round(width * dpr);
     this.canvas.height = Math.round(height * dpr);
     this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    if (this.contrastCanvas && this.contrastContext)
+    {
+      this.contrastCanvas.width = this.canvas.width;
+      this.contrastCanvas.height = this.canvas.height;
+      this.contrastContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
     this._requestRender();
   }
 
@@ -1610,6 +1871,7 @@ export class BAClickFX
     this._updateTrail(now, scale, !useSoftwareBloom);
     this._updateWaves(deltaMs, scale, !useSoftwareBloom);
     this._updateShards(deltaMs, scale);
+    this._renderLightBackgroundContrast(scale);
 
     if (useSoftwareBloom && this._hasVisibleEffects())
     {
@@ -1632,6 +1894,63 @@ export class BAClickFX
   _usesSoftwareBloom()
   {
     return this.config.softwareBloomEnabled && this.bloomRenderer.available;
+  }
+
+  _renderLightBackgroundContrast(scale)
+  {
+    const context = this.contrastContext;
+
+    if (!context || !this.contrastCanvas)
+    {
+      return;
+    }
+
+    context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    context.clearRect(0, 0, this.width, this.height);
+
+    if (this.config.lightBackgroundContrastAlpha <= 0)
+    {
+      return;
+    }
+
+    context.save();
+    context.globalCompositeOperation = 'lighter';
+
+    for (const stroke of this.trailStrokes)
+    {
+      if (stroke.points.length >= 2)
+      {
+        drawTrail(
+          context,
+          stroke.points,
+          scale,
+          this.config.opacity,
+          this.fxConfig,
+          false,
+        );
+      }
+    }
+
+    for (const wave of this.waves)
+    {
+      wave.draw(context, scale, this.config.opacity, false);
+    }
+
+    for (const shard of this.shards)
+    {
+      shard.draw(context, scale, this.config.opacity, this.fxConfig);
+    }
+
+    context.restore();
+    context.save();
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.globalCompositeOperation = 'source-in';
+    context.fillStyle = colorToCss(
+      LIGHT_BACKGROUND_CONTRAST_COLOR,
+      this.config.lightBackgroundContrastAlpha,
+    );
+    context.fillRect(0, 0, this.contrastCanvas.width, this.contrastCanvas.height);
+    context.restore();
   }
 
   _getSoftwareBloomBounds(scale)
@@ -1659,7 +1978,7 @@ export class BAClickFX
 
       const sourceRadius = Math.max(
         this.fxConfig.disk.radius,
-        ringRadius + this.fxConfig.rings.widthStart,
+        ringRadius,
       ) * scale;
 
       includeCircle(wave.x, wave.y, sourceRadius);
@@ -1677,8 +1996,36 @@ export class BAClickFX
         continue;
       }
 
-      for (const point of stroke.points)
+      const measurement = measureTrail(stroke.points);
+      const bloomCfg = this.fxConfig.bloom;
+      const minimumBloomEnergy = bloomCfg.threshold *
+        (1 - clamp01(bloomCfg.softKnee));
+      const trailOpacity = this.config.opacity *
+        (this.fxConfig.trail.trailOpacity ?? 1) *
+        bloomCfg.trailEmissionAlpha;
+
+      for (let index = 1; index < stroke.points.length; index++)
       {
+        const progress = (
+          measurement.distances[index - 1] + measurement.distances[index]
+        ) * 0.5 / Math.max(measurement.totalLength, 0.0001);
+        const energy = evaluateTrailLinearEnergy(
+          progress,
+          this.fxConfig.trail,
+          bloomCfg.trailEmission,
+        );
+
+        // Soft-knee 以下严格不会进入 bright pass；排除这段黑尾既不改变画面，
+        // 又避免快速横移时为上千像素的零亮度区域建立 Bloom 金字塔。
+        if (Math.max(...energy) * trailOpacity <= minimumBloomEnergy)
+        {
+          continue;
+        }
+
+        const previousPoint = stroke.points[index - 1];
+        const point = stroke.points[index];
+
+        includeCircle(previousPoint.x, previousPoint.y, trailRadius);
         includeCircle(point.x, point.y, trailRadius);
       }
     }
@@ -1710,6 +2057,8 @@ export class BAClickFX
       this.height,
       bloomCfg.resolutionScale,
       bounds,
+      bloomCfg.skipIterations,
+      this.dpr,
     );
 
     if (!bloomContext)
@@ -1745,10 +2094,10 @@ export class BAClickFX
         encodingRange: bloomCfg.emissionRange,
         threshold: bloomCfg.threshold,
         softKnee: bloomCfg.softKnee,
+        clamp: bloomCfg.clamp,
         intensity: bloomCfg.intensity,
         scatter: bloomCfg.scatter,
-        iterations: bloomCfg.iterations,
-        blurRadius: bloomCfg.ringBlur * scale,
+        highQualityFiltering: bloomCfg.highQualityFiltering,
       },
     );
   }
@@ -1912,6 +2261,13 @@ export class BAClickFX
       this.config.softwareBloomEnabled = overrides.softwareBloomEnabled;
     }
 
+    if (Number.isFinite(overrides.lightBackgroundContrastAlpha))
+    {
+      this.config.lightBackgroundContrastAlpha = clamp01(
+        overrides.lightBackgroundContrastAlpha,
+      );
+    }
+
     if (Number.isFinite(overrides.maxDpr))
     {
       this.config.maxDpr = Math.max(1, overrides.maxDpr);
@@ -2005,6 +2361,7 @@ export class BAClickFX
     this.trailStrokes.length = 0;
     this.currentTrailStroke = null;
     this.context.clearRect(0, 0, this.width, this.height);
+    this.contrastContext?.clearRect(0, 0, this.width, this.height);
   }
 
   getConfig()
@@ -2042,6 +2399,7 @@ export class BAClickFX
 
     if (this.ownsCanvas)
     {
+      this.contrastCanvas?.remove();
       this.canvas.remove();
     }
   }
