@@ -524,8 +524,8 @@ assert(
   '软件 HDR 发射使用资源 Alpha，原生阴影回退单独标定',
 );
 assert(
-  CONFIG.lightBackgroundContrastAlpha === 0.08,
-  '浅色背景对比层仅保留 0.08 的微弱青色轮廓',
+  CONFIG.lightBackgroundContrastAlpha === 0.35,
+  '浅色背景对比层保留 0.35 的青色轮廓以改善白色背景可见性',
 );
 
 console.log('\n配置隔离');

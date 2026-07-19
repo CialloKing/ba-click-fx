@@ -101,7 +101,7 @@
     <!-- ── 基础 ── -->
     <section class="panel-section">
       <h3>基础</h3>
-      <details><summary>显示</summary>
+      <details open><summary>显示</summary>
       <label class="ctrl">
         <span>主题颜色</span>
         <input type="color" id="ctrlColor" value="#69a1ff" />
@@ -118,10 +118,13 @@
         <span>最大 DPR <output id="outDpr">2</output></span>
         <input type="range" id="ctrlDpr" min="1" max="3" step="1" value="2" />
       </label>
-      <label class="ctrl toggle">
-        <span>JavaScript 软件 Bloom</span>
-        <input type="checkbox" id="ctrlSoftwareBloom" checked />
-        <span class="toggle-track"></span>
+      <label class="ctrl">
+        <span>渲染模式</span>
+        <select id="ctrlRenderMode" class="ctrl-select">
+          <option value="software-bloom" selected>软件 Bloom</option>
+          <option value="native-bloom">原生辉光</option>
+          <option value="legacy">Legacy</option>
+        </select>
       </label>
       </details>
     </section>

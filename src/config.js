@@ -300,9 +300,12 @@ export const CONFIG = Object.freeze(
     clickEnabled: true,
     trailEnabled: true,
     trailAlways: false,
+    // 'enhanced' 使用线性能量编码 + 软件 Bloom（当前分支）；
+    // 'legacy' 使用 sRGB 颜色 + shadowBlur（main 分支风格）。
+    renderingMode: 'enhanced',
     softwareBloomEnabled: true,
-    // 严格加色在纯白背景上没有对比度；独立 darken 层只补回极弱的淡青轮廓。
-    lightBackgroundContrastAlpha: 0.08,
+    // 严格加色在纯白背景上没有对比度；独立 darken 层补回轮廓。0.35 为实验值。
+    lightBackgroundContrastAlpha: 0.35,
     maxDpr: 2,
     touchAction: 'auto',
   },
