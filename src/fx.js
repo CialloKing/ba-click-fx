@@ -213,11 +213,11 @@ function mergeBloomRegion(regions, nextRegion)
       }
     }
 
-    for (const stroke of current.strokes)
+    for (const batch of current.trailBatches)
     {
-      if (!nextRegion.strokes.includes(stroke))
+      if (!nextRegion.trailBatches.includes(batch))
       {
-        nextRegion.strokes.push(stroke);
+        nextRegion.trailBatches.push(batch);
       }
     }
 
@@ -1467,7 +1467,11 @@ function measureTrail(points)
   };
 }
 
-function createTrailFrameData(points, trailCfg, materialIntensity = null)
+function createTrailFrameData(
+  points,
+  trailCfg,
+  materialIntensity = null,
+)
 {
   const measurement = measureTrail(points);
   const segmentEnergies = [];
@@ -1827,6 +1831,8 @@ function drawTrailEmission(
   opacity,
   fxConfig = UNITY_FX_TOUCH,
   sharedTrailData = null,
+  segmentStart = 1,
+  segmentEnd = points.length - 1,
 )
 {
   const trailCfg = fxConfig.trail;
@@ -1854,7 +1860,18 @@ function drawTrailEmission(
     trailCfg.geometryWidth * scale * bloomCfg.trailCoverageScale,
   );
 
-  for (let index = 1; index < points.length; index++)
+  const firstSegment = clamp(
+    Math.floor(segmentStart),
+    1,
+    points.length - 1,
+  );
+  const lastSegment = clamp(
+    Math.floor(segmentEnd),
+    firstSegment,
+    points.length - 1,
+  );
+
+  for (let index = firstSegment; index <= lastSegment; index++)
   {
     const progress = (
       measurement.distances[index - 1] + measurement.distances[index]
@@ -2576,7 +2593,7 @@ export class BAClickFX
       maximumX,
       maximumY,
       wave,
-      stroke,
+      trailBatches = [],
     ) =>
     {
       mergeBloomRegion(
@@ -2594,7 +2611,7 @@ export class BAClickFX
             height: maximumY - minimumY,
           },
           waves: wave ? [wave] : [],
-          strokes: stroke ? [stroke] : [],
+          trailBatches,
         },
       );
     };
@@ -2639,7 +2656,7 @@ export class BAClickFX
         wave.x + sourceRadius,
         wave.y + sourceRadius,
         wave,
-        null,
+        [],
       );
     }
 
@@ -2661,47 +2678,95 @@ export class BAClickFX
         this.fxConfig.trail,
         bloomCfg.trailEmission,
       );
-      const measurement = trailData.measurement;
-      const minimumBloomEnergy = bloomCfg.threshold *
-        (1 - clamp01(bloomCfg.softKnee));
       const trailOpacity = this.config.opacity *
         (this.fxConfig.trail.trailOpacity ?? 1) *
         bloomCfg.trailEmissionAlpha;
-      let minimumX = Infinity;
-      let minimumY = Infinity;
-      let maximumX = -Infinity;
-      let maximumY = -Infinity;
+      const emissionQuantizationScale = trailOpacity /
+        Math.max(1, bloomCfg.emissionRange) * 255;
+      const bloomRuns = [];
+      let activeRun = null;
 
       for (let index = 1; index < stroke.points.length; index++)
       {
-        // Soft-knee 以下严格不会进入 bright pass；排除这段黑尾既不改变画面，
-        // 又避免快速横移时为上千像素的零亮度区域建立 Bloom 金字塔。
+        // 只排除写入 8 位发射遮罩后所有通道都严格量化为 0 的段。
+        // 不能按 Bloom 阈值提前裁剪：多个微弱发射源叠加后仍可能越过阈值。
         if (
-          trailData.segmentMaximumEnergies[index - 1] * trailOpacity <=
-          minimumBloomEnergy
+          trailData.segmentMaximumEnergies[index - 1] *
+            emissionQuantizationScale < 0.5
         )
         {
+          if (activeRun)
+          {
+            bloomRuns.push(activeRun);
+            activeRun = null;
+          }
+
           continue;
         }
 
         const previousPoint = stroke.points[index - 1];
         const point = stroke.points[index];
 
-        minimumX = Math.min(minimumX, previousPoint.x, point.x);
-        minimumY = Math.min(minimumY, previousPoint.y, point.y);
-        maximumX = Math.max(maximumX, previousPoint.x, point.x);
-        maximumY = Math.max(maximumY, previousPoint.y, point.y);
+        if (!activeRun)
+        {
+          activeRun = {
+            firstSegment: index,
+            lastSegment: index,
+            minimumX: Math.min(previousPoint.x, point.x),
+            minimumY: Math.min(previousPoint.y, point.y),
+            maximumX: Math.max(previousPoint.x, point.x),
+            maximumY: Math.max(previousPoint.y, point.y),
+          };
+          continue;
+        }
+
+        activeRun.lastSegment = index;
+        activeRun.minimumX = Math.min(
+          activeRun.minimumX,
+          previousPoint.x,
+          point.x,
+        );
+        activeRun.minimumY = Math.min(
+          activeRun.minimumY,
+          previousPoint.y,
+          point.y,
+        );
+        activeRun.maximumX = Math.max(
+          activeRun.maximumX,
+          previousPoint.x,
+          point.x,
+        );
+        activeRun.maximumY = Math.max(
+          activeRun.maximumY,
+          previousPoint.y,
+          point.y,
+        );
       }
 
-      if (Number.isFinite(minimumX))
+      if (activeRun)
       {
+        bloomRuns.push(activeRun);
+      }
+
+      if (bloomRuns.length > 0)
+      {
+        const minimumX = Math.min(...bloomRuns.map((run) => run.minimumX));
+        const minimumY = Math.min(...bloomRuns.map((run) => run.minimumY));
+        const maximumX = Math.max(...bloomRuns.map((run) => run.maximumX));
+        const maximumY = Math.max(...bloomRuns.map((run) => run.maximumY));
+
         addRegion(
           minimumX - trailRadius,
           minimumY - trailRadius,
           maximumX + trailRadius,
           maximumY + trailRadius,
           null,
-          stroke,
+          bloomRuns.map((run) =>
+          ({
+            stroke,
+            firstSegment: run.firstSegment,
+            lastSegment: run.lastSegment,
+          })),
         );
       }
     }
@@ -2762,8 +2827,10 @@ export class BAClickFX
       processedSourcePixels += renderer.sourceWidth * renderer.sourceHeight;
       bloomContext.save();
 
-      for (const stroke of region.strokes)
+      for (const batch of region.trailBatches)
       {
+        const stroke = batch.stroke;
+
         if (stroke.points.length >= 2)
         {
           drawTrailEmission(
@@ -2773,6 +2840,8 @@ export class BAClickFX
             this.config.opacity,
             this.fxConfig,
             stroke.trailFrameData,
+            batch.firstSegment,
+            batch.lastSegment,
           );
         }
       }
@@ -2812,21 +2881,33 @@ export class BAClickFX
     for (let strokeIndex = this.trailStrokes.length - 1; strokeIndex >= 0; strokeIndex--)
     {
       const stroke = this.trailStrokes[strokeIndex];
+      let expiredPointCount = 0;
 
       while (
-        stroke.points.length > 0 &&
-        now - stroke.points[0].bornAt >= lifetime
+        expiredPointCount < stroke.points.length &&
+        now - stroke.points[expiredPointCount].bornAt >= lifetime
       )
       {
-        stroke.points.shift();
+        expiredPointCount++;
+      }
+
+      if (expiredPointCount > 0)
+      {
+        // 连续 shift 会为每个过期点搬移整个数组；一次 splice 保持相同行为，
+        // 快速拖动产生数百顶点时不会在每帧形成 O(n²) 开销。
+        stroke.points.splice(0, expiredPointCount);
       }
 
       if (stroke.points.length >= 2)
       {
+        const materialIntensity = legacy
+          ? null
+          : this.fxConfig.bloom.trailEmission;
+
         stroke.trailFrameData = createTrailFrameData(
           stroke.points,
           this.fxConfig.trail,
-          legacy ? null : this.fxConfig.bloom.trailEmission,
+          materialIntensity,
         );
         drawTrail(
           this.context,

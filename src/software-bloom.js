@@ -570,9 +570,6 @@ export function downsampleGaussian(
   let outputStartY = 0;
   let outputEndY = outputHeight;
 
-  scratch.fill(0);
-  output.fill(0);
-
   if (sourceBounds)
   {
     horizontalStartX = clamp(
@@ -599,30 +596,91 @@ export function downsampleGaussian(
     outputEndY = Math.min(outputHeight, horizontalEndY + 5);
   }
 
+  const overwritesFullScratch = horizontalStartX === 0 &&
+    horizontalStartY === 0 &&
+    horizontalEndX === outputWidth &&
+    horizontalEndY === outputHeight;
+  const overwritesFullOutput = horizontalStartX === 0 &&
+    outputStartY === 0 &&
+    horizontalEndX === outputWidth &&
+    outputEndY === outputHeight;
+
+  if (!overwritesFullScratch)
+  {
+    scratch.fill(0);
+  }
+
+  if (!overwritesFullOutput)
+  {
+    output.fill(0);
+  }
+
   for (let y = horizontalStartY; y < horizontalEndY; y++)
   {
     const sourceY = (y + 0.5) * scaleY - 0.5;
+    const safeSourceY = clamp(sourceY, 0, sourceHeight - 1);
+    const sourceTop = Math.floor(safeSourceY);
+    const sourceBottom = Math.min(sourceTop + 1, sourceHeight - 1);
+    const vertical = safeSourceY - sourceTop;
+    const topWeight = 1 - vertical;
+    const bottomWeight = vertical;
 
     for (let x = horizontalStartX; x < horizontalEndX; x++)
     {
       const sourceX = (x + 0.5) * scaleX - 0.5;
       const outputIndex = (y * outputWidth + x) * RGB_CHANNELS;
+      let red = 0;
+      let green = 0;
+      let blue = 0;
 
       for (let tap = -4; tap <= 4; tap++)
       {
-        addBilinearRgb(
-          source,
-          sourceWidth,
-          sourceHeight,
-          // FragBlurH 固定跨 2 个 source texel；奇数 mip 不能改用尺寸比，
-          // 否则 135→67 一类层级会逐级把光晕错误地拉宽。
+        // FragBlurH 固定跨 2 个 source texel；奇数 mip 不能改用尺寸比，
+        // 否则 135→67 一类层级会逐级把光晕错误地拉宽。
+        const sampleX = clamp(
           sourceX + tap * 2,
-          sourceY,
-          GAUSSIAN_HORIZONTAL_WEIGHTS[tap + 4],
-          scratch,
-          outputIndex,
+          0,
+          sourceWidth - 1,
         );
+        const left = Math.floor(sampleX);
+        const right = Math.min(left + 1, sourceWidth - 1);
+        const horizontal = sampleX - left;
+        const leftWeight = 1 - horizontal;
+        const weight = GAUSSIAN_HORIZONTAL_WEIGHTS[tap + 4];
+        const topLeftIndex = (sourceTop * sourceWidth + left) * RGB_CHANNELS;
+        const topRightIndex = (sourceTop * sourceWidth + right) * RGB_CHANNELS;
+        const bottomLeftIndex = (
+          sourceBottom * sourceWidth + left
+        ) * RGB_CHANNELS;
+        const bottomRightIndex = (
+          sourceBottom * sourceWidth + right
+        ) * RGB_CHANNELS;
+
+        // 水平 Gaussian 是热路径。一次读取三个通道并在寄存器中累加，
+        // 避免每个 tap 调用通用双线性函数并反复写 Float32 scratch。
+        red += (
+          (source[topLeftIndex] * leftWeight +
+            source[topRightIndex] * horizontal) * topWeight +
+          (source[bottomLeftIndex] * leftWeight +
+            source[bottomRightIndex] * horizontal) * bottomWeight
+        ) * weight;
+        green += (
+          (source[topLeftIndex + 1] * leftWeight +
+            source[topRightIndex + 1] * horizontal) * topWeight +
+          (source[bottomLeftIndex + 1] * leftWeight +
+            source[bottomRightIndex + 1] * horizontal) * bottomWeight
+        ) * weight;
+        blue += (
+          (source[topLeftIndex + 2] * leftWeight +
+            source[topRightIndex + 2] * horizontal) * topWeight +
+          (source[bottomLeftIndex + 2] * leftWeight +
+            source[bottomRightIndex + 2] * horizontal) * bottomWeight
+        ) * weight;
       }
+
+      scratch[outputIndex] = red;
+      scratch[outputIndex + 1] = green;
+      scratch[outputIndex + 2] = blue;
     }
   }
 
@@ -631,20 +689,36 @@ export function downsampleGaussian(
     for (let x = horizontalStartX; x < horizontalEndX; x++)
     {
       const outputIndex = (y * outputWidth + x) * RGB_CHANNELS;
+      let red = 0;
+      let green = 0;
+      let blue = 0;
 
       for (const [offset, weight] of GAUSSIAN_VERTICAL_TAPS)
       {
-        addBilinearRgb(
-          scratch,
-          outputWidth,
-          outputHeight,
-          x,
-          y + offset,
-          weight,
-          output,
-          outputIndex,
-        );
+        const sampleY = clamp(y + offset, 0, outputHeight - 1);
+        const top = Math.floor(sampleY);
+        const bottom = Math.min(top + 1, outputHeight - 1);
+        const vertical = sampleY - top;
+        const topIndex = (top * outputWidth + x) * RGB_CHANNELS;
+        const bottomIndex = (bottom * outputWidth + x) * RGB_CHANNELS;
+
+        red += (
+          scratch[topIndex] * (1 - vertical) +
+          scratch[bottomIndex] * vertical
+        ) * weight;
+        green += (
+          scratch[topIndex + 1] * (1 - vertical) +
+          scratch[bottomIndex + 1] * vertical
+        ) * weight;
+        blue += (
+          scratch[topIndex + 2] * (1 - vertical) +
+          scratch[bottomIndex + 2] * vertical
+        ) * weight;
       }
+
+      output[outputIndex] = red;
+      output[outputIndex + 1] = green;
+      output[outputIndex + 2] = blue;
     }
   }
 
@@ -684,8 +758,6 @@ export function upsampleAndMixBloom(
   let endX = highWidth;
   let endY = highHeight;
 
-  output.fill(0);
-
   if (highBounds && lowBounds)
   {
     const lowStartX = Math.floor((lowBounds.minimumX - 3) / scaleX) - 2;
@@ -713,6 +785,16 @@ export function upsampleAndMixBloom(
       0,
       highHeight,
     );
+  }
+
+  if (
+    startX !== 0 ||
+    startY !== 0 ||
+    endX !== highWidth ||
+    endY !== highHeight
+  )
+  {
+    output.fill(0);
   }
 
   for (let y = startY; y < endY; y++)
@@ -1011,7 +1093,12 @@ export class SoftwareBloomRenderer
       this.outputImageData = this.outputContext.createImageData(width, height);
       // Canvas 容量可能没有变化；尺寸切换时仍需清掉旧活动区域，
       // 否则局部 putImageData 不会覆盖包围框外的上一帧辉光。
-      this.outputContext.clearRect(0, 0, width, height);
+      this.outputContext.clearRect(
+        0,
+        0,
+        this.outputCanvas.width,
+        this.outputCanvas.height,
+      );
       this.outputBounds = null;
     }
     catch

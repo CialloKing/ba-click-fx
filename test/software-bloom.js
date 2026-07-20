@@ -240,6 +240,53 @@ assert(
   'Gaussian 不串色且不会修改输入缓冲',
 );
 
+const reusedDownsampleScratch = new Float32Array(
+  downsampleScratch.length,
+).fill(7);
+const reusedDownsampleOutput = new Float32Array(
+  downsampleOutput.length,
+).fill(7);
+
+downsampleGaussian(
+  impulse,
+  downsampleWidth,
+  downsampleHeight,
+  reusedDownsampleScratch,
+  reusedDownsampleOutput,
+  downsampleOutputWidth,
+  downsampleOutputHeight,
+);
+assert(
+  arraysApproximatelyEqual(
+    reusedDownsampleOutput,
+    downsampleOutput,
+  ),
+  'Gaussian 完整覆盖复用缓冲时不受上一帧脏值影响',
+);
+
+const partialScratch = new Float32Array(downsampleScratch.length).fill(7);
+const partialOutput = new Float32Array(downsampleOutput.length).fill(7);
+
+downsampleGaussian(
+  impulse,
+  downsampleWidth,
+  downsampleHeight,
+  partialScratch,
+  partialOutput,
+  downsampleOutputWidth,
+  downsampleOutputHeight,
+  {
+    minimumX: 6,
+    minimumY: 6,
+    maximumX: 9,
+    maximumY: 9,
+  },
+);
+assert(
+  !partialOutput.some((value) => value === 7),
+  'Gaussian 局部 bounds 会先清空复用缓冲的未覆盖像素',
+);
+
 console.log('\nSoftware Bloom 金字塔上采样');
 const uniformHigh = new Float32Array(4 * 4 * 3);
 const uniformLow = new Float32Array(2 * 2 * 3);
@@ -282,6 +329,24 @@ assert(
     [3.46, 1.73, 0.865],
   ),
   '反向金字塔按映射后的 scatter 混合高低 mip',
+);
+
+const reusedUniformMixed = new Float32Array(uniformHigh.length).fill(7);
+
+upsampleAndMixBloom(
+  uniformHigh,
+  4,
+  4,
+  uniformLow,
+  2,
+  2,
+  reusedUniformMixed,
+  0.365,
+  true,
+);
+assert(
+  arraysApproximatelyEqual(reusedUniformMixed, uniformMixed),
+  '上采样完整覆盖复用缓冲时不受上一帧脏值影响',
 );
 
 const cornerLow = new Float32Array([

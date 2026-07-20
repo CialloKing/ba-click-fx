@@ -984,6 +984,19 @@ assert(
     trailEnergyBuildCount === trailSegmentCount,
   '同一帧的可见拖尾、Bloom 区域和发射绘制共享分段能量缓存',
 );
+const expectedBloomSegmentCount = cachedTrailFrameData
+  .segmentMaximumEnergies
+  .filter((energy) =>
+    energy * effect.config.opacity *
+      (effect.fxConfig.trail.trailOpacity ?? 1) *
+      effect.fxConfig.bloom.trailEmissionAlpha >
+      0.5 * Math.max(1, effect.fxConfig.bloom.emissionRange) / 255)
+  .length;
+assert(
+  bloomTrailStyles.length === expectedBloomSegmentCount &&
+    expectedBloomSegmentCount < trailSegmentCount,
+  'Bloom 发射绘制只跳过量化后严格为零的暗尾分段',
+);
 const trianglePathIndices = effect.context.filledPaths.reduce(
   (indices, path, index) =>
   {
@@ -1133,10 +1146,23 @@ assert(
 );
 
 const reusableRenderer = regionEffect.bloomRenderer;
-const sourceBuffer = reusableRenderer.sourceLinear.buffer;
-const levelBuffers = reusableRenderer.levels.map((level) =>
+
+reusableRenderer.beginFrame(
+  regionEffect.width,
+  regionEffect.height,
+  UNITY_FX_TOUCH.bloom.resolutionScale,
+  { x: 0, y: 0, width: 720, height: 720 },
+  UNITY_FX_TOUCH.bloom.skipIterations,
+  regionEffect.dpr,
+);
+const bloomCapacityWidth = reusableRenderer.outputCanvas.width;
+const bloomCapacityHeight = reusableRenderer.outputCanvas.height;
+const sourceCapacityBuffer = reusableRenderer.sourceLinear.buffer;
+const levelCapacityBuffers = reusableRenderer.levels.map((level) =>
   [level.down.buffer, level.up.buffer, level.scratch.buffer]);
-const allocationCount = reusableRenderer.floatBufferAllocationCount;
+const capacityAllocationCount = reusableRenderer.floatBufferAllocationCount;
+
+reusableRenderer.outputContext.clearRectCalls = [];
 
 assert(
   reusableRenderer.beginFrame(
@@ -1160,13 +1186,22 @@ reusableRenderer.beginFrame(
   regionEffect.dpr,
 );
 assert(
-  reusableRenderer.sourceLinear.buffer === sourceBuffer &&
+  reusableRenderer.sourceLinear.buffer === sourceCapacityBuffer &&
     reusableRenderer.levels.every((level, index) =>
-      level.down.buffer === levelBuffers[index][0] &&
-        level.up.buffer === levelBuffers[index][1] &&
-        level.scratch.buffer === levelBuffers[index][2]) &&
-    reusableRenderer.floatBufferAllocationCount === allocationCount,
+      level.down.buffer === levelCapacityBuffers[index][0] &&
+        level.up.buffer === levelCapacityBuffers[index][1] &&
+        level.scratch.buffer === levelCapacityBuffers[index][2]) &&
+    reusableRenderer.floatBufferAllocationCount === capacityAllocationCount,
   '区域缩小时复用 Float32 backing buffer，不产生新的金字塔分配',
+);
+assert(
+  (reusableRenderer.width < bloomCapacityWidth ||
+    reusableRenderer.height < bloomCapacityHeight) &&
+    reusableRenderer.outputContext.clearRectCalls.at(-1)?.[2] ===
+      bloomCapacityWidth &&
+    reusableRenderer.outputContext.clearRectCalls.at(-1)?.[3] ===
+      bloomCapacityHeight,
+  'Bloom 活动尺寸变化时清除完整容量 Canvas，避免旧辉光形成边界细线',
 );
 
 regionEffect.clear();
@@ -1196,6 +1231,43 @@ assert(
   '长帧后按真实时间结束过期特效，不因 delta 限制继续积压 Bloom',
 );
 stalledEffect.destroy();
+
+const expiredTrailEffect = new BAClickFX();
+const expirationNow = performance.now();
+const expiringPoints = [];
+
+for (let index = 0; index < 4096; index++)
+{
+  expiringPoints.push(
+    {
+      x: index,
+      y: 0,
+      bornAt: index < 4000
+        ? expirationNow - UNITY_FX_TOUCH.trail.lifetimeMs
+        : expirationNow,
+    },
+  );
+}
+
+let trailShiftCount = 0;
+
+expiringPoints.shift = () =>
+{
+  trailShiftCount++;
+  return Array.prototype.shift.call(expiringPoints);
+};
+expiredTrailEffect.trailStrokes.push(
+  {
+    active: false,
+    points: expiringPoints,
+  },
+);
+expiredTrailEffect._updateTrail(expirationNow, 1, false);
+assert(
+  trailShiftCount === 0 && expiringPoints.length === 96,
+  '大量过期轨迹顶点一次批量删除，不重复 shift 搬移数组',
+);
+expiredTrailEffect.destroy();
 
 console.log('\nLegacy 模式');
 const legacyEffect = new BAClickFX({ renderingMode: 'legacy' });
