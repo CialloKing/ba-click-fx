@@ -26,6 +26,33 @@ function verify(condition, message)
 
 verify(/setFxParam/.test(mainJs), '控制面板通过 setFxParam 修改参数，不绕过引擎');
 verify(/inputFilter/.test(mainJs), '演示页把信息卡映射为 Unity UGUI 输入过滤区');
+const renderModeSelect = indexHtml.match(
+  /<select id="ctrlRenderMode"[\s\S]*?<\/select>/,
+)?.[0] ?? '';
+const renderModeValues = [...renderModeSelect.matchAll(/<option value="([^"]+)"/g)]
+  .map((match) => match[1]);
+
+verify(
+  JSON.stringify(renderModeValues) === JSON.stringify([
+    'software-bloom',
+    'webgl2-bloom',
+    'native-bloom',
+    'legacy',
+  ]),
+  '展示页提供 WebGL2、Software、Native 与 Legacy 四档渲染开关',
+);
+verify(
+  /'software-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'software' \}/.test(mainJs) &&
+    /'webgl2-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'webgl2' \}/.test(mainJs) &&
+    /'native-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'native' \}/.test(mainJs) &&
+    /legacy: \{ renderingMode: 'legacy' \}/.test(mainJs),
+  '展示页四档开关映射到对应的公开 renderingMode 与 bloomBackend API',
+);
+verify(
+  /BLOOM_BACKEND_CHANGE_EVENT/.test(mainJs) &&
+    /renderBackendPending/.test(mainJs),
+  '展示页监听后端解析事件并单独显示 WebGL2 延迟探测状态',
+);
 verify(/UNITY_FX_TOUCH/.test(engineJs), '渲染引擎直接消费 Unity 参数源');
 verify(/pointerdown/.test(engineJs) && /pointerup/.test(engineJs), '按下、拖拽和松开共享同一输入生命周期');
 verify(!/ringNoise/.test(engineJs), '圆环溶解保持为单个连续弧带');

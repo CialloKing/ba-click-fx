@@ -1,5 +1,15 @@
 ﻿# Changelog
 
+## Unreleased — WebGL2 Bloom 后端
+
+- 新增可选 WebGL2 GPU Bloom，保留软件 Bloom 作为默认参考实现与兼容回退
+- 新增 `bloomBackend: 'auto' | 'software' | 'webgl2' | 'native'`，并通过 `resolvedBloomBackend` 暴露实际后端与延迟探测的 `pending` 状态
+- 导出 `BLOOM_BACKEND_CHANGE_EVENT`，后端解析状态变化时在主 Canvas 派发事件
+- WebGL2 不可用、浮点 Framebuffer 创建失败或运行时渲染失败时，自动回退软件 Bloom，再回退原生辉光
+- 展示页增加 WebGL2 Bloom 选项、实际后端状态、双语文案及本地设置恢复
+- 优化 GPU 发射几何批处理，减少圆盘、圆环和拖尾热循环中的临时数组、三角函数与重复采样
+- WebGL2 发射源恢复物理像素分辨率，高质量上采样改用与软件参考一致的 B-spline 四次双线性采样
+
 ## v1.2.6 — 三档渲染模式与 Bloom 性能优化
 
 - 新增软件 Bloom、原生辉光和 Legacy 三档渲染模式，并支持运行时切换

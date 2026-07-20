@@ -10,9 +10,9 @@
 
 **从 Blue Archive Unity UI/FX_Touch 逐参数移植的网页点击特效与光标拖尾动画库。**
 
-`ba-click-fx` 将游戏《蔚蓝档案》的 `FX_Touch.prefab` 中 ParticleSystem 和 TrailRenderer 的完整参数——颜色曲线、大小曲线、旋转速度、溶解阈值、HDR 强度、TrailRenderer 时间与宽度——逐项还原为纯 **Canvas 2D** 实现。零外部运行时依赖。
+`ba-click-fx` 将游戏《蔚蓝档案》的 `FX_Touch.prefab` 中 ParticleSystem 和 TrailRenderer 的完整参数——颜色曲线、大小曲线、旋转速度、溶解阈值、HDR 强度、TrailRenderer 时间与宽度——逐项还原到 Web。清晰几何使用 **Canvas 2D**，Bloom 默认由 JavaScript 软件管线处理，也可选择 WebGL2 GPU 加速。零外部运行时依赖。
 
-A parameter-level port of the **Blue Archive** UI click effect and cursor trail from Unity to the web. Pure **Canvas 2D**, zero external runtime dependencies.
+A parameter-level port of the **Blue Archive** UI click effect and cursor trail from Unity to the web. **Canvas 2D** with optional WebGL2 Bloom, zero external runtime dependencies.
 
 **在线演示：** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
@@ -47,8 +47,9 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 - 从 Unity FX_Touch.prefab 逐参数移植，非"相似风格"模拟
 - 溶解圆环（MeshTri）、中心光盘（ring）、点击碎片（Ring 3/4）、拖尾轨迹（TrailRenderer）
 - 所有粒子参数锁定为游戏原始值：颜色渐变、大小曲线、旋转速度、溶解阈值、HDR 强度
-- 纯 Canvas 2D，无图片素材、无 WebGL、无外部运行时依赖
-- 纯 JavaScript 软件 Bloom：兼容 URP 12 处理结构的 Float32 mip 金字塔，默认开启并可随时回退
+- Canvas 2D 清晰几何，无图片素材、无外部运行时依赖
+- 四种展示页渲染选择：WebGL2 Bloom、软件 Bloom（默认参考实现）、原生辉光、Legacy
+- 可选 WebGL2 GPU Bloom；不支持时自动回退软件 Bloom，再回退原生辉光
 - 支持浏览器插件、npm、CDN、直接下载四种接入方式
 - 自定义主题色（HSL hue 偏移）
 - 可调参 API：运行时修改圆环 HDR、半径、宽度、寿命、碎片数量、拖尾宽度、Bloom 强度等
@@ -141,13 +142,27 @@ new BAClickFX(options?: {
   trailEnabled?: boolean,         // 启用拖尾，默认 true
   trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
   renderingMode?: 'enhanced' | 'legacy', // 渲染模式，默认 enhanced
-  softwareBloomEnabled?: boolean, // 启用 JavaScript 软件 Bloom，默认 true
+  bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // Bloom 后端，默认 software
+  softwareBloomEnabled?: boolean, // 兼容旧 API：true 等同 software，false 等同 native
   lightBackgroundContrastAlpha?: number, // 浅色背景兼容层强度，默认 0.35；设为 0 可关闭
   maxDpr?: number,                // 最大设备像素比，默认 2
   touchAction?: string,           // Canvas touch-action，默认 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
 })
 ```
+
+增强模式下可通过 `bloomBackend` 选择 Bloom 后端；展示页将它与 Legacy 组合成四种直观选项：
+
+| 展示页选项 | API 配置 | 说明 |
+|---|---|---|
+| WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | GPU 执行阈值、Gaussian mip 与 Scatter；不可用时自动回退 |
+| 软件 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'software' }` | 默认且最精确的参考/兼容实现，使用 Canvas 2D 像素回读和 Float32 缓冲 |
+| 原生辉光 | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | 使用 Canvas 2D `shadowBlur`，开销较低但观感与后处理 Bloom 不同 |
+| Legacy | `{ renderingMode: 'legacy' }` | 保留旧版 sRGB、合成和辉光行为；此时忽略 Bloom 后端 |
+
+`bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。显式选择 `'webgl2'` 也采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。默认值仍为 `'software'`，因此升级不会主动创建 WebGL 上下文，也不会改变现有页面的输出。若同时传入 `bloomBackend` 和旧字段 `softwareBloomEnabled`，以 `bloomBackend` 为准。
+
+WebGL2 Bloom 需要库拥有 DOM 覆盖层，以便在 Canvas 2D 清晰层旁创建独立的透明 WebGL2 Canvas。若 `target` 是一个已有的 `<canvas>`，库无法安全插入这个附加层，`'webgl2'` / `'auto'` 会自动回退到软件 Bloom。传入普通容器元素或使用默认全屏覆盖层不受此限制。
 
 ### 实例方法
 
@@ -157,12 +172,28 @@ new BAClickFX(options?: {
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 仅清除拖尾和碎片 |
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |
-| `updateConfig({...})` | 运行时更新基础配置、`renderingMode`、`softwareBloomEnabled`、DPR 与触摸行为 |
+| `updateConfig({...})` | 运行时更新基础配置、`renderingMode`、`bloomBackend`、DPR 与触摸行为 |
 | `setThemeColor('#ff6969')` | 设置主题色，所有蓝色系特效 hue 偏移到此颜色 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 点号路径修改任意特效参数 |
 | `getFxConfig()` | 返回当前完整特效配置深拷贝 |
 | `resetFxConfig()` | 重置所有特效参数为游戏默认值 |
-| `getConfig()` | 返回当前实例配置（含 Unity 参数的只读快照） |
+| `getConfig()` | 返回当前实例配置；`resolvedBloomBackend` 表示最近一次解析结果，WebGL2/auto 首次延迟探测前为 `pending` |
+
+后端解析状态发生变化时，主 Canvas 会派发 `baclickfxbackendchange`。可使用导出的事件名持续同步延迟探测、运行时回退和 WebGL Context 恢复：
+
+```js
+import {
+  BAClickFX,
+  BLOOM_BACKEND_CHANGE_EVENT,
+} from 'ba-click-fx';
+
+const fx = new BAClickFX({ bloomBackend: 'webgl2' });
+
+fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
+{
+  console.log(event.detail.resolvedBloomBackend);
+});
+```
 
 ### 可调特效参数（setFxParam 路径）
 
@@ -223,13 +254,19 @@ new BAClickFX(options?: {
 |---|---|
 | 几何带与亮芯 | 直接绘制原始 2px HDR 几何带，再由 Bloom 自然扩张为柔和亮芯 |
 | 纵向包络 | 将原 TrailRenderer Gradient 反向到 Canvas 点序，再乘 `FX_TEX_Trail_03` 经 sRGB→Linear 换算的 Stretch 纹理亮度 |
-| Bloom | 只对 HDR 发射缓冲做软件模糊；三角碎片不写入该缓冲 |
+| Bloom | 只对 HDR 发射缓冲使用所选 Bloom 后端；三角碎片不写入该缓冲 |
 
 碎片沿轨迹按距离散布。
 
+### Bloom 渲染后端
+
+WebGL2 与软件 Bloom 共用同一组 HDR 发射参数和 Bloom 配置。WebGL2 分支在透明 GPU 帧缓冲中绘制圆环、光盘与拖尾发射，再执行阈值/Soft Knee、Gaussian mip 金字塔、Scatter 上采样和加色输出；清晰几何与浅色背景兼容轮廓仍由 Canvas 2D 绘制。这样能在大量特效同时存在时把主要 Bloom 计算从 CPU 和像素回读路径移到 GPU，同时保留软件 Bloom 作为精确参考和兼容实现。
+
+可用性由运行时实际创建 WebGL2 上下文、检查 `EXT_color_buffer_float` 并验证 `RGBA16F` 帧缓冲决定。请求后端与最近一次解析结果可分别通过 `getConfig().bloomBackend` 和 `getConfig().resolvedBloomBackend` 查看；WebGL2/auto 在首次延迟探测或 Context 恢复验证前会短暂返回 `pending`。
+
 ### JavaScript 软件 Bloom
 
-默认的 `softwareBloomEnabled: true` 会把圆环、光盘和拖尾的 HDR 发射亮度先绘制到局部遮罩，再由 JavaScript 回读像素并按兼容 URP 12 Bloom 的结构处理。三角形碎片只绘制清晰本体，不参与 Bloom：
+默认的 `bloomBackend: 'software'` 会把圆环、光盘和拖尾的 HDR 发射亮度先绘制到局部遮罩，再由 JavaScript 回读像素并按兼容 URP 12 Bloom 的结构处理。三角形碎片只绘制清晰本体，不参与 Bloom：
 
 1. 将 8 位遮罩解码到可复用的 Float32 RGB 缓冲区。
 2. 以高质量 13-tap 预过滤执行带 Soft Knee 的阈值提取，生成 1/2 分辨率 mip0。
@@ -239,7 +276,7 @@ new BAClickFX(options?: {
 
 严格加色在纯白背景上必然失去对比度。由库自动创建覆盖层时，主特效层上方还会放置一个独立的 `darken` 兼容层：它默认使用 `0.35` Alpha 的淡青色补足清晰轮廓，不接收或产生 Bloom。兼容层必须位于加色层上方，否则主层会把刚补出的淡青对比重新加回纯白。该层是为网页浅色背景增加可见性的有意兼容偏差，并非 Unity 加色管线的一部分；将 `lightBackgroundContrastAlpha` 设为 `0` 可关闭。直接传入已有 Canvas 时无法插入这层独立背景合成层。
 
-这条管线用于获得接近 URP 12 Bloom 的视觉观感，并非逐像素复刻 GPU 后处理。渲染器按完整模糊支撑范围合并相邻特效，彼此独立的特效区域则分别处理，避免回读它们之间的大块空白；区域内部也只回读发射几何而跳过外围纯透明 padding，最终只编码和上传实际辉光区域。renderer 池和 Float32 金字塔缓冲会跨帧复用，尺寸收缩时会清除完整容量 Canvas，避免旧辉光被平滑缩放成矩形边缘细线。HQ 13-tap 预过滤和 Gaussian 降采样使用等价的标量内联累加，并在完整覆盖当前 mip 时跳过多余的缓冲清零。同一渲染 pass 内的两枚圆环共享一次 Linear Gradient 能量计算；拖尾的距离与分段发射能量也只计算一次，发射遮罩量化后严格为零的暗尾不会重复描画，过期顶点则批量移除。软件 Bloom 合成前的清晰主 Canvas 会直接复用为浅色背景对比遮罩。生命周期始终按真实时间推进，避免低帧率反向延长特效并造成继续积压。以上优化不改变 Bloom 阈值、分辨率、mip 数量、Scatter 或高质量过滤。Bloom 工作缓冲区不会挂载到 DOM，也不使用 WebGL、float16 Canvas 或外部依赖。若运行环境不支持 Canvas 像素回读/写回，圆环和光盘会退回原生 `shadowBlur`；拖尾则按真实弧长把发射颜色写入局部离屏缓冲，再整体模糊一次，既避免采样接缝累积，也不会在回环轨迹尾部产生错误高亮。三角形碎片始终只绘制清晰本体，不写入 Bloom 发射缓冲。
+这条软件管线用于获得接近 URP 12 Bloom 的视觉观感，并非逐像素复刻 GPU 后处理。渲染器按完整模糊支撑范围合并相邻特效，彼此独立的特效区域则分别处理，避免回读它们之间的大块空白；区域内部也只回读发射几何而跳过外围纯透明 padding，最终只编码和上传实际辉光区域。renderer 池和 Float32 金字塔缓冲会跨帧复用，尺寸收缩时会清除完整容量 Canvas，避免旧辉光被平滑缩放成矩形边缘细线。HQ 13-tap 预过滤和 Gaussian 降采样使用等价的标量内联累加，并在完整覆盖当前 mip 时跳过多余的缓冲清零。同一渲染 pass 内的两枚圆环共享一次 Linear Gradient 能量计算；拖尾的距离与分段发射能量也只计算一次，发射遮罩量化后严格为零的暗尾不会重复描画，过期顶点则批量移除。软件 Bloom 合成前的清晰主 Canvas 会直接复用为浅色背景对比遮罩。生命周期始终按真实时间推进，避免低帧率反向延长特效并造成继续积压。以上优化不改变 Bloom 阈值、分辨率、mip 数量、Scatter 或高质量过滤。软件 Bloom 工作缓冲区不会挂载到 DOM，也不使用 WebGL、float16 Canvas 或外部依赖。若运行环境不支持 Canvas 像素回读/写回，圆环和光盘会退回原生 `shadowBlur`；拖尾则按真实弧长把发射颜色写入局部离屏缓冲，再整体模糊一次，既避免采样接缝累积，也不会在回环轨迹尾部产生错误高亮。三角形碎片始终只绘制清晰本体，不写入 Bloom 发射缓冲。
 
 ---
 
@@ -272,6 +309,7 @@ ba-click-fx/
 │   ├── main.js           # 演示页面入口 + 控制面板 UI
 │   ├── config.js         # Unity FX_Touch 粒子参数只读快照
 │   ├── software-bloom.js # URP 12 风格 Float32 mip Bloom 与加色合成
+│   ├── webgl2-bloom.js   # WebGL2 HDR 发射、Gaussian mip 与 Scatter 合成
 │   ├── utils.js          # 纯数学工具
 │   └── style.css         # 演示页样式
 ├── scripts/
@@ -292,14 +330,15 @@ ba-click-fx/
 - **主特效层**：内部特效通过 `lighter` 合成，主 Canvas 再以 `plus-lighter` 叠加到 DOM 背景
 - **浅色背景兼容层**：自动覆盖层模式额外使用不参与 Bloom 的 `darken` Canvas，以 0.35 Alpha 淡青色维持纯白背景可见性
 - **软件 Bloom**：局部工作画布 + Float32 Gaussian mip 金字塔；像素读回不可用时回退 `shadowBlur`
+- **WebGL2 Bloom**：可选透明 GPU 覆盖层执行 HDR 预过滤、Gaussian mip 和 Scatter；能力不足时沿回退链降级
 - **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`
-- **零外部依赖**：仅依赖标准 Canvas 2D API，不使用 WebGL
+- **零外部依赖**：仅使用浏览器原生 Canvas 2D / WebGL2 API，不引入第三方运行时
 
 ---
 
 ## 开发说明
 
-本项目主要通过 AI 生成和迭代完成（**绝无手写代码**），并经过实际运行测试、参数调校和效果校准。项目目标是尽可能还原《蔚蓝档案》风格的网页点击特效与拖尾轨迹，同时保持纯 Canvas 2D、零运行时依赖和易集成的特性。
+本项目主要通过 AI 生成和迭代完成（**绝无手写代码**），并经过实际运行测试、参数调校和效果校准。项目目标是尽可能还原《蔚蓝档案》风格的网页点击特效与拖尾轨迹，同时保持软件 Bloom 默认兼容、WebGL2 可选加速、零外部运行时依赖和易集成的特性。
 
 发布前统一执行：
 

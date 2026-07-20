@@ -5,6 +5,8 @@ const WORLD_TO_REFERENCE_PIXELS =
 const SHARD_LOCAL_SCALE = 0.3078824;
 const SHARD_UNIT_TO_REFERENCE_PIXELS =
   WORLD_TO_REFERENCE_PIXELS * SHARD_LOCAL_SCALE;
+const DEFAULT_BLOOM_BACKEND = 'software';
+const BLOOM_BACKENDS = new Set(['auto', 'software', 'webgl2', 'native']);
 
 // 游戏相机 orthographicSize 实际约 1.47，代码中声明的 1.35 导致所有
 // 世界单位→像素的硬编码常量整体偏大约 8%；此因子统一修正到游戏视觉比例。
@@ -300,9 +302,11 @@ export const CONFIG = Object.freeze(
     clickEnabled: true,
     trailEnabled: true,
     trailAlways: false,
-    // 'enhanced' 使用线性能量编码 + 软件 Bloom（当前分支）；
+    // 'enhanced' 使用线性能量编码，并由 bloomBackend 选择 Bloom 实现；
     // 'legacy' 使用 sRGB 颜色 + shadowBlur（main 分支风格）。
     renderingMode: 'enhanced',
+    // 软件 Bloom 保持默认参考实现；WebGL2 仅在显式选择或 auto 时创建。
+    bloomBackend: DEFAULT_BLOOM_BACKEND,
     softwareBloomEnabled: true,
     // 严格加色在纯白背景上没有对比度；独立 darken 层补回轮廓。0.35 为实验值。
     lightBackgroundContrastAlpha: 0.35,
@@ -311,6 +315,16 @@ export const CONFIG = Object.freeze(
   },
 );
 
+export function isBloomBackend(value)
+{
+  return BLOOM_BACKENDS.has(value);
+}
+
+export function normalizeBloomBackend(value, fallback = DEFAULT_BLOOM_BACKEND)
+{
+  return isBloomBackend(value) ? value : fallback;
+}
+
 /**
  * 每个引擎实例持有独立的运行配置；Unity 参数本身保持只读。
  * @param {object} [overrides]
@@ -318,8 +332,21 @@ export const CONFIG = Object.freeze(
  */
 export function createConfig(overrides = {})
 {
+  let bloomBackend = CONFIG.bloomBackend;
+
+  if (isBloomBackend(overrides.bloomBackend))
+  {
+    bloomBackend = overrides.bloomBackend;
+  }
+  else if (typeof overrides.softwareBloomEnabled === 'boolean')
+  {
+    bloomBackend = overrides.softwareBloomEnabled ? 'software' : 'native';
+  }
+
   return {
     ...CONFIG,
     ...overrides,
+    bloomBackend,
+    softwareBloomEnabled: bloomBackend !== 'native',
   };
 }

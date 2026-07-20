@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>蔚蓝档案网页点击特效与鼠标拖尾 | Blue Archive Click Effect | ba-click-fx</title>
-  <meta name="description" content="ba-click-fx 是一个使用纯 Canvas 2D 实现的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持鼠标、触摸、npm 和 CDN，零运行时依赖。" />
+  <meta name="description" content="ba-click-fx 是一个使用 Canvas 2D 并可选 WebGL2 Bloom 的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持鼠标、触摸、npm 和 CDN，零运行时依赖。" />
   <meta name="keywords" content="ba-click-fx, Blue Archive, 蔚蓝档案, click effect, mouse click effect, cursor effect, cursor trail, touch effect, Canvas 2D, web animation" />
   <link rel="canonical" href="https://ba-click-fx.cialloking.top/" />
   <meta property="og:title" content="蔚蓝档案网页点击特效与鼠标拖尾 | ba-click-fx" />
-  <meta property="og:description" content="纯 Canvas 2D 实现的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持 npm/CDN，零依赖。" />
+  <meta property="og:description" content="Canvas 2D + 可选 WebGL2 Bloom 的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持 npm/CDN，零依赖。" />
   <meta property="og:image" content="https://ba-click-fx.cialloking.top/assets/ba-click-fx-demo.gif" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://ba-click-fx.cialloking.top/" />
@@ -47,8 +47,8 @@
       Click, drag, or move your mouse to preview the effect.
     </p>
     <p id="introP2">
-      ba-click-fx is a pure Canvas 2D JavaScript library for mouse click effects,
-      cursor trail animation, glowing rings, particle sparks, and drag trails.
+      ba-click-fx is a Canvas 2D JavaScript library with optional WebGL2 Bloom
+      for mouse click effects, cursor trails, glowing rings, and particle sparks.
       Zero external dependencies.
     </p>
     <nav aria-label="Project links">
@@ -68,7 +68,7 @@
       <summary id="introFAQSummary">常见问题 / FAQ</summary>
       <div id="introFAQContent">
         <p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p>
-        <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要，纯 Canvas 2D 实现，零外部运行时依赖。</p>
+        <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要图片素材；默认软件 Bloom 只使用 Canvas 2D，也可选 WebGL2 加速，零外部运行时依赖。</p>
         <p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和直接 script 引入三种方式。</p>
       </div>
     </details>
@@ -122,10 +122,12 @@
         <span>渲染模式</span>
         <select id="ctrlRenderMode" class="ctrl-select">
           <option value="software-bloom" selected>软件 Bloom</option>
+          <option value="webgl2-bloom">WebGL2 Bloom</option>
           <option value="native-bloom">原生辉光</option>
           <option value="legacy">Legacy</option>
         </select>
       </label>
+      <p id="renderBackendStatus" class="render-backend-status" aria-live="polite">实际后端：软件 Bloom</p>
       </details>
     </section>
 

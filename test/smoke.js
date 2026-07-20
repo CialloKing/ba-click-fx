@@ -8,7 +8,14 @@ const modulePath = process.argv.includes('--source')
   ? '../src/fx.js'
   : '../dist/ba-click-fx.js';
 const module = await import(modulePath);
-const { BAClickFX, CONFIG, UNITY_FX_TOUCH, createConfig, SIZE_CORRECTION } = module;
+const {
+  BAClickFX,
+  BLOOM_BACKEND_CHANGE_EVENT,
+  CONFIG,
+  UNITY_FX_TOUCH,
+  createConfig,
+  SIZE_CORRECTION,
+} = module;
 
 let passed = 0;
 
@@ -84,10 +91,22 @@ class EventTargetMock
       ...properties,
     };
 
-    for (const listener of this.listeners.get(type) ?? [])
+    this.dispatchEvent(event);
+  }
+
+  dispatchEvent(event)
+  {
+    if (!event?.type)
+    {
+      return false;
+    }
+
+    for (const listener of this.listeners.get(event.type) ?? [])
     {
       listener(event);
     }
+
+    return true;
   }
 }
 
@@ -406,6 +425,18 @@ function installDom()
     frames.delete(id);
   };
 
+  if (typeof globalThis.CustomEvent !== 'function')
+  {
+    globalThis.CustomEvent = class CustomEventMock
+    {
+      constructor(type, init = {})
+      {
+        this.type = type;
+        this.detail = init.detail ?? null;
+      }
+    };
+  }
+
   return {
     windowMock,
     frames,
@@ -538,6 +569,11 @@ assert(
   CONFIG.lightBackgroundContrastAlpha === 0.35,
   '浅色背景对比层保留 0.35 的青色轮廓以改善白色背景可见性',
 );
+assert(CONFIG.bloomBackend === 'software', '默认继续使用精确的软件 Bloom 后端');
+assert(
+  BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange',
+  '导出 Bloom 后端解析状态事件名，调用方无需硬编码字符串',
+);
 
 console.log('\n配置隔离');
 const leftConfig = createConfig();
@@ -545,6 +581,29 @@ const rightConfig = createConfig();
 
 leftConfig.scale = 2;
 assert(rightConfig.scale === CONFIG.scale, '实例配置互不污染');
+const nativeAliasConfig = createConfig({ softwareBloomEnabled: false });
+const explicitBackendConfig = createConfig(
+  {
+    bloomBackend: 'webgl2',
+    softwareBloomEnabled: false,
+  },
+);
+const invalidBackendConfig = createConfig({ bloomBackend: 'webgpu' });
+
+assert(
+  nativeAliasConfig.bloomBackend === 'native' &&
+    nativeAliasConfig.softwareBloomEnabled === false,
+  'createConfig 同步旧布尔别名与新 Bloom 后端',
+);
+assert(
+  explicitBackendConfig.bloomBackend === 'webgl2' &&
+    explicitBackendConfig.softwareBloomEnabled === true,
+  'createConfig 中显式 Bloom 后端优先于旧布尔别名',
+);
+assert(
+  invalidBackendConfig.bloomBackend === CONFIG.bloomBackend,
+  'createConfig 忽略无效 Bloom 后端并恢复默认值',
+);
 
 console.log('\n指针生命周期');
 const dom = installDom();
@@ -1112,6 +1171,246 @@ assert(
   'destroy() 移除监听与两张自有 Canvas',
 );
 
+console.log('\nBloom 后端 API');
+const webglEffect = new BAClickFX(
+  {
+    bloomBackend: 'webgl2',
+  },
+);
+const canvasCountBeforeWebGLAttempt = dom.createdCanvases.length;
+const webglBackendEvents = [];
+
+webglEffect.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
+{
+  webglBackendEvents.push(event.detail);
+});
+assert(
+  webglEffect.getConfig().resolvedBloomBackend === 'pending',
+  'WebGL2 延迟能力探测前公开 pending，不伪报 Software 后端',
+);
+
+webglEffect.boom(960, 540);
+const webglFirstFrameTime = flushFrames(dom, performance.now(), 1);
+
+const webglFallbackConfig = webglEffect.getConfig();
+const attemptedWebGLCanvas = dom.createdCanvases.at(-1);
+const canvasCountAfterWebGLAttempt = dom.createdCanvases.length;
+
+flushFrames(dom, webglFirstFrameTime, 1);
+
+assert(
+  dom.createdCanvases.length === canvasCountBeforeWebGLAttempt + 1 &&
+    dom.appendedCanvases.includes(attemptedWebGLCanvas) &&
+    attemptedWebGLCanvas.removed,
+  '请求 WebGL2 时延迟创建独立画布，不可用后立即移除',
+);
+assert(
+  webglEffect.webglBloomUnavailable &&
+    webglEffect.webglBloomRenderer === null &&
+    dom.createdCanvases.length === canvasCountAfterWebGLAttempt,
+  'WebGL2 初始化失败会被记忆，后续帧不重复尝试创建上下文',
+);
+assert(
+  webglFallbackConfig.bloomBackend === 'webgl2' &&
+    webglFallbackConfig.softwareBloomEnabled === true &&
+    webglFallbackConfig.resolvedBloomBackend === 'software',
+  'getConfig() 同时保留请求的 WebGL2 后端与实际的软件 Bloom 回退结果',
+);
+assert(
+  webglBackendEvents.length === 1 &&
+    webglBackendEvents[0].requestedBloomBackend === 'webgl2' &&
+    webglBackendEvents[0].resolvedBloomBackend === 'software',
+  'WebGL2 首帧回退时在主 Canvas 派发后端解析状态事件',
+);
+assert(
+  webglEffect.context.drawImageCalls.some((call) =>
+    call.args[0] === webglEffect.bloomRenderer.outputCanvas),
+  'WebGL2 不可用时当前帧仍由软件 Bloom 完成绘制',
+);
+const webglEventCountAfterFallback = webglBackendEvents.length;
+
+webglEffect.updateConfig({ opacity: 0.8 });
+flushFrames(dom, webglFirstFrameTime, 1);
+assert(
+  webglEffect.getConfig().resolvedBloomBackend === 'software' &&
+    webglBackendEvents.length === webglEventCountAfterFallback,
+  '非后端配置更新不会把已解析结果重置为 pending 或重复派发事件',
+);
+webglEffect.destroy();
+
+const externalCanvas = new CanvasMock();
+const externalWebGLEffect = new BAClickFX(
+  {
+    target: externalCanvas,
+    bloomBackend: 'webgl2',
+  },
+);
+const canvasCountBeforeExternalFallback = dom.createdCanvases.length;
+
+assert(
+  externalWebGLEffect.getConfig().resolvedBloomBackend === 'software',
+  '已有 Canvas target 无法承载独立 WebGL 层时同步给出已知回退后端',
+);
+
+externalWebGLEffect.boom(960, 540);
+flushFrames(dom, performance.now(), 1);
+const externalFallbackConfig = externalWebGLEffect.getConfig();
+
+assert(
+  dom.createdCanvases.length === canvasCountBeforeExternalFallback &&
+    externalWebGLEffect.webglBloomCanvas === null &&
+    externalFallbackConfig.resolvedBloomBackend === 'software',
+  '已有 Canvas target 无法插入独立 GPU 层时直接回退软件 Bloom',
+);
+externalWebGLEffect.destroy();
+assert(!externalCanvas.removed, '销毁实例不会移除调用方传入的 Canvas');
+
+const compatibilityEffect = new BAClickFX(
+  {
+    softwareBloomEnabled: false,
+  },
+);
+const compatibilityBackendEvents = [];
+
+compatibilityEffect.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
+{
+  compatibilityBackendEvents.push(event.detail.resolvedBloomBackend);
+});
+let compatibilityConfig = compatibilityEffect.getConfig();
+
+assert(
+  compatibilityConfig.bloomBackend === 'native' &&
+    compatibilityConfig.softwareBloomEnabled === false &&
+    compatibilityConfig.resolvedBloomBackend === 'native',
+  '旧 softwareBloomEnabled=false 构造参数同步映射到原生辉光',
+);
+compatibilityEffect.updateConfig(
+  {
+    softwareBloomEnabled: true,
+  },
+);
+compatibilityConfig = compatibilityEffect.getConfig();
+assert(
+  compatibilityConfig.bloomBackend === 'software' &&
+    compatibilityConfig.softwareBloomEnabled === true &&
+    compatibilityConfig.resolvedBloomBackend === 'software',
+  '旧 softwareBloomEnabled=true 更新参数同步映射到软件 Bloom',
+);
+compatibilityEffect.updateConfig(
+  {
+    bloomBackend: 'webgl2',
+    softwareBloomEnabled: false,
+  },
+);
+compatibilityConfig = compatibilityEffect.getConfig();
+assert(
+  compatibilityConfig.bloomBackend === 'webgl2' &&
+    compatibilityConfig.softwareBloomEnabled === true &&
+    compatibilityConfig.resolvedBloomBackend === 'pending',
+  '新 bloomBackend 优先于旧别名，并在延迟探测前同步进入 pending',
+);
+compatibilityEffect.updateConfig({ bloomBackend: 'auto' });
+assert(
+  compatibilityEffect.getConfig().resolvedBloomBackend === 'pending',
+  'pending 期间切换 auto 保持等待探测，不伪造回退结果',
+);
+flushFrames(dom, performance.now(), 1);
+compatibilityConfig = compatibilityEffect.getConfig();
+assert(
+  compatibilityConfig.bloomBackend === 'auto' &&
+    compatibilityConfig.resolvedBloomBackend === 'software',
+  'auto 会优先尝试 WebGL2，并在当前环境自动回退软件 Bloom',
+);
+assert(
+  compatibilityBackendEvents.join(',') === 'software,pending,software',
+  '运行时后端 API 按 Software、pending、回退结果依次派发状态变化',
+);
+compatibilityEffect.destroy();
+
+const contextLifecycleEffect = new BAClickFX({ bloomBackend: 'webgl2' });
+const contextLifecycleEvents = [];
+
+contextLifecycleEffect.canvas.addEventListener(
+  BLOOM_BACKEND_CHANGE_EVENT,
+  (event) =>
+  {
+    contextLifecycleEvents.push(event.detail.resolvedBloomBackend);
+  },
+);
+contextLifecycleEffect._ensureWebGLBloomRenderer = () => true;
+flushFrames(dom, performance.now(), 1);
+contextLifecycleEffect._handleWebGLContextLost();
+contextLifecycleEffect._handleWebGLContextRestored();
+flushFrames(dom, performance.now(), 1);
+assert(
+  contextLifecycleEvents.slice(0, 4).join(',') ===
+    'webgl2,software,pending,webgl2',
+  'WebGL Context 丢失与恢复按 WebGL2、Software、pending、WebGL2 更新状态',
+);
+
+contextLifecycleEffect.updateConfig({ bloomBackend: 'native' });
+const dormantNativeEventCount = contextLifecycleEvents.length;
+
+contextLifecycleEffect._handleWebGLContextLost();
+contextLifecycleEffect._handleWebGLContextRestored();
+assert(
+  contextLifecycleEffect.getConfig().resolvedBloomBackend === 'native' &&
+    contextLifecycleEvents.length === dormantNativeEventCount,
+  '隐藏的 WebGL Canvas 丢失上下文时不会覆盖 Native 后端状态',
+);
+
+contextLifecycleEffect.updateConfig({ renderingMode: 'legacy' });
+const dormantLegacyEventCount = contextLifecycleEvents.length;
+
+contextLifecycleEffect._handleWebGLContextLost();
+contextLifecycleEffect._handleWebGLContextRestored();
+assert(
+  contextLifecycleEffect.getConfig().resolvedBloomBackend === 'legacy' &&
+    contextLifecycleEvents.length === dormantLegacyEventCount,
+  'Legacy 模式忽略休眠 WebGL Canvas 的上下文事件',
+);
+
+const atomicEventCount = contextLifecycleEvents.length;
+
+contextLifecycleEffect.updateConfig(
+  {
+    renderingMode: 'enhanced',
+    bloomBackend: 'webgl2',
+  },
+);
+assert(
+  contextLifecycleEffect.getConfig().resolvedBloomBackend === 'pending' &&
+    contextLifecycleEvents.length === atomicEventCount + 1 &&
+    contextLifecycleEvents.at(-1) === 'pending',
+  '一次更新渲染模式与 Bloom 后端只派发最终 pending 状态',
+);
+contextLifecycleEffect.destroy();
+
+const softwareFailureEffect = new BAClickFX();
+const softwareFailureEvents = [];
+
+flushFrames(dom, performance.now(), 1);
+softwareFailureEffect.canvas.addEventListener(
+  BLOOM_BACKEND_CHANGE_EVENT,
+  (event) =>
+  {
+    softwareFailureEvents.push(event.detail.resolvedBloomBackend);
+  },
+);
+softwareFailureEffect.bloomRenderer.beginFrame = () =>
+{
+  softwareFailureEffect.bloomRenderer.available = false;
+  return null;
+};
+softwareFailureEffect.boom(960, 540);
+flushFrames(dom, performance.now(), 1);
+assert(
+  softwareFailureEffect.getConfig().resolvedBloomBackend === 'native' &&
+    softwareFailureEvents.join(',') === 'native',
+  'Software Bloom 运行时回读失败会立即公开 Native 回退并派发事件',
+);
+softwareFailureEffect.destroy();
+
 console.log('\nSoftware Bloom 多区域性能');
 const regionEffect = new BAClickFX();
 
@@ -1272,6 +1571,10 @@ expiredTrailEffect.destroy();
 console.log('\nLegacy 模式');
 const legacyEffect = new BAClickFX({ renderingMode: 'legacy' });
 
+assert(
+  legacyEffect.getConfig().resolvedBloomBackend === 'legacy',
+  'Legacy 构造完成后无需等待 RAF 即公开实际渲染模式',
+);
 legacyEffect.boom(960, 540);
 legacyEffect.context.filledPaths = [];
 let legacyNow = flushFrames(dom, performance.now(), 1);
@@ -1290,6 +1593,26 @@ assert(
 );
 
 legacyNow = flushFrames(dom, legacyNow, 50);
+assert(
+  dom.appendedCanvases.includes(legacyEffect.contrastCanvas) &&
+    legacyEffect.contrastCanvas.style.display === 'none',
+  'Legacy 初始实例预挂载并隐藏对比层，便于运行时安全切回增强模式',
+);
+legacyEffect.updateConfig({ renderingMode: 'enhanced' });
+assert(
+  legacyEffect.canvas.style.mixBlendMode === 'plus-lighter' &&
+    legacyEffect.contrastCanvas.style.display === '' &&
+    legacyEffect.getConfig().resolvedBloomBackend === 'software',
+  'Legacy 实例运行时切回增强模式会恢复加色层与对比层',
+);
+legacyEffect.updateConfig({ renderingMode: 'legacy' });
+assert(
+  legacyEffect.canvas.style.mixBlendMode === '' &&
+    legacyEffect.canvas.style.zIndex === '2147483647' &&
+    legacyEffect.contrastCanvas.style.display === 'none' &&
+    legacyEffect.getConfig().resolvedBloomBackend === 'legacy',
+  '切回 Legacy 时会隐藏增强模式对比层，避免残留轮廓',
+);
 legacyEffect.destroy();
 assert(legacyEffect.destroyed, 'Legacy 实例可正常结束完整生命周期并销毁');
 

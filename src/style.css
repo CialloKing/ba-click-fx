@@ -413,6 +413,15 @@ kbd {
   font-size: 12px;
 }
 
+.render-backend-status
+{
+  margin: -4px 0 10px;
+  color: rgba(125, 239, 255, 0.68);
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: right;
+}
+
 /* Native select behavior is retained; only the closed control follows the panel theme. */
 .ctrl-select
 {
