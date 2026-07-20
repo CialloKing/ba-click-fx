@@ -5,11 +5,21 @@
  * ParticleSystem 和 TrailRenderer 的生命周期，只保留宿主接入所需的最小 API。
  */
 
-import { CONFIG, UNITY_FX_TOUCH, createConfig, SIZE_CORRECTION } from './config.js';
+import {
+  CONFIG,
+  UNITY_FX_TOUCH,
+  createConfig,
+  isBloomBackend,
+  normalizeBloomBackend,
+  SIZE_CORRECTION,
+} from './config.js';
 import { SoftwareBloomRenderer } from './software-bloom.js';
+import { WebGL2BloomRenderer } from './webgl2-bloom.js';
 
 const TAU = Math.PI * 2;
 const LIGHT_BACKGROUND_CONTRAST_COLOR = [76, 255, 255];
+const BLOOM_BACKEND_CHANGE_EVENT = 'baclickfxbackendchange';
+
 // ── 共享 HSL 转换 ──────────────────────────────────────────────────────
 function rgbToHsl(r, g, b)
 {
@@ -1372,6 +1382,81 @@ class ClickWave
     }
   }
 
+  appendWebGLBloom(renderer, scale, opacity)
+  {
+    const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
+
+    if (diskProgress < 1)
+    {
+      const diskCfg = this.fx.disk;
+      const bloomCfg = this.fx.bloom;
+      const radius = diskCfg.radius * evaluateNumber(
+        diskCfg.sizeKeys,
+        diskProgress,
+      ) * scale;
+      const color = evaluateColor(diskCfg.colorKeys, diskProgress);
+      const alpha = evaluateNumber(diskCfg.alphaKeys, diskProgress) *
+        opacity * bloomCfg.diskEmissionAlpha;
+      const materialEnergy = colorToLinearEnergy(
+        color,
+        bloomCfg.diskEmission,
+      );
+
+      renderer.addDisk(this.x, this.y, radius, materialEnergy, alpha);
+    }
+
+    const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
+
+    if (ringProgress >= 1)
+    {
+      return;
+    }
+
+    const ringCfg = this.fx.rings;
+    const bloomCfg = this.fx.bloom;
+    const ringMaterialEnergy = evaluateSrgbGradientEnergy(
+      ringCfg.colorKeys,
+      ringProgress,
+      ringCfg.hdrIntensity,
+    );
+    const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
+
+    for (const ring of this.rings)
+    {
+      const geometry = resolveRingGeometry(
+        ring,
+        ringProgress,
+        scale,
+        ringCfg,
+      );
+
+      renderer.addRing(
+        ring.x,
+        ring.y,
+        geometry.radius,
+        geometry.width,
+        ring.rotation,
+        ringCfg.radialSamples,
+        ringCfg.arcSamples,
+        ringMaterialEnergy,
+        opacity * bloomCfg.ringEmissionAlpha,
+        (angularProgress, radialProgress) =>
+        {
+          const textureProgress = direction > 0
+            ? angularProgress
+            : 1 - angularProgress;
+
+          return evaluateRingLuminance(
+            textureProgress,
+            radialProgress,
+            geometry.threshold,
+            ringCfg,
+          );
+        },
+      );
+    }
+  }
+
   get dead()
   {
     return this.ageMs >= this.fx.rings.lifetimeMs;
@@ -1897,6 +1982,61 @@ function drawTrailEmission(
   context.restore();
 }
 
+function appendTrailWebGLBloom(
+  renderer,
+  points,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  sharedTrailData = null,
+)
+{
+  const trailCfg = fxConfig.trail;
+  const bloomCfg = fxConfig.bloom;
+  const trailOpacity = opacity * (trailCfg.trailOpacity ?? 1.0) *
+    bloomCfg.trailEmissionAlpha;
+  const trailData = sharedTrailData ?? createTrailFrameData(
+    points,
+    trailCfg,
+    bloomCfg.trailEmission,
+  );
+
+  if (trailData.measurement.totalLength <= 0 || trailOpacity <= 0)
+  {
+    return;
+  }
+
+  const width = Math.max(
+    0.5,
+    trailCfg.geometryWidth * scale * bloomCfg.trailCoverageScale,
+  );
+  const emissionQuantizationScale = trailOpacity /
+    Math.max(1, bloomCfg.emissionRange) * 255;
+
+  for (let index = 1; index < points.length; index++)
+  {
+    // Software 参考实现先经过 8-bit Canvas 发射遮罩；保留相同的半量化裁剪，
+    // 避免 WebGL2 在轨迹尾端额外显示参考实现中不存在的微弱光晕。
+    if (
+      trailData.segmentMaximumEnergies[index - 1] *
+        emissionQuantizationScale < 0.5
+    )
+    {
+      continue;
+    }
+
+    const energy = trailData.segmentEnergies[index - 1];
+
+    renderer.addTrailSegment(
+      points[index - 1],
+      points[index],
+      width,
+      energy,
+      trailOpacity,
+    );
+  }
+}
+
 export class BAClickFX
 {
   /**
@@ -1906,6 +2046,9 @@ export class BAClickFX
    * @param {number} [options.opacity]
    * @param {boolean} [options.clickEnabled]
    * @param {boolean} [options.trailEnabled]
+   * @param {boolean} [options.trailAlways]
+   * @param {'enhanced'|'legacy'} [options.renderingMode]
+   * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
    * @param {boolean} [options.softwareBloomEnabled]
    * @param {number} [options.lightBackgroundContrastAlpha]
    * @param {number} [options.maxDpr]
@@ -1919,6 +2062,13 @@ export class BAClickFX
       throw new Error('BAClickFX 需要浏览器 DOM 环境');
     }
 
+    const bloomBackend = normalizeBloomBackend(
+      options.bloomBackend,
+      options.softwareBloomEnabled === false
+        ? 'native'
+        : CONFIG.bloomBackend,
+    );
+
     this.config = createConfig(
       {
         scale: Number.isFinite(options.scale) ? Math.max(0.01, options.scale) : CONFIG.scale,
@@ -1927,8 +2077,9 @@ export class BAClickFX
         trailEnabled: options.trailEnabled ?? CONFIG.trailEnabled,
         trailAlways: options.trailAlways ?? CONFIG.trailAlways,
         renderingMode: options.renderingMode === 'legacy' ? 'legacy' : CONFIG.renderingMode,
-        softwareBloomEnabled: options.softwareBloomEnabled ??
-          CONFIG.softwareBloomEnabled,
+        bloomBackend,
+        // 保留旧布尔字段作为兼容别名；WebGL2 同样属于增强 Bloom。
+        softwareBloomEnabled: bloomBackend !== 'native',
         lightBackgroundContrastAlpha: Number.isFinite(
           options.lightBackgroundContrastAlpha,
         )
@@ -1945,6 +2096,10 @@ export class BAClickFX
     this.ownsCanvas = !isCanvas(this.host);
     this.canvas = isCanvas(this.host) ? this.host : createCanvas();
     this.contrastCanvas = this.ownsCanvas ? createCanvas() : null;
+    this.webglBloomCanvas = null;
+    this.webglBloomRenderer = null;
+    this.webglBloomUnavailable = false;
+    this.webglBloomVisible = false;
 
     if (!this.canvas)
     {
@@ -1956,11 +2111,22 @@ export class BAClickFX
       const parent = this.host ?? document.body;
       const legacy = this.config.renderingMode === 'legacy';
 
+      this.overlayParent = parent;
+
       if (legacy)
       {
         // main 分支风格：无 CSS mix-blend-mode，canvas 以默认 source-over 叠在页面上
         setOverlayStyle(this.canvas, !this.host, '2147483647', '');
+        setOverlayStyle(
+          this.contrastCanvas,
+          !this.host,
+          '2147483647',
+          'darken',
+        );
+        this.contrastCanvas.style.display = 'none';
         parent.appendChild(this.canvas);
+        // 仍挂载兼容层，保证运行时从 Legacy 切回增强模式时无需重建 DOM。
+        parent.appendChild(this.contrastCanvas);
       }
       else
       {
@@ -1980,6 +2146,10 @@ export class BAClickFX
         parent.appendChild(this.contrastCanvas);
       }
     }
+    else
+    {
+      this.overlayParent = null;
+    }
 
     this.canvas.style.touchAction = this.config.touchAction;
     this.context = this.canvas.getContext('2d');
@@ -1993,10 +2163,18 @@ export class BAClickFX
     // 内部 Canvas 仅承担发射遮罩和 ImageData 暂存，不会插入 DOM。
     this.bloomRenderer = new SoftwareBloomRenderer(() => createCanvas());
     this.bloomRenderers = [this.bloomRenderer];
+    this.resolvedBloomBackend = this._getRequestedBloomBackendState();
     this.softwareBloomFrameStats = {
       regionCount: 0,
       processedSourcePixels: 0,
       combinedBoundsPixels: 0,
+    };
+    this.webglBloomFrameStats =
+    {
+      available: false,
+      vertexCount: 0,
+      levelCount: 0,
+      bloomPixels: 0,
     };
     this.nativeTrailBloomSurface = undefined;
 
@@ -2027,6 +2205,8 @@ export class BAClickFX
     this._onPointerUp = this._handlePointerUp.bind(this);
     this._onBlur = this._cancelPointer.bind(this);
     this._onFrame = this._renderFrame.bind(this);
+    this._onWebGLContextLost = this._handleWebGLContextLost.bind(this);
+    this._onWebGLContextRestored = this._handleWebGLContextRestored.bind(this);
 
     this._resize();
     window.addEventListener('resize', this._onResize);
@@ -2104,6 +2284,8 @@ export class BAClickFX
       this.contrastContext.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
+    // WebGL RenderTarget 可能很大，只在真正进入 WebGL 渲染帧时调整，
+    // 避免 Software、Native 或 Legacy 模式因窗口 resize 触发无用 GPU 分配。
     this._requestRender();
   }
 
@@ -2398,9 +2580,14 @@ export class BAClickFX
     const deltaMs = Math.max(0, now - (this.lastFrameTime ?? now));
     const scale = this._getScale();
     const legacy = this._isLegacy;
-    const useSoftwareBloom = !legacy && this._usesSoftwareBloom();
+    const bloomBackend = legacy ? 'legacy' : this._resolveBloomBackend();
+    const useSoftwareBloom = bloomBackend === 'software';
+    const useWebGL2Bloom = bloomBackend === 'webgl2';
+    const useNativeBloom = bloomBackend === 'native';
 
     this.lastFrameTime = now;
+    this._setResolvedBloomBackend(bloomBackend);
+    this._setWebGLBloomVisible(useWebGL2Bloom);
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
     // 推入当前实例的主题色偏移，渲染完成后清空，保证多实例安全
@@ -2411,18 +2598,29 @@ export class BAClickFX
 
     try
     {
-      this._updateTrail(now, scale, !useSoftwareBloom, legacy);
-      this._updateWaves(deltaMs, scale, !useSoftwareBloom, legacy);
+      this._updateTrail(now, scale, useNativeBloom, legacy);
+      this._updateWaves(deltaMs, scale, useNativeBloom, legacy);
       this._updateShards(deltaMs, scale);
 
       if (!legacy)
       {
-        this._renderLightBackgroundContrast(scale, useSoftwareBloom);
+        this._renderLightBackgroundContrast(
+          scale,
+          useSoftwareBloom || useWebGL2Bloom,
+        );
       }
 
       if (useSoftwareBloom && this._hasVisibleEffects())
       {
         this._renderSoftwareBloom(scale);
+      }
+      else if (useWebGL2Bloom && this._hasVisibleEffects())
+      {
+        this._renderWebGL2Bloom(scale);
+      }
+      else if (useWebGL2Bloom)
+      {
+        this.webglBloomRenderer?.clear();
       }
     }
     catch (error)
@@ -2445,9 +2643,235 @@ export class BAClickFX
     }
   }
 
+  _getRequestedBloomBackendState()
+  {
+    if (this.config.renderingMode === 'legacy')
+    {
+      return 'legacy';
+    }
+
+    const requested = normalizeBloomBackend(this.config.bloomBackend);
+    const fallback = this.bloomRenderer?.available ? 'software' : 'native';
+
+    if (requested === 'native')
+    {
+      return 'native';
+    }
+
+    if (requested === 'software')
+    {
+      return fallback;
+    }
+
+    if (this.webglBloomRenderer)
+    {
+      return this.webglBloomRenderer.available ? 'webgl2' : fallback;
+    }
+
+    if (
+      this.webglBloomUnavailable ||
+      !this.ownsCanvas ||
+      !this.overlayParent
+    )
+    {
+      return fallback;
+    }
+
+    // WebGL2 Canvas 延迟到首个渲染帧创建，构造完成时不能伪报某个实际后端。
+    return 'pending';
+  }
+
+  _setResolvedBloomBackend(backend)
+  {
+    if (this.resolvedBloomBackend === backend)
+    {
+      return;
+    }
+
+    this.resolvedBloomBackend = backend;
+
+    if (
+      typeof CustomEvent !== 'function' ||
+      typeof this.canvas?.dispatchEvent !== 'function'
+    )
+    {
+      return;
+    }
+
+    try
+    {
+      this.canvas.dispatchEvent(
+        new CustomEvent(
+          BLOOM_BACKEND_CHANGE_EVENT,
+          {
+            detail:
+            {
+              requestedBloomBackend: this.config.bloomBackend,
+              resolvedBloomBackend: backend,
+            },
+          },
+        ),
+      );
+    }
+    catch
+    {
+      // 状态通知不能中断特效渲染；极旧 DOM 实现仍可通过 getConfig() 查询。
+    }
+  }
+
+  _handleWebGLContextLost()
+  {
+    if (this.destroyed || this.config.renderingMode === 'legacy')
+    {
+      return;
+    }
+
+    const requested = normalizeBloomBackend(this.config.bloomBackend);
+
+    if (requested !== 'webgl2' && requested !== 'auto')
+    {
+      return;
+    }
+
+    this._setWebGLBloomVisible(false);
+    this._setResolvedBloomBackend(
+      this.bloomRenderer.available ? 'software' : 'native',
+    );
+    this._requestRender();
+  }
+
+  _handleWebGLContextRestored()
+  {
+    if (this.destroyed || this.config.renderingMode === 'legacy')
+    {
+      return;
+    }
+
+    const requested = normalizeBloomBackend(this.config.bloomBackend);
+
+    if (requested !== 'webgl2' && requested !== 'auto')
+    {
+      return;
+    }
+
+    // Renderer 会先在自己的 restored 监听器中重建资源；下一帧再验证完整链路。
+    this._setResolvedBloomBackend('pending');
+    this._requestRender();
+  }
+
+  _ensureWebGLBloomRenderer()
+  {
+    if (this.webglBloomRenderer)
+    {
+      return this.webglBloomRenderer.available;
+    }
+
+    if (
+      this.webglBloomUnavailable ||
+      !this.ownsCanvas ||
+      !this.overlayParent
+    )
+    {
+      return false;
+    }
+
+    const canvas = createCanvas();
+
+    setOverlayStyle(
+      canvas,
+      !this.host,
+      '2147483646',
+      'plus-lighter',
+    );
+    canvas.style.display = 'none';
+    this.overlayParent.appendChild(canvas);
+
+    let renderer = null;
+
+    try
+    {
+      renderer = new WebGL2BloomRenderer(canvas);
+
+      if (
+        !renderer.available ||
+        !renderer.resize(
+          this.width,
+          this.height,
+          this.dpr,
+          this.fxConfig.bloom.resolutionScale,
+          this.fxConfig.bloom.skipIterations,
+        )
+      )
+      {
+        this.webglBloomUnavailable = true;
+        renderer.destroy();
+        canvas.remove();
+        return false;
+      }
+    }
+    catch (error)
+    {
+      console.warn('[BAClickFX] WebGL2 Bloom 创建失败，回退软件 Bloom:', error);
+      this.webglBloomUnavailable = true;
+      renderer?.destroy();
+      canvas.remove();
+      return false;
+    }
+
+    this.webglBloomCanvas = canvas;
+    this.webglBloomRenderer = renderer;
+    canvas.addEventListener('webglcontextlost', this._onWebGLContextLost);
+    canvas.addEventListener('webglcontextrestored', this._onWebGLContextRestored);
+    return renderer.available;
+  }
+
+  _resolveBloomBackend()
+  {
+    const requested = normalizeBloomBackend(this.config.bloomBackend);
+
+    if (requested === 'native')
+    {
+      return 'native';
+    }
+
+    if (requested === 'software')
+    {
+      return this.bloomRenderer.available ? 'software' : 'native';
+    }
+
+    if (this._ensureWebGLBloomRenderer())
+    {
+      return 'webgl2';
+    }
+
+    return this.bloomRenderer.available ? 'software' : 'native';
+  }
+
+  _setWebGLBloomVisible(visible)
+  {
+    if (!this.webglBloomCanvas)
+    {
+      this.webglBloomVisible = false;
+      return;
+    }
+
+    if (this.webglBloomVisible === visible)
+    {
+      return;
+    }
+
+    this.webglBloomVisible = visible;
+    this.webglBloomCanvas.style.display = visible ? '' : 'none';
+
+    if (!visible)
+    {
+      this.webglBloomRenderer?.clear();
+    }
+  }
+
   _usesSoftwareBloom()
   {
-    return this.config.softwareBloomEnabled && this.bloomRenderer.available;
+    return this._resolveBloomBackend() === 'software';
   }
 
   _getBloomRenderer(index)
@@ -2798,6 +3222,7 @@ export class BAClickFX
       highQualityFiltering: bloomCfg.highQualityFiltering,
     };
     let processedSourcePixels = 0;
+    let failed = false;
 
     for (let index = 0; index < regions.length; index++)
     {
@@ -2819,6 +3244,7 @@ export class BAClickFX
         {
           // 任一局部回读失败后，下一帧统一切换原生回退，不能只丢一块辉光。
           this.bloomRenderer.available = false;
+          failed = true;
         }
 
         continue;
@@ -2856,6 +3282,7 @@ export class BAClickFX
       if (!renderer.composite(this.context, settings))
       {
         this.bloomRenderer.available = false;
+        failed = true;
       }
     }
 
@@ -2869,6 +3296,93 @@ export class BAClickFX
     };
     // 峰值结束后释放过量局部缓冲，同时保留少量余量避免区域数抖动时反复创建。
     this._trimBloomRendererPool(regions.length);
+
+    if (failed)
+    {
+      this._setResolvedBloomBackend('native');
+    }
+  }
+
+  _renderWebGL2Bloom(scale)
+  {
+    const renderer = this.webglBloomRenderer;
+    const bloomCfg = this.fxConfig.bloom;
+
+    if (
+      !renderer ||
+      !renderer.resize(
+        this.width,
+        this.height,
+        this.dpr,
+        bloomCfg.resolutionScale,
+        bloomCfg.skipIterations,
+      )
+    )
+    {
+      this._fallbackFromWebGL2(scale);
+      return;
+    }
+
+    renderer.beginFrame();
+
+    for (const stroke of this.trailStrokes)
+    {
+      if (stroke.points.length < 2)
+      {
+        continue;
+      }
+
+      appendTrailWebGLBloom(
+        renderer,
+        stroke.points,
+        scale,
+        this.config.opacity,
+        this.fxConfig,
+        stroke.trailFrameData,
+      );
+    }
+
+    for (const wave of this.waves)
+    {
+      wave.appendWebGLBloom(renderer, scale, this.config.opacity);
+    }
+
+    const rendered = renderer.render(
+      {
+        threshold: bloomCfg.threshold,
+        softKnee: bloomCfg.softKnee,
+        clamp: bloomCfg.clamp,
+        intensity: bloomCfg.intensity,
+        scatter: bloomCfg.scatter,
+        highQualityFiltering: bloomCfg.highQualityFiltering,
+      },
+    );
+
+    this.webglBloomFrameStats =
+    {
+      available: renderer.available,
+      ...renderer.stats,
+    };
+
+    if (!rendered)
+    {
+      this._fallbackFromWebGL2(scale);
+    }
+  }
+
+  _fallbackFromWebGL2(scale)
+  {
+    this._setWebGLBloomVisible(false);
+
+    if (this.bloomRenderer.available)
+    {
+      this._setResolvedBloomBackend('software');
+      this._renderSoftwareBloom(scale);
+      return;
+    }
+
+    // 原生阴影必须在清晰几何绘制阶段启用；当前帧无法补画，下一帧切换。
+    this._setResolvedBloomBackend('native');
   }
 
   _updateTrail(now, scale, useNativeBloom, legacy = false)
@@ -3027,6 +3541,9 @@ export class BAClickFX
       return;
     }
 
+    const previousRenderingMode = this.config.renderingMode;
+    const previousBloomBackend = this.config.bloomBackend;
+
     if (Number.isFinite(overrides.scale))
     {
       this.config.scale = Math.max(0.01, overrides.scale);
@@ -3070,6 +3587,12 @@ export class BAClickFX
         {
           // 切到 legacy：移除 plus-lighter，隐藏对比画布
           this.canvas.style.mixBlendMode = '';
+          this.canvas.style.zIndex = '2147483647';
+          this._setWebGLBloomVisible(false);
+          if (this.contrastCanvas)
+          {
+            this.contrastCanvas.style.display = 'none';
+          }
           this._applyLegacyParams();
         }
         else
@@ -3086,9 +3609,25 @@ export class BAClickFX
       }
     }
 
-    if (typeof overrides.softwareBloomEnabled === 'boolean')
+    if (isBloomBackend(overrides.bloomBackend))
+    {
+      this.config.bloomBackend = overrides.bloomBackend;
+      this.config.softwareBloomEnabled = overrides.bloomBackend !== 'native';
+    }
+    else if (typeof overrides.softwareBloomEnabled === 'boolean')
     {
       this.config.softwareBloomEnabled = overrides.softwareBloomEnabled;
+      this.config.bloomBackend = overrides.softwareBloomEnabled
+        ? 'software'
+        : 'native';
+    }
+
+    if (
+      previousRenderingMode !== this.config.renderingMode ||
+      previousBloomBackend !== this.config.bloomBackend
+    )
+    {
+      this._setResolvedBloomBackend(this._getRequestedBloomBackendState());
     }
 
     if (Number.isFinite(overrides.lightBackgroundContrastAlpha))
@@ -3116,7 +3655,7 @@ export class BAClickFX
   /**
    * 设置特效参数。path 支持点号路径，如 'rings.hdrIntensity'。
    * @param {string} path — 参数路径
-   * @param {number} value — 新值
+   * @param {number|boolean} value — 新值
    */
   setFxParam(path, value)
   {
@@ -3193,12 +3732,14 @@ export class BAClickFX
     this._trimBloomRendererPool(0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
     this.contrastContext?.clearRect(0, 0, this.width, this.height);
+    this.webglBloomRenderer?.clear();
   }
 
   getConfig()
   {
     return {
       ...this.config,
+      resolvedBloomBackend: this.resolvedBloomBackend,
       unity: structuredClone(UNITY_FX_TOUCH),
     };
   }
@@ -3231,6 +3772,17 @@ export class BAClickFX
       renderer.destroy();
     }
 
+    this.webglBloomCanvas?.removeEventListener(
+      'webglcontextlost',
+      this._onWebGLContextLost,
+    );
+    this.webglBloomCanvas?.removeEventListener(
+      'webglcontextrestored',
+      this._onWebGLContextRestored,
+    );
+    this.webglBloomRenderer?.destroy();
+    this.webglBloomRenderer = null;
+
     if (this.nativeTrailBloomSurface)
     {
       this.nativeTrailBloomSurface.canvas.width = 0;
@@ -3240,12 +3792,22 @@ export class BAClickFX
 
     if (this.ownsCanvas)
     {
+      this.webglBloomCanvas?.remove();
       this.contrastCanvas?.remove();
       this.canvas.remove();
     }
+
+    this.webglBloomCanvas = null;
+    this.webglBloomVisible = false;
   }
 }
 
-export { CONFIG, UNITY_FX_TOUCH, createConfig, SIZE_CORRECTION };
+export {
+  BLOOM_BACKEND_CHANGE_EVENT,
+  CONFIG,
+  UNITY_FX_TOUCH,
+  createConfig,
+  SIZE_CORRECTION,
+};
 
 export default BAClickFX;

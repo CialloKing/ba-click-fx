@@ -1,5 +1,5 @@
 import './style.css';
-import { BAClickFX } from './fx.js';
+import { BAClickFX, BLOOM_BACKEND_CHANGE_EVENT } from './fx.js';
 
 // ── 创建特效引擎 ────────────────────────────────────────────────────────
 const effect = new BAClickFX(
@@ -97,8 +97,73 @@ bindToggle('ctrlClick', (checked) => effect.updateConfig({ clickEnabled: checked
 bindToggle('ctrlTrail', (checked) => effect.updateConfig({ trailEnabled: checked }));
 bindToggle('ctrlTrailAlways', (checked) => effect.updateConfig({ trailAlways: checked }));
 
-// ── 渲染模式 → renderingMode + softwareBloomEnabled ───────────────────
+// ── 渲染模式 → renderingMode + bloomBackend ──────────────────────────
 const ctrlRenderMode = document.getElementById('ctrlRenderMode');
+const RENDER_MODE_CONFIGS = Object.freeze(
+  {
+    'software-bloom': { renderingMode: 'enhanced', bloomBackend: 'software' },
+    'webgl2-bloom': { renderingMode: 'enhanced', bloomBackend: 'webgl2' },
+    'native-bloom': { renderingMode: 'enhanced', bloomBackend: 'native' },
+    legacy: { renderingMode: 'legacy' },
+  },
+);
+
+function updateRenderBackendStatus()
+{
+  const status = document.getElementById('renderBackendStatus');
+
+  if (!status)
+  {
+    return;
+  }
+
+  const d = I18N[currentLang] || I18N.zh;
+  const snapshot = effect.getConfig();
+  const backendLabels = {
+    auto: d.renderAutoBloom,
+    software: d.renderSoftwareBloom,
+    webgl2: d.renderWebGL2Bloom,
+    native: d.renderNativeBloom,
+    legacy: d.renderLegacy,
+  };
+  const resolved = snapshot.resolvedBloomBackend;
+  const expected = snapshot.renderingMode === 'legacy'
+    ? 'legacy'
+    : snapshot.bloomBackend;
+  const resolvedLabel = backendLabels[resolved] || resolved;
+  const requestedLabel = backendLabels[expected] || expected;
+
+  if (resolved === 'pending')
+  {
+    status.textContent = d.renderBackendPending.replace('{requested}', requestedLabel);
+    return;
+  }
+
+  if (resolved !== expected && expected !== 'auto')
+  {
+    status.textContent = d.renderBackendFallback
+      .replace('{resolved}', resolvedLabel)
+      .replace('{requested}', requestedLabel);
+    return;
+  }
+
+  status.textContent = d.renderBackendActive.replace('{backend}', resolvedLabel);
+}
+
+function applyRenderMode(mode)
+{
+  const config = RENDER_MODE_CONFIGS[mode] || RENDER_MODE_CONFIGS['software-bloom'];
+
+  effect.updateConfig(config);
+  updateRenderBackendStatus();
+  // 事件负责持续同步运行时变化；RAF 兼容不支持 CustomEvent 的旧环境。
+  requestAnimationFrame(updateRenderBackendStatus);
+}
+
+effect.canvas.addEventListener(
+  BLOOM_BACKEND_CHANGE_EVENT,
+  updateRenderBackendStatus,
+);
 
 if (ctrlRenderMode)
 {
@@ -106,19 +171,7 @@ if (ctrlRenderMode)
   {
     const mode = ctrlRenderMode.value;
 
-    if (mode === 'software-bloom')
-    {
-      effect.updateConfig({ renderingMode: 'enhanced', softwareBloomEnabled: true });
-    }
-    else if (mode === 'native-bloom')
-    {
-      effect.updateConfig({ renderingMode: 'enhanced', softwareBloomEnabled: false });
-    }
-    else
-    {
-      effect.updateConfig({ renderingMode: 'legacy' });
-    }
-
+    applyRenderMode(mode);
     localStorage.setItem('bafx-ctrlRenderMode', mode);
   });
 }
@@ -278,11 +331,13 @@ document.getElementById('btnReset').addEventListener('click', () =>
       clickEnabled: true,
       trailEnabled: true,
       trailAlways: false,
-      softwareBloomEnabled: true,
+      renderingMode: 'enhanced',
+      bloomBackend: 'software',
       lightBackgroundContrastAlpha: 0.35,
       maxDpr: 2,
     },
   );
+  requestAnimationFrame(updateRenderBackendStatus);
   applyTheme('蔚蓝');
 
   for (const key of Object.keys(localStorage))
@@ -426,8 +481,13 @@ const I18N = {
     labelDpr: '最大 DPR',
     labelRenderMode: '渲染模式',
     renderSoftwareBloom: '软件 Bloom',
+    renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: '原生辉光',
     renderLegacy: 'Legacy',
+    renderAutoBloom: '自动选择',
+    renderBackendActive: '实际后端：{backend}',
+    renderBackendPending: '正在检测 {requested}…',
+    renderBackendFallback: '实际后端：{resolved}（{requested} 不可用，已自动回退）',
     labelClickEnabled: '启用点击特效',
     labelRingHdr: '圆环 HDR 强度',
     labelRingRadMin: '圆环起始半径',
@@ -469,11 +529,11 @@ const I18N = {
     btnApplyBg: '应用背景',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
-    introP2: '从 Unity FX_Touch.prefab 逐参数移植的纯 Canvas 2D 特效库——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
+    introP2: '从 Unity FX_Touch.prefab 逐参数移植的 Canvas 2D 特效库，可选 WebGL2 Bloom 加速——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.6/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 不需要，纯 Canvas 2D，零运行时依赖。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 不需要图片素材；默认软件 Bloom 只使用 Canvas 2D，也可选 WebGL2 加速，零运行时依赖。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
   },
   en: {
     langToggle: '中文',
@@ -496,8 +556,13 @@ const I18N = {
     labelDpr: 'Max DPR',
     labelRenderMode: 'Render Mode',
     renderSoftwareBloom: 'Software Bloom',
+    renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: 'Native Glow',
     renderLegacy: 'Legacy',
+    renderAutoBloom: 'Auto',
+    renderBackendActive: 'Active backend: {backend}',
+    renderBackendPending: 'Detecting {requested}…',
+    renderBackendFallback: 'Active backend: {resolved} ({requested} unavailable; fell back automatically)',
     labelClickEnabled: 'Enable Click',
     labelRingHdr: 'Ring HDR Intensity',
     labelRingRadMin: 'Ring Radius Min',
@@ -536,11 +601,11 @@ const I18N = {
     btnApplyBg: 'Apply',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
-    introP2: 'Pure Canvas 2D effect library ported from Unity FX_Touch.prefab — dissolve rings, click shards, drag trails. Zero runtime dependencies.',
+    introP2: 'Canvas 2D effect library ported from Unity FX_Touch.prefab, with optional WebGL2 Bloom acceleration — dissolve rings, click shards, drag trails. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.6/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> No — pure Canvas 2D, zero runtime dependencies.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> No image assets. Software Bloom uses Canvas 2D by default, while WebGL2 acceleration is optional. Zero runtime dependencies.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
   },
 };
 
@@ -681,6 +746,7 @@ function switchLanguage(lang)
   // 渲染模式下拉选项文本
   const renderModeOptions = {
     'software-bloom': d.renderSoftwareBloom,
+    'webgl2-bloom': d.renderWebGL2Bloom,
     'native-bloom': d.renderNativeBloom,
     'legacy': d.renderLegacy,
   };
@@ -707,6 +773,7 @@ function switchLanguage(lang)
   document.getElementById('introInstallContent').innerHTML = d.introInstallContent;
   document.getElementById('introFAQSummary').textContent = d.introFAQSummary;
   document.getElementById('introFAQContent').innerHTML = d.introFAQContent;
+  updateRenderBackendStatus();
 }
 
 document.getElementById('langToggle').addEventListener('click', () =>
@@ -759,25 +826,18 @@ switchLanguage(currentLang);
   }
 
   const savedRenderMode = localStorage.getItem('bafx-ctrlRenderMode');
+  const initialRenderMode = savedRenderMode && RENDER_MODE_CONFIGS[savedRenderMode]
+    ? savedRenderMode
+    : 'software-bloom';
+  const renderModeEl = document.getElementById('ctrlRenderMode');
 
-  if (savedRenderMode && savedRenderMode !== 'software-bloom')
+  if (renderModeEl)
   {
-    const el = document.getElementById('ctrlRenderMode');
-
-    if (el)
-    {
-      el.value = savedRenderMode;
-    }
-
-    if (savedRenderMode === 'native-bloom')
-    {
-      effect.updateConfig({ renderingMode: 'enhanced', softwareBloomEnabled: false });
-    }
-    else if (savedRenderMode === 'legacy')
-    {
-      effect.updateConfig({ renderingMode: 'legacy' });
-    }
+    renderModeEl.value = initialRenderMode;
   }
+
+  // 默认值也走同一条路径，确保首次打开即可显示能力探测后的实际后端。
+  applyRenderMode(initialRenderMode);
 
   if (localStorage.getItem('bafx-ctrlTrail') === 'false')
   {

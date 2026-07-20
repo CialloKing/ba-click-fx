@@ -10,7 +10,7 @@
 
 **A parameter-level port of the Blue Archive Unity UI/FX_Touch click effect and cursor trail for the web.**
 
-`ba-click-fx` faithfully reproduces the ParticleSystem and TrailRenderer from the game's `FX_Touch.prefab` — colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity, and TrailRenderer timing/width — all implemented in pure **Canvas 2D**. Zero external runtime dependencies.
+`ba-click-fx` faithfully reproduces the ParticleSystem and TrailRenderer from the game's `FX_Touch.prefab` — colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity, and TrailRenderer timing/width. Crisp geometry uses **Canvas 2D**; Bloom defaults to the JavaScript software pipeline and can optionally use WebGL2 GPU acceleration. Zero external runtime dependencies.
 
 **Live Demo:** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
@@ -45,8 +45,9 @@
 - Parameter-level port from the Unity FX_Touch.prefab — not a "lookalike"
 - Dissolve rings (MeshTri), centre disk (ring), click shards (Ring 3/4), drag trail (TrailRenderer)
 - All particle parameters locked to the game's original values: colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity
-- Pure Canvas 2D — no images, no WebGL, zero runtime dependencies
-- Pure JavaScript software Bloom — a URP 12-compatible Float32 mip pyramid, enabled by default with automatic fallback
+- Canvas 2D crisp geometry — no image assets and zero external runtime dependencies
+- Four demo rendering choices: WebGL2 Bloom, Software Bloom (the default reference), Native Glow, and Legacy
+- Optional WebGL2 GPU Bloom, with automatic fallback to Software Bloom and then Native Glow
 - Browser extension, npm, CDN, and direct download
 - Custom theme colour via HSL hue shifting
 - Runtime-tweakable FX parameters via `setFxParam()`
@@ -119,13 +120,27 @@ new BAClickFX(options?: {
   trailEnabled?: boolean,        // default true
   trailAlways?: boolean,         // default false
   renderingMode?: 'enhanced' | 'legacy', // default enhanced
-  softwareBloomEnabled?: boolean, // JavaScript software Bloom, default true
+  bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // default software
+  softwareBloomEnabled?: boolean, // compatibility alias: true = software, false = native
   lightBackgroundContrastAlpha?: number, // light-background compatibility layer, default 0.35; 0 disables it
   maxDpr?: number,               // default 2
   touchAction?: string,          // default 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
 })
 ```
+
+In enhanced mode, `bloomBackend` selects the Bloom implementation. The demo combines these backends with Legacy into four direct choices:
+
+| Demo choice | API configuration | Behaviour |
+|---|---|---|
+| WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Runs thresholding, Gaussian mips, and scatter on the GPU; falls back automatically when unavailable |
+| Software Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'software' }` | Default and most precise reference/compatibility implementation, using Canvas 2D pixel readback and Float32 buffers |
+| Native Glow | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | Uses Canvas 2D `shadowBlur`; cheaper, but visually different from post-process Bloom |
+| Legacy | `{ renderingMode: 'legacy' }` | Preserves the older sRGB, compositing, and glow behaviour; the Bloom backend is ignored |
+
+`bloomBackend: 'auto'` tries WebGL2 first, then Software Bloom, then Native Glow. Explicit `'webgl2'` uses the same fallback chain; explicit `'software'` falls back to Native Glow when pixel readback is unavailable. The default remains `'software'`, so upgrading does not eagerly create a WebGL context or change existing output. If both `bloomBackend` and the old `softwareBloomEnabled` field are provided, `bloomBackend` wins.
+
+WebGL2 Bloom requires a library-owned DOM overlay so that a separate transparent WebGL2 canvas can sit beside the Canvas 2D crisp layer. When `target` is an existing `<canvas>`, the library cannot safely insert that additional layer, so `'webgl2'` / `'auto'` falls back to Software Bloom. A regular container element or the default fullscreen overlay has no such limitation.
 
 ### Instance Methods
 
@@ -135,12 +150,28 @@ new BAClickFX(options?: {
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
 | `destroy()` | Destroy instance, remove listeners and canvas |
-| `updateConfig({...})` | Update base config, `renderingMode`, `softwareBloomEnabled`, DPR, and touch behaviour at runtime |
+| `updateConfig({...})` | Update base config, `renderingMode`, `bloomBackend`, DPR, and touch behaviour at runtime |
 | `setThemeColor('#ff6969')` | Set theme colour via HSL hue-shift |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify any FX parameter by dot-path |
 | `getFxConfig()` | Deep copy of current FX configuration |
 | `resetFxConfig()` | Reset all FX parameters to game defaults |
-| `getConfig()` | Current config including read-only Unity params snapshot |
+| `getConfig()` | Current config; `resolvedBloomBackend` reports the latest resolution result and is `pending` before the first deferred WebGL2/auto probe |
+
+The main canvas dispatches `baclickfxbackendchange` whenever backend resolution state changes. Use the exported event name to track deferred probing, runtime fallback, and WebGL context recovery:
+
+```js
+import {
+  BAClickFX,
+  BLOOM_BACKEND_CHANGE_EVENT,
+} from 'ba-click-fx';
+
+const fx = new BAClickFX({ bloomBackend: 'webgl2' });
+
+fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
+{
+  console.log(event.detail.resolvedBloomBackend);
+});
+```
 
 ### Tunable FX Parameters
 
@@ -199,13 +230,19 @@ The trail follows the same rendering chain as the Unity source asset:
 |---|---|
 | Geometry and core | Draw the original 2px HDR strip directly, then let Bloom expand it into a soft core |
 | Longitudinal envelope | The original TrailRenderer gradient is reversed into Canvas point order, then multiplied by the stretched `FX_TEX_Trail_03` brightness converted from sRGB to linear energy |
-| Bloom | Only the HDR emission buffer is blurred; triangle shards never enter that buffer |
+| Bloom | Only the HDR emission buffer is processed by the selected Bloom backend; triangle shards never enter it |
 
 Shards scatter along the trail at distance intervals.
 
+### Bloom Rendering Backends
+
+WebGL2 and Software Bloom share the same HDR emission parameters and Bloom settings. The WebGL2 branch draws ring, disk, and trail emission into transparent GPU framebuffers, then applies threshold/soft knee, a Gaussian mip pyramid, scatter upsampling, and additive output. Crisp geometry and the light-background contrast silhouette remain on Canvas 2D. This moves the main Bloom workload away from CPU pixel readback when many effects overlap, while keeping Software Bloom as the precise reference and compatibility implementation.
+
+Availability is determined by actually creating a WebGL2 context, checking `EXT_color_buffer_float`, and validating the `RGBA16F` framebuffer. Read the requested backend and latest resolution result through `getConfig().bloomBackend` and `getConfig().resolvedBloomBackend` respectively. WebGL2/auto briefly reports `pending` before the first deferred probe and while a restored context is being validated.
+
 ### JavaScript Software Bloom
 
-With the default `softwareBloomEnabled: true`, the renderer draws HDR emission from rings, disks, and trails into a local mask, reads the pixels back, and follows a URP 12-compatible Bloom structure in JavaScript. Triangular shards keep their crisp body colour and do not participate in Bloom:
+With the default `bloomBackend: 'software'`, the renderer draws HDR emission from rings, disks, and trails into a local mask, reads the pixels back, and follows a URP 12-compatible Bloom structure in JavaScript. Triangular shards keep their crisp body colour and do not participate in Bloom:
 
 1. Decode the 8-bit mask into reusable Float32 RGB buffers.
 2. Run a high-quality 13-tap prefilter with a soft-knee threshold to produce half-resolution mip0.
@@ -215,7 +252,7 @@ With the default `softwareBloomEnabled: true`, the renderer draws HDR emission f
 
 Strict additive blending necessarily loses all contrast over a pure-white background. When the library owns the overlay, it therefore places an independent `darken` compatibility layer above the main FX layer. This layer uses a pale-cyan mask at `0.35` alpha by default to restore only the crisp silhouette and neither receives nor generates Bloom. It must remain above the additive layer; otherwise the main layer would add the recovered cyan contrast straight back to white. This is a deliberate web-compatibility deviation, not part of Unity's additive pipeline; set `lightBackgroundContrastAlpha` to `0` to disable it. An existing Canvas supplied as the target cannot receive this separate backdrop-compositing layer.
 
-This pipeline targets the visual character of URP 12 Bloom rather than a pixel-identical GPU post-process. The renderer merges effects whose full blur support overlaps and processes independent effect regions separately, avoiding readback of the large empty spans between them. Inside each region it reads back only the emission geometry instead of the transparent outer padding, then encodes and uploads only the active Bloom output. Its renderer pool and Float32 mip buffers are reused across frames; when an active region shrinks, the full-capacity Canvas is cleared so stale glow cannot be smoothed into a rectangular edge line. The HQ 13-tap prefilter and Gaussian downsampling use equivalent scalar accumulation, and redundant buffer clears are skipped when a pass overwrites the entire mip. The two rings share one Linear Gradient energy calculation within each rendering pass. Trail distances and segment emission energies are also computed only once, dark tail segments that quantize to a strictly zero emission mask are not drawn again, and expired vertices are removed in one batch. Before software Bloom is composited, the crisp main Canvas is reused as the light-background contrast mask. Lifetimes continue to follow real elapsed time under load, preventing slow frames from keeping old effects alive and increasing the backlog. These optimizations do not alter the Bloom threshold, resolution, mip count, scatter, or high-quality filtering. Bloom working canvases are never attached to the DOM, and the implementation uses neither WebGL, float16 Canvas, nor external dependencies. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`; trail emission is written into a local offscreen buffer using true path distance and blurred once as a whole. This avoids both segment-density accumulation and false highlights at the tail of looping paths. Triangle shards always render only their crisp body and never write to the Bloom emission buffer.
+This software pipeline targets the visual character of URP 12 Bloom rather than a pixel-identical GPU post-process. The renderer merges effects whose full blur support overlaps and processes independent effect regions separately, avoiding readback of the large empty spans between them. Inside each region it reads back only the emission geometry instead of the transparent outer padding, then encodes and uploads only the active Bloom output. Its renderer pool and Float32 mip buffers are reused across frames; when an active region shrinks, the full-capacity Canvas is cleared so stale glow cannot be smoothed into a rectangular edge line. The HQ 13-tap prefilter and Gaussian downsampling use equivalent scalar accumulation, and redundant buffer clears are skipped when a pass overwrites the entire mip. The two rings share one Linear Gradient energy calculation within each rendering pass. Trail distances and segment emission energies are also computed only once, dark tail segments that quantize to a strictly zero emission mask are not drawn again, and expired vertices are removed in one batch. Before software Bloom is composited, the crisp main Canvas is reused as the light-background contrast mask. Lifetimes continue to follow real elapsed time under load, preventing slow frames from keeping old effects alive and increasing the backlog. These optimizations do not alter the Bloom threshold, resolution, mip count, scatter, or high-quality filtering. Software Bloom working canvases are never attached to the DOM, and that backend uses neither WebGL, float16 Canvas, nor external dependencies. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`; trail emission is written into a local offscreen buffer using true path distance and blurred once as a whole. This avoids both segment-density accumulation and false highlights at the tail of looping paths. Triangle shards always render only their crisp body and never write to the Bloom emission buffer.
 
 ---
 
@@ -248,6 +285,7 @@ ba-click-fx/
 │   ├── main.js           # Demo page + control panel UI
 │   ├── config.js         # Unity FX_Touch parameter snapshot
 │   ├── software-bloom.js # URP 12-style Float32 mip Bloom and additive composite
+│   ├── webgl2-bloom.js   # WebGL2 HDR emission, Gaussian mips, and scatter composite
 │   ├── utils.js          # Pure math utilities
 │   └── style.css         # Demo page styles
 ├── scripts/
@@ -265,8 +303,9 @@ ba-click-fx/
 - **Main FX layer:** effects use `lighter` internally, then the main canvas blends over the DOM background with `plus-lighter`.
 - **Light-background compatibility layer:** owned-overlay mode adds a non-Bloom `darken` canvas with a pale-cyan mask at 0.35 alpha so effects remain visible on pure white.
 - **Software Bloom:** local working canvases plus a Float32 Gaussian mip pyramid, with a `shadowBlur` fallback when pixel readback is unavailable.
+- **WebGL2 Bloom:** an optional transparent GPU overlay performs HDR prefiltering, Gaussian mips, and scatter, falling back when capabilities are insufficient.
 - **On-demand rendering:** `requestAnimationFrame` stops when no effects are active.
-- **Zero external dependencies:** standard Canvas 2D APIs only; no WebGL.
+- **Zero external dependencies:** browser-native Canvas 2D / WebGL2 APIs only; no third-party runtime.
 
 ---
 
