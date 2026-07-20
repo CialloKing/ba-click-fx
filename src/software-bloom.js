@@ -181,41 +181,57 @@ export function decodeEmissionMask(
   encodingRange,
   width = 0,
   height = 0,
+  destinationWidth = width,
+  destinationX = 0,
+  destinationY = 0,
 )
 {
-  const pixelCount = source.length / RGBA_CHANNELS;
-  const safeEncodingRange = Math.max(1, encodingRange);
-  let minimumX = width;
-  let minimumY = height;
+  const channelScale = Math.max(1, encodingRange) / (255 * 255);
+  const hasDimensions = width > 0 && height > 0;
+  const rowWidth = hasDimensions ? width : source.length / RGBA_CHANNELS;
+  const rowCount = hasDimensions ? height : 1;
+  const targetWidth = hasDimensions ? destinationWidth : rowWidth;
+  let minimumX = targetWidth;
+  let minimumY = hasDimensions ? destinationY + height : 1;
   let maximumX = -1;
   let maximumY = -1;
+  let sourceIndex = 0;
 
-  for (let pixel = 0; pixel < pixelCount; pixel++)
+  output.fill(0);
+
+  for (let y = 0; y < rowCount; y++)
   {
-    const sourceIndex = pixel * RGBA_CHANNELS;
-    const outputIndex = pixel * RGB_CHANNELS;
-    const coverage = source[sourceIndex + 3] / 255;
+    let outputIndex = hasDimensions
+      ? ((destinationY + y) * targetWidth + destinationX) * RGB_CHANNELS
+      : 0;
 
-    const red = source[sourceIndex] / 255 *
-      safeEncodingRange * coverage;
-    const green = source[sourceIndex + 1] / 255 *
-      safeEncodingRange * coverage;
-    const blue = source[sourceIndex + 2] / 255 *
-      safeEncodingRange * coverage;
-
-    output[outputIndex] = red;
-    output[outputIndex + 1] = green;
-    output[outputIndex + 2] = blue;
-
-    if (width > 0 && height > 0 && Math.max(red, green, blue) > 0)
+    for (let x = 0; x < rowWidth; x++)
     {
-      const x = pixel % width;
-      const y = Math.floor(pixel / width);
+      const alpha = source[sourceIndex + 3];
+      const hasEnergy = source[sourceIndex] !== 0 ||
+        source[sourceIndex + 1] !== 0 ||
+        source[sourceIndex + 2] !== 0;
 
-      minimumX = Math.min(minimumX, x);
-      minimumY = Math.min(minimumY, y);
-      maximumX = Math.max(maximumX, x);
-      maximumY = Math.max(maximumY, y);
+      if (alpha !== 0 && hasEnergy)
+      {
+        output[outputIndex] = source[sourceIndex] * alpha * channelScale;
+        output[outputIndex + 1] = source[sourceIndex + 1] * alpha * channelScale;
+        output[outputIndex + 2] = source[sourceIndex + 2] * alpha * channelScale;
+
+        if (hasDimensions)
+        {
+          const targetX = destinationX + x;
+          const targetY = destinationY + y;
+
+          minimumX = Math.min(minimumX, targetX);
+          minimumY = Math.min(minimumY, targetY);
+          maximumX = Math.max(maximumX, targetX);
+          maximumY = Math.max(maximumY, targetY);
+        }
+      }
+
+      sourceIndex += RGBA_CHANNELS;
+      outputIndex += RGB_CHANNELS;
     }
   }
 
@@ -443,22 +459,55 @@ export function prefilterBloom(
       }
       else
       {
-        for (const [offsetX, offsetY, weight] of PREFILTER_TAPS)
+        let red = 0;
+        let green = 0;
+        let blue = 0;
+
+        for (let tapIndex = 0; tapIndex < PREFILTER_TAPS.length; tapIndex++)
         {
+          const tap = PREFILTER_TAPS[tapIndex];
+          const offsetX = tap[0];
+          const offsetY = tap[1];
+          const weight = tap[2];
           const sampleX = sourceX + offsetX * tapScaleX;
           const sampleY = sourceY + offsetY * tapScaleY;
+          const safeX = clamp(sampleX, 0, sourceWidth - 1);
+          const safeY = clamp(sampleY, 0, sourceHeight - 1);
+          const left = Math.floor(safeX);
+          const top = Math.floor(safeY);
+          const right = Math.min(left + 1, sourceWidth - 1);
+          const bottom = Math.min(top + 1, sourceHeight - 1);
+          const horizontal = safeX - left;
+          const vertical = safeY - top;
+          const topLeftWeight = (1 - horizontal) *
+            (1 - vertical) * weight;
+          const topRightWeight = horizontal * (1 - vertical) * weight;
+          const bottomLeftWeight = (1 - horizontal) * vertical * weight;
+          const bottomRightWeight = horizontal * vertical * weight;
+          const topLeftIndex = (top * sourceWidth + left) * RGB_CHANNELS;
+          const topRightIndex = (top * sourceWidth + right) * RGB_CHANNELS;
+          const bottomLeftIndex = (bottom * sourceWidth + left) * RGB_CHANNELS;
+          const bottomRightIndex = (bottom * sourceWidth + right) * RGB_CHANNELS;
 
-          addBilinearRgb(
-            source,
-            sourceWidth,
-            sourceHeight,
-            sampleX,
-            sampleY,
-            weight,
-            output,
-            outputIndex,
-          );
+          // HQ 预过滤是最热路径。标量累加保持相同 13-tap 公式，
+          // 但避免每个 tap 调用通用函数并反复写入 Float32 输出。
+          red += source[topLeftIndex] * topLeftWeight +
+            source[topRightIndex] * topRightWeight +
+            source[bottomLeftIndex] * bottomLeftWeight +
+            source[bottomRightIndex] * bottomRightWeight;
+          green += source[topLeftIndex + 1] * topLeftWeight +
+            source[topRightIndex + 1] * topRightWeight +
+            source[bottomLeftIndex + 1] * bottomLeftWeight +
+            source[bottomRightIndex + 1] * bottomRightWeight;
+          blue += source[topLeftIndex + 2] * topLeftWeight +
+            source[topRightIndex + 2] * topRightWeight +
+            source[bottomLeftIndex + 2] * bottomLeftWeight +
+            source[bottomRightIndex + 2] * bottomRightWeight;
         }
+
+        output[outputIndex] = red;
+        output[outputIndex + 1] = green;
+        output[outputIndex + 2] = blue;
       }
 
       writeThresholdedColor(
@@ -725,33 +774,62 @@ export function upsampleAndMixBloom(
  * 将线性 HDR Bloom 转成可由透明 Canvas 保存的 sRGB 加色贡献。
  * Alpha 取最大 sRGB 通道，反预乘后写入 ImageData；零能量严格输出零 Alpha。
  */
-export function encodeAdditiveBloom(source, output, intensity)
+export function encodeAdditiveBloom(
+  source,
+  output,
+  intensity,
+  width = source.length / RGB_CHANNELS,
+  bounds = null,
+)
 {
-  const pixelCount = source.length / RGB_CHANNELS;
   const safeIntensity = Math.max(0, intensity);
+  const safeWidth = Math.max(1, Math.floor(width));
+  const sourceHeight = Math.ceil(
+    source.length / (safeWidth * RGB_CHANNELS),
+  );
+  const startX = bounds
+    ? clamp(Math.floor(bounds.minimumX), 0, safeWidth)
+    : 0;
+  const startY = bounds
+    ? clamp(Math.floor(bounds.minimumY), 0, sourceHeight)
+    : 0;
+  const endX = bounds
+    ? clamp(Math.ceil(bounds.maximumX + 1), startX, safeWidth)
+    : safeWidth;
+  const endY = bounds
+    ? clamp(Math.ceil(bounds.maximumY + 1), startY, sourceHeight)
+    : sourceHeight;
 
-  for (let pixel = 0; pixel < pixelCount; pixel++)
+  for (let y = startY; y < endY; y++)
   {
-    const sourceIndex = pixel * RGB_CHANNELS;
-    const outputIndex = pixel * RGBA_CHANNELS;
-    const red = linearToSrgb(source[sourceIndex] * safeIntensity);
-    const green = linearToSrgb(source[sourceIndex + 1] * safeIntensity);
-    const blue = linearToSrgb(source[sourceIndex + 2] * safeIntensity);
-    const alpha = Math.max(red, green, blue);
+    let sourceIndex = (y * safeWidth + startX) * RGB_CHANNELS;
+    let outputIndex = (y * safeWidth + startX) * RGBA_CHANNELS;
 
-    if (alpha <= 0.00001)
+    for (let x = startX; x < endX; x++)
     {
-      output[outputIndex] = 0;
-      output[outputIndex + 1] = 0;
-      output[outputIndex + 2] = 0;
-      output[outputIndex + 3] = 0;
-      continue;
-    }
+      const red = linearToSrgb(source[sourceIndex] * safeIntensity);
+      const green = linearToSrgb(source[sourceIndex + 1] * safeIntensity);
+      const blue = linearToSrgb(source[sourceIndex + 2] * safeIntensity);
+      const alpha = Math.max(red, green, blue);
 
-    output[outputIndex] = Math.round(clamp01(red / alpha) * 255);
-    output[outputIndex + 1] = Math.round(clamp01(green / alpha) * 255);
-    output[outputIndex + 2] = Math.round(clamp01(blue / alpha) * 255);
-    output[outputIndex + 3] = Math.round(alpha * 255);
+      if (alpha <= 0.00001)
+      {
+        output[outputIndex] = 0;
+        output[outputIndex + 1] = 0;
+        output[outputIndex + 2] = 0;
+        output[outputIndex + 3] = 0;
+      }
+      else
+      {
+        output[outputIndex] = Math.round(clamp01(red / alpha) * 255);
+        output[outputIndex + 1] = Math.round(clamp01(green / alpha) * 255);
+        output[outputIndex + 2] = Math.round(clamp01(blue / alpha) * 255);
+        output[outputIndex + 3] = Math.round(alpha * 255);
+      }
+
+      sourceIndex += RGB_CHANNELS;
+      outputIndex += RGBA_CHANNELS;
+    }
   }
 }
 
@@ -785,7 +863,11 @@ export class SoftwareBloomRenderer
     this.displayHeight = 0;
     this.sourceLinear = new Float32Array(0);
     this.levels = [];
+    this.levelStorage = [];
     this.outputImageData = null;
+    this.outputBounds = null;
+    this.sourceReadBounds = null;
+    this.floatBufferAllocationCount = 0;
     this.available = Boolean(
       this.sourceContext &&
       this.outputContext &&
@@ -793,6 +875,39 @@ export class SoftwareBloomRenderer
       typeof this.outputContext.createImageData === 'function' &&
       typeof this.outputContext.putImageData === 'function',
     );
+  }
+
+  _resizeFloatBuffer(buffer, length)
+  {
+    const capacity = buffer.buffer.byteLength / Float32Array.BYTES_PER_ELEMENT;
+
+    if (capacity < length)
+    {
+      // 留出 50% 增长余量，密集点击导致区域小幅波动时不再逐帧制造大块 GC。
+      const nextCapacity = Math.max(length, Math.ceil(capacity * 1.5));
+
+      this.floatBufferAllocationCount++;
+      return new Float32Array(nextCapacity).subarray(0, length);
+    }
+
+    if (buffer.length === length)
+    {
+      return buffer;
+    }
+
+    return new Float32Array(buffer.buffer, 0, length);
+  }
+
+  _ensureCanvasCapacity(canvas, width, height)
+  {
+    if (canvas.width >= width && canvas.height >= height)
+    {
+      return;
+    }
+
+    // Canvas backing store 只增长不收缩，避免量化区域尺寸来回变化时重复分配。
+    canvas.width = Math.max(canvas.width, width);
+    canvas.height = Math.max(canvas.height, height);
   }
 
   _resize(
@@ -860,29 +975,44 @@ export class SoftwareBloomRenderer
     this.sourceHeight = sourceHeight;
     this.width = width;
     this.height = height;
-    this.sourceCanvas.width = sourceWidth;
-    this.sourceCanvas.height = sourceHeight;
-    this.outputCanvas.width = width;
-    this.outputCanvas.height = height;
-    this.sourceLinear = new Float32Array(
+    this._ensureCanvasCapacity(
+      this.sourceCanvas,
+      sourceWidth,
+      sourceHeight,
+    );
+    this._ensureCanvasCapacity(this.outputCanvas, width, height);
+    this.sourceLinear = this._resizeFloatBuffer(
+      this.sourceLinear,
       sourceWidth * sourceHeight * RGB_CHANNELS,
     );
-    this.levels = dimensions.map(([nextWidth, nextHeight]) =>
+    this.levels = dimensions.map(([nextWidth, nextHeight], index) =>
     {
       const length = nextWidth * nextHeight * RGB_CHANNELS;
-
-      return {
-        width: nextWidth,
-        height: nextHeight,
-        down: new Float32Array(length),
-        up: new Float32Array(length),
-        scratch: new Float32Array(length),
+      const storage = this.levelStorage[index] ?? {
+        width: 0,
+        height: 0,
+        down: new Float32Array(0),
+        up: new Float32Array(0),
+        scratch: new Float32Array(0),
       };
+
+      storage.width = nextWidth;
+      storage.height = nextHeight;
+      storage.down = this._resizeFloatBuffer(storage.down, length);
+      storage.up = this._resizeFloatBuffer(storage.up, length);
+      storage.scratch = this._resizeFloatBuffer(storage.scratch, length);
+      this.levelStorage[index] = storage;
+
+      return storage;
     });
 
     try
     {
       this.outputImageData = this.outputContext.createImageData(width, height);
+      // Canvas 容量可能没有变化；尺寸切换时仍需清掉旧活动区域，
+      // 否则局部 putImageData 不会覆盖包围框外的上一帧辉光。
+      this.outputContext.clearRect(0, 0, width, height);
+      this.outputBounds = null;
     }
     catch
     {
@@ -901,6 +1031,7 @@ export class SoftwareBloomRenderer
     bounds,
     skipIterations = DEFAULT_SKIP_ITERATIONS,
     samplingScale = 1,
+    emissionBounds = bounds,
   )
   {
     if (!this.available || !bounds)
@@ -978,6 +1109,41 @@ export class SoftwareBloomRenderer
 
     const scaleX = this.sourceWidth / regionWidth;
     const scaleY = this.sourceHeight / regionHeight;
+    const safeEmissionBounds = emissionBounds ?? bounds;
+    // 发射几何不含模糊；只回读它实际覆盖的子矩形。额外 2px 保留
+    // Canvas 抗锯齿边缘和 HQ 预过滤的双线性采样支撑范围。
+    const readPadding = 2;
+    const readLeft = clamp(
+      Math.floor((safeEmissionBounds.x - left) * scaleX) - readPadding,
+      0,
+      this.sourceWidth,
+    );
+    const readTop = clamp(
+      Math.floor((safeEmissionBounds.y - top) * scaleY) - readPadding,
+      0,
+      this.sourceHeight,
+    );
+    const readRight = clamp(
+      Math.ceil(
+        (safeEmissionBounds.x + safeEmissionBounds.width - left) * scaleX,
+      ) + readPadding,
+      readLeft,
+      this.sourceWidth,
+    );
+    const readBottom = clamp(
+      Math.ceil(
+        (safeEmissionBounds.y + safeEmissionBounds.height - top) * scaleY,
+      ) + readPadding,
+      readTop,
+      this.sourceHeight,
+    );
+
+    this.sourceReadBounds = {
+      x: readLeft,
+      y: readTop,
+      width: readRight - readLeft,
+      height: readBottom - readTop,
+    };
 
     this.sourceContext.setTransform(1, 0, 0, 1, 0, 0);
     this.sourceContext.clearRect(0, 0, this.sourceWidth, this.sourceHeight);
@@ -1005,31 +1171,50 @@ export class SoftwareBloomRenderer
       return false;
     }
 
-    let sourceImageData;
+    const readBounds = this.sourceReadBounds ?? {
+      x: 0,
+      y: 0,
+      width: this.sourceWidth,
+      height: this.sourceHeight,
+    };
+    let emissionBounds = null;
 
-    try
+    if (readBounds.width > 0 && readBounds.height > 0)
     {
-      sourceImageData = this.sourceContext.getImageData(
-        0,
-        0,
+      let sourceImageData;
+
+      try
+      {
+        sourceImageData = this.sourceContext.getImageData(
+          readBounds.x,
+          readBounds.y,
+          readBounds.width,
+          readBounds.height,
+        );
+      }
+      catch
+      {
+        // 回读失败后永久使用原生回退，避免每帧重复触发异常。
+        this.available = false;
+        return false;
+      }
+
+      emissionBounds = decodeEmissionMask(
+        sourceImageData.data,
+        this.sourceLinear,
+        settings.encodingRange,
+        readBounds.width,
+        readBounds.height,
         this.sourceWidth,
-        this.sourceHeight,
+        readBounds.x,
+        readBounds.y,
       );
     }
-    catch
+    else
     {
-      // 回读失败后永久使用原生回退，避免每帧重复触发异常。
-      this.available = false;
-      return false;
+      // 发射几何完全在屏幕外时不存在可回读像素，但这不是 Canvas 故障。
+      this.sourceLinear.fill(0);
     }
-
-    const emissionBounds = decodeEmissionMask(
-      sourceImageData.data,
-      this.sourceLinear,
-      settings.encodingRange,
-      this.sourceWidth,
-      this.sourceHeight,
-    );
 
     const firstLevel = this.levels[0];
 
@@ -1052,8 +1237,7 @@ export class SoftwareBloomRenderer
 
     if (!activeBounds[0])
     {
-      this.outputImageData.data.fill(0);
-      this.outputContext.putImageData(this.outputImageData, 0, 0);
+      this._clearOutputBounds();
       return this._drawOutput(targetContext);
     }
 
@@ -1100,12 +1284,24 @@ export class SoftwareBloomRenderer
       bloom = current.up;
     }
 
+    this._clearOutputBounds();
     encodeAdditiveBloom(
       bloom,
       this.outputImageData.data,
       settings.intensity,
+      this.width,
+      bloomBounds,
     );
-    this.outputContext.putImageData(this.outputImageData, 0, 0);
+    this.outputBounds = bloomBounds;
+    this.outputContext.putImageData(
+      this.outputImageData,
+      0,
+      0,
+      bloomBounds.minimumX,
+      bloomBounds.minimumY,
+      bloomBounds.maximumX - bloomBounds.minimumX + 1,
+      bloomBounds.maximumY - bloomBounds.minimumY + 1,
+    );
 
     return this._drawOutput(targetContext);
   }
@@ -1116,6 +1312,10 @@ export class SoftwareBloomRenderer
     targetContext.imageSmoothingQuality = 'high';
     targetContext.drawImage(
       this.outputCanvas,
+      0,
+      0,
+      this.width,
+      this.height,
       this.originX,
       this.originY,
       this.regionWidth,
@@ -1123,6 +1323,25 @@ export class SoftwareBloomRenderer
     );
 
     return true;
+  }
+
+  _clearOutputBounds()
+  {
+    if (!this.outputBounds)
+    {
+      return;
+    }
+
+    const bounds = this.outputBounds;
+
+    // 先清除上一帧的局部结果，再上传当前有效区域，避免包围框收缩时残留光晕。
+    this.outputContext.clearRect(
+      bounds.minimumX,
+      bounds.minimumY,
+      bounds.maximumX - bounds.minimumX + 1,
+      bounds.maximumY - bounds.minimumY + 1,
+    );
+    this.outputBounds = null;
   }
 
   destroy()
@@ -1134,6 +1353,9 @@ export class SoftwareBloomRenderer
     this.available = false;
     this.sourceLinear = new Float32Array(0);
     this.levels = [];
+    this.levelStorage = [];
     this.outputImageData = null;
+    this.outputBounds = null;
+    this.sourceReadBounds = null;
   }
 }

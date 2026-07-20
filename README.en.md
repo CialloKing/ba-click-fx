@@ -169,9 +169,9 @@ new BAClickFX(options?: {
 | `bloom.diskAlpha` | 0.65 | Native disk blur intensity when pixel readback is unavailable |
 | `bloom.trailCoverageScale` | 1.75 | Canvas trail-geometry calibration for Unity strip subpixel coverage |
 | `bloom.trailEmissionAlpha` | 1.0 | HDR trail emission scale for software Bloom |
-| `bloom.trailAlpha` | 0.18 | Native single-path blur fallback intensity |
+| `bloom.trailAlpha` | 0.18 | Native local offscreen-blur fallback intensity |
 | `trail.width` | 2 | Crisp trail geometry width |
-| `trail.outerGlowWidth` | 9 | Native single-path fallback glow radius |
+| `trail.outerGlowWidth` | 9 | Native local offscreen fallback glow radius |
 | `trail.lifetimeMs` | 300 | Trail lifetime (ms) |
 
 ---
@@ -214,7 +214,7 @@ With the default `softwareBloomEnabled: true`, the renderer draws HDR emission f
 
 Strict additive blending necessarily loses all contrast over a pure-white background. When the library owns the overlay, it therefore places an independent `darken` compatibility layer above the main FX layer. This layer uses a pale-cyan mask at `0.08` alpha to restore only the crisp silhouette and neither receives nor generates Bloom. It must remain above the additive layer; otherwise the main layer would add the recovered cyan contrast straight back to white. This is a deliberate web-compatibility deviation, not part of Unity's additive pipeline; set `lightBackgroundContrastAlpha` to `0` to disable it. An existing Canvas supplied as the target cannot receive this separate backdrop-compositing layer.
 
-This pipeline targets the visual character of URP 12 Bloom rather than a pixel-identical GPU post-process. The renderer processes only a quantised bounding region covering the active effects and the full blur support, avoiding a full-frame readback. Bloom working canvases are never attached to the DOM, and the implementation uses neither WebGL, float16 Canvas, nor external dependencies. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`; the trail uses one filtered full-path stroke so glow cannot accumulate with segment density. Triangle shards always render only their crisp body and never write to the Bloom emission buffer.
+This pipeline targets the visual character of URP 12 Bloom rather than a pixel-identical GPU post-process. The renderer merges effects whose full blur support overlaps and processes independent effect regions separately, avoiding readback of the large empty spans between them. Inside each region it reads back only the emission geometry instead of the transparent outer padding, then encodes and uploads only the active Bloom output. Its renderer pool and Float32 mip buffers are reused across frames, while the HQ 13-tap prefilter uses equivalent scalar accumulation to reduce hot-loop overhead. The two rings share one Linear Gradient energy calculation within each rendering pass, while trail distances and segment emission energies are also computed only once. Before software Bloom is composited, the crisp main Canvas is reused as the light-background contrast mask. Lifetimes continue to follow real elapsed time under load, preventing slow frames from keeping old effects alive and increasing the backlog. These optimizations do not alter the Bloom threshold, resolution, mip count, scatter, or high-quality filtering. Bloom working canvases are never attached to the DOM, and the implementation uses neither WebGL, float16 Canvas, nor external dependencies. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`; trail emission is written into a local offscreen buffer using true path distance and blurred once as a whole. This avoids both segment-density accumulation and false highlights at the tail of looping paths. Triangle shards always render only their crisp body and never write to the Bloom emission buffer.
 
 ---
 

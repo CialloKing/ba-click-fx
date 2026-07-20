@@ -114,6 +114,16 @@ assert(
   '零 Alpha 像素不会向 Bloom 注入能量',
 );
 
+const reusedDecodedMask = new Float32Array(9).fill(7);
+
+decodeEmissionMask(encodedMask, reusedDecodedMask, 8);
+assert(
+  reusedDecodedMask[6] === 0 &&
+    reusedDecodedMask[7] === 0 &&
+    reusedDecodedMask[8] === 0,
+  '复用 HDR 缓冲时会清除上一帧的透明像素',
+);
+
 console.log('\nSoftware Bloom URP 预过滤');
 const prefilterSource = new Float32Array(4 * 4 * 3);
 
@@ -361,6 +371,26 @@ assert(
 assert(
   rgba[12] === 255 && rgba[15] < 255,
   '低亮度贡献使用反预乘颜色和非零 Alpha 保存加色结果',
+);
+
+const boundedRgba = new Uint8ClampedArray(16);
+
+encodeAdditiveBloom(
+  hdrBloom,
+  boundedRgba,
+  0.45,
+  4,
+  {
+    minimumX: 2,
+    minimumY: 0,
+    maximumX: 3,
+    maximumY: 0,
+  },
+);
+assert(
+  boundedRgba.slice(0, 8).every((value) => value === 0) &&
+    arraysApproximatelyEqual(boundedRgba.slice(8), rgba.slice(8), 0),
+  '加色编码只访问指定的实际辉光区域',
 );
 
 console.log(`\n✅ ${passed} 项 Software Bloom 数值检查通过\n`);
