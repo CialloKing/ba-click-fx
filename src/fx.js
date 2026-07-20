@@ -1748,34 +1748,9 @@ export class BAClickFX
     this.dpr = 1;
     this.fxConfig = structuredClone(UNITY_FX_TOUCH);
     this._themeHueShift = 0;
-    // Legacy 模式使用 v1.2.5 参数覆盖 Unity 原始值
     if (this.config.renderingMode === 'legacy')
     {
-      this.fxConfig.rings.hdrIntensity = 1.0;
-      this.fxConfig.rings.widthStart = 5.2;
-      this.fxConfig.rings.widthEnd = 2.4;
-      this.fxConfig.rings.radiusMin = 51;
-      this.fxConfig.rings.radiusMax = 59;
-      this.fxConfig.rings.sizeKeys = [[0.007209778, 0.420509], [0.2139282, 0.7159773], [1, 1]];
-      this.fxConfig.rings.dissolveKeys = [[0, 1], [0.2, 0], [1, 1]];
-      delete this.fxConfig.rings.bandToOuterRadius;
-      delete this.fxConfig.rings.textureAlphaKeys;
-      delete this.fxConfig.rings.textureRadialAlphaKeys;
-      this.fxConfig.rings.radialSamples = 0;
-      this.fxConfig.rings.arcSamples = 96;
-      this.fxConfig.trail.gradient = [
-        [0, [0, 100, 220]],
-        [0.5794156, [0, 150, 235]],
-        [0.9794156, [0, 238, 255]],
-        [1, [0, 238, 255]],
-      ];
-      this.fxConfig.trail.coreWidth = 1.7;
-      this.fxConfig.trail.width = 4;
-      this.fxConfig.bloom.trailAlpha = 0.00;
-      this.fxConfig.bloom.ringAlpha = 0.9;
-      this.fxConfig.bloom.ringBlur = 80;
-      this.fxConfig.bloom.diskBlur = 65;
-      this.fxConfig.bloom.shardBlur = 0;
+      this._applyLegacyParams();
     }
     this.waves = [];
     this.shards = [];
@@ -1816,6 +1791,34 @@ export class BAClickFX
     {
       this.resizeObserver = null;
     }
+  }
+
+  _applyLegacyParams()
+  {
+    this.fxConfig.rings.hdrIntensity = 1.0;
+    this.fxConfig.rings.widthStart = 5.2;
+    this.fxConfig.rings.widthEnd = 2.4;
+    this.fxConfig.rings.radiusMin = 51;
+    this.fxConfig.rings.radiusMax = 59;
+    this.fxConfig.rings.sizeKeys = [[0.007209778, 0.420509], [0.2139282, 0.7159773], [1, 1]];
+    this.fxConfig.rings.dissolveKeys = [[0, 1], [0.2, 0], [1, 1]];
+    this.fxConfig.rings.arcSamples = 96;
+    delete this.fxConfig.rings.bandToOuterRadius;
+    delete this.fxConfig.rings.textureAlphaKeys;
+    delete this.fxConfig.rings.textureRadialAlphaKeys;
+    this.fxConfig.trail.gradient = [
+      [0, [0, 100, 220]],
+      [0.5794156, [0, 150, 235]],
+      [0.9794156, [0, 238, 255]],
+      [1, [0, 238, 255]],
+    ];
+    this.fxConfig.trail.coreWidth = 1.7;
+    this.fxConfig.trail.width = 4;
+    this.fxConfig.bloom.trailAlpha = 0.00;
+    this.fxConfig.bloom.ringAlpha = 0.9;
+    this.fxConfig.bloom.ringBlur = 80;
+    this.fxConfig.bloom.diskBlur = 65;
+    this.fxConfig.bloom.shardBlur = 0;
   }
 
   _resize()
@@ -2568,21 +2571,18 @@ export class BAClickFX
         {
           // 切到 legacy：移除 plus-lighter，隐藏对比画布
           this.canvas.style.mixBlendMode = '';
-          this.canvas.style.zIndex = '2147483647';
-          if (this.contrastCanvas)
-          {
-            this.contrastCanvas.style.display = 'none';
-          }
+          this._applyLegacyParams();
         }
         else
         {
-          // 切回 enhanced：恢复 plus-lighter，显示对比画布
+          // 切回 enhanced：恢复 plus-lighter，显示对比画布，重置参数
           this.canvas.style.mixBlendMode = 'plus-lighter';
           this.canvas.style.zIndex = '2147483646';
           if (this.contrastCanvas)
           {
             this.contrastCanvas.style.display = '';
           }
+          this.fxConfig = structuredClone(UNITY_FX_TOUCH);
         }
       }
     }
