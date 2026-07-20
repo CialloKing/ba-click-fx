@@ -653,6 +653,133 @@ function resolveRingGeometry(ring, progress, scale, ringCfg)
   };
 }
 
+// main 分支的圆环参数（2 元素 keyframe、像素宽度、hdrIntensity=1.0）
+const LEGACY_RING_SIZE_KEYS = [[0.007209778, 0.420509], [0.2139282, 0.7159773], [1, 1]];
+const LEGACY_RING_DISSOLVE_KEYS = [[0, 1], [0.2, 0], [1, 1]];
+const LEGACY_RING_WIDTH_START = 5.2;
+const LEGACY_RING_WIDTH_END = 2.4;
+const LEGACY_RING_HDR = 1.0;
+const LEGACY_RING_EDGE_RATIO = 0.1;
+
+/**
+ * main 分支风格的圆环绘制：简单弧带 + 双向 taper + 径向 ridge 叠加。
+ * 不使用 2D 纹理采样和 conic gradient。
+ */
+function drawLegacyDissolvedCircle(
+  context,
+  ring,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
+{
+  const ringCfg = fxConfig.rings;
+  const bloomCfg = fxConfig.bloom;
+  const radius = ring.radius * evaluateNumber(LEGACY_RING_SIZE_KEYS, progress) * scale;
+  const yProgress = clamp01(progress / 0.07908168);
+  const yCurve = evaluateUnitySmoothCurve([[0, 0], [1, 0.9972414]], yProgress);
+  const width = lerp(LEGACY_RING_WIDTH_START, LEGACY_RING_WIDTH_END, progress) * yCurve * scale;
+  const threshold = evaluateNumber(LEGACY_RING_DISSOLVE_KEYS, progress);
+  const visibleRatio = 1 - threshold;
+  const particleColor = evaluateColor(ringCfg.colorKeys, progress);
+  const hdrColor = particleColor.map((ch) => ch * LEGACY_RING_HDR);
+  const arcLength = TAU * visibleRatio;
+  const sweep = ringCfg.dissolveDirection * arcLength;
+
+  if (arcLength <= 0.001)
+  {
+    return;
+  }
+
+  const steps = Math.max(6, Math.ceil(ringCfg.arcSamples * visibleRatio));
+  const shouldTaper = visibleRatio < 0.995;
+
+  context.save();
+  context.translate(ring.x, ring.y);
+  context.rotate(ring.rotation);
+  context.beginPath();
+
+  for (let index = 0; index <= steps; index++)
+  {
+    const localProgress = index / steps;
+    const angle = sweep * localProgress;
+    const taper = shouldTaper
+      ? smoothstep(0, LEGACY_RING_EDGE_RATIO, localProgress) *
+        smoothstep(0, LEGACY_RING_EDGE_RATIO, 1 - localProgress)
+      : 1;
+    const outerRadius = radius + width * 0.5 * taper;
+    const x = Math.cos(angle) * outerRadius;
+    const y = Math.sin(angle) * outerRadius;
+
+    if (index === 0) { context.moveTo(x, y); }
+    else { context.lineTo(x, y); }
+  }
+
+  for (let index = steps; index >= 0; index--)
+  {
+    const localProgress = index / steps;
+    const angle = sweep * localProgress;
+    const taper = shouldTaper
+      ? smoothstep(0, LEGACY_RING_EDGE_RATIO, localProgress) *
+        smoothstep(0, LEGACY_RING_EDGE_RATIO, 1 - localProgress)
+      : 1;
+    const innerRadius = Math.max(0, radius - width * 0.5 * taper);
+
+    context.lineTo(Math.cos(angle) * innerRadius, Math.sin(angle) * innerRadius);
+  }
+
+  context.closePath();
+  context.fillStyle = colorToCss(hdrColor, opacity);
+  context.shadowColor = colorToCss(particleColor, opacity * bloomCfg.ringAlpha);
+  context.shadowBlur = bloomCfg.ringBlur * scale;
+  context.fill();
+
+  // 径向 ridge 叠加：环带中央比两侧亮约 12%
+  {
+    const ridgeRatio = 0.6;
+    const ridgeAlphaBoost = 1.12;
+
+    context.beginPath();
+
+    for (let index = 0; index <= steps; index++)
+    {
+      const localProgress = index / steps;
+      const angle = sweep * localProgress;
+      const ridgeTaper = shouldTaper
+        ? smoothstep(0, LEGACY_RING_EDGE_RATIO, localProgress) *
+          smoothstep(0, LEGACY_RING_EDGE_RATIO, 1 - localProgress)
+        : 1;
+      const outerRidge = radius + width * 0.5 * ridgeRatio * ridgeTaper;
+      const x = Math.cos(angle) * outerRidge;
+      const y = Math.sin(angle) * outerRidge;
+
+      if (index === 0) { context.moveTo(x, y); }
+      else { context.lineTo(x, y); }
+    }
+
+    for (let index = steps; index >= 0; index--)
+    {
+      const localProgress = index / steps;
+      const angle = sweep * localProgress;
+      const ridgeTaper = shouldTaper
+        ? smoothstep(0, LEGACY_RING_EDGE_RATIO, localProgress) *
+          smoothstep(0, LEGACY_RING_EDGE_RATIO, 1 - localProgress)
+        : 1;
+      const innerRidge = Math.max(0, radius - width * 0.5 * ridgeRatio * ridgeTaper);
+
+      context.lineTo(Math.cos(angle) * innerRidge, Math.sin(angle) * innerRidge);
+    }
+
+    context.closePath();
+    context.fillStyle = colorToCss(hdrColor, opacity * ridgeAlphaBoost);
+    context.shadowBlur = 0;
+    context.fill();
+  }
+
+  context.restore();
+}
+
 function drawDissolvedCircle(
   context,
   ring,
@@ -803,7 +930,7 @@ function drawDisk(
   context.beginPath();
   context.arc(wave.x, wave.y, radius, 0, TAU);
   context.fillStyle = gradient;
-  context.shadowColor = colorToCss(color, alpha * bloomCfg.diskAlpha);
+  context.shadowColor = colorToCss(color, alpha * (legacy ? 0.5 : bloomCfg.diskAlpha));
   context.shadowBlur = useNativeBloom ? bloomCfg.diskBlur * scale : 0;
   context.fill();
   context.restore();
@@ -1054,16 +1181,22 @@ class ClickWave
     {
       for (const ring of this.rings)
       {
-        drawDissolvedCircle(
-          context,
-          ring,
-          ringProgress,
-          scale,
-          opacity,
-          this.fx,
-          useNativeBloom,
-          legacy,
-        );
+        if (legacy)
+        {
+          drawLegacyDissolvedCircle(context, ring, ringProgress, scale, opacity, this.fx);
+        }
+        else
+        {
+          drawDissolvedCircle(
+            context,
+            ring,
+            ringProgress,
+            scale,
+            opacity,
+            this.fx,
+            useNativeBloom,
+          );
+        }
       }
     }
   }
@@ -1353,8 +1486,6 @@ function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trai
   {
     context.lineCap = 'round';
     context.strokeStyle = colorToCss(layer.color, layer.alpha * opacity);
-    context.shadowColor = colorToCss(layer.color, layer.alpha * opacity * 0.5);
-    context.shadowBlur = (layer.blur ?? 0) * scale;
     context.beginPath();
     context.moveTo(points[0].x, points[0].y);
 
@@ -1376,7 +1507,9 @@ function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trai
   for (let index = 1; index < points.length; index++)
   {
     const progress = ((distances[index - 1] + distances[index]) * 0.5) / totalLength;
-    const color = interpolateTrailColor(progress, trailCfg);
+    const color = layer.gradient
+      ? evaluateColor(layer.gradient, progress)
+      : interpolateTrailColor(progress, trailCfg);
     const fadeAlpha = Math.pow(progress, 0.5);
 
     context.beginPath();
@@ -1408,22 +1541,31 @@ function drawTrail(
 
   if (legacy)
   {
-    // main 分支风格：三层 sRGB 描边
+    // main 分支风格：三层 sRGB 描边，使用 main 分支的宽度和渐变色
+    const LEGACY_TRAIL_WIDTH = 4;
+    const LEGACY_TRAIL_CORE_WIDTH = 1.7;
+    const LEGACY_TRAIL_GRADIENT = [
+      [0, [0, 100, 220]],
+      [0.5794156, [0, 150, 235]],
+      [0.9794156, [0, 238, 255]],
+      [1, [0, 238, 255]],
+    ];
+
     drawLegacyTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
       {
         width: trailCfg.outerGlowWidth,
         alpha: bloomCfg.trailAlpha,
         color: [0, 88, 224],
-        blur: bloomCfg.trailAlpha > 0 ? 12 : 0,
       });
     drawLegacyTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
       {
-        width: trailCfg.width,
+        width: LEGACY_TRAIL_WIDTH,
         alpha: 1,
+        gradient: LEGACY_TRAIL_GRADIENT,
       });
     drawLegacyTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
       {
-        width: trailCfg.coreWidth ?? 1.7,
+        width: LEGACY_TRAIL_CORE_WIDTH,
         alpha: 0.72,
         color: [116, 225, 255],
       });
@@ -1562,23 +1704,31 @@ export class BAClickFX
     if (this.ownsCanvas)
     {
       const parent = this.host ?? document.body;
+      const legacy = this.config.renderingMode === 'legacy';
 
-      // 该层不含 Bloom，只在浅色背景上补足加色混合无法产生的颜色对比。
-      setOverlayStyle(
-        this.canvas,
-        !this.host,
-        '2147483646',
-        'plus-lighter',
-      );
-      setOverlayStyle(
-        this.contrastCanvas,
-        !this.host,
-        '2147483647',
-        'darken',
-      );
-      parent.appendChild(this.canvas);
-      // 必须置于加色主层上方，否则主层会再次把白底上的微弱青色补偿加回纯白。
-      parent.appendChild(this.contrastCanvas);
+      if (legacy)
+      {
+        // main 分支风格：无 CSS mix-blend-mode，canvas 以默认 source-over 叠在页面上
+        setOverlayStyle(this.canvas, !this.host, '2147483647', '');
+        parent.appendChild(this.canvas);
+      }
+      else
+      {
+        setOverlayStyle(
+          this.canvas,
+          !this.host,
+          '2147483646',
+          'plus-lighter',
+        );
+        setOverlayStyle(
+          this.contrastCanvas,
+          !this.host,
+          '2147483647',
+          'darken',
+        );
+        parent.appendChild(this.canvas);
+        parent.appendChild(this.contrastCanvas);
+      }
     }
 
     this.canvas.style.touchAction = this.config.touchAction;
@@ -1598,6 +1748,35 @@ export class BAClickFX
     this.dpr = 1;
     this.fxConfig = structuredClone(UNITY_FX_TOUCH);
     this._themeHueShift = 0;
+    // Legacy 模式使用 v1.2.5 参数覆盖 Unity 原始值
+    if (this.config.renderingMode === 'legacy')
+    {
+      this.fxConfig.rings.hdrIntensity = 1.0;
+      this.fxConfig.rings.widthStart = 5.2;
+      this.fxConfig.rings.widthEnd = 2.4;
+      this.fxConfig.rings.radiusMin = 51;
+      this.fxConfig.rings.radiusMax = 59;
+      this.fxConfig.rings.sizeKeys = [[0.007209778, 0.420509], [0.2139282, 0.7159773], [1, 1]];
+      this.fxConfig.rings.dissolveKeys = [[0, 1], [0.2, 0], [1, 1]];
+      delete this.fxConfig.rings.bandToOuterRadius;
+      delete this.fxConfig.rings.textureAlphaKeys;
+      delete this.fxConfig.rings.textureRadialAlphaKeys;
+      this.fxConfig.rings.radialSamples = 0;
+      this.fxConfig.rings.arcSamples = 96;
+      this.fxConfig.trail.gradient = [
+        [0, [0, 100, 220]],
+        [0.5794156, [0, 150, 235]],
+        [0.9794156, [0, 238, 255]],
+        [1, [0, 238, 255]],
+      ];
+      this.fxConfig.trail.coreWidth = 1.7;
+      this.fxConfig.trail.width = 4;
+      this.fxConfig.bloom.trailAlpha = 0.00;
+      this.fxConfig.bloom.ringAlpha = 0.9;
+      this.fxConfig.bloom.ringBlur = 80;
+      this.fxConfig.bloom.diskBlur = 65;
+      this.fxConfig.bloom.shardBlur = 0;
+    }
     this.waves = [];
     this.shards = [];
     this.trailStrokes = [];
@@ -1966,24 +2145,33 @@ export class BAClickFX
     const prevHueShift = themeHueShift;
     themeHueShift = this._themeHueShift;
     this.context.save();
-    this.context.globalCompositeOperation = 'lighter';
+    this.context.globalCompositeOperation = legacy ? 'source-over' : 'lighter';
 
-    this._updateTrail(now, scale, !useSoftwareBloom, legacy);
-    this._updateWaves(deltaMs, scale, !useSoftwareBloom, legacy);
-    this._updateShards(deltaMs, scale);
-
-    if (!legacy)
+    try
     {
-      this._renderLightBackgroundContrast(scale);
-    }
+      this._updateTrail(now, scale, !useSoftwareBloom, legacy);
+      this._updateWaves(deltaMs, scale, !useSoftwareBloom, legacy);
+      this._updateShards(deltaMs, scale);
 
-    if (useSoftwareBloom && this._hasVisibleEffects())
+      if (!legacy)
+      {
+        this._renderLightBackgroundContrast(scale);
+      }
+
+      if (useSoftwareBloom && this._hasVisibleEffects())
+      {
+        this._renderSoftwareBloom(scale);
+      }
+    }
+    catch (error)
     {
-      this._renderSoftwareBloom(scale);
+      console.error('[BAClickFX] render error:', error);
     }
-
-    this.context.restore();
-    themeHueShift = prevHueShift;
+    finally
+    {
+      this.context.restore();
+      themeHueShift = prevHueShift;
+    }
 
     if (this._hasVisibleEffects())
     {
@@ -2369,7 +2557,34 @@ export class BAClickFX
 
     if (overrides.renderingMode === 'enhanced' || overrides.renderingMode === 'legacy')
     {
+      const wasLegacy = this.config.renderingMode === 'legacy';
+      const nowLegacy = overrides.renderingMode === 'legacy';
+
       this.config.renderingMode = overrides.renderingMode;
+
+      if (wasLegacy !== nowLegacy && this.ownsCanvas)
+      {
+        if (nowLegacy)
+        {
+          // 切到 legacy：移除 plus-lighter，隐藏对比画布
+          this.canvas.style.mixBlendMode = '';
+          this.canvas.style.zIndex = '2147483647';
+          if (this.contrastCanvas)
+          {
+            this.contrastCanvas.style.display = 'none';
+          }
+        }
+        else
+        {
+          // 切回 enhanced：恢复 plus-lighter，显示对比画布
+          this.canvas.style.mixBlendMode = 'plus-lighter';
+          this.canvas.style.zIndex = '2147483646';
+          if (this.contrastCanvas)
+          {
+            this.contrastCanvas.style.display = '';
+          }
+        }
+      }
     }
 
     if (typeof overrides.softwareBloomEnabled === 'boolean')
