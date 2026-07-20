@@ -74,7 +74,7 @@ const fx = new BAClickFX();
 ### 3. CDN
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.5/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.6/dist/ba-click-fx.iife.js"></script>
 <script>
   const fx = new BAClickFX.BAClickFX();
 </script>
@@ -118,8 +118,9 @@ new BAClickFX(options?: {
   clickEnabled?: boolean,        // default true
   trailEnabled?: boolean,        // default true
   trailAlways?: boolean,         // default false
+  renderingMode?: 'enhanced' | 'legacy', // default enhanced
   softwareBloomEnabled?: boolean, // JavaScript software Bloom, default true
-  lightBackgroundContrastAlpha?: number, // light-background compatibility layer, default 0.08; 0 disables it
+  lightBackgroundContrastAlpha?: number, // light-background compatibility layer, default 0.35; 0 disables it
   maxDpr?: number,               // default 2
   touchAction?: string,          // default 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
@@ -134,7 +135,7 @@ new BAClickFX(options?: {
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
 | `destroy()` | Destroy instance, remove listeners and canvas |
-| `updateConfig({...})` | Update config at runtime, including `softwareBloomEnabled` and `lightBackgroundContrastAlpha` |
+| `updateConfig({...})` | Update base config, `renderingMode`, `softwareBloomEnabled`, DPR, and touch behaviour at runtime |
 | `setThemeColor('#ff6969')` | Set theme colour via HSL hue-shift |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify any FX parameter by dot-path |
 | `getFxConfig()` | Deep copy of current FX configuration |
@@ -212,7 +213,7 @@ With the default `softwareBloomEnabled: true`, the renderer draws HDR emission f
 4. Mix from low-resolution mips back upward according to `bloom.scatter`, using bicubic sampling when `bloom.highQualityFiltering` is enabled.
 5. Convert linear Bloom energy to additive sRGB RGBA, apply `bloom.intensity`, composite it onto the main canvas with `lighter`, then blend the main FX layer over the DOM background with `plus-lighter`.
 
-Strict additive blending necessarily loses all contrast over a pure-white background. When the library owns the overlay, it therefore places an independent `darken` compatibility layer above the main FX layer. This layer uses a pale-cyan mask at `0.08` alpha to restore only the crisp silhouette and neither receives nor generates Bloom. It must remain above the additive layer; otherwise the main layer would add the recovered cyan contrast straight back to white. This is a deliberate web-compatibility deviation, not part of Unity's additive pipeline; set `lightBackgroundContrastAlpha` to `0` to disable it. An existing Canvas supplied as the target cannot receive this separate backdrop-compositing layer.
+Strict additive blending necessarily loses all contrast over a pure-white background. When the library owns the overlay, it therefore places an independent `darken` compatibility layer above the main FX layer. This layer uses a pale-cyan mask at `0.35` alpha by default to restore only the crisp silhouette and neither receives nor generates Bloom. It must remain above the additive layer; otherwise the main layer would add the recovered cyan contrast straight back to white. This is a deliberate web-compatibility deviation, not part of Unity's additive pipeline; set `lightBackgroundContrastAlpha` to `0` to disable it. An existing Canvas supplied as the target cannot receive this separate backdrop-compositing layer.
 
 This pipeline targets the visual character of URP 12 Bloom rather than a pixel-identical GPU post-process. The renderer merges effects whose full blur support overlaps and processes independent effect regions separately, avoiding readback of the large empty spans between them. Inside each region it reads back only the emission geometry instead of the transparent outer padding, then encodes and uploads only the active Bloom output. Its renderer pool and Float32 mip buffers are reused across frames; when an active region shrinks, the full-capacity Canvas is cleared so stale glow cannot be smoothed into a rectangular edge line. The HQ 13-tap prefilter and Gaussian downsampling use equivalent scalar accumulation, and redundant buffer clears are skipped when a pass overwrites the entire mip. The two rings share one Linear Gradient energy calculation within each rendering pass. Trail distances and segment emission energies are also computed only once, dark tail segments that quantize to a strictly zero emission mask are not drawn again, and expired vertices are removed in one batch. Before software Bloom is composited, the crisp main Canvas is reused as the light-background contrast mask. Lifetimes continue to follow real elapsed time under load, preventing slow frames from keeping old effects alive and increasing the backlog. These optimizations do not alter the Bloom threshold, resolution, mip count, scatter, or high-quality filtering. Bloom working canvases are never attached to the DOM, and the implementation uses neither WebGL, float16 Canvas, nor external dependencies. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`; trail emission is written into a local offscreen buffer using true path distance and blurred once as a whole. This avoids both segment-density accumulation and false highlights at the tail of looping paths. Triangle shards always render only their crisp body and never write to the Bloom emission buffer.
 
@@ -262,7 +263,7 @@ ba-click-fx/
 ### Architecture
 
 - **Main FX layer:** effects use `lighter` internally, then the main canvas blends over the DOM background with `plus-lighter`.
-- **Light-background compatibility layer:** owned-overlay mode adds a non-Bloom `darken` canvas with a pale-cyan mask at 0.08 alpha so effects remain visible on pure white.
+- **Light-background compatibility layer:** owned-overlay mode adds a non-Bloom `darken` canvas with a pale-cyan mask at 0.35 alpha so effects remain visible on pure white.
 - **Software Bloom:** local working canvases plus a Float32 Gaussian mip pyramid, with a `shadowBlur` fallback when pixel readback is unavailable.
 - **On-demand rendering:** `requestAnimationFrame` stops when no effects are active.
 - **Zero external dependencies:** standard Canvas 2D APIs only; no WebGL.

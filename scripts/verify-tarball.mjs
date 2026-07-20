@@ -138,6 +138,7 @@ const options: BAClickFXOptions =
   opacity: 1,
   clickEnabled: true,
   trailEnabled: true,
+  renderingMode: 'enhanced',
   softwareBloomEnabled: true,
   lightBackgroundContrastAlpha: 0.08,
   maxDpr: 2,
@@ -151,11 +152,22 @@ const defaults: BAClickFXConfig = createConfig();
 const unity: UnityFxTouchConfig = UNITY_FX_TOUCH;
 const defaultScale: number = CONFIG.scale;
 const softwareBloomEnabled: boolean = config.softwareBloomEnabled;
+const renderingMode: BAClickFXConfig['renderingMode'] = config.renderingMode;
 const lightBackgroundContrastAlpha: number =
   config.lightBackgroundContrastAlpha;
 
 namedInstance.boom(300, 200);
-namedInstance.updateConfig({ softwareBloomEnabled: false });
+namedInstance.updateConfig(
+  {
+    renderingMode: 'enhanced',
+    softwareBloomEnabled: false,
+  },
+);
+namedInstance.updateConfig(
+  {
+    renderingMode: 'legacy',
+  },
+);
 namedInstance.clearTrail();
 namedInstance.clear();
 namedInstance.destroy();
@@ -166,6 +178,8 @@ const invalidOptions: BAClickFXOptions =
   scale: 'invalid',
   // @ts-expect-error 软件 Bloom 开关只接受布尔值。
   softwareBloomEnabled: 'invalid',
+  // @ts-expect-error renderingMode 只接受 enhanced 或 legacy。
+  renderingMode: 'native-bloom',
 };
 
 void [
@@ -175,6 +189,7 @@ void [
   unity,
   defaultScale,
   softwareBloomEnabled,
+  renderingMode,
   lightBackgroundContrastAlpha,
   invalidOptions,
 ];
