@@ -84,7 +84,7 @@ const fx = new BAClickFX();
 ### 3. CDN 引入
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.5/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.6/dist/ba-click-fx.iife.js"></script>
 <script>
   const fx = new BAClickFX.BAClickFX();
 </script>
@@ -140,8 +140,9 @@ new BAClickFX(options?: {
   clickEnabled?: boolean,         // 启用点击特效，默认 true
   trailEnabled?: boolean,         // 启用拖尾，默认 true
   trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
+  renderingMode?: 'enhanced' | 'legacy', // 渲染模式，默认 enhanced
   softwareBloomEnabled?: boolean, // 启用 JavaScript 软件 Bloom，默认 true
-  lightBackgroundContrastAlpha?: number, // 浅色背景兼容层强度，默认 0.08；设为 0 可关闭
+  lightBackgroundContrastAlpha?: number, // 浅色背景兼容层强度，默认 0.35；设为 0 可关闭
   maxDpr?: number,                // 最大设备像素比，默认 2
   touchAction?: string,           // Canvas touch-action，默认 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
@@ -156,7 +157,7 @@ new BAClickFX(options?: {
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 仅清除拖尾和碎片 |
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |
-| `updateConfig({...})` | 运行时更新 scale/opacity/clickEnabled/trailEnabled/trailAlways/softwareBloomEnabled/lightBackgroundContrastAlpha/maxDpr/touchAction |
+| `updateConfig({...})` | 运行时更新基础配置、`renderingMode`、`softwareBloomEnabled`、DPR 与触摸行为 |
 | `setThemeColor('#ff6969')` | 设置主题色，所有蓝色系特效 hue 偏移到此颜色 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 点号路径修改任意特效参数 |
 | `getFxConfig()` | 返回当前完整特效配置深拷贝 |
@@ -236,7 +237,7 @@ new BAClickFX(options?: {
 4. 按 `bloom.scatter` 从低分辨率 mip 向上混合；开启 `bloom.highQualityFiltering` 时使用双三次采样。
 5. 将线性 Bloom 能量转换为 sRGB 加色 RGBA，按 `bloom.intensity` 以 `lighter` 叠加到主画布；主特效层再以 `plus-lighter` 混合叠加到 DOM 背景。
 
-严格加色在纯白背景上必然失去对比度。由库自动创建覆盖层时，主特效层上方还会放置一个独立的 `darken` 兼容层：它只用 `0.08` Alpha 的淡青色补足清晰轮廓，不接收或产生 Bloom。兼容层必须位于加色层上方，否则主层会把刚补出的淡青对比重新加回纯白。该层是为网页浅色背景增加可见性的有意兼容偏差，并非 Unity 加色管线的一部分；将 `lightBackgroundContrastAlpha` 设为 `0` 可关闭。直接传入已有 Canvas 时无法插入这层独立背景合成层。
+严格加色在纯白背景上必然失去对比度。由库自动创建覆盖层时，主特效层上方还会放置一个独立的 `darken` 兼容层：它默认使用 `0.35` Alpha 的淡青色补足清晰轮廓，不接收或产生 Bloom。兼容层必须位于加色层上方，否则主层会把刚补出的淡青对比重新加回纯白。该层是为网页浅色背景增加可见性的有意兼容偏差，并非 Unity 加色管线的一部分；将 `lightBackgroundContrastAlpha` 设为 `0` 可关闭。直接传入已有 Canvas 时无法插入这层独立背景合成层。
 
 这条管线用于获得接近 URP 12 Bloom 的视觉观感，并非逐像素复刻 GPU 后处理。渲染器按完整模糊支撑范围合并相邻特效，彼此独立的特效区域则分别处理，避免回读它们之间的大块空白；区域内部也只回读发射几何而跳过外围纯透明 padding，最终只编码和上传实际辉光区域。renderer 池和 Float32 金字塔缓冲会跨帧复用，尺寸收缩时会清除完整容量 Canvas，避免旧辉光被平滑缩放成矩形边缘细线。HQ 13-tap 预过滤和 Gaussian 降采样使用等价的标量内联累加，并在完整覆盖当前 mip 时跳过多余的缓冲清零。同一渲染 pass 内的两枚圆环共享一次 Linear Gradient 能量计算；拖尾的距离与分段发射能量也只计算一次，发射遮罩量化后严格为零的暗尾不会重复描画，过期顶点则批量移除。软件 Bloom 合成前的清晰主 Canvas 会直接复用为浅色背景对比遮罩。生命周期始终按真实时间推进，避免低帧率反向延长特效并造成继续积压。以上优化不改变 Bloom 阈值、分辨率、mip 数量、Scatter 或高质量过滤。Bloom 工作缓冲区不会挂载到 DOM，也不使用 WebGL、float16 Canvas 或外部依赖。若运行环境不支持 Canvas 像素回读/写回，圆环和光盘会退回原生 `shadowBlur`；拖尾则按真实弧长把发射颜色写入局部离屏缓冲，再整体模糊一次，既避免采样接缝累积，也不会在回环轨迹尾部产生错误高亮。三角形碎片始终只绘制清晰本体，不写入 Bloom 发射缓冲。
 
@@ -289,7 +290,7 @@ ba-click-fx/
 ### 架构特点
 
 - **主特效层**：内部特效通过 `lighter` 合成，主 Canvas 再以 `plus-lighter` 叠加到 DOM 背景
-- **浅色背景兼容层**：自动覆盖层模式额外使用不参与 Bloom 的 `darken` Canvas，以 0.08 Alpha 淡青色维持纯白背景可见性
+- **浅色背景兼容层**：自动覆盖层模式额外使用不参与 Bloom 的 `darken` Canvas，以 0.35 Alpha 淡青色维持纯白背景可见性
 - **软件 Bloom**：局部工作画布 + Float32 Gaussian mip 金字塔；像素读回不可用时回退 `shadowBlur`
 - **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`
 - **零外部依赖**：仅依赖标准 Canvas 2D API，不使用 WebGL

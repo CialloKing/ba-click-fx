@@ -14,11 +14,11 @@ declare module 'ba-click-fx'
     trailEnabled?: boolean;
     /** 无需按下鼠标，移动即显示拖尾。默认 false。 */
     trailAlways?: boolean;
-    /** 渲染模式：'enhanced'（默认，线性能量 + 软件 Bloom）或 'legacy'（sRGB + shadowBlur，main 分支风格）。 */
+    /** 渲染模式：'enhanced'（默认，线性能量；Bloom 由 softwareBloomEnabled 选择软件或原生）或 'legacy'（sRGB + shadowBlur，main 分支风格）。 */
     renderingMode?: 'enhanced' | 'legacy';
     /** 使用 Float32 中间缓冲执行纯 JavaScript 软件 Bloom。默认 true。 */
     softwareBloomEnabled?: boolean;
-    /** 浅色背景的非 Bloom 淡青轮廓强度，默认 0.08；设为 0 可关闭。 */
+    /** 浅色背景的非 Bloom 淡青轮廓强度，默认 0.35；设为 0 可关闭。 */
     lightBackgroundContrastAlpha?: number;
     /** Canvas backing store 的设备像素比上限，默认 2。 */
     maxDpr?: number;
