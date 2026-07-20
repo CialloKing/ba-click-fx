@@ -2145,7 +2145,7 @@ export class BAClickFX
     const prevHueShift = themeHueShift;
     themeHueShift = this._themeHueShift;
     this.context.save();
-    this.context.globalCompositeOperation = legacy ? 'source-over' : 'lighter';
+    this.context.globalCompositeOperation = 'lighter';
 
     try
     {
