@@ -128,6 +128,8 @@ class ContextMock
     this.fillRects = [];
     this.drawImageCalls = [];
     this.putImageDataCount = 0;
+    this.getImageDataCalls = [];
+    this.clearRectCalls = [];
     this.hasVisiblePixels = false;
     this.globalCompositeOperation = 'source-over';
     this.shadowBlur = 0;
@@ -139,8 +141,9 @@ class ContextMock
   setTransform()
   {
   }
-  clearRect()
+  clearRect(...args)
   {
+    this.clearRectCalls.push(args);
     this.hasVisiblePixels = false;
   }
 
@@ -271,6 +274,7 @@ class ContextMock
 
   getImageData(_x, _y, width, height)
   {
+    this.getImageDataCalls.push([_x, _y, width, height]);
     const imageData = this.createImageData(width, height);
 
     if (this.hasVisiblePixels)
@@ -287,10 +291,11 @@ class ContextMock
     return imageData;
   }
 
-  putImageData(imageData)
+  putImageData(imageData, ...args)
   {
     this.putImageDataCount++;
     this.lastImageData = imageData;
+    this.lastPutImageDataArgs = args;
     this.hasVisiblePixels = imageData.data.some((value) => value > 0);
   }
 
@@ -300,8 +305,14 @@ class ContextMock
       {
         args,
         compositeOperation: this.globalCompositeOperation,
+        filter: this.filter,
       },
     );
+
+    if (args[0]?.context?.hasVisiblePixels)
+    {
+      this.hasVisiblePixels = true;
+    }
   }
 }
 
@@ -407,13 +418,13 @@ function installDom()
   };
 }
 
-function flushFrames(dom, startTime, count)
+function flushFrames(dom, startTime, count, frameMs = 1000 / 60)
 {
   let now = startTime;
 
   for (let index = 0; index < count && dom.frames.size > 0; index++)
   {
-    now += 1000 / 60;
+    now += frameMs;
     const callbacks = [...dom.frames.values()];
 
     dom.frames.clear();
@@ -700,6 +711,42 @@ assert(
   '纹理径向中心采样比环带边缘更亮',
 );
 
+const savedRingColorKeys = probeWave.fx.rings.colorKeys;
+let linearGradientBuildCount = 0;
+
+// 前面的纹理采样测试只保留一枚圆环；这里恢复完整组，才能锁定共享计算。
+probeWave.rings = savedRings;
+probeWave.fx.rings.colorKeys = new Proxy(savedRingColorKeys,
+  {
+    get(target, property, receiver)
+    {
+      if (property === 'map')
+      {
+        return (...args) =>
+        {
+          linearGradientBuildCount++;
+          return target.map(...args);
+        };
+      }
+
+      return Reflect.get(target, property, receiver);
+    },
+  });
+probeWave.draw(effect.context, 1, 1, false);
+const visibleRingEnergyBuildCount = linearGradientBuildCount;
+
+linearGradientBuildCount = 0;
+probeWave.drawBloom(effect.bloomRenderer.sourceContext, 1, 1);
+const emissionRingEnergyBuildCount = linearGradientBuildCount;
+
+probeWave.fx.rings.colorKeys = savedRingColorKeys;
+assert(
+  probeWave.rings.length === UNITY_FX_TOUCH.rings.count &&
+    visibleRingEnergyBuildCount === 1 &&
+    emissionRingEnergyBuildCount === 1,
+  '同组两枚圆环在每个渲染 pass 只构建一次 Linear Gradient 能量',
+);
+
 probeWave.ageMs = savedRingAge;
 probeWave.rings = savedRings;
 probeRing.rotation = savedRingRotation;
@@ -751,16 +798,42 @@ effect.context.fillShadowColors = [];
 effect.context.strokeShadowBlurs = [];
 effect.context.drawImageCalls = [];
 effect.context.conicGradients = [];
+effect.contrastContext.drawImageCalls = [];
+effect.contrastContext.conicGradients = [];
 effect.bloomRenderer.sourceContext.strokeStyles = [];
 effect.bloomRenderer.sourceContext.strokeLineCaps = [];
 effect.bloomRenderer.sourceContext.strokeShadowBlurs = [];
 effect.bloomRenderer.sourceContext.conicGradients = [];
 effect.bloomRenderer.sourceContext.radialGradients = [];
+effect.bloomRenderer.sourceContext.getImageDataCalls = [];
 const bloomSourceFillStart = effect.bloomRenderer.sourceContext.fillCount;
+const savedTrailTextureKeys = effect.fxConfig.trail.textureLongitudinalKeys;
+let trailEnergyBuildCount = 0;
+
+// 每次分段能量求值只读取一次纹理关键帧。统计属性读取可证明后续绘制、
+// 区域计算和发射 pass 使用缓存，而不是仅检查缓存数组恰好存在。
+Object.defineProperty(effect.fxConfig.trail, 'textureLongitudinalKeys',
+  {
+    configurable: true,
+    enumerable: true,
+    get()
+    {
+      trailEnergyBuildCount++;
+      return savedTrailTextureKeys;
+    },
+  });
 now = flushFrames(dom, now, 1);
+Object.defineProperty(effect.fxConfig.trail, 'textureLongitudinalKeys',
+  {
+    configurable: true,
+    enumerable: true,
+    value: savedTrailTextureKeys,
+    writable: true,
+  });
 assert(effect.context.strokeCount > 0, '运行帧实际绘制连续轨迹');
 assert(effect.context.fillCount > 0, '运行帧实际绘制圆盘与三角粒子');
-const softwareBloomDrawCount = effect.context.drawImageCalls.length;
+const softwareBloomDrawCount = effect.context.drawImageCalls.filter((call) =>
+  call.args[0] === effect.bloomRenderer.outputCanvas).length;
 const bloomCanvases = dom.createdCanvases.filter((canvas) =>
   canvas !== effect.canvas && canvas !== effect.contrastCanvas);
 
@@ -770,10 +843,11 @@ assert(
   '软件 Bloom 使用 lighter 进行加色合成',
 );
 assert(
-  lastBloomBeginFrameArgs?.length === 6 &&
+  lastBloomBeginFrameArgs?.length === 7 &&
     lastBloomBeginFrameArgs[4] === UNITY_FX_TOUCH.bloom.skipIterations &&
-    lastBloomBeginFrameArgs[5] === effect.dpr,
-  '软件 Bloom 同时传入 URP skipIterations 与物理像素采样倍率',
+    lastBloomBeginFrameArgs[5] === effect.dpr &&
+    lastBloomBeginFrameArgs[6]?.width > 0,
+  '软件 Bloom 同时传入 URP 参数、物理像素倍率与发射范围',
 );
 assert(
   lastBloomCompositeSettings?.highQualityFiltering === true &&
@@ -785,8 +859,35 @@ assert(
   '软件 Bloom 数值结果通过 ImageData 写回隐藏 Canvas',
 );
 assert(
+  effect.bloomRenderer.outputContext.lastPutImageDataArgs?.length === 6 &&
+    effect.bloomRenderer.outputContext.lastPutImageDataArgs[0] === 0 &&
+    effect.bloomRenderer.outputContext.lastPutImageDataArgs[1] === 0 &&
+    effect.bloomRenderer.outputContext.lastPutImageDataArgs[4] > 0 &&
+    effect.bloomRenderer.outputContext.lastPutImageDataArgs[5] > 0 &&
+    effect.bloomRenderer.outputContext.lastPutImageDataArgs[4] <=
+      effect.bloomRenderer.width &&
+    effect.bloomRenderer.outputContext.lastPutImageDataArgs[5] <=
+      effect.bloomRenderer.height,
+  '软件 Bloom 只写回实际辉光区域，不上传整张工作 Canvas',
+);
+assert(
   effect.bloomRenderer.sourceCanvas.width < effect.canvas.width * 0.25,
   '软件 Bloom 只处理特效包围区域，不回读整张主画面',
+);
+assert(
+  effect.bloomRenderer.sourceContext.getImageDataCalls.length === 1 &&
+    effect.bloomRenderer.sourceContext.getImageDataCalls[0][0] ===
+      effect.bloomRenderer.sourceReadBounds.x &&
+    effect.bloomRenderer.sourceContext.getImageDataCalls[0][1] ===
+      effect.bloomRenderer.sourceReadBounds.y &&
+    effect.bloomRenderer.sourceContext.getImageDataCalls[0][2] ===
+      effect.bloomRenderer.sourceReadBounds.width &&
+    effect.bloomRenderer.sourceContext.getImageDataCalls[0][3] ===
+      effect.bloomRenderer.sourceReadBounds.height &&
+    effect.bloomRenderer.sourceReadBounds.width *
+      effect.bloomRenderer.sourceReadBounds.height <
+      effect.bloomRenderer.sourceWidth * effect.bloomRenderer.sourceHeight,
+  '软件 Bloom 只回读发射几何，不读取外围纯透明 padding',
 );
 assert(
   effect.bloomRenderer.sourceContext.fillCount - bloomSourceFillStart ===
@@ -799,6 +900,14 @@ assert(
     effect.bloomRenderer.sourceContext.conicGradients.length ===
       UNITY_FX_TOUCH.rings.count * UNITY_FX_TOUCH.rings.radialSamples,
   '可见圆环与 Bloom 发射源都使用完整径向 conic gradient 填充',
+);
+assert(
+  effect.contrastContext.drawImageCalls.length === 1 &&
+    effect.contrastContext.drawImageCalls[0].args[0] === effect.canvas &&
+    effect.contrastContext.drawImageCalls[0].compositeOperation ===
+      'source-over' &&
+    effect.contrastContext.conicGradients.length === 0,
+  '软件 Bloom 对比层直接复用清晰主 Canvas，不重复构建圆环渐变',
 );
 const ringEmissionStops = effect.bloomRenderer.sourceContext
   .conicGradients[0].gradient.stops;
@@ -834,6 +943,7 @@ assert(
   '软件 Bloom 开启时可见与发射拖尾都不叠加 shadowBlur',
 );
 const trailSegmentCount = effect.trailStrokes[0].points.length - 1;
+const cachedTrailFrameData = effect.trailStrokes[0].trailFrameData;
 const visibleTrailStyles = effect.context.strokeStyles.slice(0, trailSegmentCount);
 const bloomTrailStyles = effect.bloomRenderer.sourceContext.strokeStyles.slice(
   0,
@@ -868,6 +978,12 @@ assert(
     .every((lineCap) => lineCap === 'butt'),
   'Bloom 拖尾段使用 butt cap，采样点不会重复发光',
 );
+assert(
+  cachedTrailFrameData?.segmentEnergies.length === trailSegmentCount &&
+    cachedTrailFrameData.segmentMaximumEnergies.length === trailSegmentCount &&
+    trailEnergyBuildCount === trailSegmentCount,
+  '同一帧的可见拖尾、Bloom 区域和发射绘制共享分段能量缓存',
+);
 const trianglePathIndices = effect.context.filledPaths.reduce(
   (indices, path, index) =>
   {
@@ -892,14 +1008,30 @@ assert(
 const nativeShadowStart = effect.context.fillShadowBlurs.length;
 const nativeStrokeStart = effect.context.strokeShadowBlurs.length;
 const nativeFilterStart = effect.context.strokeFilters.length;
-const nativePathStart = effect.context.strokedPaths.length;
 const nativeLinearGradientStart = effect.context.linearGradients.length;
+const nativeDrawImageStart = effect.context.drawImageCalls.length;
+const nativeContrastCopyStart = effect.contrastContext.drawImageCalls.length;
+
+// 首尾接近的回环路径会暴露首尾弦渐变的投影错误。
+effect.trailStrokes[0].points = [
+  { x: 400, y: 300, bornAt: now },
+  { x: 520, y: 180, bornAt: now },
+  { x: 650, y: 300, bornAt: now },
+  { x: 520, y: 430, bornAt: now },
+  { x: 410, y: 310, bornAt: now },
+];
 
 effect.updateConfig({ softwareBloomEnabled: false });
 now = flushFrames(dom, now, 1);
 assert(
-  effect.context.drawImageCalls.length === softwareBloomDrawCount,
+  effect.context.drawImageCalls.filter((call) =>
+    call.args[0] === effect.bloomRenderer.outputCanvas).length ===
+      softwareBloomDrawCount,
   '关闭软件 Bloom 后不再绘制 ImageData 辉光层',
+);
+assert(
+  effect.contrastContext.drawImageCalls.length === nativeContrastCopyStart,
+  '原生辉光模式不复制带光晕的主 Canvas，继续独立绘制对比遮罩',
 );
 assert(
   effect.context.fillShadowBlurs
@@ -913,28 +1045,34 @@ assert(
     .every((blur) => !blur),
   '原生回退不在拖尾分段接缝叠加 shadowBlur',
 );
-const nativeFilteredStrokeIndices = effect.context.strokeFilters
-  .slice(nativeFilterStart)
-  .reduce((indices, filter, index) =>
-  {
-    if (filter !== 'none')
-    {
-      indices.push(index);
-    }
-
-    return indices;
-  }, []);
+const nativeBloomSurface = effect.nativeTrailBloomSurface;
+const nativeGlowStyles = nativeBloomSurface.context.strokeStyles;
+const nativeBlurDraws = effect.context.drawImageCalls
+  .slice(nativeDrawImageStart)
+  .filter((call) => call.filter !== 'none');
 
 assert(
-  nativeFilteredStrokeIndices.length === 1 &&
-    effect.context.strokedPaths[
-      nativePathStart + nativeFilteredStrokeIndices[0]
-    ].length > 2,
-  '原生回退只用一次 filter blur 绘制连续拖尾光晕',
+  effect.context.strokeFilters
+    .slice(nativeFilterStart)
+    .every((filter) => filter === 'none') &&
+    nativeBlurDraws.length === 1 &&
+    nativeBlurDraws[0].args.length === 9,
+  '原生回退在局部缓冲完成着色后只执行一次整体模糊',
 );
 assert(
-  effect.context.linearGradients.length === nativeLinearGradientStart + 1,
-  '原生回退用线性渐变近似拖尾的头亮尾暗',
+  effect.context.linearGradients.length === nativeLinearGradientStart &&
+    nativeGlowStyles.length === effect.trailStrokes[0].points.length - 1,
+  '原生回退按真实路径距离逐段写入发射颜色，不再使用首尾弦渐变',
+);
+assert(
+  nativeGlowStyles[0] === 'rgba(0, 0, 0, 0)' &&
+    getCssPremultipliedEnergy(nativeGlowStyles.at(-1)) > 20,
+  '回环轨迹的尾部保持无辉光，头部仍保留原生模糊能量',
+);
+assert(
+  nativeBloomSurface.canvas.width < effect.canvas.width &&
+    nativeBloomSurface.canvas.height < effect.canvas.height,
+  '原生拖尾辉光只分配轨迹附近的局部缓冲',
 );
 
 dom.windowMock.dispatch('pointerup',
@@ -960,5 +1098,127 @@ assert(
   effect.destroyed && effect.canvas.removed && effect.contrastCanvas.removed,
   'destroy() 移除监听与两张自有 Canvas',
 );
+
+console.log('\nSoftware Bloom 多区域性能');
+const regionEffect = new BAClickFX();
+
+regionEffect.boom(160, 540);
+regionEffect.boom(1760, 540);
+let regionNow = flushFrames(dom, performance.now(), 1);
+const regionStats = regionEffect.softwareBloomFrameStats;
+const initialRegion = regionEffect._getSoftwareBloomRegions(1)[0];
+const rendererPool = [...regionEffect.bloomRenderers];
+const canvasCountAfterPoolGrowth = dom.createdCanvases.length;
+
+assert(
+  regionStats.regionCount === 2 && regionEffect.bloomRenderers.length === 2,
+  '相距较远的点击拆成两个独立 Bloom 区域',
+);
+assert(
+  initialRegion.emissionBounds.width <
+    UNITY_FX_TOUCH.rings.radiusMax * 2,
+  '点击早期按当前圆环尺寸收紧发射区域，不预留最终半径',
+);
+assert(
+  regionStats.processedSourcePixels < regionStats.combinedBoundsPixels * 0.5,
+  '拆区后的实际处理像素不足旧总包围框的一半',
+);
+
+regionNow = flushFrames(dom, regionNow, 1);
+assert(
+  regionEffect.bloomRenderers.every((renderer, index) =>
+    renderer === rendererPool[index]) &&
+    dom.createdCanvases.length === canvasCountAfterPoolGrowth,
+  'Bloom renderer 池跨帧复用，不重复创建工作 Canvas',
+);
+
+const reusableRenderer = regionEffect.bloomRenderer;
+const sourceBuffer = reusableRenderer.sourceLinear.buffer;
+const levelBuffers = reusableRenderer.levels.map((level) =>
+  [level.down.buffer, level.up.buffer, level.scratch.buffer]);
+const allocationCount = reusableRenderer.floatBufferAllocationCount;
+
+assert(
+  reusableRenderer.beginFrame(
+    regionEffect.width,
+    regionEffect.height,
+    UNITY_FX_TOUCH.bloom.resolutionScale,
+    { x: 100, y: 100, width: 128, height: 128 },
+    UNITY_FX_TOUCH.bloom.skipIterations,
+    regionEffect.dpr,
+    null,
+  ),
+  '显式空发射范围会安全回退到完整 Bloom 区域',
+);
+
+reusableRenderer.beginFrame(
+  regionEffect.width,
+  regionEffect.height,
+  UNITY_FX_TOUCH.bloom.resolutionScale,
+  { x: 100, y: 100, width: 128, height: 128 },
+  UNITY_FX_TOUCH.bloom.skipIterations,
+  regionEffect.dpr,
+);
+assert(
+  reusableRenderer.sourceLinear.buffer === sourceBuffer &&
+    reusableRenderer.levels.every((level, index) =>
+      level.down.buffer === levelBuffers[index][0] &&
+        level.up.buffer === levelBuffers[index][1] &&
+        level.scratch.buffer === levelBuffers[index][2]) &&
+    reusableRenderer.floatBufferAllocationCount === allocationCount,
+  '区域缩小时复用 Float32 backing buffer，不产生新的金字塔分配',
+);
+
+regionEffect.clear();
+regionEffect.boom(800, 540);
+regionEffect.boom(920, 540);
+regionNow = flushFrames(dom, regionNow, 1);
+assert(
+  regionEffect.softwareBloomFrameStats.regionCount === 1,
+  '支撑范围相交的点击仍合并计算，保留邻近特效能量交互',
+);
+
+regionEffect.destroy();
+assert(
+  rendererPool.every((renderer) =>
+    renderer.sourceCanvas.width === 0 && renderer.outputCanvas.width === 0),
+  '销毁实例时同时释放 renderer 池的所有工作缓冲',
+);
+
+console.log('\n低帧率生命周期');
+const stalledEffect = new BAClickFX();
+
+stalledEffect.boom(960, 540);
+let stalledNow = performance.now();
+stalledNow = flushFrames(dom, stalledNow, 1, 1000);
+assert(
+  stalledEffect.waves.length === 0 && stalledEffect.shards.length === 0,
+  '长帧后按真实时间结束过期特效，不因 delta 限制继续积压 Bloom',
+);
+stalledEffect.destroy();
+
+console.log('\nLegacy 模式');
+const legacyEffect = new BAClickFX({ renderingMode: 'legacy' });
+
+legacyEffect.boom(960, 540);
+legacyEffect.context.filledPaths = [];
+let legacyNow = flushFrames(dom, performance.now(), 1);
+const legacyRingPaths = legacyEffect.context.filledPaths.filter((path) =>
+  path.length > 3);
+const legacyTrianglePaths = legacyEffect.context.filledPaths.filter((path) =>
+  path.length === 3);
+
+assert(
+  legacyRingPaths.length >= UNITY_FX_TOUCH.rings.count,
+  'Legacy 点击后的第一帧正常绘制圆环',
+);
+assert(
+  legacyTrianglePaths.length === UNITY_FX_TOUCH.shards.clickCount,
+  'Legacy 点击后的第一帧同时绘制三角碎片',
+);
+
+legacyNow = flushFrames(dom, legacyNow, 50);
+legacyEffect.destroy();
+assert(legacyEffect.destroyed, 'Legacy 实例可正常结束完整生命周期并销毁');
 
 console.log(`\n✅ ${passed} 项 FX_Touch 移植检查通过\n`);
