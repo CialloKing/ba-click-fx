@@ -16,7 +16,7 @@ declare module 'ba-click-fx'
 
   export interface BAClickFXOptions
   {
-    /** CSS 选择器、容器元素或已有 Canvas；省略时创建全屏覆盖层。 */
+    /** CSS 选择器、定位容器或已有 Canvas；普通容器建议设置 position: relative，省略时创建全屏覆盖层。 */
     target?: string | HTMLElement;
     /** 相对 Unity 原始尺寸的倍率，默认 1。 */
     scale?: number;
@@ -32,6 +32,8 @@ declare module 'ba-click-fx'
     bloomBackend?: BAClickFXBloomBackend;
     /** 兼容旧 API：true 等价于 'software'，false 等价于 'native'。 */
     softwareBloomEnabled?: boolean;
+    /** 在透明组内合成多 Canvas 后再覆盖页面，默认 true；已有 Canvas target 不支持。 */
+    isolatedCompositing?: boolean;
     /** 浅色背景的非 Bloom 淡青轮廓强度，默认 0.35；设为 0 可关闭。 */
     lightBackgroundContrastAlpha?: number;
     /** Canvas backing store 的设备像素比上限，默认 2。 */
@@ -52,6 +54,7 @@ declare module 'ba-click-fx'
     bloomBackend: BAClickFXBloomBackend;
     /** 兼容旧 API；WebGL2 与软件 Bloom 后端均为 true。 */
     softwareBloomEnabled: boolean;
+    isolatedCompositing: boolean;
     lightBackgroundContrastAlpha: number;
     maxDpr: number;
     touchAction: string;

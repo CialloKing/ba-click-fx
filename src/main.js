@@ -93,6 +93,8 @@ bindRange('ctrlScale', 'outScale', (v) => effect.updateConfig({ scale: v }));
 bindRange('ctrlOpacity', 'outOpacity', (v) => effect.updateConfig({ opacity: v }));
 bindRange('ctrlDpr', 'outDpr', (v) => effect.updateConfig({ maxDpr: Math.round(v) }));
 
+bindToggle('ctrlIsolatedCompositing', (checked) =>
+  effect.updateConfig({ isolatedCompositing: checked }));
 bindToggle('ctrlClick', (checked) => effect.updateConfig({ clickEnabled: checked }));
 bindToggle('ctrlTrail', (checked) => effect.updateConfig({ trailEnabled: checked }));
 bindToggle('ctrlTrailAlways', (checked) => effect.updateConfig({ trailAlways: checked }));
@@ -248,6 +250,8 @@ if (ctrlColor)
     effect.setThemeColor(ctrlColor.value);
     localStorage.setItem('bafx-ctrlColor', ctrlColor.value);
   });
+  // HTML 默认值不会触发 input；显式应用后展示页与扩展使用同一主题色基线。
+  effect.setThemeColor(ctrlColor.value);
 }
 
 // ── 重置 ────────────────────────────────────────────────────────────────
@@ -260,6 +264,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlDpr').value = '2';
   document.getElementById('outDpr').textContent = '2';
   document.getElementById('ctrlRenderMode').value = 'software-bloom';
+  document.getElementById('ctrlIsolatedCompositing').checked = true;
   document.getElementById('ctrlClick').checked = true;
   document.getElementById('ctrlTrail').checked = true;
   document.getElementById('ctrlTrailAlways').checked = false;
@@ -333,6 +338,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
       trailAlways: false,
       renderingMode: 'enhanced',
       bloomBackend: 'software',
+      isolatedCompositing: true,
       lightBackgroundContrastAlpha: 0.35,
       maxDpr: 2,
     },
@@ -480,6 +486,7 @@ const I18N = {
     labelOpacity: '不透明度',
     labelDpr: '最大 DPR',
     labelRenderMode: '渲染模式',
+    labelIsolatedCompositing: '隔离合成',
     renderSoftwareBloom: '软件 Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: '原生辉光',
@@ -555,6 +562,7 @@ const I18N = {
     labelOpacity: 'Opacity',
     labelDpr: 'Max DPR',
     labelRenderMode: 'Render Mode',
+    labelIsolatedCompositing: 'Isolated Compositing',
     renderSoftwareBloom: 'Software Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: 'Native Glow',
@@ -670,6 +678,7 @@ function switchLanguage(lang)
     ctrlOpacity: d.labelOpacity,
     ctrlDpr: d.labelDpr,
     ctrlRenderMode: d.labelRenderMode,
+    ctrlIsolatedCompositing: d.labelIsolatedCompositing,
     ctrlClick: d.labelClickEnabled,
     ctrlRingHdr: d.labelRingHdr,
     ctrlRingRadMin: d.labelRingRadMin,
@@ -838,6 +847,15 @@ switchLanguage(currentLang);
 
   // 默认值也走同一条路径，确保首次打开即可显示能力探测后的实际后端。
   applyRenderMode(initialRenderMode);
+
+  const isolatedCompositingEl = document.getElementById('ctrlIsolatedCompositing');
+  const savedIsolatedCompositing = localStorage.getItem('bafx-ctrlIsolatedCompositing');
+
+  if (isolatedCompositingEl && savedIsolatedCompositing === 'false')
+  {
+    isolatedCompositingEl.checked = false;
+    effect.updateConfig({ isolatedCompositing: false });
+  }
 
   if (localStorage.getItem('bafx-ctrlTrail') === 'false')
   {
