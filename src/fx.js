@@ -543,6 +543,22 @@ function createCanvas()
   return canvas;
 }
 
+function createOverlayRoot(fixed)
+{
+  const root = document.createElement('div');
+
+  root.setAttribute('aria-hidden', 'true');
+  root.style.position = fixed ? 'fixed' : 'absolute';
+  root.style.inset = '0';
+  root.style.width = '100%';
+  root.style.height = '100%';
+  root.style.pointerEvents = 'none';
+  root.style.zIndex = '2147483647';
+  // 显式建立混合隔离组，避免依赖 position/contain 的隐式 stacking-context 规则。
+  root.style.isolation = 'isolate';
+  return root;
+}
+
 function setOverlayStyle(
   canvas,
   fixed,
@@ -2050,6 +2066,7 @@ export class BAClickFX
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
    * @param {boolean} [options.softwareBloomEnabled]
+   * @param {boolean} [options.isolatedCompositing]
    * @param {number} [options.lightBackgroundContrastAlpha]
    * @param {number} [options.maxDpr]
    * @param {string} [options.touchAction]
@@ -2080,6 +2097,9 @@ export class BAClickFX
         bloomBackend,
         // 保留旧布尔字段作为兼容别名；WebGL2 同样属于增强 Bloom。
         softwareBloomEnabled: bloomBackend !== 'native',
+        isolatedCompositing: typeof options.isolatedCompositing === 'boolean'
+          ? options.isolatedCompositing
+          : CONFIG.isolatedCompositing,
         lightBackgroundContrastAlpha: Number.isFinite(
           options.lightBackgroundContrastAlpha,
         )
@@ -2094,6 +2114,11 @@ export class BAClickFX
       : null;
     this.host = resolveTarget(options.target);
     this.ownsCanvas = !isCanvas(this.host);
+    if (!this.ownsCanvas)
+    {
+      // 已有 Canvas 无法承载主层、Bloom 层和对比层组成的独立合成组。
+      this.config.isolatedCompositing = false;
+    }
     this.canvas = isCanvas(this.host) ? this.host : createCanvas();
     this.contrastCanvas = this.ownsCanvas ? createCanvas() : null;
     this.webglBloomCanvas = null;
@@ -2111,43 +2136,44 @@ export class BAClickFX
       const parent = this.host ?? document.body;
       const legacy = this.config.renderingMode === 'legacy';
 
-      this.overlayParent = parent;
+      this.overlayMountParent = parent;
+      this.overlayRoot = createOverlayRoot(!this.host);
 
       if (legacy)
       {
         // main 分支风格：无 CSS mix-blend-mode，canvas 以默认 source-over 叠在页面上
-        setOverlayStyle(this.canvas, !this.host, '2147483647', '');
+        setOverlayStyle(this.canvas, false, '2147483647', '');
         setOverlayStyle(
           this.contrastCanvas,
-          !this.host,
+          false,
           '2147483647',
           'darken',
         );
         this.contrastCanvas.style.display = 'none';
-        parent.appendChild(this.canvas);
-        // 仍挂载兼容层，保证运行时从 Legacy 切回增强模式时无需重建 DOM。
-        parent.appendChild(this.contrastCanvas);
       }
       else
       {
         setOverlayStyle(
           this.canvas,
-          !this.host,
+          false,
           '2147483646',
           'plus-lighter',
         );
         setOverlayStyle(
           this.contrastCanvas,
-          !this.host,
+          false,
           '2147483647',
           'darken',
         );
-        parent.appendChild(this.canvas);
-        parent.appendChild(this.contrastCanvas);
       }
+
+      // Legacy 也预挂载兼容层，运行时切回增强模式时无需重建 DOM。
+      this._applyCompositingMount();
     }
     else
     {
+      this.overlayMountParent = null;
+      this.overlayRoot = null;
       this.overlayParent = null;
     }
 
@@ -2228,6 +2254,42 @@ export class BAClickFX
     {
       this.resizeObserver = null;
     }
+  }
+
+  _getOverlayLayers()
+  {
+    return [this.canvas, this.webglBloomCanvas, this.contrastCanvas]
+      .filter(Boolean);
+  }
+
+  _applyCompositingMount()
+  {
+    if (!this.ownsCanvas || !this.overlayMountParent || !this.overlayRoot)
+    {
+      return;
+    }
+
+    const isolated = this.config.isolatedCompositing;
+    const parent = isolated ? this.overlayRoot : this.overlayMountParent;
+
+    if (isolated)
+    {
+      this.overlayMountParent.appendChild(this.overlayRoot);
+    }
+
+    for (const canvas of this._getOverlayLayers())
+    {
+      // 直接合成时恢复旧版 fixed/absolute 定位；隔离组内一律相对根层铺满。
+      canvas.style.position = isolated || this.host ? 'absolute' : 'fixed';
+      parent.appendChild(canvas);
+    }
+
+    if (!isolated)
+    {
+      this.overlayRoot.remove();
+    }
+
+    this.overlayParent = parent;
   }
 
   _applyLegacyParams()
@@ -2779,7 +2841,7 @@ export class BAClickFX
 
     setOverlayStyle(
       canvas,
-      !this.host,
+      !this.host && !this.config.isolatedCompositing,
       '2147483646',
       'plus-lighter',
     );
@@ -3637,6 +3699,17 @@ export class BAClickFX
       );
     }
 
+    if (typeof overrides.isolatedCompositing === 'boolean')
+    {
+      const isolated = this.ownsCanvas ? overrides.isolatedCompositing : false;
+
+      if (isolated !== this.config.isolatedCompositing)
+      {
+        this.config.isolatedCompositing = isolated;
+        this._applyCompositingMount();
+      }
+    }
+
     if (Number.isFinite(overrides.maxDpr))
     {
       this.config.maxDpr = Math.max(1, overrides.maxDpr);
@@ -3795,10 +3868,14 @@ export class BAClickFX
       this.webglBloomCanvas?.remove();
       this.contrastCanvas?.remove();
       this.canvas.remove();
+      this.overlayRoot?.remove();
     }
 
     this.webglBloomCanvas = null;
     this.webglBloomVisible = false;
+    this.overlayParent = null;
+    this.overlayMountParent = null;
+    this.overlayRoot = null;
   }
 }
 

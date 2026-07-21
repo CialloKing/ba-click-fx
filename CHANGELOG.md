@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## Unreleased
+
+- 新增默认开启的 `isolatedCompositing`，先在透明隔离组内合成主特效、WebGL2 Bloom 和浅色背景兼容层，再整体覆盖页面，改善纯白背景上的蓝青色保留
+- 支持通过构造参数和 `updateConfig()` 在隔离合成与旧版直接页面合成之间切换，重用现有 Canvas 与 WebGL Context
+- 已有 Canvas 作为 `target` 时将隔离合成明确降级为 `false`；普通容器继续由调用方提供定位上下文
+- 展示页新增双语隔离合成开关、持久化与重置，并在首次加载时显式应用主题颜色
+- 补充外部 Canvas、多实例、WebGL2 延迟挂载、运行时重挂载、销毁和 npm 类型消费验证
+
 ## v1.2.7 — 可选 WebGL2 Bloom 后端与切换 API
 
 - 新增可选 WebGL2 GPU Bloom，保留软件 Bloom 作为默认参考实现与兼容回退

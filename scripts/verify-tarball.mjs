@@ -81,7 +81,7 @@ try
     [
       '--input-type=module',
       '--eval',
-      "import BAClickFXDefault, * as moduleExports from 'ba-click-fx'; if (typeof moduleExports.BAClickFX !== 'function' || BAClickFXDefault !== moduleExports.BAClickFX || moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange') process.exit(1);",
+      "import BAClickFXDefault, * as moduleExports from 'ba-click-fx'; if (typeof moduleExports.BAClickFX !== 'function' || BAClickFXDefault !== moduleExports.BAClickFX || moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' || moduleExports.CONFIG?.isolatedCompositing !== true) process.exit(1);",
     ],
     { cwd: consumerDirectory, stdio: 'pipe' },
   );
@@ -90,7 +90,7 @@ try
     [
       '--input-type=commonjs',
       '--eval',
-      "const moduleExports = require('ba-click-fx'); if (typeof moduleExports.BAClickFX !== 'function' || moduleExports.default !== moduleExports.BAClickFX || moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange') process.exit(1);",
+      "const moduleExports = require('ba-click-fx'); if (typeof moduleExports.BAClickFX !== 'function' || moduleExports.default !== moduleExports.BAClickFX || moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' || moduleExports.CONFIG?.isolatedCompositing !== true) process.exit(1);",
     ],
     { cwd: consumerDirectory, stdio: 'pipe' },
   );
@@ -110,6 +110,10 @@ try
   verify(
     iifeContext.BAClickFX?.BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange',
     'IIFE bundle does not expose the backend change event name',
+  );
+  verify(
+    iifeContext.BAClickFX?.CONFIG?.isolatedCompositing === true,
+    'IIFE bundle does not expose the isolated compositing default',
   );
   verify(
     existsSync(join(installedRoot, 'dist', 'ba-click-fx.d.ts')),
@@ -150,6 +154,7 @@ const options: BAClickFXOptions =
   renderingMode: 'enhanced',
   bloomBackend: 'webgl2',
   softwareBloomEnabled: true,
+  isolatedCompositing: true,
   lightBackgroundContrastAlpha: 0.08,
   maxDpr: 2,
   inputFilter,
@@ -162,16 +167,19 @@ const config: BAClickFXConfig = configSnapshot;
 const defaults: BAClickFXConfig = createConfig(
   {
     bloomBackend: 'auto',
+    isolatedCompositing: false,
   },
 );
 const unity: UnityFxTouchConfig = UNITY_FX_TOUCH;
 const defaultScale: number = CONFIG.scale;
 const defaultBloomBackend: BAClickFXBloomBackend = CONFIG.bloomBackend;
+const defaultIsolatedCompositing: boolean = CONFIG.isolatedCompositing;
 const bloomBackend: BAClickFXBloomBackend = config.bloomBackend;
 const resolvedBloomBackend: BAClickFXResolvedBloomBackend =
   configSnapshot.resolvedBloomBackend;
 const pendingBloomBackend: BAClickFXResolvedBloomBackend = 'pending';
 const softwareBloomEnabled: boolean = config.softwareBloomEnabled;
+const isolatedCompositing: boolean = config.isolatedCompositing;
 const renderingMode: BAClickFXConfig['renderingMode'] = config.renderingMode;
 const lightBackgroundContrastAlpha: number =
   config.lightBackgroundContrastAlpha;
@@ -198,6 +206,7 @@ namedInstance.updateConfig(
 namedInstance.updateConfig(
   {
     softwareBloomEnabled: false,
+    isolatedCompositing: false,
   },
 );
 namedInstance.updateConfig(
@@ -215,6 +224,8 @@ const invalidOptions: BAClickFXOptions =
   scale: 'invalid',
   // @ts-expect-error 软件 Bloom 开关只接受布尔值。
   softwareBloomEnabled: 'invalid',
+  // @ts-expect-error 隔离合成开关只接受布尔值。
+  isolatedCompositing: 'isolate',
   // @ts-expect-error Bloom 后端只接受公开的四种取值。
   bloomBackend: 'webgpu',
   // @ts-expect-error renderingMode 只接受 enhanced 或 legacy。
@@ -228,10 +239,12 @@ void [
   unity,
   defaultScale,
   defaultBloomBackend,
+  defaultIsolatedCompositing,
   bloomBackend,
   resolvedBloomBackend,
   pendingBloomBackend,
   softwareBloomEnabled,
+  isolatedCompositing,
   renderingMode,
   lightBackgroundContrastAlpha,
   invalidOptions,

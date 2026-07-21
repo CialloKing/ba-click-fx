@@ -122,6 +122,7 @@ new BAClickFX(options?: {
   renderingMode?: 'enhanced' | 'legacy', // default enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // default software
   softwareBloomEnabled?: boolean, // compatibility alias: true = software, false = native
+  isolatedCompositing?: boolean,  // default true; false blends directly with the page
   lightBackgroundContrastAlpha?: number, // light-background compatibility layer, default 0.35; 0 disables it
   maxDpr?: number,               // default 2
   touchAction?: string,          // default 'auto'
@@ -138,9 +139,15 @@ In enhanced mode, `bloomBackend` selects the Bloom implementation. The demo comb
 | Native Glow | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | Uses Canvas 2D `shadowBlur`; cheaper, but visually different from post-process Bloom |
 | Legacy | `{ renderingMode: 'legacy' }` | Preserves the older sRGB, compositing, and glow behaviour; the Bloom backend is ignored |
 
-`bloomBackend: 'auto'` tries WebGL2 first, then Software Bloom, then Native Glow. Explicit `'webgl2'` uses the same fallback chain; explicit `'software'` falls back to Native Glow when pixel readback is unavailable. The default remains `'software'`, so upgrading does not eagerly create a WebGL context or change existing output. If both `bloomBackend` and the old `softwareBloomEnabled` field are provided, `bloomBackend` wins.
+The demo exposes Isolated Compositing as a separate switch beside the four rendering choices. It is enabled by default and is orthogonal to Software, WebGL2, Native, and Legacy rendering: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
 
-WebGL2 Bloom requires a library-owned DOM overlay so that a separate transparent WebGL2 canvas can sit beside the Canvas 2D crisp layer. When `target` is an existing `<canvas>`, the library cannot safely insert that additional layer, so `'webgl2'` / `'auto'` falls back to Software Bloom. A regular container element or the default fullscreen overlay has no such limitation.
+`bloomBackend: 'auto'` tries WebGL2 first, then Software Bloom, then Native Glow. Explicit `'webgl2'` uses the same fallback chain; explicit `'software'` falls back to Native Glow when pixel readback is unavailable. The default remains `'software'`, so the library does not eagerly create a WebGL context. If both `bloomBackend` and the old `softwareBloomEnabled` field are provided, `bloomBackend` wins.
+
+With `isolatedCompositing: true`, the library-owned main FX canvas, WebGL2 Bloom canvas, and light-background compatibility canvas blend inside one transparent isolated group before that group is composited over the page. This prevents `plus-lighter` from clipping cyan-blue output to white when it meets a pure-white page backdrop. Set it to `false` to mount the canvases directly into the target or page and restore strict direct-page compositing. The option can be changed at runtime through `updateConfig()`.
+
+WebGL2 Bloom and isolated compositing both require a library-owned DOM overlay. When `target` is an existing `<canvas>`, the library cannot safely insert the extra WebGL2, contrast, or isolation layers, so `'webgl2'` / `'auto'` falls back to Software Bloom and `isolatedCompositing` is forced to `false`; `getConfig()` reports this effective value. The default fullscreen overlay has no such limitation. A regular container is also supported, but it must establish its own positioning context, normally with `position: relative`; the library does not silently modify host styles.
+
+Each `BAClickFX` instance owns a separate isolation group. Multiple isolated instances on the same page do not run `plus-lighter` across group boundaries, and switching or destroying one instance does not move or remove another instance's canvases.
 
 ### Instance Methods
 
@@ -150,7 +157,7 @@ WebGL2 Bloom requires a library-owned DOM overlay so that a separate transparent
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
 | `destroy()` | Destroy instance, remove listeners and canvas |
-| `updateConfig({...})` | Update base config, `renderingMode`, `bloomBackend`, DPR, and touch behaviour at runtime |
+| `updateConfig({...})` | Update base config, `renderingMode`, `bloomBackend`, `isolatedCompositing`, DPR, and touch behaviour at runtime |
 | `setThemeColor('#ff6969')` | Set theme colour via HSL hue-shift |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify any FX parameter by dot-path |
 | `getFxConfig()` | Deep copy of current FX configuration |
@@ -248,9 +255,11 @@ With the default `bloomBackend: 'software'`, the renderer draws HDR emission fro
 2. Run a high-quality 13-tap prefilter with a soft-knee threshold to produce half-resolution mip0.
 3. Build the mip pyramid with separable 9-tap Gaussian downsampling; `bloom.skipIterations` controls how many deepest iterations are omitted.
 4. Mix from low-resolution mips back upward according to `bloom.scatter`, using bicubic sampling when `bloom.highQualityFiltering` is enabled.
-5. Convert linear Bloom energy to additive sRGB RGBA, apply `bloom.intensity`, composite it onto the main canvas with `lighter`, then blend the main FX layer over the DOM background with `plus-lighter`.
+5. Convert linear Bloom energy to additive sRGB RGBA, apply `bloom.intensity`, and composite it onto the main canvas with `lighter`; `isolatedCompositing` determines the subsequent CSS compositing boundary.
 
-Strict additive blending necessarily loses all contrast over a pure-white background. When the library owns the overlay, it therefore places an independent `darken` compatibility layer above the main FX layer. This layer uses a pale-cyan mask at `0.35` alpha by default to restore only the crisp silhouette and neither receives nor generates Bloom. It must remain above the additive layer; otherwise the main layer would add the recovered cyan contrast straight back to white. This is a deliberate web-compatibility deviation, not part of Unity's additive pipeline; set `lightBackgroundContrastAlpha` to `0` to disable it. An existing Canvas supplied as the target cannot receive this separate backdrop-compositing layer.
+The default `isolatedCompositing: true` first resolves the main layer's `plus-lighter`, the WebGL2 Bloom layer's `plus-lighter`, and the compatibility layer's `darken` inside a transparent group, then composites the coloured result and its alpha over the page. This does not change the Bloom algorithm, but preserves cyan-blue colour, saturation, and soft glow over pure white. With `false`, the main layer blends directly against the DOM background; strict additive blending then loses its colour and contrast on pure white, which preserves the previous output for comparison.
+
+When the library owns the overlay, it also places an independent `darken` compatibility layer above the main FX layer. This layer uses a pale-cyan mask at `0.35` alpha by default to restore only the crisp silhouette and neither receives nor generates Bloom. It must remain above the additive layer; otherwise the main layer would add the recovered cyan contrast straight back to white. This is a deliberate web-compatibility deviation, not part of Unity's additive pipeline; set `lightBackgroundContrastAlpha` to `0` to disable it. An existing Canvas supplied as the target can receive neither this separate backdrop-compositing layer nor isolated compositing.
 
 This software pipeline targets the visual character of URP 12 Bloom rather than a pixel-identical GPU post-process. The renderer merges effects whose full blur support overlaps and processes independent effect regions separately, avoiding readback of the large empty spans between them. Inside each region it reads back only the emission geometry instead of the transparent outer padding, then encodes and uploads only the active Bloom output. Its renderer pool and Float32 mip buffers are reused across frames; when an active region shrinks, the full-capacity Canvas is cleared so stale glow cannot be smoothed into a rectangular edge line. The HQ 13-tap prefilter and Gaussian downsampling use equivalent scalar accumulation, and redundant buffer clears are skipped when a pass overwrites the entire mip. The two rings share one Linear Gradient energy calculation within each rendering pass. Trail distances and segment emission energies are also computed only once, dark tail segments that quantize to a strictly zero emission mask are not drawn again, and expired vertices are removed in one batch. Before software Bloom is composited, the crisp main Canvas is reused as the light-background contrast mask. Lifetimes continue to follow real elapsed time under load, preventing slow frames from keeping old effects alive and increasing the backlog. These optimizations do not alter the Bloom threshold, resolution, mip count, scatter, or high-quality filtering. Software Bloom working canvases are never attached to the DOM, and that backend uses neither WebGL, float16 Canvas, nor external dependencies. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`; trail emission is written into a local offscreen buffer using true path distance and blurred once as a whole. This avoids both segment-density accumulation and false highlights at the tail of looping paths. Triangle shards always render only their crisp body and never write to the Bloom emission buffer.
 
@@ -300,7 +309,8 @@ ba-click-fx/
 
 ### Architecture
 
-- **Main FX layer:** effects use `lighter` internally, then the main canvas blends over the DOM background with `plus-lighter`.
+- **Isolated compositing layer:** by default, the main FX, WebGL2 Bloom, and light-background compatibility canvases blend in a transparent isolated group before the result is placed over the page; disable it to restore direct-page additive compositing.
+- **Main FX layer:** effects use `lighter` internally and the main canvas uses `plus-lighter`; `isolatedCompositing` selects its backdrop.
 - **Light-background compatibility layer:** owned-overlay mode adds a non-Bloom `darken` canvas with a pale-cyan mask at 0.35 alpha so effects remain visible on pure white.
 - **Software Bloom:** local working canvases plus a Float32 Gaussian mip pyramid, with a `shadowBlur` fallback when pixel readback is unavailable.
 - **WebGL2 Bloom:** an optional transparent GPU overlay performs HDR prefiltering, Gaussian mips, and scatter, falling back when capabilities are insufficient.

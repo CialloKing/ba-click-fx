@@ -144,6 +144,7 @@ new BAClickFX(options?: {
   renderingMode?: 'enhanced' | 'legacy', // 渲染模式，默认 enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // Bloom 后端，默认 software
   softwareBloomEnabled?: boolean, // 兼容旧 API：true 等同 software，false 等同 native
+  isolatedCompositing?: boolean,  // 隔离合成，默认 true；false 时直接与页面混合
   lightBackgroundContrastAlpha?: number, // 浅色背景兼容层强度，默认 0.35；设为 0 可关闭
   maxDpr?: number,                // 最大设备像素比，默认 2
   touchAction?: string,           // Canvas touch-action，默认 'auto'
@@ -160,9 +161,15 @@ new BAClickFX(options?: {
 | 原生辉光 | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | 使用 Canvas 2D `shadowBlur`，开销较低但观感与后处理 Bloom 不同 |
 | Legacy | `{ renderingMode: 'legacy' }` | 保留旧版 sRGB、合成和辉光行为；此时忽略 Bloom 后端 |
 
-`bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。显式选择 `'webgl2'` 也采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。默认值仍为 `'software'`，因此升级不会主动创建 WebGL 上下文，也不会改变现有页面的输出。若同时传入 `bloomBackend` 和旧字段 `softwareBloomEnabled`，以 `bloomBackend` 为准。
+展示页在四档渲染选项之外提供独立的“隔离合成”开关。该开关默认开启，与 Software、WebGL2、Native 或 Legacy 渲染选择正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
 
-WebGL2 Bloom 需要库拥有 DOM 覆盖层，以便在 Canvas 2D 清晰层旁创建独立的透明 WebGL2 Canvas。若 `target` 是一个已有的 `<canvas>`，库无法安全插入这个附加层，`'webgl2'` / `'auto'` 会自动回退到软件 Bloom。传入普通容器元素或使用默认全屏覆盖层不受此限制。
+`bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。显式选择 `'webgl2'` 也采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。默认值仍为 `'software'`，因此不会主动创建 WebGL 上下文。若同时传入 `bloomBackend` 和旧字段 `softwareBloomEnabled`，以 `bloomBackend` 为准。
+
+`isolatedCompositing: true` 会让库拥有的主特效层、WebGL2 Bloom 层和浅色背景兼容层先在透明隔离组内混合，再将整个组覆盖到页面上；这样可以避免 `plus-lighter` 直接与纯白背景相加后把蓝青色钳制成白色。设为 `false` 时，各 Canvas 会直接挂载到目标容器或页面，恢复严格的直接页面合成。该选项可通过 `updateConfig()` 在运行时切换。
+
+WebGL2 Bloom 和隔离合成都需要库拥有 DOM 覆盖层。若 `target` 是一个已有的 `<canvas>`，库无法安全插入额外的 WebGL2、对比或隔离层，因此 `'webgl2'` / `'auto'` 会自动回退到软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回的是降级后的实际配置。默认全屏覆盖层不受此限制。普通容器也可以使用，但容器必须自行建立定位上下文（通常设置 `position: relative`），库不会静默修改宿主样式。
+
+隔离根按 `BAClickFX` 实例独立创建和销毁。同一页面的多个隔离实例不会跨根执行 `plus-lighter`；一个实例切换模式或销毁也不会移动、删除其他实例的 Canvas。
 
 ### 实例方法
 
@@ -172,7 +179,7 @@ WebGL2 Bloom 需要库拥有 DOM 覆盖层，以便在 Canvas 2D 清晰层旁创
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 仅清除拖尾和碎片 |
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |
-| `updateConfig({...})` | 运行时更新基础配置、`renderingMode`、`bloomBackend`、DPR 与触摸行为 |
+| `updateConfig({...})` | 运行时更新基础配置、`renderingMode`、`bloomBackend`、`isolatedCompositing`、DPR 与触摸行为 |
 | `setThemeColor('#ff6969')` | 设置主题色，所有蓝色系特效 hue 偏移到此颜色 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 点号路径修改任意特效参数 |
 | `getFxConfig()` | 返回当前完整特效配置深拷贝 |
@@ -272,9 +279,11 @@ WebGL2 与软件 Bloom 共用同一组 HDR 发射参数和 Bloom 配置。WebGL2
 2. 以高质量 13-tap 预过滤执行带 Soft Knee 的阈值提取，生成 1/2 分辨率 mip0。
 3. 使用可分离 9-tap Gaussian 下采样建立 mip 金字塔；`bloom.skipIterations` 控制略过的最深层迭代。
 4. 按 `bloom.scatter` 从低分辨率 mip 向上混合；开启 `bloom.highQualityFiltering` 时使用双三次采样。
-5. 将线性 Bloom 能量转换为 sRGB 加色 RGBA，按 `bloom.intensity` 以 `lighter` 叠加到主画布；主特效层再以 `plus-lighter` 混合叠加到 DOM 背景。
+5. 将线性 Bloom 能量转换为 sRGB 加色 RGBA，按 `bloom.intensity` 以 `lighter` 叠加到主画布；后续 CSS 合成边界由 `isolatedCompositing` 决定。
 
-严格加色在纯白背景上必然失去对比度。由库自动创建覆盖层时，主特效层上方还会放置一个独立的 `darken` 兼容层：它默认使用 `0.35` Alpha 的淡青色补足清晰轮廓，不接收或产生 Bloom。兼容层必须位于加色层上方，否则主层会把刚补出的淡青对比重新加回纯白。该层是为网页浅色背景增加可见性的有意兼容偏差，并非 Unity 加色管线的一部分；将 `lightBackgroundContrastAlpha` 设为 `0` 可关闭。直接传入已有 Canvas 时无法插入这层独立背景合成层。
+默认的 `isolatedCompositing: true` 会先在透明组内完成主层的 `plus-lighter`、WebGL2 Bloom 层的 `plus-lighter` 和兼容层的 `darken` 混合，再将带颜色与 Alpha 的组合结果覆盖到页面。它不修改 Bloom 算法，却能让纯白背景上的蓝青色、饱和度和柔和辉光保持可见。设为 `false` 后，主层直接以 `plus-lighter` 与 DOM 背景混合；严格加色在纯白背景上必然失去颜色和对比度，这也是用于对照旧输出的兼容路径。
+
+由库自动创建覆盖层时，主特效层上方还会放置一个独立的 `darken` 兼容层：它默认使用 `0.35` Alpha 的淡青色补足清晰轮廓，不接收或产生 Bloom。兼容层必须位于加色层上方，否则主层会把刚补出的淡青对比重新加回纯白。该层是为网页浅色背景增加可见性的有意兼容偏差，并非 Unity 加色管线的一部分；将 `lightBackgroundContrastAlpha` 设为 `0` 可关闭。直接传入已有 Canvas 时既无法插入这层独立背景合成层，也会强制关闭隔离合成。
 
 这条软件管线用于获得接近 URP 12 Bloom 的视觉观感，并非逐像素复刻 GPU 后处理。渲染器按完整模糊支撑范围合并相邻特效，彼此独立的特效区域则分别处理，避免回读它们之间的大块空白；区域内部也只回读发射几何而跳过外围纯透明 padding，最终只编码和上传实际辉光区域。renderer 池和 Float32 金字塔缓冲会跨帧复用，尺寸收缩时会清除完整容量 Canvas，避免旧辉光被平滑缩放成矩形边缘细线。HQ 13-tap 预过滤和 Gaussian 降采样使用等价的标量内联累加，并在完整覆盖当前 mip 时跳过多余的缓冲清零。同一渲染 pass 内的两枚圆环共享一次 Linear Gradient 能量计算；拖尾的距离与分段发射能量也只计算一次，发射遮罩量化后严格为零的暗尾不会重复描画，过期顶点则批量移除。软件 Bloom 合成前的清晰主 Canvas 会直接复用为浅色背景对比遮罩。生命周期始终按真实时间推进，避免低帧率反向延长特效并造成继续积压。以上优化不改变 Bloom 阈值、分辨率、mip 数量、Scatter 或高质量过滤。软件 Bloom 工作缓冲区不会挂载到 DOM，也不使用 WebGL、float16 Canvas 或外部依赖。若运行环境不支持 Canvas 像素回读/写回，圆环和光盘会退回原生 `shadowBlur`；拖尾则按真实弧长把发射颜色写入局部离屏缓冲，再整体模糊一次，既避免采样接缝累积，也不会在回环轨迹尾部产生错误高亮。三角形碎片始终只绘制清晰本体，不写入 Bloom 发射缓冲。
 
@@ -327,7 +336,8 @@ ba-click-fx/
 
 ### 架构特点
 
-- **主特效层**：内部特效通过 `lighter` 合成，主 Canvas 再以 `plus-lighter` 叠加到 DOM 背景
+- **隔离合成层**：默认把主特效、WebGL2 Bloom 和浅色背景兼容 Canvas 放在透明隔离组中合成，再整体覆盖页面；可关闭以恢复直接页面加色
+- **主特效层**：内部特效通过 `lighter` 合成，主 Canvas 使用 `plus-lighter`；其混合背景由 `isolatedCompositing` 决定
 - **浅色背景兼容层**：自动覆盖层模式额外使用不参与 Bloom 的 `darken` Canvas，以 0.35 Alpha 淡青色维持纯白背景可见性
 - **软件 Bloom**：局部工作画布 + Float32 Gaussian mip 金字塔；像素读回不可用时回退 `shadowBlur`
 - **WebGL2 Bloom**：可选透明 GPU 覆盖层执行 HDR 预过滤、Gaussian mip 和 Scatter；能力不足时沿回退链降级

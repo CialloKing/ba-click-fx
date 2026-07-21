@@ -53,6 +53,50 @@ verify(
     /renderBackendPending/.test(mainJs),
   '展示页监听后端解析事件并单独显示 WebGL2 延迟探测状态',
 );
+const isolatedCompositingControl = indexHtml.match(
+  /<input\s+[^>]*id="ctrlIsolatedCompositing"[^>]*>/,
+)?.[0] ?? '';
+
+verify(
+  /type="checkbox"/.test(isolatedCompositingControl) &&
+    /\bchecked\b/.test(isolatedCompositingControl),
+  '展示页提供默认开启的隔离合成开关',
+);
+verify(
+  /bindToggle\('ctrlIsolatedCompositing',[\s\S]*?effect\.updateConfig\(\{ isolatedCompositing: checked \}\)\)/.test(mainJs),
+  '展示页隔离合成开关通过公开 updateConfig API 生效并复用持久化绑定',
+);
+verify(
+  /localStorage\.getItem\('bafx-ctrlIsolatedCompositing'\)/.test(mainJs) &&
+    /savedIsolatedCompositing === 'false'/.test(mainJs) &&
+    /effect\.updateConfig\(\{ isolatedCompositing: false \}\)/.test(mainJs),
+  '展示页会恢复已持久化的直接合成选项',
+);
+verify(
+  /getElementById\('ctrlIsolatedCompositing'\)\.checked = true/.test(mainJs) &&
+    /isolatedCompositing: true/.test(mainJs),
+  '展示页重置操作同时恢复隔离合成控件和引擎配置',
+);
+verify(
+  /ctrlColor\.addEventListener\('input',[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)[\s\S]*?\}\);[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)/.test(mainJs),
+  '展示页首次加载会主动应用颜色控件默认值',
+);
+verify(
+  /isolatedCompositing: true/.test(configJs) &&
+    /typeof overrides\.isolatedCompositing === 'boolean'/.test(configJs),
+  '隔离合成默认开启，createConfig 仅接受布尔覆盖值',
+);
+verify(
+  /function createOverlayRoot/.test(engineJs) &&
+    /root\.style\.isolation = 'isolate'/.test(engineJs) &&
+    /_applyCompositingMount\(\)/.test(engineJs),
+  '引擎通过透明隔离根挂载多 Canvas 合成层',
+);
+verify(
+  /typeof overrides\.isolatedCompositing === 'boolean'/.test(engineJs) &&
+    /this\.config\.isolatedCompositing = isolated/.test(engineJs),
+  '引擎支持运行时切换隔离与直接合成',
+);
 verify(/UNITY_FX_TOUCH/.test(engineJs), '渲染引擎直接消费 Unity 参数源');
 verify(/pointerdown/.test(engineJs) && /pointerup/.test(engineJs), '按下、拖拽和松开共享同一输入生命周期');
 verify(!/ringNoise/.test(engineJs), '圆环溶解保持为单个连续弧带');

@@ -308,6 +308,8 @@ export const CONFIG = Object.freeze(
     // 软件 Bloom 保持默认参考实现；WebGL2 仅在显式选择或 auto 时创建。
     bloomBackend: DEFAULT_BLOOM_BACKEND,
     softwareBloomEnabled: true,
+    // 多 Canvas 先在透明隔离组内混合，避免 plus-lighter 直接叠加白底后丢失颜色。
+    isolatedCompositing: true,
     // 严格加色在纯白背景上没有对比度；独立 darken 层补回轮廓。0.35 为实验值。
     lightBackgroundContrastAlpha: 0.35,
     maxDpr: 2,
@@ -348,5 +350,8 @@ export function createConfig(overrides = {})
     ...overrides,
     bloomBackend,
     softwareBloomEnabled: bloomBackend !== 'native',
+    isolatedCompositing: typeof overrides.isolatedCompositing === 'boolean'
+      ? overrides.isolatedCompositing
+      : CONFIG.isolatedCompositing,
   };
 }
