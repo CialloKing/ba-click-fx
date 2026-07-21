@@ -1,6 +1,6 @@
 ﻿# Changelog
 
-## Unreleased — WebGL2 Bloom 后端
+## v1.2.7 — 可选 WebGL2 Bloom 后端与切换 API
 
 - 新增可选 WebGL2 GPU Bloom，保留软件 Bloom 作为默认参考实现与兼容回退
 - 新增 `bloomBackend: 'auto' | 'software' | 'webgl2' | 'native'`，并通过 `resolvedBloomBackend` 暴露实际后端与延迟探测的 `pending` 状态
