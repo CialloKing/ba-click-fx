@@ -102,7 +102,7 @@ declare module 'ba-click-fx'
     /** 设置主题色（CSS 十六进制），所有蓝色系特效的 hue 将以此偏移。传入空字符串恢复默认。 */
     setThemeColor(hex: string): void;
 
-    /** 通过点号路径修改特效参数，如 'rings.hdrIntensity' 或 'hit.enabled'。 */
+    /** 通过点号路径修改特效参数，如 'bloom.clickEmissionScale' 或 'hit.enabled'。 */
     setFxParam(path: string, value: number | boolean): void;
 
     /** 返回当前完整特效配置的深拷贝（与 UNITY_FX_TOUCH 同结构）。 */

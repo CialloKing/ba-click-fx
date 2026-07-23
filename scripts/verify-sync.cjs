@@ -25,6 +25,26 @@ function verify(condition, message)
 }
 
 verify(/setFxParam/.test(mainJs), '控制面板通过 setFxParam 修改参数，不绕过引擎');
+const clickGlowControl = indexHtml.match(
+  /<input\s+[^>]*id="ctrlClickGlow"[^>]*>/,
+)?.[0] ?? '';
+
+verify(
+  /min="0"/.test(clickGlowControl) &&
+    /max="4"/.test(clickGlowControl) &&
+    /step="0\.05"/.test(clickGlowControl) &&
+    /value="1"/.test(clickGlowControl),
+  '展示页提供默认值为 1 的点击辉光强度滑块',
+);
+verify(
+  /bindRange\('ctrlClickGlow', 'outClickGlow',[\s\S]*?setFxParam\('bloom\.clickEmissionScale', v\)\)/.test(mainJs),
+  '点击辉光滑块通过公开 setFxParam 路径生效',
+);
+verify(
+  /\['ctrlClickGlow', 'outClickGlow', 1, false\]/.test(mainJs) &&
+    /\['ctrlClickGlow', 'bloom\.clickEmissionScale'\]/.test(mainJs),
+  '点击辉光滑块支持重置与本地设置恢复',
+);
 verify(/inputFilter/.test(mainJs), '演示页把信息卡映射为 Unity UGUI 输入过滤区');
 const renderModeSelect = indexHtml.match(
   /<select id="ctrlRenderMode"[\s\S]*?<\/select>/,

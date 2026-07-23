@@ -180,6 +180,15 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 });
 ```
 
+Click glow can be tuned independently from the trail. This scale changes only
+the ring and center-disk Bloom emission in enhanced mode; Native Glow uses the
+same scale through a monotonic bounded-alpha mapping, while Legacy keeps its
+compatibility output:
+
+```js
+fx.setFxParam('bloom.clickEmissionScale', 1.25);
+```
+
 ### Tunable FX Parameters
 
 | Path | Default | Description |
@@ -195,12 +204,13 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 | `bloom.threshold` | 1.0 | Bright-pass threshold |
 | `bloom.softKnee` | 0.5 | Soft transition around the threshold |
 | `bloom.clamp` | 65472 | URP prefilter HDR clamp |
-| `bloom.intensity` | 0.45 | Software Bloom composite intensity |
-| `bloom.scatter` | 0.35 | Glow spread |
+| `bloom.intensity` | 1.0 | Bloom intensity calibrated for transparent sRGB web compositing against the game capture |
+| `bloom.scatter` | 0.7 | Glow spread compensating for the locally cropped mip chain |
 | `bloom.resolutionScale` | 0.5 | Bloom buffer scale (internally clamped to 0.1–0.75) |
 | `bloom.skipIterations` | 1 | Number of deepest mip iterations to skip |
 | `bloom.highQualityFiltering` | true | Enable high-quality bicubic scatter upsampling |
-| `bloom.ringEmissionAlpha` | 0.65 | HDR ring emission scale for software Bloom |
+| `bloom.clickEmissionScale` | 1.0 | Independent glow scale for click rings and the center disk, recommended range `0–4`; does not affect crisp geometry or the trail |
+| `bloom.ringEmissionAlpha` | 1.0 | HDR ring emission aligned with the FX_MAT_Touch_Tri3 material alpha |
 | `bloom.diskEmissionAlpha` | 1.0 | HDR disk emission scale for software Bloom |
 | `bloom.ringBlur` | 80 | Native ring blur radius when pixel readback is unavailable |
 | `bloom.ringAlpha` | 0.35 | Native ring blur intensity when pixel readback is unavailable |
@@ -227,7 +237,7 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 
 `radiusMin` and `radiusMax` are the outer-radius baselines converted from the MeshTri Start Size and camera scale; the rendered outer radius also follows Unity's lifetime size curve. The default `widthStart` and `widthEnd` values are both `1` and only scale the source band. Actual band width is always calculated as `outer radius × 0.0598573766 × width multiplier`.
 
-The original shader uses `Blend SrcAlpha One, One One`. ParticleSystemRenderer's Apply Active Color Space decodes the particle's sRGB vertex colour to Linear before multiplying it by the white HDR material, so the ring colour cannot be treated as an ordinary sRGB multiplication. Dissolve applies a binary threshold clip to the two-dimensional texture alpha instead of continuously reducing every pixel's opacity; pixels that pass the clip retain their sampled texture alpha. Size and dissolve thresholds use the source keyframes and their in/out tangents with Unity cubic Hermite interpolation, rather than linear interpolation or a generic smoothstep.
+The original shader uses `Blend SrcAlpha One, One One`. ParticleSystemRenderer's Apply Active Color Space decodes the enabled Color over Lifetime vertex stream to Linear before multiplying it by the white 5.992157 HDR material in `FX_MAT_Touch_Tri3`. Dissolve thresholds the two-dimensional texture alpha instead of continuously reducing every pixel's opacity, while surviving pixels retain the sampled coverage. Size and dissolve thresholds use the source keyframes and their in/out tangents with Unity cubic Hermite interpolation, rather than linear interpolation or a generic smoothstep.
 
 ### Cursor Trail
 
