@@ -1,6 +1,6 @@
 ﻿# Changelog
 
-## Unreleased
+## v1.2.8 — Bloom 视觉校准与点击辉光调节
 
 - 新增默认开启的 `isolatedCompositing`，先在透明隔离组内合成主特效、WebGL2 Bloom 和浅色背景兼容层，再整体覆盖页面，改善纯白背景上的蓝青色保留
 - 支持通过构造参数和 `updateConfig()` 在隔离合成与旧版直接页面合成之间切换，重用现有 Canvas 与 WebGL Context
