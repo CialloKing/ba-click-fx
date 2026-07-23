@@ -194,6 +194,8 @@ bindRange('ctrlBloomIntensity', 'outBloomIntensity', (v) =>
   effect.setFxParam('bloom.intensity', v));
 bindRange('ctrlBloomScatter', 'outBloomScatter', (v) =>
   effect.setFxParam('bloom.scatter', v));
+bindRange('ctrlClickGlow', 'outClickGlow', (v) =>
+  effect.setFxParam('bloom.clickEmissionScale', v));
 bindRange('ctrlTrailW', 'outTrailW', (v) => effect.setFxParam('trail.width', v));
 bindRange('ctrlTrailGlowW', 'outTrailGlowW', (v) => effect.setFxParam('trail.outerGlowWidth', v));
 bindRange('ctrlTrailLife', 'outTrailLife', (v) => effect.setFxParam('trail.lifetimeMs', v), true);
@@ -285,8 +287,9 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlMaxShards', 'outMaxShards', 96, true],
     ['ctrlBloomRing', 'outBloomRing', 80, false],
     ['ctrlBloomThreshold', 'outBloomThreshold', 1, false],
-    ['ctrlBloomIntensity', 'outBloomIntensity', 0.45, false],
-    ['ctrlBloomScatter', 'outBloomScatter', 0.35, false],
+    ['ctrlBloomIntensity', 'outBloomIntensity', 1, false],
+    ['ctrlBloomScatter', 'outBloomScatter', 0.7, false],
+    ['ctrlClickGlow', 'outClickGlow', 1, false],
     ['ctrlTrailW', 'outTrailW', 2, false],
     ['ctrlTrailGlowW', 'outTrailGlowW', 9, false],
     ['ctrlTrailLife', 'outTrailLife', 300, true],
@@ -504,10 +507,11 @@ const I18N = {
     labelRingLife: '圆环寿命',
     labelClickShards: '点击碎片数量',
     labelMaxShards: '碎片上限',
-    labelBloomRing: 'Bloom 圆环模糊',
+    labelBloomRing: '原生圆环模糊',
     labelBloomThreshold: 'Bloom 阈值',
     labelBloomIntensity: 'Bloom 强度',
     labelBloomScatter: 'Bloom 扩散',
+    labelClickGlow: '点击辉光强度',
     labelTrailEnabled: '启用拖尾',
     labelTrailAlways: '始终显示',
     labelTrailW: '拖尾宽度',
@@ -529,7 +533,7 @@ const I18N = {
     labelMinVertDist: '最小采样间距',
     labelTrailShardLifeMin: '拖尾碎片最短寿命',
     labelTrailShardLifeMax: '拖尾碎片最长寿命',
-    labelBloomDisk: 'Bloom 光盘模糊',
+    labelBloomDisk: '原生光盘模糊',
     btnReset: '重置默认',
     customBgLabel: '自定义背景',
     customBgPlaceholder: 'CSS background 值或图片 URL…',
@@ -580,10 +584,11 @@ const I18N = {
     labelRingLife: 'Ring Lifetime',
     labelClickShards: 'Click Shard Count',
     labelMaxShards: 'Max Shards',
-    labelBloomRing: 'Bloom Ring Blur',
+    labelBloomRing: 'Native Ring Blur',
     labelBloomThreshold: 'Bloom Threshold',
     labelBloomIntensity: 'Bloom Intensity',
     labelBloomScatter: 'Bloom Scatter',
+    labelClickGlow: 'Click Glow Strength',
     labelTrailEnabled: 'Enable Trail',
     labelTrailAlways: 'Always Show',
     labelTrailW: 'Trail Width',
@@ -602,7 +607,7 @@ const I18N = {
     labelMinVertDist: 'Min Vertex Distance',
     labelTrailShardLifeMin: 'Trail Shard Life Min',
     labelTrailShardLifeMax: 'Trail Shard Life Max',
-    labelBloomDisk: 'Bloom Disk Blur',
+    labelBloomDisk: 'Native Disk Blur',
     btnReset: 'Reset Defaults',
     customBgLabel: 'Custom Background',
     customBgPlaceholder: 'CSS background or image URL…',
@@ -692,6 +697,7 @@ function switchLanguage(lang)
     ctrlBloomThreshold: d.labelBloomThreshold,
     ctrlBloomIntensity: d.labelBloomIntensity,
     ctrlBloomScatter: d.labelBloomScatter,
+    ctrlClickGlow: d.labelClickGlow,
     ctrlTrail: d.labelTrailEnabled,
     ctrlTrailAlways: d.labelTrailAlways,
     ctrlTrailW: d.labelTrailW,
@@ -896,6 +902,7 @@ switchLanguage(currentLang);
     ['ctrlBloomThreshold', 'bloom.threshold'],
     ['ctrlBloomIntensity', 'bloom.intensity'],
     ['ctrlBloomScatter', 'bloom.scatter'],
+    ['ctrlClickGlow', 'bloom.clickEmissionScale'],
     ['ctrlTrailW', 'trail.width'],
     ['ctrlTrailGlowW', 'trail.outerGlowWidth'],
     ['ctrlTrailLife', 'trail.lifetimeMs'],

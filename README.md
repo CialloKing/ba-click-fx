@@ -202,6 +202,13 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 });
 ```
 
+点击辉光可独立于轨迹调节。该倍率只改变增强模式下圆环和中心光盘的
+Bloom 发射；原生辉光使用保持单调的有界 Alpha 映射，Legacy 保持兼容输出：
+
+```js
+fx.setFxParam('bloom.clickEmissionScale', 1.25);
+```
+
 ### 可调特效参数（setFxParam 路径）
 
 | 路径 | 默认值 | 说明 |
@@ -219,12 +226,13 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 | `bloom.threshold` | 1.0 | 高亮提取阈值 |
 | `bloom.softKnee` | 0.5 | 阈值过渡柔和度 |
 | `bloom.clamp` | 65472 | URP 预过滤 HDR 上限 |
-| `bloom.intensity` | 0.45 | 软件 Bloom 合成强度 |
-| `bloom.scatter` | 0.35 | 光晕扩散范围 |
+| `bloom.intensity` | 1.0 | 针对网页透明 sRGB 合成与游戏截图校准的 Bloom 强度 |
+| `bloom.scatter` | 0.7 | 针对局部 mip 裁剪补偿的光晕扩散范围 |
 | `bloom.resolutionScale` | 0.5 | Bloom 缓冲区相对分辨率（内部限制为 0.1~0.75） |
 | `bloom.skipIterations` | 1 | 略过最深层 mip 的迭代数 |
 | `bloom.highQualityFiltering` | true | 启用高质量双三次 scatter 上采样 |
-| `bloom.ringEmissionAlpha` | 0.65 | 软件 Bloom 圆环 HDR 发射校准 |
+| `bloom.clickEmissionScale` | 1.0 | 点击圆环与中心光盘的独立辉光倍率，推荐 `0~4`；不影响清晰几何或轨迹 |
+| `bloom.ringEmissionAlpha` | 1.0 | 与 FX_MAT_Touch_Tri3 材质 Alpha 对齐的圆环 HDR 发射 |
 | `bloom.diskEmissionAlpha` | 1.0 | 软件 Bloom 光盘 HDR 发射校准 |
 | `bloom.ringBlur` | 80 | 像素回读不可用时的圆环原生模糊半径 |
 | `bloom.ringAlpha` | 0.35 | 像素回读不可用时的圆环原生模糊强度 |
@@ -251,7 +259,7 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 
 圆环的 `radiusMin` / `radiusMax` 是从 MeshTri 的 Start Size 与相机比例换算出的外半径基准值；实际外半径还会乘 Unity 生命周期大小曲线。默认 `widthStart` / `widthEnd` 均为 `1`，只调节资源环宽，实际环宽始终按 `外半径 × 0.0598573766 × 环宽倍率` 计算。
 
-原 Shader 使用 `Blend SrcAlpha One, One One`。ParticleSystemRenderer 的 Apply Active Color Space 会把粒子 sRGB 顶点色解码到 Linear，再与白色 HDR 材质相乘；圆环因此不能按普通 sRGB 颜色直接相乘。溶解不是连续压低所有像素的透明度，而是以阈值对二维纹理 Alpha 做二值 clip，通过测试的像素继续保留原纹理 Alpha。大小和溶解阈值均使用资源关键帧及其入/出切线执行 Unity 三次 Hermite 插值，而不是线性插值或通用 smoothstep。
+原 Shader 使用 `Blend SrcAlpha One, One One`。ParticleSystemRenderer 的 Apply Active Color Space 会把启用的 Color over Lifetime 顶点色解码到 Linear，再与 `FX_MAT_Touch_Tri3` 的白色 5.992157 HDR 材质相乘。溶解不是连续压低所有像素的透明度，而是以阈值处理二维纹理 Alpha；通过测试的像素继续保留纹理覆盖率。大小和溶解阈值均使用资源关键帧及其入/出切线执行 Unity 三次 Hermite 插值，而不是线性插值或通用 smoothstep。
 
 ### 拖尾轨迹
 

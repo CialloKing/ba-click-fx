@@ -434,6 +434,16 @@ function colorToCss(color, alpha = 1)
   return `rgba(${red}, ${green}, ${blue}, ${clamp01(alpha)})`;
 }
 
+function scaleNativeGlowAlpha(alpha, emissionScale)
+{
+  const baseAlpha = clamp01(alpha);
+  const safeScale = Math.max(0, emissionScale);
+
+  // Canvas 阴影只能使用 0..1 Alpha。按重复覆盖的等效增益映射，可让
+  // 0..4 的控制范围保持单调，同时确保倍率 1 精确保留原生标定值。
+  return 1 - (1 - baseAlpha) ** safeScale;
+}
+
 function srgbToLinearChannel(channel)
 {
   const normalized = clamp01(channel / 255);
@@ -497,9 +507,16 @@ function linearEnergyToAdditiveCss(color, opacity = 1)
     Math.round(blue / alpha * 255)}, ${alpha})`;
 }
 
-function linearEnergyToEmissionCss(color, opacity, emissionRange)
+function linearEnergyToEmissionCss(
+  color,
+  opacity,
+  emissionRange,
+  energyScale = 1,
+)
 {
-  const scale = clamp01(opacity) / Math.max(1, emissionRange);
+  // 发射增益属于阈值提取前的线性能量，不能并入会钳制到 1 的 opacity。
+  const scale = clamp01(opacity) * Math.max(0, energyScale) /
+    Math.max(1, emissionRange);
   const red = Math.round(clamp(color[0] * scale * 255, 0, 255));
   const green = Math.round(clamp(color[1] * scale * 255, 0, 255));
   const blue = Math.round(clamp(color[2] * scale * 255, 0, 255));
@@ -511,12 +528,19 @@ function linearEnergyToEmissionCss(color, opacity, emissionRange)
  * 将已知的材质发射强度压入 8 位遮罩；软件 Bloom 回读后会乘回 emissionRange。
  * Alpha 被预先烘入 RGB，Canvas 自身的 Alpha 只负责路径边缘的抗锯齿覆盖率。
  */
-function colorToEmissionCss(color, alpha, emission, emissionRange)
+function colorToEmissionCss(
+  color,
+  alpha,
+  emission,
+  emissionRange,
+  energyScale = 1,
+)
 {
   return linearEnergyToEmissionCss(
     colorToLinearEnergy(color, emission),
     alpha,
     emissionRange,
+    energyScale,
   );
 }
 
@@ -981,7 +1005,10 @@ function drawDissolvedCircle(
           blur: bloomCfg.ringBlur * scale,
           color: colorToCss(
             particleColor,
-            opacity * bloomCfg.ringAlpha,
+            scaleNativeGlowAlpha(
+              opacity * bloomCfg.ringAlpha,
+              bloomCfg.clickEmissionScale,
+            ),
           ),
         }
       : null,
@@ -1028,6 +1055,7 @@ function drawDissolvedCircleEmission(
       materialEnergy,
       opacity * luminance * bloomCfg.ringEmissionAlpha,
       bloomCfg.emissionRange,
+      bloomCfg.clickEmissionScale,
     ),
   );
   context.restore();
@@ -1083,7 +1111,15 @@ function drawDisk(
   context.beginPath();
   context.arc(wave.x, wave.y, radius, 0, TAU);
   context.fillStyle = gradient;
-  context.shadowColor = colorToCss(color, alpha * (legacy ? 0.5 : bloomCfg.diskAlpha));
+  context.shadowColor = colorToCss(
+    color,
+    legacy
+      ? alpha * 0.5
+      : scaleNativeGlowAlpha(
+        alpha * bloomCfg.diskAlpha,
+        bloomCfg.clickEmissionScale,
+      ),
+  );
   context.shadowBlur = useNativeBloom ? bloomCfg.diskBlur * scale : 0;
   context.fill();
   context.restore();
@@ -1120,6 +1156,7 @@ function drawDiskEmission(
       alpha,
       bloomCfg.diskEmission,
       bloomCfg.emissionRange,
+      bloomCfg.clickEmissionScale,
     ),
   );
   gradient.addColorStop(
@@ -1129,6 +1166,7 @@ function drawDiskEmission(
       alpha,
       bloomCfg.diskEmission,
       bloomCfg.emissionRange,
+      bloomCfg.clickEmissionScale,
     ),
   );
   gradient.addColorStop(1, 'rgb(0, 0, 0)');
@@ -1366,6 +1404,12 @@ class ClickWave
 
   drawBloom(context, scale, opacity)
   {
+    if (this.fx.bloom.clickEmissionScale <= 0)
+    {
+      // 强度为零时跳过整套点击发射几何，轨迹 Bloom 仍由独立路径绘制。
+      return;
+    }
+
     const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
 
     if (diskProgress < 1)
@@ -1400,6 +1444,11 @@ class ClickWave
 
   appendWebGLBloom(renderer, scale, opacity)
   {
+    if (this.fx.bloom.clickEmissionScale <= 0)
+    {
+      return;
+    }
+
     const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
 
     if (diskProgress < 1)
@@ -1412,7 +1461,7 @@ class ClickWave
       ) * scale;
       const color = evaluateColor(diskCfg.colorKeys, diskProgress);
       const alpha = evaluateNumber(diskCfg.alphaKeys, diskProgress) *
-        opacity * bloomCfg.diskEmissionAlpha;
+        opacity * bloomCfg.diskEmissionAlpha * bloomCfg.clickEmissionScale;
       const materialEnergy = colorToLinearEnergy(
         color,
         bloomCfg.diskEmission,
@@ -1455,7 +1504,7 @@ class ClickWave
         ringCfg.radialSamples,
         ringCfg.arcSamples,
         ringMaterialEnergy,
-        opacity * bloomCfg.ringEmissionAlpha,
+        opacity * bloomCfg.ringEmissionAlpha * bloomCfg.clickEmissionScale,
         (angularProgress, radialProgress) =>
         {
           const textureProgress = direction > 0
@@ -3104,6 +3153,11 @@ export class BAClickFX
 
     for (const wave of this.waves)
     {
+      if (wave.fx.bloom.clickEmissionScale <= 0)
+      {
+        continue;
+      }
+
       const diskProgress = wave.ageMs / this.fxConfig.disk.lifetimeMs;
       const ringProgress = wave.ageMs / this.fxConfig.rings.lifetimeMs;
       let sourceRadius = diskProgress < 1

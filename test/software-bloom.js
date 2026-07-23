@@ -458,4 +458,38 @@ assert(
   '加色编码只访问指定的实际辉光区域',
 );
 
+const floorSource = new Float32Array(5 * 5 * 3).fill(1);
+const floorRgba = new Uint8ClampedArray(5 * 5 * 4);
+const floorCenter = (2 * 5 + 2) * 3;
+
+floorSource[floorCenter] = 4;
+floorSource[floorCenter + 1] = 4;
+floorSource[floorCenter + 2] = 4;
+
+encodeAdditiveBloom(
+  floorSource,
+  floorRgba,
+  1,
+  5,
+  null,
+  {
+    minimumX: 0,
+    minimumY: 0,
+    maximumX: 4,
+    maximumY: 4,
+    feather: 2,
+    left: [1, 1, 1],
+    right: [1, 1, 1],
+    top: [1, 1, 1],
+    bottom: [1, 1, 1],
+  },
+);
+assert(
+  floorRgba[3] === 0 &&
+    floorRgba[(2 * 5 + 2) * 4 + 3] === 255 &&
+    floorRgba[(4 * 5 + 4) * 4 + 3] === 0 &&
+    floorRgba[(1 * 5 + 2) * 4 + 3] > 0,
+  '局部 Bloom 只在裁剪边界移除底色，并向内部平滑保留低频辉光',
+);
+
 console.log(`\n✅ ${passed} 项 Software Bloom 数值检查通过\n`);

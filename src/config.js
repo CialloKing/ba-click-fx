@@ -105,7 +105,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
       ],
       // Canvas 正角度在屏幕坐标中表现为顺时针，因此用 -1 还原游戏逆时针方向。
       rotationDirection: -1,
-      // FX_MAT_Touch_Tri3 的白色 HDR 强度；Shader 还会乘入粒子顶点 RGB。
+      // FX_MAT_Touch_Tri3 的白色 HDR 强度；Renderer 的 Color 顶点流还会
+      // 乘入启用的 Color over Lifetime，必须保留生命周期内的青蓝过渡。
       hdrIntensity: 5.992157,
       colorKeys:
       [
@@ -262,13 +263,14 @@ export const UNITY_FX_TOUCH = Object.freeze(
     },
     bloom:
     {
-      // BundleBaseline 的 URP Bloom 对照值；软件管线使用 Float32 中间亮度，
-      // 最终再量化为普通 ImageData，因此不依赖实验性的 float16 Canvas。
+      // Unity 对照工程运行时为 Intensity 0.45 / Scatter 0.35；网页采用
+      // 局部裁剪 mip 与透明 sRGB 合成，不能直接套用全屏后处理数值。
+      // 这里按游戏截图补偿为 1.0 / 0.7，恢复缺失的低频外晕与显示亮度。
       threshold: 1.0,
       softKnee: 0.5,
       clamp: 65472,
-      intensity: 0.45,
-      scatter: 0.35,
+      intensity: 1.0,
+      scatter: 0.7,
       resolutionScale: 0.5,
       skipIterations: 1,
       highQualityFiltering: true,
@@ -281,9 +283,12 @@ export const UNITY_FX_TOUCH = Object.freeze(
       // 原资源的纹理、顶点色和材质 Alpha 均为 1；头尾差异由 RGB
       // Gradient × Stretch 纹理产生，不能再用全局 Alpha 把头部一并压暗。
       trailEmissionAlpha: 1,
-      // 局部裁剪 CPU 金字塔的圆环能量略高于 Unity 全屏链路；单独校准，
-      // 不牵连已经匹配的圆盘与拖尾 Bloom。
-      ringEmissionAlpha: 0.65,
+      // 点击专用倍率只缩放圆环与光盘的辉光源，不改变清晰几何或拖尾。
+      // 原生辉光后端复用同一倍率缩放 shadowBlur 的颜色 Alpha。
+      clickEmissionScale: 1,
+      // FX_MAT_Touch_Tri3 的材质 Alpha 为 1；局部 Bloom 通过边缘渐隐
+      // 处理裁剪边界，不再用全局 Alpha 压低圆环发射能量。
+      ringEmissionAlpha: 1,
       diskEmissionAlpha: 1,
       // 以下 Alpha 只用于无法回读像素时的原生模糊回退。
       ringBlur: 80,

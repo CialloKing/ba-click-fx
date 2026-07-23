@@ -610,19 +610,20 @@ assert(
 );
 assert(
   UNITY_FX_TOUCH.bloom.threshold === 1 &&
-    UNITY_FX_TOUCH.bloom.intensity === 0.45 &&
-    UNITY_FX_TOUCH.bloom.scatter === 0.35 &&
+    UNITY_FX_TOUCH.bloom.intensity === 1 &&
+    UNITY_FX_TOUCH.bloom.scatter === 0.7 &&
     UNITY_FX_TOUCH.bloom.skipIterations === 1 &&
     UNITY_FX_TOUCH.bloom.highQualityFiltering === true &&
     !('iterations' in UNITY_FX_TOUCH.bloom),
-  '软件 Bloom 保留 Unity 运行工程的 Volume 参数',
+  'Bloom 使用针对网页局部 mip 与透明合成的游戏截图校准值',
 );
 assert(
   UNITY_FX_TOUCH.bloom.trailEmissionAlpha === 1 &&
-    UNITY_FX_TOUCH.bloom.ringEmissionAlpha === 0.65 &&
+    UNITY_FX_TOUCH.bloom.clickEmissionScale === 1 &&
+    UNITY_FX_TOUCH.bloom.ringEmissionAlpha === 1 &&
     UNITY_FX_TOUCH.bloom.diskEmissionAlpha === 1 &&
     UNITY_FX_TOUCH.bloom.trailAlpha === 0.18,
-  '软件 HDR 发射使用资源 Alpha，原生阴影回退单独标定',
+  '点击与拖尾发射倍率相互独立，原生阴影回退单独标定',
 );
 assert(
   CONFIG.lightBackgroundContrastAlpha === 0.35,
@@ -1073,6 +1074,70 @@ assert(
   peakRingEmission > 0,
   '圆环通过专用发射采样写入 Bloom，不复用原生阴影 Alpha',
 );
+const clickEmissionProbeAge = probeWave.ageMs;
+
+function sampleClickEmission(scale)
+{
+  effect.setFxParam('bloom.clickEmissionScale', scale);
+  probeWave.ageMs = 100;
+  effect.bloomRenderer.sourceContext.conicGradients = [];
+  effect.bloomRenderer.sourceContext.radialGradients = [];
+  probeWave.drawBloom(effect.bloomRenderer.sourceContext, 1, 1);
+
+  const ringPeak = effect.bloomRenderer.sourceContext.conicGradients
+    .flatMap((entry) => entry.gradient.stops)
+    .reduce(
+      (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
+      0,
+    );
+  const diskPeak = effect.bloomRenderer.sourceContext.radialGradients
+    .flatMap((entry) => entry.gradient.stops)
+    .reduce(
+      (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
+      0,
+    );
+  const webglCalls = { disks: [], rings: [] };
+
+  probeWave.appendWebGLBloom(
+    {
+      addDisk(...args)
+      {
+        webglCalls.disks.push(args);
+      },
+      addRing(...args)
+      {
+        webglCalls.rings.push(args);
+      },
+    },
+    1,
+    1,
+  );
+
+  return { ringPeak, diskPeak, webglCalls };
+}
+
+const baseClickEmission = sampleClickEmission(1);
+const boostedClickEmission = sampleClickEmission(2);
+
+assert(
+  boostedClickEmission.ringPeak >= baseClickEmission.ringPeak * 1.8 &&
+    boostedClickEmission.diskPeak >= baseClickEmission.diskPeak * 1.8,
+  '点击发射倍率在线性能量上同步增强软件 Bloom 的圆环与光盘',
+);
+assert(
+  boostedClickEmission.webglCalls.disks[0][4] ===
+      baseClickEmission.webglCalls.disks[0][4] * 2 &&
+    boostedClickEmission.webglCalls.rings.every((call, index) =>
+      call[8] === baseClickEmission.webglCalls.rings[index][8] * 2),
+  'WebGL2 Bloom 的圆环与光盘使用同一点击发射倍率',
+);
+effect.setFxParam('bloom.clickEmissionScale', Number.NaN);
+assert(
+  effect.getFxConfig().bloom.clickEmissionScale === 2,
+  '点击发射 API 忽略非有限数值',
+);
+effect.setFxParam('bloom.clickEmissionScale', 1);
+probeWave.ageMs = clickEmissionProbeAge;
 const contrastTint = effect.contrastContext.fillRects.at(-1);
 
 assert(
@@ -1267,6 +1332,63 @@ assert(
     dom.body.children.length === 0,
   'destroy() 移除监听、隔离合成根与自有 Canvas',
 );
+
+const clickGlowResetEffect = new BAClickFX({ bloomBackend: 'native' });
+
+clickGlowResetEffect.setFxParam('bloom.clickEmissionScale', -1);
+assert(
+  clickGlowResetEffect.getFxConfig().bloom.clickEmissionScale === 0,
+  '点击发射 API 将负倍率钳制为零',
+);
+clickGlowResetEffect.boom(960, 540);
+flushFrames(dom, performance.now(), 1);
+const disabledNativeGlowIndices = clickGlowResetEffect.context.fillShadowBlurs
+  .reduce((indices, blur, index) =>
+  {
+    if (blur > 0)
+    {
+      indices.push(index);
+    }
+
+    return indices;
+  }, []);
+
+assert(
+  disabledNativeGlowIndices.length > 0 &&
+    disabledNativeGlowIndices.every((index) =>
+      getCssAlpha(clickGlowResetEffect.context.fillShadowColors[index]) === 0),
+  '点击发射倍率为零时原生圆环与光盘只关闭阴影、不移除清晰几何',
+);
+clickGlowResetEffect.clear();
+clickGlowResetEffect.setFxParam('bloom.clickEmissionScale', 4);
+clickGlowResetEffect.context.fillShadowBlurs = [];
+clickGlowResetEffect.context.fillShadowColors = [];
+clickGlowResetEffect.boom(960, 540);
+flushFrames(dom, performance.now(), 1);
+const boostedNativeGlowAlphas = clickGlowResetEffect.context.fillShadowBlurs
+  .reduce((alphas, blur, index) =>
+  {
+    if (blur > 0)
+    {
+      alphas.push(getCssAlpha(
+        clickGlowResetEffect.context.fillShadowColors[index],
+      ));
+    }
+
+    return alphas;
+  }, []);
+
+assert(
+  boostedNativeGlowAlphas.length > 0 &&
+    boostedNativeGlowAlphas.every((alpha) => alpha > 0 && alpha < 1),
+  '原生辉光在滑块上限仍保持单调余量，不会提前钳制为不透明阴影',
+);
+clickGlowResetEffect.resetFxConfig();
+assert(
+  clickGlowResetEffect.getFxConfig().bloom.clickEmissionScale === 1,
+  'resetFxConfig() 恢复点击发射倍率默认值',
+);
+clickGlowResetEffect.destroy();
 
 const firstIsolatedEffect = new BAClickFX();
 const secondIsolatedEffect = new BAClickFX();
@@ -1784,6 +1906,7 @@ assert(
   legacyEffect.getConfig().resolvedBloomBackend === 'legacy',
   'Legacy 构造完成后无需等待 RAF 即公开实际渲染模式',
 );
+legacyEffect.setFxParam('bloom.clickEmissionScale', 0);
 legacyEffect.boom(960, 540);
 legacyEffect.context.filledPaths = [];
 let legacyNow = flushFrames(dom, performance.now(), 1);
@@ -1799,6 +1922,11 @@ assert(
 assert(
   legacyTrianglePaths.length === UNITY_FX_TOUCH.shards.clickCount,
   'Legacy 点击后的第一帧同时绘制三角碎片',
+);
+assert(
+  legacyEffect.context.fillShadowBlurs.some((blur, index) =>
+    blur > 0 && getCssAlpha(legacyEffect.context.fillShadowColors[index]) > 0),
+  '点击发射倍率不改变 Legacy 兼容圆环辉光',
 );
 
 legacyNow = flushFrames(dom, legacyNow, 50);

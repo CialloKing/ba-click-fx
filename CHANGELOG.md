@@ -7,6 +7,10 @@
 - 已有 Canvas 作为 `target` 时将隔离合成明确降级为 `false`；普通容器继续由调用方提供定位上下文
 - 展示页新增双语隔离合成开关、持久化与重置，并在首次加载时显式应用主题颜色
 - 补充外部 Canvas、多实例、WebGL2 延迟挂载、运行时重挂载、销毁和 npm 类型消费验证
+- 针对网页局部 mip 与透明 sRGB 合成，将 Bloom Intensity/Scatter 校准为 1.0/0.7，补回游戏截图中的发光强度与大范围低频外晕
+- 圆环继续使用 `FX_MAT_Touch_Tri3` 的白色 5.992157 HDR 材质，并保留原 Prefab 启用的 Color over Lifetime 顶点色
+- 提升圆环 Bloom 发射至 Unity 材质 Alpha 1.0；局部软件 Bloom 仅在裁剪边缘扣除底色并向内渐退，消除计算矩形且保留真实外晕
+- 新增 `bloom.clickEmissionScale` 调节路径和展示页双语滑块，独立缩放圆环、中心光盘辉光而不改变轨迹或清晰几何
 
 ## v1.2.7 — 可选 WebGL2 Bloom 后端与切换 API
 

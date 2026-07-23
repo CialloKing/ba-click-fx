@@ -862,6 +862,7 @@ export function encodeAdditiveBloom(
   intensity,
   width = source.length / RGB_CHANNELS,
   bounds = null,
+  edgeCorrection = null,
 )
 {
   const safeIntensity = Math.max(0, intensity);
@@ -881,17 +882,70 @@ export function encodeAdditiveBloom(
   const endY = bounds
     ? clamp(Math.ceil(bounds.maximumY + 1), startY, sourceHeight)
     : sourceHeight;
+  const feather = Math.max(1, edgeCorrection?.feather ?? 1);
+  const leftFloor = edgeCorrection?.left;
+  const rightFloor = edgeCorrection?.right;
+  const topFloor = edgeCorrection?.top;
+  const bottomFloor = edgeCorrection?.bottom;
 
   for (let y = startY; y < endY; y++)
   {
     let sourceIndex = (y * safeWidth + startX) * RGB_CHANNELS;
     let outputIndex = (y * safeWidth + startX) * RGBA_CHANNELS;
+    const topWeight = topFloor
+      ? smoothBloomEdgeWeight(y - edgeCorrection.minimumY, feather)
+      : 0;
+    const bottomWeight = bottomFloor
+      ? smoothBloomEdgeWeight(edgeCorrection.maximumY - y, feather)
+      : 0;
+    const verticalRedFloor = Math.max(
+      (topFloor?.[0] ?? 0) * topWeight,
+      (bottomFloor?.[0] ?? 0) * bottomWeight,
+    );
+    const verticalGreenFloor = Math.max(
+      (topFloor?.[1] ?? 0) * topWeight,
+      (bottomFloor?.[1] ?? 0) * bottomWeight,
+    );
+    const verticalBlueFloor = Math.max(
+      (topFloor?.[2] ?? 0) * topWeight,
+      (bottomFloor?.[2] ?? 0) * bottomWeight,
+    );
 
     for (let x = startX; x < endX; x++)
     {
-      const red = linearToSrgb(source[sourceIndex] * safeIntensity);
-      const green = linearToSrgb(source[sourceIndex + 1] * safeIntensity);
-      const blue = linearToSrgb(source[sourceIndex + 2] * safeIntensity);
+      const leftWeight = leftFloor
+        ? smoothBloomEdgeWeight(x - edgeCorrection.minimumX, feather)
+        : 0;
+      const rightWeight = rightFloor
+        ? smoothBloomEdgeWeight(edgeCorrection.maximumX - x, feather)
+        : 0;
+      const redFloor = Math.max(
+        verticalRedFloor,
+        (leftFloor?.[0] ?? 0) * leftWeight,
+        (rightFloor?.[0] ?? 0) * rightWeight,
+      );
+      const greenFloor = Math.max(
+        verticalGreenFloor,
+        (leftFloor?.[1] ?? 0) * leftWeight,
+        (rightFloor?.[1] ?? 0) * rightWeight,
+      );
+      const blueFloor = Math.max(
+        verticalBlueFloor,
+        (leftFloor?.[2] ?? 0) * leftWeight,
+        (rightFloor?.[2] ?? 0) * rightWeight,
+      );
+      const red = linearToSrgb(Math.max(
+        0,
+        source[sourceIndex] - redFloor,
+      ) * safeIntensity);
+      const green = linearToSrgb(Math.max(
+        0,
+        source[sourceIndex + 1] - greenFloor,
+      ) * safeIntensity);
+      const blue = linearToSrgb(Math.max(
+        0,
+        source[sourceIndex + 2] - blueFloor,
+      ) * safeIntensity);
       const alpha = Math.max(red, green, blue);
 
       if (alpha <= 0.00001)
@@ -913,6 +967,111 @@ export function encodeAdditiveBloom(
       outputIndex += RGBA_CHANNELS;
     }
   }
+}
+
+function smoothBloomEdgeWeight(distance, feather)
+{
+  const normalized = clamp01(1 - Math.max(0, distance) / feather);
+
+  return normalized * normalized * (3 - 2 * normalized);
+}
+
+/**
+ * 最深层 mip 会在局部缓冲中形成接近常量的低频底色。全屏 URP 中该能量
+ * 会继续向画面外扩散；局部裁剪则会把它截成矩形。这里只记录每条人工
+ * 边界的基线，编码时再向内部平滑减弱，避免全局扣除压暗真实外晕。
+ */
+function calculateBloomEdgeCorrection(source, width, height, bounds, edges)
+{
+  if (!bounds || (
+    !edges.left && !edges.right && !edges.top && !edges.bottom
+  ))
+  {
+    return null;
+  }
+
+  const minimumX = clamp(Math.floor(bounds.minimumX), 0, width - 1);
+  const minimumY = clamp(Math.floor(bounds.minimumY), 0, height - 1);
+  const maximumX = clamp(Math.ceil(bounds.maximumX), minimumX, width - 1);
+  const maximumY = clamp(Math.ceil(bounds.maximumY), minimumY, height - 1);
+  const sampleEdge = (visit) =>
+  {
+    const floor = [0, 0, 0];
+
+    visit((x, y) =>
+    {
+      const index = (y * width + x) * RGB_CHANNELS;
+
+      for (let channel = 0; channel < RGB_CHANNELS; channel++)
+      {
+        floor[channel] = Math.max(floor[channel], source[index + channel]);
+      }
+    });
+
+    return floor;
+  };
+  const correction =
+  {
+    minimumX,
+    minimumY,
+    maximumX,
+    maximumY,
+    // 半分辨率 Bloom 中最多渐退 16 px，足以隐藏边界且不会触及主体。
+    feather: clamp(Math.round(Math.min(
+      maximumX - minimumX + 1,
+      maximumY - minimumY + 1,
+    ) * 0.125), 2, 16),
+    left: null,
+    right: null,
+    top: null,
+    bottom: null,
+  };
+
+  if (edges.top)
+  {
+    correction.top = sampleEdge((sample) =>
+    {
+      for (let x = minimumX; x <= maximumX; x++)
+      {
+        sample(x, minimumY);
+      }
+    });
+  }
+
+  if (edges.bottom)
+  {
+    correction.bottom = sampleEdge((sample) =>
+    {
+      for (let x = minimumX; x <= maximumX; x++)
+      {
+        sample(x, maximumY);
+      }
+    });
+  }
+
+  if (edges.left)
+  {
+    correction.left = sampleEdge((sample) =>
+    {
+      for (let y = minimumY; y <= maximumY; y++)
+      {
+        sample(minimumX, y);
+      }
+    });
+  }
+
+  if (edges.right)
+  {
+    correction.right = sampleEdge((sample) =>
+    {
+      for (let y = minimumY; y <= maximumY; y++)
+      {
+        sample(maximumX, y);
+      }
+    });
+  }
+
+  return correction;
 }
 
 /**
@@ -943,6 +1102,8 @@ export class SoftwareBloomRenderer
     this.resolutionScale = 0;
     this.displayWidth = 0;
     this.displayHeight = 0;
+    this.displayCssWidth = 0;
+    this.displayCssHeight = 0;
     this.sourceLinear = new Float32Array(0);
     this.levels = [];
     this.levelStorage = [];
@@ -1127,6 +1288,8 @@ export class SoftwareBloomRenderer
     }
 
     const safeSamplingScale = clamp(samplingScale, 1, 4);
+    this.displayCssWidth = displayWidth;
+    this.displayCssHeight = displayHeight;
     const pixelDisplayWidth = Math.max(1, Math.round(
       displayWidth * safeSamplingScale,
     ));
@@ -1372,12 +1535,27 @@ export class SoftwareBloomRenderer
     }
 
     this._clearOutputBounds();
+    const edgeCorrection = calculateBloomEdgeCorrection(
+      bloom,
+      this.width,
+      this.height,
+      bloomBounds,
+      {
+        left: bloomBounds.minimumX > 0 || this.originX > 0,
+        top: bloomBounds.minimumY > 0 || this.originY > 0,
+        right: bloomBounds.maximumX < this.width - 1 ||
+          this.originX + this.regionWidth < this.displayCssWidth,
+        bottom: bloomBounds.maximumY < this.height - 1 ||
+          this.originY + this.regionHeight < this.displayCssHeight,
+      },
+    );
     encodeAdditiveBloom(
       bloom,
       this.outputImageData.data,
       settings.intensity,
       this.width,
       bloomBounds,
+      edgeCorrection,
     );
     this.outputBounds = bloomBounds;
     this.outputContext.putImageData(
