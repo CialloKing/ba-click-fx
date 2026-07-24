@@ -1075,7 +1075,7 @@ function calculateBloomEdgeCorrection(source, width, height, bounds, edges)
 }
 
 /**
- * 一个实例只持有一套局部金字塔缓冲；模块加载时不访问 DOM，兼容 SSR。
+ * 一个实例只持有一套金字塔缓冲；模块加载时不访问 DOM，兼容 SSR。
  */
 export class SoftwareBloomRenderer
 {

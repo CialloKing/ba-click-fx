@@ -101,6 +101,7 @@ bindToggle('ctrlTrailAlways', (checked) => effect.updateConfig({ trailAlways: ch
 
 // ── 渲染模式 → renderingMode + bloomBackend ──────────────────────────
 const ctrlRenderMode = document.getElementById('ctrlRenderMode');
+const DEFAULT_RENDER_MODE = 'webgl2-bloom';
 const RENDER_MODE_CONFIGS = Object.freeze(
   {
     'software-bloom': { renderingMode: 'enhanced', bloomBackend: 'software' },
@@ -154,7 +155,8 @@ function updateRenderBackendStatus()
 
 function applyRenderMode(mode)
 {
-  const config = RENDER_MODE_CONFIGS[mode] || RENDER_MODE_CONFIGS['software-bloom'];
+  const config = RENDER_MODE_CONFIGS[mode] ||
+    RENDER_MODE_CONFIGS[DEFAULT_RENDER_MODE];
 
   effect.updateConfig(config);
   updateRenderBackendStatus();
@@ -265,7 +267,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('outOpacity').textContent = '1.00';
   document.getElementById('ctrlDpr').value = '2';
   document.getElementById('outDpr').textContent = '2';
-  document.getElementById('ctrlRenderMode').value = 'software-bloom';
+  document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
   document.getElementById('ctrlIsolatedCompositing').checked = true;
   document.getElementById('ctrlClick').checked = true;
   document.getElementById('ctrlTrail').checked = true;
@@ -339,8 +341,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
       clickEnabled: true,
       trailEnabled: true,
       trailAlways: false,
-      renderingMode: 'enhanced',
-      bloomBackend: 'software',
+      ...RENDER_MODE_CONFIGS[DEFAULT_RENDER_MODE],
       isolatedCompositing: true,
       lightBackgroundContrastAlpha: 0.35,
       maxDpr: 2,
@@ -540,11 +541,11 @@ const I18N = {
     btnApplyBg: '应用背景',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
-    introP2: '从 Unity FX_Touch.prefab 逐参数移植的 Canvas 2D 特效库，可选 WebGL2 Bloom 加速——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
+    introP2: '从 Unity FX_Touch.prefab 逐参数移植的 Canvas 2D 特效库，默认使用 WebGL2 Bloom——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.8/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 不需要图片素材；默认软件 Bloom 只使用 Canvas 2D，也可选 WebGL2 加速，零运行时依赖。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 不需要图片素材；默认使用 WebGL2 Bloom，能力不足时自动回退软件 Bloom，零运行时依赖。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
   },
   en: {
     langToggle: '中文',
@@ -614,11 +615,11 @@ const I18N = {
     btnApplyBg: 'Apply',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
-    introP2: 'Canvas 2D effect library ported from Unity FX_Touch.prefab, with optional WebGL2 Bloom acceleration — dissolve rings, click shards, drag trails. Zero runtime dependencies.',
+    introP2: 'Canvas 2D effect library ported from Unity FX_Touch.prefab, using WebGL2 Bloom by default — dissolve rings, click shards, drag trails. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.8/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> No image assets. Software Bloom uses Canvas 2D by default, while WebGL2 acceleration is optional. Zero runtime dependencies.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> No image assets. WebGL2 Bloom is the default and falls back to Software Bloom when unavailable. Zero runtime dependencies.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
   },
 };
 
@@ -843,7 +844,7 @@ switchLanguage(currentLang);
   const savedRenderMode = localStorage.getItem('bafx-ctrlRenderMode');
   const initialRenderMode = savedRenderMode && RENDER_MODE_CONFIGS[savedRenderMode]
     ? savedRenderMode
-    : 'software-bloom';
+    : DEFAULT_RENDER_MODE;
   const renderModeEl = document.getElementById('ctrlRenderMode');
 
   if (renderModeEl)

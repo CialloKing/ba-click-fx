@@ -2128,11 +2128,15 @@ export class BAClickFX
       throw new Error('BAClickFX 需要浏览器 DOM 环境');
     }
 
+    const compatibilityBloomBackend =
+      typeof options.softwareBloomEnabled === 'boolean'
+        ? options.softwareBloomEnabled
+          ? 'software'
+          : 'native'
+        : CONFIG.bloomBackend;
     const bloomBackend = normalizeBloomBackend(
       options.bloomBackend,
-      options.softwareBloomEnabled === false
-        ? 'native'
-        : CONFIG.bloomBackend,
+      compatibilityBloomBackend,
     );
 
     this.config = createConfig(
@@ -3023,7 +3027,7 @@ export class BAClickFX
       const canvas = createCanvas();
       const context = canvas.getContext('2d');
 
-      // 原生辉光只在首次使用时分配缓冲，默认软件 Bloom 不承担额外内存。
+      // 原生辉光只在首次回退或显式选择时分配缓冲。
       this.nativeTrailBloomSurface = context
         ? { canvas, context, dpr: this.dpr }
         : null;
@@ -3311,11 +3315,26 @@ export class BAClickFX
       }
     }
 
-    // 固定空间顺序使同一批 renderer 更可能连续复用相近尺寸的缓冲。
-    regions.sort((left, right) =>
-      left.x - right.x || left.y - right.y);
+    if (regions.length === 0)
+    {
+      return [];
+    }
 
-    return regions;
+    // 局部 mip 的最低层会把低频能量铺满裁剪区域，在浅色背景上形成矩形。
+    // 软件后端改用单个全视口金字塔，让能量在真实画面边界内自然扩散。
+    return [
+      {
+        x: 0,
+        y: 0,
+        width: this.width,
+        height: this.height,
+        emissionBounds: combineBloomRegionBounds(
+          regions.map((region) => region.emissionBounds),
+        ),
+        waves: regions.flatMap((region) => region.waves),
+        trailBatches: regions.flatMap((region) => region.trailBatches),
+      },
+    ];
   }
 
   _getSoftwareBloomBounds(scale)
@@ -3358,7 +3377,7 @@ export class BAClickFX
       {
         if (!renderer.available)
         {
-          // 任一局部回读失败后，下一帧统一切换原生回退，不能只丢一块辉光。
+          // 像素回读失败后，下一帧统一切换原生回退。
           this.bloomRenderer.available = false;
           failed = true;
         }
@@ -3406,11 +3425,11 @@ export class BAClickFX
       regionCount: regions.length,
       processedSourcePixels,
       combinedBoundsPixels: combinedBounds
-        ? Math.ceil(combinedBounds.width * this.dpr) *
-          Math.ceil(combinedBounds.height * this.dpr)
+        ? Math.max(1, Math.round(combinedBounds.width * this.dpr)) *
+          Math.max(1, Math.round(combinedBounds.height * this.dpr))
         : 0,
     };
-    // 峰值结束后释放过量局部缓冲，同时保留少量余量避免区域数抖动时反复创建。
+    // 全视口模式固定只保留一个 Software Bloom renderer。
     this._trimBloomRendererPool(regions.length);
 
     if (failed)

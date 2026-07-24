@@ -5,7 +5,7 @@ const WORLD_TO_REFERENCE_PIXELS =
 const SHARD_LOCAL_SCALE = 0.3078824;
 const SHARD_UNIT_TO_REFERENCE_PIXELS =
   WORLD_TO_REFERENCE_PIXELS * SHARD_LOCAL_SCALE;
-const DEFAULT_BLOOM_BACKEND = 'software';
+const DEFAULT_BLOOM_BACKEND = 'webgl2';
 const BLOOM_BACKENDS = new Set(['auto', 'software', 'webgl2', 'native']);
 
 // 游戏相机 orthographicSize 实际约 1.47，代码中声明的 1.35 导致所有
@@ -264,7 +264,7 @@ export const UNITY_FX_TOUCH = Object.freeze(
     bloom:
     {
       // Unity 对照工程运行时为 Intensity 0.45 / Scatter 0.35；网页采用
-      // 局部裁剪 mip 与透明 sRGB 合成，不能直接套用全屏后处理数值。
+      // 透明 sRGB 合成，不能直接套用后处理覆盖不透明画面的数值。
       // 这里按游戏截图补偿为 1.0 / 0.7，恢复缺失的低频外晕与显示亮度。
       threshold: 1.0,
       softKnee: 0.5,
@@ -286,8 +286,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
       // 点击专用倍率只缩放圆环与光盘的辉光源，不改变清晰几何或拖尾。
       // 原生辉光后端复用同一倍率缩放 shadowBlur 的颜色 Alpha。
       clickEmissionScale: 1,
-      // FX_MAT_Touch_Tri3 的材质 Alpha 为 1；局部 Bloom 通过边缘渐隐
-      // 处理裁剪边界，不再用全局 Alpha 压低圆环发射能量。
+      // FX_MAT_Touch_Tri3 的材质 Alpha 为 1；Bloom 不再用全局 Alpha
+      // 压低圆环发射能量。
       ringEmissionAlpha: 1,
       diskEmissionAlpha: 1,
       // 以下 Alpha 只用于无法回读像素时的原生模糊回退。
@@ -310,7 +310,7 @@ export const CONFIG = Object.freeze(
     // 'enhanced' 使用线性能量编码，并由 bloomBackend 选择 Bloom 实现；
     // 'legacy' 使用 sRGB 颜色 + shadowBlur（main 分支风格）。
     renderingMode: 'enhanced',
-    // 软件 Bloom 保持默认参考实现；WebGL2 仅在显式选择或 auto 时创建。
+    // 默认使用 GPU Bloom；能力不足时依次回退软件 Bloom 与原生辉光。
     bloomBackend: DEFAULT_BLOOM_BACKEND,
     softwareBloomEnabled: true,
     // 多 Canvas 先在透明隔离组内混合，避免 plus-lighter 直接叠加白底后丢失颜色。

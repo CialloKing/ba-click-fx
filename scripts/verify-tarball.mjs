@@ -81,7 +81,7 @@ try
     [
       '--input-type=module',
       '--eval',
-      "import BAClickFXDefault, * as moduleExports from 'ba-click-fx'; if (typeof moduleExports.BAClickFX !== 'function' || BAClickFXDefault !== moduleExports.BAClickFX || moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' || moduleExports.CONFIG?.isolatedCompositing !== true) process.exit(1);",
+      "import BAClickFXDefault, * as moduleExports from 'ba-click-fx'; if (typeof moduleExports.BAClickFX !== 'function' || BAClickFXDefault !== moduleExports.BAClickFX || moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' || moduleExports.CONFIG?.bloomBackend !== 'webgl2' || moduleExports.CONFIG?.isolatedCompositing !== true) process.exit(1);",
     ],
     { cwd: consumerDirectory, stdio: 'pipe' },
   );
@@ -90,7 +90,7 @@ try
     [
       '--input-type=commonjs',
       '--eval',
-      "const moduleExports = require('ba-click-fx'); if (typeof moduleExports.BAClickFX !== 'function' || moduleExports.default !== moduleExports.BAClickFX || moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' || moduleExports.CONFIG?.isolatedCompositing !== true) process.exit(1);",
+      "const moduleExports = require('ba-click-fx'); if (typeof moduleExports.BAClickFX !== 'function' || moduleExports.default !== moduleExports.BAClickFX || moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' || moduleExports.CONFIG?.bloomBackend !== 'webgl2' || moduleExports.CONFIG?.isolatedCompositing !== true) process.exit(1);",
     ],
     { cwd: consumerDirectory, stdio: 'pipe' },
   );
@@ -114,6 +114,10 @@ try
   verify(
     iifeContext.BAClickFX?.CONFIG?.isolatedCompositing === true,
     'IIFE bundle does not expose the isolated compositing default',
+  );
+  verify(
+    iifeContext.BAClickFX?.CONFIG?.bloomBackend === 'webgl2',
+    'IIFE bundle does not expose the WebGL2 Bloom default',
   );
   verify(
     existsSync(join(installedRoot, 'dist', 'ba-click-fx.d.ts')),

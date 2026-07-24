@@ -615,7 +615,7 @@ assert(
     UNITY_FX_TOUCH.bloom.skipIterations === 1 &&
     UNITY_FX_TOUCH.bloom.highQualityFiltering === true &&
     !('iterations' in UNITY_FX_TOUCH.bloom),
-  'Bloom 使用针对网页局部 mip 与透明合成的游戏截图校准值',
+  'Bloom 使用针对网页透明合成的游戏截图校准值',
 );
 assert(
   UNITY_FX_TOUCH.bloom.trailEmissionAlpha === 1 &&
@@ -629,7 +629,7 @@ assert(
   CONFIG.lightBackgroundContrastAlpha === 0.35,
   '浅色背景对比层保留 0.35 的青色轮廓以改善白色背景可见性',
 );
-assert(CONFIG.bloomBackend === 'software', '默认继续使用精确的软件 Bloom 后端');
+assert(CONFIG.bloomBackend === 'webgl2', '默认使用 WebGL2 Bloom 后端');
 assert(CONFIG.isolatedCompositing === true, '默认启用隔离合成以保留白底上的特效颜色');
 assert(
   BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange',
@@ -676,6 +676,12 @@ assert(
 console.log('\n指针生命周期');
 const dom = installDom();
 const effect = new BAClickFX();
+assert(
+  effect.getConfig().bloomBackend === 'webgl2' &&
+    effect.getConfig().resolvedBloomBackend === 'pending',
+  '默认实例在延迟能力探测前请求 WebGL2 Bloom 并公开 pending',
+);
+effect.updateConfig({ bloomBackend: 'software' });
 const originalBloomBeginFrame = effect.bloomRenderer.beginFrame.bind(
   effect.bloomRenderer,
 );
@@ -1025,8 +1031,9 @@ assert(
   '软件 Bloom 只写回实际辉光区域，不上传整张工作 Canvas',
 );
 assert(
-  effect.bloomRenderer.sourceCanvas.width < effect.canvas.width * 0.25,
-  '软件 Bloom 只处理特效包围区域，不回读整张主画面',
+  effect.bloomRenderer.sourceCanvas.width === effect.canvas.width &&
+    effect.bloomRenderer.sourceCanvas.height === effect.canvas.height,
+  '软件 Bloom 金字塔工作区完整覆盖主画面，避免最低 mip 形成局部矩形',
 );
 assert(
   effect.bloomRenderer.sourceContext.getImageDataCalls.length === 1 &&
@@ -1658,6 +1665,18 @@ assert(
 );
 compatibilityEffect.destroy();
 
+const softwareAliasEffect = new BAClickFX(
+  {
+    softwareBloomEnabled: true,
+  },
+);
+assert(
+  softwareAliasEffect.getConfig().bloomBackend === 'software' &&
+    softwareAliasEffect.getConfig().resolvedBloomBackend === 'software',
+  '旧 softwareBloomEnabled=true 构造参数仍显式选择软件 Bloom',
+);
+softwareAliasEffect.destroy();
+
 const contextLifecycleEffect = new BAClickFX({ bloomBackend: 'webgl2' });
 const contextLifecycleEvents = [];
 
@@ -1717,7 +1736,7 @@ assert(
 );
 contextLifecycleEffect.destroy();
 
-const softwareFailureEffect = new BAClickFX();
+const softwareFailureEffect = new BAClickFX({ bloomBackend: 'software' });
 const softwareFailureEvents = [];
 
 flushFrames(dom, performance.now(), 1);
@@ -1742,8 +1761,8 @@ assert(
 );
 softwareFailureEffect.destroy();
 
-console.log('\nSoftware Bloom 多区域性能');
-const regionEffect = new BAClickFX();
+console.log('\nSoftware Bloom 全视口工作区');
+const regionEffect = new BAClickFX({ bloomBackend: 'software' });
 
 regionEffect.boom(160, 540);
 regionEffect.boom(1760, 540);
@@ -1754,17 +1773,22 @@ const rendererPool = [...regionEffect.bloomRenderers];
 const canvasCountAfterPoolGrowth = dom.createdCanvases.length;
 
 assert(
-  regionStats.regionCount === 2 && regionEffect.bloomRenderers.length === 2,
-  '相距较远的点击拆成两个独立 Bloom 区域',
+  regionStats.regionCount === 1 &&
+    regionEffect.bloomRenderers.length === 1 &&
+    initialRegion.x === 0 &&
+    initialRegion.y === 0 &&
+    initialRegion.width === regionEffect.width &&
+    initialRegion.height === regionEffect.height,
+  '软件 Bloom 使用单个全视口金字塔，不再按特效拆分局部工作区',
 );
 assert(
-  initialRegion.emissionBounds.width <
-    UNITY_FX_TOUCH.rings.radiusMax * 2,
-  '点击早期按当前圆环尺寸收紧发射区域，不预留最终半径',
+  initialRegion.emissionBounds.width < initialRegion.width &&
+    initialRegion.emissionBounds.height < initialRegion.height,
+  '全视口金字塔仍只回读实际发射几何覆盖的子区域',
 );
 assert(
-  regionStats.processedSourcePixels < regionStats.combinedBoundsPixels * 0.5,
-  '拆区后的实际处理像素不足旧总包围框的一半',
+  regionStats.processedSourcePixels === regionStats.combinedBoundsPixels,
+  '软件 Bloom 的发射源与金字塔工作区完整覆盖当前视口',
 );
 
 regionNow = flushFrames(dom, regionNow, 1);
@@ -1772,7 +1796,7 @@ assert(
   regionEffect.bloomRenderers.every((renderer, index) =>
     renderer === rendererPool[index]) &&
     dom.createdCanvases.length === canvasCountAfterPoolGrowth,
-  'Bloom renderer 池跨帧复用，不重复创建工作 Canvas',
+  '全视口 Bloom renderer 跨帧复用，不重复创建工作 Canvas',
 );
 
 const reusableRenderer = regionEffect.bloomRenderer;
@@ -1840,7 +1864,7 @@ regionEffect.boom(920, 540);
 regionNow = flushFrames(dom, regionNow, 1);
 assert(
   regionEffect.softwareBloomFrameStats.regionCount === 1,
-  '支撑范围相交的点击仍合并计算，保留邻近特效能量交互',
+  '邻近特效继续共享同一全视口金字塔并保留能量交互',
 );
 
 regionEffect.destroy();
@@ -1851,7 +1875,7 @@ assert(
 );
 
 console.log('\n低帧率生命周期');
-const stalledEffect = new BAClickFX();
+const stalledEffect = new BAClickFX({ bloomBackend: 'software' });
 
 stalledEffect.boom(960, 540);
 let stalledNow = performance.now();
@@ -1900,7 +1924,12 @@ assert(
 expiredTrailEffect.destroy();
 
 console.log('\nLegacy 模式');
-const legacyEffect = new BAClickFX({ renderingMode: 'legacy' });
+const legacyEffect = new BAClickFX(
+  {
+    renderingMode: 'legacy',
+    bloomBackend: 'software',
+  },
+);
 
 assert(
   legacyEffect.getConfig().resolvedBloomBackend === 'legacy',

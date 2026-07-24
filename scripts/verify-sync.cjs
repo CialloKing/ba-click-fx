@@ -62,6 +62,11 @@ verify(
   '展示页提供 WebGL2、Software、Native 与 Legacy 四档渲染开关',
 );
 verify(
+  /<option value="webgl2-bloom" selected>/.test(renderModeSelect) &&
+    /const DEFAULT_RENDER_MODE = 'webgl2-bloom'/.test(mainJs),
+  '展示页 HTML、恢复与重置路径统一默认使用 WebGL2 Bloom',
+);
+verify(
   /'software-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'software' \}/.test(mainJs) &&
     /'webgl2-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'webgl2' \}/.test(mainJs) &&
     /'native-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'native' \}/.test(mainJs) &&
@@ -105,6 +110,10 @@ verify(
   /isolatedCompositing: true/.test(configJs) &&
     /typeof overrides\.isolatedCompositing === 'boolean'/.test(configJs),
   '隔离合成默认开启，createConfig 仅接受布尔覆盖值',
+);
+verify(
+  /const DEFAULT_BLOOM_BACKEND = 'webgl2'/.test(configJs),
+  '库配置默认使用 WebGL2 Bloom',
 );
 verify(
   /function createOverlayRoot/.test(engineJs) &&

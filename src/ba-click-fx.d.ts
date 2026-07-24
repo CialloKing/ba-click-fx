@@ -28,7 +28,7 @@ declare module 'ba-click-fx'
     trailAlways?: boolean;
     /** 渲染模式：'enhanced'（默认，线性能量）或 'legacy'（sRGB + shadowBlur，main 分支风格）。 */
     renderingMode?: 'enhanced' | 'legacy';
-    /** Bloom 后端。默认 'software'；'auto' 和 'webgl2' 不可用时会自动回退。 */
+    /** Bloom 后端。默认 'webgl2'；不可用时会自动回退软件 Bloom 与原生辉光。 */
     bloomBackend?: BAClickFXBloomBackend;
     /** 兼容旧 API：true 等价于 'software'，false 等价于 'native'。 */
     softwareBloomEnabled?: boolean;
