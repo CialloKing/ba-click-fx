@@ -91,7 +91,7 @@ const fx = new BAClickFX();
 ### 3. CDN 引入
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.8/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.10/dist/ba-click-fx.iife.js"></script>
 <script>
   const fx = new BAClickFX.BAClickFX();
 </script>
@@ -147,6 +147,9 @@ new BAClickFX(options?: {
   clickEnabled?: boolean,         // 启用点击特效，默认 true
   trailEnabled?: boolean,         // 启用拖尾，默认 true
   trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
+  inputSource?: 'dom' | 'manual', // 输入来源，默认 dom
+  clickTimeScale?: number,        // 点击时间倍率，默认 1
+  trailTimeScale?: number,        // 拖尾时间倍率，默认 1
   renderingMode?: 'enhanced' | 'legacy', // 渲染模式，默认 enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // Bloom 后端，默认 webgl2
   softwareBloomEnabled?: boolean, // 兼容旧 API：true 等同 software，false 等同 native
@@ -177,15 +180,87 @@ WebGL2 Bloom 和隔离合成都需要库拥有 DOM 覆盖层。若 `target` 是�
 
 隔离根按 `BAClickFX` 实例独立创建和销毁。同一页面的多个隔离实例不会跨根执行 `plus-lighter`；一个实例切换模式或销毁也不会移动、删除其他实例的 Canvas。
 
+### 宿主输入与指针生命周期
+
+`inputSource` 默认为 `'dom'`，保持现有网页用法：
+
+- `'dom'`：库自动监听 DOM Pointer 事件。
+- `'manual'`：不注册自动 DOM 指针监听，由 Electron、WebView2、浏览器插件等宿主调用公开指针方法。调整尺寸、WebGL Context 和其他生命周期监听不受影响。
+
+`pointerDown()`、`pointerMove()`、`pointerUp()` 和 `pointerCancel()` 在两种 `inputSource` 下都可调用，返回值表示输入是否被当前指针状态接受。手动输入的 `x` / `y` 是 Canvas 局部 CSS 像素，库会将其钳制到 Canvas 范围；`pointerId` 默认为 `1`。`inputFilter` 只作用于自动 DOM 输入的准入，不作用于手动输入，因此已在宿主中转换的右键、中键等逻辑主指针不会被库二次拒绝。
+
+```js
+const fx = new BAClickFX(
+{
+  target: '#myCanvas',
+  inputSource: 'manual',
+});
+
+fx.pointerDown(
+{
+  x: 120,
+  y: 80,
+  pointerId: 7,
+  pointerType: 'pen',
+});
+fx.pointerMove(
+{
+  x: 148,
+  y: 96,
+  pointerId: 7,
+  pointerType: 'pen',
+});
+fx.pointerUp(7);
+```
+
+`pointerDown()` 开始一次点击和拖尾生命周期，`pointerUp()` 正常结束指针并让已有拖尾自然消失，`pointerCancel()` 则强制清理活动指针、当前位置，并立即移除当前轨迹。`boom(x, y)` 保持为仅生成一次点击的便捷方法，不会建立拖尾指针状态。
+
+`inputSource` 也可以通过 `updateConfig()` 动态切换。切换时会先取消旧来源的活动指针，再按目标模式注册或移除自动 DOM 指针监听，避免宿主接手尚未结束的轨迹。
+
+### 独立时间倍率
+
+`clickTimeScale` 和 `trailTimeScale` 都必须是有限且大于 `0` 的数字。`1` 为原始速度，`2` 表示两倍速度且持续时间减半，`0.5` 表示半速且持续时间加倍；`0` 不表示暂停。两个倍率都可通过 `updateConfig()` 实时更新：
+
+```js
+fx.updateConfig(
+{
+  clickTimeScale: 1.5,
+  trailTimeScale: 0.8,
+});
+```
+
+`clickTimeScale` 同时缩放点击波纹生命周期、旋转、点击碎片寿命和位移；`trailTimeScale` 同时缩放拖尾衰减、拖尾碎片寿命和位移。倍率不会改变 `minVertexDistance`、`trailSpacing` 等空间采样参数。
+
+### 暂停与恢复
+
+```js
+const pauseOptions =
+{
+  clear: true,
+};
+
+fx.setPaused(true, pauseOptions);
+fx.setPaused(false);
+```
+
+暂停会取消当前活动指针，忽略 `boom()` 与所有自动或手动指针输入，并停止申请新的 `requestAnimationFrame`。`clear` 只在 `paused` 为 `true` 的调用中生效；`clear: true` 会同时清除全部视觉对象，`setPaused(false, { clear: true })` 不会清屏。恢复时会重置时间基准，暂停期间不会被计入下一帧。
+
+`trailAlways` 也使用按需渲染：活动指针本身不代表存在可见内容。没有波纹、碎片或有效轨迹点后会停止 RAF，下一次 `pointerMove()` 再自动唤醒渲染。
+
 ### 实例方法
 
 | 方法 | 说明 |
 |---|---|
-| `boom(x, y)` | 在指定坐标触发点击特效 |
+| `boom(x, y)` | 在指定坐标触发单次点击特效，不创建拖尾状态 |
+| `pointerDown(input)` | 开始一次点击和拖尾生命周期 |
+| `pointerMove(input)` | 为当前逻辑指针追加拖尾采样点 |
+| `pointerUp(pointerId?)` | 正常结束指针，已有拖尾自然消失 |
+| `pointerCancel(pointerId?)` | 强制取消指针并立即移除当前轨迹 |
+| `setPaused(paused, options?)` | 暂停或恢复输入与动画调度，可选在暂停时清屏 |
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 仅清除拖尾和碎片 |
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |
-| `updateConfig({...})` | 运行时更新基础配置、`renderingMode`、`bloomBackend`、`isolatedCompositing`、DPR 与触摸行为 |
+| `updateConfig({...})` | 运行时更新基础配置、输入来源、时间倍率、Bloom 后端、DPR 与触摸行为 |
 | `setThemeColor('#ff6969')` | 设置主题色，所有蓝色系特效 hue 偏移到此颜色 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 点号路径修改任意特效参数 |
 | `getFxConfig()` | 返回当前完整特效配置深拷贝 |

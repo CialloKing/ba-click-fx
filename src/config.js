@@ -7,6 +7,7 @@ const SHARD_UNIT_TO_REFERENCE_PIXELS =
   WORLD_TO_REFERENCE_PIXELS * SHARD_LOCAL_SCALE;
 const DEFAULT_BLOOM_BACKEND = 'webgl2';
 const BLOOM_BACKENDS = new Set(['auto', 'software', 'webgl2', 'native']);
+const INPUT_SOURCES = new Set(['dom', 'manual']);
 
 // 游戏相机 orthographicSize 实际约 1.47，代码中声明的 1.35 导致所有
 // 世界单位→像素的硬编码常量整体偏大约 8%；此因子统一修正到游戏视觉比例。
@@ -307,6 +308,9 @@ export const CONFIG = Object.freeze(
     clickEnabled: true,
     trailEnabled: true,
     trailAlways: false,
+    inputSource: 'dom',
+    clickTimeScale: 1,
+    trailTimeScale: 1,
     // 'enhanced' 使用线性能量编码，并由 bloomBackend 选择 Bloom 实现；
     // 'legacy' 使用 sRGB 颜色 + shadowBlur（main 分支风格）。
     renderingMode: 'enhanced',
@@ -332,6 +336,16 @@ export function normalizeBloomBackend(value, fallback = DEFAULT_BLOOM_BACKEND)
   return isBloomBackend(value) ? value : fallback;
 }
 
+export function isInputSource(value)
+{
+  return INPUT_SOURCES.has(value);
+}
+
+export function normalizeTimeScale(value, fallback = 1)
+{
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 /**
  * 每个引擎实例持有独立的运行配置；Unity 参数本身保持只读。
  * @param {object} [overrides]
@@ -350,9 +364,24 @@ export function createConfig(overrides = {})
     bloomBackend = overrides.softwareBloomEnabled ? 'software' : 'native';
   }
 
+  const inputSource = isInputSource(overrides.inputSource)
+    ? overrides.inputSource
+    : CONFIG.inputSource;
+  const clickTimeScale = normalizeTimeScale(
+    overrides.clickTimeScale,
+    CONFIG.clickTimeScale,
+  );
+  const trailTimeScale = normalizeTimeScale(
+    overrides.trailTimeScale,
+    CONFIG.trailTimeScale,
+  );
+
   return {
     ...CONFIG,
     ...overrides,
+    inputSource,
+    clickTimeScale,
+    trailTimeScale,
     bloomBackend,
     softwareBloomEnabled: bloomBackend !== 'native',
     isolatedCompositing: typeof overrides.isolatedCompositing === 'boolean'

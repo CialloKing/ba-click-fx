@@ -17,6 +17,13 @@ const npmCli = process.env.npm_execpath;
 const typescriptCompiler = resolve(rootDir, 'node_modules', 'typescript', 'bin', 'tsc');
 const temporaryRoot = resolve(tmpdir());
 const temporaryDirectory = mkdtempSync(join(temporaryRoot, 'ba-click-fx-'));
+const hostControlMethods = [
+  'pointerDown',
+  'pointerMove',
+  'pointerUp',
+  'pointerCancel',
+  'setPaused',
+];
 
 function verify(condition, message)
 {
@@ -34,6 +41,43 @@ function runNpm(args, cwd)
     maxBuffer: 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+}
+
+function verifyRuntimeApi(moduleExports, bundleName)
+{
+  verify(
+    typeof moduleExports?.BAClickFX === 'function',
+    `${bundleName} bundle does not expose BAClickFX`,
+  );
+
+  for (const methodName of hostControlMethods)
+  {
+    verify(
+      typeof moduleExports.BAClickFX.prototype[methodName] === 'function',
+      `${bundleName} bundle does not expose BAClickFX.prototype.${methodName}()`,
+    );
+  }
+
+  verify(
+    moduleExports.CONFIG?.bloomBackend === 'webgl2',
+    `${bundleName} bundle does not expose the WebGL2 Bloom default`,
+  );
+  verify(
+    moduleExports.CONFIG?.isolatedCompositing === true,
+    `${bundleName} bundle does not expose the isolated compositing default`,
+  );
+  verify(
+    moduleExports.CONFIG?.inputSource === 'dom',
+    `${bundleName} bundle does not expose the DOM input default`,
+  );
+  verify(
+    moduleExports.CONFIG?.clickTimeScale === 1,
+    `${bundleName} bundle does not expose the click time-scale default`,
+  );
+  verify(
+    moduleExports.CONFIG?.trailTimeScale === 1,
+    `${bundleName} bundle does not expose the trail time-scale default`,
+  );
 }
 
 try
@@ -76,12 +120,78 @@ try
     tarballPath,
   ], consumerDirectory);
 
+  const esmRuntimeSource = `
+import BAClickFXDefault, * as moduleExports from 'ba-click-fx';
+
+const hostControlMethods = ${JSON.stringify(hostControlMethods)};
+
+if (
+  typeof moduleExports.BAClickFX !== 'function' ||
+  BAClickFXDefault !== moduleExports.BAClickFX ||
+  moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange'
+)
+{
+  throw new Error('ESM exports are incomplete');
+}
+
+for (const methodName of hostControlMethods)
+{
+  if (typeof moduleExports.BAClickFX.prototype[methodName] !== 'function')
+  {
+    throw new Error(\`ESM is missing BAClickFX.prototype.\${methodName}()\`);
+  }
+}
+
+if (
+  moduleExports.CONFIG?.bloomBackend !== 'webgl2' ||
+  moduleExports.CONFIG?.isolatedCompositing !== true ||
+  moduleExports.CONFIG?.inputSource !== 'dom' ||
+  moduleExports.CONFIG?.clickTimeScale !== 1 ||
+  moduleExports.CONFIG?.trailTimeScale !== 1
+)
+{
+  throw new Error('ESM CONFIG defaults are incomplete');
+}
+`;
+  const commonJsRuntimeSource = `
+const moduleExports = require('ba-click-fx');
+const hostControlMethods = ${JSON.stringify(hostControlMethods)};
+
+if (
+  typeof moduleExports.BAClickFX !== 'function' ||
+  moduleExports.default !== moduleExports.BAClickFX ||
+  moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange'
+)
+{
+  throw new Error('CommonJS exports are incomplete');
+}
+
+for (const methodName of hostControlMethods)
+{
+  if (typeof moduleExports.BAClickFX.prototype[methodName] !== 'function')
+  {
+    throw new Error(\`CommonJS is missing BAClickFX.prototype.\${methodName}()\`);
+  }
+}
+
+if (
+  moduleExports.CONFIG?.bloomBackend !== 'webgl2' ||
+  moduleExports.CONFIG?.isolatedCompositing !== true ||
+  moduleExports.CONFIG?.inputSource !== 'dom' ||
+  moduleExports.CONFIG?.clickTimeScale !== 1 ||
+  moduleExports.CONFIG?.trailTimeScale !== 1
+)
+{
+  throw new Error('CommonJS CONFIG defaults are incomplete');
+}
+`;
+
   execFileSync(
     process.execPath,
     [
       '--input-type=module',
       '--eval',
-      "import BAClickFXDefault, * as moduleExports from 'ba-click-fx'; if (typeof moduleExports.BAClickFX !== 'function' || BAClickFXDefault !== moduleExports.BAClickFX || moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' || moduleExports.CONFIG?.bloomBackend !== 'webgl2' || moduleExports.CONFIG?.isolatedCompositing !== true) process.exit(1);",
+      esmRuntimeSource,
     ],
     { cwd: consumerDirectory, stdio: 'pipe' },
   );
@@ -90,7 +200,7 @@ try
     [
       '--input-type=commonjs',
       '--eval',
-      "const moduleExports = require('ba-click-fx'); if (typeof moduleExports.BAClickFX !== 'function' || moduleExports.default !== moduleExports.BAClickFX || moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' || moduleExports.CONFIG?.bloomBackend !== 'webgl2' || moduleExports.CONFIG?.isolatedCompositing !== true) process.exit(1);",
+      commonJsRuntimeSource,
     ],
     { cwd: consumerDirectory, stdio: 'pipe' },
   );
@@ -103,21 +213,10 @@ try
   const iifeContext = {};
 
   vm.runInNewContext(iifeSource, iifeContext);
-  verify(
-    typeof iifeContext.BAClickFX?.BAClickFX === 'function',
-    'IIFE bundle does not expose BAClickFX.BAClickFX',
-  );
+  verifyRuntimeApi(iifeContext.BAClickFX, 'IIFE');
   verify(
     iifeContext.BAClickFX?.BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange',
     'IIFE bundle does not expose the backend change event name',
-  );
-  verify(
-    iifeContext.BAClickFX?.CONFIG?.isolatedCompositing === true,
-    'IIFE bundle does not expose the isolated compositing default',
-  );
-  verify(
-    iifeContext.BAClickFX?.CONFIG?.bloomBackend === 'webgl2',
-    'IIFE bundle does not expose the WebGL2 Bloom default',
   );
   verify(
     existsSync(join(installedRoot, 'dist', 'ba-click-fx.d.ts')),
@@ -141,8 +240,13 @@ try
   type BAClickFXConfig,
   type BAClickFXConfigSnapshot,
   type BAClickFXInputFilter,
+  type BAClickFXInputSource,
   type BAClickFXOptions,
+  type BAClickFXPauseOptions,
+  type BAClickFXPointerInput,
+  type BAClickFXPointerType,
   type BAClickFXResolvedBloomBackend,
+  type BAClickFXUpdateOptions,
   type UnityFxTouchConfig,
 } from 'ba-click-fx';
 
@@ -155,6 +259,9 @@ const options: BAClickFXOptions =
   opacity: 1,
   clickEnabled: true,
   trailEnabled: true,
+  inputSource: 'manual',
+  clickTimeScale: 1.5,
+  trailTimeScale: 0.8,
   renderingMode: 'enhanced',
   bloomBackend: 'webgl2',
   softwareBloomEnabled: true,
@@ -187,6 +294,21 @@ const isolatedCompositing: boolean = config.isolatedCompositing;
 const renderingMode: BAClickFXConfig['renderingMode'] = config.renderingMode;
 const lightBackgroundContrastAlpha: number =
   config.lightBackgroundContrastAlpha;
+const inputSource: BAClickFXInputSource = config.inputSource;
+const clickTimeScale: number = config.clickTimeScale;
+const trailTimeScale: number = config.trailTimeScale;
+const pointerType: BAClickFXPointerType = 'pen';
+const pointerInput: BAClickFXPointerInput =
+{
+  x: 300,
+  y: 200,
+  pointerId: 7,
+  pointerType,
+};
+const pauseOptions: BAClickFXPauseOptions =
+{
+  clear: true,
+};
 
 namedInstance.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, event =>
 {
@@ -200,13 +322,30 @@ namedInstance.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, event =>
 });
 
 namedInstance.boom(300, 200);
-namedInstance.setFxParam('hit.enabled', true);
-namedInstance.updateConfig(
+const pointerDownAccepted: boolean = namedInstance.pointerDown(pointerInput);
+const pointerMoveAccepted: boolean = namedInstance.pointerMove(
   {
-    renderingMode: 'enhanced',
-    bloomBackend: 'auto',
+    x: 320,
+    y: 210,
+    pointerId: 7,
+    pointerType: 'pen',
   },
 );
+const pointerUpAccepted: boolean = namedInstance.pointerUp(7);
+const pointerCancelAccepted: boolean = namedInstance.pointerCancel();
+namedInstance.setPaused(true, pauseOptions);
+namedInstance.setPaused(false);
+namedInstance.setFxParam('hit.enabled', true);
+const updateOptions: BAClickFXUpdateOptions =
+{
+  renderingMode: 'enhanced',
+  bloomBackend: 'auto',
+  inputSource: 'dom',
+  clickTimeScale: 2,
+  trailTimeScale: 0.5,
+};
+
+namedInstance.updateConfig(updateOptions);
 namedInstance.updateConfig(
   {
     softwareBloomEnabled: false,
@@ -216,6 +355,18 @@ namedInstance.updateConfig(
 namedInstance.updateConfig(
   {
     renderingMode: 'legacy',
+  },
+);
+namedInstance.updateConfig(
+  {
+    // @ts-expect-error target 只能在构造实例时指定。
+    target: '#replacement',
+  },
+);
+namedInstance.updateConfig(
+  {
+    // @ts-expect-error inputFilter 只能在构造实例时指定。
+    inputFilter,
   },
 );
 namedInstance.clearTrail();
@@ -234,6 +385,8 @@ const invalidOptions: BAClickFXOptions =
   bloomBackend: 'webgpu',
   // @ts-expect-error renderingMode 只接受 enhanced 或 legacy。
   renderingMode: 'native-bloom',
+  // @ts-expect-error inputSource 只接受 dom 或 manual。
+  inputSource: 'host',
 };
 
 void [
@@ -251,6 +404,17 @@ void [
   isolatedCompositing,
   renderingMode,
   lightBackgroundContrastAlpha,
+  inputSource,
+  clickTimeScale,
+  trailTimeScale,
+  pointerType,
+  pointerInput,
+  pauseOptions,
+  pointerDownAccepted,
+  pointerMoveAccepted,
+  pointerUpAccepted,
+  pointerCancelAccepted,
+  updateOptions,
   invalidOptions,
 ];
 `;

@@ -46,6 +46,38 @@ verify(
   '点击辉光滑块支持重置与本地设置恢复',
 );
 verify(/inputFilter/.test(mainJs), '演示页把信息卡映射为 Unity UGUI 输入过滤区');
+const inputSourceSelect = indexHtml.match(
+  /<select id="ctrlInputSource"[\s\S]*?<\/select>/,
+)?.[0] ?? '';
+
+verify(
+  /<option value="dom" selected>/.test(inputSourceSelect) &&
+    /<option value="manual">/.test(inputSourceSelect),
+  '展示页可切换 DOM 自动监听与宿主手动输入',
+);
+verify(
+  /effect\.pointerDown\(input\)/.test(mainJs) &&
+    /effect\.pointerMove\(input\)/.test(mainJs) &&
+    /effect\.pointerUp\(pointerId\)/.test(mainJs) &&
+    /effect\.pointerCancel\(pointerId\)/.test(mainJs),
+  '展示页手动模式通过四个公开指针 API 注入完整生命周期',
+);
+verify(
+  /bindRange\('ctrlClickTimeScale', 'outClickTimeScale',[\s\S]*?clickTimeScale: value/.test(mainJs) &&
+    /bindRange\('ctrlTrailTimeScale', 'outTrailTimeScale',[\s\S]*?trailTimeScale: value/.test(mainJs),
+  '展示页提供点击与拖尾独立时间倍率控件',
+);
+verify(
+  /effect\.setPaused\(ctrlPaused\.checked,[\s\S]*?clear: ctrlPauseClear/.test(mainJs),
+  '展示页通过 setPaused 演示暂停与可选清屏',
+);
+verify(
+  /applyInputSource\('dom', false\)/.test(mainJs) &&
+    /clickTimeScale: 1/.test(mainJs) &&
+    /trailTimeScale: 1/.test(mainJs) &&
+    /bafx-ctrlInputSource/.test(mainJs),
+  '宿主 API 控件支持重置与本地设置恢复',
+);
 const renderModeSelect = indexHtml.match(
   /<select id="ctrlRenderMode"[\s\S]*?<\/select>/,
 )?.[0] ?? '';

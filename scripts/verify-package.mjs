@@ -47,9 +47,25 @@ verify(
   'lockfile root development dependencies are out of sync',
 );
 
-const latestChangelog = changelog.match(/^## v(\d+\.\d+\.\d+)\b/m);
+const changelogHeadings = [
+  ...changelog.matchAll(/^##\s+(.+)$/gm),
+];
+const unreleasedHeading = changelogHeadings.find((heading) =>
+  /^(?:未发布|\[?unreleased\]?)$/i.test(heading[1].trim()));
 
-verify(latestChangelog, 'CHANGELOG does not contain a release heading');
+verify(
+  !unreleasedHeading,
+  `CHANGELOG still contains an unpublished section: ${unreleasedHeading?.[1]}`,
+);
+verify(changelogHeadings.length > 0, 'CHANGELOG does not contain any version heading');
+
+// 只接受首个章节作为当前发行版，避免越过未发布内容匹配到旧版本。
+const latestChangelog = changelogHeadings[0][1].match(/^v(\d+\.\d+\.\d+)\b/);
+
+verify(
+  latestChangelog,
+  `latest CHANGELOG heading is not a release: ${changelogHeadings[0][1]}`,
+);
 verify(
   latestChangelog[1] === packageJson.version,
   `latest CHANGELOG version ${latestChangelog[1]} does not match ${packageJson.version}`,

@@ -422,6 +422,14 @@ kbd {
   text-align: right;
 }
 
+.host-api-status
+{
+  margin: 2px 0 10px;
+  color: rgba(125, 239, 255, 0.68);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 /* Native select behavior is retained; only the closed control follows the panel theme. */
 .ctrl-select
 {

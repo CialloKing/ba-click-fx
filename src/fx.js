@@ -10,7 +10,9 @@ import {
   UNITY_FX_TOUCH,
   createConfig,
   isBloomBackend,
+  isInputSource,
   normalizeBloomBackend,
+  normalizeTimeScale,
   SIZE_CORRECTION,
 } from './config.js';
 import { SoftwareBloomRenderer } from './software-bloom.js';
@@ -1284,12 +1286,15 @@ function drawFlare(context, wave, progress, scale, opacity, fxConfig)
 
 class ClickWave
 {
-  constructor(x, y, fxConfig)
+  constructor(x, y, fxConfig, lastUpdateTimeMs = null)
   {
     this.fx = fxConfig;
     this.x = x;
     this.y = y;
     this.ageMs = 0;
+    this.lastUpdateTimeMs = Number.isFinite(lastUpdateTimeMs)
+      ? lastUpdateTimeMs
+      : null;
     this.rings = [];
 
     const ringCfg = fxConfig.rings;
@@ -1330,6 +1335,25 @@ class ClickWave
       );
       ring.rotation += ring.angularVelocity * (deltaMs / 1000);
     }
+  }
+
+  updateTo(timeMs)
+  {
+    if (!Number.isFinite(timeMs) || !Number.isFinite(this.lastUpdateTimeMs))
+    {
+      return;
+    }
+
+    const deltaMs = Math.max(0, timeMs - this.lastUpdateTimeMs);
+
+    if (deltaMs <= 0)
+    {
+      return;
+    }
+
+    // 点击可能在两个 RAF 之间出生；对象级锚点避免继承出生前的整帧时间。
+    this.lastUpdateTimeMs = timeMs;
+    this.update(deltaMs);
   }
 
   draw(context, scale, opacity, useNativeBloom = true, legacy = false)
@@ -1534,6 +1558,9 @@ class ShardParticle
   {
     Object.assign(this, specification);
     this.ageMs = 0;
+    this.lastUpdateTimeMs = Number.isFinite(specification.lastUpdateTimeMs)
+      ? specification.lastUpdateTimeMs
+      : null;
   }
 
   update(deltaMs)
@@ -1543,6 +1570,26 @@ class ShardParticle
     this.ageMs += deltaMs;
     this.x += this.velocityX * deltaSeconds;
     this.y += this.velocityY * deltaSeconds;
+  }
+
+  updateTo(timeMs)
+  {
+    if (!Number.isFinite(timeMs) || !Number.isFinite(this.lastUpdateTimeMs))
+    {
+      return;
+    }
+
+    const deltaMs = Math.max(0, timeMs - this.lastUpdateTimeMs);
+
+    if (deltaMs <= 0)
+    {
+      return;
+    }
+
+    // 输入事件也会推进拖尾虚拟时钟。每枚碎片保存自己的消费位置，
+    // 确保下一帧补算完整时间，同时不继承出生前的空闲时段。
+    this.lastUpdateTimeMs = timeMs;
+    this.update(deltaMs);
   }
 
   draw(
@@ -1561,7 +1608,15 @@ class ShardParticle
   }
 }
 
-function createShard(x, y, originAngle, kind, scale, shardCfg = UNITY_FX_TOUCH.shards)
+function createShard(
+  x,
+  y,
+  originAngle,
+  kind,
+  scale,
+  shardCfg = UNITY_FX_TOUCH.shards,
+  lastUpdateTimeMs = null,
+)
 {
   const isClick = kind === 'click';
   const radius = (isClick ? shardCfg.clickRadius : shardCfg.trailRadius) * scale;
@@ -1582,6 +1637,7 @@ function createShard(x, y, originAngle, kind, scale, shardCfg = UNITY_FX_TOUCH.s
       rotation: Math.random() < 0.5 ? 0 : Math.PI,
       lifetimeMs,
       size: random(shardCfg.sizeMin, shardCfg.sizeMax),
+      lastUpdateTimeMs,
     },
   );
 }
@@ -1593,6 +1649,22 @@ function createTrailPoint(x, y, bornAt)
     y,
     bornAt,
   };
+}
+
+function hasVisibleTrailPoints(points)
+{
+  for (let index = 1; index < points.length; index++)
+  {
+    if (
+      points[index].x !== points[index - 1].x ||
+      points[index].y !== points[index - 1].y
+    )
+    {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function interpolateTrailColor(progress, trailCfg = UNITY_FX_TOUCH.trail)
@@ -2112,6 +2184,9 @@ export class BAClickFX
    * @param {boolean} [options.clickEnabled]
    * @param {boolean} [options.trailEnabled]
    * @param {boolean} [options.trailAlways]
+   * @param {'dom'|'manual'} [options.inputSource]
+   * @param {number} [options.clickTimeScale]
+   * @param {number} [options.trailTimeScale]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
    * @param {boolean} [options.softwareBloomEnabled]
@@ -2146,6 +2221,17 @@ export class BAClickFX
         clickEnabled: options.clickEnabled ?? CONFIG.clickEnabled,
         trailEnabled: options.trailEnabled ?? CONFIG.trailEnabled,
         trailAlways: options.trailAlways ?? CONFIG.trailAlways,
+        inputSource: isInputSource(options.inputSource)
+          ? options.inputSource
+          : CONFIG.inputSource,
+        clickTimeScale: normalizeTimeScale(
+          options.clickTimeScale,
+          CONFIG.clickTimeScale,
+        ),
+        trailTimeScale: normalizeTimeScale(
+          options.trailTimeScale,
+          CONFIG.trailTimeScale,
+        ),
         renderingMode: options.renderingMode === 'legacy' ? 'legacy' : CONFIG.renderingMode,
         bloomBackend,
         // 保留旧布尔字段作为兼容别名；WebGL2 同样属于增强 Bloom。
@@ -2271,17 +2357,27 @@ export class BAClickFX
     this.trailStrokes = [];
     this.currentTrailStroke = null;
     this.activePointerId = null;
+    this.activePointerSource = null;
     this.lastPointerPosition = null;
     this.lastPointerTime = 0;
     this.trailDistanceSinceShard = 0;
+    const initialTimeSource = performance.now();
+
+    this.clickTimeMs = 0;
+    this.trailTimeMs = 0;
+    this.lastClickTimeSource = initialTimeSource;
+    this.lastTrailTimeSource = initialTimeSource;
     this.animationFrame = null;
     this.lastFrameTime = null;
+    this.paused = false;
     this.destroyed = false;
+    this.domPointerListenersAttached = false;
 
     this._onResize = this._resize.bind(this);
     this._onPointerDown = this._handlePointerDown.bind(this);
     this._onPointerMove = this._handlePointerMove.bind(this);
     this._onPointerUp = this._handlePointerUp.bind(this);
+    this._onPointerCancel = this._handlePointerCancel.bind(this);
     this._onBlur = this._cancelPointer.bind(this);
     this._onFrame = this._renderFrame.bind(this);
     this._onWebGLContextLost = this._handleWebGLContextLost.bind(this);
@@ -2289,13 +2385,10 @@ export class BAClickFX
 
     this._resize();
     window.addEventListener('resize', this._onResize);
-    window.addEventListener('pointerdown', this._onPointerDown);
-    window.addEventListener('pointermove', this._onPointerMove,
-      {
-        passive: true,
-      });
-    window.addEventListener('pointerup', this._onPointerUp);
-    window.addEventListener('pointercancel', this._onPointerUp);
+    if (this.config.inputSource === 'dom')
+    {
+      this._attachDomPointerListeners();
+    }
     window.addEventListener('blur', this._onBlur);
 
     if (this.host && !isCanvas(this.host) && typeof ResizeObserver !== 'undefined')
@@ -2307,6 +2400,37 @@ export class BAClickFX
     {
       this.resizeObserver = null;
     }
+  }
+
+  _attachDomPointerListeners()
+  {
+    if (this.domPointerListenersAttached)
+    {
+      return;
+    }
+
+    window.addEventListener('pointerdown', this._onPointerDown);
+    window.addEventListener('pointermove', this._onPointerMove,
+      {
+        passive: true,
+      });
+    window.addEventListener('pointerup', this._onPointerUp);
+    window.addEventListener('pointercancel', this._onPointerCancel);
+    this.domPointerListenersAttached = true;
+  }
+
+  _detachDomPointerListeners()
+  {
+    if (!this.domPointerListenersAttached)
+    {
+      return;
+    }
+
+    window.removeEventListener('pointerdown', this._onPointerDown);
+    window.removeEventListener('pointermove', this._onPointerMove);
+    window.removeEventListener('pointerup', this._onPointerUp);
+    window.removeEventListener('pointercancel', this._onPointerCancel);
+    this.domPointerListenersAttached = false;
   }
 
   _getOverlayLayers()
@@ -2434,6 +2558,143 @@ export class BAClickFX
     };
   }
 
+  _normalizePointerInput(input)
+  {
+    if (
+      !input ||
+      !Number.isFinite(input.x) ||
+      !Number.isFinite(input.y) ||
+      (input.pointerId !== undefined && !Number.isFinite(input.pointerId)) ||
+      (
+        input.pointerType !== undefined &&
+        input.pointerType !== 'mouse' &&
+        input.pointerType !== 'touch' &&
+        input.pointerType !== 'pen'
+      )
+    )
+    {
+      return null;
+    }
+
+    return {
+      x: clamp(input.x, 0, this.width),
+      y: clamp(input.y, 0, this.height),
+      pointerId: input.pointerId ?? 1,
+      pointerType: input.pointerType ?? 'mouse',
+    };
+  }
+
+  _getDomPointerInput(event, fallbackEvent = event)
+  {
+    const position = this._getPointerPosition(event);
+    const pointerType = event.pointerType || fallbackEvent.pointerType || 'mouse';
+
+    return {
+      ...position,
+      pointerId: event.pointerId ?? fallbackEvent.pointerId ?? 1,
+      pointerType,
+    };
+  }
+
+  _getDomTrailSampleTime(timeStamp, sourceNow, trailNow)
+  {
+    if (!Number.isFinite(timeStamp) || timeStamp <= 0)
+    {
+      return trailNow;
+    }
+
+    let sampleSourceTime = timeStamp;
+
+    if (
+      sampleSourceTime > sourceNow + 1000 &&
+      Number.isFinite(performance.timeOrigin)
+    )
+    {
+      // 兼容仍以 Unix epoch 提供 Event.timeStamp 的旧宿主。
+      sampleSourceTime -= performance.timeOrigin;
+    }
+
+    if (sampleSourceTime < 0 || sampleSourceTime > sourceNow + 1000)
+    {
+      return trailNow;
+    }
+
+    const elapsedMs = Math.max(0, sourceNow - sampleSourceTime);
+
+    return Math.max(
+      0,
+      trailNow - elapsedMs * this.config.trailTimeScale,
+    );
+  }
+
+  _getTrailInputTime(now = performance.now())
+  {
+    this._advanceTrailTime(now);
+    return this.trailTimeMs;
+  }
+
+  _getClickInputTime(now = performance.now())
+  {
+    this._advanceClickTime(now);
+    return this.clickTimeMs;
+  }
+
+  _advanceClickTime(now = performance.now())
+  {
+    if (this.paused || !Number.isFinite(now))
+    {
+      return 0;
+    }
+
+    if (this.lastClickTimeSource === null)
+    {
+      this.lastClickTimeSource = now;
+      return 0;
+    }
+
+    const elapsedMs = now - this.lastClickTimeSource;
+
+    if (elapsedMs <= 0)
+    {
+      return 0;
+    }
+
+    const scaledDeltaMs = elapsedMs * this.config.clickTimeScale;
+
+    this.clickTimeMs += scaledDeltaMs;
+    this.lastClickTimeSource = now;
+    return scaledDeltaMs;
+  }
+
+  _advanceTrailTime(now = performance.now())
+  {
+    if (this.paused || !Number.isFinite(now))
+    {
+      return 0;
+    }
+
+    if (this.lastTrailTimeSource === null)
+    {
+      this.lastTrailTimeSource = now;
+      return 0;
+    }
+
+    // RAF 空闲时真实时间仍要推进衰减；暂停则通过清空时间源显式冻结。
+    // 测试或宿主提供的时间若短暂回退，保留原锚点避免下一次重复累计。
+    const elapsedMs = now - this.lastTrailTimeSource;
+
+    if (elapsedMs <= 0)
+    {
+      return 0;
+    }
+
+    const scaledDeltaMs = elapsedMs * this.config.trailTimeScale;
+
+    this.trailTimeMs += scaledDeltaMs;
+    this.lastTrailTimeSource = now;
+    return scaledDeltaMs;
+  }
+
   _getScale()
   {
     return this.config.scale * (this.height / UNITY_FX_TOUCH.referenceHeight) * SIZE_CORRECTION;
@@ -2441,8 +2702,10 @@ export class BAClickFX
 
   _acceptPointerDown(event)
   {
+    const pointerType = event.pointerType || 'mouse';
+
     // button: 0=左键, -1=未按键(移动事件)；仅 >0 的非左键实际点击需拦截
-    if (event.pointerType === 'mouse' && event.button > 0)
+    if (pointerType === 'mouse' && event.button > 0)
     {
       return false;
     }
@@ -2457,86 +2720,78 @@ export class BAClickFX
 
   _handlePointerDown(event)
   {
-    if (this.destroyed || !this._acceptPointerDown(event))
+    if (this.destroyed || this.paused || !this._acceptPointerDown(event))
     {
       return;
     }
 
-    // TouchEffectCreater 的 MaxActiveDragEffectCount 为 1：第二根手指不生成点击，
-    // 也不能接管第一根手指正在驱动的 TrailRenderer。
-    // 例外：始终显示模式下的拖尾可以被实际点击接管。
-    if (this.activePointerId !== null && !this.config.trailAlways)
+    this.pointerDown(this._getDomPointerInput(event));
+  }
+
+  /**
+   * 使用 Canvas 局部 CSS 像素开始一次点击和拖尾生命周期。
+   * 手动输入由宿主完成按键和环境过滤，因此不会经过 inputFilter。
+   */
+  pointerDown(input)
+  {
+    if (this.destroyed || this.paused)
     {
-      return;
+      return false;
     }
 
-    const position = this._getPointerPosition(event);
-    const pointerId = event.pointerId ?? 1;
+    const pointer = this._normalizePointerInput(input);
 
-    // 始终显示模式下点击：停止旧 stroke 发射顶点，旧顶点仍按 0.3 秒自然过期
-    if (this.activePointerId !== null && this.config.trailAlways && this.currentTrailStroke)
+    if (!pointer)
     {
+      return false;
+    }
+
+    // 只有无按键的悬停轨迹允许被一次真实按下接管；真实按下之间仍保持单指针上限。
+    if (
+      this.activePointerId !== null &&
+      this.activePointerSource !== 'hover'
+    )
+    {
+      return false;
+    }
+
+    if (this.activePointerId !== null && this.currentTrailStroke)
+    {
+      // 点击接管悬停时只停止旧 stroke 发射，已有顶点仍自然衰减。
       this.currentTrailStroke.active = false;
     }
 
-    this.activePointerId = pointerId;
-    this.lastPointerPosition = position;
-    this.lastPointerTime = performance.now();
+    this.activePointerId = pointer.pointerId;
+    this.activePointerSource = 'press';
+    this.lastPointerPosition = { x: pointer.x, y: pointer.y };
+    this.lastPointerTime = this._getTrailInputTime();
     this.trailDistanceSinceShard = 0;
 
     if (this.config.trailEnabled)
     {
-      this.currentTrailStroke = {
-        active: true,
-        points: [createTrailPoint(position.x, position.y, this.lastPointerTime)],
-      };
-      this.trailStrokes.push(this.currentTrailStroke);
+      this._startTrailStroke(this.lastPointerPosition, this.lastPointerTime);
     }
 
     if (this.config.clickEnabled)
     {
-      this._spawnClick(position.x, position.y);
+      this._spawnClick(pointer.x, pointer.y);
     }
 
     this._requestRender();
+    return true;
   }
 
   _handlePointerMove(event)
   {
-    if (this.destroyed || !this.config.trailEnabled)
+    if (this.destroyed || this.paused || !this.config.trailEnabled)
     {
-      return;
-    }
-
-    // 始终显示模式：无激活指针时自动开始拖尾
-    if (
-      this.activePointerId === null &&
-      this.config.trailAlways &&
-      this._acceptPointerDown(event)
-    )
-    {
-      const position = this._getPointerPosition(event);
-      const now = performance.now();
-
-      this.activePointerId = event.pointerId ?? 1;
-      this.lastPointerPosition = position;
-      this.lastPointerTime = now;
-      this.trailDistanceSinceShard = 0;
-      this.currentTrailStroke = {
-        active: true,
-        points: [
-          createTrailPoint(position.x, position.y, now),
-          createTrailPoint(position.x + 0.5, position.y + 0.5, now),
-        ],
-      };
-      this.trailStrokes.push(this.currentTrailStroke);
-      this._requestRender();
       return;
     }
 
     if (
-      this.activePointerId === null ||
-      (event.pointerId ?? 1) !== this.activePointerId
+      this.activePointerId === null &&
+      this.config.trailAlways &&
+      !this._acceptPointerDown(event)
     )
     {
       return;
@@ -2546,16 +2801,131 @@ export class BAClickFX
       ? event.getCoalescedEvents()
       : [event];
     const events = coalesced.length > 0 ? coalesced : [event];
+    const sourceNow = performance.now();
+    const trailNow = this._getTrailInputTime(sourceNow);
 
     for (const sample of events)
     {
-      this._appendPointerSample(
-        this._getPointerPosition(sample),
-        performance.now(),
+      const sampleTime = this._getDomTrailSampleTime(
+        sample.timeStamp ?? event.timeStamp,
+        sourceNow,
+        trailNow,
+      );
+
+      this._pointerMoveAtTime(
+        this._getDomPointerInput(sample, event),
+        sampleTime,
       );
     }
+  }
+
+  /** 追加一个手动指针采样点；空间采样阈值不受时间倍率影响。 */
+  pointerMove(input)
+  {
+    return this._pointerMoveAtTime(input);
+  }
+
+  _pointerMoveAtTime(input, sampleTime = null)
+  {
+    if (this.destroyed || this.paused || !this.config.trailEnabled)
+    {
+      return false;
+    }
+
+    const pointer = this._normalizePointerInput(input);
+
+    if (!pointer)
+    {
+      return false;
+    }
+
+    const position = { x: pointer.x, y: pointer.y };
+    const requestedTime = Number.isFinite(sampleTime)
+      ? sampleTime
+      : this._getTrailInputTime();
+    const now = Math.max(this.lastPointerTime, requestedTime);
+
+    // trailAlways 的悬停轨迹没有按下事件；首个移动样本负责创建逻辑指针。
+    if (this.activePointerId === null && this.config.trailAlways)
+    {
+      this.activePointerId = pointer.pointerId;
+      this.activePointerSource = 'hover';
+      this.lastPointerPosition = position;
+      this.lastPointerTime = now;
+      this.trailDistanceSinceShard = 0;
+      this._startTrailStroke(position, now, true);
+      this._requestRender();
+      return true;
+    }
+
+    if (
+      this.activePointerId === null ||
+      pointer.pointerId !== this.activePointerId
+    )
+    {
+      return false;
+    }
+
+    this._ensureCurrentTrailStroke(now);
+    this._appendPointerSample(position, now);
 
     this._requestRender();
+    return true;
+  }
+
+  _startTrailStroke(position, now, includeVisibleSeed = false)
+  {
+    const points = [createTrailPoint(position.x, position.y, now)];
+
+    if (includeVisibleSeed)
+    {
+      // 向画布内部偏移可保证右下角也不会生成两个完全重合的伪顶点。
+      const seedX = position.x < this.width
+        ? position.x + 0.5
+        : position.x - 0.5;
+
+      points.push(createTrailPoint(seedX, position.y, now));
+    }
+
+    this.currentTrailStroke = {
+      active: true,
+      points,
+    };
+    this.trailStrokes.push(this.currentTrailStroke);
+  }
+
+  _ensureCurrentTrailStroke(now)
+  {
+    if (!this.lastPointerPosition)
+    {
+      return;
+    }
+
+    if (!this.currentTrailStroke)
+    {
+      this._startTrailStroke(this.lastPointerPosition, now);
+      this.lastPointerTime = now;
+      this.trailDistanceSinceShard = 0;
+    }
+    else if (
+      this.currentTrailStroke.points.length === 0 ||
+      (
+        this.currentTrailStroke.points.length === 1 &&
+        now - this.currentTrailStroke.points[0].bornAt >=
+          this.fxConfig.trail.lifetimeMs
+      )
+    )
+    {
+      // 空闲裁剪后的首个移动必须从当前时刻重新起算，不能跨空闲期插值。
+      this.currentTrailStroke.points.length = 0;
+      this.currentTrailStroke.points.push(createTrailPoint(
+        this.lastPointerPosition.x,
+        this.lastPointerPosition.y,
+        now,
+      ));
+      this.lastPointerTime = now;
+      this.trailDistanceSinceShard = 0;
+    }
   }
 
   _appendPointerSample(position, now)
@@ -2590,12 +2960,18 @@ export class BAClickFX
       this.currentTrailStroke.points.push(createTrailPoint(x, y, bornAt));
     }
 
-    this._spawnTrailShards(from, position, scale);
+    this._spawnTrailShards(
+      from,
+      position,
+      scale,
+      this.lastPointerTime,
+      now,
+    );
     this.lastPointerPosition = position;
     this.lastPointerTime = now;
   }
 
-  _spawnTrailShards(from, to, scale)
+  _spawnTrailShards(from, to, scale, fromTime, toTime)
   {
     const segmentLength = distance(from, to);
     const spacing = Math.max(1, this.fxConfig.shards.trailSpacing * scale);
@@ -2611,7 +2987,15 @@ export class BAClickFX
 
       if (this.shards.length < this.fxConfig.shards.maxCount)
       {
-        this.shards.push(createShard(x, y, angle, 'trail', scale, this.fxConfig.shards));
+        this.shards.push(createShard(
+          x,
+          y,
+          angle,
+          'trail',
+          scale,
+          this.fxConfig.shards,
+          lerp(fromTime, toTime, progress),
+        ));
       }
 
       nextDistance += spacing;
@@ -2623,36 +3007,80 @@ export class BAClickFX
 
   _handlePointerUp(event)
   {
+    this.pointerUp(event.pointerId ?? 1);
+  }
+
+  _handlePointerCancel(event)
+  {
+    this.pointerCancel(event.pointerId ?? 1);
+  }
+
+  /** 正常结束指针；已有拖尾顶点继续自然消失。 */
+  pointerUp(pointerId = 1)
+  {
     if (
       this.destroyed ||
+      this.paused ||
+      !Number.isFinite(pointerId) ||
       this.activePointerId === null ||
-      (event.pointerId ?? 1) !== this.activePointerId
+      pointerId !== this.activePointerId
     )
     {
-      return;
+      return false;
     }
 
-    this._releaseActivePointer();
+    this._releaseActivePointer(false);
+    return true;
+  }
+
+  /** 强制结束异常指针状态，并立即移除当前轨迹。 */
+  pointerCancel(pointerId = 1)
+  {
+    if (
+      this.destroyed ||
+      this.paused ||
+      !Number.isFinite(pointerId) ||
+      this.activePointerId === null ||
+      pointerId !== this.activePointerId
+    )
+    {
+      return false;
+    }
+
+    this._releaseActivePointer(true);
+    return true;
   }
 
   _cancelPointer()
   {
     if (this.activePointerId !== null)
     {
-      this._releaseActivePointer();
+      this._releaseActivePointer(true);
     }
   }
 
-  _releaseActivePointer()
+  _releaseActivePointer(discardCurrentStroke = false)
   {
     if (this.currentTrailStroke)
     {
-      // Unity 松开时只停止更新根节点；已有 TrailRenderer 顶点仍按 0.3 秒自然过期。
+      // 正常松开保留顶点自然衰减；强制取消只复用停止发射的状态变更。
       this.currentTrailStroke.active = false;
+
+      if (discardCurrentStroke || this.currentTrailStroke.points.length < 2)
+      {
+        // 取消用于异常恢复，必须丢弃当前 stroke；正常松开的可见轨迹继续自然衰减。
+        const strokeIndex = this.trailStrokes.indexOf(this.currentTrailStroke);
+
+        if (strokeIndex >= 0)
+        {
+          this.trailStrokes.splice(strokeIndex, 1);
+        }
+      }
     }
 
     this.currentTrailStroke = null;
     this.activePointerId = null;
+    this.activePointerSource = null;
     this.lastPointerPosition = null;
     this.lastPointerTime = 0;
     this.trailDistanceSinceShard = 0;
@@ -2662,18 +3090,27 @@ export class BAClickFX
   _spawnClick(x, y)
   {
     const scale = this._getScale();
+    const clickTimeMs = this._getClickInputTime();
 
-    this.waves.push(new ClickWave(x, y, this.fxConfig));
+    this.waves.push(new ClickWave(x, y, this.fxConfig, clickTimeMs));
 
     for (let index = 0; index < this.fxConfig.shards.clickCount; index++)
     {
-      this.shards.push(createShard(x, y, random(0, TAU), 'click', scale, this.fxConfig.shards));
+      this.shards.push(createShard(
+        x,
+        y,
+        random(0, TAU),
+        'click',
+        scale,
+        this.fxConfig.shards,
+        clickTimeMs,
+      ));
     }
   }
 
   _requestRender()
   {
-    if (this.destroyed || this.animationFrame !== null)
+    if (this.destroyed || this.paused || this.animationFrame !== null)
     {
       return;
     }
@@ -2684,15 +3121,18 @@ export class BAClickFX
 
   _renderFrame(now)
   {
-    if (this.destroyed)
+    if (this.destroyed || this.paused)
     {
+      this.animationFrame = null;
+      this.lastFrameTime = null;
       return;
     }
 
     this.animationFrame = null;
     // Unity 生命周期跟随真实时间。低帧率时限制 delta 会让旧特效异常延寿，
     // 进一步增加同时存活的 Bloom 区域并形成性能反馈循环。
-    const deltaMs = Math.max(0, now - (this.lastFrameTime ?? now));
+    this._advanceClickTime(now);
+    this._advanceTrailTime(now);
     const scale = this._getScale();
     const legacy = this._isLegacy;
     const bloomBackend = legacy ? 'legacy' : this._resolveBloomBackend();
@@ -2713,9 +3153,9 @@ export class BAClickFX
 
     try
     {
-      this._updateTrail(now, scale, useNativeBloom, legacy);
-      this._updateWaves(deltaMs, scale, useNativeBloom, legacy);
-      this._updateShards(deltaMs, scale);
+      this._updateTrail(this.trailTimeMs, scale, useNativeBloom, legacy);
+      this._updateWaves(this.clickTimeMs, scale, useNativeBloom, legacy);
+      this._updateShards(this.clickTimeMs, this.trailTimeMs, scale);
 
       if (!legacy)
       {
@@ -3520,7 +3960,7 @@ export class BAClickFX
     this._setResolvedBloomBackend('native');
   }
 
-  _updateTrail(now, scale, useNativeBloom, legacy = false)
+  _updateTrail(trailTimeMs, scale, useNativeBloom, legacy = false)
   {
     const lifetime = this.fxConfig.trail.lifetimeMs;
     const nativeBloomSurface = useNativeBloom && !legacy
@@ -3534,7 +3974,7 @@ export class BAClickFX
 
       while (
         expiredPointCount < stroke.points.length &&
-        now - stroke.points[expiredPointCount].bornAt >= lifetime
+        trailTimeMs - stroke.points[expiredPointCount].bornAt >= lifetime
       )
       {
         expiredPointCount++;
@@ -3575,20 +4015,21 @@ export class BAClickFX
         stroke.trailFrameData = null;
       }
 
-      if (!stroke.active && stroke.points.length === 0)
+      if (!stroke.active && stroke.points.length < 2)
       {
+        // 已松开的单点无法再形成可见线段；立即移除可避免 RAF 休眠后残留容器。
         this.trailStrokes.splice(strokeIndex, 1);
       }
     }
   }
 
-  _updateWaves(deltaMs, scale, useNativeBloom, legacy = false)
+  _updateWaves(clickTimeMs, scale, useNativeBloom, legacy = false)
   {
     for (let index = this.waves.length - 1; index >= 0; index--)
     {
       const wave = this.waves[index];
 
-      wave.update(deltaMs);
+      wave.updateTo(clickTimeMs);
 
       if (wave.dead)
       {
@@ -3606,13 +4047,20 @@ export class BAClickFX
     }
   }
 
-  _updateShards(deltaMs, scale)
+  _updateShards(clickTimeMs, trailTimeMs, scale)
   {
     for (let index = this.shards.length - 1; index >= 0; index--)
     {
       const shard = this.shards[index];
 
-      shard.update(deltaMs);
+      if (shard.kind === 'trail')
+      {
+        shard.updateTo(trailTimeMs);
+      }
+      else
+      {
+        shard.updateTo(clickTimeMs);
+      }
 
       if (shard.dead)
       {
@@ -3632,17 +4080,16 @@ export class BAClickFX
   _hasVisibleEffects()
   {
     return (
-      this.activePointerId !== null ||
       this.waves.length > 0 ||
       this.shards.length > 0 ||
-      this.trailStrokes.length > 0
+      this.trailStrokes.some((stroke) => hasVisibleTrailPoints(stroke.points))
     );
   }
 
   /** 在 Canvas 局部坐标触发一次 FX_Touch 点击粒子。 */
   boom(x = this.width / 2, y = this.height / 2)
   {
-    if (this.destroyed || !this.config.clickEnabled)
+    if (this.destroyed || this.paused || !this.config.clickEnabled)
     {
       return;
     }
@@ -3652,6 +4099,71 @@ export class BAClickFX
       clamp(Number(y) || 0, 0, this.height),
     );
     this._requestRender();
+  }
+
+  /** 暂停或恢复输入与动画调度；clear 仅在进入暂停时生效。 */
+  setPaused(paused, options = {})
+  {
+    if (this.destroyed)
+    {
+      return;
+    }
+
+    const nextPaused = paused === true;
+
+    if (nextPaused)
+    {
+      if (!this.paused)
+      {
+        const pauseTime = performance.now();
+
+        // 先结算进入暂停前的有效时间，随后冻结两个虚拟时钟。
+        this._advanceClickTime(pauseTime);
+        this._advanceTrailTime(pauseTime);
+        this.paused = true;
+
+        // 暂停不能保留可继续追加的宿主指针，否则恢复后会连接跨环境轨迹。
+        if (this.activePointerId !== null)
+        {
+          this._releaseActivePointer(false);
+        }
+
+        if (this.animationFrame !== null)
+        {
+          cancelAnimationFrame(this.animationFrame);
+          this.animationFrame = null;
+        }
+
+        // 点击与拖尾各自使用虚拟时钟；两者都会从恢复时重新计时。
+        this.lastFrameTime = null;
+        this.lastClickTimeSource = null;
+        this.lastTrailTimeSource = null;
+      }
+
+      if (options?.clear === true)
+      {
+        this.clear();
+      }
+
+      return;
+    }
+
+    if (!this.paused)
+    {
+      return;
+    }
+
+    const resumeTime = performance.now();
+
+    this.paused = false;
+    this.lastFrameTime = null;
+    this.lastClickTimeSource = resumeTime;
+    this.lastTrailTimeSource = resumeTime;
+
+    if (this._hasVisibleEffects())
+    {
+      this._requestRender();
+    }
   }
 
   /**
@@ -3667,7 +4179,8 @@ export class BAClickFX
 
   /**
    * 运行时更新部分配置，无需销毁重建实例。
-   * @param {object} overrides — 与构造函数 options 相同字段的子集
+   * target 与 inputFilter 只在构造时生效，其余公开配置均可按需覆盖。
+   * @param {object} overrides
    */
   updateConfig(overrides = {})
   {
@@ -3678,6 +4191,39 @@ export class BAClickFX
 
     const previousRenderingMode = this.config.renderingMode;
     const previousBloomBackend = this.config.bloomBackend;
+
+    if (
+      isInputSource(overrides.inputSource) &&
+      overrides.inputSource !== this.config.inputSource
+    )
+    {
+      // 输入所有权切换时先结束旧来源的逻辑指针，避免宿主接手半条轨迹。
+      this._cancelPointer();
+      this.config.inputSource = overrides.inputSource;
+
+      if (overrides.inputSource === 'dom')
+      {
+        this._attachDomPointerListeners();
+      }
+      else
+      {
+        this._detachDomPointerListeners();
+      }
+    }
+
+    if (Number.isFinite(overrides.clickTimeScale) && overrides.clickTimeScale > 0)
+    {
+      // 倍率只作用于配置变更后的时间，不能追溯重算上一帧后的区间。
+      this._advanceClickTime();
+      this.config.clickTimeScale = overrides.clickTimeScale;
+    }
+
+    if (Number.isFinite(overrides.trailTimeScale) && overrides.trailTimeScale > 0)
+    {
+      // 先用旧倍率结算到配置变更时刻，避免把此前的空闲时间追溯套用新倍率。
+      this._advanceTrailTime();
+      this.config.trailTimeScale = overrides.trailTimeScale;
+    }
 
     if (Number.isFinite(overrides.scale))
     {
@@ -3700,12 +4246,22 @@ export class BAClickFX
 
       if (!overrides.trailEnabled)
       {
+        if (this.activePointerSource === 'hover')
+        {
+          this._releaseActivePointer();
+        }
+
         this.clearTrail();
       }
     }
 
     if (typeof overrides.trailAlways === 'boolean')
     {
+      if (!overrides.trailAlways && this.activePointerSource === 'hover')
+      {
+        this._releaseActivePointer();
+      }
+
       this.config.trailAlways = overrides.trailAlways;
     }
 
@@ -3899,10 +4455,7 @@ export class BAClickFX
 
     this.destroyed = true;
     window.removeEventListener('resize', this._onResize);
-    window.removeEventListener('pointerdown', this._onPointerDown);
-    window.removeEventListener('pointermove', this._onPointerMove);
-    window.removeEventListener('pointerup', this._onPointerUp);
-    window.removeEventListener('pointercancel', this._onPointerUp);
+    this._detachDomPointerListeners();
     window.removeEventListener('blur', this._onBlur);
     this.resizeObserver?.disconnect();
 

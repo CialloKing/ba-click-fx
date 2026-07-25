@@ -1,21 +1,18 @@
 import './style.css';
 import { BAClickFX, BLOOM_BACKEND_CHANGE_EVENT } from './fx.js';
 
+function acceptDemoPointer(event)
+{
+  const panel = document.getElementById('panel');
+
+  // 展示页把控制面板视作宿主 UI；手动模式也必须由适配层执行同样过滤。
+  return !panel?.contains(event.target);
+}
+
 // ── 创建特效引擎 ────────────────────────────────────────────────────────
 const effect = new BAClickFX(
   {
-    inputFilter(event)
-    {
-      // 游戏中 Pointer over UGUI 时不生成 FX_Touch；控制面板等价于 UGUI
-      const panel = document.getElementById('panel');
-
-      if (panel && panel.contains(event.target))
-      {
-        return false;
-      }
-
-      return true;
-    },
+    inputFilter: acceptDemoPointer,
   },
 );
 
@@ -98,6 +95,193 @@ bindToggle('ctrlIsolatedCompositing', (checked) =>
 bindToggle('ctrlClick', (checked) => effect.updateConfig({ clickEnabled: checked }));
 bindToggle('ctrlTrail', (checked) => effect.updateConfig({ trailEnabled: checked }));
 bindToggle('ctrlTrailAlways', (checked) => effect.updateConfig({ trailAlways: checked }));
+bindRange('ctrlClickTimeScale', 'outClickTimeScale', (value) =>
+  effect.updateConfig({ clickTimeScale: value }));
+bindRange('ctrlTrailTimeScale', 'outTrailTimeScale', (value) =>
+  effect.updateConfig({ trailTimeScale: value }));
+
+// ── 宿主控制 API 演示 ───────────────────────────────────────────────────
+const ctrlInputSource = document.getElementById('ctrlInputSource');
+const ctrlPaused = document.getElementById('ctrlPaused');
+const ctrlPauseClear = document.getElementById('ctrlPauseClear');
+let currentInputSource = 'dom';
+let manualPointerId = null;
+
+function isManualInput()
+{
+  return currentInputSource === 'manual';
+}
+
+function toManualPointerInput(event)
+{
+  const rect = effect.canvas.getBoundingClientRect();
+
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+    pointerId: event.pointerId ?? 1,
+    pointerType: event.pointerType || 'mouse',
+  };
+}
+
+function acceptManualPointerDown(event)
+{
+  const pointerType = event.pointerType || 'mouse';
+
+  // 通用 API 接受宿主转换后的逻辑主指针；网页适配层单独保留左键交互习惯。
+  if (pointerType === 'mouse' && event.button > 0)
+  {
+    return false;
+  }
+
+  return acceptDemoPointer(event);
+}
+
+function updateHostApiStatus()
+{
+  const status = document.getElementById('hostApiStatus');
+
+  if (!status)
+  {
+    return;
+  }
+
+  const dictionary = I18N[currentLang] || I18N.zh;
+
+  if (ctrlPaused?.checked)
+  {
+    status.textContent = dictionary.hostApiPaused;
+  }
+  else if (isManualInput())
+  {
+    status.textContent = dictionary.hostApiManual;
+  }
+  else
+  {
+    status.textContent = dictionary.hostApiDom;
+  }
+}
+
+function applyInputSource(inputSource, persist = true)
+{
+  const resolvedSource = inputSource === 'manual' ? 'manual' : 'dom';
+
+  manualPointerId = null;
+  effect.updateConfig({ inputSource: resolvedSource });
+  // 指针移动是高频路径；缓存展示页状态可避免为每个样本深拷贝完整配置。
+  currentInputSource = resolvedSource;
+
+  if (ctrlInputSource)
+  {
+    ctrlInputSource.value = resolvedSource;
+  }
+
+  if (persist)
+  {
+    localStorage.setItem('bafx-ctrlInputSource', resolvedSource);
+  }
+
+  updateHostApiStatus();
+}
+
+if (ctrlInputSource)
+{
+  ctrlInputSource.addEventListener('change', () =>
+  {
+    applyInputSource(ctrlInputSource.value);
+  });
+}
+
+if (ctrlPauseClear)
+{
+  ctrlPauseClear.addEventListener('change', () =>
+  {
+    localStorage.setItem('bafx-ctrlPauseClear', String(ctrlPauseClear.checked));
+  });
+}
+
+if (ctrlPaused)
+{
+  ctrlPaused.addEventListener('change', () =>
+  {
+    manualPointerId = null;
+    effect.setPaused(ctrlPaused.checked,
+      {
+        clear: ctrlPauseClear?.checked === true,
+      });
+    updateHostApiStatus();
+  });
+}
+
+window.addEventListener('pointerdown', (event) =>
+{
+  if (!isManualInput() || !acceptManualPointerDown(event))
+  {
+    return;
+  }
+
+  const input = toManualPointerInput(event);
+
+  if (effect.pointerDown(input))
+  {
+    manualPointerId = input.pointerId;
+  }
+});
+
+window.addEventListener('pointermove', (event) =>
+{
+  if (
+    !isManualInput() ||
+    (manualPointerId === null && !acceptDemoPointer(event))
+  )
+  {
+    return;
+  }
+
+  const input = toManualPointerInput(event);
+
+  if (effect.pointerMove(input) && manualPointerId === null)
+  {
+    // trailAlways 没有 pointerDown，首个有效移动样本建立逻辑悬停指针。
+    manualPointerId = input.pointerId;
+  }
+});
+
+window.addEventListener('pointerup', (event) =>
+{
+  if (!isManualInput())
+  {
+    return;
+  }
+
+  const pointerId = event.pointerId ?? 1;
+
+  if (effect.pointerUp(pointerId) && pointerId === manualPointerId)
+  {
+    manualPointerId = null;
+  }
+});
+
+window.addEventListener('pointercancel', (event) =>
+{
+  if (!isManualInput())
+  {
+    return;
+  }
+
+  const pointerId = event.pointerId ?? 1;
+
+  if (effect.pointerCancel(pointerId) && pointerId === manualPointerId)
+  {
+    manualPointerId = null;
+  }
+});
+
+window.addEventListener('blur', () =>
+{
+  // 引擎会同步取消活动指针；适配层也丢弃自己的镜像状态。
+  manualPointerId = null;
+});
 
 // ── 渲染模式 → renderingMode + bloomBackend ──────────────────────────
 const ctrlRenderMode = document.getElementById('ctrlRenderMode');
@@ -268,6 +452,13 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlDpr').value = '2';
   document.getElementById('outDpr').textContent = '2';
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
+  document.getElementById('ctrlInputSource').value = 'dom';
+  document.getElementById('ctrlClickTimeScale').value = '1';
+  document.getElementById('outClickTimeScale').textContent = '1.00';
+  document.getElementById('ctrlTrailTimeScale').value = '1';
+  document.getElementById('outTrailTimeScale').textContent = '1.00';
+  document.getElementById('ctrlPaused').checked = false;
+  document.getElementById('ctrlPauseClear').checked = false;
   document.getElementById('ctrlIsolatedCompositing').checked = true;
   document.getElementById('ctrlClick').checked = true;
   document.getElementById('ctrlTrail').checked = true;
@@ -333,9 +524,13 @@ document.getElementById('btnReset').addEventListener('click', () =>
   });
 
   effect.resetFxConfig();
+  effect.setPaused(false);
+  applyInputSource('dom', false);
 
   effect.updateConfig(
     {
+      clickTimeScale: 1,
+      trailTimeScale: 1,
       scale: 1,
       opacity: 1,
       clickEnabled: true,
@@ -347,6 +542,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
       maxDpr: 2,
     },
   );
+  manualPointerId = null;
+  updateHostApiStatus();
   requestAnimationFrame(updateRenderBackendStatus);
   applyTheme('蔚蓝');
 
@@ -491,6 +688,17 @@ const I18N = {
     labelDpr: '最大 DPR',
     labelRenderMode: '渲染模式',
     labelIsolatedCompositing: '隔离合成',
+    hostApiSummary: '宿主控制 API',
+    labelInputSource: '输入来源',
+    inputSourceDom: 'DOM 自动监听',
+    inputSourceManual: '手动注入',
+    labelClickTimeScale: '点击速度',
+    labelTrailTimeScale: '拖尾速度',
+    labelPaused: '暂停输入与动画',
+    labelPauseClear: '暂停时清屏',
+    hostApiDom: 'DOM 模式：库自动监听 window 指针事件。',
+    hostApiManual: '手动模式：展示页通过公开 pointer API 注入输入。',
+    hostApiPaused: '已暂停：输入和 RAF 已停止。',
     renderSoftwareBloom: '软件 Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: '原生辉光',
@@ -543,9 +751,10 @@ const I18N = {
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
     introP2: '从 Unity FX_Touch.prefab 逐参数移植的 Canvas 2D 特效库，默认使用 WebGL2 Bloom——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.8/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.10/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 不需要图片素材；默认使用 WebGL2 Bloom，能力不足时自动回退软件 Bloom，零运行时依赖。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+    introHostApiSummary: '宿主控制 API / Host Control API',
   },
   en: {
     langToggle: '中文',
@@ -568,6 +777,17 @@ const I18N = {
     labelDpr: 'Max DPR',
     labelRenderMode: 'Render Mode',
     labelIsolatedCompositing: 'Isolated Compositing',
+    hostApiSummary: 'Host Control API',
+    labelInputSource: 'Input Source',
+    inputSourceDom: 'DOM Listeners',
+    inputSourceManual: 'Manual Injection',
+    labelClickTimeScale: 'Click Speed',
+    labelTrailTimeScale: 'Trail Speed',
+    labelPaused: 'Pause Input & Animation',
+    labelPauseClear: 'Clear When Paused',
+    hostApiDom: 'DOM mode: the library listens for window pointer events.',
+    hostApiManual: 'Manual mode: the demo injects input through the public pointer API.',
+    hostApiPaused: 'Paused: input and RAF scheduling are stopped.',
     renderSoftwareBloom: 'Software Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: 'Native Glow',
@@ -617,9 +837,10 @@ const I18N = {
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
     introP2: 'Canvas 2D effect library ported from Unity FX_Touch.prefab, using WebGL2 Bloom by default — dissolve rings, click shards, drag trails. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.8/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.10/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> No image assets. WebGL2 Bloom is the default and falls back to Software Bloom when unavailable. Zero runtime dependencies.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+    introHostApiSummary: 'Host Control API / 宿主控制 API',
   },
 };
 
@@ -685,6 +906,11 @@ function switchLanguage(lang)
     ctrlDpr: d.labelDpr,
     ctrlRenderMode: d.labelRenderMode,
     ctrlIsolatedCompositing: d.labelIsolatedCompositing,
+    ctrlInputSource: d.labelInputSource,
+    ctrlClickTimeScale: d.labelClickTimeScale,
+    ctrlTrailTimeScale: d.labelTrailTimeScale,
+    ctrlPaused: d.labelPaused,
+    ctrlPauseClear: d.labelPauseClear,
     ctrlClick: d.labelClickEnabled,
     ctrlRingHdr: d.labelRingHdr,
     ctrlRingRadMin: d.labelRingRadMin,
@@ -775,7 +1001,21 @@ function switchLanguage(lang)
     }
   });
 
+  const inputSourceOptions = {
+    dom: d.inputSourceDom,
+    manual: d.inputSourceManual,
+  };
+
+  document.querySelectorAll('#ctrlInputSource option').forEach((option) =>
+  {
+    if (inputSourceOptions[option.value])
+    {
+      option.textContent = inputSourceOptions[option.value];
+    }
+  });
+
   // 按钮
+  document.getElementById('hostApiSummary').textContent = d.hostApiSummary;
   document.getElementById('btnReset').textContent = d.btnReset;
   document.getElementById('customBgCtrl')?.querySelector('span') && (document.getElementById('customBgCtrl').querySelector('span').textContent = d.customBgLabel);
   document.getElementById('ctrlCustomBg').placeholder = d.customBgPlaceholder;
@@ -789,7 +1029,9 @@ function switchLanguage(lang)
   document.getElementById('introInstallContent').innerHTML = d.introInstallContent;
   document.getElementById('introFAQSummary').textContent = d.introFAQSummary;
   document.getElementById('introFAQContent').innerHTML = d.introFAQContent;
+  document.getElementById('introHostApiSummary').textContent = d.introHostApiSummary;
   updateRenderBackendStatus();
+  updateHostApiStatus();
 }
 
 document.getElementById('langToggle').addEventListener('click', () =>
@@ -802,6 +1044,28 @@ switchLanguage(currentLang);
 // ── 恢复持久化设置 ──────────────────────────────────────────────────────
 (function restoreSettings()
 {
+  const savedInputSource = localStorage.getItem('bafx-ctrlInputSource');
+
+  applyInputSource(savedInputSource === 'manual' ? 'manual' : 'dom', false);
+
+  for (const controlId of ['ctrlClickTimeScale', 'ctrlTrailTimeScale'])
+  {
+    const savedValue = localStorage.getItem('bafx-' + controlId);
+    const control = document.getElementById(controlId);
+
+    if (savedValue && control)
+    {
+      // 复用滑块处理器，避免恢复路径与即时更新产生不同的校验和显示行为。
+      control.value = savedValue;
+      control.dispatchEvent(new Event('input'));
+    }
+  }
+
+  if (ctrlPauseClear && localStorage.getItem('bafx-ctrlPauseClear') === 'true')
+  {
+    ctrlPauseClear.checked = true;
+  }
+
   const scaleEl = document.getElementById('ctrlScale');
 
   if (scaleEl && localStorage.getItem('bafx-ctrlScale'))

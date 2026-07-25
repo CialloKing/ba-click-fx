@@ -16,6 +16,7 @@ const {
   createConfig,
   SIZE_CORRECTION,
 } = module;
+const nativePerformance = globalThis.performance;
 
 let passed = 0;
 
@@ -424,6 +425,7 @@ function installDom()
   const canvasMounts = [];
   let nextFrameId = 1;
   let appendedCanvas = null;
+  let currentTime = nativePerformance.now();
 
   const recordAppend = (element, parent) =>
   {
@@ -440,6 +442,16 @@ function installDom()
   windowMock.devicePixelRatio = 1;
 
   globalThis.window = windowMock;
+  // 浏览器的 RAF timestamp 与 performance.now() 共用同一时间源；测试也必须如此，
+  // 否则人为推进 RAF 会让事件出生时间落到“未来”或“过去”。
+  globalThis.performance =
+  {
+    timeOrigin: nativePerformance.timeOrigin,
+    now()
+    {
+      return currentTime;
+    },
+  };
   globalThis.document =
   {
     body,
@@ -501,6 +513,10 @@ function installDom()
     createdElements,
     appendedCanvases,
     canvasMounts,
+    setCurrentTime(time)
+    {
+      currentTime = time;
+    },
     get appendedCanvas()
     {
       return appendedCanvas;
@@ -512,9 +528,12 @@ function flushFrames(dom, startTime, count, frameMs = 1000 / 60)
 {
   let now = startTime;
 
+  dom.setCurrentTime(now);
+
   for (let index = 0; index < count && dom.frames.size > 0; index++)
   {
     now += frameMs;
+    dom.setCurrentTime(now);
     const callbacks = [...dom.frames.values()];
 
     dom.frames.clear();
@@ -631,6 +650,11 @@ assert(
 );
 assert(CONFIG.bloomBackend === 'webgl2', '默认使用 WebGL2 Bloom 后端');
 assert(CONFIG.isolatedCompositing === true, '默认启用隔离合成以保留白底上的特效颜色');
+assert(CONFIG.inputSource === 'dom', '默认由 DOM 指针事件驱动输入');
+assert(
+  CONFIG.clickTimeScale === 1 && CONFIG.trailTimeScale === 1,
+  '点击与拖尾的默认时间倍率均为 1',
+);
 assert(
   BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange',
   '导出 Bloom 后端解析状态事件名，调用方无需硬编码字符串',
@@ -652,6 +676,20 @@ const explicitBackendConfig = createConfig(
 const invalidBackendConfig = createConfig({ bloomBackend: 'webgpu' });
 const directCompositingConfig = createConfig({ isolatedCompositing: false });
 const invalidCompositingConfig = createConfig({ isolatedCompositing: 'yes' });
+const manualInputConfig = createConfig(
+  {
+    inputSource: 'manual',
+    clickTimeScale: 2,
+    trailTimeScale: 0.5,
+  },
+);
+const invalidHostControlConfig = createConfig(
+  {
+    inputSource: 'electron',
+    clickTimeScale: 0,
+    trailTimeScale: Infinity,
+  },
+);
 
 assert(
   nativeAliasConfig.bloomBackend === 'native' &&
@@ -671,6 +709,18 @@ assert(
   directCompositingConfig.isolatedCompositing === false &&
     invalidCompositingConfig.isolatedCompositing === CONFIG.isolatedCompositing,
   'createConfig 只接受布尔隔离合成配置',
+);
+assert(
+  manualInputConfig.inputSource === 'manual' &&
+    manualInputConfig.clickTimeScale === 2 &&
+    manualInputConfig.trailTimeScale === 0.5,
+  'createConfig 保留有效的宿主输入模式与独立时间倍率',
+);
+assert(
+  invalidHostControlConfig.inputSource === CONFIG.inputSource &&
+    invalidHostControlConfig.clickTimeScale === CONFIG.clickTimeScale &&
+    invalidHostControlConfig.trailTimeScale === CONFIG.trailTimeScale,
+  'createConfig 忽略无效输入模式与非正有限时间倍率',
 );
 
 console.log('\n指针生命周期');
@@ -982,7 +1032,8 @@ Object.defineProperty(effect.fxConfig.trail, 'textureLongitudinalKeys',
       return savedTrailTextureKeys;
     },
   });
-now = flushFrames(dom, now, 1);
+// 圆环最初约 16ms 仍可能被溶解阈值完整裁剪；固定到 50ms 后验证发射路径。
+now = flushFrames(dom, now, 1, 50);
 Object.defineProperty(effect.fxConfig.trail, 'textureLongitudinalKeys',
   {
     configurable: true,
@@ -1339,6 +1390,791 @@ assert(
     dom.body.children.length === 0,
   'destroy() 移除监听、隔离合成根与自有 Canvas',
 );
+
+console.log('\n宿主手动输入');
+const pointerEventTypes = [
+  'pointerdown',
+  'pointermove',
+  'pointerup',
+  'pointercancel',
+];
+const listenerCount = (type) => dom.windowMock.listeners.get(type)?.size ?? 0;
+const pointerListenerBaseline = pointerEventTypes.map(listenerCount);
+let manualFilterCallCount = 0;
+const manualEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    inputSource: 'manual',
+    inputFilter()
+    {
+      manualFilterCallCount++;
+      return false;
+    },
+  },
+);
+
+flushFrames(dom, performance.now(), 1);
+assert(
+  manualEffect.getConfig().inputSource === 'manual' &&
+    pointerEventTypes.every((type, index) =>
+      listenerCount(type) === pointerListenerBaseline[index]),
+  'manual 模式不注册 DOM 指针监听',
+);
+
+dom.windowMock.dispatch('pointerdown',
+  {
+    pointerType: 'mouse',
+    button: 0,
+    pointerId: 12,
+    clientX: 300,
+    clientY: 200,
+  });
+assert(
+  manualEffect.activePointerId === null &&
+    manualEffect.waves.length === 0 &&
+    manualFilterCallCount === 0,
+  'manual 模式忽略 DOM 指针事件',
+);
+assert(
+  manualEffect.pointerDown({ x: NaN, y: 10 }) === false &&
+    manualEffect.pointerMove({ x: 10, y: Infinity }) === false &&
+    manualEffect.pointerUp(NaN) === false &&
+    manualEffect.pointerCancel(Infinity) === false,
+  '公开指针 API 以 false 拒绝无效坐标与指针编号',
+);
+
+const manualPointerAccepted = manualEffect.pointerDown(
+  {
+    x: -40,
+    y: manualEffect.height + 40,
+    pointerId: 23,
+    pointerType: 'pen',
+    // 宿主已把右键转换为逻辑主指针，库不应再过滤。
+    button: 2,
+  },
+);
+const manualStroke = manualEffect.currentTrailStroke;
+
+assert(
+  manualPointerAccepted &&
+    manualEffect.activePointerId === 23 &&
+    manualEffect.lastPointerPosition.x === 0 &&
+    manualEffect.lastPointerPosition.y === manualEffect.height &&
+    manualEffect.waves[0].x === 0 &&
+    manualEffect.waves[0].y === manualEffect.height &&
+    manualFilterCallCount === 0,
+  '手动 pointerDown 使用 Canvas 局部 CSS 像素、钳制边界且绕过按键与 inputFilter',
+);
+assert(
+  manualEffect.pointerDown(
+    {
+      x: 100,
+      y: 100,
+      pointerId: 24,
+      pointerType: 'touch',
+    },
+  ) === false && manualEffect.waves.length === 1,
+  '手动输入也保留单活动指针上限',
+);
+assert(
+  manualEffect.pointerMove({ x: 10, y: 10, pointerId: 24 }) === false &&
+    manualEffect.pointerMove(
+      {
+        x: manualEffect.width + 80,
+        y: -80,
+        pointerId: 23,
+        pointerType: 'pen',
+      },
+    ) === true &&
+    manualEffect.lastPointerPosition.x === manualEffect.width &&
+    manualEffect.lastPointerPosition.y === 0 &&
+    manualStroke.points.every((point) =>
+      point.x >= 0 && point.x <= manualEffect.width &&
+      point.y >= 0 && point.y <= manualEffect.height),
+  'pointerMove 拒绝非活动指针并钳制所有拖尾采样点',
+);
+assert(
+  manualEffect.pointerUp(24) === false &&
+    manualEffect.pointerUp(23) === true &&
+    manualEffect.activePointerId === null &&
+    manualStroke.active === false,
+  'pointerUp 仅正常结束匹配指针，已有拖尾保留自然消失',
+);
+
+manualEffect.clear();
+manualEffect.boom(-20, manualEffect.height + 20);
+assert(
+  manualEffect.waves.length === 1 &&
+    manualEffect.waves[0].x === 0 &&
+    manualEffect.waves[0].y === manualEffect.height &&
+    manualEffect.activePointerId === null &&
+    manualEffect.currentTrailStroke === null,
+  'boom() 仍只生成一次钳制坐标的点击，不创建指针状态',
+);
+manualEffect.clear();
+assert(
+  manualEffect.pointerDown({ x: 30, y: 40 }) === true &&
+    manualEffect.activePointerId === 1 &&
+    manualEffect.pointerCancel(2) === false &&
+    manualEffect.pointerCancel() === true &&
+    manualEffect.activePointerId === null &&
+    manualEffect.lastPointerPosition === null &&
+    manualEffect.currentTrailStroke === null &&
+    manualEffect.trailStrokes.length === 0,
+  'pointerId 默认为 1，pointerCancel 清理匹配指针及不可见单点轨迹',
+);
+
+manualEffect.clear();
+manualEffect.pointerDown({ x: 100, y: 120, pointerId: 40 });
+manualEffect.pointerMove({ x: 260, y: 120, pointerId: 40 });
+const cancelledVisibleStroke = manualEffect.currentTrailStroke;
+assert(
+  cancelledVisibleStroke.points.length >= 2 &&
+    manualEffect.pointerCancel(40) === true &&
+    cancelledVisibleStroke.active === false &&
+    !manualEffect.trailStrokes.includes(cancelledVisibleStroke),
+  'pointerCancel 与正常松开不同，会立即移除当前可见轨迹',
+);
+
+manualEffect.clear();
+manualEffect.pointerDown({ x: 100, y: 160, pointerId: 41 });
+manualEffect.pointerMove({ x: 180, y: 160, pointerId: 41 });
+manualEffect.clearTrail();
+assert(
+  manualEffect.activePointerId === 41 &&
+    manualEffect.currentTrailStroke === null &&
+    manualEffect.pointerMove({ x: 260, y: 160, pointerId: 41 }) === true &&
+    manualEffect.currentTrailStroke.points.length >= 2,
+  'clearTrail() 后活动按下指针会在下一次移动时重建轨迹',
+);
+manualEffect.clear();
+assert(
+  manualEffect.activePointerId === 41 &&
+    manualEffect.pointerMove({ x: 340, y: 160, pointerId: 41 }) === true &&
+    manualEffect.currentTrailStroke.points.length >= 2,
+  'clear() 清屏后活动按下指针仍可继续生成新轨迹',
+);
+manualEffect.updateConfig({ trailEnabled: false });
+manualEffect.updateConfig({ trailEnabled: true });
+assert(
+  manualEffect.pointerMove({ x: 420, y: 160, pointerId: 41 }) === true &&
+    manualEffect.currentTrailStroke.points.length >= 2,
+  '重新启用 trailEnabled 后仍按当前按下指针续接新轨迹',
+);
+manualEffect.pointerCancel(41);
+
+manualEffect.clear();
+manualEffect.updateConfig({ inputSource: 'dom' });
+assert(
+  manualEffect.getConfig().inputSource === 'dom' &&
+    pointerEventTypes.every((type, index) =>
+      listenerCount(type) === pointerListenerBaseline[index] + 1),
+  '运行时切换为 dom 会仅注册一组指针监听',
+);
+dom.windowMock.dispatch('pointerdown',
+  {
+    pointerType: 'mouse',
+    button: 2,
+    pointerId: 31,
+    clientX: 300,
+    clientY: 200,
+  });
+dom.windowMock.dispatch('pointerdown',
+  {
+    pointerType: 'mouse',
+    button: 0,
+    pointerId: 31,
+    clientX: 300,
+    clientY: 200,
+  });
+assert(
+  manualEffect.activePointerId === null &&
+    manualEffect.waves.length === 0 &&
+    manualFilterCallCount === 1,
+  'DOM 输入仍拒绝右键并执行 inputFilter',
+);
+manualEffect.updateConfig({ inputSource: 'manual' });
+assert(
+  pointerEventTypes.every((type, index) =>
+    listenerCount(type) === pointerListenerBaseline[index]),
+  '运行时恢复 manual 会完整解除 DOM 指针监听',
+);
+manualEffect.destroy();
+
+const coalescedEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    clickEnabled: false,
+    trailAlways: true,
+  },
+);
+
+flushFrames(dom, performance.now(), 1);
+const coalescedNow = performance.now() + 1000;
+
+dom.setCurrentTime(coalescedNow);
+dom.windowMock.dispatch('pointermove',
+  {
+    pointerType: '',
+    pointerId: 70,
+    button: -1,
+    clientX: 300,
+    clientY: 220,
+    timeStamp: coalescedNow,
+    getCoalescedEvents()
+    {
+      return [
+        {
+          pointerType: '',
+          pointerId: 70,
+          clientX: 100,
+          clientY: 220,
+          timeStamp: coalescedNow - 100,
+        },
+        {
+          pointerType: '',
+          pointerId: 70,
+          clientX: 300,
+          clientY: 220,
+          timeStamp: coalescedNow - 20,
+        },
+      ];
+    },
+  });
+const coalescedBornTimes = coalescedEffect.currentTrailStroke.points.map(
+  (point) => point.bornAt,
+);
+const coalescedTrailShards = coalescedEffect.shards.filter((shard) =>
+  shard.kind === 'trail');
+
+assert(
+  coalescedEffect.activePointerId === 70 &&
+    Math.max(...coalescedBornTimes) - Math.min(...coalescedBornTimes) >= 79 &&
+    coalescedTrailShards.length > 0 &&
+    coalescedTrailShards.every((shard) =>
+      shard.lastUpdateTimeMs < coalescedEffect.trailTimeMs),
+  'DOM 合并样本保留 timeStamp，空 pointerType 也可回退为逻辑鼠标输入',
+);
+coalescedEffect.pointerCancel(70);
+coalescedEffect.destroy();
+
+console.log('\n独立时间倍率');
+const timeScaleEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    inputSource: 'manual',
+    clickTimeScale: 2,
+    trailTimeScale: 0.5,
+  },
+);
+let timeScaleNow = flushFrames(dom, performance.now(), 1);
+
+assert(
+  timeScaleEffect.pointerDown(
+    {
+      x: 100,
+      y: 200,
+      pointerId: 5,
+      pointerType: 'mouse',
+    },
+  ),
+  '时间倍率实例可开始手动指针',
+);
+const scaledWave = timeScaleEffect.waves[0];
+const scaledClickShard = timeScaleEffect.shards[0];
+
+// 复用相同 ClickWave 更新实现作为预期值，避免在测试中复制旋转曲线。
+timeScaleEffect.boom(100, 200);
+const expectedScaledWave = timeScaleEffect.waves.pop();
+
+timeScaleEffect.shards.splice(-UNITY_FX_TOUCH.shards.clickCount);
+expectedScaledWave.ageMs = scaledWave.ageMs;
+expectedScaledWave.rings = scaledWave.rings.map((ring) => ({ ...ring }));
+expectedScaledWave.update(200);
+assert(
+  timeScaleEffect.pointerMove(
+    {
+      x: 500,
+      y: 200,
+      pointerId: 5,
+      pointerType: 'mouse',
+    },
+  ),
+  '时间倍率实例可追加拖尾采样',
+);
+const scaledTrailShard = timeScaleEffect.shards.find((shard) =>
+  shard.kind === 'trail');
+
+scaledClickShard.ageMs = 0;
+scaledClickShard.lifetimeMs = 1000;
+scaledClickShard.velocityX = 100;
+scaledClickShard.velocityY = 0;
+scaledTrailShard.ageMs = 0;
+scaledTrailShard.lifetimeMs = 250;
+scaledTrailShard.velocityX = 100;
+scaledTrailShard.velocityY = 0;
+timeScaleEffect.shards = [scaledClickShard, scaledTrailShard];
+const clickStartX = scaledClickShard.x;
+const trailStartX = scaledTrailShard.x;
+
+// 显式设定测试时间基准，使 RAF delta 不受执行机器速度影响。
+timeScaleEffect.lastFrameTime = timeScaleNow;
+timeScaleNow = flushFrames(dom, timeScaleNow, 1, 100);
+assert(
+  Math.abs(scaledWave.ageMs - 200) < 1e-9 &&
+    Math.abs(scaledClickShard.ageMs - 200) < 1e-9 &&
+    Math.abs(scaledClickShard.x - clickStartX - 20) < 1e-9,
+  'clickTimeScale 同时缩放点击波纹、点击碎片寿命与位移',
+);
+assert(
+  scaledWave.rings.every((ring, index) =>
+    Math.abs(ring.rotation - expectedScaledWave.rings[index].rotation) < 1e-12),
+  'clickTimeScale 以同一缩放 delta 推进圆环旋转',
+);
+assert(
+  Math.abs(scaledTrailShard.ageMs - 50) < 1e-9 &&
+    Math.abs(scaledTrailShard.x - trailStartX - 5) < 1e-9,
+  'trailTimeScale 同时缩放拖尾碎片寿命与位移',
+);
+
+timeScaleNow = flushFrames(dom, timeScaleNow, 1, 201);
+assert(
+  timeScaleEffect.waves.length === 0 &&
+    timeScaleEffect.currentTrailStroke.points.length >= 2,
+  '两倍速点击在约 300ms 完成，半速拖尾仍保留有效顶点',
+);
+timeScaleNow = flushFrames(dom, timeScaleNow, 1, 301);
+assert(
+  timeScaleEffect.shards.length === 0 &&
+    timeScaleEffect.currentTrailStroke.points.length === 0,
+  '半速拖尾在约 600ms 真实时间后完成 300ms 衰减与碎片运动',
+);
+
+timeScaleEffect.pointerCancel(5);
+timeScaleEffect.clear();
+timeScaleEffect.updateConfig(
+  {
+    clickEnabled: false,
+    trailTimeScale: 0.5,
+  },
+);
+timeScaleEffect.pointerDown({ x: 100, y: 300, pointerId: 6 });
+timeScaleEffect.pointerMove({ x: 500, y: 300, pointerId: 6 });
+const slowTrailPointCount = timeScaleEffect.currentTrailStroke.points.length;
+const slowTrailShardCount = timeScaleEffect.shards.filter((shard) =>
+  shard.kind === 'trail').length;
+
+timeScaleEffect.pointerCancel(6);
+timeScaleEffect.clearTrail();
+timeScaleEffect.updateConfig({ trailTimeScale: 4 });
+timeScaleEffect.pointerDown({ x: 100, y: 300, pointerId: 7 });
+timeScaleEffect.pointerMove({ x: 500, y: 300, pointerId: 7 });
+assert(
+  timeScaleEffect.currentTrailStroke.points.length === slowTrailPointCount &&
+    timeScaleEffect.shards.filter((shard) => shard.kind === 'trail').length ===
+      slowTrailShardCount,
+  'trailTimeScale 不改变 minVertexDistance 与 trailSpacing 等空间采样',
+);
+
+timeScaleEffect.updateConfig({ clickTimeScale: 3, trailTimeScale: 4 });
+timeScaleEffect.updateConfig(
+  {
+    clickTimeScale: 0,
+    trailTimeScale: Number.NaN,
+  },
+);
+assert(
+  timeScaleEffect.getConfig().clickTimeScale === 3 &&
+    timeScaleEffect.getConfig().trailTimeScale === 4,
+  'updateConfig 忽略非正有限时间倍率并保留有效值',
+);
+timeScaleEffect.destroy();
+
+const clickClockEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    inputSource: 'manual',
+  },
+);
+let clickClockNow = flushFrames(dom, performance.now(), 1);
+
+clickClockEffect.boom(100, 100);
+clickClockNow = flushFrames(dom, clickClockNow, 1, 10);
+dom.setCurrentTime(clickClockNow + 490);
+clickClockEffect.boom(200, 100);
+const lateClickWave = clickClockEffect.waves.at(-1);
+const lateClickShard = clickClockEffect.shards.at(-1);
+
+clickClockNow = flushFrames(dom, clickClockNow + 490, 1, 10);
+assert(
+  Math.abs(lateClickWave.ageMs - 10) < 1e-9 &&
+    Math.abs(lateClickShard.ageMs - 10) < 1e-9,
+  '两帧之间新建的点击只消费出生后的时间，不继承此前长帧',
+);
+clickClockEffect.clear();
+dom.setCurrentTime(clickClockNow);
+clickClockEffect.boom(300, 100);
+const switchedScaleWave = clickClockEffect.waves[0];
+
+dom.setCurrentTime(clickClockNow + 100);
+clickClockEffect.updateConfig({ clickTimeScale: 2 });
+clickClockNow = flushFrames(dom, clickClockNow + 100, 1, 50);
+assert(
+  Math.abs(switchedScaleWave.ageMs - 200) < 1e-9,
+  '运行时切换 clickTimeScale 只缩放变更后的时间区间',
+);
+clickClockEffect.destroy();
+
+console.log('\n拖尾碎片时钟');
+const trailShardClockEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    inputSource: 'manual',
+    clickEnabled: false,
+  },
+);
+
+flushFrames(dom, performance.now(), 1);
+trailShardClockEffect.pointerDown({ x: 100, y: 250, pointerId: 15 });
+trailShardClockEffect.pointerMove({ x: 300, y: 250, pointerId: 15 });
+const interleavedTrailShard = trailShardClockEffect.shards.find((shard) =>
+  shard.kind === 'trail');
+
+assert(interleavedTrailShard, '移动超过 trailSpacing 后创建拖尾碎片');
+interleavedTrailShard.ageMs = 0;
+interleavedTrailShard.velocityX = 100;
+interleavedTrailShard.velocityY = 0;
+const interleavedStartX = interleavedTrailShard.x;
+const shardVirtualStart = trailShardClockEffect.trailTimeMs;
+
+// 模拟 RAF 前的高频输入。输入可以推进轨迹时钟，但不能吞掉已有碎片的动画时间。
+trailShardClockEffect.lastTrailTimeSource = performance.now() - 15;
+trailShardClockEffect.pointerMove({ x: 301, y: 250, pointerId: 15 });
+const synchronizedInputTime = trailShardClockEffect.lastTrailTimeSource;
+const expectedInterleavedDelta =
+  trailShardClockEffect.trailTimeMs - shardVirtualStart + 1;
+
+flushFrames(dom, synchronizedInputTime, 1, 1);
+assert(
+  expectedInterleavedDelta >= 16 &&
+    Math.abs(interleavedTrailShard.ageMs - expectedInterleavedDelta) < 1e-9 &&
+    Math.abs(
+      interleavedTrailShard.x - interleavedStartX -
+        expectedInterleavedDelta / 10,
+    ) < 1e-9,
+  '高频 pointerMove 与 RAF 交错时不会丢失拖尾碎片的寿命和位移',
+);
+
+flushFrames(dom, synchronizedInputTime + 1, 1, 1);
+assert(
+  Math.abs(interleavedTrailShard.ageMs - expectedInterleavedDelta - 1) < 1e-9 &&
+    Math.abs(
+      interleavedTrailShard.x - interleavedStartX -
+        (expectedInterleavedDelta + 1) / 10,
+    ) < 1e-9,
+  '后续 RAF 只结算新增时间，不会重复应用输入期间的时间差',
+);
+
+trailShardClockEffect.pointerCancel(15);
+trailShardClockEffect.clearTrail();
+trailShardClockEffect.lastTrailTimeSource = performance.now() - 10000;
+trailShardClockEffect.pointerDown({ x: 100, y: 300, pointerId: 16 });
+trailShardClockEffect.pointerMove({ x: 300, y: 300, pointerId: 16 });
+const postIdleTrailShard = trailShardClockEffect.shards.find((shard) =>
+  shard.kind === 'trail');
+const postIdleInputTime = trailShardClockEffect.lastTrailTimeSource;
+
+flushFrames(dom, postIdleInputTime, 1, 1);
+assert(
+  postIdleTrailShard && postIdleTrailShard.ageMs === 1,
+  '长时间空闲后新建的拖尾碎片不会继承空闲时间并立即过期',
+);
+trailShardClockEffect.destroy();
+
+console.log('\n暂停与空闲调度');
+const pauseEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    inputSource: 'manual',
+  },
+);
+
+flushFrames(dom, performance.now(), 1);
+pauseEffect.pointerDown({ x: 100, y: 100, pointerId: 44 });
+pauseEffect.pointerMove({ x: 300, y: 100, pointerId: 44 });
+const pausedWave = pauseEffect.waves[0];
+const pausedClickShard = pauseEffect.shards.find((shard) =>
+  shard.kind === 'click');
+const pausedTrailShard = pauseEffect.shards.find((shard) =>
+  shard.kind === 'trail');
+const pausedStroke = pauseEffect.currentTrailStroke;
+const pausedWaveAge = pausedWave.ageMs;
+const pausedClickShardX = pausedClickShard.x;
+const pausedTrailShardAge = pausedTrailShard.ageMs;
+const pausedTrailShardX = pausedTrailShard.x;
+
+pauseEffect.setPaused(true, { clear: false });
+assert(
+  pauseEffect.paused &&
+    pauseEffect.activePointerId === null &&
+    pauseEffect.lastPointerPosition === null &&
+    pauseEffect.currentTrailStroke === null &&
+    pausedStroke.active === false,
+  'setPaused(true) 取消当前指针且 clear:false 保留可见对象',
+);
+assert(
+  pauseEffect.animationFrame === null && dom.frames.size === 0,
+  '暂停会取消已申请的 RAF',
+);
+
+const pausedCounts = [
+  pauseEffect.waves.length,
+  pauseEffect.shards.length,
+  pauseEffect.trailStrokes.length,
+];
+pauseEffect.boom(500, 500);
+assert(
+  pauseEffect.pointerDown({ x: 500, y: 500, pointerId: 45 }) === false &&
+    pauseEffect.pointerMove({ x: 520, y: 500, pointerId: 45 }) === false &&
+    pauseEffect.pointerUp(45) === false &&
+    pauseEffect.pointerCancel(45) === false &&
+    pauseEffect.waves.length === pausedCounts[0] &&
+    pauseEffect.shards.length === pausedCounts[1] &&
+    pauseEffect.trailStrokes.length === pausedCounts[2],
+  '暂停期间忽略 boom() 与全部公开指针输入',
+);
+dom.windowMock.dispatch('resize');
+assert(dom.frames.size === 0, '暂停期间 resize 也不会重新申请 RAF');
+assert(
+  pausedWave.ageMs === pausedWaveAge &&
+    pausedClickShard.x === pausedClickShardX &&
+    pausedTrailShard.ageMs === pausedTrailShardAge &&
+    pausedTrailShard.x === pausedTrailShardX,
+  'clear:false 在暂停期间冻结点击与拖尾碎片状态',
+);
+
+// 模拟宿主长时间挂起；恢复必须覆盖这个过期时间基准。
+pauseEffect.lastFrameTime = performance.now() - 60000;
+const resumeTime = performance.now();
+
+pauseEffect.setPaused(false);
+assert(dom.frames.size === 1, '恢复后为保留的可见对象重新申请 RAF');
+flushFrames(dom, resumeTime, 1, 16);
+assert(
+  pausedWave.ageMs > pausedWaveAge &&
+    pausedWave.ageMs - pausedWaveAge < 100 &&
+    Math.abs(pausedClickShard.x - pausedClickShardX) < 100 &&
+    pausedTrailShard.ageMs > pausedTrailShardAge &&
+    pausedTrailShard.ageMs - pausedTrailShardAge < 100 &&
+    Math.abs(pausedTrailShard.x - pausedTrailShardX) < 100 &&
+    pausedStroke.points.length >= 2,
+  '恢复时重置点击、轨迹与拖尾碎片时间基准，不把暂停间隔当作超大 delta',
+);
+
+pauseEffect.pointerDown({ x: 600, y: 400, pointerId: 46 });
+const clearCallCount = pauseEffect.context.clearRectCalls.length;
+
+pauseEffect.setPaused(true, { clear: true });
+assert(
+  pauseEffect.waves.length === 0 &&
+    pauseEffect.shards.length === 0 &&
+    pauseEffect.trailStrokes.length === 0 &&
+    pauseEffect.activePointerId === null &&
+    pauseEffect.animationFrame === null &&
+    dom.frames.size === 0 &&
+    pauseEffect.context.clearRectCalls.length > clearCallCount,
+  'setPaused(true, { clear:true }) 停止调度并立即清除全部视觉对象',
+);
+pauseEffect.setPaused(false);
+assert(
+  pauseEffect.pointerDown({ x: 60, y: 70, pointerId: 47 }) === true,
+  '恢复后公开指针输入重新生效',
+);
+pauseEffect.pointerCancel(47);
+pauseEffect.destroy();
+
+const pauseSettlementEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    inputSource: 'manual',
+  },
+);
+let pauseSettlementNow = flushFrames(dom, performance.now(), 1);
+
+pauseSettlementEffect.boom(400, 300);
+const settledWave = pauseSettlementEffect.waves[0];
+
+dom.setCurrentTime(pauseSettlementNow + 100);
+pauseSettlementEffect.setPaused(true, { clear: false });
+assert(
+  Math.abs(
+    pauseSettlementEffect.clickTimeMs - settledWave.lastUpdateTimeMs - 100,
+  ) < 1e-9,
+  '暂停前先结算上一帧后的有效点击时间',
+);
+dom.setCurrentTime(pauseSettlementNow + 10100);
+pauseSettlementEffect.setPaused(false);
+pauseSettlementNow = flushFrames(dom, pauseSettlementNow + 10100, 1, 16);
+assert(
+  Math.abs(settledWave.ageMs - 116) < 1e-9,
+  '恢复后保留暂停前时间且不计入暂停区间',
+);
+pauseSettlementEffect.destroy();
+
+const idleTrailEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    inputSource: 'manual',
+    clickEnabled: false,
+    trailAlways: true,
+  },
+);
+
+let idleTrailNow = flushFrames(dom, performance.now(), 1);
+assert(
+  idleTrailEffect.pointerMove({ x: 100, y: 100, pointerId: 9 }) === true &&
+    idleTrailEffect.activePointerId === 9 &&
+    idleTrailEffect.currentTrailStroke.points.length === 2,
+  'trailAlways 的首个移动样本创建可见轨迹',
+);
+
+// 固定虚拟拖尾时钟，精确验证 300ms 后的空闲判定。
+idleTrailEffect.trailTimeMs = 0;
+idleTrailEffect.lastFrameTime = idleTrailNow;
+for (const point of idleTrailEffect.currentTrailStroke.points)
+{
+  point.bornAt = 0;
+}
+idleTrailNow = flushFrames(dom, idleTrailNow, 40, 20);
+assert(
+  dom.frames.size === 0 &&
+    idleTrailEffect._hasVisibleEffects() === false &&
+    idleTrailEffect.activePointerId === 9 &&
+    !idleTrailEffect.trailStrokes.some((stroke) => stroke.points.length >= 2),
+  'trailAlways 停止移动后忽略空指针状态并停止 RAF',
+);
+assert(
+  idleTrailEffect.pointerMove({ x: 140, y: 100, pointerId: 9 }) === true &&
+    idleTrailEffect.currentTrailStroke.points.length >= 2 &&
+    dom.frames.size === 1,
+  '空闲后的下一次 pointerMove 追加新顶点并唤醒 RAF',
+);
+idleTrailNow = flushFrames(dom, idleTrailNow, 1, 20);
+assert(
+  idleTrailEffect._hasVisibleEffects() === true &&
+    idleTrailEffect.currentTrailStroke.points.length >= 2,
+  'trailAlways 空闲后的首次移动在实际渲染帧仍保持可见',
+);
+idleTrailEffect.currentTrailStroke.points = [
+  {
+    x: 140,
+    y: 100,
+    bornAt: idleTrailEffect.trailTimeMs -
+      UNITY_FX_TOUCH.trail.lifetimeMs - 1,
+  },
+];
+idleTrailEffect.lastPointerPosition = { x: 140, y: 100 };
+idleTrailEffect.lastPointerTime = idleTrailEffect.trailTimeMs - 1000;
+assert(
+  idleTrailEffect.pointerMove({ x: 180, y: 100, pointerId: 9 }) === true &&
+    idleTrailEffect.currentTrailStroke.points.length >= 2 &&
+    idleTrailEffect.currentTrailStroke.points.every((point) =>
+      point.bornAt === idleTrailEffect.trailTimeMs),
+  'trailAlways 仅剩一个过期点时也从当前时刻重建轨迹',
+);
+const cancelledIdleStroke = idleTrailEffect.currentTrailStroke;
+
+assert(
+  idleTrailEffect.pointerCancel(8) === false &&
+    idleTrailEffect.pointerCancel(9) === true &&
+    idleTrailEffect.activePointerId === null &&
+    idleTrailEffect.lastPointerPosition === null &&
+    idleTrailEffect.currentTrailStroke === null &&
+    cancelledIdleStroke.active === false,
+  'pointerCancel 清理 trailAlways 的指针位置与当前 stroke',
+);
+idleTrailEffect.destroy();
+
+const trailStateEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    inputSource: 'manual',
+    clickEnabled: false,
+    trailAlways: true,
+  },
+);
+
+flushFrames(dom, performance.now(), 1);
+assert(
+  trailStateEffect.pointerDown({ x: 100, y: 100, pointerId: 80 }) === true &&
+    trailStateEffect.pointerDown({ x: 120, y: 100, pointerId: 81 }) === false &&
+    trailStateEffect.activePointerId === 80,
+  'trailAlways 也不会让第二次真实按下夺取活动指针',
+);
+trailStateEffect.pointerCancel(80);
+trailStateEffect.pointerMove({ x: 200, y: 200, pointerId: 82 });
+assert(
+  trailStateEffect.activePointerSource === 'hover' &&
+    trailStateEffect.activePointerId === 82,
+  'trailAlways 移动会建立可被点击接管的悬停指针',
+);
+trailStateEffect.updateConfig({ trailAlways: false });
+assert(
+  trailStateEffect.activePointerId === null &&
+    trailStateEffect.currentTrailStroke === null &&
+    trailStateEffect.pointerDown({ x: 220, y: 200, pointerId: 83 }) === true,
+  '运行时关闭 trailAlways 会释放悬停状态并允许下一次正常按下',
+);
+trailStateEffect.pointerCancel(83);
+trailStateEffect.updateConfig({ trailAlways: true });
+assert(
+  trailStateEffect.pointerMove(
+    {
+      x: trailStateEffect.width,
+      y: trailStateEffect.height,
+      pointerId: 84,
+    },
+  ) === true &&
+    trailStateEffect._hasVisibleEffects() === true &&
+    trailStateEffect.currentTrailStroke.points[0].x !==
+      trailStateEffect.currentTrailStroke.points[1].x,
+  '右下角 trailAlways 种子向画布内部偏移，不产生零长度伪轨迹',
+);
+trailStateEffect.pointerCancel(84);
+trailStateEffect.destroy();
+
+const releasedSinglePointEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    clickEnabled: false,
+    inputSource: 'manual',
+  },
+);
+const releasedTrailStart = flushFrames(dom, performance.now(), 1);
+
+releasedSinglePointEffect.pointerDown(
+  {
+    x: 100,
+    y: 100,
+    pointerId: 85,
+  },
+);
+dom.setCurrentTime(releasedTrailStart + 200);
+releasedSinglePointEffect.pointerMove(
+  {
+    x: 108,
+    y: 100,
+    pointerId: 85,
+  },
+);
+releasedSinglePointEffect.pointerUp(85);
+flushFrames(dom, releasedTrailStart + 200, 1, 210);
+assert(
+  releasedSinglePointEffect.trailStrokes.length === 0 &&
+    dom.frames.size === 0,
+  '已松开轨迹错峰衰减到单点时会删除容器并停止 RAF',
+);
+releasedSinglePointEffect.destroy();
 
 const clickGlowResetEffect = new BAClickFX({ bloomBackend: 'native' });
 

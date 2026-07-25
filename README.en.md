@@ -83,7 +83,7 @@ const fx = new BAClickFX();
 ### 3. CDN
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.8/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.10/dist/ba-click-fx.iife.js"></script>
 <script>
   const fx = new BAClickFX.BAClickFX();
 </script>
@@ -127,6 +127,9 @@ new BAClickFX(options?: {
   clickEnabled?: boolean,        // default true
   trailEnabled?: boolean,        // default true
   trailAlways?: boolean,         // default false
+  inputSource?: 'dom' | 'manual', // default dom
+  clickTimeScale?: number,       // default 1
+  trailTimeScale?: number,       // default 1
   renderingMode?: 'enhanced' | 'legacy', // default enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // default webgl2
   softwareBloomEnabled?: boolean, // compatibility alias: true = software, false = native
@@ -157,15 +160,87 @@ WebGL2 Bloom and isolated compositing both require a library-owned DOM overlay. 
 
 Each `BAClickFX` instance owns a separate isolation group. Multiple isolated instances on the same page do not run `plus-lighter` across group boundaries, and switching or destroying one instance does not move or remove another instance's canvases.
 
+### Host Input and Pointer Lifecycle
+
+`inputSource` defaults to `'dom'` to preserve existing web behaviour:
+
+- `'dom'`: the library automatically listens for DOM Pointer events.
+- `'manual'`: automatic DOM pointer listeners are not registered; an Electron, WebView2, browser-extension, or other host calls the public pointer methods. Resize, WebGL Context, and other lifecycle listeners are unaffected.
+
+`pointerDown()`, `pointerMove()`, `pointerUp()`, and `pointerCancel()` remain callable with either `inputSource`; their return values indicate whether the current pointer state accepted the input. Manual `x` / `y` values use Canvas-local CSS pixels and are clamped to the Canvas bounds; `pointerId` defaults to `1`. `inputFilter` applies only when admitting automatic DOM input, never to manual input, so a host-converted logical primary pointer such as a right- or middle-button action is not rejected a second time by the library.
+
+```js
+const fx = new BAClickFX(
+{
+  target: '#myCanvas',
+  inputSource: 'manual',
+});
+
+fx.pointerDown(
+{
+  x: 120,
+  y: 80,
+  pointerId: 7,
+  pointerType: 'pen',
+});
+fx.pointerMove(
+{
+  x: 148,
+  y: 96,
+  pointerId: 7,
+  pointerType: 'pen',
+});
+fx.pointerUp(7);
+```
+
+`pointerDown()` starts one click-and-trail lifecycle. `pointerUp()` normally ends the pointer and lets its existing trail decay, while `pointerCancel()` forcibly clears the active pointer and current position, then immediately removes the current trail. `boom(x, y)` remains a click-only convenience method and never creates trail pointer state.
+
+`inputSource` can also be switched through `updateConfig()`. A switch first cancels the old source's active pointer, then attaches or removes the automatic DOM pointer listeners for the target mode so the host never inherits a half-finished stroke.
+
+### Independent Time Scales
+
+`clickTimeScale` and `trailTimeScale` must both be finite numbers greater than `0`. `1` is the original speed, `2` means twice the speed with half the duration, and `0.5` means half speed with twice the duration; `0` does not mean pause. Both values can be updated at runtime:
+
+```js
+fx.updateConfig(
+{
+  clickTimeScale: 1.5,
+  trailTimeScale: 0.8,
+});
+```
+
+`clickTimeScale` scales click-wave lifetime, rotation, click-shard lifetime, and displacement together. `trailTimeScale` scales trail decay, trail-shard lifetime, and displacement together. Neither changes spatial sampling settings such as `minVertexDistance` or `trailSpacing`.
+
+### Pause and Resume
+
+```js
+const pauseOptions =
+{
+  clear: true,
+};
+
+fx.setPaused(true, pauseOptions);
+fx.setPaused(false);
+```
+
+Pausing cancels the active pointer, ignores `boom()` and every automatic or manual pointer input, and stops requesting new `requestAnimationFrame` callbacks. `clear` applies only when `paused` is `true`: `clear: true` removes all visual objects, while `setPaused(false, { clear: true })` does not clear. Resuming resets the time baseline so time spent paused is not applied as a large delta on the next frame.
+
+`trailAlways` also renders on demand: an active pointer alone does not count as visible work. RAF stops after waves, shards, and valid trail points are gone, and the next `pointerMove()` wakes rendering again.
+
 ### Instance Methods
 
 | Method | Description |
 |---|---|
-| `boom(x, y)` | Trigger a click effect at the given coordinates |
+| `boom(x, y)` | Trigger one click effect without creating trail state |
+| `pointerDown(input)` | Start one click-and-trail lifecycle |
+| `pointerMove(input)` | Append a trail sample for the current logical pointer |
+| `pointerUp(pointerId?)` | End the pointer normally and let its trail decay |
+| `pointerCancel(pointerId?)` | Force-cancel the pointer and immediately remove its current trail |
+| `setPaused(paused, options?)` | Pause or resume input and animation scheduling, optionally clearing on pause |
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
 | `destroy()` | Destroy instance, remove listeners and canvas |
-| `updateConfig({...})` | Update base config, `renderingMode`, `bloomBackend`, `isolatedCompositing`, DPR, and touch behaviour at runtime |
+| `updateConfig({...})` | Update base config, input source, time scales, Bloom backend, DPR, and touch behaviour at runtime |
 | `setThemeColor('#ff6969')` | Set theme colour via HSL hue-shift |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify any FX parameter by dot-path |
 | `getFxConfig()` | Deep copy of current FX configuration |

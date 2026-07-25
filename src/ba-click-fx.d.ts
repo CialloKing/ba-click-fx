@@ -1,6 +1,8 @@
 declare module 'ba-click-fx'
 {
   export type BAClickFXInputFilter = (event: PointerEvent) => boolean;
+  export type BAClickFXInputSource = 'dom' | 'manual';
+  export type BAClickFXPointerType = 'mouse' | 'touch' | 'pen';
   export type BAClickFXBloomBackend = 'auto' | 'software' | 'webgl2' | 'native';
   export type BAClickFXResolvedBloomBackend =
     Exclude<BAClickFXBloomBackend, 'auto'> | 'legacy' | 'pending';
@@ -14,6 +16,23 @@ declare module 'ba-click-fx'
   export type BAClickFXBackendChangeEvent =
     CustomEvent<BAClickFXBackendChangeDetail>;
 
+  export interface BAClickFXPointerInput
+  {
+    /** Canvas 局部 CSS 像素坐标。 */
+    x: number;
+    /** Canvas 局部 CSS 像素坐标。 */
+    y: number;
+    /** 逻辑指针 ID，默认 1。 */
+    pointerId?: number;
+    pointerType?: BAClickFXPointerType;
+  }
+
+  export interface BAClickFXPauseOptions
+  {
+    /** 暂停时是否同时清除全部视觉对象，默认 false。 */
+    clear?: boolean;
+  }
+
   export interface BAClickFXOptions
   {
     /** CSS 选择器、定位容器或已有 Canvas；普通容器建议设置 position: relative，省略时创建全屏覆盖层。 */
@@ -26,6 +45,12 @@ declare module 'ba-click-fx'
     trailEnabled?: boolean;
     /** 无需按下鼠标，移动即显示拖尾。默认 false。 */
     trailAlways?: boolean;
+    /** 'dom' 自动监听 Pointer 事件；'manual' 仅接受宿主注入。默认 'dom'。 */
+    inputSource?: BAClickFXInputSource;
+    /** 点击波纹、旋转和点击碎片的时间倍率，必须有限且大于 0。默认 1。 */
+    clickTimeScale?: number;
+    /** 拖尾衰减和拖尾碎片的时间倍率，必须有限且大于 0。默认 1。 */
+    trailTimeScale?: number;
     /** 渲染模式：'enhanced'（默认，线性能量）或 'legacy'（sRGB + shadowBlur，main 分支风格）。 */
     renderingMode?: 'enhanced' | 'legacy';
     /** Bloom 后端。默认 'webgl2'；不可用时会自动回退软件 Bloom 与原生辉光。 */
@@ -39,9 +64,14 @@ declare module 'ba-click-fx'
     /** Canvas backing store 的设备像素比上限，默认 2。 */
     maxDpr?: number;
     touchAction?: CSSStyleDeclaration['touchAction'];
-    /** 仅用于过滤按下事件；已开始的拖拽会继续跟随到松开。 */
+    /** 仅用于自动 DOM 输入准入；手动指针方法不会调用此过滤器。 */
     inputFilter?: BAClickFXInputFilter;
   }
+
+  /** 可在实例存续期间安全修改的配置；目标元素和 DOM 过滤器仅在构造时生效。 */
+  export type BAClickFXUpdateOptions = Partial<
+    Omit<BAClickFXOptions, 'target' | 'inputFilter'>
+  >;
 
   export interface BAClickFXConfig
   {
@@ -50,6 +80,9 @@ declare module 'ba-click-fx'
     clickEnabled: boolean;
     trailEnabled: boolean;
     trailAlways: boolean;
+    inputSource: BAClickFXInputSource;
+    clickTimeScale: number;
+    trailTimeScale: number;
     renderingMode: 'enhanced' | 'legacy';
     bloomBackend: BAClickFXBloomBackend;
     /** 兼容旧 API；WebGL2 与软件 Bloom 后端均为 true。 */
@@ -96,8 +129,23 @@ declare module 'ba-click-fx'
     /** 在 Canvas 局部坐标触发一次游戏原版 FX_Touch 点击。 */
     boom(x?: number, y?: number): void;
 
-    /** 运行时更新基础开关、Bloom 后端、DPR 与触摸行为。 */
-    updateConfig(overrides: Partial<BAClickFXOptions>): void;
+    /** 开始一次点击与拖尾生命周期；两种 inputSource 下均可调用。 */
+    pointerDown(input: BAClickFXPointerInput): boolean;
+
+    /** 为当前逻辑指针追加一个拖尾采样点。 */
+    pointerMove(input: BAClickFXPointerInput): boolean;
+
+    /** 正常结束逻辑指针，已有拖尾继续自然消失。 */
+    pointerUp(pointerId?: number): boolean;
+
+    /** 强制取消逻辑指针并立即移除当前轨迹。 */
+    pointerCancel(pointerId?: number): boolean;
+
+    /** 暂停或恢复输入与动画调度；clear 仅在 paused 为 true 时生效。 */
+    setPaused(paused: boolean, options?: BAClickFXPauseOptions): void;
+
+    /** 运行时更新输入来源、时间倍率、基础开关、Bloom 后端、DPR 与触摸行为。 */
+    updateConfig(overrides: BAClickFXUpdateOptions): void;
 
     /** 设置主题色（CSS 十六进制），所有蓝色系特效的 hue 将以此偏移。传入空字符串恢复默认。 */
     setThemeColor(hex: string): void;

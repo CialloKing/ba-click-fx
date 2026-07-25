@@ -61,7 +61,7 @@
         <p><strong>npm</strong></p>
         <pre><code>npm install ba-click-fx</code></pre>
         <p><strong>CDN</strong></p>
-        <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.8/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>
+        <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.10/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>
       </div>
     </details>
     <details>
@@ -70,6 +70,18 @@
         <p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p>
         <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要图片素材；默认使用 WebGL2 Bloom，能力不足时自动回退软件 Bloom，零外部运行时依赖。</p>
         <p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和直接 script 引入三种方式。</p>
+      </div>
+    </details>
+    <details>
+      <summary id="introHostApiSummary">宿主控制 API / Host Control API</summary>
+      <div id="introHostApiContent">
+        <pre><code>const fx = new BAClickFX({ inputSource: 'manual' });
+fx.pointerDown({ x, y, pointerId });
+fx.pointerMove({ x, y, pointerId });
+fx.pointerUp(pointerId);
+fx.pointerCancel(pointerId);
+fx.updateConfig({ clickTimeScale: 1.5, trailTimeScale: 0.8 });
+fx.setPaused(true, { clear: true });</code></pre>
       </div>
     </details>
   </section>
@@ -133,6 +145,35 @@
         <span class="toggle-track"></span>
       </label>
       <p id="renderBackendStatus" class="render-backend-status" aria-live="polite">正在检测 WebGL2 Bloom…</p>
+      </details>
+      <details open>
+      <summary id="hostApiSummary">宿主控制 API</summary>
+      <label class="ctrl">
+        <span>输入来源</span>
+        <select id="ctrlInputSource" class="ctrl-select">
+          <option value="dom" selected>DOM 自动监听</option>
+          <option value="manual">手动注入</option>
+        </select>
+      </label>
+      <label class="ctrl">
+        <span>点击速度 <output id="outClickTimeScale">1.00</output>×</span>
+        <input type="range" id="ctrlClickTimeScale" min="0.25" max="4" step="0.05" value="1" />
+      </label>
+      <label class="ctrl">
+        <span>拖尾速度 <output id="outTrailTimeScale">1.00</output>×</span>
+        <input type="range" id="ctrlTrailTimeScale" min="0.25" max="4" step="0.05" value="1" />
+      </label>
+      <label class="ctrl toggle">
+        <span>暂停输入与动画</span>
+        <input type="checkbox" id="ctrlPaused" />
+        <span class="toggle-track"></span>
+      </label>
+      <label class="ctrl toggle">
+        <span>暂停时清屏</span>
+        <input type="checkbox" id="ctrlPauseClear" />
+        <span class="toggle-track"></span>
+      </label>
+      <p id="hostApiStatus" class="host-api-status" aria-live="polite">DOM 模式：库自动监听 window 指针事件。</p>
       </details>
     </section>
 
@@ -353,9 +394,8 @@
         <span>原生光盘模糊 <output id="outBloomDisk">65</output></span>
         <input type="range" id="ctrlBloomDisk" min="0" max="200" step="5" value="65" />
       </label>
-    </section>
-
       </details>
+    </section>
     <div class="panel-actions">
       <button id="btnReset" class="btn-reset">重置默认</button>
     </div>
