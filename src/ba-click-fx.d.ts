@@ -3,9 +3,6 @@ declare module 'ba-click-fx'
   export type BAClickFXInputFilter = (event: PointerEvent) => boolean;
   export type BAClickFXInputSource = 'dom' | 'manual';
   export type BAClickFXPointerType = 'mouse' | 'touch' | 'pen';
-  export type BAClickFXEffectBackend = 'canvas2d' | 'webgl2' | 'auto';
-  export type BAClickFXResolvedEffectBackend =
-    Exclude<BAClickFXEffectBackend, 'auto'> | 'pending';
   export type BAClickFXBloomBackend = 'auto' | 'software' | 'webgl2' | 'native';
   export type BAClickFXResolvedBloomBackend =
     Exclude<BAClickFXBloomBackend, 'auto'> | 'legacy' | 'pending';
@@ -18,15 +15,6 @@ declare module 'ba-click-fx'
 
   export type BAClickFXBackendChangeEvent =
     CustomEvent<BAClickFXBackendChangeDetail>;
-
-  export interface BAClickFXEffectBackendChangeDetail
-  {
-    readonly requestedEffectBackend: BAClickFXEffectBackend;
-    readonly resolvedEffectBackend: BAClickFXResolvedEffectBackend;
-  }
-
-  export type BAClickFXEffectBackendChangeEvent =
-    CustomEvent<BAClickFXEffectBackendChangeDetail>;
 
   export interface BAClickFXPointerInput
   {
@@ -63,9 +51,7 @@ declare module 'ba-click-fx'
     clickTimeScale?: number;
     /** 拖尾衰减和拖尾碎片的时间倍率，必须有限且大于 0。默认 1。 */
     trailTimeScale?: number;
-    /** 实验性完整特效渲染后端；默认 'canvas2d'，'auto' 可按能力选择。 */
-    effectBackend?: BAClickFXEffectBackend;
-    /** 渲染模式：两者共享 Unity 资源参数；'legacy' 保留旧版 DOM 合成并使用原生辉光。 */
+    /** 渲染模式：'enhanced'（默认，线性能量）或 'legacy'（sRGB + shadowBlur，main 分支风格）。 */
     renderingMode?: 'enhanced' | 'legacy';
     /** Bloom 后端。默认 'webgl2'；不可用时会自动回退软件 Bloom 与原生辉光。 */
     bloomBackend?: BAClickFXBloomBackend;
@@ -97,8 +83,6 @@ declare module 'ba-click-fx'
     inputSource: BAClickFXInputSource;
     clickTimeScale: number;
     trailTimeScale: number;
-    /** 请求的完整特效渲染后端；默认 'canvas2d'。 */
-    effectBackend: BAClickFXEffectBackend;
     renderingMode: 'enhanced' | 'legacy';
     bloomBackend: BAClickFXBloomBackend;
     /** 兼容旧 API；WebGL2 与软件 Bloom 后端均为 true。 */
@@ -123,8 +107,6 @@ declare module 'ba-click-fx'
 
   export interface BAClickFXConfigSnapshot extends BAClickFXConfig
   {
-    /** 最近一次解析的完整特效渲染后端；延迟能力探测前为 'pending'。 */
-    readonly resolvedEffectBackend: BAClickFXResolvedEffectBackend;
     /** 最近一次解析的实际后端；WebGL2/auto 首次延迟探测前为 'pending'。 */
     readonly resolvedBloomBackend: BAClickFXResolvedBloomBackend;
     readonly unity: UnityFxTouchConfig;
@@ -133,8 +115,6 @@ declare module 'ba-click-fx'
   export const CONFIG: Readonly<BAClickFXConfig>;
   /** 主 Canvas 在 Bloom 后端解析状态变化时派发的事件名。 */
   export const BLOOM_BACKEND_CHANGE_EVENT: 'baclickfxbackendchange';
-  /** 主 Canvas 在完整特效后端解析状态变化时派发的事件名。 */
-  export const EFFECT_BACKEND_CHANGE_EVENT: 'baclickfxeffectbackendchange';
   export const UNITY_FX_TOUCH: UnityFxTouchConfig;
   export const SIZE_CORRECTION: number;
   export function createConfig(overrides?: Partial<BAClickFXConfig>): BAClickFXConfig;
@@ -159,13 +139,13 @@ declare module 'ba-click-fx'
     /** 正常结束逻辑指针，已有拖尾继续自然消失。 */
     pointerUp(pointerId?: number): boolean;
 
-    /** 强制取消逻辑指针，并立即移除当前轨迹。 */
+    /** 取消逻辑指针；与 pointerUp 一样让已有拖尾自然消失。 */
     pointerCancel(pointerId?: number): boolean;
 
     /** 暂停或恢复输入与动画调度；clear 仅在 paused 为 true 时生效。 */
     setPaused(paused: boolean, options?: BAClickFXPauseOptions): void;
 
-    /** 运行时更新输入来源、时间倍率、基础开关、实验性特效后端、Bloom 后端、DPR 与触摸行为。 */
+    /** 运行时更新输入来源、时间倍率、基础开关、Bloom 后端、DPR 与触摸行为。 */
     updateConfig(overrides: BAClickFXUpdateOptions): void;
 
     /** 设置主题色（CSS 十六进制），所有蓝色系特效的 hue 将以此偏移。传入空字符串恢复默认。 */
