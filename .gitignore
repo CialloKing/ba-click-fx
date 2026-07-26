@@ -37,6 +37,7 @@ lerna-debug.log*
 *.local
 *.tsbuildinfo
 PUBLISH.md
+docs/assets/ba-click-fx-demo.gif
 
 # Agent / AI
 .reasonix

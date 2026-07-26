@@ -1,5 +1,18 @@
 ﻿# Changelog
 
+## v1.2.12 — 完整 WebGL2 与多后端 Unity 对齐
+
+- 新增实验性完整特效后端 `effectBackend: 'canvas2d' | 'webgl2' | 'auto'`，默认仍由 Canvas 2D 绘制清晰几何；通过 `resolvedEffectBackend` 与 `baclickfxeffectbackendchange` 暴露延迟探测、整帧回退和 Context 恢复状态
+- 完整 WebGL2 使用全尺寸 `RGBA16F` 线性 HDR Scene，直接从 Scene 构建 Bloom，并在最终 Pass 执行 `scene + bloom * intensity` 后仅进行一次 sRGB 编码
+- WebGL2 的 Disk、加色碎片/拖尾和 Dissolve Ring 按 Unity 顺序分批绘制；圆环使用独立硬裁剪 Shader、原始 Alpha 与 `SrcAlpha/One` 混合
+- WebGL2 与软件 Bloom 对齐 `Hidden/MXFinalBloom` 的 4-tap、Box4 mip、累积上采样方向、Intensity 1.7、Soft Knee 和 half-float Clamp，并缓存失败尺寸以避免重复分配和日志
+- Disk 统一使用 sRGB 到线性能量和 `One/OneMinusSrcAlpha` 混合；Canvas 通过局部擦除再加色复现相同语义，大小生命周期改为 Unity Hermite 曲线
+- Canvas、Native、Legacy 和完整 WebGL2 共享 TrailRenderer 折点、内角交点、转角扇面与 `numCapVertices = 1` 首尾端帽，并按弧长端点连续插值 Stretch 能量和横向轮廓
+- Native 与 Legacy 增加阈值驱动的圆环、光盘、碎片和拖尾辉光；拖尾改为一次局部离屏模糊，并复用 Unity 资源参数和生命周期
+- `pointerCancel()` 强制清理活动指针、当前位置和当前轨迹；`pointerUp()` 继续让已有拖尾自然消失，`trailAlways` 或零圆环点击无可见内容时停止 RAF 并按需唤醒
+- 展示页新增“完整 WebGL2（实验）”并扩展为五档渲染选择，连续参数改用更细步进，数量仍保持整数控制且允许将圆环数量设为 `0`
+- 双语 FAQ 提示纯白背景开启隔离合成，并修复移动端 FAQ 展开裁切；更新演示 GIF，仓库不再追踪该 Release 大文件
+
 ## v1.2.11 — Unity 解包资源严格对齐
 
 - 对照两套解包 Unity 工程重新核验 `FX_Touch` Prefab、材质、网格与纹理资源，并按固定 UI 正交投影、粒子曲线、材质 HDR、碎片局部缩放和 TrailRenderer 参数校准网页实现
