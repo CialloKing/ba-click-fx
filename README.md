@@ -51,9 +51,9 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 - 四种展示页渲染选择：WebGL2 Bloom（默认）、软件 Bloom、原生辉光、Legacy
 - 默认 WebGL2 GPU Bloom；不支持时自动回退软件 Bloom，再回退原生辉光
 - 支持浏览器插件、npm、CDN、直接下载四种接入方式
-- 自定义主题色（HSL hue 偏移）
+- 演示默认主题色 `#4ca7ff`，支持自定义 HSL hue 偏移
 - 可调参 API：运行时修改圆环 HDR、半径、宽度、寿命、碎片数量、拖尾宽度、Bloom 强度等
-- 按窗口高度自动缩放，保持与游戏 UI 一致的相对比例
+- 粒子尺寸随画布高度持续缩放，保持与 Unity UI 相同的相对比例
 
 ---
 
@@ -91,7 +91,7 @@ const fx = new BAClickFX();
 ### 3. CDN 引入
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.10/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.11/dist/ba-click-fx.iife.js"></script>
 <script>
   const fx = new BAClickFX.BAClickFX();
 </script>
@@ -153,8 +153,8 @@ new BAClickFX(options?: {
   renderingMode?: 'enhanced' | 'legacy', // 渲染模式，默认 enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // Bloom 后端，默认 webgl2
   softwareBloomEnabled?: boolean, // 兼容旧 API：true 等同 software，false 等同 native
-  isolatedCompositing?: boolean,  // 隔离合成，默认 true；false 时直接与页面混合
-  lightBackgroundContrastAlpha?: number, // 浅色背景兼容层强度，默认 0.35；设为 0 可关闭
+  isolatedCompositing?: boolean,  // 隔离合成，默认 false；true 为非游戏白底兼容选项
+  lightBackgroundContrastAlpha?: number, // 浅色背景兼容层强度，默认 0
   maxDpr?: number,                // 最大设备像素比，默认 2
   touchAction?: string,           // Canvas touch-action，默认 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
@@ -165,20 +165,30 @@ new BAClickFX(options?: {
 
 | 展示页选项 | API 配置 | 说明 |
 |---|---|---|
-| WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 默认；GPU 执行阈值、Gaussian mip 与 Scatter，不可用时自动回退 |
+| WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 默认；GPU 执行游戏 MXFinalBloom，不可用时自动回退 |
 | 软件 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'software' }` | 参考/兼容实现，使用 Canvas 2D 像素回读和全视口 Float32 缓冲 |
 | 原生辉光 | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | 使用 Canvas 2D `shadowBlur`，开销较低但观感与后处理 Bloom 不同 |
 | Legacy | `{ renderingMode: 'legacy' }` | 保留旧版 sRGB、合成和辉光行为；此时忽略 Bloom 后端 |
 
-展示页在四档渲染选项之外提供独立的“隔离合成”开关。该开关默认开启，与 Software、WebGL2、Native 或 Legacy 渲染选择正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
+展示页在四档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与 Software、WebGL2、Native 或 Legacy 渲染选择正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
 
 `bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。默认值 `'webgl2'` 采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。若同时传入 `bloomBackend` 和旧字段 `softwareBloomEnabled`，以 `bloomBackend` 为准；旧字段仍保持 `true` 等价于 `'software'`、`false` 等价于 `'native'`。
 
-`isolatedCompositing: true` 会让库拥有的主特效层、WebGL2 Bloom 层和浅色背景兼容层先在透明隔离组内混合，再将整个组覆盖到页面上；这样可以避免 `plus-lighter` 直接与纯白背景相加后把蓝青色钳制成白色。设为 `false` 时，各 Canvas 会直接挂载到目标容器或页面，恢复严格的直接页面合成。该选项可通过 `updateConfig()` 在运行时切换。
+`isolatedCompositing` 默认是 `false`，各 Canvas 直接挂载到目标容器或页面，与 Unity 的直接加色路径一致。设为 `true` 后，库拥有的主特效层、WebGL2 Bloom 层和浅色背景兼容层会先在透明隔离组内混合，再将整个组覆盖到页面上，避免 `plus-lighter` 直接与纯白背景相加后把蓝青色钳制成白色。隔离合成是非游戏的网页白底兼容选项，可通过 `updateConfig()` 在运行时切换。
 
 WebGL2 Bloom 和隔离合成都需要库拥有 DOM 覆盖层。若 `target` 是一个已有的 `<canvas>`，库无法安全插入额外的 WebGL2、对比或隔离层，因此 `'webgl2'` / `'auto'` 会自动回退到软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回的是降级后的实际配置。默认全屏覆盖层不受此限制。普通容器也可以使用，但容器必须自行建立定位上下文（通常设置 `position: relative`），库不会静默修改宿主样式。
 
 隔离根按 `BAClickFX` 实例独立创建和销毁。同一页面的多个隔离实例不会跨根执行 `plus-lighter`；一个实例切换模式或销毁也不会移动、删除其他实例的 Canvas。
+
+纯白背景需要额外对比度时，可显式启用两项网页兼容选项：
+
+```js
+const fx = new BAClickFX(
+{
+  isolatedCompositing: true,
+  lightBackgroundContrastAlpha: 0.35,
+});
+```
 
 ### 宿主输入与指针生命周期
 
@@ -213,7 +223,7 @@ fx.pointerMove(
 fx.pointerUp(7);
 ```
 
-`pointerDown()` 开始一次点击和拖尾生命周期，`pointerUp()` 正常结束指针并让已有拖尾自然消失，`pointerCancel()` 则强制清理活动指针、当前位置，并立即移除当前轨迹。`boom(x, y)` 保持为仅生成一次点击的便捷方法，不会建立拖尾指针状态。
+`pointerDown()` 开始一次点击和拖尾生命周期。`pointerUp()` 与 `pointerCancel()` 都会停止追加并清理活动指针状态，已有拖尾继续按 Unity 的 `0.3s` TrailRenderer 时间自然消失。`boom(x, y)` 保持为仅生成一次点击的便捷方法，不会建立拖尾指针状态。
 
 `inputSource` 也可以通过 `updateConfig()` 动态切换。切换时会先取消旧来源的活动指针，再按目标模式注册或移除自动 DOM 指针监听，避免宿主接手尚未结束的轨迹。
 
@@ -255,13 +265,13 @@ fx.setPaused(false);
 | `pointerDown(input)` | 开始一次点击和拖尾生命周期 |
 | `pointerMove(input)` | 为当前逻辑指针追加拖尾采样点 |
 | `pointerUp(pointerId?)` | 正常结束指针，已有拖尾自然消失 |
-| `pointerCancel(pointerId?)` | 强制取消指针并立即移除当前轨迹 |
+| `pointerCancel(pointerId?)` | 取消指针，已有拖尾继续自然消失 |
 | `setPaused(paused, options?)` | 暂停或恢复输入与动画调度，可选在暂停时清屏 |
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 仅清除拖尾和碎片 |
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |
 | `updateConfig({...})` | 运行时更新基础配置、输入来源、时间倍率、Bloom 后端、DPR 与触摸行为 |
-| `setThemeColor('#ff6969')` | 设置主题色，所有蓝色系特效 hue 偏移到此颜色 |
+| `setThemeColor('#4ca7ff')` | 设置主题色；展示页默认使用该游戏蓝 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 点号路径修改任意特效参数 |
 | `getFxConfig()` | 返回当前完整特效配置深拷贝 |
 | `resetFxConfig()` | 重置所有特效参数为游戏默认值 |
@@ -295,23 +305,22 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | 路径 | 默认值 | 说明 |
 |---|---|---|
 | `rings.hdrIntensity` | 5.992157 | 圆环 HDR 强度 |
-| `rings.radiusMin` | 51.0560832 | MeshTri 随机外半径下限；生命周期大小曲线应用前的基准值 |
-| `rings.radiusMax` | 59.5654304 | MeshTri 随机外半径上限；生命周期大小曲线应用前的基准值 |
+| `rings.radiusMin` | 68.92571232 | MeshTri 随机外半径下限；生命周期大小曲线应用前的基准值 |
+| `rings.radiusMax` | 80.41333104 | MeshTri 随机外半径上限；生命周期大小曲线应用前的基准值 |
 | `rings.bandToOuterRadius` | 0.0598573766 | 原网格环宽与外半径的固定比值 |
 | `rings.widthStart` | 1 | 生命周期起点的资源环宽倍率，不是独立像素宽度 |
 | `rings.widthEnd` | 1 | 生命周期终点的资源环宽倍率，不是独立像素宽度 |
 | `rings.lifetimeMs` | 600 | 圆环寿命 (ms) |
+| `shards.hdrIntensity` | 5.992157 | 碎片材质 HDR 强度；渲染时还会乘资源起始色 |
 | `shards.clickCount` | 4 | 点击碎片数量 |
 | `shards.maxCount` | 96 | 碎片上限 |
-| `shards.trailSpacing` | 80 | 拖尾碎片间距 |
+| `shards.trailSpacing` | 108 | 拖尾碎片间距 |
 | `bloom.threshold` | 1.0 | 高亮提取阈值 |
-| `bloom.softKnee` | 0.5 | 阈值过渡柔和度 |
-| `bloom.clamp` | 65472 | URP 预过滤 HDR 上限 |
-| `bloom.intensity` | 1.0 | 针对网页透明 sRGB 合成与游戏截图校准的 Bloom 强度 |
-| `bloom.scatter` | 0.7 | 光晕在 mip 金字塔中的扩散范围 |
+| `bloom.softKnee` | 0 | 阈值过渡柔和度 |
+| `bloom.clamp` | 65472 | MXFinalBloom 预过滤 HDR 上限 |
+| `bloom.intensity` | 1.7 | 游戏 MXFinalBloom 强度 |
+| `bloom.diffusion` | 7 | 决定 mip 层数与 SampleScale 的扩散参数 |
 | `bloom.resolutionScale` | 0.5 | Bloom 缓冲区相对分辨率（内部限制为 0.1~0.75） |
-| `bloom.skipIterations` | 1 | 略过最深层 mip 的迭代数 |
-| `bloom.highQualityFiltering` | true | 启用高质量双三次 scatter 上采样 |
 | `bloom.clickEmissionScale` | 1.0 | 点击圆环与中心光盘的独立辉光倍率，推荐 `0~4`；不影响清晰几何或轨迹 |
 | `bloom.ringEmissionAlpha` | 1.0 | 与 FX_MAT_Touch_Tri3 材质 Alpha 对齐的圆环 HDR 发射 |
 | `bloom.diskEmissionAlpha` | 1.0 | 软件 Bloom 光盘 HDR 发射校准 |
@@ -319,12 +328,14 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `bloom.ringAlpha` | 0.35 | 像素回读不可用时的圆环原生模糊强度 |
 | `bloom.diskBlur` | 65 | 像素回读不可用时的光盘原生模糊半径 |
 | `bloom.diskAlpha` | 0.65 | 像素回读不可用时的光盘原生模糊强度 |
-| `bloom.trailCoverageScale` | 1.75 | Canvas 拖尾几何对 Unity 三角带子像素覆盖率的校准 |
+| `bloom.trailCoverageScale` | 1.0 | 保持 Bloom 发射源与 Unity 2.7px 三角带同宽 |
 | `bloom.trailEmissionAlpha` | 1.0 | 软件 Bloom 拖尾 HDR 发射校准 |
 | `bloom.trailAlpha` | 0.18 | 原生局部离屏模糊回退强度 |
-| `trail.width` | 2 | 拖尾清晰几何带宽度 |
+| `trail.width` | 2.7 | 拖尾清晰几何带宽度 |
 | `trail.outerGlowWidth` | 9 | 原生局部离屏回退光晕半径 |
 | `trail.lifetimeMs` | 300 | 拖尾寿命 (ms) |
+
+`rootDurationMs = 1000` 只保留原 Unity 根 ParticleSystem 的对象池释放元数据。网页端视觉生命周期由各子粒子和 TrailRenderer 自身的寿命决定；该字段不是视觉调参，修改它不会改变画面。
 
 ---
 
@@ -342,39 +353,42 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 
 原 Shader 使用 `Blend SrcAlpha One, One One`。ParticleSystemRenderer 的 Apply Active Color Space 会把启用的 Color over Lifetime 顶点色解码到 Linear，再与 `FX_MAT_Touch_Tri3` 的白色 5.992157 HDR 材质相乘。溶解不是连续压低所有像素的透明度，而是以阈值处理二维纹理 Alpha；通过测试的像素继续保留纹理覆盖率。大小和溶解阈值均使用资源关键帧及其入/出切线执行 Unity 三次 Hermite 插值，而不是线性插值或通用 smoothstep。
 
+Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白色阶段的实际峰值能量约为 `1.50`，而不是直接使用材质的 `5.99`。三角形按 `FX_TEX_Triangle_02_1` 的两个图集帧随机朝向，轮廓面积与生命周期尺寸曲线也来自资源，不再使用偏大的等边三角形近似。
+
 ### 拖尾轨迹
 
-拖尾按 Unity 原资源的同一条渲染链近似：
+拖尾按 Unity 原资源的同一条渲染链复现：
 
 | 层 | 说明 |
 |---|---|
-| 几何带与亮芯 | 直接绘制原始 2px HDR 几何带，再由 Bloom 自然扩张为柔和亮芯 |
+| 几何带与亮芯 | 直接绘制原始 2.7px HDR 几何带，再由 Bloom 自然扩张为柔和亮芯 |
 | 纵向包络 | 将原 TrailRenderer Gradient 反向到 Canvas 点序，再乘 `FX_TEX_Trail_03` 经 sRGB→Linear 换算的 Stretch 纹理亮度 |
-| Bloom | 只对 HDR 发射缓冲使用所选 Bloom 后端；三角碎片不写入该缓冲 |
+| 二维纹理包络 | 横向羽化会随 Stretch 纵向位置变化；逐段双线性插值原纹理采样，避免中段被固定亮芯拓宽 |
+| Bloom | 对圆环、圆盘、拖尾和三角碎片的 HDR 发射缓冲使用所选 Bloom 后端 |
 
 碎片沿轨迹按距离散布。
 
 ### Bloom 渲染后端
 
-WebGL2 与软件 Bloom 共用同一组 HDR 发射参数和 Bloom 配置。WebGL2 分支在透明 GPU 帧缓冲中绘制圆环、光盘与拖尾发射，再执行阈值/Soft Knee、Gaussian mip 金字塔、Scatter 上采样和加色输出；清晰几何与浅色背景兼容轮廓仍由 Canvas 2D 绘制。这样能在大量特效同时存在时把主要 Bloom 计算从 CPU 和像素回读路径移到 GPU，同时保留软件 Bloom 作为精确参考和兼容实现。
+WebGL2 与软件 Bloom 共用同一组 HDR 发射参数和 Bloom 配置。WebGL2 分支在透明 GPU 帧缓冲中绘制圆环、光盘、拖尾与碎片发射，再按游戏 `Hidden/MXFinalBloom` 的 4-tap 预过滤、Box4 mip、累积式上采样和强度换算输出；清晰几何与浅色背景兼容轮廓仍由 Canvas 2D 绘制。
 
 可用性由运行时实际创建 WebGL2 上下文、检查 `EXT_color_buffer_float` 并验证 `RGBA16F` 帧缓冲决定。请求后端与最近一次解析结果可分别通过 `getConfig().bloomBackend` 和 `getConfig().resolvedBloomBackend` 查看；WebGL2/auto 在首次延迟探测或 Context 恢复验证前会短暂返回 `pending`。
 
 ### JavaScript 软件 Bloom
 
-显式选择 `bloomBackend: 'software'` 或 WebGL2 不可用时，软件后端会把圆环、光盘和拖尾的 HDR 发射亮度绘制到全视口遮罩，再由 JavaScript 回读像素并按兼容 URP 12 Bloom 的结构处理。三角形碎片只绘制清晰本体，不参与 Bloom：
+显式选择 `bloomBackend: 'software'` 或 WebGL2 不可用时，软件后端会把全部 HDR 发射亮度绘制到全视口遮罩，再由 JavaScript 回读像素并执行同一套 MXFinalBloom：
 
 1. 将 8 位遮罩解码到可复用的 Float32 RGB 缓冲区。
-2. 以高质量 13-tap 预过滤执行带 Soft Knee 的阈值提取，生成 1/2 分辨率 mip0。
-3. 使用可分离 9-tap Gaussian 下采样建立 mip 金字塔；`bloom.skipIterations` 控制略过的最深层迭代。
-4. 按 `bloom.scatter` 从低分辨率 mip 向上混合；开启 `bloom.highQualityFiltering` 时使用双三次采样。
-5. 将线性 Bloom 能量转换为 sRGB 加色 RGBA，按 `bloom.intensity` 以 `lighter` 叠加到主画布；后续 CSS 合成边界由 `isolatedCompositing` 决定。
+2. 以 4-tap 预过滤执行阈值提取，生成 1/2 分辨率 mip0。
+3. 使用 Box4 下采样建立由 `bloom.diffusion` 决定层数的 mip 金字塔。
+4. 从最低分辨率 mip 开始，以 SampleScale 四点采样累加回每个细层。
+5. 按游戏公式换算 `bloom.intensity`，再执行最终四点采样与 sRGB 加色合成。
 
-默认的 `isolatedCompositing: true` 会先在透明组内完成主层的 `plus-lighter`、WebGL2 Bloom 层的 `plus-lighter` 和兼容层的 `darken` 混合，再将带颜色与 Alpha 的组合结果覆盖到页面。它不修改 Bloom 算法，却能让纯白背景上的蓝青色、饱和度和柔和辉光保持可见。设为 `false` 后，主层直接以 `plus-lighter` 与 DOM 背景混合；严格加色在纯白背景上必然失去颜色和对比度，这也是用于对照旧输出的兼容路径。
+默认的 `isolatedCompositing: false` 让主层直接以 `plus-lighter` 与 DOM 背景混合，保持 Unity 的严格加色语义；在纯白背景上，加色结果必然失去颜色和对比度。设为 `true` 后，主层、WebGL2 Bloom 层和兼容层会先在透明组内合成，再将带颜色与 Alpha 的结果覆盖到页面。这不会改变 Bloom 算法，只是用于纯白网页背景的非游戏兼容路径。
 
-由库自动创建覆盖层时，主特效层上方还会放置一个独立的 `darken` 兼容层：它默认使用 `0.35` Alpha 的淡青色补足清晰轮廓，不接收或产生 Bloom。兼容层必须位于加色层上方，否则主层会把刚补出的淡青对比重新加回纯白。该层是为网页浅色背景增加可见性的有意兼容偏差，并非 Unity 加色管线的一部分；将 `lightBackgroundContrastAlpha` 设为 `0` 可关闭。直接传入已有 Canvas 时既无法插入这层独立背景合成层，也会强制关闭隔离合成。
+`lightBackgroundContrastAlpha` 默认是 `0`，因此不会创建游戏资源之外的可见轮廓。设为 `0.35` 时，库拥有的覆盖层会在主特效层上方增加独立的 `darken` 淡青色遮罩；它不接收或产生 Bloom，只用于提升纯白背景上的清晰轮廓。该层与隔离合成都属于非游戏网页兼容选项。直接传入已有 Canvas 时既无法插入这层独立背景合成层，也会强制关闭隔离合成。
 
-这条软件管线用于获得接近 URP 12 Bloom 的视觉观感，并非逐像素复刻 GPU 后处理。软件后端固定使用单个全视口 mip 金字塔，使最低层的低频能量在真实画面范围内扩散，避免局部工作区被铺满后形成矩形光晕；代价是相比旧局部实现占用更多 CPU 与内存。发射遮罩仍只回读实际几何覆盖的子区域，最终也只编码和上传有效辉光。Float32 金字塔缓冲会跨帧复用。HQ 13-tap 预过滤和 Gaussian 降采样使用等价的标量内联累加，并在完整覆盖当前 mip 时跳过多余的缓冲清零。同一渲染 pass 内的两枚圆环共享一次 Linear Gradient 能量计算；拖尾的距离与分段发射能量也只计算一次，发射遮罩量化后严格为零的暗尾不会重复描画，过期顶点则批量移除。软件 Bloom 合成前的清晰主 Canvas 会直接复用为浅色背景对比遮罩。生命周期始终按真实时间推进，避免低帧率反向延长特效并造成继续积压。软件 Bloom 工作缓冲区不会挂载到 DOM，也不使用 WebGL、float16 Canvas 或外部依赖。若运行环境不支持 Canvas 像素回读/写回，圆环和光盘会退回原生 `shadowBlur`；拖尾则按真实弧长把发射颜色写入局部离屏缓冲，再整体模糊一次，既避免采样接缝累积，也不会在回环轨迹尾部产生错误高亮。三角形碎片始终只绘制清晰本体，不写入 Bloom 发射缓冲。
+软件后端固定使用单个全视口 mip 金字塔，Float32 缓冲跨帧复用；发射遮罩仍只回读实际几何覆盖的子区域。它与 WebGL2 后端使用相同的层数公式、SampleScale、四点采样和强度换算。若运行环境不支持 Canvas 像素回读/写回，圆环和光盘会退回原生 `shadowBlur`，拖尾则在局部离屏缓冲中整体模糊。
 
 ---
 
@@ -387,7 +401,7 @@ WebGL2 与软件 Bloom 共用同一组 HDR 发射参数和 Bloom 配置。WebGL2
 - 游戏风格的溶解圆环、中心光盘和碎片爆发
 - 参数级还原 Unity ParticleSystem 颜色/大小/旋转曲线
 - 拖尾从尾部到头部连续消散，而不是整条轨迹同时淡出
-- 按窗口高度自动缩放，保持与游戏 UI 一致的相对比例
+- 粒子尺寸随画布高度持续缩放，保持 Unity UI 相对比例
 - 20+ 个可调参数 + 自定义主题色，适合微调偏好
 
 Related projects:
@@ -406,8 +420,8 @@ ba-click-fx/
 │   ├── fx.js            # 主引擎：ParticleSystem + TrailRenderer 生命周期
 │   ├── main.js           # 演示页面入口 + 控制面板 UI
 │   ├── config.js         # Unity FX_Touch 粒子参数只读快照
-│   ├── software-bloom.js # URP 12 风格 Float32 mip Bloom 与加色合成
-│   ├── webgl2-bloom.js   # WebGL2 HDR 发射、Gaussian mip 与 Scatter 合成
+│   ├── software-bloom.js # MXFinalBloom Float32 mip 与加色合成
+│   ├── webgl2-bloom.js   # WebGL2 HDR 发射与 MXFinalBloom 合成
 │   ├── utils.js          # 纯数学工具
 │   └── style.css         # 演示页样式
 ├── scripts/
@@ -425,11 +439,11 @@ ba-click-fx/
 
 ### 架构特点
 
-- **隔离合成层**：默认把主特效、WebGL2 Bloom 和浅色背景兼容 Canvas 放在透明隔离组中合成，再整体覆盖页面；可关闭以恢复直接页面加色
+- **隔离合成层**：默认关闭；可显式启用透明隔离组，改善非游戏纯白网页背景上的颜色保留
 - **主特效层**：内部特效通过 `lighter` 合成，主 Canvas 使用 `plus-lighter`；其混合背景由 `isolatedCompositing` 决定
-- **浅色背景兼容层**：自动覆盖层模式额外使用不参与 Bloom 的 `darken` Canvas，以 0.35 Alpha 淡青色维持纯白背景可见性
-- **软件 Bloom**：全视口工作画布 + Float32 Gaussian mip 金字塔；像素读回不可用时回退 `shadowBlur`
-- **WebGL2 Bloom**：默认透明 GPU 覆盖层执行 HDR 预过滤、Gaussian mip 和 Scatter；能力不足时沿回退链降级
+- **浅色背景兼容层**：默认强度为 0；可显式设为 0.35，使用不参与 Bloom 的 `darken` Canvas 提升纯白背景可见性
+- **软件 Bloom**：全视口工作画布 + Float32 MXFinalBloom 金字塔；像素读回不可用时回退 `shadowBlur`
+- **WebGL2 Bloom**：默认透明 GPU 覆盖层执行游戏 MXFinalBloom；能力不足时沿回退链降级
 - **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`
 - **零外部依赖**：仅使用浏览器原生 Canvas 2D / WebGL2 API，不引入第三方运行时
 

@@ -2,52 +2,7 @@ const RGB_CHANNELS = 3;
 const RGBA_CHANNELS = 4;
 const REGION_QUANTUM = 64;
 const MAX_PYRAMID_LEVELS = 16;
-const DEFAULT_SKIP_ITERATIONS = 1;
-
-// URP 12 Bloom.shader 的 9-tap 水平 Gaussian 权重。
-const GAUSSIAN_HORIZONTAL_WEIGHTS = Object.freeze(
-  [
-    0.01621622,
-    0.05405405,
-    0.12162162,
-    0.19459459,
-    0.22702703,
-    0.19459459,
-    0.12162162,
-    0.05405405,
-    0.01621622,
-  ],
-);
-
-// URP 借助双线性采样把纵向 9 taps 合并为 5 taps。
-const GAUSSIAN_VERTICAL_TAPS = Object.freeze(
-  [
-    [-3.23076923, 0.07027027],
-    [-1.38461538, 0.31621622],
-    [0, 0.22702703],
-    [1.38461538, 0.31621622],
-    [3.23076923, 0.07027027],
-  ],
-);
-
-// URP 高质量预过滤的 13 taps，重复采样项已合并为等价权重。
-const PREFILTER_TAPS = Object.freeze(
-  [
-    [-1, -1, 0.03125],
-    [0, -1, 0.0625],
-    [1, -1, 0.03125],
-    [-0.5, -0.5, 0.125],
-    [0.5, -0.5, 0.125],
-    [-1, 0, 0.0625],
-    [0, 0, 0.125],
-    [1, 0, 0.0625],
-    [-0.5, 0.5, 0.125],
-    [0.5, 0.5, 0.125],
-    [-1, 1, 0.03125],
-    [0, 1, 0.0625],
-    [1, 1, 0.03125],
-  ],
-);
+const DEFAULT_DIFFUSION = 7;
 
 function clamp(value, minimum, maximum)
 {
@@ -59,11 +14,23 @@ function clamp01(value)
   return clamp(value, 0, 1);
 }
 
-function calculatePyramidLevelCount(
+function gammaToLinear(value)
+{
+  const gamma = Math.max(0, value);
+
+  if (gamma <= 0.04045)
+  {
+    return gamma / 12.92;
+  }
+
+  return Math.pow((gamma + 0.055) / 1.055, 2.4);
+}
+
+function calculatePyramidSettings(
   displayWidth,
   displayHeight,
   resolutionScale,
-  skipIterations,
+  diffusion,
 )
 {
   const safeScale = clamp(resolutionScale, 0.1, 0.75);
@@ -72,10 +39,17 @@ function calculatePyramidLevelCount(
     Math.floor(displayWidth * safeScale),
     Math.floor(displayHeight * safeScale),
   );
-  const iterations = Math.floor(Math.log2(maxSize) - 1) -
-    clamp(Math.round(skipIterations), 0, 16);
+  const logIterations = Math.log2(maxSize) +
+    Math.min(Math.max(0, diffusion), 10) - 10;
 
-  return clamp(iterations, 1, MAX_PYRAMID_LEVELS);
+  return {
+    levelCount: clamp(
+      Math.floor(logIterations),
+      1,
+      MAX_PYRAMID_LEVELS,
+    ),
+    sampleScale: 0.5 + logIterations - Math.floor(logIterations),
+  };
 }
 
 /**
@@ -94,7 +68,7 @@ export function linearToSrgb(value)
 }
 
 /**
- * 计算带 Soft Knee 的高亮贡献，与 URP Bloom.shader 的预过滤公式一致。
+ * 计算带 Soft Knee 的高亮贡献，与 MXFinalBloom 的预过滤公式一致。
  */
 export function calculateBloomContribution(brightness, threshold, softKnee)
 {
@@ -103,7 +77,7 @@ export function calculateBloomContribution(brightness, threshold, softKnee)
   let soft = brightness - safeThreshold + knee;
 
   soft = clamp(soft, 0, knee * 2);
-  soft = (soft * soft) / (knee * 4 + 0.0001);
+  soft = (soft * soft) / (knee * 4);
 
   return Math.max(brightness - safeThreshold, soft, 0);
 }
@@ -286,87 +260,8 @@ function addBilinearRgb(
   }
 }
 
-function calculateBicubicAxis(position, output)
-{
-  // Filtering.hlsl 用 4 次双线性读取重建 cubic B-spline；这里保留同一
-  // 权重与坐标，避免为每个通道创建数组并执行 16 次标量读取。
-  const coordinate = position + 1;
-  const cell = Math.floor(coordinate);
-  const fraction = coordinate - cell;
-  const rightmost = 1 / 6 + fraction * (
-    -0.5 + fraction * (0.5 - fraction / 6)
-  );
-  const middleRight = 2 / 3 + fraction * (
-    -1 + 0.5 * fraction
-  ) * fraction;
-  const middleLeft = 1 / 6 + fraction * (
-    0.5 + fraction * (0.5 - 0.5 * fraction)
-  );
-  const leftmost = 1 - middleRight - middleLeft - rightmost;
-  const firstWeight = rightmost + middleRight;
-  const secondWeight = middleLeft + leftmost;
-
-  output.firstPosition = cell - 2 + middleRight / firstWeight;
-  output.secondPosition = cell + leftmost / secondWeight;
-  output.firstWeight = firstWeight;
-  output.secondWeight = secondWeight;
-}
-
-function addBicubicRgb(
-  source,
-  width,
-  height,
-  horizontal,
-  vertical,
-  weight,
-  output,
-  outputIndex,
-)
-{
-  addBilinearRgb(
-    source,
-    width,
-    height,
-    horizontal.firstPosition,
-    vertical.firstPosition,
-    weight * horizontal.firstWeight * vertical.firstWeight,
-    output,
-    outputIndex,
-  );
-  addBilinearRgb(
-    source,
-    width,
-    height,
-    horizontal.secondPosition,
-    vertical.firstPosition,
-    weight * horizontal.secondWeight * vertical.firstWeight,
-    output,
-    outputIndex,
-  );
-  addBilinearRgb(
-    source,
-    width,
-    height,
-    horizontal.firstPosition,
-    vertical.secondPosition,
-    weight * horizontal.firstWeight * vertical.secondWeight,
-    output,
-    outputIndex,
-  );
-  addBilinearRgb(
-    source,
-    width,
-    height,
-    horizontal.secondPosition,
-    vertical.secondPosition,
-    weight * horizontal.secondWeight * vertical.secondWeight,
-    output,
-    outputIndex,
-  );
-}
-
 /**
- * 从全分辨率发射遮罩生成半分辨率 mip0，并执行 URP HQ 13-tap 预过滤。
+ * 从全分辨率发射遮罩生成半分辨率 mip0，并执行 MXFinalBloom Box4 预过滤。
  */
 export function prefilterBloom(
   source,
@@ -385,10 +280,6 @@ export function prefilterBloom(
 {
   const scaleX = sourceWidth / outputWidth;
   const scaleY = sourceHeight / outputHeight;
-  // URP 12 有意用 _SourceTex_TexelSize.x 同时偏移两个轴；换算到
-  // 源像素坐标后，横向为 1px，纵向为纹理高宽比，而不是各自 1px。
-  const tapScaleX = 1;
-  const tapScaleY = sourceTexelAspect;
   let startX = 0;
   let startY = 0;
   let endX = outputWidth;
@@ -402,30 +293,23 @@ export function prefilterBloom(
 
   if (sourceBounds)
   {
-    // 发射图通常只占带 padding 区域的一小部分；只预过滤可能读取到
-    // 非零源像素的输出，空白区保持清零，避免长轨迹每帧做数百万次无效 taps。
-    const horizontalPadding = highQualityFiltering ? 3 : 1;
-    const verticalPadding = highQualityFiltering
-      ? Math.ceil(Math.abs(tapScaleY)) + 2
-      : 1;
-
     startX = clamp(
-      Math.floor((sourceBounds.minimumX - horizontalPadding) / scaleX) - 1,
+      Math.floor((sourceBounds.minimumX - 2) / scaleX) - 1,
       0,
       outputWidth,
     );
     startY = clamp(
-      Math.floor((sourceBounds.minimumY - verticalPadding) / scaleY) - 1,
+      Math.floor((sourceBounds.minimumY - 2) / scaleY) - 1,
       0,
       outputHeight,
     );
     endX = clamp(
-      Math.ceil((sourceBounds.maximumX + horizontalPadding + 1) / scaleX) + 1,
+      Math.ceil((sourceBounds.maximumX + 3) / scaleX) + 1,
       0,
       outputWidth,
     );
     endY = clamp(
-      Math.ceil((sourceBounds.maximumY + verticalPadding + 1) / scaleY) + 1,
+      Math.ceil((sourceBounds.maximumY + 3) / scaleY) + 1,
       0,
       outputHeight,
     );
@@ -444,70 +328,21 @@ export function prefilterBloom(
       output[outputIndex + 1] = 0;
       output[outputIndex + 2] = 0;
 
-      if (!highQualityFiltering)
+      for (const offsetX of [-1, 1])
       {
-        addBilinearRgb(
-          source,
-          sourceWidth,
-          sourceHeight,
-          sourceX,
-          sourceY,
-          1,
-          output,
-          outputIndex,
-        );
-      }
-      else
-      {
-        let red = 0;
-        let green = 0;
-        let blue = 0;
-
-        for (let tapIndex = 0; tapIndex < PREFILTER_TAPS.length; tapIndex++)
+        for (const offsetY of [-1, 1])
         {
-          const tap = PREFILTER_TAPS[tapIndex];
-          const offsetX = tap[0];
-          const offsetY = tap[1];
-          const weight = tap[2];
-          const sampleX = sourceX + offsetX * tapScaleX;
-          const sampleY = sourceY + offsetY * tapScaleY;
-          const safeX = clamp(sampleX, 0, sourceWidth - 1);
-          const safeY = clamp(sampleY, 0, sourceHeight - 1);
-          const left = Math.floor(safeX);
-          const top = Math.floor(safeY);
-          const right = Math.min(left + 1, sourceWidth - 1);
-          const bottom = Math.min(top + 1, sourceHeight - 1);
-          const horizontal = safeX - left;
-          const vertical = safeY - top;
-          const topLeftWeight = (1 - horizontal) *
-            (1 - vertical) * weight;
-          const topRightWeight = horizontal * (1 - vertical) * weight;
-          const bottomLeftWeight = (1 - horizontal) * vertical * weight;
-          const bottomRightWeight = horizontal * vertical * weight;
-          const topLeftIndex = (top * sourceWidth + left) * RGB_CHANNELS;
-          const topRightIndex = (top * sourceWidth + right) * RGB_CHANNELS;
-          const bottomLeftIndex = (bottom * sourceWidth + left) * RGB_CHANNELS;
-          const bottomRightIndex = (bottom * sourceWidth + right) * RGB_CHANNELS;
-
-          // HQ 预过滤是最热路径。标量累加保持相同 13-tap 公式，
-          // 但避免每个 tap 调用通用函数并反复写入 Float32 输出。
-          red += source[topLeftIndex] * topLeftWeight +
-            source[topRightIndex] * topRightWeight +
-            source[bottomLeftIndex] * bottomLeftWeight +
-            source[bottomRightIndex] * bottomRightWeight;
-          green += source[topLeftIndex + 1] * topLeftWeight +
-            source[topRightIndex + 1] * topRightWeight +
-            source[bottomLeftIndex + 1] * bottomLeftWeight +
-            source[bottomRightIndex + 1] * bottomRightWeight;
-          blue += source[topLeftIndex + 2] * topLeftWeight +
-            source[topRightIndex + 2] * topRightWeight +
-            source[bottomLeftIndex + 2] * bottomLeftWeight +
-            source[bottomRightIndex + 2] * bottomRightWeight;
+          addBilinearRgb(
+            source,
+            sourceWidth,
+            sourceHeight,
+            sourceX + offsetX,
+            sourceY + offsetY,
+            0.25,
+            output,
+            outputIndex,
+          );
         }
-
-        output[outputIndex] = red;
-        output[outputIndex + 1] = green;
-        output[outputIndex + 2] = blue;
       }
 
       writeThresholdedColor(
@@ -548,8 +383,79 @@ export function prefilterBloom(
 }
 
 /**
- * 对上一层执行 URP 的“2×降采样 + 9-tap Gaussian”两阶段卷积。
+ * 对上一层执行 MXFinalBloom 的 4-tap 盒式降采样。
  */
+function downsampleBox(
+  source,
+  sourceWidth,
+  sourceHeight,
+  output,
+  outputWidth,
+  outputHeight,
+)
+{
+  const scaleX = sourceWidth / outputWidth;
+  const scaleY = sourceHeight / outputHeight;
+  let activeMinimumX = outputWidth;
+  let activeMinimumY = outputHeight;
+  let activeMaximumX = -1;
+  let activeMaximumY = -1;
+
+  output.fill(0);
+
+  for (let y = 0; y < outputHeight; y++)
+  {
+    const sourceY = (y + 0.5) * scaleY - 0.5;
+
+    for (let x = 0; x < outputWidth; x++)
+    {
+      const sourceX = (x + 0.5) * scaleX - 0.5;
+      const outputIndex = (y * outputWidth + x) * RGB_CHANNELS;
+
+      for (const offsetX of [-1, 1])
+      {
+        for (const offsetY of [-1, 1])
+        {
+          addBilinearRgb(
+            source,
+            sourceWidth,
+            sourceHeight,
+            sourceX + offsetX,
+            sourceY + offsetY,
+            0.25,
+            output,
+            outputIndex,
+          );
+        }
+      }
+
+      if (Math.max(
+        output[outputIndex],
+        output[outputIndex + 1],
+        output[outputIndex + 2],
+      ) > 0)
+      {
+        activeMinimumX = Math.min(activeMinimumX, x);
+        activeMinimumY = Math.min(activeMinimumY, y);
+        activeMaximumX = Math.max(activeMaximumX, x);
+        activeMaximumY = Math.max(activeMaximumY, y);
+      }
+    }
+  }
+
+  if (activeMaximumX < activeMinimumX || activeMaximumY < activeMinimumY)
+  {
+    return null;
+  }
+
+  return {
+    minimumX: activeMinimumX,
+    minimumY: activeMinimumY,
+    maximumX: activeMaximumX,
+    maximumY: activeMaximumY,
+  };
+}
+
 export function downsampleGaussian(
   source,
   sourceWidth,
@@ -561,178 +467,77 @@ export function downsampleGaussian(
   sourceBounds = null,
 )
 {
-  const scaleX = sourceWidth / outputWidth;
-  const scaleY = sourceHeight / outputHeight;
-  let horizontalStartX = 0;
-  let horizontalStartY = 0;
-  let horizontalEndX = outputWidth;
-  let horizontalEndY = outputHeight;
-  let outputStartY = 0;
-  let outputEndY = outputHeight;
+  // 保留导出名以兼容现有调用方，内部语义已切换为游戏的 Box4。
+  return downsampleBox(
+    source,
+    sourceWidth,
+    sourceHeight,
+    output,
+    outputWidth,
+    outputHeight,
+  );
+}
 
-  if (sourceBounds)
+/**
+ * MXFinalBloom 反向金字塔：细层中心值加上粗层 4-tap 累积值。
+ */
+function upsampleBoxAndAdd(
+  high,
+  highWidth,
+  highHeight,
+  low,
+  lowWidth,
+  lowHeight,
+  output,
+  sampleScale,
+)
+{
+  const scaleX = lowWidth / highWidth;
+  const scaleY = lowHeight / highHeight;
+  const offset = Math.max(0, sampleScale) * 0.5;
+
+  output.fill(0);
+
+  for (let y = 0; y < highHeight; y++)
   {
-    horizontalStartX = clamp(
-      Math.floor((sourceBounds.minimumX - 9) / scaleX) - 1,
-      0,
-      outputWidth,
-    );
-    horizontalStartY = clamp(
-      Math.floor((sourceBounds.minimumY - 1) / scaleY) - 1,
-      0,
-      outputHeight,
-    );
-    horizontalEndX = clamp(
-      Math.ceil((sourceBounds.maximumX + 10) / scaleX) + 1,
-      0,
-      outputWidth,
-    );
-    horizontalEndY = clamp(
-      Math.ceil((sourceBounds.maximumY + 2) / scaleY) + 1,
-      0,
-      outputHeight,
-    );
-    outputStartY = Math.max(0, horizontalStartY - 5);
-    outputEndY = Math.min(outputHeight, horizontalEndY + 5);
-  }
+    const lowY = (y + 0.5) * scaleY - 0.5;
 
-  const overwritesFullScratch = horizontalStartX === 0 &&
-    horizontalStartY === 0 &&
-    horizontalEndX === outputWidth &&
-    horizontalEndY === outputHeight;
-  const overwritesFullOutput = horizontalStartX === 0 &&
-    outputStartY === 0 &&
-    horizontalEndX === outputWidth &&
-    outputEndY === outputHeight;
-
-  if (!overwritesFullScratch)
-  {
-    scratch.fill(0);
-  }
-
-  if (!overwritesFullOutput)
-  {
-    output.fill(0);
-  }
-
-  for (let y = horizontalStartY; y < horizontalEndY; y++)
-  {
-    const sourceY = (y + 0.5) * scaleY - 0.5;
-    const safeSourceY = clamp(sourceY, 0, sourceHeight - 1);
-    const sourceTop = Math.floor(safeSourceY);
-    const sourceBottom = Math.min(sourceTop + 1, sourceHeight - 1);
-    const vertical = safeSourceY - sourceTop;
-    const topWeight = 1 - vertical;
-    const bottomWeight = vertical;
-
-    for (let x = horizontalStartX; x < horizontalEndX; x++)
+    for (let x = 0; x < highWidth; x++)
     {
-      const sourceX = (x + 0.5) * scaleX - 0.5;
-      const outputIndex = (y * outputWidth + x) * RGB_CHANNELS;
-      let red = 0;
-      let green = 0;
-      let blue = 0;
+      const lowX = (x + 0.5) * scaleX - 0.5;
+      const outputIndex = (y * highWidth + x) * RGB_CHANNELS;
 
-      for (let tap = -4; tap <= 4; tap++)
+      output[outputIndex] = high[outputIndex];
+      output[outputIndex + 1] = high[outputIndex + 1];
+      output[outputIndex + 2] = high[outputIndex + 2];
+
+      for (const offsetX of [-offset, offset])
       {
-        // FragBlurH 固定跨 2 个 source texel；奇数 mip 不能改用尺寸比，
-        // 否则 135→67 一类层级会逐级把光晕错误地拉宽。
-        const sampleX = clamp(
-          sourceX + tap * 2,
-          0,
-          sourceWidth - 1,
-        );
-        const left = Math.floor(sampleX);
-        const right = Math.min(left + 1, sourceWidth - 1);
-        const horizontal = sampleX - left;
-        const leftWeight = 1 - horizontal;
-        const weight = GAUSSIAN_HORIZONTAL_WEIGHTS[tap + 4];
-        const topLeftIndex = (sourceTop * sourceWidth + left) * RGB_CHANNELS;
-        const topRightIndex = (sourceTop * sourceWidth + right) * RGB_CHANNELS;
-        const bottomLeftIndex = (
-          sourceBottom * sourceWidth + left
-        ) * RGB_CHANNELS;
-        const bottomRightIndex = (
-          sourceBottom * sourceWidth + right
-        ) * RGB_CHANNELS;
-
-        // 水平 Gaussian 是热路径。一次读取三个通道并在寄存器中累加，
-        // 避免每个 tap 调用通用双线性函数并反复写 Float32 scratch。
-        red += (
-          (source[topLeftIndex] * leftWeight +
-            source[topRightIndex] * horizontal) * topWeight +
-          (source[bottomLeftIndex] * leftWeight +
-            source[bottomRightIndex] * horizontal) * bottomWeight
-        ) * weight;
-        green += (
-          (source[topLeftIndex + 1] * leftWeight +
-            source[topRightIndex + 1] * horizontal) * topWeight +
-          (source[bottomLeftIndex + 1] * leftWeight +
-            source[bottomRightIndex + 1] * horizontal) * bottomWeight
-        ) * weight;
-        blue += (
-          (source[topLeftIndex + 2] * leftWeight +
-            source[topRightIndex + 2] * horizontal) * topWeight +
-          (source[bottomLeftIndex + 2] * leftWeight +
-            source[bottomRightIndex + 2] * horizontal) * bottomWeight
-        ) * weight;
+        for (const offsetY of [-offset, offset])
+        {
+          addBilinearRgb(
+            low,
+            lowWidth,
+            lowHeight,
+            lowX + offsetX,
+            lowY + offsetY,
+            0.25,
+            output,
+            outputIndex,
+          );
+        }
       }
-
-      scratch[outputIndex] = red;
-      scratch[outputIndex + 1] = green;
-      scratch[outputIndex + 2] = blue;
-    }
-  }
-
-  for (let y = outputStartY; y < outputEndY; y++)
-  {
-    for (let x = horizontalStartX; x < horizontalEndX; x++)
-    {
-      const outputIndex = (y * outputWidth + x) * RGB_CHANNELS;
-      let red = 0;
-      let green = 0;
-      let blue = 0;
-
-      for (const [offset, weight] of GAUSSIAN_VERTICAL_TAPS)
-      {
-        const sampleY = clamp(y + offset, 0, outputHeight - 1);
-        const top = Math.floor(sampleY);
-        const bottom = Math.min(top + 1, outputHeight - 1);
-        const vertical = sampleY - top;
-        const topIndex = (top * outputWidth + x) * RGB_CHANNELS;
-        const bottomIndex = (bottom * outputWidth + x) * RGB_CHANNELS;
-
-        red += (
-          scratch[topIndex] * (1 - vertical) +
-          scratch[bottomIndex] * vertical
-        ) * weight;
-        green += (
-          scratch[topIndex + 1] * (1 - vertical) +
-          scratch[bottomIndex + 1] * vertical
-        ) * weight;
-        blue += (
-          scratch[topIndex + 2] * (1 - vertical) +
-          scratch[bottomIndex + 2] * vertical
-        ) * weight;
-      }
-
-      output[outputIndex] = red;
-      output[outputIndex + 1] = green;
-      output[outputIndex + 2] = blue;
     }
   }
 
   return {
-    minimumX: horizontalStartX,
-    minimumY: outputStartY,
-    maximumX: Math.max(horizontalStartX, horizontalEndX - 1),
-    maximumY: Math.max(outputStartY, outputEndY - 1),
+    minimumX: 0,
+    minimumY: 0,
+    maximumX: highWidth - 1,
+    maximumY: highHeight - 1,
   };
 }
 
-/**
- * URP 的反向金字塔合成：每级保留 high mip，再按 scatter 混入 low mip。
- */
 export function upsampleAndMixBloom(
   high,
   highWidth,
@@ -747,109 +552,17 @@ export function upsampleAndMixBloom(
   lowBounds = null,
 )
 {
-  const mix = clamp01(scatter);
-  const keep = 1 - mix;
-  const scaleX = lowWidth / highWidth;
-  const scaleY = lowHeight / highHeight;
-  const horizontalBicubic = {};
-  const verticalBicubic = {};
-  let startX = 0;
-  let startY = 0;
-  let endX = highWidth;
-  let endY = highHeight;
-
-  if (highBounds && lowBounds)
-  {
-    const lowStartX = Math.floor((lowBounds.minimumX - 3) / scaleX) - 2;
-    const lowStartY = Math.floor((lowBounds.minimumY - 3) / scaleY) - 2;
-    const lowEndX = Math.ceil((lowBounds.maximumX + 4) / scaleX) + 2;
-    const lowEndY = Math.ceil((lowBounds.maximumY + 4) / scaleY) + 2;
-
-    startX = clamp(
-      Math.min(highBounds.minimumX, lowStartX),
-      0,
-      highWidth,
-    );
-    startY = clamp(
-      Math.min(highBounds.minimumY, lowStartY),
-      0,
-      highHeight,
-    );
-    endX = clamp(
-      Math.max(highBounds.maximumX + 1, lowEndX),
-      0,
-      highWidth,
-    );
-    endY = clamp(
-      Math.max(highBounds.maximumY + 1, lowEndY),
-      0,
-      highHeight,
-    );
-  }
-
-  if (
-    startX !== 0 ||
-    startY !== 0 ||
-    endX !== highWidth ||
-    endY !== highHeight
-  )
-  {
-    output.fill(0);
-  }
-
-  for (let y = startY; y < endY; y++)
-  {
-    const lowY = (y + 0.5) * scaleY - 0.5;
-
-    if (highQualityFiltering)
-    {
-      calculateBicubicAxis(lowY, verticalBicubic);
-    }
-
-    for (let x = startX; x < endX; x++)
-    {
-      const lowX = (x + 0.5) * scaleX - 0.5;
-      const outputIndex = (y * highWidth + x) * RGB_CHANNELS;
-
-      output[outputIndex] = high[outputIndex] * keep;
-      output[outputIndex + 1] = high[outputIndex + 1] * keep;
-      output[outputIndex + 2] = high[outputIndex + 2] * keep;
-
-      if (highQualityFiltering)
-      {
-        calculateBicubicAxis(lowX, horizontalBicubic);
-        addBicubicRgb(
-          low,
-          lowWidth,
-          lowHeight,
-          horizontalBicubic,
-          verticalBicubic,
-          mix,
-          output,
-          outputIndex,
-        );
-        continue;
-      }
-
-      addBilinearRgb(
-        low,
-        lowWidth,
-        lowHeight,
-        lowX,
-        lowY,
-        mix,
-        output,
-        outputIndex,
-      );
-    }
-  }
-
-  return {
-    minimumX: startX,
-    minimumY: startY,
-    maximumX: Math.max(startX, endX - 1),
-    maximumY: Math.max(startY, endY - 1),
-  };
+  // 参数名 scatter 为兼容旧 API 保留；值现表示 MXFinalBloom SampleScale。
+  return upsampleBoxAndAdd(
+    high,
+    highWidth,
+    highHeight,
+    low,
+    lowWidth,
+    lowHeight,
+    output,
+    scatter,
+  );
 }
 
 /**
@@ -865,7 +578,7 @@ export function encodeAdditiveBloom(
   edgeCorrection = null,
 )
 {
-  const safeIntensity = Math.max(0, intensity);
+  const safeIntensity = Math.pow(2, Math.max(0, intensity) / 10) - 1;
   const safeWidth = Math.max(1, Math.floor(width));
   const sourceHeight = Math.ceil(
     source.length / (safeWidth * RGB_CHANNELS),
@@ -969,6 +682,44 @@ export function encodeAdditiveBloom(
   }
 }
 
+function filterBloomForComposite(
+  source,
+  width,
+  height,
+  output,
+  sampleScale,
+)
+{
+  const offset = Math.max(0, sampleScale) * 0.5;
+
+  output.fill(0);
+
+  for (let y = 0; y < height; y++)
+  {
+    for (let x = 0; x < width; x++)
+    {
+      const outputIndex = (y * width + x) * RGB_CHANNELS;
+
+      for (const offsetX of [-offset, offset])
+      {
+        for (const offsetY of [-offset, offset])
+        {
+          addBilinearRgb(
+            source,
+            width,
+            height,
+            x + offsetX,
+            y + offsetY,
+            0.25,
+            output,
+            outputIndex,
+          );
+        }
+      }
+    }
+  }
+}
+
 function smoothBloomEdgeWeight(distance, feather)
 {
   const normalized = clamp01(1 - Math.max(0, distance) / feather);
@@ -977,7 +728,7 @@ function smoothBloomEdgeWeight(distance, feather)
 }
 
 /**
- * 最深层 mip 会在局部缓冲中形成接近常量的低频底色。全屏 URP 中该能量
+ * 最深层 mip 会在局部缓冲中形成接近常量的低频底色。全屏管线中该能量
  * 会继续向画面外扩散；局部裁剪则会把它截成矩形。这里只记录每条人工
  * 边界的基线，编码时再向内部平滑减弱，避免全局扣除压暗真实外晕。
  */
@@ -1100,6 +851,8 @@ export class SoftwareBloomRenderer
     this.regionWidth = 0;
     this.regionHeight = 0;
     this.resolutionScale = 0;
+    this.diffusion = 0;
+    this.sampleScale = 1;
     this.displayWidth = 0;
     this.displayHeight = 0;
     this.displayCssWidth = 0;
@@ -1159,7 +912,7 @@ export class SoftwareBloomRenderer
     resolutionScale,
     displayWidth,
     displayHeight,
-    skipIterations,
+    diffusion,
     samplingScale,
   )
   {
@@ -1170,12 +923,13 @@ export class SoftwareBloomRenderer
     const sourceHeight = Math.max(1, Math.round(regionHeight * samplingScale));
     const width = Math.max(1, Math.floor(sourceWidth * safeScale));
     const height = Math.max(1, Math.floor(sourceHeight * safeScale));
-    const desiredLevelCount = calculatePyramidLevelCount(
+    const pyramid = calculatePyramidSettings(
       displayWidth,
       displayHeight,
       safeScale,
-      skipIterations,
+      diffusion,
     );
+    const desiredLevelCount = pyramid.levelCount;
     const dimensions = [];
     let levelWidth = width;
     let levelHeight = height;
@@ -1208,6 +962,8 @@ export class SoftwareBloomRenderer
     this.resolutionScale = safeScale;
     this.displayWidth = displayWidth;
     this.displayHeight = displayHeight;
+    this.diffusion = diffusion;
+    this.sampleScale = pyramid.sampleScale;
 
     if (sameDimensions)
     {
@@ -1277,7 +1033,7 @@ export class SoftwareBloomRenderer
     displayHeight,
     resolutionScale,
     bounds,
-    skipIterations = DEFAULT_SKIP_ITERATIONS,
+    diffusion = DEFAULT_DIFFUSION,
     samplingScale = 1,
     emissionBounds = bounds,
   )
@@ -1296,12 +1052,12 @@ export class SoftwareBloomRenderer
     const pixelDisplayHeight = Math.max(1, Math.round(
       displayHeight * safeSamplingScale,
     ));
-    const levelCount = calculatePyramidLevelCount(
+    const levelCount = calculatePyramidSettings(
       pixelDisplayWidth,
       pixelDisplayHeight,
       resolutionScale,
-      skipIterations,
-    );
+      diffusion,
+    ).levelCount;
     const regionQuantum = Math.max(
       REGION_QUANTUM,
       2 ** Math.max(0, levelCount - 1),
@@ -1346,7 +1102,7 @@ export class SoftwareBloomRenderer
         resolutionScale,
         pixelDisplayWidth,
         pixelDisplayHeight,
-        skipIterations,
+        diffusion,
         safeSamplingScale,
       )
     )
@@ -1477,11 +1233,11 @@ export class SoftwareBloomRenderer
       firstLevel.down,
       firstLevel.width,
       firstLevel.height,
-      settings.threshold,
+      gammaToLinear(settings.threshold),
       settings.softKnee,
       settings.clamp ?? 65472,
-      settings.highQualityFiltering !== false,
-      this.displayHeight / this.displayWidth,
+      true,
+      1,
       emissionBounds,
     );
 
@@ -1508,8 +1264,6 @@ export class SoftwareBloomRenderer
       );
     }
 
-    // Unity 将用户 scatter 从 0..1 映射到 0.05..0.95。
-    const scatter = 0.05 + clamp01(settings.scatter) * 0.9;
     let bloom = this.levels.at(-1).down;
     let bloomBounds = activeBounds.at(-1);
 
@@ -1526,8 +1280,8 @@ export class SoftwareBloomRenderer
         lower.width,
         lower.height,
         current.up,
-        scatter,
-        settings.highQualityFiltering !== false,
+        this.sampleScale,
+        true,
         activeBounds[level],
         bloomBounds,
       );
@@ -1535,8 +1289,17 @@ export class SoftwareBloomRenderer
     }
 
     this._clearOutputBounds();
-    const edgeCorrection = calculateBloomEdgeCorrection(
+    const compositeBloom = this.levels[0].scratch;
+
+    filterBloomForComposite(
       bloom,
+      this.width,
+      this.height,
+      compositeBloom,
+      this.sampleScale,
+    );
+    const edgeCorrection = calculateBloomEdgeCorrection(
+      compositeBloom,
       this.width,
       this.height,
       bloomBounds,
@@ -1550,7 +1313,7 @@ export class SoftwareBloomRenderer
       },
     );
     encodeAdditiveBloom(
-      bloom,
+      compositeBloom,
       this.outputImageData.data,
       settings.intensity,
       this.width,

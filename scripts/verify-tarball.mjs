@@ -63,8 +63,9 @@ function verifyRuntimeApi(moduleExports, bundleName)
     `${bundleName} bundle does not expose the WebGL2 Bloom default`,
   );
   verify(
-    moduleExports.CONFIG?.isolatedCompositing === true,
-    `${bundleName} bundle does not expose the isolated compositing default`,
+    moduleExports.CONFIG?.isolatedCompositing === false &&
+      moduleExports.CONFIG?.lightBackgroundContrastAlpha === 0,
+    `${bundleName} bundle does not expose the strict compositing defaults`,
   );
   verify(
     moduleExports.CONFIG?.inputSource === 'dom',
@@ -144,7 +145,8 @@ for (const methodName of hostControlMethods)
 
 if (
   moduleExports.CONFIG?.bloomBackend !== 'webgl2' ||
-  moduleExports.CONFIG?.isolatedCompositing !== true ||
+  moduleExports.CONFIG?.isolatedCompositing !== false ||
+  moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
   moduleExports.CONFIG?.inputSource !== 'dom' ||
   moduleExports.CONFIG?.clickTimeScale !== 1 ||
   moduleExports.CONFIG?.trailTimeScale !== 1
@@ -176,7 +178,8 @@ for (const methodName of hostControlMethods)
 
 if (
   moduleExports.CONFIG?.bloomBackend !== 'webgl2' ||
-  moduleExports.CONFIG?.isolatedCompositing !== true ||
+  moduleExports.CONFIG?.isolatedCompositing !== false ||
+  moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
   moduleExports.CONFIG?.inputSource !== 'dom' ||
   moduleExports.CONFIG?.clickTimeScale !== 1 ||
   moduleExports.CONFIG?.trailTimeScale !== 1

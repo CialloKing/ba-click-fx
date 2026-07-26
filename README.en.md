@@ -49,9 +49,9 @@
 - Four demo rendering choices: WebGL2 Bloom (default), Software Bloom, Native Glow, and Legacy
 - WebGL2 GPU Bloom by default, with automatic fallback to Software Bloom and then Native Glow
 - Browser extension, npm, CDN, and direct download
-- Custom theme colour via HSL hue shifting
+- Demo theme defaults to `#4ca7ff`, with custom HSL hue shifting
 - Runtime-tweakable FX parameters via `setFxParam()`
-- Auto-scales with window height, matching the game's UI-relative proportions
+- Particle sizes keep scaling with canvas height to preserve the Unity UI proportions
 
 ---
 
@@ -83,7 +83,7 @@ const fx = new BAClickFX();
 ### 3. CDN
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.10/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.11/dist/ba-click-fx.iife.js"></script>
 <script>
   const fx = new BAClickFX.BAClickFX();
 </script>
@@ -133,8 +133,8 @@ new BAClickFX(options?: {
   renderingMode?: 'enhanced' | 'legacy', // default enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // default webgl2
   softwareBloomEnabled?: boolean, // compatibility alias: true = software, false = native
-  isolatedCompositing?: boolean,  // default true; false blends directly with the page
-  lightBackgroundContrastAlpha?: number, // light-background compatibility layer, default 0.35; 0 disables it
+  isolatedCompositing?: boolean,  // default false; true enables non-game white-background compatibility
+  lightBackgroundContrastAlpha?: number, // light-background compatibility strength, default 0
   maxDpr?: number,               // default 2
   touchAction?: string,          // default 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
@@ -145,20 +145,30 @@ In enhanced mode, `bloomBackend` selects the Bloom implementation. The demo comb
 
 | Demo choice | API configuration | Behaviour |
 |---|---|---|
-| WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Default; runs thresholding, Gaussian mips, and scatter on the GPU and falls back automatically when unavailable |
+| WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Default; runs the game's MXFinalBloom passes on the GPU and falls back automatically when unavailable |
 | Software Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'software' }` | Reference/compatibility implementation using Canvas 2D pixel readback and full-viewport Float32 buffers |
 | Native Glow | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | Uses Canvas 2D `shadowBlur`; cheaper, but visually different from post-process Bloom |
 | Legacy | `{ renderingMode: 'legacy' }` | Preserves the older sRGB, compositing, and glow behaviour; the Bloom backend is ignored |
 
-The demo exposes Isolated Compositing as a separate switch beside the four rendering choices. It is enabled by default and is orthogonal to Software, WebGL2, Native, and Legacy rendering: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
+The demo exposes Isolated Compositing as a separate switch beside the four rendering choices. It is disabled by default and is orthogonal to Software, WebGL2, Native, and Legacy rendering: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
 
 `bloomBackend: 'auto'` tries WebGL2 first, then Software Bloom, then Native Glow. The default `'webgl2'` uses the same fallback chain; explicit `'software'` falls back to Native Glow when pixel readback is unavailable. If both `bloomBackend` and the old `softwareBloomEnabled` field are provided, `bloomBackend` wins. The compatibility field still maps `true` to `'software'` and `false` to `'native'`.
 
-With `isolatedCompositing: true`, the library-owned main FX canvas, WebGL2 Bloom canvas, and light-background compatibility canvas blend inside one transparent isolated group before that group is composited over the page. This prevents `plus-lighter` from clipping cyan-blue output to white when it meets a pure-white page backdrop. Set it to `false` to mount the canvases directly into the target or page and restore strict direct-page compositing. The option can be changed at runtime through `updateConfig()`.
+`isolatedCompositing` defaults to `false`, so canvases mount directly into the target or page and follow Unity's direct additive path. With `true`, the library-owned main FX canvas, WebGL2 Bloom canvas, and light-background compatibility canvas blend inside one transparent isolated group before that group is composited over the page. This prevents `plus-lighter` from clipping cyan-blue output to white against a pure-white page. Isolated compositing is a non-game web compatibility option and can be changed at runtime through `updateConfig()`.
 
 WebGL2 Bloom and isolated compositing both require a library-owned DOM overlay. When `target` is an existing `<canvas>`, the library cannot safely insert the extra WebGL2, contrast, or isolation layers, so `'webgl2'` / `'auto'` falls back to Software Bloom and `isolatedCompositing` is forced to `false`; `getConfig()` reports this effective value. The default fullscreen overlay has no such limitation. A regular container is also supported, but it must establish its own positioning context, normally with `position: relative`; the library does not silently modify host styles.
 
 Each `BAClickFX` instance owns a separate isolation group. Multiple isolated instances on the same page do not run `plus-lighter` across group boundaries, and switching or destroying one instance does not move or remove another instance's canvases.
+
+For extra contrast on a pure-white page, explicitly enable both web compatibility options:
+
+```js
+const fx = new BAClickFX(
+{
+  isolatedCompositing: true,
+  lightBackgroundContrastAlpha: 0.35,
+});
+```
 
 ### Host Input and Pointer Lifecycle
 
@@ -193,7 +203,7 @@ fx.pointerMove(
 fx.pointerUp(7);
 ```
 
-`pointerDown()` starts one click-and-trail lifecycle. `pointerUp()` normally ends the pointer and lets its existing trail decay, while `pointerCancel()` forcibly clears the active pointer and current position, then immediately removes the current trail. `boom(x, y)` remains a click-only convenience method and never creates trail pointer state.
+`pointerDown()` starts one click-and-trail lifecycle. Both `pointerUp()` and `pointerCancel()` stop appending samples and clear the active pointer state, while the existing trail decays for the Unity TrailRenderer's `0.3s` duration. `boom(x, y)` remains a click-only convenience method and never creates trail pointer state.
 
 `inputSource` can also be switched through `updateConfig()`. A switch first cancels the old source's active pointer, then attaches or removes the automatic DOM pointer listeners for the target mode so the host never inherits a half-finished stroke.
 
@@ -235,13 +245,13 @@ Pausing cancels the active pointer, ignores `boom()` and every automatic or manu
 | `pointerDown(input)` | Start one click-and-trail lifecycle |
 | `pointerMove(input)` | Append a trail sample for the current logical pointer |
 | `pointerUp(pointerId?)` | End the pointer normally and let its trail decay |
-| `pointerCancel(pointerId?)` | Force-cancel the pointer and immediately remove its current trail |
+| `pointerCancel(pointerId?)` | Cancel the pointer and let its existing trail decay |
 | `setPaused(paused, options?)` | Pause or resume input and animation scheduling, optionally clearing on pause |
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
 | `destroy()` | Destroy instance, remove listeners and canvas |
 | `updateConfig({...})` | Update base config, input source, time scales, Bloom backend, DPR, and touch behaviour at runtime |
-| `setThemeColor('#ff6969')` | Set theme colour via HSL hue-shift |
+| `setThemeColor('#4ca7ff')` | Set the theme colour; this game blue is the demo default |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify any FX parameter by dot-path |
 | `getFxConfig()` | Deep copy of current FX configuration |
 | `resetFxConfig()` | Reset all FX parameters to game defaults |
@@ -277,21 +287,20 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | Path | Default | Description |
 |---|---|---|
 | `rings.hdrIntensity` | 5.992157 | Ring HDR intensity |
-| `rings.radiusMin` / `rings.radiusMax` | 51.0560832 / 59.5654304 | Random MeshTri outer-radius range before the lifetime size curve |
+| `rings.radiusMin` / `rings.radiusMax` | 68.92571232 / 80.41333104 | Random MeshTri outer-radius range before the lifetime size curve |
 | `rings.bandToOuterRadius` | 0.0598573766 | Fixed source-mesh band-width-to-outer-radius ratio |
 | `rings.widthStart` / `rings.widthEnd` | 1 / 1 | Source ring-width multipliers, not independent pixel widths |
 | `rings.lifetimeMs` | 600 | Ring lifetime (ms) |
+| `shards.hdrIntensity` | 5.992157 | Shard material HDR intensity; the source Start Color is also applied during rendering |
 | `shards.clickCount` | 4 | Click shard count |
 | `shards.maxCount` | 96 | Max shards |
-| `shards.trailSpacing` | 80 | Trail shard spacing |
+| `shards.trailSpacing` | 108 | Trail shard spacing |
 | `bloom.threshold` | 1.0 | Bright-pass threshold |
-| `bloom.softKnee` | 0.5 | Soft transition around the threshold |
-| `bloom.clamp` | 65472 | URP prefilter HDR clamp |
-| `bloom.intensity` | 1.0 | Bloom intensity calibrated for transparent sRGB web compositing against the game capture |
-| `bloom.scatter` | 0.7 | Glow spread compensating for the locally cropped mip chain |
+| `bloom.softKnee` | 0 | Soft transition around the threshold |
+| `bloom.clamp` | 65472 | MXFinalBloom prefilter HDR clamp |
+| `bloom.intensity` | 1.7 | In-game MXFinalBloom intensity |
+| `bloom.diffusion` | 7 | Diffusion parameter used to derive mip count and SampleScale |
 | `bloom.resolutionScale` | 0.5 | Bloom buffer scale (internally clamped to 0.1–0.75) |
-| `bloom.skipIterations` | 1 | Number of deepest mip iterations to skip |
-| `bloom.highQualityFiltering` | true | Enable high-quality bicubic scatter upsampling |
 | `bloom.clickEmissionScale` | 1.0 | Independent glow scale for click rings and the center disk, recommended range `0–4`; does not affect crisp geometry or the trail |
 | `bloom.ringEmissionAlpha` | 1.0 | HDR ring emission aligned with the FX_MAT_Touch_Tri3 material alpha |
 | `bloom.diskEmissionAlpha` | 1.0 | HDR disk emission scale for software Bloom |
@@ -299,12 +308,14 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `bloom.ringAlpha` | 0.35 | Native ring blur intensity when pixel readback is unavailable |
 | `bloom.diskBlur` | 65 | Native disk blur radius when pixel readback is unavailable |
 | `bloom.diskAlpha` | 0.65 | Native disk blur intensity when pixel readback is unavailable |
-| `bloom.trailCoverageScale` | 1.75 | Canvas trail-geometry calibration for Unity strip subpixel coverage |
+| `bloom.trailCoverageScale` | 1.0 | Keeps Bloom emission at the same 2.7px width as the Unity triangle strip |
 | `bloom.trailEmissionAlpha` | 1.0 | HDR trail emission scale for software Bloom |
 | `bloom.trailAlpha` | 0.18 | Native local offscreen-blur fallback intensity |
-| `trail.width` | 2 | Crisp trail geometry width |
+| `trail.width` | 2.7 | Crisp trail geometry width |
 | `trail.outerGlowWidth` | 9 | Native local offscreen fallback glow radius |
 | `trail.lifetimeMs` | 300 | Trail lifetime (ms) |
+
+`rootDurationMs = 1000` is retained only as the original Unity root ParticleSystem's object-pool release metadata. Visible web lifetimes come from the child particles and TrailRenderer themselves; this field is not a visual tuning parameter, and changing it does not alter the rendered result.
 
 ---
 
@@ -322,39 +333,42 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 
 The original shader uses `Blend SrcAlpha One, One One`. ParticleSystemRenderer's Apply Active Color Space decodes the enabled Color over Lifetime vertex stream to Linear before multiplying it by the white 5.992157 HDR material in `FX_MAT_Touch_Tri3`. Dissolve thresholds the two-dimensional texture alpha instead of continuously reducing every pixel's opacity, while surviving pixels retain the sampled coverage. Size and dissolve thresholds use the source keyframes and their in/out tangents with Unity cubic Hermite interpolation, rather than linear interpolation or a generic smoothstep.
 
+The Ring (3)/(4) shards additionally multiply `startColor = 0.5377358` in linear space, so their white-stage peak energy is about `1.50`, not the material value `5.99`. Their random orientation, footprint, and lifetime size curve now come from the two frames in `FX_TEX_Triangle_02_1` instead of an oversized equilateral-triangle approximation.
+
 ### Cursor Trail
 
 The trail follows the same rendering chain as the Unity source asset:
 
 | Layer | Description |
 |---|---|
-| Geometry and core | Draw the original 2px HDR strip directly, then let Bloom expand it into a soft core |
+| Geometry and core | Draw the original 2.7px HDR strip directly, then let Bloom expand it into a soft core |
 | Longitudinal envelope | The original TrailRenderer gradient is reversed into Canvas point order, then multiplied by the stretched `FX_TEX_Trail_03` brightness converted from sRGB to linear energy |
-| Bloom | Only the HDR emission buffer is processed by the selected Bloom backend; triangle shards never enter it |
+| 2D texture envelope | The transverse feather changes along the stretched length; each segment bilinearly interpolates the source samples so the middle is not widened by a fixed bright core |
+| Bloom | Ring, disk, trail, and triangle-shard HDR emission is processed by the selected Bloom backend |
 
 Shards scatter along the trail at distance intervals.
 
 ### Bloom Rendering Backends
 
-WebGL2 and Software Bloom share the same HDR emission parameters and Bloom settings. The WebGL2 branch draws ring, disk, and trail emission into transparent GPU framebuffers, then applies threshold/soft knee, a Gaussian mip pyramid, scatter upsampling, and additive output. Crisp geometry and the light-background contrast silhouette remain on Canvas 2D. This moves the main Bloom workload away from CPU pixel readback when many effects overlap, while keeping Software Bloom as the precise reference and compatibility implementation.
+WebGL2 and Software Bloom share the same HDR emission parameters and Bloom settings. The WebGL2 branch draws ring, disk, trail, and shard emission into transparent GPU framebuffers, then follows the game's `Hidden/MXFinalBloom` path: four-tap prefiltering, Box4 mips, cumulative upsampling, and the original intensity conversion.
 
 Availability is determined by actually creating a WebGL2 context, checking `EXT_color_buffer_float`, and validating the `RGBA16F` framebuffer. Read the requested backend and latest resolution result through `getConfig().bloomBackend` and `getConfig().resolvedBloomBackend` respectively. WebGL2/auto briefly reports `pending` before the first deferred probe and while a restored context is being validated.
 
 ### JavaScript Software Bloom
 
-When `bloomBackend: 'software'` is selected explicitly or WebGL2 is unavailable, the renderer draws HDR emission from rings, disks, and trails into a full-viewport mask, reads the pixels back, and follows a URP 12-compatible Bloom structure in JavaScript. Triangular shards keep their crisp body colour and do not participate in Bloom:
+When `bloomBackend: 'software'` is selected explicitly or WebGL2 is unavailable, the renderer draws all HDR emission into a full-viewport mask, reads the pixels back, and runs the same MXFinalBloom structure in JavaScript:
 
 1. Decode the 8-bit mask into reusable Float32 RGB buffers.
-2. Run a high-quality 13-tap prefilter with a soft-knee threshold to produce half-resolution mip0.
-3. Build the mip pyramid with separable 9-tap Gaussian downsampling; `bloom.skipIterations` controls how many deepest iterations are omitted.
-4. Mix from low-resolution mips back upward according to `bloom.scatter`, using bicubic sampling when `bloom.highQualityFiltering` is enabled.
-5. Convert linear Bloom energy to additive sRGB RGBA, apply `bloom.intensity`, and composite it onto the main canvas with `lighter`; `isolatedCompositing` determines the subsequent CSS compositing boundary.
+2. Run four-tap threshold prefiltering to produce half-resolution mip0.
+3. Build a Box4 mip pyramid whose level count is derived from `bloom.diffusion`.
+4. Accumulate from the coarsest mip upward with SampleScale four-tap sampling.
+5. Apply the game's intensity conversion, final four-tap sampling, and additive sRGB composite.
 
-The default `isolatedCompositing: true` first resolves the main layer's `plus-lighter`, the WebGL2 Bloom layer's `plus-lighter`, and the compatibility layer's `darken` inside a transparent group, then composites the coloured result and its alpha over the page. This does not change the Bloom algorithm, but preserves cyan-blue colour, saturation, and soft glow over pure white. With `false`, the main layer blends directly against the DOM background; strict additive blending then loses its colour and contrast on pure white, which preserves the previous output for comparison.
+The default `isolatedCompositing: false` blends the main layer directly against the DOM background with `plus-lighter`, preserving Unity's strict additive semantics; additive output necessarily loses colour and contrast on pure white. With `true`, the main layer, WebGL2 Bloom layer, and compatibility layer first resolve inside a transparent group, then composite their coloured result and alpha over the page. This does not change the Bloom algorithm and exists only as a non-game compatibility path for pure-white web backgrounds.
 
-When the library owns the overlay, it also places an independent `darken` compatibility layer above the main FX layer. This layer uses a pale-cyan mask at `0.35` alpha by default to restore only the crisp silhouette and neither receives nor generates Bloom. It must remain above the additive layer; otherwise the main layer would add the recovered cyan contrast straight back to white. This is a deliberate web-compatibility deviation, not part of Unity's additive pipeline; set `lightBackgroundContrastAlpha` to `0` to disable it. An existing Canvas supplied as the target can receive neither this separate backdrop-compositing layer nor isolated compositing.
+`lightBackgroundContrastAlpha` defaults to `0`, so no visible silhouette outside the game resource is added. Setting it to `0.35` gives a library-owned overlay an independent pale-cyan `darken` mask above the main FX layer. The mask neither receives nor generates Bloom and exists only to recover a crisp silhouette on pure white. It and isolated compositing are both non-game web compatibility options. An existing Canvas supplied as the target can receive neither this separate backdrop-compositing layer nor isolated compositing.
 
-This software pipeline targets the visual character of URP 12 Bloom rather than a pixel-identical GPU post-process. It uses one full-viewport mip pyramid so the deepest low-frequency energy spreads across the real frame instead of filling a cropped local workspace and exposing a rectangular glow boundary. This costs more CPU time and memory than the former local-region implementation. Emission readback remains limited to the geometry's actual subregion, and only active Bloom output is encoded and uploaded. Float32 mip buffers are reused across frames. The HQ 13-tap prefilter and Gaussian downsampling use equivalent scalar accumulation, and redundant buffer clears are skipped when a pass overwrites the entire mip. The two rings share one Linear Gradient energy calculation within each rendering pass. Trail distances and segment emission energies are also computed only once, dark tail segments that quantize to a strictly zero emission mask are not drawn again, and expired vertices are removed in one batch. Before software Bloom is composited, the crisp main Canvas is reused as the light-background contrast mask. Lifetimes continue to follow real elapsed time under load, preventing slow frames from keeping old effects alive and increasing the backlog. Software Bloom working canvases are never attached to the DOM, and that backend uses neither WebGL, float16 Canvas, nor external dependencies. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`; trail emission is written into a local offscreen buffer using true path distance and blurred once as a whole. This avoids both segment-density accumulation and false highlights at the tail of looping paths. Triangle shards always render only their crisp body and never write to the Bloom emission buffer.
+The software backend uses one full-viewport mip pyramid and reuses its Float32 buffers between frames while limiting emission readback to the geometry's actual subregion. It shares the WebGL2 backend's mip-count formula, SampleScale, four-tap sampling, and intensity conversion. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`, while trail emission is blurred once in a local offscreen buffer.
 
 ---
 
@@ -367,7 +381,7 @@ Compared to generic cursor effects:
 - Game-accurate dissolve rings, center disk, and shard burst
 - Parameter-level reproduction of Unity ParticleSystem curves
 - Trail fades continuously from head to tail, not all at once
-- Auto-scales with window height for consistent UI proportions
+- Particle sizes keep scaling with canvas height to preserve Unity UI proportions
 - 20+ tunable parameters + custom theme colour
 
 Related projects:
@@ -386,8 +400,8 @@ ba-click-fx/
 │   ├── fx.js            # Engine: ParticleSystem + TrailRenderer lifecycle
 │   ├── main.js           # Demo page + control panel UI
 │   ├── config.js         # Unity FX_Touch parameter snapshot
-│   ├── software-bloom.js # URP 12-style Float32 mip Bloom and additive composite
-│   ├── webgl2-bloom.js   # WebGL2 HDR emission, Gaussian mips, and scatter composite
+│   ├── software-bloom.js # MXFinalBloom Float32 mips and additive composite
+│   ├── webgl2-bloom.js   # WebGL2 HDR emission and MXFinalBloom composite
 │   ├── utils.js          # Pure math utilities
 │   └── style.css         # Demo page styles
 ├── scripts/
@@ -402,11 +416,11 @@ ba-click-fx/
 
 ### Architecture
 
-- **Isolated compositing layer:** by default, the main FX, WebGL2 Bloom, and light-background compatibility canvases blend in a transparent isolated group before the result is placed over the page; disable it to restore direct-page additive compositing.
+- **Isolated compositing layer:** disabled by default; enable the transparent isolated group explicitly to preserve colour on non-game pure-white web backgrounds.
 - **Main FX layer:** effects use `lighter` internally and the main canvas uses `plus-lighter`; `isolatedCompositing` selects its backdrop.
-- **Light-background compatibility layer:** owned-overlay mode adds a non-Bloom `darken` canvas with a pale-cyan mask at 0.35 alpha so effects remain visible on pure white.
-- **Software Bloom:** full-viewport working canvases plus a Float32 Gaussian mip pyramid, with a `shadowBlur` fallback when pixel readback is unavailable.
-- **WebGL2 Bloom:** the default transparent GPU overlay performs HDR prefiltering, Gaussian mips, and scatter, falling back when capabilities are insufficient.
+- **Light-background compatibility layer:** defaults to zero strength; set it explicitly to 0.35 to add a non-Bloom `darken` canvas for visibility on pure white.
+- **Software Bloom:** full-viewport working canvases plus a Float32 MXFinalBloom pyramid, with a `shadowBlur` fallback when pixel readback is unavailable.
+- **WebGL2 Bloom:** the default transparent GPU overlay performs the game's MXFinalBloom passes and falls back when capabilities are insufficient.
 - **On-demand rendering:** `requestAnimationFrame` stops when no effects are active.
 - **Zero external dependencies:** browser-native Canvas 2D / WebGL2 APIs only; no third-party runtime.
 

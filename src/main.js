@@ -378,8 +378,8 @@ bindRange('ctrlBloomThreshold', 'outBloomThreshold', (v) =>
   effect.setFxParam('bloom.threshold', v));
 bindRange('ctrlBloomIntensity', 'outBloomIntensity', (v) =>
   effect.setFxParam('bloom.intensity', v));
-bindRange('ctrlBloomScatter', 'outBloomScatter', (v) =>
-  effect.setFxParam('bloom.scatter', v));
+bindRange('ctrlBloomDiffusion', 'outBloomDiffusion', (v) =>
+  effect.setFxParam('bloom.diffusion', v));
 bindRange('ctrlClickGlow', 'outClickGlow', (v) =>
   effect.setFxParam('bloom.clickEmissionScale', v));
 bindRange('ctrlTrailW', 'outTrailW', (v) => effect.setFxParam('trail.width', v));
@@ -395,6 +395,16 @@ bindRange('ctrlBloomTrail', 'outBloomTrail', (v) =>
 bindRange('ctrlTrailOpacity', 'outTrailOpacity', (v) => effect.setFxParam('trail.trailOpacity', v));
 
 // ── 新暴露的数值参数 ──────────────────────────────────────────────────
+function formatRingDirection(value, lang = currentLang)
+{
+  if (lang === 'en')
+  {
+    return value < 0 ? 'Counterclockwise' : 'Clockwise';
+  }
+
+  return value < 0 ? '逆时针' : '顺时针';
+}
+
 bindRange('ctrlRingCount', 'outRingCount', (v) => effect.setFxParam('rings.count', v), true);
 bindRange('ctrlDiskRadius', 'outDiskRadius', (v) => effect.setFxParam('disk.radius', v), true);
 bindRange('ctrlDiskLife', 'outDiskLife', (v) => effect.setFxParam('disk.lifetimeMs', v), true);
@@ -407,10 +417,9 @@ bindRange('ctrlRingDir', 'outRingDir', (v) =>
 
   if (out)
   {
-    out.textContent = v < 0 ? '逆时针' : '顺时针';
+    out.textContent = formatRingDirection(v);
   }
 });
-bindRange('ctrlRootDuration', 'outRootDuration', (v) => effect.setFxParam('rootDurationMs', v), true);
 bindRange('ctrlClickShardLifeMin', 'outClickShardLifeMin', (v) => effect.setFxParam('shards.clickLifetimeMinMs', v), true);
 bindRange('ctrlClickShardLifeMax', 'outClickShardLifeMax', (v) => effect.setFxParam('shards.clickLifetimeMaxMs', v), true);
 
@@ -438,7 +447,7 @@ if (ctrlColor)
     effect.setThemeColor(ctrlColor.value);
     localStorage.setItem('bafx-ctrlColor', ctrlColor.value);
   });
-  // HTML 默认值不会触发 input；显式应用后展示页与扩展使用同一主题色基线。
+  // HTML 默认值不会触发 input；显式应用可让持久化恢复共用同一入口。
   effect.setThemeColor(ctrlColor.value);
 }
 
@@ -459,20 +468,20 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('outTrailTimeScale').textContent = '1.00';
   document.getElementById('ctrlPaused').checked = false;
   document.getElementById('ctrlPauseClear').checked = false;
-  document.getElementById('ctrlIsolatedCompositing').checked = true;
+  document.getElementById('ctrlIsolatedCompositing').checked = false;
   document.getElementById('ctrlClick').checked = true;
   document.getElementById('ctrlTrail').checked = true;
   document.getElementById('ctrlTrailAlways').checked = false;
   document.getElementById('ctrlHitEnabled').checked = false;
   document.getElementById('ctrlFlareEnabled').checked = false;
-  document.getElementById('ctrlColor').value = '#69a1ff';
-  effect.setThemeColor('#69a1ff');
+  document.getElementById('ctrlColor').value = '#4ca7ff';
+  effect.setThemeColor('#4ca7ff');
 
   // 重置特效参数
   const fxDefaults = [
     ['ctrlRingHdr', 'outRingHdr', 5.992157, false],
-    ['ctrlRingRadMin', 'outRingRadMin', 51.0560832, false],
-    ['ctrlRingRadMax', 'outRingRadMax', 59.5654304, false],
+    ['ctrlRingRadMin', 'outRingRadMin', 68.92571232, false],
+    ['ctrlRingRadMax', 'outRingRadMax', 80.41333104, false],
     ['ctrlRingWStart', 'outRingWStart', 1, false],
     ['ctrlRingWEnd', 'outRingWEnd', 1, false],
     ['ctrlRingLife', 'outRingLife', 600, true],
@@ -480,27 +489,26 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlMaxShards', 'outMaxShards', 96, true],
     ['ctrlBloomRing', 'outBloomRing', 80, false],
     ['ctrlBloomThreshold', 'outBloomThreshold', 1, false],
-    ['ctrlBloomIntensity', 'outBloomIntensity', 1, false],
-    ['ctrlBloomScatter', 'outBloomScatter', 0.7, false],
+    ['ctrlBloomIntensity', 'outBloomIntensity', 1.7, false],
+    ['ctrlBloomDiffusion', 'outBloomDiffusion', 7, false],
     ['ctrlClickGlow', 'outClickGlow', 1, false],
-    ['ctrlTrailW', 'outTrailW', 2, false],
+    ['ctrlTrailW', 'outTrailW', 2.7, false],
     ['ctrlTrailGlowW', 'outTrailGlowW', 9, false],
     ['ctrlTrailLife', 'outTrailLife', 300, true],
-    ['ctrlShardSpacing', 'outShardSpacing', 80, true],
+    ['ctrlShardSpacing', 'outShardSpacing', 108, true],
     ['ctrlBloomTrail', 'outBloomTrail', 1, false],
     ['ctrlTrailOpacity', 'outTrailOpacity', 1, false],
     // 新暴露参数
     ['ctrlRingCount', 'outRingCount', 2, true],
-    ['ctrlDiskRadius', 'outDiskRadius', 48, true],
+    ['ctrlDiskRadius', 'outDiskRadius', 64.8, false],
     ['ctrlDiskLife', 'outDiskLife', 200, true],
     ['ctrlAngVelMul', 'outAngVelMul', 11.17, false],
     ['ctrlArcSamples', 'outArcSamples', 96, true],
     ['ctrlRingDir', 'outRingDir', -1, true],
-    ['ctrlRootDuration', 'outRootDuration', 1000, true],
     ['ctrlClickShardLifeMin', 'outClickShardLifeMin', 600, true],
     ['ctrlClickShardLifeMax', 'outClickShardLifeMax', 700, true],
-    ['ctrlGeomWidth', 'outGeomWidth', 2, false],
-    ['ctrlMinVertDist', 'outMinVertDist', 4, false],
+    ['ctrlGeomWidth', 'outGeomWidth', 2.7, false],
+    ['ctrlMinVertDist', 'outMinVertDist', 5.4, false],
     ['ctrlTrailShardLifeMin', 'outTrailShardLifeMin', 200, true],
     ['ctrlTrailShardLifeMax', 'outTrailShardLifeMax', 400, true],
     ['ctrlBloomDisk', 'outBloomDisk', 65, false],
@@ -522,6 +530,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
       out.textContent = intOnly ? String(val) : val.toFixed(2);
     }
   });
+  document.getElementById('outRingDir').textContent =
+    formatRingDirection(-1);
 
   effect.resetFxConfig();
   effect.setPaused(false);
@@ -537,8 +547,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
       trailEnabled: true,
       trailAlways: false,
       ...RENDER_MODE_CONFIGS[DEFAULT_RENDER_MODE],
-      isolatedCompositing: true,
-      lightBackgroundContrastAlpha: 0.35,
+      isolatedCompositing: false,
+      lightBackgroundContrastAlpha: 0,
       maxDpr: 2,
     },
   );
@@ -719,7 +729,7 @@ const I18N = {
     labelBloomRing: '原生圆环模糊',
     labelBloomThreshold: 'Bloom 阈值',
     labelBloomIntensity: 'Bloom 强度',
-    labelBloomScatter: 'Bloom 扩散',
+    labelBloomDiffusion: 'Bloom 扩散',
     labelClickGlow: '点击辉光强度',
     labelTrailEnabled: '启用拖尾',
     labelTrailAlways: '始终显示',
@@ -735,7 +745,6 @@ const I18N = {
     labelAngVelMul: '旋转速度倍率',
     labelArcSamples: '弧线采样精度',
     labelRingDir: '旋转方向',
-    labelRootDuration: '根持续时间',
     labelClickShardLifeMin: '点击碎片最短寿命',
     labelClickShardLifeMax: '点击碎片最长寿命',
     labelGeomWidth: '几何带宽',
@@ -751,9 +760,9 @@ const I18N = {
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
     introP2: '从 Unity FX_Touch.prefab 逐参数移植的 Canvas 2D 特效库，默认使用 WebGL2 Bloom——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.10/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.11/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 不需要图片素材；默认使用 WebGL2 Bloom，能力不足时自动回退软件 Bloom，零运行时依赖。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 不需要图片素材；默认使用 WebGL2 Bloom，能力不足时自动回退软件 Bloom，零运行时依赖。</p><p><strong>纯白背景下特效颜色太浅？</strong> 纯白背景会让默认的直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；这两项是网页兼容选项，不是游戏默认路径。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
     introHostApiSummary: '宿主控制 API / Host Control API',
   },
   en: {
@@ -808,7 +817,7 @@ const I18N = {
     labelBloomRing: 'Native Ring Blur',
     labelBloomThreshold: 'Bloom Threshold',
     labelBloomIntensity: 'Bloom Intensity',
-    labelBloomScatter: 'Bloom Scatter',
+    labelBloomDiffusion: 'Bloom Diffusion',
     labelClickGlow: 'Click Glow Strength',
     labelTrailEnabled: 'Enable Trail',
     labelTrailAlways: 'Always Show',
@@ -822,6 +831,8 @@ const I18N = {
     labelDiskRadius: 'Disk Radius',
     labelDiskLife: 'Disk Lifetime',
     labelAngVelMul: 'Rotation Speed',
+    labelArcSamples: 'Arc Samples',
+    labelRingDir: 'Rotation Direction',
     labelClickShardLifeMin: 'Click Shard Life Min',
     labelClickShardLifeMax: 'Click Shard Life Max',
     labelGeomWidth: 'Geometry Width',
@@ -837,9 +848,9 @@ const I18N = {
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
     introP2: 'Canvas 2D effect library ported from Unity FX_Touch.prefab, using WebGL2 Bloom by default — dissolve rings, click shards, drag trails. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.10/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.11/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> No image assets. WebGL2 Bloom is the default and falls back to Software Bloom when unavailable. Zero runtime dependencies.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> No image assets. WebGL2 Bloom is the default and falls back to Software Bloom when unavailable. Zero runtime dependencies.</p><p><strong>Effects look washed out on a pure white background?</strong> Direct additive compositing loses cyan-blue color and contrast on pure white. Enable Isolated Compositing (<code>isolatedCompositing: true</code>). For a sharper outline, you can also set <code>lightBackgroundContrastAlpha: 0.35</code>; both are web compatibility options, not the game-default path.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
     introHostApiSummary: 'Host Control API / 宿主控制 API',
   },
 };
@@ -850,6 +861,16 @@ function switchLanguage(lang)
   localStorage.setItem('bafx-lang', lang);
 
   const d = I18N[lang] || I18N.zh;
+  const ringDirection = document.getElementById('ctrlRingDir');
+  const ringDirectionOutput = document.getElementById('outRingDir');
+
+  if (ringDirection && ringDirectionOutput)
+  {
+    ringDirectionOutput.textContent = formatRingDirection(
+      Number(ringDirection.value),
+      lang,
+    );
+  }
 
   document.getElementById('langToggle').textContent = d.langToggle;
 
@@ -923,7 +944,7 @@ function switchLanguage(lang)
     ctrlBloomRing: d.labelBloomRing,
     ctrlBloomThreshold: d.labelBloomThreshold,
     ctrlBloomIntensity: d.labelBloomIntensity,
-    ctrlBloomScatter: d.labelBloomScatter,
+    ctrlBloomDiffusion: d.labelBloomDiffusion,
     ctrlClickGlow: d.labelClickGlow,
     ctrlTrail: d.labelTrailEnabled,
     ctrlTrailAlways: d.labelTrailAlways,
@@ -939,7 +960,6 @@ function switchLanguage(lang)
     ctrlAngVelMul: d.labelAngVelMul,
     ctrlArcSamples: d.labelArcSamples,
     ctrlRingDir: d.labelRingDir,
-    ctrlRootDuration: d.labelRootDuration,
     ctrlClickShardLifeMin: d.labelClickShardLifeMin,
     ctrlClickShardLifeMax: d.labelClickShardLifeMax,
     ctrlGeomWidth: d.labelGeomWidth,
@@ -1122,10 +1142,12 @@ switchLanguage(currentLang);
   const isolatedCompositingEl = document.getElementById('ctrlIsolatedCompositing');
   const savedIsolatedCompositing = localStorage.getItem('bafx-ctrlIsolatedCompositing');
 
-  if (isolatedCompositingEl && savedIsolatedCompositing === 'false')
+  if (isolatedCompositingEl && savedIsolatedCompositing !== null)
   {
-    isolatedCompositingEl.checked = false;
-    effect.updateConfig({ isolatedCompositing: false });
+    const isolated = savedIsolatedCompositing === 'true';
+
+    isolatedCompositingEl.checked = isolated;
+    effect.updateConfig({ isolatedCompositing: isolated });
   }
 
   if (localStorage.getItem('bafx-ctrlTrail') === 'false')
@@ -1166,7 +1188,7 @@ switchLanguage(currentLang);
     ['ctrlBloomRing', 'bloom.ringBlur'],
     ['ctrlBloomThreshold', 'bloom.threshold'],
     ['ctrlBloomIntensity', 'bloom.intensity'],
-    ['ctrlBloomScatter', 'bloom.scatter'],
+    ['ctrlBloomDiffusion', 'bloom.diffusion'],
     ['ctrlClickGlow', 'bloom.clickEmissionScale'],
     ['ctrlTrailW', 'trail.width'],
     ['ctrlTrailGlowW', 'trail.outerGlowWidth'],
@@ -1180,7 +1202,6 @@ switchLanguage(currentLang);
     ['ctrlAngVelMul', 'rings.angularVelocityMultiplier'],
     ['ctrlArcSamples', 'rings.arcSamples'],
     ['ctrlRingDir', 'rings.rotationDirection'],
-    ['ctrlRootDuration', 'rootDurationMs'],
     ['ctrlClickShardLifeMin', 'shards.clickLifetimeMinMs'],
     ['ctrlClickShardLifeMax', 'shards.clickLifetimeMaxMs'],
     ['ctrlGeomWidth', 'trail.geometryWidth'],

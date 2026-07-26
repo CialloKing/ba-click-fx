@@ -61,7 +61,7 @@
         <p><strong>npm</strong></p>
         <pre><code>npm install ba-click-fx</code></pre>
         <p><strong>CDN</strong></p>
-        <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.10/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>
+        <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.11/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>
       </div>
     </details>
     <details>
@@ -69,6 +69,7 @@
       <div id="introFAQContent">
         <p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p>
         <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要图片素材；默认使用 WebGL2 Bloom，能力不足时自动回退软件 Bloom，零外部运行时依赖。</p>
+        <p><strong>纯白背景下特效颜色太浅？</strong> 纯白背景会让默认的直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；这两项是网页兼容选项，不是游戏默认路径。</p>
         <p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和直接 script 引入三种方式。</p>
       </div>
     </details>
@@ -116,7 +117,7 @@ fx.setPaused(true, { clear: true });</code></pre>
       <details open><summary>显示</summary>
       <label class="ctrl">
         <span>主题颜色</span>
-        <input type="color" id="ctrlColor" value="#69a1ff" />
+        <input type="color" id="ctrlColor" value="#4ca7ff" />
       </label>
       <label class="ctrl">
         <span>全局缩放 <output id="outScale">1.00</output></span>
@@ -141,7 +142,7 @@ fx.setPaused(true, { clear: true });</code></pre>
       </label>
       <label class="ctrl toggle">
         <span>隔离合成</span>
-        <input type="checkbox" id="ctrlIsolatedCompositing" checked />
+        <input type="checkbox" id="ctrlIsolatedCompositing" />
         <span class="toggle-track"></span>
       </label>
       <p id="renderBackendStatus" class="render-backend-status" aria-live="polite">正在检测 WebGL2 Bloom…</p>
@@ -210,12 +211,12 @@ fx.setPaused(true, { clear: true });</code></pre>
         <input type="range" id="ctrlRingHdr" min="0" max="8" step="0.01" value="5.99" />
       </label>
       <label class="ctrl">
-        <span>圆环起始半径 <output id="outRingRadMin">51.06</output></span>
-        <input type="range" id="ctrlRingRadMin" min="20" max="120" step="0.01" value="51.0560832" />
+        <span>圆环起始半径 <output id="outRingRadMin">68.93</output></span>
+        <input type="range" id="ctrlRingRadMin" min="20" max="120" step="0.01" value="68.92571232" />
       </label>
       <label class="ctrl">
-        <span>圆环终止半径 <output id="outRingRadMax">59.57</output></span>
-        <input type="range" id="ctrlRingRadMax" min="20" max="120" step="0.01" value="59.5654304" />
+        <span>圆环终止半径 <output id="outRingRadMax">80.41</output></span>
+        <input type="range" id="ctrlRingRadMax" min="20" max="120" step="0.01" value="80.41333104" />
       </label>
       <label class="ctrl">
         <span>圆环起始厚度倍率 <output id="outRingWStart">1.00</output></span>
@@ -250,12 +251,12 @@ fx.setPaused(true, { clear: true });</code></pre>
         <input type="range" id="ctrlBloomThreshold" min="0" max="5" step="0.05" value="1" />
       </label>
       <label class="ctrl">
-        <span>Bloom 强度 <output id="outBloomIntensity">1.00</output></span>
-        <input type="range" id="ctrlBloomIntensity" min="0" max="2" step="0.05" value="1" />
+        <span>Bloom 强度 <output id="outBloomIntensity">1.70</output></span>
+        <input type="range" id="ctrlBloomIntensity" min="0" max="2" step="0.05" value="1.7" />
       </label>
       <label class="ctrl">
-        <span>Bloom 扩散 <output id="outBloomScatter">0.70</output></span>
-        <input type="range" id="ctrlBloomScatter" min="0" max="1" step="0.05" value="0.7" />
+        <span>Bloom 扩散 <output id="outBloomDiffusion">7.00</output></span>
+        <input type="range" id="ctrlBloomDiffusion" min="0" max="10" step="0.1" value="7" />
       </label>
       <label class="ctrl">
         <span>点击辉光强度 <output id="outClickGlow">1.00</output></span>
@@ -266,8 +267,8 @@ fx.setPaused(true, { clear: true });</code></pre>
         <input type="range" id="ctrlRingCount" min="1" max="6" step="1" value="2" />
       </label>
       <label class="ctrl">
-        <span>光盘半径 <output id="outDiskRadius">48</output></span>
-        <input type="range" id="ctrlDiskRadius" min="20" max="120" step="1" value="48" />
+        <span>光盘半径 <output id="outDiskRadius">64.8</output></span>
+        <input type="range" id="ctrlDiskRadius" min="20" max="120" step="0.1" value="64.8" />
       </label>
       <label class="ctrl">
         <span>光盘寿命 <output id="outDiskLife">200</output> ms</span>
@@ -284,10 +285,6 @@ fx.setPaused(true, { clear: true });</code></pre>
       <label class="ctrl">
         <span>旋转方向 <output id="outRingDir">逆时针</output></span>
         <input type="range" id="ctrlRingDir" min="-1" max="1" step="2" value="-1" />
-      </label>
-      <label class="ctrl">
-        <span>根持续时间 <output id="outRootDuration">1000</output> ms</span>
-        <input type="range" id="ctrlRootDuration" min="200" max="2000" step="50" value="1000" />
       </label>
       <label class="ctrl">
         <span>点击碎片最短寿命 <output id="outClickShardLifeMin">600</output> ms</span>
@@ -347,8 +344,8 @@ fx.setPaused(true, { clear: true });</code></pre>
       </label>
       <details open><summary>轨迹图层</summary>
       <label class="ctrl">
-        <span>拖尾宽度 <output id="outTrailW">2.00</output></span>
-        <input type="range" id="ctrlTrailW" min="1" max="25" step="0.1" value="2" />
+        <span>拖尾宽度 <output id="outTrailW">2.70</output></span>
+        <input type="range" id="ctrlTrailW" min="1" max="25" step="0.1" value="2.7" />
       </label>
       <label class="ctrl">
         <span>外发光宽度 <output id="outTrailGlowW">9.00</output></span>
@@ -361,8 +358,8 @@ fx.setPaused(true, { clear: true });</code></pre>
       </details>
       <details><summary>碎片</summary>
       <label class="ctrl">
-        <span>碎片间距 <output id="outShardSpacing">80</output></span>
-        <input type="range" id="ctrlShardSpacing" min="10" max="500" step="5" value="80" />
+        <span>碎片间距 <output id="outShardSpacing">108</output></span>
+        <input type="range" id="ctrlShardSpacing" min="10" max="500" step="1" value="108" />
       </label>
       </details>
       <details><summary>Bloom</summary>
@@ -375,12 +372,12 @@ fx.setPaused(true, { clear: true });</code></pre>
         <input type="range" id="ctrlTrailOpacity" min="0" max="1" step="0.05" value="1" />
       </label>
       <label class="ctrl">
-        <span>几何带宽 <output id="outGeomWidth">2</output></span>
-        <input type="range" id="ctrlGeomWidth" min="1" max="8" step="0.5" value="2" />
+        <span>几何带宽 <output id="outGeomWidth">2.7</output></span>
+        <input type="range" id="ctrlGeomWidth" min="1" max="8" step="0.1" value="2.7" />
       </label>
       <label class="ctrl">
-        <span>最小采样间距 <output id="outMinVertDist">4</output></span>
-        <input type="range" id="ctrlMinVertDist" min="1" max="20" step="0.5" value="4" />
+        <span>最小采样间距 <output id="outMinVertDist">5.4</output></span>
+        <input type="range" id="ctrlMinVertDist" min="1" max="20" step="0.1" value="5.4" />
       </label>
       <label class="ctrl">
         <span>拖尾碎片最短寿命 <output id="outTrailShardLifeMin">200</output> ms</span>

@@ -4,7 +4,16 @@ const MAX_PYRAMID_LEVELS = 16;
 const DISK_BLOOM_RADIAL_STOPS = Object.freeze(
   [
     [0, 1],
+    [0.84, 1],
     [0.88, 1],
+    [0.885, 0.398631296],
+    [0.89, 0.203383314],
+    [0.895, 0.124567474],
+    [0.9, 0.077524029],
+    [0.905, 0.016747405],
+    [0.91, 0.003936947],
+    [0.915, 0.000384468],
+    [0.92, 0],
     [1, 0],
   ],
 );
@@ -67,19 +76,13 @@ const PREFILTER_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 uniform sampler2D u_source;
-uniform vec2 u_prefilterTexel;
+uniform vec2 u_sourceTexel;
 uniform float u_threshold;
 uniform float u_softKnee;
 uniform float u_clampMax;
-uniform bool u_highQuality;
 
 in vec2 v_uv;
 out vec4 outColor;
-
-vec3 sampleSource(vec2 offset)
-{
-  return texture(u_source, v_uv + offset * u_prefilterTexel).rgb;
-}
 
 vec3 thresholdColor(vec3 color)
 {
@@ -96,7 +99,7 @@ vec3 thresholdColor(vec3 color)
   float soft = brightness - threshold + knee;
 
   soft = clamp(soft, 0.0, knee * 2.0);
-  soft = soft * soft / (knee * 4.0 + 0.0001);
+  soft = soft * soft / (knee * 4.0);
 
   float contribution = max(max(brightness - threshold, soft), 0.0);
   return color * contribution / max(brightness, 0.0001);
@@ -104,35 +107,17 @@ vec3 thresholdColor(vec3 color)
 
 void main()
 {
-  vec3 color;
+  vec3 color =
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, -1.0)).rgb +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, -1.0)).rgb +
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)).rgb +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0)).rgb;
 
-  if (!u_highQuality)
-  {
-    color = texture(u_source, v_uv).rgb;
-  }
-  else
-  {
-    color =
-      sampleSource(vec2(-1.0, -1.0)) * 0.03125 +
-      sampleSource(vec2(0.0, -1.0)) * 0.0625 +
-      sampleSource(vec2(1.0, -1.0)) * 0.03125 +
-      sampleSource(vec2(-0.5, -0.5)) * 0.125 +
-      sampleSource(vec2(0.5, -0.5)) * 0.125 +
-      sampleSource(vec2(-1.0, 0.0)) * 0.0625 +
-      sampleSource(vec2(0.0, 0.0)) * 0.125 +
-      sampleSource(vec2(1.0, 0.0)) * 0.0625 +
-      sampleSource(vec2(-0.5, 0.5)) * 0.125 +
-      sampleSource(vec2(0.5, 0.5)) * 0.125 +
-      sampleSource(vec2(-1.0, 1.0)) * 0.03125 +
-      sampleSource(vec2(0.0, 1.0)) * 0.0625 +
-      sampleSource(vec2(1.0, 1.0)) * 0.03125;
-  }
-
-  outColor = vec4(thresholdColor(color), 1.0);
+  outColor = vec4(thresholdColor(color * 0.25), 1.0);
 }
 `;
 
-const DOWNSAMPLE_HORIZONTAL_FRAGMENT_SHADER = `#version 300 es
+const DOWNSAMPLE_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 uniform sampler2D u_source;
@@ -144,39 +129,12 @@ out vec4 outColor;
 void main()
 {
   vec3 color =
-    texture(u_source, v_uv + vec2(-8.0 * u_sourceTexel.x, 0.0)).rgb * 0.01621622 +
-    texture(u_source, v_uv + vec2(-6.0 * u_sourceTexel.x, 0.0)).rgb * 0.05405405 +
-    texture(u_source, v_uv + vec2(-4.0 * u_sourceTexel.x, 0.0)).rgb * 0.12162162 +
-    texture(u_source, v_uv + vec2(-2.0 * u_sourceTexel.x, 0.0)).rgb * 0.19459459 +
-    texture(u_source, v_uv).rgb * 0.22702703 +
-    texture(u_source, v_uv + vec2(2.0 * u_sourceTexel.x, 0.0)).rgb * 0.19459459 +
-    texture(u_source, v_uv + vec2(4.0 * u_sourceTexel.x, 0.0)).rgb * 0.12162162 +
-    texture(u_source, v_uv + vec2(6.0 * u_sourceTexel.x, 0.0)).rgb * 0.05405405 +
-    texture(u_source, v_uv + vec2(8.0 * u_sourceTexel.x, 0.0)).rgb * 0.01621622;
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, -1.0)).rgb +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, -1.0)).rgb +
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)).rgb +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0)).rgb;
 
-  outColor = vec4(color, 1.0);
-}
-`;
-
-const DOWNSAMPLE_VERTICAL_FRAGMENT_SHADER = `#version 300 es
-precision highp float;
-
-uniform sampler2D u_source;
-uniform vec2 u_sourceTexel;
-
-in vec2 v_uv;
-out vec4 outColor;
-
-void main()
-{
-  vec3 color =
-    texture(u_source, v_uv + vec2(0.0, -3.23076923 * u_sourceTexel.y)).rgb * 0.07027027 +
-    texture(u_source, v_uv + vec2(0.0, -1.38461538 * u_sourceTexel.y)).rgb * 0.31621622 +
-    texture(u_source, v_uv).rgb * 0.22702703 +
-    texture(u_source, v_uv + vec2(0.0, 1.38461538 * u_sourceTexel.y)).rgb * 0.31621622 +
-    texture(u_source, v_uv + vec2(0.0, 3.23076923 * u_sourceTexel.y)).rgb * 0.07027027;
-
-  outColor = vec4(color, 1.0);
+  outColor = vec4(color * 0.25, 1.0);
 }
 `;
 
@@ -185,84 +143,29 @@ precision highp float;
 
 uniform sampler2D u_high;
 uniform sampler2D u_low;
-uniform float u_scatter;
-uniform bool u_highQuality;
+uniform vec2 u_lowTexel;
+uniform float u_sampleScale;
 
 in vec2 v_uv;
 out vec4 outColor;
 
-void calculateBicubicAxis(
-  float position,
-  out vec2 samplePositions,
-  out vec2 sampleWeights
-)
+vec3 sampleBox(sampler2D source, vec2 uv, vec2 offset)
 {
-  float coordinate = position + 1.0;
-  float cell = floor(coordinate);
-  float fraction = coordinate - cell;
-  float rightmost = 1.0 / 6.0 + fraction * (
-    -0.5 + fraction * (0.5 - fraction / 6.0)
-  );
-  float middleRight = 2.0 / 3.0 + fraction * (
-    -1.0 + 0.5 * fraction
-  ) * fraction;
-  float middleLeft = 1.0 / 6.0 + fraction * (
-    0.5 + fraction * (0.5 - 0.5 * fraction)
-  );
-  float leftmost = 1.0 - middleRight - middleLeft - rightmost;
-  float firstWeight = rightmost + middleRight;
-  float secondWeight = middleLeft + leftmost;
-
-  samplePositions = vec2(
-    cell - 2.0 + middleRight / max(firstWeight, 0.00001),
-    cell + leftmost / max(secondWeight, 0.00001)
-  );
-  sampleWeights = vec2(firstWeight, secondWeight);
-}
-
-vec3 sampleBicubic(sampler2D source, vec2 uv)
-{
-  vec2 size = vec2(textureSize(source, 0));
-  vec2 pixel = uv * size - 0.5;
-  vec2 horizontalPositions;
-  vec2 horizontalWeights;
-  vec2 verticalPositions;
-  vec2 verticalWeights;
-
-  calculateBicubicAxis(pixel.x, horizontalPositions, horizontalWeights);
-  calculateBicubicAxis(pixel.y, verticalPositions, verticalWeights);
-
-  vec3 firstRow =
-    texture(
-      source,
-      (vec2(horizontalPositions.x, verticalPositions.x) + 0.5) / size
-    ).rgb * horizontalWeights.x +
-    texture(
-      source,
-      (vec2(horizontalPositions.y, verticalPositions.x) + 0.5) / size
-    ).rgb * horizontalWeights.y;
-  vec3 secondRow =
-    texture(
-      source,
-      (vec2(horizontalPositions.x, verticalPositions.y) + 0.5) / size
-    ).rgb * horizontalWeights.x +
-    texture(
-      source,
-      (vec2(horizontalPositions.y, verticalPositions.y) + 0.5) / size
-    ).rgb * horizontalWeights.y;
-
-  return firstRow * verticalWeights.x + secondRow * verticalWeights.y;
+  return (
+    texture(source, uv + vec2(-offset.x, -offset.y)).rgb +
+    texture(source, uv + vec2(offset.x, -offset.y)).rgb +
+    texture(source, uv + vec2(-offset.x, offset.y)).rgb +
+    texture(source, uv + vec2(offset.x, offset.y)).rgb
+  ) * 0.25;
 }
 
 void main()
 {
-  float mixAmount = clamp(u_scatter, 0.0, 1.0);
   vec3 high = texture(u_high, v_uv).rgb;
-  vec3 low = u_highQuality
-    ? sampleBicubic(u_low, v_uv)
-    : texture(u_low, v_uv).rgb;
+  vec2 offset = u_lowTexel * (u_sampleScale * 0.5);
+  vec3 low = sampleBox(u_low, v_uv, offset);
 
-  outColor = vec4(high * (1.0 - mixAmount) + low * mixAmount, 1.0);
+  outColor = vec4(high + low, 1.0);
 }
 `;
 
@@ -270,6 +173,8 @@ const FINAL_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 uniform sampler2D u_bloom;
+uniform vec2 u_bloomTexel;
+uniform float u_sampleScale;
 uniform float u_intensity;
 
 in vec2 v_uv;
@@ -289,7 +194,13 @@ float linearToSrgb(float value)
 
 void main()
 {
-  vec3 linear = texture(u_bloom, v_uv).rgb * max(0.0, u_intensity);
+  vec2 offset = u_bloomTexel * (u_sampleScale * 0.5);
+  vec3 bloom =
+    texture(u_bloom, v_uv + vec2(-offset.x, -offset.y)).rgb +
+    texture(u_bloom, v_uv + vec2(offset.x, -offset.y)).rgb +
+    texture(u_bloom, v_uv + vec2(-offset.x, offset.y)).rgb +
+    texture(u_bloom, v_uv + vec2(offset.x, offset.y)).rgb;
+  vec3 linear = bloom * 0.25 * max(0.0, u_intensity);
   vec3 srgb = vec3(
     linearToSrgb(linear.r),
     linearToSrgb(linear.g),
@@ -313,11 +224,23 @@ function clamp(value, minimum, maximum)
   return Math.max(minimum, Math.min(maximum, value));
 }
 
-function calculatePyramidLevelCount(
+function gammaToLinear(value)
+{
+  const gamma = Math.max(0, value);
+
+  if (gamma <= 0.04045)
+  {
+    return gamma / 12.92;
+  }
+
+  return Math.pow((gamma + 0.055) / 1.055, 2.4);
+}
+
+function calculatePyramidSettings(
   displayWidth,
   displayHeight,
   resolutionScale,
-  skipIterations,
+  diffusion,
 )
 {
   const safeScale = clamp(resolutionScale, 0.1, 0.75);
@@ -326,10 +249,17 @@ function calculatePyramidLevelCount(
     Math.floor(displayWidth * safeScale),
     Math.floor(displayHeight * safeScale),
   );
-  const iterations = Math.floor(Math.log2(maxSize) - 1) -
-    clamp(Math.round(skipIterations), 0, 16);
+  const logIterations = Math.log2(maxSize) +
+    Math.min(Math.max(0, diffusion), 10) - 10;
 
-  return clamp(iterations, 1, MAX_PYRAMID_LEVELS);
+  return {
+    levelCount: clamp(
+      Math.floor(logIterations),
+      1,
+      MAX_PYRAMID_LEVELS,
+    ),
+    sampleScale: 0.5 + logIterations - Math.floor(logIterations),
+  };
 }
 
 function compileShader(gl, type, source)
@@ -424,7 +354,8 @@ export class WebGL2BloomRenderer
     this.height = 0;
     this.dpr = 1;
     this.resolutionScale = 0;
-    this.skipIterations = 0;
+    this.diffusion = 0;
+    this.sampleScale = 1;
     this.maximumTextureSize = 0;
     this.maximumViewportWidth = 0;
     this.maximumViewportHeight = 0;
@@ -505,15 +436,10 @@ export class WebGL2BloomRenderer
         FULLSCREEN_VERTEX_SHADER,
         PREFILTER_FRAGMENT_SHADER,
       );
-      this.programs.downsampleHorizontal = createProgram(
+      this.programs.downsample = createProgram(
         gl,
         FULLSCREEN_VERTEX_SHADER,
-        DOWNSAMPLE_HORIZONTAL_FRAGMENT_SHADER,
-      );
-      this.programs.downsampleVertical = createProgram(
-        gl,
-        FULLSCREEN_VERTEX_SHADER,
-        DOWNSAMPLE_VERTICAL_FRAGMENT_SHADER,
+        DOWNSAMPLE_FRAGMENT_SHADER,
       );
       this.programs.upsample = createProgram(
         gl,
@@ -743,12 +669,15 @@ export class WebGL2BloomRenderer
         this.sourceHeight,
       );
 
-      const levelCount = calculatePyramidLevelCount(
+      const pyramid = calculatePyramidSettings(
         this.sourceWidth,
         this.sourceHeight,
         this.resolutionScale,
-        this.skipIterations,
+        this.diffusion,
       );
+      const levelCount = pyramid.levelCount;
+
+      this.sampleScale = pyramid.sampleScale;
       let width = this.width;
       let height = this.height;
 
@@ -766,8 +695,7 @@ export class WebGL2BloomRenderer
         // 先登记空槽位，任一步分配失败时 _deleteTargets() 都能释放已创建资源。
         this.levels.push(level);
         level.down = this._createTarget(width, height);
-        // mip0 不接收横向降采样，最末 mip 也不会作为高层上采样输出。
-        level.scratch = index === 0 ? null : this._createTarget(width, height);
+        level.scratch = null;
         level.up = index === levelCount - 1
           ? null
           : this._createTarget(width, height);
@@ -802,7 +730,7 @@ export class WebGL2BloomRenderer
     displayHeight,
     dpr,
     resolutionScale,
-    skipIterations,
+    diffusion,
   )
   {
     const safeDisplayWidth = Math.max(1, displayWidth);
@@ -821,7 +749,7 @@ export class WebGL2BloomRenderer
     const height = Math.max(1, Math.floor(
       sourceHeight * safeScale,
     ));
-    const safeSkip = clamp(Math.round(skipIterations), 0, 16);
+    const safeDiffusion = clamp(diffusion, 0, 10);
 
     if (
       sourceWidth > this.maximumTextureSize ||
@@ -840,13 +768,13 @@ export class WebGL2BloomRenderer
       sourceHeight === this.sourceHeight &&
       width === this.width &&
       height === this.height &&
-      safeSkip === this.skipIterations;
+      safeDiffusion === this.diffusion;
 
     this.displayWidth = safeDisplayWidth;
     this.displayHeight = safeDisplayHeight;
     this.dpr = safeDpr;
     this.resolutionScale = safeScale;
-    this.skipIterations = safeSkip;
+    this.diffusion = safeDiffusion;
     this.sourceWidth = sourceWidth;
     this.sourceHeight = sourceHeight;
 
@@ -857,8 +785,8 @@ export class WebGL2BloomRenderer
 
     this.width = width;
     this.height = height;
-    this.canvas.width = width;
-    this.canvas.height = height;
+    this.canvas.width = sourceWidth;
+    this.canvas.height = sourceHeight;
 
     return this._allocateTargets();
   }
@@ -1034,6 +962,49 @@ export class WebGL2BloomRenderer
     }
   }
 
+  addTriangle(
+    x,
+    y,
+    size,
+    rotation,
+    color,
+    opacity = 1,
+    textureFrame = null,
+  )
+  {
+    const red = color[0] * opacity;
+    const green = color[1] * opacity;
+    const blue = color[2] * opacity;
+
+    if (size <= 0 || Math.max(red, green, blue) <= 0)
+    {
+      return;
+    }
+
+    const cosine = Math.cos(rotation);
+    const sine = Math.sin(rotation);
+    const rotatePoint = (localX, localY) =>
+    ({
+      x: x + localX * cosine - localY * sine,
+      y: y + localX * sine + localY * cosine,
+    });
+    const vertices = Array.isArray(textureFrame) && textureFrame.length === 3
+      ? textureFrame
+      : [
+        [0, -0.58],
+        [0.52, 0.45],
+        [-0.52, 0.45],
+      ];
+    const first = rotatePoint(vertices[0][0] * size, vertices[0][1] * size);
+    const second = rotatePoint(vertices[1][0] * size, vertices[1][1] * size);
+    const third = rotatePoint(vertices[2][0] * size, vertices[2][1] * size);
+
+    this._ensureVertexCapacity(3);
+    this._appendVertex(first.x, first.y, red, green, blue);
+    this._appendVertex(second.x, second.y, red, green, blue);
+    this._appendVertex(third.x, third.y, red, green, blue);
+  }
+
   addRing(
     x,
     y,
@@ -1164,7 +1135,14 @@ export class WebGL2BloomRenderer
     }
   }
 
-  addTrailSegment(from, to, width, color, opacity = 1)
+  addTrailSegment(
+    from,
+    to,
+    width,
+    color,
+    opacity = 1,
+    transverseProfile = null,
+  )
   {
     const deltaX = to.x - from.x;
     const deltaY = to.y - from.y;
@@ -1178,25 +1156,79 @@ export class WebGL2BloomRenderer
       return;
     }
 
-    const halfWidth = width * 0.5;
-    const normalX = -deltaY / length * halfWidth;
-    const normalY = deltaX / length * halfWidth;
-    const firstLeftX = from.x + normalX;
-    const firstLeftY = from.y + normalY;
-    const secondLeftX = to.x + normalX;
-    const secondLeftY = to.y + normalY;
-    const secondRightX = to.x - normalX;
-    const secondRightY = to.y - normalY;
-    const firstRightX = from.x - normalX;
-    const firstRightY = from.y - normalY;
+    const profile = Array.isArray(transverseProfile) &&
+        transverseProfile.length >= 2
+      ? transverseProfile
+      : [[0, 1], [1, 1]];
+    const normalX = -deltaY / length * width;
+    const normalY = deltaX / length * width;
 
-    this._ensureVertexCapacity(6);
-    this._appendVertex(firstLeftX, firstLeftY, red, green, blue);
-    this._appendVertex(secondLeftX, secondLeftY, red, green, blue);
-    this._appendVertex(secondRightX, secondRightY, red, green, blue);
-    this._appendVertex(firstLeftX, firstLeftY, red, green, blue);
-    this._appendVertex(secondRightX, secondRightY, red, green, blue);
-    this._appendVertex(firstRightX, firstRightY, red, green, blue);
+    this._ensureVertexCapacity((profile.length - 1) * 6);
+
+    for (let index = 1; index < profile.length; index++)
+    {
+      const previous = profile[index - 1];
+      const current = profile[index];
+      const previousOffset = 0.5 - previous[0];
+      const currentOffset = 0.5 - current[0];
+      const previousFromX = from.x + normalX * previousOffset;
+      const previousFromY = from.y + normalY * previousOffset;
+      const previousToX = to.x + normalX * previousOffset;
+      const previousToY = to.y + normalY * previousOffset;
+      const currentFromX = from.x + normalX * currentOffset;
+      const currentFromY = from.y + normalY * currentOffset;
+      const currentToX = to.x + normalX * currentOffset;
+      const currentToY = to.y + normalY * currentOffset;
+      const previousRed = red * previous[1];
+      const previousGreen = green * previous[1];
+      const previousBlue = blue * previous[1];
+      const currentRed = red * current[1];
+      const currentGreen = green * current[1];
+      const currentBlue = blue * current[1];
+
+      this._appendVertex(
+        previousFromX,
+        previousFromY,
+        previousRed,
+        previousGreen,
+        previousBlue,
+      );
+      this._appendVertex(
+        previousToX,
+        previousToY,
+        previousRed,
+        previousGreen,
+        previousBlue,
+      );
+      this._appendVertex(
+        currentToX,
+        currentToY,
+        currentRed,
+        currentGreen,
+        currentBlue,
+      );
+      this._appendVertex(
+        previousFromX,
+        previousFromY,
+        previousRed,
+        previousGreen,
+        previousBlue,
+      );
+      this._appendVertex(
+        currentToX,
+        currentToY,
+        currentRed,
+        currentGreen,
+        currentBlue,
+      );
+      this._appendVertex(
+        currentFromX,
+        currentFromY,
+        currentRed,
+        currentGreen,
+        currentBlue,
+      );
+    }
   }
 
   _bindTexture(program, name, texture, unit)
@@ -1259,15 +1291,14 @@ export class WebGL2BloomRenderer
 
     gl.useProgram(program);
     this._bindTexture(program, 'u_source', this.sourceTarget.texture, 0);
-    // URP 12 使用 source 宽度的 texel 尺寸同时偏移两个轴。
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_prefilterTexel'),
+      gl.getUniformLocation(program, 'u_sourceTexel'),
       1 / this.sourceWidth,
-      1 / this.sourceWidth,
+      1 / this.sourceHeight,
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_threshold'),
-      settings.threshold,
+      gammaToLinear(settings.threshold),
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_softKnee'),
@@ -1277,17 +1308,13 @@ export class WebGL2BloomRenderer
       gl.getUniformLocation(program, 'u_clampMax'),
       settings.clamp ?? 65472,
     );
-    gl.uniform1i(
-      gl.getUniformLocation(program, 'u_highQuality'),
-      settings.highQualityFiltering !== false ? 1 : 0,
-    );
     this._drawFullscreen(program, level.down, level.width, level.height);
   }
 
   _renderDownsample(sourceLevel, targetLevel)
   {
     const gl = this.gl;
-    let program = this.programs.downsampleHorizontal;
+    const program = this.programs.downsample;
 
     gl.useProgram(program);
     this._bindTexture(program, 'u_source', sourceLevel.down.texture, 0);
@@ -1298,28 +1325,13 @@ export class WebGL2BloomRenderer
     );
     this._drawFullscreen(
       program,
-      targetLevel.scratch,
-      targetLevel.width,
-      targetLevel.height,
-    );
-
-    program = this.programs.downsampleVertical;
-    gl.useProgram(program);
-    this._bindTexture(program, 'u_source', targetLevel.scratch.texture, 0);
-    gl.uniform2f(
-      gl.getUniformLocation(program, 'u_sourceTexel'),
-      1 / targetLevel.width,
-      1 / targetLevel.height,
-    );
-    this._drawFullscreen(
-      program,
       targetLevel.down,
       targetLevel.width,
       targetLevel.height,
     );
   }
 
-  _renderUpsample(highLevel, lowTexture, settings)
+  _renderUpsample(highLevel, lowLevel, lowTexture)
   {
     const gl = this.gl;
     const program = this.programs.upsample;
@@ -1327,13 +1339,14 @@ export class WebGL2BloomRenderer
     gl.useProgram(program);
     this._bindTexture(program, 'u_high', highLevel.down.texture, 0);
     this._bindTexture(program, 'u_low', lowTexture, 1);
-    gl.uniform1f(
-      gl.getUniformLocation(program, 'u_scatter'),
-      0.05 + clamp(settings.scatter, 0, 1) * 0.9,
+    gl.uniform2f(
+      gl.getUniformLocation(program, 'u_lowTexel'),
+      1 / lowLevel.width,
+      1 / lowLevel.height,
     );
-    gl.uniform1i(
-      gl.getUniformLocation(program, 'u_highQuality'),
-      settings.highQualityFiltering !== false ? 1 : 0,
+    gl.uniform1f(
+      gl.getUniformLocation(program, 'u_sampleScale'),
+      this.sampleScale,
     );
     this._drawFullscreen(
       program,
@@ -1356,9 +1369,18 @@ export class WebGL2BloomRenderer
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(program);
     this._bindTexture(program, 'u_bloom', texture, 0);
+    gl.uniform2f(
+      gl.getUniformLocation(program, 'u_bloomTexel'),
+      1 / this.width,
+      1 / this.height,
+    );
+    gl.uniform1f(
+      gl.getUniformLocation(program, 'u_sampleScale'),
+      this.sampleScale,
+    );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_intensity'),
-      settings.intensity,
+      Math.pow(2, Math.max(0, settings.intensity) / 10) - 1,
     );
     gl.bindVertexArray(this.fullscreenVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -1403,8 +1425,8 @@ export class WebGL2BloomRenderer
       {
         bloomTexture = this._renderUpsample(
           this.levels[level],
+          this.levels[level + 1],
           bloomTexture,
-          settings,
         );
       }
 

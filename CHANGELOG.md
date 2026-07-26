@@ -1,5 +1,19 @@
 ﻿# Changelog
 
+## v1.2.11 — Unity 解包资源严格对齐
+
+- 对照两套解包 Unity 工程重新核验 `FX_Touch` Prefab、材质、网格与纹理资源，并按固定 UI 正交投影、粒子曲线、材质 HDR、碎片局部缩放和 TrailRenderer 参数校准网页实现
+- WebGL2 与软件后端严格复现 `Hidden/MXFinalBloom` 的 4-tap、Box4 mip 和累积上采样路径，并恢复 Intensity 1.7、Threshold 1、Soft Knee 0、Diffusion 7
+- 粒子尺寸改为随实际画布高度持续缩放，移除诊断截图尺寸上限和非游戏的高分辨率 Diffusion 补偿
+- 为保持 Unity 直接加色语义，`isolatedCompositing` 与 `lightBackgroundContrastAlpha` 默认值分别调整为 `false` 和 `0`
+- 纯白网页可显式启用 `{ isolatedCompositing: true, lightBackgroundContrastAlpha: 0.35 }`，展示页双语 FAQ 增加对应说明并修复移动端展开后的裁切
+- `pointerCancel()` 与 Unity `Canceled` 路径一致：停止追加并清理活动指针状态，既有可见拖尾继续按 `0.3s` 自然衰减
+- 修复极大有限时间倍率导致虚拟时钟溢出、可见对象永久占用 RAF
+- 修复外部 Canvas 在 Legacy 与 Enhanced 间切换时未应用对应参数集，以及方向参数被错误钳制为非负值
+- `rootDurationMs = 1000` 仅保留为原根 ParticleSystem 的对象池释放元数据，展示页不再将其作为视觉调参
+- 展示页默认主题色恢复为游戏蓝 `#4ca7ff`，隔离合成默认关闭，并补齐 Bloom 与方向相关双语文案
+- 清理软件 Bloom 中旧 Gaussian 与 Bicubic 上采样的不可达实现，优化 Vite 库构建配置
+
 ## v1.2.10 — WebGL2 Bloom 默认与宿主控制 API
 
 - 默认 Bloom 后端改为 WebGL2；能力不足时自动回退软件 Bloom，再回退原生辉光
@@ -18,7 +32,7 @@
 
 ## v1.2.8 — Bloom 视觉校准与点击辉光调节
 
-- 新增默认开启的 `isolatedCompositing`，先在透明隔离组内合成主特效、WebGL2 Bloom 和浅色背景兼容层，再整体覆盖页面，改善纯白背景上的蓝青色保留
+- 当时新增并默认开启 `isolatedCompositing`，先在透明隔离组内合成主特效、WebGL2 Bloom 和浅色背景兼容层，再整体覆盖页面，改善纯白背景上的蓝青色保留；v1.2.11 严格对齐后默认值已调整为 `false`
 - 支持通过构造参数和 `updateConfig()` 在隔离合成与旧版直接页面合成之间切换，重用现有 Canvas 与 WebGL Context
 - 已有 Canvas 作为 `target` 时将隔离合成明确降级为 `false`；普通容器继续由调用方提供定位上下文
 - 展示页新增双语隔离合成开关、持久化与重置，并在首次加载时显式应用主题颜色
@@ -58,7 +72,7 @@
 
 - 新增 Hit（撞击爆发）+ Flare（星形闪光）点击层，默认关闭
 - 面板从 19 滑块扩展至 36 滑块，新增可折叠分组
-- 弧线采样精度、旋转方向、根持续时间 API
+- 弧线采样精度、旋转方向、根持续时间 API；根持续时间字段现按解包资源确认仅为对象池释放元数据，不参与视觉调参
 - 修复 setFxParam boolean 类型 + bindToggle 初始同步
 
 ## v1.2.3 — 健壮性全面提升

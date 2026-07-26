@@ -1,7 +1,7 @@
 /**
  * Software Bloom 数值管线测试。
  *
- * 这些检查只依赖 TypedArray，确保 HDR 解码、URP 金字塔和 Canvas 编码
+ * 这些检查只依赖 TypedArray，确保 HDR 解码、MXFinalBloom 金字塔和 Canvas 编码
  * 可以脱离 DOM 验证。
  */
 
@@ -14,6 +14,8 @@ import {
   prefilterBloom,
   upsampleAndMixBloom,
 } from '../src/software-bloom.js';
+import { UNITY_FX_TOUCH } from '../src/config.js';
+import { WebGL2BloomRenderer } from '../src/webgl2-bloom.js';
 
 let passed = 0;
 
@@ -59,11 +61,11 @@ const aboveThreshold = calculateBloomContribution(2, 1, 0.5);
 
 assert(belowKnee === 0, '低于 soft-knee 区间的亮度被完全剔除');
 assert(
-  approximatelyEqual(insideKnee, 0.03124843757812109),
-  'soft-knee 在阈值下方按 URP 公式平滑引入 Bloom',
+  approximatelyEqual(insideKnee, 0.03125),
+  'soft-knee 在阈值下方按 MXFinalBloom 公式平滑引入 Bloom',
 );
 assert(
-  approximatelyEqual(atThreshold, 0.12499375031248436),
+  approximatelyEqual(atThreshold, 0.125),
   '阈值位置仍保留连续的 soft-knee 贡献',
 );
 assert(
@@ -124,7 +126,7 @@ assert(
   '复用 HDR 缓冲时会清除上一帧的透明像素',
 );
 
-console.log('\nSoftware Bloom URP 预过滤');
+console.log('\nSoftware Bloom MXFinalBloom 预过滤');
 const prefilterSource = new Float32Array(4 * 4 * 3);
 
 for (let pixel = 0; pixel < 16; pixel++)
@@ -159,14 +161,14 @@ assert(
       1, 0.5, 0.25,
     ],
   ),
-  'HQ 13-tap 预过滤保持均匀场并按阈值缩放色调',
+  '4-tap 预过滤保持均匀场并按阈值缩放色调',
 );
 assert(
   prefilterSource[0] === 2 && prefilterSource[2] === 0.5,
   '预过滤不会修改输入缓冲',
 );
 
-console.log('\nSoftware Bloom Gaussian 降采样');
+console.log('\nSoftware Bloom Box4 降采样');
 const downsampleWidth = 16;
 const downsampleHeight = 16;
 const downsampleOutputWidth = 8;
@@ -183,7 +185,7 @@ const impulseCenters = [
   (8 * downsampleWidth + 8) * 3,
 ];
 
-// 2×2 对称脉冲使能量中心落在偶数纹理的像素边界上，符合 URP 的 16→8 mip。
+// 2×2 对称脉冲使能量中心落在偶数纹理的像素边界上。
 for (const center of impulseCenters)
 {
   impulse[center] = 2.25;
@@ -220,24 +222,19 @@ for (let x = 0; x < downsampleOutputWidth; x++)
 
 assert(
   approximatelyEqual(centerRow[3], centerRow[4]) &&
-    centerRow[3] > centerRow[2] &&
-    centerRow[2] > centerRow[1] &&
-    centerRow[1] > centerRow[0] &&
-    centerRow[0] > 0,
-  '2× floor mip 的 9-tap Gaussian 从双像素中心对称连续衰减',
+    approximatelyEqual(centerRow[3], 0.5625) &&
+    centerRow.slice(0, 3).every((value) => value === 0) &&
+    centerRow.slice(5).every((value) => value === 0),
+  '2× floor mip 的 Box4 保持双像素中心对称',
 );
 assert(
-  approximatelyEqual(centerRow[3], 0.09999269247055054),
-  '两阶段 Gaussian 使用 URP 的固定采样权重',
-);
-assert(
-  approximatelyEqual(downsampleEnergy, 2.177618645131588, 0.00001),
-  '16→8 floor 降采样得到确定的离散 HDR 能量',
+  approximatelyEqual(downsampleEnergy, 2.25),
+  'Box4 使用 MXFinalBloom 的四点均值并保持离散能量',
 );
 assert(
   leakedChannelEnergy === 0 &&
     impulseCenters.every((center) => impulse[center] === 2.25),
-  'Gaussian 不串色且不会修改输入缓冲',
+  'Box4 不串色且不会修改输入缓冲',
 );
 
 const reusedDownsampleScratch = new Float32Array(
@@ -261,7 +258,7 @@ assert(
     reusedDownsampleOutput,
     downsampleOutput,
   ),
-  'Gaussian 完整覆盖复用缓冲时不受上一帧脏值影响',
+  'Box4 完整覆盖复用缓冲时不受上一帧脏值影响',
 );
 
 const partialScratch = new Float32Array(downsampleScratch.length).fill(7);
@@ -284,7 +281,7 @@ downsampleGaussian(
 );
 assert(
   !partialOutput.some((value) => value === 7),
-  'Gaussian 局部 bounds 会先清空复用缓冲的未覆盖像素',
+  'Box4 忽略优化 bounds 时仍完整覆盖复用缓冲',
 );
 
 console.log('\nSoftware Bloom 金字塔上采样');
@@ -319,16 +316,16 @@ upsampleAndMixBloom(
   2,
   2,
   uniformMixed,
-  0.365,
+  1.42925835,
   true,
 );
 
 assert(
   arraysApproximatelyEqual(
     uniformMixed.slice(0, 3),
-    [3.46, 1.73, 0.865],
+    [8, 4, 2],
   ),
-  '反向金字塔按映射后的 scatter 混合高低 mip',
+  '反向金字塔将粗层四点均值累加到细层中心值',
 );
 
 const reusedUniformMixed = new Float32Array(uniformHigh.length).fill(7);
@@ -341,7 +338,7 @@ upsampleAndMixBloom(
   2,
   2,
   reusedUniformMixed,
-  0.365,
+  1.42925835,
   true,
 );
 assert(
@@ -367,7 +364,7 @@ upsampleAndMixBloom(
   2,
   2,
   bicubicMixed,
-  0.5,
+  1.42925835,
   true,
 );
 upsampleAndMixBloom(
@@ -378,7 +375,7 @@ upsampleAndMixBloom(
   2,
   2,
   bilinearMixed,
-  0.5,
+  1.42925835,
   false,
 );
 
@@ -386,20 +383,25 @@ assert(
   arraysApproximatelyEqual(
     [bicubicMixed[0], bicubicMixed[3], bicubicMixed[6], bicubicMixed[9]],
     [
-      1.7286376953125,
-      1.2686361074447632,
-      0.5907389521598816,
-      0.1307373046875,
+      2.35736346244812,
+      1.589678168296814,
+      1.4810634851455688,
+      0.7133780717849731,
     ],
   ),
-  '高质量上采样使用 B-spline bicubic 平滑低 mip',
+  '上采样按 SampleScale 对粗层执行四点采样',
 );
 assert(
   arraysApproximatelyEqual(
     [bilinearMixed[0], bilinearMixed[3], bilinearMixed[6], bilinearMixed[9]],
-    [2, 1.5, 0.5, 0],
+    [
+      2.35736346244812,
+      1.589678168296814,
+      1.4810634851455688,
+      0.7133780717849731,
+    ],
   ),
-  '关闭高质量过滤时回退为双线性上采样',
+  'MXFinalBloom 上采样不再分叉为 URP bicubic 模式',
 );
 
 console.log('\nSoftware Bloom 加色编码');
@@ -411,20 +413,20 @@ const hdrBloom = new Float32Array([
 ]);
 const rgba = new Uint8ClampedArray(16);
 
-encodeAdditiveBloom(hdrBloom, rgba, 0.45);
+encodeAdditiveBloom(hdrBloom, rgba, 1.7);
 
 assert(
   arraysApproximatelyEqual(
     rgba,
     [
-      255, 243, 179, 255,
+      255, 186, 135, 188,
       0, 0, 0, 0,
-      94, 179, 255, 255,
-      255, 126, 0, 94,
+      77, 153, 255, 165,
+      255, 111, 0, 49,
     ],
     0,
   ),
-  '线性 HDR 经过 Bloom 强度和 sRGB 转换后编码为确定的 RGBA8',
+  '线性 HDR 经过游戏强度转换和 sRGB 编码后得到确定的 RGBA8',
 );
 assert(
   rgba[4] === 0 &&
@@ -443,7 +445,7 @@ const boundedRgba = new Uint8ClampedArray(16);
 encodeAdditiveBloom(
   hdrBloom,
   boundedRgba,
-  0.45,
+  1.7,
   4,
   {
     minimumX: 2,
@@ -469,7 +471,7 @@ floorSource[floorCenter + 2] = 4;
 encodeAdditiveBloom(
   floorSource,
   floorRgba,
-  1,
+  10,
   5,
   null,
   {
@@ -491,5 +493,105 @@ assert(
     floorRgba[(1 * 5 + 2) * 4 + 3] > 0,
   '局部 Bloom 只在裁剪边界移除底色，并向内部平滑保留低频辉光',
 );
+
+const rendererCanvas =
+{
+  addEventListener()
+  {
+  },
+  removeEventListener()
+  {
+  },
+  getContext()
+  {
+    return null;
+  },
+};
+const geometryRenderer = new WebGL2BloomRenderer(rendererCanvas);
+const upwardFrame = UNITY_FX_TOUCH.shards.textureFrames[1];
+
+geometryRenderer.beginFrame();
+geometryRenderer.addTriangle(10, 20, 20, 0, [1, 2, 3], 1, upwardFrame);
+
+assert(
+  geometryRenderer.vertexCount === 3 &&
+    approximatelyEqual(geometryRenderer.vertexData[0], 10) &&
+    approximatelyEqual(
+      geometryRenderer.vertexData[1],
+      20 + upwardFrame[0][1] * 20,
+    ) &&
+    approximatelyEqual(
+      geometryRenderer.vertexData[5],
+      10 + upwardFrame[1][0] * 20,
+    ),
+  'WebGL2 碎片顶点使用 Unity 2×1 图集的实测轮廓',
+);
+
+geometryRenderer.beginFrame();
+const headCenterToEdge =
+  UNITY_FX_TOUCH.trail.textureTransverseProfileKeys.at(-1)[1];
+const headTransverseProfile = [];
+const headEdgeIndex = headCenterToEdge.length - 1;
+
+for (let index = headEdgeIndex; index >= 0; index--)
+{
+  headTransverseProfile.push(
+    [
+      (headEdgeIndex - index) / (headEdgeIndex * 2),
+      headCenterToEdge[index],
+    ],
+  );
+}
+
+for (let index = 1; index <= headEdgeIndex; index++)
+{
+  headTransverseProfile.push(
+    [
+      0.5 + index / (headEdgeIndex * 2),
+      headCenterToEdge[index],
+    ],
+  );
+}
+
+geometryRenderer.addTrailSegment(
+  { x: 0, y: 0 },
+  { x: 10, y: 0 },
+  4,
+  [1, 1, 1],
+  1,
+  headTransverseProfile,
+);
+
+const trailVertices = [];
+
+for (let index = 0; index < geometryRenderer.vertexCount; index++)
+{
+  const offset = index * 5;
+
+  trailVertices.push(
+    {
+      y: geometryRenderer.vertexData[offset + 1],
+      energy: geometryRenderer.vertexData[offset + 2],
+    },
+  );
+}
+
+assert(
+  geometryRenderer.vertexCount ===
+      (headTransverseProfile.length - 1) * 6 &&
+    approximatelyEqual(Math.max(...trailVertices.map(({ y }) => y)), 2) &&
+    approximatelyEqual(Math.min(...trailVertices.map(({ y }) => y)), -2) &&
+    approximatelyEqual(
+      Math.min(...trailVertices.map(({ energy }) => energy)),
+      0.0015,
+    ) &&
+    approximatelyEqual(
+      Math.max(...trailVertices.map(({ energy }) => energy)),
+      1,
+    ),
+  'WebGL2 拖尾把原纹理羽化横截面细分进真实 2.7px 三角带',
+);
+
+geometryRenderer.destroy();
 
 console.log(`\n✅ ${passed} 项 Software Bloom 数值检查通过\n`);

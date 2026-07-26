@@ -21,6 +21,7 @@ import { WebGL2BloomRenderer } from './webgl2-bloom.js';
 const TAU = Math.PI * 2;
 const LIGHT_BACKGROUND_CONTRAST_COLOR = [76, 255, 255];
 const BLOOM_BACKEND_CHANGE_EVENT = 'baclickfxbackendchange';
+const MAX_SCALED_TIME_DELTA_MS = Number.MAX_SAFE_INTEGER;
 
 // ── 共享 HSL 转换 ──────────────────────────────────────────────────────
 function rgbToHsl(r, g, b)
@@ -161,6 +162,16 @@ function clamp01(value)
   return clamp(value, 0, 1);
 }
 
+function scaleTimeDelta(elapsedMs, timeScale)
+{
+  const scaledDeltaMs = elapsedMs * timeScale;
+
+  // 极大但合法的有限倍率可能在乘法时溢出；安全上限仍足以结算全部视觉对象。
+  return Number.isFinite(scaledDeltaMs)
+    ? scaledDeltaMs
+    : MAX_SCALED_TIME_DELTA_MS;
+}
+
 function boundsIntersect(left, right)
 {
   return left.x <= right.x + right.width &&
@@ -230,6 +241,14 @@ function mergeBloomRegion(regions, nextRegion)
       if (!nextRegion.trailBatches.includes(batch))
       {
         nextRegion.trailBatches.push(batch);
+      }
+    }
+
+    for (const shard of current.shards ?? [])
+    {
+      if (!nextRegion.shards.includes(shard))
+      {
+        nextRegion.shards.push(shard);
       }
     }
 
@@ -473,7 +492,12 @@ function colorToLinearEnergy(color, intensity = 1, decodeSrgb = false)
   });
 }
 
-function evaluateSrgbGradientEnergy(keys, progress, intensity)
+function evaluateSrgbGradientEnergy(
+  keys,
+  progress,
+  intensity,
+  startColor = null,
+)
 {
   const linearKeys = keys.map(([time, color]) =>
   [
@@ -481,10 +505,13 @@ function evaluateSrgbGradientEnergy(keys, progress, intensity)
     applyThemeHue(color).map(srgbToLinearChannel),
   ]);
   const safeIntensity = Math.max(0, intensity);
+  const linearStartColor = startColor
+    ? startColor.map((channel) => srgbToLinearChannel(channel * 255))
+    : [1, 1, 1];
 
   // ParticleSystem 在 Linear 项目中先转换各 Gradient key，再在 active space 插值。
-  return evaluateColor(linearKeys, progress).map((channel) =>
-    channel * safeIntensity);
+  return evaluateColor(linearKeys, progress).map((channel, index) =>
+    channel * linearStartColor[index] * safeIntensity);
 }
 
 /**
@@ -1098,15 +1125,20 @@ function drawDisk(
   }
   else
   {
-    const materialEnergy = colorToLinearEnergy(color, bloomCfg.diskEmission);
-
-    gradient.addColorStop(0, linearEnergyToAdditiveCss(materialEnergy, alpha));
-    gradient.addColorStop(0.88, linearEnergyToAdditiveCss(materialEnergy, alpha));
-    gradient.addColorStop(
-      0.97,
-      linearEnergyToAdditiveCss(materialEnergy, alpha * 0.55),
+    const materialEnergy = evaluateSrgbGradientEnergy(
+      diskCfg.colorKeys,
+      progress,
+      bloomCfg.diskEmission,
     );
-    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+    for (const [position, energy] of diskCfg.textureRadialEnergyKeys)
+    {
+      // AlphaBlendAdd 的 RGB 不乘粒子 Alpha；Alpha 只衰减已有目标颜色。
+      gradient.addColorStop(
+        position,
+        linearEnergyToAdditiveCss(materialEnergy, opacity * energy),
+      );
+    }
   }
 
   context.save();
@@ -1139,9 +1171,11 @@ function drawDiskEmission(
   const diskCfg = fxConfig.disk;
   const bloomCfg = fxConfig.bloom;
   const radius = diskCfg.radius * evaluateNumber(diskCfg.sizeKeys, progress) * scale;
-  const color = evaluateColor(diskCfg.colorKeys, progress);
-  const alpha = evaluateNumber(diskCfg.alphaKeys, progress) * opacity *
-    bloomCfg.diskEmissionAlpha;
+  const materialEnergy = evaluateSrgbGradientEnergy(
+    diskCfg.colorKeys,
+    progress,
+    bloomCfg.diskEmission,
+  );
   const gradient = context.createRadialGradient(
     wave.x,
     wave.y,
@@ -1151,27 +1185,18 @@ function drawDiskEmission(
     Math.max(radius, 0.01),
   );
 
-  gradient.addColorStop(
-    0,
-    colorToEmissionCss(
-      color,
-      alpha,
-      bloomCfg.diskEmission,
-      bloomCfg.emissionRange,
-      bloomCfg.clickEmissionScale,
-    ),
-  );
-  gradient.addColorStop(
-    0.88,
-    colorToEmissionCss(
-      color,
-      alpha,
-      bloomCfg.diskEmission,
-      bloomCfg.emissionRange,
-      bloomCfg.clickEmissionScale,
-    ),
-  );
-  gradient.addColorStop(1, 'rgb(0, 0, 0)');
+  for (const [position, energy] of diskCfg.textureRadialEnergyKeys)
+  {
+    gradient.addColorStop(
+      position,
+      linearEnergyToEmissionCss(
+        materialEnergy,
+        opacity * bloomCfg.diskEmissionAlpha * energy,
+        bloomCfg.emissionRange,
+        bloomCfg.clickEmissionScale,
+      ),
+    );
+  }
 
   context.save();
   context.beginPath();
@@ -1179,6 +1204,28 @@ function drawDiskEmission(
   context.fillStyle = gradient;
   context.fill();
   context.restore();
+}
+
+function resolveShardTextureFrame(particle, shardCfg)
+{
+  const frames = shardCfg.textureFrames;
+
+  if (!Array.isArray(frames) || frames.length === 0)
+  {
+    // 保留旧配置的兼容轮廓；默认配置始终使用 Unity 图集的实测边界。
+    return [
+      [0, -0.58],
+      [0.52, 0.45],
+      [-0.52, 0.45],
+    ];
+  }
+
+  const rawIndex = Number.isInteger(particle.textureFrame)
+    ? particle.textureFrame
+    : 0;
+  const frameIndex = ((rawIndex % frames.length) + frames.length) % frames.length;
+
+  return frames[frameIndex];
 }
 
 function drawTriangle(
@@ -1191,9 +1238,18 @@ function drawTriangle(
 {
   const shardCfg = fxConfig.shards;
   const progress = clamp01(particle.ageMs / particle.lifetimeMs);
-  const size = particle.size * evaluateNumber(shardCfg.sizeKeys, progress) * scale;
+  const size = particle.size * evaluateUnityHermiteCurve(
+    shardCfg.sizeKeys,
+    progress,
+  ) * scale;
   const alpha = evaluateNumber(shardCfg.alphaKeys, progress) * opacity;
-  const color = evaluateColor(shardCfg.colorKeys, progress);
+  const materialEnergy = evaluateSrgbGradientEnergy(
+    shardCfg.colorKeys,
+    progress,
+    shardCfg.hdrIntensity,
+    shardCfg.startColor,
+  );
+  const textureFrame = resolveShardTextureFrame(particle, shardCfg);
 
   if (size <= 0 || alpha <= 0)
   {
@@ -1204,14 +1260,60 @@ function drawTriangle(
   context.translate(particle.x, particle.y);
   context.rotate(particle.rotation);
   context.beginPath();
-  context.moveTo(0, -size * 0.58);
-  context.lineTo(size * 0.52, size * 0.45);
-  context.lineTo(-size * 0.52, size * 0.45);
+  context.moveTo(textureFrame[0][0] * size, textureFrame[0][1] * size);
+  context.lineTo(textureFrame[1][0] * size, textureFrame[1][1] * size);
+  context.lineTo(textureFrame[2][0] * size, textureFrame[2][1] * size);
   context.closePath();
-  context.fillStyle = colorToCss(color, alpha);
+  context.fillStyle = linearEnergyToAdditiveCss(materialEnergy, alpha);
   // 三角碎片在原图中是清晰本体；显式清空阴影，避免继承上一层发光状态。
   context.shadowColor = 'transparent';
   context.shadowBlur = 0;
+  context.fill();
+  context.restore();
+}
+
+function drawTriangleEmission(
+  context,
+  particle,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
+{
+  const shardCfg = fxConfig.shards;
+  const bloomCfg = fxConfig.bloom;
+  const progress = clamp01(particle.ageMs / particle.lifetimeMs);
+  const size = particle.size * evaluateUnityHermiteCurve(
+    shardCfg.sizeKeys,
+    progress,
+  ) * scale;
+  const alpha = evaluateNumber(shardCfg.alphaKeys, progress) * opacity;
+  const materialEnergy = evaluateSrgbGradientEnergy(
+    shardCfg.colorKeys,
+    progress,
+    shardCfg.hdrIntensity,
+    shardCfg.startColor,
+  );
+  const textureFrame = resolveShardTextureFrame(particle, shardCfg);
+
+  if (size <= 0 || alpha <= 0)
+  {
+    return;
+  }
+
+  context.save();
+  context.translate(particle.x, particle.y);
+  context.rotate(particle.rotation);
+  context.beginPath();
+  context.moveTo(textureFrame[0][0] * size, textureFrame[0][1] * size);
+  context.lineTo(textureFrame[1][0] * size, textureFrame[1][1] * size);
+  context.lineTo(textureFrame[2][0] * size, textureFrame[2][1] * size);
+  context.closePath();
+  context.fillStyle = linearEnergyToEmissionCss(
+    materialEnergy,
+    alpha,
+    bloomCfg.emissionRange,
+  );
   context.fill();
   context.restore();
 }
@@ -1483,11 +1585,11 @@ class ClickWave
         diskCfg.sizeKeys,
         diskProgress,
       ) * scale;
-      const color = evaluateColor(diskCfg.colorKeys, diskProgress);
-      const alpha = evaluateNumber(diskCfg.alphaKeys, diskProgress) *
-        opacity * bloomCfg.diskEmissionAlpha * bloomCfg.clickEmissionScale;
-      const materialEnergy = colorToLinearEnergy(
-        color,
+      const alpha = opacity * bloomCfg.diskEmissionAlpha *
+        bloomCfg.clickEmissionScale;
+      const materialEnergy = evaluateSrgbGradientEnergy(
+        diskCfg.colorKeys,
+        diskProgress,
         bloomCfg.diskEmission,
       );
 
@@ -1602,6 +1704,49 @@ class ShardParticle
     drawTriangle(context, this, scale, opacity, fxConfig);
   }
 
+  drawBloom(
+    context,
+    scale,
+    opacity,
+    fxConfig = UNITY_FX_TOUCH,
+  )
+  {
+    drawTriangleEmission(context, this, scale, opacity, fxConfig);
+  }
+
+  appendWebGLBloom(
+    renderer,
+    scale,
+    opacity,
+    fxConfig = UNITY_FX_TOUCH,
+  )
+  {
+    const shardCfg = fxConfig.shards;
+    const progress = clamp01(this.ageMs / this.lifetimeMs);
+    const size = this.size * evaluateUnityHermiteCurve(
+      shardCfg.sizeKeys,
+      progress,
+    ) * scale;
+    const alpha = evaluateNumber(shardCfg.alphaKeys, progress) * opacity;
+    const materialEnergy = evaluateSrgbGradientEnergy(
+      shardCfg.colorKeys,
+      progress,
+      shardCfg.hdrIntensity,
+      shardCfg.startColor,
+    );
+    const textureFrame = resolveShardTextureFrame(this, shardCfg);
+
+    renderer.addTriangle(
+      this.x,
+      this.y,
+      size,
+      this.rotation,
+      materialEnergy,
+      alpha,
+      textureFrame,
+    );
+  }
+
   get dead()
   {
     return this.ageMs >= this.lifetimeMs;
@@ -1634,7 +1779,9 @@ function createShard(
       y: y + Math.sin(originAngle) * radius,
       velocityX: Math.cos(originAngle) * speed,
       velocityY: Math.sin(originAngle) * speed,
-      rotation: Math.random() < 0.5 ? 0 : Math.PI,
+      // 原 ParticleSystem 不旋转粒子，而是在 2×1 图集中随机选择朝上或朝下帧。
+      rotation: 0,
+      textureFrame: Math.random() < 0.5 ? 0 : 1,
       lifetimeMs,
       size: random(shardCfg.sizeMin, shardCfg.sizeMax),
       lastUpdateTimeMs,
@@ -1698,6 +1845,8 @@ function createTrailFrameData(
   const measurement = measureTrail(points);
   const segmentEnergies = [];
   const segmentMaximumEnergies = [];
+  const segmentTransverseProfiles = [];
+  const textureLongitudinalKeys = trailCfg.textureLongitudinalKeys;
 
   if (measurement.totalLength <= 0 || materialIntensity === null)
   {
@@ -1705,6 +1854,7 @@ function createTrailFrameData(
       measurement,
       segmentEnergies,
       segmentMaximumEnergies,
+      segmentTransverseProfiles,
     };
   }
 
@@ -1717,16 +1867,25 @@ function createTrailFrameData(
       progress,
       trailCfg,
       materialIntensity,
+      textureLongitudinalKeys,
     );
 
     segmentEnergies.push(energy);
     segmentMaximumEnergies.push(Math.max(energy[0], energy[1], energy[2]));
+    segmentTransverseProfiles.push(
+      evaluateTrailTransverseProfile(
+        progress,
+        trailCfg,
+        textureLongitudinalKeys,
+      ),
+    );
   }
 
   return {
     measurement,
     segmentEnergies,
     segmentMaximumEnergies,
+    segmentTransverseProfiles,
   };
 }
 
@@ -1734,11 +1893,12 @@ function evaluateTrailLinearEnergy(
   progress,
   trailCfg,
   materialIntensity,
+  textureLongitudinalKeys = trailCfg.textureLongitudinalKeys,
 )
 {
   const gradientColor = interpolateTrailColor(progress, trailCfg);
   const textureIntensity = evaluateNumber(
-    trailCfg.textureLongitudinalKeys,
+    textureLongitudinalKeys,
     progress,
   );
 
@@ -1747,6 +1907,147 @@ function evaluateTrailLinearEnergy(
   // 原 Shader 先将线性顶点色与已解码的 Stretch 纹理相乘，再施加 _Intensity。
   return gradientEnergy.map((channel) =>
     channel * textureIntensity * materialIntensity);
+}
+
+function evaluateTrailTransverseProfile(
+  progress,
+  trailCfg,
+  textureLongitudinalKeys = trailCfg.textureLongitudinalKeys,
+)
+{
+  const keys = trailCfg.textureTransverseProfileKeys;
+
+  if (!Array.isArray(keys) || keys.length === 0)
+  {
+    return [[0, 1], [1, 1]];
+  }
+
+  const t = clamp01(progress);
+  let previous = keys[0];
+  let current = keys[0];
+  let localProgress = 0;
+
+  for (let index = 1; index < keys.length; index++)
+  {
+    current = keys[index];
+
+    if (t <= current[0])
+    {
+      previous = keys[index - 1];
+      const span = current[0] - previous[0];
+
+      localProgress = span > 0 ? (t - previous[0]) / span : 1;
+      break;
+    }
+
+    previous = current;
+    localProgress = 0;
+  }
+
+  const previousCenter = evaluateNumber(
+    textureLongitudinalKeys,
+    previous[0],
+  );
+  const currentCenter = evaluateNumber(
+    textureLongitudinalKeys,
+    current[0],
+  );
+  const interpolatedCenter = evaluateNumber(
+    textureLongitudinalKeys,
+    t,
+  );
+  const centerToEdge = previous[1].map((value, index) =>
+  {
+    const previousEnergy = value * previousCenter;
+    const currentEnergy = current[1][index] * currentCenter;
+    const absoluteEnergy = lerp(
+      previousEnergy,
+      currentEnergy,
+      clamp01(localProgress),
+    );
+
+    // 分别插值绝对纹理能量，最后再恢复相对中心值，等价于二维双线性采样。
+    return interpolatedCenter > 0.0000001
+      ? clamp01(absoluteEnergy / interpolatedCenter)
+      : 0;
+  });
+  const edgeIndex = centerToEdge.length - 1;
+  const profile = [];
+
+  for (let index = edgeIndex; index >= 0; index--)
+  {
+    profile.push(
+      [
+        (edgeIndex - index) / (edgeIndex * 2),
+        centerToEdge[index],
+      ],
+    );
+  }
+
+  for (let index = 1; index <= edgeIndex; index++)
+  {
+    profile.push(
+      [
+        0.5 + index / (edgeIndex * 2),
+        centerToEdge[index],
+      ],
+    );
+  }
+
+  return profile;
+}
+
+function fillTexturedTrailSegment(
+  context,
+  from,
+  to,
+  width,
+  transverseProfile,
+  colorAtIntensity,
+)
+{
+  const deltaX = to.x - from.x;
+  const deltaY = to.y - from.y;
+  const length = Math.hypot(deltaX, deltaY);
+
+  if (length <= 0 || width <= 0)
+  {
+    return;
+  }
+
+  const halfWidth = width * 0.5;
+  const normalX = -deltaY / length * halfWidth;
+  const normalY = deltaX / length * halfWidth;
+  const leftFromX = from.x + normalX;
+  const leftFromY = from.y + normalY;
+  const rightFromX = from.x - normalX;
+  const rightFromY = from.y - normalY;
+  const gradient = context.createLinearGradient(
+    leftFromX,
+    leftFromY,
+    rightFromX,
+    rightFromY,
+  );
+  const profile = Array.isArray(transverseProfile) &&
+      transverseProfile.length >= 2
+    ? transverseProfile
+    : [[0, 1], [1, 1]];
+
+  for (const [position, intensity] of profile)
+  {
+    gradient.addColorStop(clamp01(position), colorAtIntensity(intensity));
+  }
+
+  context.beginPath();
+  context.moveTo(leftFromX, leftFromY);
+  context.lineTo(to.x + normalX, to.y + normalY);
+  context.lineTo(to.x - normalX, to.y - normalY);
+  context.lineTo(rightFromX, rightFromY);
+  context.closePath();
+  context.fillStyle = gradient;
+  context.shadowBlur = 0;
+  context.shadowColor = 'transparent';
+  context.fill();
 }
 
 function drawTrailLayer(
@@ -1758,6 +2059,7 @@ function drawTrailLayer(
   trailCfg,
   layer,
   segmentEnergies = null,
+  segmentTransverseProfiles = null,
 )
 {
   if (measurement.totalLength <= 0)
@@ -1766,9 +2068,6 @@ function drawTrailLayer(
   }
 
   context.save();
-  context.lineJoin = 'round';
-  context.lineCap = 'butt';
-  context.lineWidth = layer.width * scale;
 
   for (let index = 1; index < points.length; index++)
   {
@@ -1782,16 +2081,18 @@ function drawTrailLayer(
         layer.materialIntensity,
       );
 
-    context.beginPath();
-    context.moveTo(points[index - 1].x, points[index - 1].y);
-    context.lineTo(points[index].x, points[index].y);
-    context.strokeStyle = linearEnergyToAdditiveCss(
-      color,
-      layer.alpha * opacity,
+    fillTexturedTrailSegment(
+      context,
+      points[index - 1],
+      points[index],
+      layer.width * scale,
+      segmentTransverseProfiles?.[index - 1] ??
+        evaluateTrailTransverseProfile(progress, trailCfg),
+      (intensity) => linearEnergyToAdditiveCss(
+        color,
+        layer.alpha * opacity * intensity,
+      ),
     );
-    context.shadowBlur = 0;
-    context.shadowColor = 'transparent';
-    context.stroke();
   }
 
   context.restore();
@@ -1888,6 +2189,7 @@ function drawNativeTrailBloom(
       materialIntensity: bloomCfg.trailEmission,
     },
     trailData.segmentEnergies,
+    trailData.segmentTransverseProfiles,
   );
 
   context.save();
@@ -2043,6 +2345,7 @@ function drawTrail(
       materialIntensity: bloomCfg.trailEmission,
     },
     trailData.segmentEnergies,
+    trailData.segmentTransverseProfiles,
   );
 }
 
@@ -2074,10 +2377,7 @@ function drawTrailEmission(
   }
 
   context.save();
-  context.lineJoin = 'round';
-  // 相邻段在 lighter 遮罩中不得以 round cap 重叠，否则每个采样点都会变亮。
-  context.lineCap = 'butt';
-  context.lineWidth = Math.max(
+  const width = Math.max(
     0.5,
     trailCfg.geometryWidth * scale * bloomCfg.trailCoverageScale,
   );
@@ -2105,15 +2405,19 @@ function drawTrailEmission(
         bloomCfg.trailEmission,
       );
 
-    context.beginPath();
-    context.moveTo(points[index - 1].x, points[index - 1].y);
-    context.lineTo(points[index].x, points[index].y);
-    context.strokeStyle = linearEnergyToEmissionCss(
-      energy,
-      trailOpacity,
-      bloomCfg.emissionRange,
+    fillTexturedTrailSegment(
+      context,
+      points[index - 1],
+      points[index],
+      width,
+      trailData.segmentTransverseProfiles[index - 1] ??
+        evaluateTrailTransverseProfile(progress, trailCfg),
+      (intensity) => linearEnergyToEmissionCss(
+        energy,
+        trailOpacity * intensity,
+        bloomCfg.emissionRange,
+      ),
     );
-    context.stroke();
   }
 
   context.restore();
@@ -2170,6 +2474,7 @@ function appendTrailWebGLBloom(
       width,
       energy,
       trailOpacity,
+      trailData.segmentTransverseProfiles[index - 1],
     );
   }
 }
@@ -2623,7 +2928,7 @@ export class BAClickFX
 
     return Math.max(
       0,
-      trailNow - elapsedMs * this.config.trailTimeScale,
+      trailNow - scaleTimeDelta(elapsedMs, this.config.trailTimeScale),
     );
   }
 
@@ -2659,7 +2964,10 @@ export class BAClickFX
       return 0;
     }
 
-    const scaledDeltaMs = elapsedMs * this.config.clickTimeScale;
+    const scaledDeltaMs = scaleTimeDelta(
+      elapsedMs,
+      this.config.clickTimeScale,
+    );
 
     this.clickTimeMs += scaledDeltaMs;
     this.lastClickTimeSource = now;
@@ -2688,7 +2996,10 @@ export class BAClickFX
       return 0;
     }
 
-    const scaledDeltaMs = elapsedMs * this.config.trailTimeScale;
+    const scaledDeltaMs = scaleTimeDelta(
+      elapsedMs,
+      this.config.trailTimeScale,
+    );
 
     this.trailTimeMs += scaledDeltaMs;
     this.lastTrailTimeSource = now;
@@ -2697,7 +3008,9 @@ export class BAClickFX
 
   _getScale()
   {
-    return this.config.scale * (this.height / UNITY_FX_TOUCH.referenceHeight) * SIZE_CORRECTION;
+    return this.config.scale *
+      (this.height / UNITY_FX_TOUCH.referenceHeight) *
+      SIZE_CORRECTION;
   }
 
   _acceptPointerDown(event)
@@ -3015,7 +3328,7 @@ export class BAClickFX
     this.pointerCancel(event.pointerId ?? 1);
   }
 
-  /** 正常结束指针；已有拖尾顶点继续自然消失。 */
+  /** 结束指针；已有拖尾顶点继续自然消失。 */
   pointerUp(pointerId = 1)
   {
     if (
@@ -3029,11 +3342,11 @@ export class BAClickFX
       return false;
     }
 
-    this._releaseActivePointer(false);
+    this._releaseActivePointer();
     return true;
   }
 
-  /** 强制结束异常指针状态，并立即移除当前轨迹。 */
+  /** 取消指针；与游戏的 TouchPhase.Canceled 一样保留拖尾自然消失。 */
   pointerCancel(pointerId = 1)
   {
     if (
@@ -3047,7 +3360,7 @@ export class BAClickFX
       return false;
     }
 
-    this._releaseActivePointer(true);
+    this._releaseActivePointer();
     return true;
   }
 
@@ -3055,20 +3368,19 @@ export class BAClickFX
   {
     if (this.activePointerId !== null)
     {
-      this._releaseActivePointer(true);
+      this._releaseActivePointer();
     }
   }
 
-  _releaseActivePointer(discardCurrentStroke = false)
+  _releaseActivePointer()
   {
     if (this.currentTrailStroke)
     {
-      // 正常松开保留顶点自然衰减；强制取消只复用停止发射的状态变更。
       this.currentTrailStroke.active = false;
 
-      if (discardCurrentStroke || this.currentTrailStroke.points.length < 2)
+      if (this.currentTrailStroke.points.length < 2)
       {
-        // 取消用于异常恢复，必须丢弃当前 stroke；正常松开的可见轨迹继续自然衰减。
+        // 单点不能形成 TrailRenderer 几何，保留它只会让 RAF 空转。
         const strokeIndex = this.trailStrokes.indexOf(this.currentTrailStroke);
 
         if (strokeIndex >= 0)
@@ -3354,7 +3666,7 @@ export class BAClickFX
           this.height,
           this.dpr,
           this.fxConfig.bloom.resolutionScale,
-          this.fxConfig.bloom.skipIterations,
+          this.fxConfig.bloom.diffusion,
         )
       )
       {
@@ -3562,9 +3874,9 @@ export class BAClickFX
   _getSoftwareBloomRegions(scale)
   {
     const bloomCfg = this.fxConfig.bloom;
+    const diffusion = bloomCfg.diffusion;
     // 区域必须覆盖卷积核完整支撑范围，否则边界会把光晕切成硬边。
-    const padding = bloomCfg.ringBlur * scale *
-      (0.55 + bloomCfg.scatter) + 8;
+    const padding = 2 ** diffusion * scale + 8;
     const regions = [];
     const addRegion = (
       minimumX,
@@ -3573,6 +3885,7 @@ export class BAClickFX
       maximumY,
       wave,
       trailBatches = [],
+      shards = [],
     ) =>
     {
       mergeBloomRegion(
@@ -3591,6 +3904,7 @@ export class BAClickFX
           },
           waves: wave ? [wave] : [],
           trailBatches,
+          shards,
         },
       );
     };
@@ -3755,6 +4069,31 @@ export class BAClickFX
       }
     }
 
+    for (const shard of this.shards)
+    {
+      const shardCfg = this.fxConfig.shards;
+      const progress = clamp01(shard.ageMs / shard.lifetimeMs);
+      const size = shard.size * evaluateUnityHermiteCurve(
+        shardCfg.sizeKeys,
+        progress,
+      ) * scale;
+
+      if (size <= 0)
+      {
+        continue;
+      }
+
+      addRegion(
+        shard.x - size,
+        shard.y - size,
+        shard.x + size,
+        shard.y + size,
+        null,
+        [],
+        [shard],
+      );
+    }
+
     if (regions.length === 0)
     {
       return [];
@@ -3773,6 +4112,7 @@ export class BAClickFX
         ),
         waves: regions.flatMap((region) => region.waves),
         trailBatches: regions.flatMap((region) => region.trailBatches),
+        shards: regions.flatMap((region) => region.shards),
       },
     ];
   }
@@ -3785,6 +4125,7 @@ export class BAClickFX
   _renderSoftwareBloom(scale)
   {
     const bloomCfg = this.fxConfig.bloom;
+    const diffusion = bloomCfg.diffusion;
     const regions = this._getSoftwareBloomRegions(scale);
     const combinedBounds = combineBloomRegionBounds(regions);
     const settings = {
@@ -3793,8 +4134,7 @@ export class BAClickFX
       softKnee: bloomCfg.softKnee,
       clamp: bloomCfg.clamp,
       intensity: bloomCfg.intensity,
-      scatter: bloomCfg.scatter,
-      highQualityFiltering: bloomCfg.highQualityFiltering,
+      diffusion,
     };
     let processedSourcePixels = 0;
     let failed = false;
@@ -3808,7 +4148,7 @@ export class BAClickFX
         this.height,
         bloomCfg.resolutionScale,
         region,
-        bloomCfg.skipIterations,
+        diffusion,
         this.dpr,
         region.emissionBounds,
       );
@@ -3852,6 +4192,16 @@ export class BAClickFX
         wave.drawBloom(bloomContext, scale, this.config.opacity);
       }
 
+      for (const shard of region.shards)
+      {
+        shard.drawBloom(
+          bloomContext,
+          scale,
+          this.config.opacity,
+          this.fxConfig,
+        );
+      }
+
       bloomContext.restore();
 
       if (!renderer.composite(this.context, settings))
@@ -3882,6 +4232,7 @@ export class BAClickFX
   {
     const renderer = this.webglBloomRenderer;
     const bloomCfg = this.fxConfig.bloom;
+    const diffusion = bloomCfg.diffusion;
 
     if (
       !renderer ||
@@ -3890,7 +4241,7 @@ export class BAClickFX
         this.height,
         this.dpr,
         bloomCfg.resolutionScale,
-        bloomCfg.skipIterations,
+        diffusion,
       )
     )
     {
@@ -3922,14 +4273,23 @@ export class BAClickFX
       wave.appendWebGLBloom(renderer, scale, this.config.opacity);
     }
 
+    for (const shard of this.shards)
+    {
+      shard.appendWebGLBloom(
+        renderer,
+        scale,
+        this.config.opacity,
+        this.fxConfig,
+      );
+    }
+
     const rendered = renderer.render(
       {
         threshold: bloomCfg.threshold,
         softKnee: bloomCfg.softKnee,
         clamp: bloomCfg.clamp,
         intensity: bloomCfg.intensity,
-        scatter: bloomCfg.scatter,
-        highQualityFiltering: bloomCfg.highQualityFiltering,
+        diffusion,
       },
     );
 
@@ -4125,7 +4485,7 @@ export class BAClickFX
         // 暂停不能保留可继续追加的宿主指针，否则恢复后会连接跨环境轨迹。
         if (this.activePointerId !== null)
         {
-          this._releaseActivePointer(false);
+          this._releaseActivePointer();
         }
 
         if (this.animationFrame !== null)
@@ -4272,29 +4632,38 @@ export class BAClickFX
 
       this.config.renderingMode = overrides.renderingMode;
 
-      if (wasLegacy !== nowLegacy && this.ownsCanvas)
+      if (wasLegacy !== nowLegacy)
       {
         if (nowLegacy)
         {
-          // 切到 legacy：移除 plus-lighter，隐藏对比画布
-          this.canvas.style.mixBlendMode = '';
-          this.canvas.style.zIndex = '2147483647';
-          this._setWebGLBloomVisible(false);
-          if (this.contrastCanvas)
+          if (this.ownsCanvas)
           {
-            this.contrastCanvas.style.display = 'none';
+            // DOM 图层样式只属于库创建的覆盖层，外部 Canvas 仍需切换参数集。
+            this.canvas.style.mixBlendMode = '';
+            this.canvas.style.zIndex = '2147483647';
+            this._setWebGLBloomVisible(false);
+
+            if (this.contrastCanvas)
+            {
+              this.contrastCanvas.style.display = 'none';
+            }
           }
+
           this._applyLegacyParams();
         }
         else
         {
-          // 切回 enhanced：恢复 plus-lighter，显示对比画布，重置参数
-          this.canvas.style.mixBlendMode = 'plus-lighter';
-          this.canvas.style.zIndex = '2147483646';
-          if (this.contrastCanvas)
+          if (this.ownsCanvas)
           {
-            this.contrastCanvas.style.display = '';
+            this.canvas.style.mixBlendMode = 'plus-lighter';
+            this.canvas.style.zIndex = '2147483646';
+
+            if (this.contrastCanvas)
+            {
+              this.contrastCanvas.style.display = '';
+            }
           }
+
           this.fxConfig = structuredClone(UNITY_FX_TOUCH);
         }
       }
@@ -4393,10 +4762,21 @@ export class BAClickFX
         return;
       }
 
-      const isTimeOrDistance = /(Ms|Spacing|Count|Radius|Width|Blur)$/.test(lastKey);
-      const min = isTimeOrDistance ? 1 : 0;
+      const isDirection = path === 'rings.rotationDirection' ||
+        path === 'rings.dissolveDirection';
 
-      target[lastKey] = Math.max(min, value);
+      if (isDirection)
+      {
+        target[lastKey] = clamp(value, -1, 1);
+      }
+      else
+      {
+        const isTimeOrDistance = /(Ms|Spacing|Count|Radius|Width|Blur)$/.test(lastKey);
+        const min = isTimeOrDistance ? 1 : 0;
+
+        target[lastKey] = Math.max(min, value);
+      }
+
       this._requestRender();
     }
   }

@@ -596,19 +596,38 @@ assert(
 );
 assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');
 assert(
-  Math.abs(UNITY_FX_TOUCH.shards.clickSpeedMin - 36.945888) < 0.000001 &&
-    Math.abs(UNITY_FX_TOUCH.shards.clickSpeedMax - 49.261184) < 0.000001,
+  Math.abs(UNITY_FX_TOUCH.shards.clickSpeedMin - 49.8769488) < 0.000001 &&
+    Math.abs(UNITY_FX_TOUCH.shards.clickSpeedMax - 66.5025984) < 0.000001,
   '点击碎片速度包含 ParticleSystem 的 0.3078824 Local 缩放',
 );
 assert(
-  Math.abs(UNITY_FX_TOUCH.shards.trailSpeedMin - 24.630592) < 0.000001 &&
-    Math.abs(UNITY_FX_TOUCH.shards.trailSpeedMax - 36.945888) < 0.000001,
+  Math.abs(UNITY_FX_TOUCH.shards.trailSpeedMin - 33.2512992) < 0.000001 &&
+    Math.abs(UNITY_FX_TOUCH.shards.trailSpeedMax - 49.8769488) < 0.000001,
   '拖拽碎片速度包含 ParticleSystem 的 0.3078824 Local 缩放',
 );
-assert(UNITY_FX_TOUCH.shards.trailSpacing === 80, '拖拽每 80px 生成一枚碎片');
+assert(
+  UNITY_FX_TOUCH.shards.hdrIntensity === 5.992157 &&
+    UNITY_FX_TOUCH.shards.startColor.every(
+      (channel) => channel === 0.5377358,
+    ),
+  '碎片同时保留材质 HDR 与 ParticleSystem 起始色',
+);
+assert(
+  JSON.stringify(UNITY_FX_TOUCH.shards.sizeKeys) === JSON.stringify(
+    [
+      [0, 0, 0, 0],
+      [0.15445095, 1, 0, 0],
+      [1, 0, -2.1621501, -2.1621501],
+    ],
+  ) &&
+    UNITY_FX_TOUCH.shards.textureFrames.length === 2 &&
+    UNITY_FX_TOUCH.shards.textureFrames[0][1][0] === 0.48046875,
+  '碎片使用 Unity Hermite 尺寸曲线与 2×1 图集的实测轮廓',
+);
+assert(UNITY_FX_TOUCH.shards.trailSpacing === 108, '拖拽每 108px 生成一枚碎片');
 assert(UNITY_FX_TOUCH.trail.lifetimeMs === 300, 'TrailRenderer.time 为 0.3 秒');
-assert(UNITY_FX_TOUCH.trail.geometryWidth === 2, '1080p TrailRenderer 几何带宽为 2px');
-assert(UNITY_FX_TOUCH.trail.width === 2, '清晰拖尾本体使用 Unity 的 2px 带宽');
+assert(UNITY_FX_TOUCH.trail.geometryWidth === 2.7, '1080p TrailRenderer 几何带宽为 2.7px');
+assert(UNITY_FX_TOUCH.trail.width === 2.7, '清晰拖尾本体使用 Unity 的 2.7px 带宽');
 assert(
   UNITY_FX_TOUCH.trail.gradient[0][1].every((channel) => channel === 0) &&
     UNITY_FX_TOUCH.trail.gradient.at(-1)[1][2] === 255,
@@ -627,14 +646,29 @@ assert(
   textureMidpoint && Math.abs(textureMidpoint[1] - 0.144128269) < 0.000001,
   'sRGB 拖尾纹理中点已预转为 Unity Linear 能量',
 );
+const transverseProfileKeys =
+  UNITY_FX_TOUCH.trail.textureTransverseProfileKeys;
+const middleTransverseProfile = transverseProfileKeys.find(
+  ([position]) => Math.abs(position - 0.624266) < 0.000001,
+);
+const transverseStopCount = transverseProfileKeys[2][1].length * 2 - 1;
+
+assert(
+  transverseProfileKeys.length === 14 &&
+    transverseProfileKeys[0][1].every((value) => value === 0) &&
+    middleTransverseProfile[1][6] === 0.1006 &&
+    transverseProfileKeys.at(-1)[1][6] === 0.9867,
+  '拖尾使用随 Stretch 进度变化的 FX_TEX_Trail_03 二维横截面',
+);
 assert(
   UNITY_FX_TOUCH.bloom.threshold === 1 &&
-    UNITY_FX_TOUCH.bloom.intensity === 1 &&
-    UNITY_FX_TOUCH.bloom.scatter === 0.7 &&
-    UNITY_FX_TOUCH.bloom.skipIterations === 1 &&
-    UNITY_FX_TOUCH.bloom.highQualityFiltering === true &&
+    UNITY_FX_TOUCH.bloom.softKnee === 0 &&
+    UNITY_FX_TOUCH.bloom.intensity === 1.7 &&
+    UNITY_FX_TOUCH.bloom.diffusion === 7 &&
+    UNITY_FX_TOUCH.bloom.trailCoverageScale === 1 &&
+    !('scatter' in UNITY_FX_TOUCH.bloom) &&
     !('iterations' in UNITY_FX_TOUCH.bloom),
-  'Bloom 使用针对网页透明合成的游戏截图校准值',
+  'Bloom 使用游戏 MXFinalBloom 的原始参数',
 );
 assert(
   UNITY_FX_TOUCH.bloom.trailEmissionAlpha === 1 &&
@@ -645,11 +679,11 @@ assert(
   '点击与拖尾发射倍率相互独立，原生阴影回退单独标定',
 );
 assert(
-  CONFIG.lightBackgroundContrastAlpha === 0.35,
-  '浅色背景对比层保留 0.35 的青色轮廓以改善白色背景可见性',
+  CONFIG.lightBackgroundContrastAlpha === 0,
+  '严格默认不加入游戏管线之外的浅色背景对比层',
 );
 assert(CONFIG.bloomBackend === 'webgl2', '默认使用 WebGL2 Bloom 后端');
-assert(CONFIG.isolatedCompositing === true, '默认启用隔离合成以保留白底上的特效颜色');
+assert(CONFIG.isolatedCompositing === false, '默认直接与页面加色，保持游戏合成顺序');
 assert(CONFIG.inputSource === 'dom', '默认由 DOM 指针事件驱动输入');
 assert(
   CONFIG.clickTimeScale === 1 && CONFIG.trailTimeScale === 1,
@@ -725,7 +759,13 @@ assert(
 
 console.log('\n指针生命周期');
 const dom = installDom();
-const effect = new BAClickFX();
+const effect = new BAClickFX(
+  {
+    // 该实例同时覆盖网页白底兼容层的显式启用和运行时切换。
+    isolatedCompositing: true,
+    lightBackgroundContrastAlpha: 0.35,
+  },
+);
 assert(
   effect.getConfig().bloomBackend === 'webgl2' &&
     effect.getConfig().resolvedBloomBackend === 'pending',
@@ -760,7 +800,7 @@ assert(
     effect.overlayRoot.children.length === 2 &&
     effect.overlayRoot.children[0] === effect.canvas &&
     effect.overlayRoot.children[1] === effect.contrastCanvas,
-  '默认把主加色层与对比层挂入独立合成根',
+  '显式兼容模式把主加色层与对比层挂入独立合成根',
 );
 assert(
   effect.overlayRoot.style.isolation === 'isolate' &&
@@ -770,6 +810,28 @@ assert(
 );
 assert(effect.width === 1920 && effect.height === 1080, '按 CSS 尺寸建立 1080p 坐标系');
 assert(
+  !('referenceWidth' in UNITY_FX_TOUCH) &&
+    !('maximumScaleHeight' in UNITY_FX_TOUCH),
+  '诊断截图尺寸不作为游戏运行时的视口上限',
+);
+const referenceViewportWidth = effect.width;
+const referenceViewportHeight = effect.height;
+
+effect.width = 3840;
+effect.height = 2160;
+const expected4KScale = effect.height /
+  UNITY_FX_TOUCH.referenceHeight *
+  SIZE_CORRECTION;
+
+assert(
+  Math.abs(effect._getScale() - expected4KScale) < 0.000001 &&
+    UNITY_FX_TOUCH.bloom.diffusion === 7 &&
+    !('highResolutionDiffusionCompensation' in UNITY_FX_TOUCH.bloom),
+  '高分辨率按实际画布高度缩放，并直接使用游戏 Bloom Diffusion',
+);
+effect.width = referenceViewportWidth;
+effect.height = referenceViewportHeight;
+assert(
   effect.canvas.style.mixBlendMode === 'plus-lighter',
   '自有叠加 Canvas 使用元素级加色混合，不会在浅色 DOM 背景上压黑',
 );
@@ -778,6 +840,14 @@ assert(
     Number(effect.contrastCanvas.style.zIndex) > Number(effect.canvas.style.zIndex),
   '微弱对比 Canvas 使用 darken 并位于主加色层上方',
 );
+effect.setFxParam('rings.rotationDirection', -1);
+effect.setFxParam('rings.dissolveDirection', -1);
+assert(
+  effect.getFxConfig().rings.rotationDirection === -1 &&
+    effect.getFxConfig().rings.dissolveDirection === -1,
+  '方向参数允许负值，不会被通用非负校验错误钳制',
+);
+effect.setFxParam('rings.dissolveDirection', 1);
 const initialCanvasCount = dom.createdCanvases.length;
 
 effect.updateConfig({ isolatedCompositing: false });
@@ -814,6 +884,11 @@ assert(
   '每次生成的两枚圆环实际角速度均为逆时针',
 );
 assert(effect.shards.length === 4, '按下立即生成 4 枚点击碎片');
+assert(
+  effect.shards.every((shard) =>
+    shard.rotation === 0 && (shard.textureFrame === 0 || shard.textureFrame === 1)),
+  '碎片不做伪旋转，而是随机选择 Unity 2×1 图集帧',
+);
 assert(
   effect.shards.every((shard) =>
   {
@@ -978,11 +1053,11 @@ dom.windowMock.dispatch('pointermove',
   {
     pointerType: 'mouse',
     pointerId: 7,
-    clientX: 496,
+    clientX: 520,
     clientY: 300,
   });
-assert(effect.trailStrokes[0].points.length > 2, '拖拽按 4px 最小顶点距离采样');
-assert(effect.shards.some((shard) => shard.kind === 'trail'), '拖过 80px 后生成距离粒子');
+assert(effect.trailStrokes[0].points.length > 2, '拖拽按 5.4px 最小顶点距离采样');
+assert(effect.shards.some((shard) => shard.kind === 'trail'), '拖过 108px 后生成距离粒子');
 assert(
   effect.shards
     .filter((shard) => shard.kind === 'trail')
@@ -1003,6 +1078,7 @@ effect.context.strokeStyles = [];
 effect.context.strokeLineCaps = [];
 effect.context.strokeFilters = [];
 effect.context.strokedPaths = [];
+effect.context.linearGradients = [];
 effect.context.fillShadowBlurs = [];
 effect.context.fillShadowColors = [];
 effect.context.strokeShadowBlurs = [];
@@ -1015,13 +1091,14 @@ effect.bloomRenderer.sourceContext.strokeLineCaps = [];
 effect.bloomRenderer.sourceContext.strokeShadowBlurs = [];
 effect.bloomRenderer.sourceContext.conicGradients = [];
 effect.bloomRenderer.sourceContext.radialGradients = [];
+effect.bloomRenderer.sourceContext.linearGradients = [];
 effect.bloomRenderer.sourceContext.getImageDataCalls = [];
 const bloomSourceFillStart = effect.bloomRenderer.sourceContext.fillCount;
 const savedTrailTextureKeys = effect.fxConfig.trail.textureLongitudinalKeys;
 let trailEnergyBuildCount = 0;
 
-// 每次分段能量求值只读取一次纹理关键帧。统计属性读取可证明后续绘制、
-// 区域计算和发射 pass 使用缓存，而不是仅检查缓存数组恰好存在。
+// 整帧只读取一次纹理关键帧。统计属性读取可证明纵向能量、二维横截面、
+// 区域计算和发射 pass 均共享缓存，而不是仅检查缓存数组恰好存在。
 Object.defineProperty(effect.fxConfig.trail, 'textureLongitudinalKeys',
   {
     configurable: true,
@@ -1041,7 +1118,7 @@ Object.defineProperty(effect.fxConfig.trail, 'textureLongitudinalKeys',
     value: savedTrailTextureKeys,
     writable: true,
   });
-assert(effect.context.strokeCount > 0, '运行帧实际绘制连续轨迹');
+assert(effect.context.linearGradients.length > 0, '运行帧实际绘制连续轨迹');
 assert(effect.context.fillCount > 0, '运行帧实际绘制圆盘与三角粒子');
 const softwareBloomDrawCount = effect.context.drawImageCalls.filter((call) =>
   call.args[0] === effect.bloomRenderer.outputCanvas).length;
@@ -1055,15 +1132,15 @@ assert(
 );
 assert(
   lastBloomBeginFrameArgs?.length === 7 &&
-    lastBloomBeginFrameArgs[4] === UNITY_FX_TOUCH.bloom.skipIterations &&
+    lastBloomBeginFrameArgs[4] === UNITY_FX_TOUCH.bloom.diffusion &&
     lastBloomBeginFrameArgs[5] === effect.dpr &&
     lastBloomBeginFrameArgs[6]?.width > 0,
-  '软件 Bloom 同时传入 URP 参数、物理像素倍率与发射范围',
+  '软件 Bloom 同时传入 MXFinalBloom 参数、物理像素倍率与发射范围',
 );
 assert(
-  lastBloomCompositeSettings?.highQualityFiltering === true &&
+  lastBloomCompositeSettings?.diffusion === UNITY_FX_TOUCH.bloom.diffusion &&
     !('iterations' in lastBloomCompositeSettings),
-  '软件 Bloom 合成启用 URP 高质量上采样且不再传旧迭代数',
+  '软件 Bloom 合成使用 MXFinalBloom diffusion 且不再传旧迭代数',
 );
 assert(
   bloomCanvases.some((canvas) => canvas.context.putImageDataCount > 0),
@@ -1102,9 +1179,10 @@ assert(
   '软件 Bloom 只回读发射几何，不读取外围纯透明 padding',
 );
 assert(
-  effect.bloomRenderer.sourceContext.fillCount - bloomSourceFillStart ===
-    1 + UNITY_FX_TOUCH.rings.count * UNITY_FX_TOUCH.rings.radialSamples,
-  '三角形碎片不写入 Bloom，发射填充只包含光盘与圆环径向采样带',
+  effect.bloomRenderer.sourceContext.fillCount - bloomSourceFillStart >=
+    1 + UNITY_FX_TOUCH.rings.count * UNITY_FX_TOUCH.rings.radialSamples +
+      UNITY_FX_TOUCH.shards.clickCount,
+  '三角形碎片与光盘、圆环一同写入 Bloom 发射缓冲',
 );
 assert(
   effect.context.conicGradients.length ===
@@ -1175,6 +1253,32 @@ function sampleClickEmission(scale)
 }
 
 const baseClickEmission = sampleClickEmission(1);
+probeWave.ageMs = 190;
+const lateDiskCalls = [];
+
+probeWave.appendWebGLBloom(
+  {
+    addDisk(...args)
+    {
+      lateDiskCalls.push(args);
+    },
+    addRing()
+    {
+    },
+  },
+  1,
+  1,
+);
+assert(
+  lateDiskCalls[0][4] === baseClickEmission.webglCalls.disks[0][4],
+  '光盘 RGB 发射不随 Particle Alpha 衰减，仅由 200ms 生命周期截断',
+);
+assert(
+  effect.bloomRenderer.sourceContext.radialGradients.at(-1)
+    .gradient.stops.length ===
+      UNITY_FX_TOUCH.disk.textureRadialEnergyKeys.length,
+  '光盘发射完整使用 FX_TEX_Circle_01 的径向能量曲线',
+);
 const boostedClickEmission = sampleClickEmission(2);
 
 assert(
@@ -1200,7 +1304,8 @@ const contrastTint = effect.contrastContext.fillRects.at(-1);
 
 assert(
   contrastTint?.compositeOperation === 'source-in' &&
-    getCssAlpha(contrastTint.fillStyle) === CONFIG.lightBackgroundContrastAlpha,
+    getCssAlpha(contrastTint.fillStyle) ===
+      effect.getConfig().lightBackgroundContrastAlpha,
   '对比层内部用 source-in 将微弱青色只限制在特效遮罩中',
 );
 assert(
@@ -1214,50 +1319,74 @@ assert(
   '软件 Bloom 开启时主图形不叠加原生 shadowBlur',
 );
 assert(
-  effect.context.strokeShadowBlurs.every((blur) => !blur) &&
-    effect.bloomRenderer.sourceContext.strokeShadowBlurs.every((blur) => !blur),
+  effect.context.fillShadowBlurs.every((blur) => !blur) &&
+    effect.bloomRenderer.sourceContext.fillShadowBlurs.every((blur) => !blur),
   '软件 Bloom 开启时可见与发射拖尾都不叠加 shadowBlur',
 );
 const trailSegmentCount = effect.trailStrokes[0].points.length - 1;
 const cachedTrailFrameData = effect.trailStrokes[0].trailFrameData;
-const visibleTrailStyles = effect.context.strokeStyles.slice(0, trailSegmentCount);
-const bloomTrailStyles = effect.bloomRenderer.sourceContext.strokeStyles.slice(
+const visibleTrailGradients = effect.context.linearGradients.slice(
   0,
   trailSegmentCount,
 );
+const bloomTrailGradients = effect.bloomRenderer.sourceContext.linearGradients;
 
 assert(
-  effect.context.strokeWidths
-    .slice(0, trailSegmentCount)
-    .every((width) => Math.abs(
-      width - UNITY_FX_TOUCH.trail.width * SIZE_CORRECTION,
+  visibleTrailGradients.every(({ args }) =>
+    Math.abs(
+      Math.hypot(args[2] - args[0], args[3] - args[1]) -
+        UNITY_FX_TOUCH.trail.width * SIZE_CORRECTION,
     ) < 0.01),
-  '可见拖尾只绘制一层 2px Unity 几何带',
+  '可见拖尾横截面保持 Unity 的 2.7px 几何带宽',
 );
 assert(
-  visibleTrailStyles[0] === 'rgba(0, 0, 0, 0)',
+  visibleTrailGradients[0].gradient.stops.every(
+    ([, color]) => color === 'rgba(0, 0, 0, 0)',
+  ),
   '拖尾零纹理能量严格编码为透明，不会在浅色背景形成黑段',
 );
+const firstVisiblePeak = visibleTrailGradients[0].gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
+  0,
+);
+const lastVisiblePeak = visibleTrailGradients.at(-1).gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
+  0,
+);
+
 assert(
-  getCssPremultipliedEnergy(visibleTrailStyles.at(-1)) >
-    getCssPremultipliedEnergy(visibleTrailStyles[0]) + 100,
+  lastVisiblePeak > firstVisiblePeak + 100,
   '可见拖尾按原 Gradient 与 Stretch 纹理由尾部向头部增强',
 );
+const firstBloomPeak = bloomTrailGradients[0].gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
+  0,
+);
+const lastBloomPeak = bloomTrailGradients.at(-1).gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
+  0,
+);
+
 assert(
-  getCssColorEnergy(bloomTrailStyles.at(-1)) >
-    getCssColorEnergy(bloomTrailStyles[0]) + 20,
+  lastBloomPeak > firstBloomPeak + 20,
   'Bloom 发射源只在拖尾头部保持高亮',
 );
 assert(
-  effect.bloomRenderer.sourceContext.strokeLineCaps
-    .slice(0, trailSegmentCount)
-    .every((lineCap) => lineCap === 'butt'),
-  'Bloom 拖尾段使用 butt cap，采样点不会重复发光',
+  visibleTrailGradients.every(({ gradient }) =>
+    gradient.stops.length === transverseStopCount) &&
+    getCssPremultipliedEnergy(
+      visibleTrailGradients.at(-1).gradient.stops[8][1],
+    ) >
+      getCssPremultipliedEnergy(
+        visibleTrailGradients.at(-1).gradient.stops[0][1],
+      ),
+  '拖尾每一段都从透明边缘羽化到明亮中心',
 );
 assert(
   cachedTrailFrameData?.segmentEnergies.length === trailSegmentCount &&
     cachedTrailFrameData.segmentMaximumEnergies.length === trailSegmentCount &&
-    trailEnergyBuildCount === trailSegmentCount,
+    cachedTrailFrameData.segmentTransverseProfiles.length === trailSegmentCount &&
+    trailEnergyBuildCount === 1,
   '同一帧的可见拖尾、Bloom 区域和发射绘制共享分段能量缓存',
 );
 const expectedBloomSegmentCount = cachedTrailFrameData
@@ -1269,7 +1398,7 @@ const expectedBloomSegmentCount = cachedTrailFrameData
       0.5 * Math.max(1, effect.fxConfig.bloom.emissionRange) / 255)
   .length;
 assert(
-  bloomTrailStyles.length === expectedBloomSegmentCount &&
+  bloomTrailGradients.length === expectedBloomSegmentCount &&
     expectedBloomSegmentCount < trailSegmentCount,
   'Bloom 发射绘制只跳过量化后严格为零的暗尾分段',
 );
@@ -1293,6 +1422,58 @@ assert(
       effect.context.fillShadowColors[index] === 'transparent'),
   '三角形碎片在主 Canvas 也不设置阴影',
 );
+const shardProbe = effect.shards[0];
+const savedShardProbe =
+{
+  ageMs: shardProbe.ageMs,
+  size: shardProbe.size,
+  textureFrame: shardProbe.textureFrame,
+};
+const shardProbeContext = new ContextMock(effect.canvas);
+
+shardProbe.ageMs = shardProbe.lifetimeMs * 0.15445095;
+shardProbe.size = 20;
+shardProbe.textureFrame = 1;
+shardProbe.drawBloom(shardProbeContext, 1, 1, effect.fxConfig);
+
+const shardBloomEnergy = getCssColorEnergy(shardProbeContext.filledStyles[0]);
+const expectedShardPath = UNITY_FX_TOUCH.shards.textureFrames[1].map(
+  ([x, y]) => [x * 20, y * 20],
+);
+
+assert(
+  shardBloomEnergy >= 15 && shardBloomEnergy <= 17,
+  '碎片 Bloom 在线性空间乘入 0.5377358 起始色，峰值不再按白色粒子放大',
+);
+assert(
+  JSON.stringify(shardProbeContext.filledPaths[0]) ===
+    JSON.stringify(expectedShardPath),
+  'Canvas 碎片按 Unity 图集等能量轮廓与 Hermite 峰值尺寸绘制',
+);
+
+const shardWebGLCalls = [];
+
+shardProbe.appendWebGLBloom(
+  {
+    addTriangle(...args)
+    {
+      shardWebGLCalls.push(args);
+    },
+  },
+  1,
+  1,
+  effect.fxConfig,
+);
+
+assert(
+  Math.max(...shardWebGLCalls[0][4]) > 1.49 &&
+    Math.max(...shardWebGLCalls[0][4]) < 1.51 &&
+    JSON.stringify(shardWebGLCalls[0][6]) ===
+      JSON.stringify(UNITY_FX_TOUCH.shards.textureFrames[1]),
+  'WebGL2 碎片与 Canvas 使用相同的起始色能量和图集轮廓',
+);
+
+Object.assign(shardProbe, savedShardProbe);
 
 const nativeShadowStart = effect.context.fillShadowBlurs.length;
 const nativeStrokeStart = effect.context.strokeShadowBlurs.length;
@@ -1335,7 +1516,7 @@ assert(
   '原生回退不在拖尾分段接缝叠加 shadowBlur',
 );
 const nativeBloomSurface = effect.nativeTrailBloomSurface;
-const nativeGlowStyles = nativeBloomSurface.context.strokeStyles;
+const nativeGlowGradients = nativeBloomSurface.context.linearGradients;
 const nativeBlurDraws = effect.context.drawImageCalls
   .slice(nativeDrawImageStart)
   .filter((call) => call.filter !== 'none');
@@ -1349,13 +1530,24 @@ assert(
   '原生回退在局部缓冲完成着色后只执行一次整体模糊',
 );
 assert(
-  effect.context.linearGradients.length === nativeLinearGradientStart &&
-    nativeGlowStyles.length === effect.trailStrokes[0].points.length - 1,
-  '原生回退按真实路径距离逐段写入发射颜色，不再使用首尾弦渐变',
+  effect.context.linearGradients.length - nativeLinearGradientStart ===
+      effect.trailStrokes[0].points.length - 1 &&
+    nativeGlowGradients.length === effect.trailStrokes[0].points.length - 1 &&
+    nativeGlowGradients.every(({ gradient }) =>
+      gradient.stops.length === transverseStopCount),
+  '原生回退按真实路径距离与纹理横截面逐段写入发射颜色',
 );
+const nativeTailPeak = nativeGlowGradients[0].gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
+  0,
+);
+const nativeHeadPeak = nativeGlowGradients.at(-1).gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
+  0,
+);
+
 assert(
-  nativeGlowStyles[0] === 'rgba(0, 0, 0, 0)' &&
-    getCssPremultipliedEnergy(nativeGlowStyles.at(-1)) > 20,
+  nativeTailPeak === 0 && nativeHeadPeak > 20,
   '回环轨迹的尾部保持无辉光，头部仍保留原生模糊能量',
 );
 assert(
@@ -1532,8 +1724,8 @@ assert(
   cancelledVisibleStroke.points.length >= 2 &&
     manualEffect.pointerCancel(40) === true &&
     cancelledVisibleStroke.active === false &&
-    !manualEffect.trailStrokes.includes(cancelledVisibleStroke),
-  'pointerCancel 与正常松开不同，会立即移除当前可见轨迹',
+    manualEffect.trailStrokes.includes(cancelledVisibleStroke),
+  'pointerCancel 与 Unity Canceled 一样停止发射并保留当前可见轨迹',
 );
 
 manualEffect.clear();
@@ -1789,6 +1981,43 @@ assert(
   'updateConfig 忽略非正有限时间倍率并保留有效值',
 );
 timeScaleEffect.destroy();
+
+const extremeTimeScaleEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    inputSource: 'manual',
+    clickTimeScale: Number.MAX_VALUE,
+    trailTimeScale: Number.MAX_VALUE,
+  },
+);
+let extremeTimeScaleNow = flushFrames(dom, performance.now(), 1);
+
+extremeTimeScaleEffect.pointerDown(
+  {
+    x: 100,
+    y: 100,
+    pointerId: 10,
+  },
+);
+extremeTimeScaleEffect.pointerMove(
+  {
+    x: 300,
+    y: 100,
+    pointerId: 10,
+  },
+);
+extremeTimeScaleEffect.pointerCancel(10);
+extremeTimeScaleNow = flushFrames(dom, extremeTimeScaleNow, 1, 16);
+assert(
+  Number.isFinite(extremeTimeScaleEffect.clickTimeMs) &&
+    Number.isFinite(extremeTimeScaleEffect.trailTimeMs) &&
+    extremeTimeScaleEffect.waves.length === 0 &&
+    extremeTimeScaleEffect.shards.length === 0 &&
+    extremeTimeScaleEffect.trailStrokes.length === 0 &&
+    dom.frames.size === 0,
+  '极大有限时间倍率不会溢出虚拟时钟或永久占用 RAF',
+);
+extremeTimeScaleEffect.destroy();
 
 const clickClockEffect = new BAClickFX(
   {
@@ -2233,8 +2462,8 @@ assert(
 );
 clickGlowResetEffect.destroy();
 
-const firstIsolatedEffect = new BAClickFX();
-const secondIsolatedEffect = new BAClickFX();
+const firstIsolatedEffect = new BAClickFX({ isolatedCompositing: true });
+const secondIsolatedEffect = new BAClickFX({ isolatedCompositing: true });
 const secondOverlayRoot = secondIsolatedEffect.overlayRoot;
 
 assert(
@@ -2263,6 +2492,7 @@ console.log('\nBloom 后端 API');
 const webglEffect = new BAClickFX(
   {
     bloomBackend: 'webgl2',
+    isolatedCompositing: true,
   },
 );
 const canvasCountBeforeWebGLAttempt = dom.createdCanvases.length;
@@ -2424,6 +2654,20 @@ externalWebGLEffect.updateConfig({ isolatedCompositing: true });
 assert(
   externalWebGLEffect.getConfig().isolatedCompositing === false,
   '已有 Canvas target 在运行时也不能误报已启用隔离合成',
+);
+externalWebGLEffect.updateConfig({ renderingMode: 'legacy' });
+assert(
+  externalWebGLEffect.getFxConfig().rings.hdrIntensity === 1 &&
+    externalWebGLEffect.getConfig().resolvedBloomBackend === 'legacy',
+  '已有 Canvas target 切换 Legacy 时也应用兼容参数集',
+);
+externalWebGLEffect.updateConfig({ renderingMode: 'enhanced' });
+assert(
+  externalWebGLEffect.getFxConfig().rings.hdrIntensity ===
+      UNITY_FX_TOUCH.rings.hdrIntensity &&
+    externalWebGLEffect.getFxConfig().rings.bandToOuterRadius ===
+      UNITY_FX_TOUCH.rings.bandToOuterRadius,
+  '已有 Canvas target 切回增强模式时恢复 Unity 参数集',
 );
 
 externalWebGLEffect.boom(960, 540);
@@ -2642,7 +2886,7 @@ reusableRenderer.beginFrame(
   regionEffect.height,
   UNITY_FX_TOUCH.bloom.resolutionScale,
   { x: 0, y: 0, width: 720, height: 720 },
-  UNITY_FX_TOUCH.bloom.skipIterations,
+  UNITY_FX_TOUCH.bloom.diffusion,
   regionEffect.dpr,
 );
 const bloomCapacityWidth = reusableRenderer.outputCanvas.width;
@@ -2660,7 +2904,7 @@ assert(
     regionEffect.height,
     UNITY_FX_TOUCH.bloom.resolutionScale,
     { x: 100, y: 100, width: 128, height: 128 },
-    UNITY_FX_TOUCH.bloom.skipIterations,
+    UNITY_FX_TOUCH.bloom.diffusion,
     regionEffect.dpr,
     null,
   ),
@@ -2672,7 +2916,7 @@ reusableRenderer.beginFrame(
   regionEffect.height,
   UNITY_FX_TOUCH.bloom.resolutionScale,
   { x: 100, y: 100, width: 128, height: 128 },
-  UNITY_FX_TOUCH.bloom.skipIterations,
+  UNITY_FX_TOUCH.bloom.diffusion,
   regionEffect.dpr,
 );
 assert(

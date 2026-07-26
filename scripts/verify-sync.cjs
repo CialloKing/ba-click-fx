@@ -116,8 +116,20 @@ const isolatedCompositingControl = indexHtml.match(
 
 verify(
   /type="checkbox"/.test(isolatedCompositingControl) &&
-    /\bchecked\b/.test(isolatedCompositingControl),
-  '展示页提供默认开启的隔离合成开关',
+    !/\bchecked\b/.test(isolatedCompositingControl),
+  '展示页提供默认关闭的隔离合成兼容开关',
+);
+const staticFaqContent = indexHtml.match(
+  /<div id="introFAQContent">[\s\S]*?<\/div>/,
+)?.[0] ?? '';
+
+verify(
+  /纯白背景下特效颜色太浅/.test(staticFaqContent) &&
+    /isolatedCompositing: true/.test(staticFaqContent) &&
+    /纯白背景下特效颜色太浅/.test(mainJs) &&
+    /Effects look washed out on a pure white background/.test(mainJs) &&
+    /lightBackgroundContrastAlpha: 0\.35/.test(mainJs),
+  '静态与双语 FAQ 提示纯白背景启用隔离合成',
 );
 verify(
   /bindToggle\('ctrlIsolatedCompositing',[\s\S]*?effect\.updateConfig\(\{ isolatedCompositing: checked \}\)\)/.test(mainJs),
@@ -125,23 +137,31 @@ verify(
 );
 verify(
   /localStorage\.getItem\('bafx-ctrlIsolatedCompositing'\)/.test(mainJs) &&
-    /savedIsolatedCompositing === 'false'/.test(mainJs) &&
-    /effect\.updateConfig\(\{ isolatedCompositing: false \}\)/.test(mainJs),
-  '展示页会恢复已持久化的直接合成选项',
+    /savedIsolatedCompositing !== null/.test(mainJs) &&
+    /const isolated = savedIsolatedCompositing === 'true'/.test(mainJs) &&
+    /effect\.updateConfig\(\{ isolatedCompositing: isolated \}\)/.test(mainJs),
+  '展示页会恢复已持久化的隔离或直接合成选项',
 );
 verify(
-  /getElementById\('ctrlIsolatedCompositing'\)\.checked = true/.test(mainJs) &&
-    /isolatedCompositing: true/.test(mainJs),
-  '展示页重置操作同时恢复隔离合成控件和引擎配置',
+  /getElementById\('ctrlIsolatedCompositing'\)\.checked = false/.test(mainJs) &&
+    /isolatedCompositing: false/.test(mainJs) &&
+    /lightBackgroundContrastAlpha: 0/.test(mainJs),
+  '展示页重置操作恢复游戏的直接加色默认值',
 );
 verify(
   /ctrlColor\.addEventListener\('input',[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)[\s\S]*?\}\);[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)/.test(mainJs),
   '展示页首次加载会主动应用颜色控件默认值',
 );
 verify(
-  /isolatedCompositing: true/.test(configJs) &&
+  /id="ctrlColor" value="#4ca7ff"/.test(indexHtml) &&
+    /effect\.setThemeColor\('#4ca7ff'\)/.test(mainJs),
+  '展示页首次加载与重置都使用游戏基准蓝',
+);
+verify(
+  /isolatedCompositing: false/.test(configJs) &&
+    /lightBackgroundContrastAlpha: 0/.test(configJs) &&
     /typeof overrides\.isolatedCompositing === 'boolean'/.test(configJs),
-  '隔离合成默认开启，createConfig 仅接受布尔覆盖值',
+  '严格默认关闭网页兼容合成，createConfig 仍接受布尔覆盖值',
 );
 verify(
   /const DEFAULT_BLOOM_BACKEND = 'webgl2'/.test(configJs),

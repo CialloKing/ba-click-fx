@@ -1,17 +1,17 @@
 const REFERENCE_HEIGHT = 1080;
-const REFERENCE_ORTHOGRAPHIC_SIZE = 1.35;
+const REFERENCE_ORTHOGRAPHIC_SIZE = 1;
 const WORLD_TO_REFERENCE_PIXELS =
   REFERENCE_HEIGHT / (REFERENCE_ORTHOGRAPHIC_SIZE * 2);
 const SHARD_LOCAL_SCALE = 0.3078824;
 const SHARD_UNIT_TO_REFERENCE_PIXELS =
   WORLD_TO_REFERENCE_PIXELS * SHARD_LOCAL_SCALE;
+const RING_MESH_OUTER_RADIUS = 1.0636684;
 const DEFAULT_BLOOM_BACKEND = 'webgl2';
 const BLOOM_BACKENDS = new Set(['auto', 'software', 'webgl2', 'native']);
 const INPUT_SOURCES = new Set(['dom', 'manual']);
 
-// 游戏相机 orthographicSize 实际约 1.47，代码中声明的 1.35 导致所有
-// 世界单位→像素的硬编码常量整体偏大约 8%；此因子统一修正到游戏视觉比例。
-export const SIZE_CORRECTION = 0.85;
+// FX_Touch 使用独立的 UI 正交投影（高度 2 世界单位），不跟随场景相机。
+export const SIZE_CORRECTION = 1;
 
 /**
  * FX_Touch 的 Unity 2021.3 粒子参数。
@@ -22,6 +22,7 @@ export const SIZE_CORRECTION = 0.85;
 export const UNITY_FX_TOUCH = Object.freeze(
   {
     referenceHeight: REFERENCE_HEIGHT,
+    // 游戏在输入结束后等待该时长再回收根对象；它不驱动任何可见曲线。
     rootDurationMs: 1000,
     hit:
     {
@@ -63,7 +64,7 @@ export const UNITY_FX_TOUCH = Object.freeze(
     disk:
     {
       lifetimeMs: 200,
-      radius: 48,
+      radius: 0.12 * 2 * 0.5 * WORLD_TO_REFERENCE_PIXELS,
       colorKeys:
       [
         [0, [255, 255, 255]],
@@ -81,14 +82,30 @@ export const UNITY_FX_TOUCH = Object.freeze(
         [0.2139282, 0.7159773],
         [1, 1],
       ],
+      // FX_TEX_Circle_01 的 RGB 会在 Shader 中再乘一次 R 通道。
+      textureRadialEnergyKeys:
+      [
+        [0, 1],
+        [0.84, 1],
+        [0.88, 1],
+        [0.885, 0.398631296],
+        [0.89, 0.203383314],
+        [0.895, 0.124567474],
+        [0.9, 0.077524029],
+        [0.905, 0.016747405],
+        [0.91, 0.003936947],
+        [0.915, 0.000384468],
+        [0.92, 0],
+        [1, 0],
+      ],
     },
     rings:
     {
       count: 2,
       lifetimeMs: 600,
       // MeshTri 的外半径由 Start Size 0.12~0.14 换算而来；环宽始终随网格同比缩放。
-      radiusMin: 51.0560832,
-      radiusMax: 59.5654304,
+      radiusMin: 0.12 * WORLD_TO_REFERENCE_PIXELS * RING_MESH_OUTER_RADIUS,
+      radiusMax: 0.14 * WORLD_TO_REFERENCE_PIXELS * RING_MESH_OUTER_RADIUS,
       bandToOuterRadius: 0.0598573766034603,
       // 保留两个运行时调节入口，但它们是资源环宽的倍率，不再是独立像素宽度。
       widthStart: 1,
@@ -177,6 +194,10 @@ export const UNITY_FX_TOUCH = Object.freeze(
     },
     shards:
     {
+      hdrIntensity: 5.992157,
+      // Ring (3)/(4) 的 InitialModule.startColor。Renderer 开启
+      // Apply Active Color Space，因此必须在线性空间乘入，不能当作显示 Alpha。
+      startColor: [0.5377358, 0.5377358, 0.5377358],
       clickCount: 4,
       clickLifetimeMinMs: 600,
       clickLifetimeMaxMs: 700,
@@ -194,9 +215,24 @@ export const UNITY_FX_TOUCH = Object.freeze(
       sizeMax: 0.2 * SHARD_UNIT_TO_REFERENCE_PIXELS,
       sizeKeys:
       [
-        [0, 0],
-        [0.154451, 1],
-        [1, 0],
+        [0, 0, 0, 0],
+        [0.15445095, 1, 0, 0],
+        [1, 0, -2.1621501, -2.1621501],
+      ],
+      // FX_TEX_Triangle_02_1 是 2×1 图集；坐标来自两个 128×128 帧内
+      // 非透明三角形的边界，避免用偏大的等边三角形增加 Bloom 输入面积。
+      textureFrames:
+      [
+        [
+          [-0.48046875, -0.36328125],
+          [0.48046875, -0.36328125],
+          [0, 0.45703125],
+        ],
+        [
+          [0, -0.45703125],
+          [0.48046875, 0.36328125],
+          [-0.48046875, 0.36328125],
+        ],
       ],
       colorKeys:
       [
@@ -220,17 +256,17 @@ export const UNITY_FX_TOUCH = Object.freeze(
         [0.8529488, 1],
         [1, 1],
       ],
-      trailSpacing: 80,
+      trailSpacing: WORLD_TO_REFERENCE_PIXELS / 5,
       maxCount: 96,
     },
     trail:
     {
       lifetimeMs: 300,
-      // 0.005 世界单位在 1.35 正交相机下几何带宽 2px；HDR 23.97× Bloom
+      // 0.005 世界单位在固定 UI 投影下几何带宽 2.7px；HDR 23.97× Bloom
       // 后自然扩张为约 4px 的可见亮芯，点击光盘直径的 ≈1/24。
-      geometryWidth: 2,
-      width: 2,
-      minVertexDistance: 4,
+      geometryWidth: 0.005 * WORLD_TO_REFERENCE_PIXELS,
+      width: 0.005 * WORLD_TO_REFERENCE_PIXELS,
+      minVertexDistance: 0.01 * WORLD_TO_REFERENCE_PIXELS,
       outerGlowWidth: 9,
       // 拖尾整体透明度，可通过 setFxParam 调整
       trailOpacity: 1.0,
@@ -261,26 +297,42 @@ export const UNITY_FX_TOUCH = Object.freeze(
         [0.812133, 1],
         [1, 1],
       ],
+      // FX_TEX_Trail_03 不可分离为固定横截面。每行按旧点→新点进度保存
+      // 中心到边缘 d=[0,.125,...,1] 的相对线性能量，运行时先还原绝对
+      // 二维纹理能量再做纵向插值，避免中段被固定亮芯错误拓宽。
+      textureTransverseProfileKeys:
+      [
+        [0, [0, 0, 0, 0, 0, 0, 0, 0, 0]],
+        [0.248532, [0, 0, 0, 0, 0, 0, 0, 0, 0]],
+        [0.311155, [1, 1, 0.625, 0, 0, 0, 0, 0, 0]],
+        [0.373777, [1, 1, 0.7167, 0.3534, 0.1144, 0, 0, 0, 0]],
+        [0.436399, [1, 1, 0.7956, 0.5387, 0.283, 0.0757, 0, 0, 0]],
+        [0.499022, [1, 0.9605, 0.8657, 0.6613, 0.4191, 0.1786, 0.0279, 0, 0]],
+        [0.561644, [1, 1, 0.9277, 0.4599, 0.2906, 0.1564, 0.0591, 0.0013, 0.0026]],
+        [0.624266, [1, 0.9687, 0.9534, 0.8881, 0.6621, 0.2342, 0.1006, 0.0149, 0.0018]],
+        [0.686888, [1, 0.9804, 0.9515, 0.8952, 0.8188, 0.5912, 0.1858, 0.0382, 0.0019]],
+        [0.749511, [1, 1, 0.9457, 0.9018, 0.8341, 0.723, 0.4968, 0.0699, 0.0016]],
+        [0.812133, [1, 1, 0.9734, 0.9647, 0.9047, 0.7991, 0.6724, 0.1896, 0.0015]],
+        [0.874755, [1, 1, 1, 1, 0.9734, 0.9301, 0.7991, 0.4022, 0.0015]],
+        [0.937378, [1, 1, 1, 1, 1, 1, 0.9301, 0.5, 0.0015]],
+        [1, [1, 1, 1, 1, 1, 1, 0.9867, 0.591, 0.0015]],
+      ],
     },
     bloom:
     {
-      // Unity 对照工程运行时为 Intensity 0.45 / Scatter 0.35；网页采用
-      // 透明 sRGB 合成，不能直接套用后处理覆盖不透明画面的数值。
-      // 这里按游戏截图补偿为 1.0 / 0.7，恢复缺失的低频外晕与显示亮度。
+      // 游戏使用 Hidden/MXFinalBloom，而不是 URP Volume Bloom。
       threshold: 1.0,
-      softKnee: 0.5,
+      softKnee: 0,
       clamp: 65472,
-      intensity: 1.0,
-      scatter: 0.7,
+      intensity: 1.7,
+      diffusion: 7,
       resolutionScale: 0.5,
-      skipIterations: 1,
-      highQualityFiltering: true,
       emissionRange: 23.968628,
       diskEmission: 2.0,
       trailEmission: 23.968628,
-      // Unity TrailRenderer 的连续三角带在亮芯附近保留更多子像素覆盖；
-      // Canvas 分段 stroke 需要该覆盖校准，才能得到相同的 Bloom 截面。
-      trailCoverageScale: 1.75,
+      // Canvas 的物理像素线宽已经等于 TrailRenderer 三角带宽；额外扩张会
+      // 同时放大阈值以上面积和 MXFinalBloom 的中远程光晕。
+      trailCoverageScale: 1,
       // 原资源的纹理、顶点色和材质 Alpha 均为 1；头尾差异由 RGB
       // Gradient × Stretch 纹理产生，不能再用全局 Alpha 把头部一并压暗。
       trailEmissionAlpha: 1,
@@ -317,10 +369,10 @@ export const CONFIG = Object.freeze(
     // 默认使用 GPU Bloom；能力不足时依次回退软件 Bloom 与原生辉光。
     bloomBackend: DEFAULT_BLOOM_BACKEND,
     softwareBloomEnabled: true,
-    // 多 Canvas 先在透明隔离组内混合，避免 plus-lighter 直接叠加白底后丢失颜色。
-    isolatedCompositing: true,
-    // 严格加色在纯白背景上没有对比度；独立 darken 层补回轮廓。0.35 为实验值。
-    lightBackgroundContrastAlpha: 0.35,
+    // 游戏把 UI 粒子直接加到同一 HDR 目标；透明隔离组仅作为网页兼容选项。
+    isolatedCompositing: false,
+    // 淡青 darken 轮廓不是游戏管线的一部分，浅色页面需要时再显式开启。
+    lightBackgroundContrastAlpha: 0,
     maxDpr: 2,
     touchAction: 'auto',
   },

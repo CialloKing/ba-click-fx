@@ -57,9 +57,9 @@ declare module 'ba-click-fx'
     bloomBackend?: BAClickFXBloomBackend;
     /** 兼容旧 API：true 等价于 'software'，false 等价于 'native'。 */
     softwareBloomEnabled?: boolean;
-    /** 在透明组内合成多 Canvas 后再覆盖页面，默认 true；已有 Canvas target 不支持。 */
+    /** 在透明组内合成多 Canvas 后再覆盖页面，默认 false；已有 Canvas target 不支持。 */
     isolatedCompositing?: boolean;
-    /** 浅色背景的非 Bloom 淡青轮廓强度，默认 0.35；设为 0 可关闭。 */
+    /** 浅色背景的非 Bloom 淡青轮廓强度，默认 0；建议与隔离合成一起显式开启。 */
     lightBackgroundContrastAlpha?: number;
     /** Canvas backing store 的设备像素比上限，默认 2。 */
     maxDpr?: number;
@@ -96,6 +96,7 @@ declare module 'ba-click-fx'
   export interface UnityFxTouchConfig
   {
     readonly referenceHeight: 1080;
+    /** 原根 ParticleSystem 的对象池释放元数据，不是网页视觉时间轴。 */
     readonly rootDurationMs: 1000;
     readonly disk: Readonly<Record<string, unknown>>;
     readonly rings: Readonly<Record<string, unknown>>;
@@ -138,7 +139,7 @@ declare module 'ba-click-fx'
     /** 正常结束逻辑指针，已有拖尾继续自然消失。 */
     pointerUp(pointerId?: number): boolean;
 
-    /** 强制取消逻辑指针并立即移除当前轨迹。 */
+    /** 取消逻辑指针；与 pointerUp 一样让已有拖尾自然消失。 */
     pointerCancel(pointerId?: number): boolean;
 
     /** 暂停或恢复输入与动画调度；clear 仅在 paused 为 true 时生效。 */
