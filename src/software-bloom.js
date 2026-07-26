@@ -73,9 +73,7 @@ export function linearToSrgb(value)
 export function calculateBloomContribution(brightness, threshold, softKnee)
 {
   const safeThreshold = Math.max(0, threshold);
-  // Unity 始终在乘积后加 epsilon；不能用 max 替代，否则非零 Soft Knee
-  // 会产生虽小但可测的阈值偏差。
-  const knee = safeThreshold * clamp01(softKnee) + 0.00001;
+  const knee = Math.max(safeThreshold * clamp01(softKnee), 0.00001);
   let soft = brightness - safeThreshold + knee;
 
   soft = clamp(soft, 0, knee * 2);
@@ -282,10 +280,6 @@ export function prefilterBloom(
 {
   const scaleX = sourceWidth / outputWidth;
   const scaleY = sourceHeight / outputHeight;
-  const safeClampMax = Math.min(
-    65504,
-    Math.max(0, Number.isFinite(clampMax) ? clampMax : 65472),
-  );
   let startX = 0;
   let startY = 0;
   let endX = outputWidth;
@@ -352,9 +346,9 @@ export function prefilterBloom(
       }
 
       writeThresholdedColor(
-        Math.min(safeClampMax, output[outputIndex]),
-        Math.min(safeClampMax, output[outputIndex + 1]),
-        Math.min(safeClampMax, output[outputIndex + 2]),
+        Math.min(clampMax, output[outputIndex]),
+        Math.min(clampMax, output[outputIndex + 1]),
+        Math.min(clampMax, output[outputIndex + 2]),
         output,
         outputIndex,
         threshold,
@@ -485,7 +479,7 @@ export function downsampleGaussian(
 }
 
 /**
- * MXFinalBloom 反向金字塔：细层执行 4-tap，再累加粗层的双线性直采值。
+ * MXFinalBloom 反向金字塔：细层中心值加上粗层 4-tap 累积值。
  */
 function upsampleBoxAndAdd(
   high,
@@ -513,34 +507,26 @@ function upsampleBoxAndAdd(
       const lowX = (x + 0.5) * scaleX - 0.5;
       const outputIndex = (y * highWidth + x) * RGB_CHANNELS;
 
+      output[outputIndex] = high[outputIndex];
+      output[outputIndex + 1] = high[outputIndex + 1];
+      output[outputIndex + 2] = high[outputIndex + 2];
+
       for (const offsetX of [-offset, offset])
       {
         for (const offsetY of [-offset, offset])
         {
           addBilinearRgb(
-            high,
-            highWidth,
-            highHeight,
-            x + offsetX,
-            y + offsetY,
+            low,
+            lowWidth,
+            lowHeight,
+            lowX + offsetX,
+            lowY + offsetY,
             0.25,
             output,
             outputIndex,
           );
         }
       }
-
-      // BaGameBloom.shader 对 _BaBloomTex 只做一次双线性采样。
-      addBilinearRgb(
-        low,
-        lowWidth,
-        lowHeight,
-        lowX,
-        lowY,
-        1,
-        output,
-        outputIndex,
-      );
     }
   }
 
@@ -592,8 +578,6 @@ export function encodeAdditiveBloom(
   edgeCorrection = null,
 )
 {
-  // 网页 Final Pass 没有 Unity 相机的 HDR 后处理链；保留曝光域换算，
-  // 否则默认 1.7 会把输出能量放大约 13.6 倍并直接钳制成白色。
   const safeIntensity = Math.pow(2, Math.max(0, intensity) / 10) - 1;
   const safeWidth = Math.max(1, Math.floor(width));
   const sourceHeight = Math.ceil(

@@ -32,9 +32,9 @@ const clickGlowControl = indexHtml.match(
 verify(
   /min="0"/.test(clickGlowControl) &&
     /max="4"/.test(clickGlowControl) &&
-    /step="0\.01"/.test(clickGlowControl) &&
+    /step="0\.05"/.test(clickGlowControl) &&
     /value="1"/.test(clickGlowControl),
-  '展示页提供默认值为 1 的精细点击辉光强度滑块',
+  '展示页提供默认值为 1 的点击辉光强度滑块',
 );
 verify(
   /bindRange\('ctrlClickGlow', 'outClickGlow',[\s\S]*?setFxParam\('bloom\.clickEmissionScale', v\)\)/.test(mainJs),
@@ -44,17 +44,6 @@ verify(
   /\['ctrlClickGlow', 'outClickGlow', 1, false\]/.test(mainJs) &&
     /\['ctrlClickGlow', 'bloom\.clickEmissionScale'\]/.test(mainJs),
   '点击辉光滑块支持重置与本地设置恢复',
-);
-const ringCountControl = indexHtml.match(
-  /<input\s+[^>]*id="ctrlRingCount"[^>]*>/,
-)?.[0] ?? '';
-
-verify(
-  /min="0"/.test(ringCountControl) &&
-    /max="6"/.test(ringCountControl) &&
-    /step="1"/.test(ringCountControl) &&
-    /value="2"/.test(ringCountControl),
-  '圆环数量滑块允许使用 0 关闭圆环，并保持整数步进',
 );
 verify(/inputFilter/.test(mainJs), '演示页把信息卡映射为 Unity UGUI 输入过滤区');
 const inputSourceSelect = indexHtml.match(
@@ -99,11 +88,10 @@ verify(
   JSON.stringify(renderModeValues) === JSON.stringify([
     'software-bloom',
     'webgl2-bloom',
-    'full-webgl2',
     'native-bloom',
     'legacy',
   ]),
-  '展示页提供 WebGL2、Software、完整 WebGL2、Native 与 Legacy 五档渲染开关',
+  '展示页提供 WebGL2、Software、Native 与 Legacy 四档渲染开关',
 );
 verify(
   /<option value="webgl2-bloom" selected>/.test(renderModeSelect) &&
@@ -111,18 +99,16 @@ verify(
   '展示页 HTML、恢复与重置路径统一默认使用 WebGL2 Bloom',
 );
 verify(
-  /'software-bloom':\s*\{\s*effectBackend: 'canvas2d',\s*renderingMode: 'enhanced',\s*bloomBackend: 'software'/.test(mainJs) &&
-    /'webgl2-bloom':\s*\{\s*effectBackend: 'canvas2d',\s*renderingMode: 'enhanced',\s*bloomBackend: 'webgl2'/.test(mainJs) &&
-    /'full-webgl2':\s*\{\s*effectBackend: 'webgl2',\s*renderingMode: 'enhanced',\s*bloomBackend: 'webgl2'/.test(mainJs) &&
-    /'native-bloom':\s*\{\s*effectBackend: 'canvas2d',\s*renderingMode: 'enhanced',\s*bloomBackend: 'native'/.test(mainJs) &&
-    /legacy:\s*\{\s*effectBackend: 'canvas2d',\s*renderingMode: 'legacy'/.test(mainJs),
-  '展示页五档开关映射到对应的公开特效与 Bloom 后端 API',
+  /'software-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'software' \}/.test(mainJs) &&
+    /'webgl2-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'webgl2' \}/.test(mainJs) &&
+    /'native-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'native' \}/.test(mainJs) &&
+    /legacy: \{ renderingMode: 'legacy' \}/.test(mainJs),
+  '展示页四档开关映射到对应的公开 renderingMode 与 bloomBackend API',
 );
 verify(
   /BLOOM_BACKEND_CHANGE_EVENT/.test(mainJs) &&
-    /EFFECT_BACKEND_CHANGE_EVENT/.test(mainJs) &&
     /renderBackendPending/.test(mainJs),
-  '展示页监听两层后端解析事件并显示 WebGL2 延迟探测状态',
+  '展示页监听后端解析事件并单独显示 WebGL2 延迟探测状态',
 );
 const isolatedCompositingControl = indexHtml.match(
   /<input\s+[^>]*id="ctrlIsolatedCompositing"[^>]*>/,
