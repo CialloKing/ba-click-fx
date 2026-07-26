@@ -1,5 +1,9 @@
 import './style.css';
-import { BAClickFX, BLOOM_BACKEND_CHANGE_EVENT } from './fx.js';
+import {
+  BAClickFX,
+  BLOOM_BACKEND_CHANGE_EVENT,
+  EFFECT_BACKEND_CHANGE_EVENT,
+} from './fx.js';
 
 function acceptDemoPointer(event)
 {
@@ -88,7 +92,14 @@ function bindToggle(id, onChange)
 // ── 基础控件 → updateConfig ─────────────────────────────────────────────
 bindRange('ctrlScale', 'outScale', (v) => effect.updateConfig({ scale: v }));
 bindRange('ctrlOpacity', 'outOpacity', (v) => effect.updateConfig({ opacity: v }));
-bindRange('ctrlDpr', 'outDpr', (v) => effect.updateConfig({ maxDpr: Math.round(v) }));
+bindRange('ctrlDpr', 'outDpr', (value) =>
+{
+  effect.updateConfig(
+    {
+      maxDpr: value,
+    },
+  );
+});
 
 bindToggle('ctrlIsolatedCompositing', (checked) =>
   effect.updateConfig({ isolatedCompositing: checked }));
@@ -288,10 +299,35 @@ const ctrlRenderMode = document.getElementById('ctrlRenderMode');
 const DEFAULT_RENDER_MODE = 'webgl2-bloom';
 const RENDER_MODE_CONFIGS = Object.freeze(
   {
-    'software-bloom': { renderingMode: 'enhanced', bloomBackend: 'software' },
-    'webgl2-bloom': { renderingMode: 'enhanced', bloomBackend: 'webgl2' },
-    'native-bloom': { renderingMode: 'enhanced', bloomBackend: 'native' },
-    legacy: { renderingMode: 'legacy' },
+    'software-bloom':
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'enhanced',
+      bloomBackend: 'software',
+    },
+    'webgl2-bloom':
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    },
+    'full-webgl2':
+    {
+      effectBackend: 'webgl2',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    },
+    'native-bloom':
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'enhanced',
+      bloomBackend: 'native',
+    },
+    legacy:
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'legacy',
+    },
   },
 );
 
@@ -312,13 +348,43 @@ function updateRenderBackendStatus()
     webgl2: d.renderWebGL2Bloom,
     native: d.renderNativeBloom,
     legacy: d.renderLegacy,
+    'full-webgl2': d.renderFullWebGL2,
   };
+  const fullWebGL2Requested = snapshot.renderingMode !== 'legacy' &&
+    snapshot.effectBackend !== 'canvas2d';
+  const resolvedEffect = snapshot.resolvedEffectBackend;
   const resolved = snapshot.resolvedBloomBackend;
   const expected = snapshot.renderingMode === 'legacy'
     ? 'legacy'
     : snapshot.bloomBackend;
   const resolvedLabel = backendLabels[resolved] || resolved;
   const requestedLabel = backendLabels[expected] || expected;
+
+  if (fullWebGL2Requested)
+  {
+    if (resolvedEffect === 'pending')
+    {
+      status.textContent = d.renderBackendPending.replace(
+        '{requested}',
+        d.renderFullWebGL2,
+      );
+      return;
+    }
+
+    if (resolvedEffect === 'webgl2')
+    {
+      status.textContent = d.renderBackendActive.replace(
+        '{backend}',
+        d.renderFullWebGL2,
+      );
+      return;
+    }
+
+    status.textContent = d.renderBackendFallback
+      .replace('{resolved}', resolvedLabel)
+      .replace('{requested}', d.renderFullWebGL2);
+    return;
+  }
 
   if (resolved === 'pending')
   {
@@ -350,6 +416,10 @@ function applyRenderMode(mode)
 
 effect.canvas.addEventListener(
   BLOOM_BACKEND_CHANGE_EVENT,
+  updateRenderBackendStatus,
+);
+effect.canvas.addEventListener(
+  EFFECT_BACKEND_CHANGE_EVENT,
   updateRenderBackendStatus,
 );
 
@@ -406,7 +476,7 @@ function formatRingDirection(value, lang = currentLang)
 }
 
 bindRange('ctrlRingCount', 'outRingCount', (v) => effect.setFxParam('rings.count', v), true);
-bindRange('ctrlDiskRadius', 'outDiskRadius', (v) => effect.setFxParam('disk.radius', v), true);
+bindRange('ctrlDiskRadius', 'outDiskRadius', (v) => effect.setFxParam('disk.radius', v));
 bindRange('ctrlDiskLife', 'outDiskLife', (v) => effect.setFxParam('disk.lifetimeMs', v), true);
 bindRange('ctrlAngVelMul', 'outAngVelMul', (v) => effect.setFxParam('rings.angularVelocityMultiplier', v));
 bindRange('ctrlArcSamples', 'outArcSamples', (v) => effect.setFxParam('rings.arcSamples', v), true);
@@ -425,10 +495,10 @@ bindRange('ctrlClickShardLifeMax', 'outClickShardLifeMax', (v) => effect.setFxPa
 
 // ── Hit / Flare ────────────────────────────────────────────────────────
 bindToggle('ctrlHitEnabled', (c) => effect.setFxParam('hit.enabled', c));
-bindRange('ctrlHitRadius', 'outHitRadius', (v) => effect.setFxParam('hit.radius', v), true);
+bindRange('ctrlHitRadius', 'outHitRadius', (v) => effect.setFxParam('hit.radius', v));
 bindRange('ctrlHitLife', 'outHitLife', (v) => effect.setFxParam('hit.lifetimeMs', v), true);
 bindToggle('ctrlFlareEnabled', (c) => effect.setFxParam('flare.enabled', c));
-bindRange('ctrlFlareRadius', 'outFlareRadius', (v) => effect.setFxParam('flare.radius', v), true);
+bindRange('ctrlFlareRadius', 'outFlareRadius', (v) => effect.setFxParam('flare.radius', v));
 bindRange('ctrlFlareLife', 'outFlareLife', (v) => effect.setFxParam('flare.lifetimeMs', v), true);
 bindRange('ctrlFlareRays', 'outFlareRays', (v) => effect.setFxParam('flare.rayCount', v), true);
 bindRange('ctrlGeomWidth', 'outGeomWidth', (v) => effect.setFxParam('trail.geometryWidth', v));
@@ -459,7 +529,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlOpacity').value = '1';
   document.getElementById('outOpacity').textContent = '1.00';
   document.getElementById('ctrlDpr').value = '2';
-  document.getElementById('outDpr').textContent = '2';
+  document.getElementById('outDpr').textContent = '2.00';
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
   document.getElementById('ctrlInputSource').value = 'dom';
   document.getElementById('ctrlClickTimeScale').value = '1';
@@ -507,6 +577,11 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlRingDir', 'outRingDir', -1, true],
     ['ctrlClickShardLifeMin', 'outClickShardLifeMin', 600, true],
     ['ctrlClickShardLifeMax', 'outClickShardLifeMax', 700, true],
+    ['ctrlHitRadius', 'outHitRadius', 24, false],
+    ['ctrlHitLife', 'outHitLife', 80, true],
+    ['ctrlFlareRadius', 'outFlareRadius', 36, false],
+    ['ctrlFlareLife', 'outFlareLife', 150, true],
+    ['ctrlFlareRays', 'outFlareRays', 6, true],
     ['ctrlGeomWidth', 'outGeomWidth', 2.7, false],
     ['ctrlMinVertDist', 'outMinVertDist', 5.4, false],
     ['ctrlTrailShardLifeMin', 'outTrailShardLifeMin', 200, true],
@@ -711,6 +786,7 @@ const I18N = {
     hostApiPaused: '已暂停：输入和 RAF 已停止。',
     renderSoftwareBloom: '软件 Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
+    renderFullWebGL2: '完整 WebGL2（实验）',
     renderNativeBloom: '原生辉光',
     renderLegacy: 'Legacy',
     renderAutoBloom: '自动选择',
@@ -760,7 +836,7 @@ const I18N = {
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
     introP2: '从 Unity FX_Touch.prefab 逐参数移植的 Canvas 2D 特效库，默认使用 WebGL2 Bloom——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.11/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.12/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 不需要图片素材；默认使用 WebGL2 Bloom，能力不足时自动回退软件 Bloom，零运行时依赖。</p><p><strong>纯白背景下特效颜色太浅？</strong> 纯白背景会让默认的直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；这两项是网页兼容选项，不是游戏默认路径。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
     introHostApiSummary: '宿主控制 API / Host Control API',
@@ -799,6 +875,7 @@ const I18N = {
     hostApiPaused: 'Paused: input and RAF scheduling are stopped.',
     renderSoftwareBloom: 'Software Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
+    renderFullWebGL2: 'Full WebGL2 (Experimental)',
     renderNativeBloom: 'Native Glow',
     renderLegacy: 'Legacy',
     renderAutoBloom: 'Auto',
@@ -848,7 +925,7 @@ const I18N = {
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
     introP2: 'Canvas 2D effect library ported from Unity FX_Touch.prefab, using WebGL2 Bloom by default — dissolve rings, click shards, drag trails. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.11/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.12/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> No image assets. WebGL2 Bloom is the default and falls back to Software Bloom when unavailable. Zero runtime dependencies.</p><p><strong>Effects look washed out on a pure white background?</strong> Direct additive compositing loses cyan-blue color and contrast on pure white. Enable Isolated Compositing (<code>isolatedCompositing: true</code>). For a sharper outline, you can also set <code>lightBackgroundContrastAlpha: 0.35</code>; both are web compatibility options, not the game-default path.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
     introHostApiSummary: 'Host Control API / 宿主控制 API',
@@ -1009,6 +1086,7 @@ function switchLanguage(lang)
   const renderModeOptions = {
     'software-bloom': d.renderSoftwareBloom,
     'webgl2-bloom': d.renderWebGL2Bloom,
+    'full-webgl2': d.renderFullWebGL2,
     'native-bloom': d.renderNativeBloom,
     'legacy': d.renderLegacy,
   };

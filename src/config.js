@@ -6,6 +6,8 @@ const SHARD_LOCAL_SCALE = 0.3078824;
 const SHARD_UNIT_TO_REFERENCE_PIXELS =
   WORLD_TO_REFERENCE_PIXELS * SHARD_LOCAL_SCALE;
 const RING_MESH_OUTER_RADIUS = 1.0636684;
+const DEFAULT_EFFECT_BACKEND = 'canvas2d';
+const EFFECT_BACKENDS = new Set(['canvas2d', 'webgl2', 'auto']);
 const DEFAULT_BLOOM_BACKEND = 'webgl2';
 const BLOOM_BACKENDS = new Set(['auto', 'software', 'webgl2', 'native']);
 const INPUT_SOURCES = new Set(['dom', 'manual']);
@@ -78,23 +80,40 @@ export const UNITY_FX_TOUCH = Object.freeze(
       ],
       sizeKeys:
       [
-        [0, 0.3258358],
-        [0.2139282, 0.7159773],
-        [1, 1],
+        [0, 0.32583582, 2.4004734, 2.4004734],
+        [0.21392822, 0.7159773, 0.9115745, 0.9115745],
+        [1, 1, 0, 0],
       ],
-      // FX_TEX_Circle_01 的 RGB 会在 Shader 中再乘一次 R 通道。
+      // FX_TEX_Circle_01 以 sRGB 导入；Linear 工程先解码 R，再将它写入
+      // Blend One OneMinusSrcAlpha 的源 Alpha。
+      textureRadialAlphaKeys:
+      [
+        [0, 1],
+        [0.84, 1],
+        [0.88, 1],
+        [0.885, 0.356400144],
+        [0.89, 0.171441101],
+        [0.895, 0.102241733],
+        [0.9, 0.063010018],
+        [0.905, 0.015208514],
+        [0.91, 0.005181517],
+        [0.915, 0.001517635],
+        [0.92, 0],
+        [1, 0],
+      ],
+      // Shader 的 RGB 为 sample.rgb * sample.r；灰度纹理因此使用 R_linear²。
       textureRadialEnergyKeys:
       [
         [0, 1],
         [0.84, 1],
         [0.88, 1],
-        [0.885, 0.398631296],
-        [0.89, 0.203383314],
-        [0.895, 0.124567474],
-        [0.9, 0.077524029],
-        [0.905, 0.016747405],
-        [0.91, 0.003936947],
-        [0.915, 0.000384468],
+        [0.885, 0.127021063],
+        [0.89, 0.029392051],
+        [0.895, 0.010453372],
+        [0.9, 0.003970262],
+        [0.905, 0.000231299],
+        [0.91, 0.000026848],
+        [0.915, 0.000002303],
         [0.92, 0],
         [1, 0],
       ],
@@ -267,6 +286,9 @@ export const UNITY_FX_TOUCH = Object.freeze(
       geometryWidth: 0.005 * WORLD_TO_REFERENCE_PIXELS,
       width: 0.005 * WORLD_TO_REFERENCE_PIXELS,
       minVertexDistance: 0.01 * WORLD_TO_REFERENCE_PIXELS,
+      // TrailRenderer 网格在折点和首尾使用资源中记录的细分数量。
+      numCornerVertices: 4,
+      numCapVertices: 1,
       outerGlowWidth: 9,
       // 拖尾整体透明度，可通过 setFxParam 调整
       trailOpacity: 1.0,
@@ -348,6 +370,9 @@ export const UNITY_FX_TOUCH = Object.freeze(
       ringAlpha: 0.35,
       diskBlur: 65,
       diskAlpha: 0.65,
+      // 碎片峰值仅略高于 Threshold 1，原生回退保持较窄、较弱的阴影。
+      shardBlur: 48,
+      shardAlpha: 0.35,
       trailAlpha: 0.18,
     },
   },
@@ -363,8 +388,9 @@ export const CONFIG = Object.freeze(
     inputSource: 'dom',
     clickTimeScale: 1,
     trailTimeScale: 1,
-    // 'enhanced' 使用线性能量编码，并由 bloomBackend 选择 Bloom 实现；
-    // 'legacy' 使用 sRGB 颜色 + shadowBlur（main 分支风格）。
+    // 完整 WebGL2 特效仍属实验路径；默认保留现有 Canvas2D 清晰本体。
+    effectBackend: DEFAULT_EFFECT_BACKEND,
+    // 两种模式共享 Unity 资源参数；legacy 仅保留旧版 DOM 合成并使用原生辉光。
     renderingMode: 'enhanced',
     // 默认使用 GPU Bloom；能力不足时依次回退软件 Bloom 与原生辉光。
     bloomBackend: DEFAULT_BLOOM_BACKEND,
@@ -377,6 +403,16 @@ export const CONFIG = Object.freeze(
     touchAction: 'auto',
   },
 );
+
+export function isEffectBackend(value)
+{
+  return EFFECT_BACKENDS.has(value);
+}
+
+export function normalizeEffectBackend(value, fallback = DEFAULT_EFFECT_BACKEND)
+{
+  return isEffectBackend(value) ? value : fallback;
+}
 
 export function isBloomBackend(value)
 {
@@ -419,6 +455,10 @@ export function createConfig(overrides = {})
   const inputSource = isInputSource(overrides.inputSource)
     ? overrides.inputSource
     : CONFIG.inputSource;
+  const effectBackend = normalizeEffectBackend(
+    overrides.effectBackend,
+    CONFIG.effectBackend,
+  );
   const clickTimeScale = normalizeTimeScale(
     overrides.clickTimeScale,
     CONFIG.clickTimeScale,
@@ -432,6 +472,7 @@ export function createConfig(overrides = {})
     ...CONFIG,
     ...overrides,
     inputSource,
+    effectBackend,
     clickTimeScale,
     trailTimeScale,
     bloomBackend,
