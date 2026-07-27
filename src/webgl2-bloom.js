@@ -1,3 +1,5 @@
+import { calculateBloomIntensity } from './software-bloom.js';
+
 const COMPONENTS_PER_VERTEX = 5;
 const INITIAL_VERTEX_CAPACITY = 4096;
 const MAX_PYRAMID_LEVELS = 16;
@@ -1395,7 +1397,7 @@ export class WebGL2BloomRenderer
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_intensity'),
-      Math.pow(2, Math.max(0, settings.intensity) / 10) - 1,
+      calculateBloomIntensity(settings.intensity),
     );
     gl.bindVertexArray(this.fullscreenVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
