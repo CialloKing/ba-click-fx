@@ -267,6 +267,9 @@ export const UNITY_FX_TOUCH = Object.freeze(
       geometryWidth: 0.005 * WORLD_TO_REFERENCE_PIXELS,
       width: 0.005 * WORLD_TO_REFERENCE_PIXELS,
       minVertexDistance: 0.01 * WORLD_TO_REFERENCE_PIXELS,
+      // TrailRenderer 在折点和首尾使用资源中记录的细分数量。
+      numCornerVertices: 4,
+      numCapVertices: 1,
       outerGlowWidth: 9,
       // 拖尾整体透明度，可通过 setFxParam 调整
       trailOpacity: 1.0,

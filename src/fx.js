@@ -22,6 +22,7 @@ const TAU = Math.PI * 2;
 const LIGHT_BACKGROUND_CONTRAST_COLOR = [76, 255, 255];
 const BLOOM_BACKEND_CHANGE_EVENT = 'baclickfxbackendchange';
 const MAX_SCALED_TIME_DELTA_MS = Number.MAX_SAFE_INTEGER;
+const MAX_TRAIL_INNER_MITER_RATIO = 4;
 
 // ── 共享 HSL 转换 ──────────────────────────────────────────────────────
 function rgbToHsl(r, g, b)
@@ -1861,6 +1862,8 @@ function createTrailFrameData(
 )
 {
   const measurement = measureTrail(points);
+  const pointEnergies = [];
+  const pointTransverseProfiles = [];
   const segmentEnergies = [];
   const segmentMaximumEnergies = [];
   const segmentTransverseProfiles = [];
@@ -1870,10 +1873,33 @@ function createTrailFrameData(
   {
     return {
       measurement,
+      pointEnergies,
+      pointTransverseProfiles,
       segmentEnergies,
       segmentMaximumEnergies,
       segmentTransverseProfiles,
     };
+  }
+
+  for (let index = 0; index < points.length; index++)
+  {
+    const progress = measurement.distances[index] / measurement.totalLength;
+
+    pointEnergies.push(
+      evaluateTrailLinearEnergy(
+        progress,
+        trailCfg,
+        materialIntensity,
+        textureLongitudinalKeys,
+      ),
+    );
+    pointTransverseProfiles.push(
+      evaluateTrailTransverseProfile(
+        progress,
+        trailCfg,
+        textureLongitudinalKeys,
+      ),
+    );
   }
 
   for (let index = 1; index < points.length; index++)
@@ -1889,7 +1915,14 @@ function createTrailFrameData(
     );
 
     segmentEnergies.push(energy);
-    segmentMaximumEnergies.push(Math.max(energy[0], energy[1], energy[2]));
+    // Bloom 的量化裁剪仍使用原规则，但必须覆盖端点插值的峰值。
+    segmentMaximumEnergies.push(
+      Math.max(
+        ...pointEnergies[index - 1],
+        ...energy,
+        ...pointEnergies[index],
+      ),
+    );
     segmentTransverseProfiles.push(
       evaluateTrailTransverseProfile(
         progress,
@@ -1901,6 +1934,8 @@ function createTrailFrameData(
 
   return {
     measurement,
+    pointEnergies,
+    pointTransverseProfiles,
     segmentEnergies,
     segmentMaximumEnergies,
     segmentTransverseProfiles,
@@ -2015,101 +2050,646 @@ function evaluateTrailTransverseProfile(
   return profile;
 }
 
-function fillTexturedTrailSegment(
+function interpolateTrailMeshEdge(left, right, progress)
+{
+  return {
+    x: lerp(left.x, right.x, progress),
+    y: lerp(left.y, right.y, progress),
+  };
+}
+
+function createTrailMesh(
+  points,
+  width,
+  numCornerVertices = 0,
+  numCapVertices = 0,
+)
+{
+  const halfWidth = Math.max(0, width) * 0.5;
+  const segments = new Array(points.length).fill(null);
+  const joins = [];
+  const caps = [];
+
+  if (halfWidth <= 0)
+  {
+    return { segments, joins, caps };
+  }
+
+  for (let index = 1; index < points.length; index++)
+  {
+    const from = points[index - 1];
+    const to = points[index];
+    const deltaX = to.x - from.x;
+    const deltaY = to.y - from.y;
+    const length = Math.hypot(deltaX, deltaY);
+
+    if (length <= 0.000001)
+    {
+      continue;
+    }
+
+    const tangent = { x: deltaX / length, y: deltaY / length };
+    const normal = { x: -tangent.y, y: tangent.x };
+    const offsetX = normal.x * halfWidth;
+    const offsetY = normal.y * halfWidth;
+
+    segments[index] =
+    {
+      index,
+      from,
+      to,
+      tangent,
+      normal,
+      fromLeft: { x: from.x + offsetX, y: from.y + offsetY },
+      fromRight: { x: from.x - offsetX, y: from.y - offsetY },
+      toLeft: { x: to.x + offsetX, y: to.y + offsetY },
+      toRight: { x: to.x - offsetX, y: to.y - offsetY },
+    };
+  }
+
+  const cornerVertexCount = Math.max(0, Math.floor(numCornerVertices));
+
+  for (let pointIndex = 1; pointIndex < points.length - 1; pointIndex++)
+  {
+    const previous = segments[pointIndex];
+    const next = segments[pointIndex + 1];
+
+    if (!previous || !next)
+    {
+      continue;
+    }
+
+    const turn = previous.tangent.x * next.tangent.y -
+      previous.tangent.y * next.tangent.x;
+    const directionDot = previous.tangent.x * next.tangent.x +
+      previous.tangent.y * next.tangent.y;
+
+    if (Math.abs(turn) <= 0.000001)
+    {
+      // 直线自然共享截面；精确折返没有稳定内角，保留独立边界。
+      continue;
+    }
+
+    const point = points[pointIndex];
+    const innerSign = turn > 0 ? 1 : -1;
+    const outerSign = -innerSign;
+    const previousInner =
+    {
+      x: point.x + previous.normal.x * halfWidth * innerSign,
+      y: point.y + previous.normal.y * halfWidth * innerSign,
+    };
+    const nextInner =
+    {
+      x: point.x + next.normal.x * halfWidth * innerSign,
+      y: point.y + next.normal.y * halfWidth * innerSign,
+    };
+    const innerScale = (
+      (nextInner.x - previousInner.x) * next.tangent.y -
+      (nextInner.y - previousInner.y) * next.tangent.x
+    ) / turn;
+    const inner =
+    {
+      x: previousInner.x + previous.tangent.x * innerScale,
+      y: previousInner.y + previous.tangent.y * innerScale,
+    };
+    const innerDistance = Math.hypot(
+      inner.x - point.x,
+      inner.y - point.y,
+    );
+
+    if (
+      !Number.isFinite(innerDistance) ||
+      innerDistance > halfWidth * MAX_TRAIL_INNER_MITER_RATIO
+    )
+    {
+      // 接近 180 度时偏移线交点趋于无穷，独立截面可避免尖刺和超大 Bounds。
+      continue;
+    }
+
+    const turnAngle = Math.atan2(turn, directionDot);
+    const outerStartAngle = Math.atan2(
+      previous.normal.y * outerSign,
+      previous.normal.x * outerSign,
+    );
+    const arcStepCount = cornerVertexCount + 1;
+    const outerArc = [];
+
+    for (let step = 0; step <= arcStepCount; step++)
+    {
+      const angle = outerStartAngle + turnAngle * step / arcStepCount;
+
+      outerArc.push(
+        {
+          x: point.x + Math.cos(angle) * halfWidth,
+          y: point.y + Math.sin(angle) * halfWidth,
+        },
+      );
+    }
+
+    if (innerSign > 0)
+    {
+      previous.toLeft = inner;
+      next.fromLeft = inner;
+      previous.toRight = outerArc[0];
+      next.fromRight = outerArc.at(-1);
+    }
+    else
+    {
+      previous.toRight = inner;
+      next.fromRight = inner;
+      previous.toLeft = outerArc[0];
+      next.fromLeft = outerArc.at(-1);
+    }
+
+    // Unity 的数量表示端点间的插入点，因此 4 个点形成 5 个 fan 三角。
+    joins.push(
+      {
+        pointIndex,
+        previousSegmentIndex: previous.index,
+        nextSegmentIndex: next.index,
+        inner,
+        innerSide: innerSign > 0 ? 'left' : 'right',
+        outerArc,
+      },
+    );
+  }
+
+  if (Math.floor(numCapVertices) > 0)
+  {
+    const first = segments.find((segment) => segment);
+    let last = null;
+
+    for (let index = segments.length - 1; index >= 1; index--)
+    {
+      if (segments[index])
+      {
+        last = segments[index];
+        break;
+      }
+    }
+
+    if (first)
+    {
+      caps.push(
+        {
+          position: 'start',
+          segmentIndex: first.index,
+          pointIndex: first.index - 1,
+          points:
+          [
+            first.fromLeft,
+            first.fromRight,
+            {
+              x: first.from.x - first.tangent.x * halfWidth,
+              y: first.from.y - first.tangent.y * halfWidth,
+            },
+          ],
+        },
+      );
+    }
+
+    if (last)
+    {
+      caps.push(
+        {
+          position: 'end',
+          segmentIndex: last.index,
+          pointIndex: last.index,
+          points:
+          [
+            last.toLeft,
+            {
+              x: last.to.x + last.tangent.x * halfWidth,
+              y: last.to.y + last.tangent.y * halfWidth,
+            },
+            last.toRight,
+          ],
+        },
+      );
+    }
+  }
+
+  return { segments, joins, caps };
+}
+
+function getTrailMesh(trailData, points, width, trailCfg)
+{
+  if (!trailData.meshCache)
+  {
+    trailData.meshCache = new Map();
+  }
+
+  const cornerVertices = Math.max(
+    0,
+    Math.floor(trailCfg.numCornerVertices ?? 0),
+  );
+  const capVertices = Math.max(
+    0,
+    Math.floor(trailCfg.numCapVertices ?? 0),
+  );
+  const cacheKey = `${width}:${cornerVertices}:${capVertices}`;
+
+  if (!trailData.meshCache.has(cacheKey))
+  {
+    trailData.meshCache.set(
+      cacheKey,
+      createTrailMesh(points, width, cornerVertices, capVertices),
+    );
+  }
+
+  return trailData.meshCache.get(cacheKey);
+}
+
+function resolveTrailTransverseProfile(profile)
+{
+  return Array.isArray(profile) && profile.length >= 2
+    ? profile
+    : [[0, 1], [1, 1]];
+}
+
+function resolveTrailTransverseBandPositions(profile)
+{
+  const positions = resolveTrailTransverseProfile(profile)
+    .map(([position]) => clamp01(position))
+    .sort((first, second) => first - second);
+  const uniquePositions = [];
+
+  for (const position of positions)
+  {
+    if (
+      uniquePositions.length === 0 ||
+      Math.abs(position - uniquePositions.at(-1)) > 0.0000001
+    )
+    {
+      uniquePositions.push(position);
+    }
+  }
+
+  if (uniquePositions[0] > 0)
+  {
+    uniquePositions.unshift(0);
+  }
+
+  if (uniquePositions.at(-1) < 1)
+  {
+    uniquePositions.push(1);
+  }
+
+  return uniquePositions.length >= 2 ? uniquePositions : [0, 1];
+}
+
+function createTrailCrossSectionGradient(
   context,
   from,
   to,
-  width,
   transverseProfile,
   colorAtIntensity,
 )
 {
-  const deltaX = to.x - from.x;
-  const deltaY = to.y - from.y;
-  const length = Math.hypot(deltaX, deltaY);
+  const gradient = context.createLinearGradient(from.x, from.y, to.x, to.y);
 
-  if (length <= 0 || width <= 0)
-  {
-    return;
-  }
-
-  const halfWidth = width * 0.5;
-  const normalX = -deltaY / length * halfWidth;
-  const normalY = deltaX / length * halfWidth;
-  const leftFromX = from.x + normalX;
-  const leftFromY = from.y + normalY;
-  const rightFromX = from.x - normalX;
-  const rightFromY = from.y - normalY;
-  const gradient = context.createLinearGradient(
-    leftFromX,
-    leftFromY,
-    rightFromX,
-    rightFromY,
-  );
-  const profile = Array.isArray(transverseProfile) &&
-      transverseProfile.length >= 2
-    ? transverseProfile
-    : [[0, 1], [1, 1]];
-
-  for (const [position, intensity] of profile)
+  for (const [position, intensity] of resolveTrailTransverseProfile(
+    transverseProfile,
+  ))
   {
     gradient.addColorStop(clamp01(position), colorAtIntensity(intensity));
   }
 
+  return gradient;
+}
+
+function createTrailLongitudinalGradient(
+  context,
+  segment,
+  fromColor,
+  toColor,
+  fromIntensity,
+  toIntensity,
+  colorAtIntensity,
+)
+{
+  const gradient = context.createLinearGradient(
+    segment.from.x,
+    segment.from.y,
+    segment.to.x,
+    segment.to.y,
+  );
+
+  gradient.addColorStop(0, colorAtIntensity(fromColor, fromIntensity));
+  gradient.addColorStop(1, colorAtIntensity(toColor, toIntensity));
+  return gradient;
+}
+
+function fillTrailMeshSegment(
+  context,
+  segment,
+  fromColor,
+  toColor,
+  fromTransverseProfile,
+  toTransverseProfile,
+  transverseBandPositions,
+  colorAtIntensity,
+)
+{
+  const fromProfile = resolveTrailTransverseProfile(fromTransverseProfile);
+  const toProfile = resolveTrailTransverseProfile(toTransverseProfile);
+
+  for (let index = 1; index < transverseBandPositions.length; index++)
+  {
+    const bandStart = transverseBandPositions[index - 1];
+    const bandEnd = transverseBandPositions[index];
+    const bandCenter = (bandStart + bandEnd) * 0.5;
+    const gradient = createTrailLongitudinalGradient(
+      context,
+      segment,
+      fromColor,
+      toColor,
+      evaluateNumber(fromProfile, bandCenter),
+      evaluateNumber(toProfile, bandCenter),
+      colorAtIntensity,
+    );
+    const fromStart = interpolateTrailMeshEdge(
+      segment.fromLeft,
+      segment.fromRight,
+      bandStart,
+    );
+    const fromEnd = interpolateTrailMeshEdge(
+      segment.fromLeft,
+      segment.fromRight,
+      bandEnd,
+    );
+    const toStart = interpolateTrailMeshEdge(
+      segment.toLeft,
+      segment.toRight,
+      bandStart,
+    );
+    const toEnd = interpolateTrailMeshEdge(
+      segment.toLeft,
+      segment.toRight,
+      bandEnd,
+    );
+
+    // CanvasGradient 只能表达一个维度，分带后可同时保留纵向和横向插值。
+    context.beginPath();
+    context.moveTo(fromStart.x, fromStart.y);
+    context.lineTo(toStart.x, toStart.y);
+    context.lineTo(toEnd.x, toEnd.y);
+    context.lineTo(fromEnd.x, fromEnd.y);
+    context.closePath();
+    context.fillStyle = gradient;
+    context.fill();
+  }
+}
+
+function fillTrailMeshJoin(
+  context,
+  join,
+  transverseProfile,
+  colorAtIntensity,
+)
+{
+  const outerMiddle = join.outerArc[
+    Math.floor(join.outerArc.length * 0.5)
+  ];
+  const left = join.innerSide === 'left' ? join.inner : outerMiddle;
+  const right = join.innerSide === 'left' ? outerMiddle : join.inner;
+  const gradient = createTrailCrossSectionGradient(
+    context,
+    left,
+    right,
+    transverseProfile,
+    colorAtIntensity,
+  );
+
+  for (let index = 1; index < join.outerArc.length; index++)
+  {
+    context.beginPath();
+    context.moveTo(join.inner.x, join.inner.y);
+    context.lineTo(
+      join.outerArc[index - 1].x,
+      join.outerArc[index - 1].y,
+    );
+    context.lineTo(join.outerArc[index].x, join.outerArc[index].y);
+    context.closePath();
+    context.fillStyle = gradient;
+    context.fill();
+  }
+}
+
+function fillTrailMeshCap(
+  context,
+  cap,
+  transverseProfile,
+  colorAtIntensity,
+)
+{
+  const left = cap.points[0];
+  const right = cap.position === 'start' ? cap.points[1] : cap.points[2];
+  const gradient = createTrailCrossSectionGradient(
+    context,
+    left,
+    right,
+    transverseProfile,
+    colorAtIntensity,
+  );
+
   context.beginPath();
-  context.moveTo(leftFromX, leftFromY);
-  context.lineTo(to.x + normalX, to.y + normalY);
-  context.lineTo(to.x - normalX, to.y - normalY);
-  context.lineTo(rightFromX, rightFromY);
+  context.moveTo(cap.points[0].x, cap.points[0].y);
+  context.lineTo(cap.points[1].x, cap.points[1].y);
+  context.lineTo(cap.points[2].x, cap.points[2].y);
   context.closePath();
+  // numCapVertices=1 对应三角端帽，端点颜色不能复用段中点。
   context.fillStyle = gradient;
-  context.shadowBlur = 0;
-  context.shadowColor = 'transparent';
   context.fill();
+}
+
+function resolveTrailPointEnergy(
+  trailData,
+  pointIndex,
+  trailCfg,
+  materialIntensity,
+)
+{
+  if (trailData.pointEnergies?.[pointIndex])
+  {
+    return trailData.pointEnergies[pointIndex];
+  }
+
+  return evaluateTrailLinearEnergy(
+    trailData.measurement.distances[pointIndex] /
+      trailData.measurement.totalLength,
+    trailCfg,
+    materialIntensity,
+  );
+}
+
+function resolveTrailPointTransverseProfile(
+  trailData,
+  pointIndex,
+  trailCfg,
+)
+{
+  if (trailData.pointTransverseProfiles?.[pointIndex])
+  {
+    return trailData.pointTransverseProfiles[pointIndex];
+  }
+
+  return evaluateTrailTransverseProfile(
+    trailData.measurement.distances[pointIndex] /
+      trailData.measurement.totalLength,
+    trailCfg,
+  );
 }
 
 function drawTrailLayer(
   context,
   points,
-  measurement,
+  trailData,
   scale,
   opacity,
   trailCfg,
   layer,
-  segmentEnergies = null,
-  segmentTransverseProfiles = null,
+  segmentStart = 1,
+  segmentEnd = points.length - 1,
 )
 {
+  const measurement = trailData.measurement;
+
   if (measurement.totalLength <= 0)
   {
     return;
   }
 
   context.save();
+  context.shadowBlur = 0;
+  context.shadowColor = 'transparent';
+  const width = layer.scaledWidth ?? layer.width * scale;
+  const mesh = getTrailMesh(trailData, points, width, trailCfg);
+  const firstSegment = clamp(
+    Math.floor(segmentStart),
+    1,
+    points.length - 1,
+  );
+  const lastSegment = clamp(
+    Math.floor(segmentEnd),
+    firstSegment,
+    points.length - 1,
+  );
+  const resolveCss = layer.colorAtIntensity ??
+    ((color, intensity) => linearEnergyToAdditiveCss(
+      color,
+      layer.alpha * opacity * intensity,
+    ));
+  const firstPointProfile = resolveTrailPointTransverseProfile(
+    trailData,
+    firstSegment - 1,
+    trailCfg,
+  );
+  const transverseBandPositions = resolveTrailTransverseBandPositions(
+    firstPointProfile,
+  );
 
-  for (let index = 1; index < points.length; index++)
+  for (let index = firstSegment; index <= lastSegment; index++)
   {
-    const progress = (
-      measurement.distances[index - 1] + measurement.distances[index]
-    ) * 0.5 / measurement.totalLength;
-    const color = segmentEnergies?.[index - 1] ??
-      evaluateTrailLinearEnergy(
-        progress,
-        trailCfg,
-        layer.materialIntensity,
-      );
+    const segment = mesh.segments[index];
 
-    fillTexturedTrailSegment(
+    if (!segment)
+    {
+      continue;
+    }
+
+    const fromColor = resolveTrailPointEnergy(
+      trailData,
+      index - 1,
+      trailCfg,
+      layer.materialIntensity,
+    );
+    const toColor = resolveTrailPointEnergy(
+      trailData,
+      index,
+      trailCfg,
+      layer.materialIntensity,
+    );
+    const fromTransverseProfile = resolveTrailPointTransverseProfile(
+      trailData,
+      index - 1,
+      trailCfg,
+    );
+    const toTransverseProfile = resolveTrailPointTransverseProfile(
+      trailData,
+      index,
+      trailCfg,
+    );
+
+    fillTrailMeshSegment(
       context,
-      points[index - 1],
-      points[index],
-      layer.width * scale,
-      segmentTransverseProfiles?.[index - 1] ??
-        evaluateTrailTransverseProfile(progress, trailCfg),
-      (intensity) => linearEnergyToAdditiveCss(
-        color,
-        layer.alpha * opacity * intensity,
-      ),
+      segment,
+      fromColor,
+      toColor,
+      fromTransverseProfile,
+      toTransverseProfile,
+      transverseBandPositions,
+      resolveCss,
+    );
+  }
+
+  for (const join of mesh.joins)
+  {
+    if (
+      join.previousSegmentIndex < firstSegment ||
+      join.nextSegmentIndex > lastSegment
+    )
+    {
+      continue;
+    }
+
+    const color = resolveTrailPointEnergy(
+      trailData,
+      join.pointIndex,
+      trailCfg,
+      layer.materialIntensity,
+    );
+    const transverseProfile = resolveTrailPointTransverseProfile(
+      trailData,
+      join.pointIndex,
+      trailCfg,
+    );
+
+    fillTrailMeshJoin(
+      context,
+      join,
+      transverseProfile,
+      (intensity) => resolveCss(color, intensity),
+    );
+  }
+
+  for (const cap of mesh.caps)
+  {
+    if (
+      cap.segmentIndex < firstSegment ||
+      cap.segmentIndex > lastSegment
+    )
+    {
+      continue;
+    }
+
+    const color = resolveTrailPointEnergy(
+      trailData,
+      cap.pointIndex,
+      trailCfg,
+      layer.materialIntensity,
+    );
+    const transverseProfile = resolveTrailPointTransverseProfile(
+      trailData,
+      cap.pointIndex,
+      trailCfg,
+    );
+
+    fillTrailMeshCap(
+      context,
+      cap,
+      transverseProfile,
+      (intensity) => resolveCss(color, intensity),
     );
   }
 
@@ -2197,7 +2777,7 @@ function drawNativeTrailBloom(
   drawTrailLayer(
     bufferContext,
     points,
-    measurement,
+    trailData,
     scale,
     opacity,
     trailCfg,
@@ -2206,8 +2786,6 @@ function drawNativeTrailBloom(
       alpha: bloomCfg.trailAlpha,
       materialIntensity: bloomCfg.trailEmission,
     },
-    trailData.segmentEnergies,
-    trailData.segmentTransverseProfiles,
   );
 
   context.save();
@@ -2356,14 +2934,12 @@ function drawTrail(
   }
 
   // Unity 只绘制一条 2px HDR 几何带；可见宽度由后续 Bloom 自然扩张。
-  drawTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
+  drawTrailLayer(context, points, trailData, scale, trailOpacity, trailCfg,
     {
       width: trailCfg.width,
       alpha: 1,
       materialIntensity: bloomCfg.trailEmission,
     },
-    trailData.segmentEnergies,
-    trailData.segmentTransverseProfiles,
   );
 }
 
@@ -2394,7 +2970,6 @@ function drawTrailEmission(
     return;
   }
 
-  context.save();
   const width = Math.max(
     0.5,
     trailCfg.geometryWidth * scale * bloomCfg.trailCoverageScale,
@@ -2411,34 +2986,27 @@ function drawTrailEmission(
     points.length - 1,
   );
 
-  for (let index = firstSegment; index <= lastSegment; index++)
-  {
-    const progress = (
-      measurement.distances[index - 1] + measurement.distances[index]
-    ) * 0.5 / measurement.totalLength;
-    const energy = trailData.segmentEnergies[index - 1] ??
-      evaluateTrailLinearEnergy(
-        progress,
-        trailCfg,
-        bloomCfg.trailEmission,
-      );
-
-    fillTexturedTrailSegment(
-      context,
-      points[index - 1],
-      points[index],
-      width,
-      trailData.segmentTransverseProfiles[index - 1] ??
-        evaluateTrailTransverseProfile(progress, trailCfg),
-      (intensity) => linearEnergyToEmissionCss(
-        energy,
-        trailOpacity * intensity,
-        bloomCfg.emissionRange,
-      ),
-    );
-  }
-
-  context.restore();
+  drawTrailLayer(
+    context,
+    points,
+    trailData,
+    scale,
+    1,
+    trailCfg,
+    {
+      scaledWidth: width,
+      alpha: 1,
+      materialIntensity: bloomCfg.trailEmission,
+      colorAtIntensity: (color, intensity) =>
+        linearEnergyToEmissionCss(
+          color,
+          trailOpacity * intensity,
+          bloomCfg.emissionRange,
+        ),
+    },
+    firstSegment,
+    lastSegment,
+  );
 }
 
 function appendTrailWebGLBloom(
