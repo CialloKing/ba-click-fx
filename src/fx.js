@@ -4058,7 +4058,8 @@ export class BAClickFX
     const bloomBackend = legacy ? 'legacy' : this._resolveBloomBackend();
     const useSoftwareBloom = bloomBackend === 'software';
     const useWebGL2Bloom = bloomBackend === 'webgl2';
-    const useNativeBloom = bloomBackend === 'native';
+    // Legacy 本身就是 Canvas 阴影路径，不能因不属于增强后端而关闭圆盘辉光。
+    const useNativeBloom = legacy || bloomBackend === 'native';
 
     this.lastFrameTime = now;
     this._setResolvedBloomBackend(bloomBackend);

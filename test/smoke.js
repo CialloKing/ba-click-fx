@@ -3728,6 +3728,9 @@ const legacyRingBaseIndices = legacyEffect.context.filledPaths.reduce(
   },
   [],
 );
+const legacyDiskFillIndex = legacyEffect.context.filledStyles.findIndex(
+  (style) => style instanceof GradientMock,
+);
 
 assert(
   legacyRingPaths.length >= UNITY_FX_TOUCH.rings.count,
@@ -3736,6 +3739,15 @@ assert(
 assert(
   legacyTrianglePaths.length === UNITY_FX_TOUCH.shards.clickCount,
   'Legacy 点击后的第一帧同时绘制三角碎片',
+);
+assert(
+  legacyDiskFillIndex >= 0 &&
+    legacyEffect.context.fillShadowBlurs[legacyDiskFillIndex] ===
+      legacyEffect.getFxConfig().bloom.diskBlur &&
+    getCssAlpha(
+      legacyEffect.context.fillShadowColors[legacyDiskFillIndex],
+    ) > 0,
+  'Legacy 圆盘继续使用旧版原生辉光，与圆环保持一致',
 );
 assert(
   legacyEffect.getFxConfig().rings.hdrIntensity === 4 &&
