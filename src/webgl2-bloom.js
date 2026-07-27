@@ -657,6 +657,26 @@ export class WebGL2BloomRenderer
     this.stats.bloomPixels = 0;
   }
 
+  _discardPendingErrors()
+  {
+    const gl = this.gl;
+
+    if (!gl || typeof gl.getError !== 'function')
+    {
+      return;
+    }
+
+    // texImage2D 的 OOM 标记会延迟到后续 getError；若不排空，缩小后的
+    // 成功帧会把旧错误误判为新的渲染故障。设上限以兼容异常 Context。
+    for (let count = 0; count < 8; count++)
+    {
+      if (gl.getError() === gl.NO_ERROR)
+      {
+        return;
+      }
+    }
+  }
+
   _allocateTargets()
   {
     if (!this.available || !this.gl || this.width <= 0 || this.height <= 0)
@@ -731,6 +751,7 @@ export class WebGL2BloomRenderer
         this.diffusion,
       );
       this._deleteTargets();
+      this._discardPendingErrors();
       return false;
     }
   }

@@ -500,8 +500,11 @@ function createResizeTestRenderer(maximumSize = 64)
   const targetCreations = [];
   const deletedTextures = new Set();
   const deletedFramebuffers = new Set();
+  const pendingErrors = [];
   const gl =
   {
+    NO_ERROR: 0,
+    OUT_OF_MEMORY: 0x0505,
     deleteTexture(texture)
     {
       if (texture)
@@ -524,6 +527,10 @@ function createResizeTestRenderer(maximumSize = 64)
     },
     deleteVertexArray()
     {
+    },
+    getError()
+    {
+      return pendingErrors.shift() ?? this.NO_ERROR;
     },
   };
   const canvas =
@@ -582,6 +589,7 @@ function createResizeTestRenderer(maximumSize = 64)
 
     if (renderer.sourceWidth === renderer.failureSourceWidth)
     {
+      pendingErrors.push(gl.OUT_OF_MEMORY);
       throw new Error('模拟 RenderTarget 分配失败');
     }
 
@@ -600,6 +608,7 @@ function createResizeTestRenderer(maximumSize = 64)
     targetCreations,
     deletedTextures,
     deletedFramebuffers,
+    pendingErrors,
   };
 }
 
@@ -650,8 +659,9 @@ try
     !resizeRenderer.resize(48, 32, 1, 0.5, 0) &&
       resizeRenderer.available &&
       resizeRenderer.sourceTarget === null &&
-      resizeRenderer.failedResizeSignature !== null,
-    'RenderTarget 创建异常只使当前尺寸回退，并释放半成品目标',
+      resizeRenderer.failedResizeSignature !== null &&
+      resizeHarness.pendingErrors.length === 0,
+    'RenderTarget 创建异常只回退当前尺寸，并排空显存错误状态',
   );
   const allocationFailureCreationCount = resizeHarness.targetCreations.length;
 
