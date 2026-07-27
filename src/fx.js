@@ -2825,7 +2825,6 @@ function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trai
   }
 
   context.save();
-  context.lineJoin = 'round';
   context.lineWidth = Math.max(0.5, layer.width * scale);
   // Legacy 拖尾只靠分层描边模拟辉光；每层清理一次继承状态，
   // 避免固定色层沾上外部阴影，也避免渐变层逐段重复写入 Canvas 状态。
@@ -2834,6 +2833,8 @@ function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trai
 
   if (layer.color)
   {
+    // 渐变分支每次只画两点，不存在 join；仅多点整路径需要圆角连接。
+    context.lineJoin = 'round';
     context.lineCap = 'round';
     context.strokeStyle = colorToCss(layer.color, effectiveAlpha);
     context.beginPath();

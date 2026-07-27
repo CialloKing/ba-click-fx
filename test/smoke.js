@@ -137,6 +137,7 @@ class ContextMock
     this.strokeWidths = [];
     this.strokeStyles = [];
     this.strokeLineCaps = [];
+    this.lineJoinWrites = [];
     this.strokeShadowBlurs = [];
     this.strokeFilters = [];
     this.strokedPaths = [];
@@ -156,6 +157,18 @@ class ContextMock
     this.shadowColor = 'transparent';
     this.filter = 'none';
     this.stateStack = [];
+    this._lineJoin = 'miter';
+  }
+
+  set lineJoin(value)
+  {
+    this._lineJoin = value;
+    this.lineJoinWrites.push(value);
+  }
+
+  get lineJoin()
+  {
+    return this._lineJoin;
   }
 
   setTransform()
@@ -175,6 +188,7 @@ class ContextMock
         shadowBlur: this.shadowBlur,
         shadowColor: this.shadowColor,
         filter: this.filter,
+        lineJoin: this._lineJoin,
       },
     );
   }
@@ -189,6 +203,7 @@ class ContextMock
       this.shadowBlur = state.shadowBlur;
       this.shadowColor = state.shadowColor;
       this.filter = state.filter;
+      this._lineJoin = state.lineJoin;
     }
   }
 
@@ -3786,6 +3801,7 @@ legacyEffect.currentTrailStroke.points = Array.from(
   }),
 );
 legacyEffect.context.strokeCount = 0;
+legacyEffect.context.lineJoinWrites = [];
 legacyEffect.context.strokeShadowBlurs = [];
 legacyEffect.context.strokeStyles = [];
 legacyEffect.context.strokedPaths = [];
@@ -3808,12 +3824,15 @@ assert(
       getCssAlpha(style) > 0) &&
     legacyEffect.context.strokeStyles.at(-1) ===
       'rgba(116, 225, 255, 0.72)' &&
+    JSON.stringify(legacyEffect.context.lineJoinWrites) ===
+      JSON.stringify(['round']) &&
     JSON.stringify(legacyGradientChannels) ===
       JSON.stringify([[0, 101, 220], [0, 143, 233], [0, 238, 255]]) &&
     legacyEffect.context.strokeShadowBlurs.every((blur) => blur === 0),
-  'Legacy 跳过透明外层，并保持渐变段与核心路径的默认颜色和阴影',
+  'Legacy 跳过透明外层，并只为核心整路径写入圆角连接',
 );
 legacyEffect.setFxParam('bloom.trailAlpha', 0.25);
+legacyEffect.context.lineJoinWrites = [];
 legacyEffect.context.strokeStyles = [];
 legacyEffect.context.strokedPaths = [];
 legacyNow = flushFrames(dom, legacyNow, 1);
@@ -3821,8 +3840,10 @@ legacyNow = flushFrames(dom, legacyNow, 1);
 assert(
   legacyEffect.context.strokedPaths.length === 65 &&
     legacyEffect.context.strokedPaths[0].length === 64 &&
-    legacyEffect.context.strokeStyles[0] === 'rgba(0, 88, 224, 0.25)',
-  'Legacy 只跳过透明外层，宿主配置正 Alpha 时仍恢复完整外层描边',
+    legacyEffect.context.strokeStyles[0] === 'rgba(0, 88, 224, 0.25)' &&
+    JSON.stringify(legacyEffect.context.lineJoinWrites) ===
+      JSON.stringify(['round', 'round']),
+  'Legacy 正 Alpha 外层恢复描边，渐变段仍不重复写入圆角连接',
 );
 legacyEffect.setFxParam('bloom.trailAlpha', 0);
 legacyEffect.setThemeColor('#ff6969');
