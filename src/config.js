@@ -11,6 +11,11 @@ const EFFECT_BACKENDS = new Set(['canvas2d', 'webgl2', 'auto']);
 const DEFAULT_BLOOM_BACKEND = 'webgl2';
 const BLOOM_BACKENDS = new Set(['auto', 'software', 'webgl2', 'native']);
 const INPUT_SOURCES = new Set(['dom', 'manual']);
+const DEFAULT_OUTPUT_COMPOSITING = 'scene';
+const OUTPUT_COMPOSITING_MODES = new Set([
+  'scene',
+  'transparent-overlay',
+]);
 
 // FX_Touch 使用独立的 UI 正交投影（高度 2 世界单位），不跟随场景相机。
 export const SIZE_CORRECTION = 1;
@@ -328,6 +333,8 @@ export const CONFIG = Object.freeze(
     inputSource: 'dom',
     clickTimeScale: 1,
     trailTimeScale: 1,
+    // 默认保留 Unity Scene 合成；透明桌面宿主必须显式选择覆盖层输出。
+    outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
     // 纯 WebGL2 仍属实验路径；默认继续使用已发布的 Canvas2D 清晰本体。
     effectBackend: DEFAULT_EFFECT_BACKEND,
     // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
@@ -370,6 +377,19 @@ export function isInputSource(value)
   return INPUT_SOURCES.has(value);
 }
 
+export function isOutputCompositing(value)
+{
+  return OUTPUT_COMPOSITING_MODES.has(value);
+}
+
+export function normalizeOutputCompositing(
+  value,
+  fallback = DEFAULT_OUTPUT_COMPOSITING,
+)
+{
+  return isOutputCompositing(value) ? value : fallback;
+}
+
 export function normalizeTimeScale(value, fallback = 1)
 {
   return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -408,6 +428,10 @@ export function createConfig(overrides = {})
     overrides.trailTimeScale,
     CONFIG.trailTimeScale,
   );
+  const outputCompositing = normalizeOutputCompositing(
+    overrides.outputCompositing,
+    CONFIG.outputCompositing,
+  );
 
   return {
     ...CONFIG,
@@ -416,6 +440,7 @@ export function createConfig(overrides = {})
     effectBackend,
     clickTimeScale,
     trailTimeScale,
+    outputCompositing,
     bloomBackend,
     softwareBloomEnabled: bloomBackend !== 'native',
     isolatedCompositing: typeof overrides.isolatedCompositing === 'boolean'

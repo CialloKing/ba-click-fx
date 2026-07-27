@@ -3,6 +3,8 @@ declare module 'ba-click-fx'
   export type BAClickFXInputFilter = (event: PointerEvent) => boolean;
   export type BAClickFXInputSource = 'dom' | 'manual';
   export type BAClickFXPointerType = 'mouse' | 'touch' | 'pen';
+  export type BAClickFXOutputCompositing =
+    'scene' | 'transparent-overlay';
   export type BAClickFXEffectBackend = 'canvas2d' | 'webgl2' | 'auto';
   export type BAClickFXResolvedEffectBackend =
     Exclude<BAClickFXEffectBackend, 'auto'> | 'pending';
@@ -53,6 +55,8 @@ declare module 'ba-click-fx'
     scale?: number;
     /** 整体透明度，默认 1。 */
     opacity?: number;
+    /** 输出合成：默认 'scene'；透明桌面覆盖层使用 'transparent-overlay'。 */
+    outputCompositing?: BAClickFXOutputCompositing;
     clickEnabled?: boolean;
     trailEnabled?: boolean;
     /** 无需按下鼠标，移动即显示拖尾。默认 false。 */
@@ -91,6 +95,7 @@ declare module 'ba-click-fx'
   {
     scale: number;
     opacity: number;
+    outputCompositing: BAClickFXOutputCompositing;
     clickEnabled: boolean;
     trailEnabled: boolean;
     trailAlways: boolean;

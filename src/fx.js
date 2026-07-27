@@ -12,6 +12,7 @@ import {
   isBloomBackend,
   isEffectBackend,
   isInputSource,
+  isOutputCompositing,
   normalizeBloomBackend,
   normalizeEffectBackend,
   normalizeTimeScale,
@@ -3980,6 +3981,7 @@ export class BAClickFX
    * @param {'dom'|'manual'} [options.inputSource]
    * @param {number} [options.clickTimeScale]
    * @param {number} [options.trailTimeScale]
+   * @param {'scene'|'transparent-overlay'} [options.outputCompositing]
    * @param {'canvas2d'|'webgl2'|'auto'} [options.effectBackend]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
@@ -4026,6 +4028,9 @@ export class BAClickFX
           options.trailTimeScale,
           CONFIG.trailTimeScale,
         ),
+        outputCompositing: isOutputCompositing(options.outputCompositing)
+          ? options.outputCompositing
+          : CONFIG.outputCompositing,
         effectBackend: normalizeEffectBackend(
           options.effectBackend,
           CONFIG.effectBackend,
@@ -6617,6 +6622,11 @@ export class BAClickFX
     if (Number.isFinite(overrides.opacity))
     {
       this.config.opacity = clamp01(overrides.opacity);
+    }
+
+    if (isOutputCompositing(overrides.outputCompositing))
+    {
+      this.config.outputCompositing = overrides.outputCompositing;
     }
 
     if (typeof overrides.clickEnabled === 'boolean')
