@@ -1901,6 +1901,12 @@ function createTrailFrameData(
 {
   // Legacy 只消费累计距离，不为未使用的 Canvas 网格分配段长缓存。
   const measurement = measureTrail(points, materialIntensity !== null);
+
+  if (materialIntensity === null)
+  {
+    return { measurement };
+  }
+
   const pointEnergies = [];
   const pointTransverseProfiles = new Array(points.length);
   const segmentEnergies = [];
@@ -1908,7 +1914,7 @@ function createTrailFrameData(
   const segmentTransverseProfiles = [];
   const textureLongitudinalKeys = trailCfg.textureLongitudinalKeys;
 
-  if (measurement.totalLength <= 0 || materialIntensity === null)
+  if (measurement.totalLength <= 0)
   {
     return {
       measurement,

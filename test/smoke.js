@@ -3668,6 +3668,9 @@ const legacyGradientChannels = [0, 31, 62].map((index) =>
 
 assert(
   legacyEffect.getFxConfig().bloom.trailAlpha === 0 &&
+    JSON.stringify(
+      Object.keys(legacyEffect.currentTrailStroke.trailFrameData),
+    ) === JSON.stringify(['measurement']) &&
     legacyEffect.currentTrailStroke.trailFrameData.measurement
       .segmentLengths === null &&
     legacyEffect.context.strokeCount === 64 &&
@@ -3713,19 +3716,25 @@ assert(
       JSON.stringify(legacyGradientChannels),
   'Legacy 复用局部颜色缓冲时主题色切换不会污染默认渐变',
 );
-legacyEffect.pointerCancel(92);
 assert(
   dom.appendedCanvases.includes(legacyEffect.contrastCanvas) &&
     legacyEffect.contrastCanvas.style.display === 'none',
   'Legacy 初始实例预挂载并隐藏对比层，便于运行时安全切回增强模式',
 );
 legacyEffect.updateConfig({ renderingMode: 'enhanced' });
+legacyNow = flushFrames(dom, legacyNow, 1);
+const restoredEnhancedTrailData = legacyEffect.currentTrailStroke
+  .trailFrameData;
+
 assert(
   legacyEffect.canvas.style.mixBlendMode === 'plus-lighter' &&
     legacyEffect.contrastCanvas.style.display === '' &&
-    legacyEffect.getConfig().resolvedBloomBackend === 'software',
+    legacyEffect.getConfig().resolvedBloomBackend === 'software' &&
+    restoredEnhancedTrailData.pointEnergies.length === 64 &&
+    restoredEnhancedTrailData.segmentEnergies.length === 63,
   'Legacy 实例运行时切回增强模式会恢复加色层与对比层',
 );
+legacyEffect.pointerCancel(92);
 legacyEffect.updateConfig({ renderingMode: 'legacy' });
 assert(
   legacyEffect.canvas.style.mixBlendMode === '' &&
