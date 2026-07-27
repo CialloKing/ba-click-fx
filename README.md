@@ -223,7 +223,7 @@ fx.pointerMove(
 fx.pointerUp(7);
 ```
 
-`pointerDown()` 开始一次点击和拖尾生命周期。`pointerUp()` 与 `pointerCancel()` 都会停止追加并清理活动指针状态，已有拖尾继续按 Unity 的 `0.3s` TrailRenderer 时间自然消失。`boom(x, y)` 保持为仅生成一次点击的便捷方法，不会建立拖尾指针状态。
+`pointerDown()` 开始一次点击和拖尾生命周期。`pointerUp()` 会停止追加并让已有拖尾按 Unity 的 `0.3s` TrailRenderer 时间自然消失；`pointerCancel()` 用于多屏切换、暂停与异常恢复，会同时立即移除当前轨迹。`boom(x, y)` 保持为仅生成一次点击的便捷方法，不会建立拖尾指针状态。
 
 `inputSource` 也可以通过 `updateConfig()` 动态切换。切换时会先取消旧来源的活动指针，再按目标模式注册或移除自动 DOM 指针监听，避免宿主接手尚未结束的轨迹。
 
@@ -265,7 +265,7 @@ fx.setPaused(false);
 | `pointerDown(input)` | 开始一次点击和拖尾生命周期 |
 | `pointerMove(input)` | 为当前逻辑指针追加拖尾采样点 |
 | `pointerUp(pointerId?)` | 正常结束指针，已有拖尾自然消失 |
-| `pointerCancel(pointerId?)` | 取消指针，已有拖尾继续自然消失 |
+| `pointerCancel(pointerId?)` | 强制取消指针并立即移除当前轨迹 |
 | `setPaused(paused, options?)` | 暂停或恢复输入与动画调度，可选在暂停时清屏 |
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 仅清除拖尾和碎片 |

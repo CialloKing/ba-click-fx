@@ -203,7 +203,7 @@ fx.pointerMove(
 fx.pointerUp(7);
 ```
 
-`pointerDown()` starts one click-and-trail lifecycle. Both `pointerUp()` and `pointerCancel()` stop appending samples and clear the active pointer state, while the existing trail decays for the Unity TrailRenderer's `0.3s` duration. `boom(x, y)` remains a click-only convenience method and never creates trail pointer state.
+`pointerDown()` starts one click-and-trail lifecycle. `pointerUp()` stops appending samples and lets the existing trail decay for the Unity TrailRenderer's `0.3s` duration. `pointerCancel()` is for display switches, suspension, and abnormal recovery, so it also removes the current trail immediately. `boom(x, y)` remains a click-only convenience method and never creates trail pointer state.
 
 `inputSource` can also be switched through `updateConfig()`. A switch first cancels the old source's active pointer, then attaches or removes the automatic DOM pointer listeners for the target mode so the host never inherits a half-finished stroke.
 
@@ -245,7 +245,7 @@ Pausing cancels the active pointer, ignores `boom()` and every automatic or manu
 | `pointerDown(input)` | Start one click-and-trail lifecycle |
 | `pointerMove(input)` | Append a trail sample for the current logical pointer |
 | `pointerUp(pointerId?)` | End the pointer normally and let its trail decay |
-| `pointerCancel(pointerId?)` | Cancel the pointer and let its existing trail decay |
+| `pointerCancel(pointerId?)` | Force-cancel the pointer and remove its current trail immediately |
 | `setPaused(paused, options?)` | Pause or resume input and animation scheduling, optionally clearing on pause |
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
