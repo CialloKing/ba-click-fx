@@ -7,6 +7,7 @@
 
 import {
   calculateBloomIntensity,
+  calculateBloomPyramidSettings,
   calculateBloomContribution,
   decodeEmissionMask,
   downsampleGaussian,
@@ -55,6 +56,15 @@ function arraysApproximatelyEqual(left, right, epsilon = 0.000001)
 }
 
 console.log('\nSoftware Bloom 阈值与色彩空间');
+const unityPyramid = calculateBloomPyramidSettings(1950, 1097, 0.5, 7);
+
+assert(
+  unityPyramid.width === 975 &&
+    unityPyramid.height === 548 &&
+    unityPyramid.levelCount === 6 &&
+    approximatelyEqual(unityPyramid.sampleScale, 1.42925835),
+  'Bloom 金字塔匹配 Unity 诊断帧的尺寸、层数与 SampleScale',
+);
 assert(
   approximatelyEqual(calculateBloomIntensity(1.7), 0.1250584847) &&
     calculateBloomIntensity(0) === 0 &&

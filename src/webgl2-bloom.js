@@ -1,8 +1,10 @@
-import { calculateBloomIntensity } from './software-bloom.js';
+import {
+  calculateBloomIntensity,
+  calculateBloomPyramidSettings,
+} from './software-bloom.js';
 
 const COMPONENTS_PER_VERTEX = 5;
 const INITIAL_VERTEX_CAPACITY = 4096;
-const MAX_PYRAMID_LEVELS = 16;
 const DISK_BLOOM_RADIAL_STOPS = Object.freeze(
   [
     [0, 1],
@@ -236,32 +238,6 @@ function gammaToLinear(value)
   }
 
   return Math.pow((gamma + 0.055) / 1.055, 2.4);
-}
-
-function calculatePyramidSettings(
-  displayWidth,
-  displayHeight,
-  resolutionScale,
-  diffusion,
-)
-{
-  const safeScale = clamp(resolutionScale, 0.1, 0.75);
-  const maxSize = Math.max(
-    1,
-    Math.floor(displayWidth * safeScale),
-    Math.floor(displayHeight * safeScale),
-  );
-  const logIterations = Math.log2(maxSize) +
-    Math.min(Math.max(0, diffusion), 10) - 10;
-
-  return {
-    levelCount: clamp(
-      Math.floor(logIterations),
-      1,
-      MAX_PYRAMID_LEVELS,
-    ),
-    sampleScale: 0.5 + logIterations - Math.floor(logIterations),
-  };
 }
 
 function compileShader(gl, type, source)
@@ -671,7 +647,7 @@ export class WebGL2BloomRenderer
         this.sourceHeight,
       );
 
-      const pyramid = calculatePyramidSettings(
+      const pyramid = calculateBloomPyramidSettings(
         this.sourceWidth,
         this.sourceHeight,
         this.resolutionScale,
