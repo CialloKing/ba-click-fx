@@ -23,6 +23,7 @@ const LIGHT_BACKGROUND_CONTRAST_COLOR = [76, 255, 255];
 const BLOOM_BACKEND_CHANGE_EVENT = 'baclickfxbackendchange';
 const MAX_SCALED_TIME_DELTA_MS = Number.MAX_SAFE_INTEGER;
 const MAX_TRAIL_INNER_MITER_RATIO = 4;
+const MIN_TRAIL_SEGMENT_LENGTH = 0.000001;
 
 // ── 共享 HSL 转换 ──────────────────────────────────────────────────────
 function rgbToHsl(r, g, b)
@@ -2116,7 +2117,7 @@ function createTrailMesh(
     // 弧长测量已计算同一段长度；复用原值可保持累计距离与网格完全一致。
     const length = segmentLengths?.[index] ?? Math.hypot(deltaX, deltaY);
 
-    if (length <= 0.000001)
+    if (length <= MIN_TRAIL_SEGMENT_LENGTH)
     {
       continue;
     }
@@ -2609,6 +2610,72 @@ function drawTrailLayer(
   context.restore();
 }
 
+function hasPositiveTrailEnergy(energy)
+{
+  return Array.isArray(energy) && energy.some((channel) => channel > 0);
+}
+
+function hasDrawableNativeTrailEnergy(trailData, trailCfg)
+{
+  const segmentLengths = trailData.measurement.segmentLengths;
+  const segmentEnergies = trailData.segmentEnergies;
+
+  if (
+    !segmentLengths ||
+    !Array.isArray(segmentEnergies) ||
+    segmentLengths.length !== segmentEnergies.length + 1
+  )
+  {
+    // 缓存不完整时无法证明透明，继续绘制以兼容外部传入的帧数据。
+    return true;
+  }
+
+  let startCapPointIndex = null;
+  let endCapPointIndex = null;
+
+  for (let index = 1; index < segmentLengths.length; index++)
+  {
+    if (segmentLengths[index] <= MIN_TRAIL_SEGMENT_LENGTH)
+    {
+      continue;
+    }
+
+    if (startCapPointIndex === null)
+    {
+      startCapPointIndex = index - 1;
+    }
+
+    endCapPointIndex = index;
+    const energy = segmentEnergies[index - 1];
+
+    if (!Array.isArray(energy) || hasPositiveTrailEnergy(energy))
+    {
+      return true;
+    }
+  }
+
+  if (
+    startCapPointIndex === null ||
+    !(Math.floor(trailCfg.numCapVertices ?? 0) > 0)
+  )
+  {
+    return false;
+  }
+
+  const startCapEnergy = trailData.pointEnergies?.[startCapPointIndex];
+  const endCapEnergy = trailData.pointEnergies?.[endCapPointIndex];
+
+  if (!Array.isArray(startCapEnergy) || !Array.isArray(endCapEnergy))
+  {
+    // 端帽可按需求值；缺少缓存时必须保守保留 Native 绘制。
+    return true;
+  }
+
+  // 端帽绑定到首尾真实网格段，退化短段对应的全局端点不会参与绘制。
+  return hasPositiveTrailEnergy(startCapEnergy) ||
+    hasPositiveTrailEnergy(endCapEnergy);
+}
+
 /**
  * 将按真实弧长着色的发射带绘入局部缓冲，再整体模糊一次。
  * 不能使用首尾弦线性渐变：回环轨迹会把暗尾投影到高亮区，产生异常光晕。
@@ -2628,8 +2695,12 @@ function drawNativeTrailBloom(
 
   if (
     measurement.totalLength <= 0 ||
+    opacity <= 0 ||
+    bloomCfg.trailAlpha <= 0 ||
+    bloomCfg.trailEmission <= 0 ||
     typeof context.filter !== 'string' ||
-    !surface?.context
+    !surface?.context ||
+    !hasDrawableNativeTrailEnergy(trailData, trailCfg)
   )
   {
     return;

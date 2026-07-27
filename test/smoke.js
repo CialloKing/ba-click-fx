@@ -3191,6 +3191,111 @@ function getPolygonArea(points)
   return Math.abs(doubleArea) * 0.5;
 }
 
+const nativeNoOutputPoints =
+[
+  { x: 100, y: 100 },
+  { x: 220, y: 100 },
+];
+const savedNativeOpacity = geometryEffect.config.opacity;
+const savedNativeTrailAlpha = geometryEffect.fxConfig.bloom.trailAlpha;
+const savedNativeTrailEmission = geometryEffect.fxConfig.bloom.trailEmission;
+
+geometryEffect.updateConfig({ opacity: 0 });
+const zeroOpacityGeometry = renderCanvasTrailGeometry(nativeNoOutputPoints);
+geometryEffect.updateConfig({ opacity: savedNativeOpacity });
+geometryEffect.setFxParam('bloom.trailAlpha', 0);
+const zeroTrailAlphaGeometry = renderCanvasTrailGeometry(nativeNoOutputPoints);
+geometryEffect.setFxParam('bloom.trailAlpha', savedNativeTrailAlpha);
+geometryEffect.setFxParam('bloom.trailEmission', 0);
+const zeroTrailEmissionGeometry = renderCanvasTrailGeometry(nativeNoOutputPoints);
+geometryEffect.setFxParam('bloom.trailEmission', savedNativeTrailEmission);
+const nativeNoOutputGeometries =
+[
+  zeroOpacityGeometry,
+  zeroTrailAlphaGeometry,
+  zeroTrailEmissionGeometry,
+];
+
+assert(
+  nativeNoOutputGeometries.every((geometry) =>
+    geometry.paths.length === 3 &&
+      geometry.gradients.length === 3 &&
+      geometry.nativePaths.length === 0 &&
+      geometry.nativeGradients.length === 0 &&
+      geometry.nativeClearRects.length === 0 &&
+      geometry.nativeBlurDraws.length === 0),
+  'Native 全局能量为零时跳过离屏层，清晰拖尾仍保持原有路径预算',
+);
+
+const savedLongitudinalKeys =
+  geometryEffect.fxConfig.trail.textureLongitudinalKeys;
+const savedTrailGradient = geometryEffect.fxConfig.trail.gradient;
+const savedNumCapVertices = geometryEffect.fxConfig.trail.numCapVertices;
+
+geometryEffect.fxConfig.trail.textureLongitudinalKeys =
+[
+  [0, 0],
+  [0.999999, 0],
+  [1, 1],
+];
+const endCapOnlyGeometry = renderCanvasTrailGeometry(nativeNoOutputPoints);
+const endCapGradient = endCapOnlyGeometry.nativeGradients.at(-1)?.gradient;
+
+assert(
+  endCapOnlyGeometry.nativeBlurDraws.length === 1 &&
+    endCapOnlyGeometry.nativePaths.length === 3 &&
+    endCapGradient?.stops.some(([, color]) =>
+      getCssPremultipliedEnergy(color) > 0),
+  'segment 中点透明但 end cap 可见时继续生成 Native 模糊',
+);
+
+geometryEffect.setFxParam('trail.numCapVertices', 0);
+const caplessTransparentGeometry = renderCanvasTrailGeometry(
+  nativeNoOutputPoints,
+);
+
+assert(
+  caplessTransparentGeometry.paths.length === 1 &&
+    caplessTransparentGeometry.nativePaths.length === 0 &&
+    caplessTransparentGeometry.nativeGradients.length === 0 &&
+    caplessTransparentGeometry.nativeClearRects.length === 0 &&
+    caplessTransparentGeometry.nativeBlurDraws.length === 0,
+  '无端帽且所有实际 segment 透明时跳过 Native 离屏层',
+);
+
+geometryEffect.setFxParam('trail.numCapVertices', savedNumCapVertices);
+geometryEffect.fxConfig.trail.gradient =
+[
+  [0, [255, 255, 255]],
+  [1, [255, 255, 255]],
+];
+geometryEffect.fxConfig.trail.textureLongitudinalKeys =
+[
+  [0, 1],
+  [0.0000000001, 0],
+  [0.9999999999, 0],
+  [1, 1],
+];
+const skippedEndpointGeometry = renderCanvasTrailGeometry(
+  [
+    { x: 100, y: 100 },
+    { x: 100.0000005, y: 100 },
+    { x: 220, y: 100 },
+    { x: 220.0000005, y: 100 },
+  ],
+);
+
+assert(
+  skippedEndpointGeometry.paths.length === 3 &&
+    skippedEndpointGeometry.nativePaths.length === 0 &&
+    skippedEndpointGeometry.nativeClearRects.length === 0 &&
+    skippedEndpointGeometry.nativeBlurDraws.length === 0,
+  'Native 按实际网格端帽索引忽略退化首尾段的孤立能量',
+);
+
+geometryEffect.fxConfig.trail.textureLongitudinalKeys = savedLongitudinalKeys;
+geometryEffect.fxConfig.trail.gradient = savedTrailGradient;
+
 const rightAngleGeometry = renderCanvasTrailGeometry(
   [
     { x: 100, y: 100 },
