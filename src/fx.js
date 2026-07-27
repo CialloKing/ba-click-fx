@@ -10,8 +10,10 @@ import {
   UNITY_FX_TOUCH,
   createConfig,
   isBloomBackend,
+  isEffectBackend,
   isInputSource,
   normalizeBloomBackend,
+  normalizeEffectBackend,
   normalizeTimeScale,
   SIZE_CORRECTION,
 } from './config.js';
@@ -25,6 +27,7 @@ import { sampleRing3Alpha } from './ring3-alpha.js';
 const TAU = Math.PI * 2;
 const LIGHT_BACKGROUND_CONTRAST_COLOR = [76, 255, 255];
 const BLOOM_BACKEND_CHANGE_EVENT = 'baclickfxbackendchange';
+const EFFECT_BACKEND_CHANGE_EVENT = 'baclickfxeffectbackendchange';
 const MAX_SCALED_TIME_DELTA_MS = Number.MAX_SAFE_INTEGER;
 const MAX_TRAIL_INNER_MITER_RATIO = 4;
 const MIN_TRAIL_SEGMENT_LENGTH = 0.000001;
@@ -3506,6 +3509,7 @@ export class BAClickFX
    * @param {'dom'|'manual'} [options.inputSource]
    * @param {number} [options.clickTimeScale]
    * @param {number} [options.trailTimeScale]
+   * @param {'canvas2d'|'webgl2'|'auto'} [options.effectBackend]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
    * @param {boolean} [options.softwareBloomEnabled]
@@ -3550,6 +3554,10 @@ export class BAClickFX
         trailTimeScale: normalizeTimeScale(
           options.trailTimeScale,
           CONFIG.trailTimeScale,
+        ),
+        effectBackend: normalizeEffectBackend(
+          options.effectBackend,
+          CONFIG.effectBackend,
         ),
         renderingMode: options.renderingMode === 'legacy' ? 'legacy' : CONFIG.renderingMode,
         bloomBackend,
@@ -3647,6 +3655,8 @@ export class BAClickFX
     // 内部 Canvas 仅承担发射遮罩和 ImageData 暂存，不会插入 DOM。
     this.bloomRenderer = new SoftwareBloomRenderer(() => createCanvas());
     this.bloomRenderers = [this.bloomRenderer];
+    // 第一阶段只恢复后端契约；Scene 接入前必须诚实报告 Canvas2D 回退。
+    this.resolvedEffectBackend = 'canvas2d';
     this.resolvedBloomBackend = this._getRequestedBloomBackendState();
     this.softwareBloomFrameStats = {
       regionCount: 0,
@@ -4559,6 +4569,44 @@ export class BAClickFX
 
     // WebGL2 Canvas 延迟到首个渲染帧创建，构造完成时不能伪报某个实际后端。
     return 'pending';
+  }
+
+  _setResolvedEffectBackend(backend)
+  {
+    if (this.resolvedEffectBackend === backend)
+    {
+      return;
+    }
+
+    this.resolvedEffectBackend = backend;
+
+    if (
+      typeof CustomEvent !== 'function' ||
+      typeof this.canvas?.dispatchEvent !== 'function'
+    )
+    {
+      return;
+    }
+
+    try
+    {
+      this.canvas.dispatchEvent(
+        new CustomEvent(
+          EFFECT_BACKEND_CHANGE_EVENT,
+          {
+            detail:
+            {
+              requestedEffectBackend: this.config.effectBackend,
+              resolvedEffectBackend: backend,
+            },
+          },
+        ),
+      );
+    }
+    catch
+    {
+      // 状态通知不能中断渲染；旧 DOM 环境仍可通过 getConfig() 查询。
+    }
   }
 
   _setResolvedBloomBackend(backend)
@@ -5603,6 +5651,7 @@ export class BAClickFX
       return;
     }
 
+    const previousEffectBackend = this.config.effectBackend;
     const previousRenderingMode = this.config.renderingMode;
     const previousBloomBackend = this.config.bloomBackend;
 
@@ -5679,6 +5728,11 @@ export class BAClickFX
       this.config.trailAlways = overrides.trailAlways;
     }
 
+    if (isEffectBackend(overrides.effectBackend))
+    {
+      this.config.effectBackend = overrides.effectBackend;
+    }
+
     if (overrides.renderingMode === 'enhanced' || overrides.renderingMode === 'legacy')
     {
       const wasLegacy = this.config.renderingMode === 'legacy';
@@ -5737,10 +5791,13 @@ export class BAClickFX
     }
 
     if (
+      previousEffectBackend !== this.config.effectBackend ||
       previousRenderingMode !== this.config.renderingMode ||
       previousBloomBackend !== this.config.bloomBackend
     )
     {
+      // Scene 尚未接管渲染时，webgl2/auto 请求明确回退而不是永久 pending。
+      this._setResolvedEffectBackend('canvas2d');
       this._setResolvedBloomBackend(this._getRequestedBloomBackendState());
     }
 
@@ -5878,6 +5935,7 @@ export class BAClickFX
   {
     return {
       ...this.config,
+      resolvedEffectBackend: this.resolvedEffectBackend,
       resolvedBloomBackend: this.resolvedBloomBackend,
       unity: structuredClone(UNITY_FX_TOUCH),
     };
@@ -5951,6 +6009,7 @@ export class BAClickFX
 export {
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
+  EFFECT_BACKEND_CHANGE_EVENT,
   UNITY_FX_TOUCH,
   createConfig,
   SIZE_CORRECTION,
