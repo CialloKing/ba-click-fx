@@ -1892,7 +1892,7 @@ function createTrailFrameData(
 {
   const measurement = measureTrail(points);
   const pointEnergies = [];
-  const pointTransverseProfiles = [];
+  const pointTransverseProfiles = new Array(points.length);
   const segmentEnergies = [];
   const segmentMaximumEnergies = [];
   const segmentTransverseProfiles = [];
@@ -1907,6 +1907,7 @@ function createTrailFrameData(
       segmentEnergies,
       segmentMaximumEnergies,
       segmentTransverseProfiles,
+      textureLongitudinalKeys,
     };
   }
 
@@ -1919,13 +1920,6 @@ function createTrailFrameData(
         progress,
         trailCfg,
         materialIntensity,
-        textureLongitudinalKeys,
-      ),
-    );
-    pointTransverseProfiles.push(
-      evaluateTrailTransverseProfile(
-        progress,
-        trailCfg,
         textureLongitudinalKeys,
       ),
     );
@@ -1968,6 +1962,7 @@ function createTrailFrameData(
     segmentEnergies,
     segmentMaximumEnergies,
     segmentTransverseProfiles,
+    textureLongitudinalKeys,
   };
 }
 
@@ -2461,16 +2456,27 @@ function resolveTrailPointTransverseProfile(
   trailCfg,
 )
 {
-  if (trailData.pointTransverseProfiles?.[pointIndex])
+  const profiles = trailData.pointTransverseProfiles;
+
+  if (profiles?.[pointIndex])
   {
-    return trailData.pointTransverseProfiles[pointIndex];
+    return profiles[pointIndex];
   }
 
-  return evaluateTrailTransverseProfile(
+  const profile = evaluateTrailTransverseProfile(
     trailData.measurement.distances[pointIndex] /
       trailData.measurement.totalLength,
     trailCfg,
+    trailData.textureLongitudinalKeys,
   );
+
+  // 端帽可能被 Native 与清晰层重复使用；按实际点索引只求值一次。
+  if (profiles)
+  {
+    profiles[pointIndex] = profile;
+  }
+
+  return profile;
 }
 
 function drawTrailLayer(

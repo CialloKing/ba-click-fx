@@ -3366,12 +3366,60 @@ const budgetPoints = Array.from(
     y: 200 + index % 2 * 8,
   }),
 );
-const budgetGeometry = renderCanvasTrailGeometry(budgetPoints);
+const transverseProfileDescriptor = Object.getOwnPropertyDescriptor(
+  geometryEffect.fxConfig.trail,
+  'textureTransverseProfileKeys',
+);
+let transverseProfileEvaluationCount = 0;
+let budgetGeometry;
+
+Object.defineProperty(
+  geometryEffect.fxConfig.trail,
+  'textureTransverseProfileKeys',
+  {
+    configurable: true,
+    enumerable: transverseProfileDescriptor.enumerable,
+    get()
+    {
+      transverseProfileEvaluationCount++;
+      return transverseProfileDescriptor.value;
+    },
+  },
+);
+
+try
+{
+  budgetGeometry = renderCanvasTrailGeometry(budgetPoints);
+}
+finally
+{
+  Object.defineProperty(
+    geometryEffect.fxConfig.trail,
+    'textureTransverseProfileKeys',
+    transverseProfileDescriptor,
+  );
+}
+
+const budgetPointProfileIndices = [];
+
+geometryEffect.currentTrailStroke.trailFrameData.pointTransverseProfiles
+  .forEach((profile, index) =>
+  {
+    if (profile)
+    {
+      budgetPointProfileIndices.push(index);
+    }
+  });
 const trailLayerDrawBudget = budgetPointCount + 1;
 const nativeSkippedBudgetSegmentCount = 16;
 const nativeTrailDrawBudget = trailLayerDrawBudget -
   nativeSkippedBudgetSegmentCount - 1;
 
+assert(
+  transverseProfileEvaluationCount === budgetPointCount + 1 &&
+    JSON.stringify(budgetPointProfileIndices) === JSON.stringify([0, 63]),
+  '64 点轨迹只计算 63 个段横截面和两个实际端帽横截面',
+);
 assert(
   budgetGeometry.segmentPaths.length === budgetPointCount - 1 &&
     budgetGeometry.quads.length === 1 &&
@@ -3459,6 +3507,34 @@ assert(
         y - budgetBlurSupport >= budgetOriginY &&
         y + budgetBlurSupport <= budgetOriginY + budgetRegionHeight),
   'Native 只按可见轨迹边界清理缓冲，并为折点和整体模糊保留完整支撑区',
+);
+const repeatedEndpointGeometry = renderCanvasTrailGeometry(
+  [
+    { x: 100, y: 100 },
+    { x: 100, y: 100 },
+    { x: 160, y: 100 },
+    { x: 220, y: 100 },
+    { x: 220, y: 100 },
+  ],
+);
+const repeatedEndpointProfileIndices = [];
+
+geometryEffect.currentTrailStroke.trailFrameData.pointTransverseProfiles
+  .forEach((profile, index) =>
+  {
+    if (profile)
+    {
+      repeatedEndpointProfileIndices.push(index);
+    }
+  });
+
+assert(
+  JSON.stringify(repeatedEndpointProfileIndices) ===
+      JSON.stringify([1, 3]) &&
+    repeatedEndpointGeometry.paths.length === 4 &&
+    JSON.stringify(repeatedEndpointGeometry.paths) ===
+      JSON.stringify(repeatedEndpointGeometry.nativePaths),
+  '重复首尾点按真实端帽索引缓存横截面，并保持 Native 与清晰路径一致',
 );
 geometryEffect.pointerCancel(91);
 geometryEffect.destroy();
