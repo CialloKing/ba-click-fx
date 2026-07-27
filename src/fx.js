@@ -3360,11 +3360,11 @@ export class BAClickFX
       return false;
     }
 
-    this._releaseActivePointer();
+    this._releaseActivePointer(false);
     return true;
   }
 
-  /** 取消指针；与游戏的 TouchPhase.Canceled 一样保留拖尾自然消失。 */
+  /** 强制结束异常指针状态，并立即移除当前轨迹。 */
   pointerCancel(pointerId = 1)
   {
     if (
@@ -3378,7 +3378,7 @@ export class BAClickFX
       return false;
     }
 
-    this._releaseActivePointer();
+    this._releaseActivePointer(true);
     return true;
   }
 
@@ -3386,17 +3386,18 @@ export class BAClickFX
   {
     if (this.activePointerId !== null)
     {
-      this._releaseActivePointer();
+      this._releaseActivePointer(true);
     }
   }
 
-  _releaseActivePointer()
+  _releaseActivePointer(discardCurrentStroke = false)
   {
     if (this.currentTrailStroke)
     {
+      // 正常松开保留顶点自然衰减；异常取消必须丢弃当前 stroke。
       this.currentTrailStroke.active = false;
 
-      if (this.currentTrailStroke.points.length < 2)
+      if (discardCurrentStroke || this.currentTrailStroke.points.length < 2)
       {
         // 单点不能形成 TrailRenderer 几何，保留它只会让 RAF 空转。
         const strokeIndex = this.trailStrokes.indexOf(this.currentTrailStroke);
