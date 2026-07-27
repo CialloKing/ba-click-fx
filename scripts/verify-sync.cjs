@@ -32,9 +32,9 @@ const clickGlowControl = indexHtml.match(
 verify(
   /min="0"/.test(clickGlowControl) &&
     /max="4"/.test(clickGlowControl) &&
-    /step="0\.05"/.test(clickGlowControl) &&
+    /step="0\.01"/.test(clickGlowControl) &&
     /value="1"/.test(clickGlowControl),
-  '展示页提供默认值为 1 的点击辉光强度滑块',
+  '展示页提供默认值为 1 的精细点击辉光强度滑块',
 );
 verify(
   /bindRange\('ctrlClickGlow', 'outClickGlow',[\s\S]*?setFxParam\('bloom\.clickEmissionScale', v\)\)/.test(mainJs),
@@ -44,6 +44,17 @@ verify(
   /\['ctrlClickGlow', 'outClickGlow', 1, false\]/.test(mainJs) &&
     /\['ctrlClickGlow', 'bloom\.clickEmissionScale'\]/.test(mainJs),
   '点击辉光滑块支持重置与本地设置恢复',
+);
+const ringCountControl = indexHtml.match(
+  /<input\s+[^>]*id="ctrlRingCount"[^>]*>/,
+)?.[0] ?? '';
+
+verify(
+  /min="0"/.test(ringCountControl) &&
+    /max="6"/.test(ringCountControl) &&
+    /step="1"/.test(ringCountControl) &&
+    /value="2"/.test(ringCountControl),
+  '圆环数量滑块允许使用 0 关闭圆环，并保持整数步进',
 );
 verify(/inputFilter/.test(mainJs), '演示页把信息卡映射为 Unity UGUI 输入过滤区');
 const inputSourceSelect = indexHtml.match(
