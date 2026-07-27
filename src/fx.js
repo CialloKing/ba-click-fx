@@ -1548,11 +1548,11 @@ function drawDisk(
 
   for (const [position, energy] of diskCfg.textureRadialEnergyKeys)
   {
-    // AlphaBlendAdd 的 RGB 不乘粒子 Alpha；Legacy 也必须采样 Circle_01，
-    // 生命周期 Alpha 只影响目标颜色衰减和原生辉光近似。
+    // Blend One OneMinusSrcAlpha 要求源 RGB 预乘粒子 Alpha；Circle_01
+    // 的 R 通道仍同时决定 RGB 能量和覆盖率，不能退回实心圆盘近似。
     gradient.addColorStop(
       position,
-      linearEnergyToAdditiveCss(materialEnergy, opacity * energy),
+      linearEnergyToAdditiveCss(materialEnergy, alpha * energy),
     );
   }
 
@@ -1591,6 +1591,10 @@ function drawDiskEmission(
     progress,
     bloomCfg.diskEmission,
   );
+  const particleAlpha = evaluateNumber(
+    diskCfg.alphaKeys,
+    progress,
+  ) * opacity;
   const gradient = context.createRadialGradient(
     wave.x,
     wave.y,
@@ -1606,7 +1610,7 @@ function drawDiskEmission(
       position,
       linearEnergyToEmissionCss(
         materialEnergy,
-        opacity * bloomCfg.diskEmissionAlpha * energy,
+        particleAlpha * bloomCfg.diskEmissionAlpha * energy,
         bloomCfg.emissionRange,
         bloomCfg.clickEmissionScale,
       ),
@@ -2032,7 +2036,7 @@ class ClickWave
     const particleAlpha = evaluateNumber(
       diskCfg.alphaKeys,
       diskProgress,
-    ) * opacity;
+    );
 
     renderer.addAlphaBlendDisk(
       this.x,
@@ -2164,7 +2168,11 @@ class ClickWave
         diskCfg.sizeKeys,
         diskProgress,
       ) * scale;
-      const alpha = opacity * bloomCfg.diskEmissionAlpha *
+      const particleAlpha = evaluateNumber(
+        diskCfg.alphaKeys,
+        diskProgress,
+      ) * opacity;
+      const alpha = particleAlpha * bloomCfg.diskEmissionAlpha *
         bloomCfg.clickEmissionScale;
       const materialEnergy = evaluateSrgbGradientEnergy(
         diskCfg.colorKeys,
