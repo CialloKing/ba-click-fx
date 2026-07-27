@@ -657,7 +657,8 @@ const middleTransverseProfile = transverseProfileKeys.find(
   ([position]) => Math.abs(position - 0.624266) < 0.000001,
 );
 const transverseStopCount = transverseProfileKeys[2][1].length * 2 - 1;
-const canvasTrailBandCount = transverseStopCount - 1;
+const joinedTrailPathLength =
+  UNITY_FX_TOUCH.trail.numCornerVertices + 5;
 
 assert(
   transverseProfileKeys.length === 14 &&
@@ -1079,6 +1080,7 @@ assert(
 
 effect.context.strokeCount = 0;
 effect.context.filledPaths = [];
+effect.context.filledStyles = [];
 effect.context.strokeWidths = [];
 effect.context.strokeStyles = [];
 effect.context.strokeLineCaps = [];
@@ -1331,30 +1333,27 @@ assert(
 );
 const trailSegmentCount = effect.trailStrokes[0].points.length - 1;
 const cachedTrailFrameData = effect.trailStrokes[0].trailFrameData;
-const visibleTrailGradients = effect.context.linearGradients.filter(
-  ({ gradient }) => gradient.stops.length === 2,
+const visibleTrailGradients = effect.context.linearGradients.slice(
+  0,
+  trailSegmentCount,
 );
-const visibleTrailQuads = effect.context.filledPaths.filter((path) =>
-  path.length === 4);
-const visibleTrailGradientGroups = Array.from(
-  { length: trailSegmentCount },
-  (_, index) => visibleTrailGradients.slice(
-    index * canvasTrailBandCount,
-    (index + 1) * canvasTrailBandCount,
-  ),
+const visibleTrailPaths = effect.context.filledPaths.slice(
+  0,
+  trailSegmentCount,
 );
-const bloomTrailGradients = effect.bloomRenderer.sourceContext
-  .linearGradients.filter(({ gradient }) => gradient.stops.length === 2);
-const firstVisibleBand = visibleTrailQuads[0];
-const lastFirstSegmentBand =
-  visibleTrailQuads[canvasTrailBandCount - 1];
+const bloomTrailGradients =
+  effect.bloomRenderer.sourceContext.linearGradients;
+const firstVisibleSegment = visibleTrailPaths[0];
 const measuredVisibleTrailWidth = Math.hypot(
-  lastFirstSegmentBand[3][0] - firstVisibleBand[0][0],
-  lastFirstSegmentBand[3][1] - firstVisibleBand[0][1],
+  firstVisibleSegment.at(-1)[0] - firstVisibleSegment[0][0],
+  firstVisibleSegment.at(-1)[1] - firstVisibleSegment[0][1],
 );
 
 assert(
-  visibleTrailQuads.length === trailSegmentCount * canvasTrailBandCount &&
+  visibleTrailPaths.length === trailSegmentCount &&
+    visibleTrailPaths.every((path) =>
+      path.length === 4 || path.length === joinedTrailPathLength) &&
+    visibleTrailGradients.length === trailSegmentCount &&
     Math.abs(
       measuredVisibleTrailWidth -
         UNITY_FX_TOUCH.trail.width * SIZE_CORRECTION,
@@ -1362,52 +1361,34 @@ assert(
   '可见拖尾横截面保持 Unity 的 2.7px 几何带宽',
 );
 assert(
-  visibleTrailGradientGroups[0].every(({ gradient }) =>
-    gradient.stops[0][1] === 'rgba(0, 0, 0, 0)') &&
-    visibleTrailGradientGroups.some((group) =>
-      group.some(({ gradient }) =>
-        gradient.stops[0][1] !== gradient.stops[1][1])),
-  '拖尾尾端透明，并沿每段纵向连续插值',
+  visibleTrailGradients[0].gradient.stops.every(
+    ([, color]) => color === 'rgba(0, 0, 0, 0)',
+  ),
+  '拖尾零纹理能量严格编码为透明，不会在浅色背景形成黑段',
 );
-let visibleTrailEndpointsContinuous = true;
-
-for (let index = 1; index < visibleTrailGradientGroups.length; index++)
-{
-  for (let band = 0; band < canvasTrailBandCount; band++)
-  {
-    visibleTrailEndpointsContinuous &&=
-      visibleTrailGradientGroups[index - 1][band].gradient.stops[1][1] ===
-        visibleTrailGradientGroups[index][band].gradient.stops[0][1];
-  }
-}
+const firstVisiblePeak = visibleTrailGradients[0].gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
+  0,
+);
+const lastVisiblePeak = visibleTrailGradients.at(-1).gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
+  0,
+);
 
 assert(
-  visibleTrailEndpointsContinuous,
-  '相邻 Canvas 拖尾段共享折点颜色',
-);
-const hasVisibleTransverseVariation = visibleTrailGradientGroups.some(
-  (group) =>
-  {
-    for (let endpoint = 0; endpoint <= 1; endpoint++)
-    {
-      const colors = group.map(
-        ({ gradient }) => gradient.stops[endpoint][1],
-      );
-
-      if (new Set(colors).size > 1)
-      {
-        return true;
-      }
-    }
-
-    return false;
-  },
+  lastVisiblePeak > firstVisiblePeak + 100,
+  '可见拖尾按原 Gradient 与 Stretch 纹理由尾部向头部增强',
 );
 assert(
-  visibleTrailGradients.length ===
-      trailSegmentCount * canvasTrailBandCount &&
-    hasVisibleTransverseVariation,
-  'Canvas 拖尾用 16 条窄带保留二维纹理横截面',
+  visibleTrailGradients.every(({ gradient }) =>
+    gradient.stops.length === transverseStopCount) &&
+    getCssPremultipliedEnergy(
+      visibleTrailGradients.at(-1).gradient.stops[8][1],
+    ) >
+      getCssPremultipliedEnergy(
+        visibleTrailGradients.at(-1).gradient.stops[0][1],
+      ),
+  '拖尾每一段都以一次横截面渐变从透明边缘羽化到明亮中心',
 );
 assert(
   cachedTrailFrameData?.pointEnergies.length === trailSegmentCount + 1 &&
@@ -1433,30 +1414,25 @@ const expectedBloomSegmentCount = cachedTrailFrameData
       effect.fxConfig.bloom.trailEmissionAlpha >
       0.5 * Math.max(1, effect.fxConfig.bloom.emissionRange) / 255)
   .length;
-assert(
-  bloomTrailGradients.length ===
-      expectedBloomSegmentCount * canvasTrailBandCount &&
-    expectedBloomSegmentCount < trailSegmentCount,
-  'Bloom 发射沿用既有量化裁剪并复用分带几何',
+const bloomTrailSegmentGradients = bloomTrailGradients.slice(
+  0,
+  expectedBloomSegmentCount,
 );
-const firstBloomPeak = bloomTrailGradients
-  .slice(0, canvasTrailBandCount)
-  .reduce(
-    (maximum, { gradient }) => Math.max(
-      maximum,
-      ...gradient.stops.map(([, color]) => getCssColorEnergy(color)),
-    ),
-    0,
-  );
-const lastBloomPeak = bloomTrailGradients
-  .slice(-canvasTrailBandCount)
-  .reduce(
-    (maximum, { gradient }) => Math.max(
-      maximum,
-      ...gradient.stops.map(([, color]) => getCssColorEnergy(color)),
-    ),
-    0,
-  );
+
+assert(
+  bloomTrailSegmentGradients.length === expectedBloomSegmentCount &&
+    bloomTrailGradients.length <= expectedBloomSegmentCount + 2 &&
+    expectedBloomSegmentCount < trailSegmentCount,
+  'Bloom 发射沿用量化裁剪，每个网格面只提交一次',
+);
+const firstBloomPeak = bloomTrailSegmentGradients[0].gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
+  0,
+);
+const lastBloomPeak = bloomTrailSegmentGradients.at(-1).gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
+  0,
+);
 
 assert(
   lastBloomPeak > firstBloomPeak + 20,
@@ -1465,7 +1441,10 @@ assert(
 const trianglePathIndices = effect.context.filledPaths.reduce(
   (indices, path, index) =>
   {
-    if (path.length === 3)
+    if (
+      path.length === 3 &&
+      typeof effect.context.filledStyles[index] === 'string'
+    )
     {
       indices.push(index);
     }
@@ -1579,19 +1558,10 @@ assert(
 const nativeBloomSurface = effect.nativeTrailBloomSurface;
 const nativeGlowGradients = nativeBloomSurface.context.linearGradients;
 const nativeTrailSegmentCount = effect.trailStrokes[0].points.length - 1;
-const nativeTrailJoinCount = effect.trailStrokes[0].points.length - 2;
-const nativeSegmentGradients = nativeGlowGradients.filter(
-  ({ gradient }) => gradient.stops.length === 2,
-);
-const nativeCrossSectionGradients = nativeGlowGradients.filter(
-  ({ gradient }) => gradient.stops.length === transverseStopCount,
-);
-const nativeSegmentGradientGroups = Array.from(
-  { length: nativeTrailSegmentCount },
-  (_, index) => nativeSegmentGradients.slice(
-    index * canvasTrailBandCount,
-    (index + 1) * canvasTrailBandCount,
-  ),
+const nativeTrailDrawCount = nativeTrailSegmentCount + 2;
+const nativeSegmentGradients = nativeGlowGradients.slice(
+  0,
+  nativeTrailSegmentCount,
 );
 const nativeBlurDraws = effect.context.drawImageCalls
   .slice(nativeDrawImageStart)
@@ -1599,7 +1569,6 @@ const nativeBlurDraws = effect.context.drawImageCalls
 const nativeTrailPaths = nativeBloomSurface.context.filledPaths;
 const clearTrailPaths = effect.context.filledPaths
   .slice(nativePathStart)
-  .filter((path) => path.length === 3 || path.length === 4)
   .slice(0, nativeTrailPaths.length);
 
 assert(
@@ -1612,49 +1581,25 @@ assert(
 );
 assert(
   effect.context.linearGradients.length - nativeLinearGradientStart ===
-      nativeTrailSegmentCount * canvasTrailBandCount +
-        nativeTrailJoinCount + 2 &&
-    nativeGlowGradients.length ===
-      nativeTrailSegmentCount * canvasTrailBandCount +
-        nativeTrailJoinCount + 2 &&
-    nativeSegmentGradients.length ===
-      nativeTrailSegmentCount * canvasTrailBandCount &&
-    nativeCrossSectionGradients.length === nativeTrailJoinCount + 2,
-  '原生回退复用纵向窄带及 join/cap 横截面几何',
+      nativeTrailDrawCount &&
+    nativeGlowGradients.length === nativeTrailDrawCount &&
+    nativeTrailPaths.length === nativeTrailDrawCount &&
+    nativeGlowGradients.every(({ gradient }) =>
+      gradient.stops.length === transverseStopCount),
+  '原生回退将 join 并入段轮廓，每个 segment 和 cap 只提交一次',
 );
-let nativeTrailEndpointsContinuous = true;
-
-for (let index = 1; index < nativeSegmentGradientGroups.length; index++)
-{
-  for (let band = 0; band < canvasTrailBandCount; band++)
-  {
-    nativeTrailEndpointsContinuous &&=
-      nativeSegmentGradientGroups[index - 1][band]
-        .gradient.stops[1][1] ===
-      nativeSegmentGradientGroups[index][band].gradient.stops[0][1];
-  }
-}
-
-const nativeTailPeak = nativeSegmentGradientGroups[0].reduce(
-  (maximum, { gradient }) => Math.max(
-    maximum,
-    getCssPremultipliedEnergy(gradient.stops[0][1]),
-  ),
+const nativeTailPeak = nativeSegmentGradients[0].gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
   0,
 );
-const nativeHeadPeak = nativeSegmentGradientGroups.at(-1).reduce(
-  (maximum, { gradient }) => Math.max(
-    maximum,
-    getCssPremultipliedEnergy(gradient.stops[1][1]),
-  ),
+const nativeHeadPeak = nativeSegmentGradients.at(-1).gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
   0,
 );
 
 assert(
-  nativeTrailEndpointsContinuous &&
-    nativeTailPeak === 0 &&
-    nativeHeadPeak > 20,
-  '回环轨迹逐段共享折点能量且保留首尾亮度',
+  nativeTailPeak === 0 && nativeHeadPeak > 20,
+  '回环轨迹的尾部保持无辉光，头部仍保留原生模糊能量',
 );
 assert(
   JSON.stringify(clearTrailPaths) === JSON.stringify(nativeTrailPaths),
@@ -3162,24 +3107,6 @@ geometryEffect.pointerDown({ x: 100, y: 100, pointerId: 91 });
 geometryEffect.waves.length = 0;
 geometryEffect.shards.length = 0;
 
-function restoreCanvasTrailOutlines(quads, segmentCount)
-{
-  return Array.from({ length: segmentCount }, (_, index) =>
-  {
-    const bands = quads.slice(
-      index * canvasTrailBandCount,
-      (index + 1) * canvasTrailBandCount,
-    );
-
-    return [
-      bands[0][0],
-      bands[0][1],
-      bands.at(-1)[2],
-      bands.at(-1)[3],
-    ];
-  });
-}
-
 function renderCanvasTrailGeometry(points)
 {
   geometryEffect.currentTrailStroke.points = points.map((point) =>
@@ -3201,21 +3128,41 @@ function renderCanvasTrailGeometry(points)
   geometryEffect._requestRender();
   geometryNow = flushFrames(dom, geometryNow, 1);
 
-  const quads = geometryEffect.context.filledPaths.filter((path) =>
+  const paths = geometryEffect.context.filledPaths;
+  const segmentPaths = paths.slice(0, points.length - 1);
+  const quads = segmentPaths.filter((path) =>
     path.length === 4);
-  const triangles = geometryEffect.context.filledPaths.filter((path) =>
+  const joinedSegments = segmentPaths.filter((path) =>
+    path.length === joinedTrailPathLength);
+  const triangles = paths.filter((path) =>
     path.length === 3);
-  const segmentGradients = geometryEffect.context.linearGradients.filter(
-    ({ gradient }) => gradient.stops.length === 2,
-  );
 
   return {
+    paths,
+    segmentPaths,
     quads,
+    joinedSegments,
     triangles,
-    segmentGradients,
-    outlines: restoreCanvasTrailOutlines(quads, points.length - 1),
+    gradients: geometryEffect.context.linearGradients,
     nativePaths: geometryEffect.nativeTrailBloomSurface.context.filledPaths,
+    nativeGradients:
+      geometryEffect.nativeTrailBloomSurface.context.linearGradients,
   };
+}
+
+function getPolygonArea(points)
+{
+  let doubleArea = 0;
+
+  for (let index = 0; index < points.length; index++)
+  {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+
+    doubleArea += current[0] * next[1] - current[1] * next[0];
+  }
+
+  return Math.abs(doubleArea) * 0.5;
 }
 
 const rightAngleGeometry = renderCanvasTrailGeometry(
@@ -3226,39 +3173,37 @@ const rightAngleGeometry = renderCanvasTrailGeometry(
   ],
 );
 const rightAngleFanCount = UNITY_FX_TOUCH.trail.numCornerVertices + 1;
-const rightAngleFan = rightAngleGeometry.triangles.slice(0, rightAngleFanCount);
-const rightAngleCaps = rightAngleGeometry.triangles.slice(rightAngleFanCount);
-const rightAngleInner = rightAngleGeometry.outlines[0][1];
+const rightAngleJoinedSegment = rightAngleGeometry.joinedSegments[0];
+const rightAngleInner = rightAngleJoinedSegment[1];
 const rightAngleTurn = { x: 170, y: 100 };
-const rightAngleOuterArc =
-[
-  rightAngleFan[0][1],
-  ...rightAngleFan.map((triangle) => triangle[2]),
-];
+const rightAngleOuterArc = rightAngleJoinedSegment.slice(2, -1);
+const rightAngleNaturalOuterArc = [...rightAngleOuterArc].reverse();
 const rightAngleOuterRadius = Math.hypot(
   rightAngleOuterArc[0][0] - rightAngleTurn.x,
   rightAngleOuterArc[0][1] - rightAngleTurn.y,
 );
-let rightAngleEndpointsContinuous = true;
-
-for (let band = 0; band < canvasTrailBandCount; band++)
-{
-  rightAngleEndpointsContinuous &&=
-    rightAngleGeometry.segmentGradients[band].gradient.stops[1][1] ===
-      rightAngleGeometry.segmentGradients[
-        canvasTrailBandCount + band
-      ].gradient.stops[0][1];
-}
 
 assert(
-  rightAngleGeometry.quads.length === 2 * canvasTrailBandCount &&
-    rightAngleEndpointsContinuous &&
+  rightAngleGeometry.segmentPaths.length === 2 &&
+    rightAngleGeometry.quads.length === 1 &&
+    rightAngleGeometry.joinedSegments.length === 1 &&
+    rightAngleGeometry.triangles.length === 2 &&
     JSON.stringify(rightAngleInner) ===
-      JSON.stringify(rightAngleGeometry.outlines[1][0]) &&
-    rightAngleFan.length === rightAngleFanCount &&
-    rightAngleFan.every((triangle) =>
-      JSON.stringify(triangle[0]) === JSON.stringify(rightAngleInner)),
-  '90 度折点共享内角和端点颜色，并由 4 个插入点生成 5 个 fan 三角',
+      JSON.stringify(rightAngleGeometry.segmentPaths[1][0]) &&
+    rightAngleJoinedSegment.length === rightAngleFanCount + 4 &&
+    Math.abs(
+      getPolygonArea(rightAngleJoinedSegment) -
+        getPolygonArea(
+          [
+            rightAngleJoinedSegment[0],
+            rightAngleInner,
+            rightAngleNaturalOuterArc[0],
+            rightAngleJoinedSegment.at(-1),
+          ],
+        ) -
+        getPolygonArea([rightAngleInner, ...rightAngleNaturalOuterArc]),
+    ) < 0.000001,
+  '90 度折点共享内角，4 个插入点的 fan 并入前一段轮廓',
 );
 assert(
   rightAngleOuterArc.length ===
@@ -3267,15 +3212,48 @@ assert(
       Math.abs(
         Math.hypot(x - rightAngleTurn.x, y - rightAngleTurn.y) -
           rightAngleOuterRadius,
-      ) < 0.000001) &&
-    rightAngleCaps.length === 2,
+      ) < 0.000001),
   '圆角保持半带宽半径，numCapVertices=1 生成两个三角端帽',
 );
 assert(
-  JSON.stringify(rightAngleGeometry.quads.concat(
-    rightAngleGeometry.triangles,
-  )) === JSON.stringify(rightAngleGeometry.nativePaths),
+    rightAngleGeometry.paths.length === 4 &&
+    rightAngleGeometry.gradients.length === 4 &&
+    rightAngleGeometry.nativeGradients.length === 4 &&
+    rightAngleGeometry.gradients.every(({ gradient }) =>
+      gradient.stops.length === transverseStopCount) &&
+    JSON.stringify(rightAngleGeometry.paths) ===
+      JSON.stringify(rightAngleGeometry.nativePaths),
   '清晰层与 Native 离屏层共享同一 Canvas TrailRenderer 网格',
+);
+const oppositeTurnGeometry = renderCanvasTrailGeometry(
+  [
+    { x: 100, y: 170 },
+    { x: 170, y: 170 },
+    { x: 170, y: 100 },
+  ],
+);
+const oppositeJoinedSegment = oppositeTurnGeometry.joinedSegments[0];
+const oppositeInner = oppositeJoinedSegment.at(-2);
+const oppositeOuterArc = oppositeJoinedSegment.slice(1, -2);
+
+assert(
+  oppositeTurnGeometry.segmentPaths.length === 2 &&
+    oppositeTurnGeometry.joinedSegments.length === 1 &&
+    JSON.stringify(oppositeInner) ===
+      JSON.stringify(oppositeTurnGeometry.segmentPaths[1].at(-1)) &&
+    Math.abs(
+      getPolygonArea(oppositeJoinedSegment) -
+        getPolygonArea(
+          [
+            oppositeJoinedSegment[0],
+            oppositeOuterArc[0],
+            oppositeInner,
+            oppositeJoinedSegment.at(-1),
+          ],
+        ) -
+        getPolygonArea([oppositeInner, ...oppositeOuterArc]),
+    ) < 0.000001,
+  '反向 90 度折点也保持 segment 与 fan 并集面积，不产生自交',
 );
 
 const sharpGeometry = renderCanvasTrailGeometry(
@@ -3285,24 +3263,26 @@ const sharpGeometry = renderCanvasTrailGeometry(
     { x: 130, y: 140 },
   ],
 );
-const sharpFan = sharpGeometry.triangles.slice(0, rightAngleFanCount);
+const sharpJoinedSegment = sharpGeometry.joinedSegments[0];
 const sharpTurn = { x: 170, y: 100 };
 const sharpHalfWidth = Math.hypot(
-  sharpFan[0][1][0] - sharpTurn.x,
-  sharpFan[0][1][1] - sharpTurn.y,
+  sharpJoinedSegment[2][0] - sharpTurn.x,
+  sharpJoinedSegment[2][1] - sharpTurn.y,
 );
 const sharpInnerDistance = Math.hypot(
-  sharpFan[0][0][0] - sharpTurn.x,
-  sharpFan[0][0][1] - sharpTurn.y,
+  sharpJoinedSegment[1][0] - sharpTurn.x,
+  sharpJoinedSegment[1][1] - sharpTurn.y,
 );
 
 assert(
-  sharpGeometry.quads.length === 2 * canvasTrailBandCount &&
-    sharpGeometry.triangles.length === rightAngleFanCount + 2 &&
-    sharpFan.flat(2).every(Number.isFinite) &&
+  sharpGeometry.segmentPaths.length === 2 &&
+    sharpGeometry.quads.length === 1 &&
+    sharpGeometry.joinedSegments.length === 1 &&
+    sharpGeometry.triangles.length === 2 &&
+    sharpJoinedSegment.flat().every(Number.isFinite) &&
     sharpInnerDistance > sharpHalfWidth &&
     sharpInnerDistance <= sharpHalfWidth * 4,
-  '锐角拖尾保留有限 miter 和完整圆角 fan',
+  '锐角拖尾保留有限 miter 和合并后的完整圆角 fan',
 );
 
 const foldedGeometry = renderCanvasTrailGeometry(
@@ -3315,10 +3295,10 @@ const foldedGeometry = renderCanvasTrailGeometry(
 const foldedTurn = { x: 170, y: 100 };
 const foldedJointVertices =
 [
-  foldedGeometry.outlines[0][1],
-  foldedGeometry.outlines[0][2],
-  foldedGeometry.outlines[1][0],
-  foldedGeometry.outlines[1][3],
+  foldedGeometry.quads[0][1],
+  foldedGeometry.quads[0][2],
+  foldedGeometry.quads[1][0],
+  foldedGeometry.quads[1][3],
 ];
 const foldedHalfWidth = Math.hypot(
   foldedJointVertices[0][0] - foldedTurn.x,
@@ -3326,7 +3306,8 @@ const foldedHalfWidth = Math.hypot(
 );
 
 assert(
-  foldedGeometry.quads.length === 2 * canvasTrailBandCount &&
+  foldedGeometry.quads.length === 2 &&
+    foldedGeometry.joinedSegments.length === 0 &&
     foldedGeometry.triangles.length === 2 &&
     foldedGeometry.quads.flat(2).every(Number.isFinite) &&
     foldedJointVertices.every(([x, y]) =>
@@ -3334,6 +3315,42 @@ assert(
         Math.hypot(x - foldedTurn.x, y - foldedTurn.y) - foldedHalfWidth,
       ) < 0.000001),
   '近 180 度回折退化为稳定截面，不生成无限 miter',
+);
+const shortSeedGeometry = renderCanvasTrailGeometry(
+  [
+    { x: 100, y: 100 },
+    { x: 100.5, y: 100 },
+    { x: 100, y: 105.4 },
+  ],
+);
+
+assert(
+  shortSeedGeometry.segmentPaths.length === 2 &&
+    shortSeedGeometry.quads.length === 2 &&
+    shortSeedGeometry.joinedSegments.length === 0 &&
+    shortSeedGeometry.quads.every((path) => getPolygonArea(path) > 0),
+  'trailAlways 的 0.5px 短种子段在 miter 越界时保留独立截面',
+);
+const budgetPointCount = 64;
+const budgetGeometry = renderCanvasTrailGeometry(
+  Array.from({ length: budgetPointCount }, (_, index) =>
+  ({
+    x: 120 + index * 8,
+    y: 200 + index % 2 * 8,
+  })),
+);
+const trailLayerDrawBudget = budgetPointCount + 1;
+
+assert(
+  budgetGeometry.segmentPaths.length === budgetPointCount - 1 &&
+    budgetGeometry.quads.length === 1 &&
+    budgetGeometry.joinedSegments.length === budgetPointCount - 2 &&
+    budgetGeometry.triangles.length === 2 &&
+    budgetGeometry.paths.length === trailLayerDrawBudget &&
+    budgetGeometry.gradients.length === trailLayerDrawBudget &&
+    budgetGeometry.nativePaths.length === trailLayerDrawBudget &&
+    budgetGeometry.nativeGradients.length === trailLayerDrawBudget,
+  '64 点拖尾每层严格限制为 65 次路径和渐变提交',
 );
 geometryEffect.pointerCancel(91);
 geometryEffect.destroy();

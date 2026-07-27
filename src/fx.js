@@ -2050,14 +2050,6 @@ function evaluateTrailTransverseProfile(
   return profile;
 }
 
-function interpolateTrailMeshEdge(left, right, progress)
-{
-  return {
-    x: lerp(left.x, right.x, progress),
-    y: lerp(left.y, right.y, progress),
-  };
-}
-
 function createTrailMesh(
   points,
   width,
@@ -2067,12 +2059,11 @@ function createTrailMesh(
 {
   const halfWidth = Math.max(0, width) * 0.5;
   const segments = new Array(points.length).fill(null);
-  const joins = [];
   const caps = [];
 
   if (halfWidth <= 0)
   {
-    return { segments, joins, caps };
+    return { segments, caps };
   }
 
   for (let index = 1; index < points.length; index++)
@@ -2098,6 +2089,7 @@ function createTrailMesh(
       index,
       from,
       to,
+      length,
       tangent,
       normal,
       fromLeft: { x: from.x + offsetX, y: from.y + offsetY },
@@ -2156,13 +2148,23 @@ function createTrailMesh(
       inner.x - point.x,
       inner.y - point.y,
     );
+    const previousProjection =
+      (inner.x - point.x) * previous.tangent.x +
+      (inner.y - point.y) * previous.tangent.y;
+    const nextProjection =
+      (inner.x - point.x) * next.tangent.x +
+      (inner.y - point.y) * next.tangent.y;
 
     if (
       !Number.isFinite(innerDistance) ||
-      innerDistance > halfWidth * MAX_TRAIL_INNER_MITER_RATIO
+      innerDistance > halfWidth * MAX_TRAIL_INNER_MITER_RATIO ||
+      previousProjection < -previous.length - 0.000001 ||
+      previousProjection > 0.000001 ||
+      nextProjection < -0.000001 ||
+      nextProjection > next.length + 0.000001
     )
     {
-      // 接近 180 度时偏移线交点趋于无穷，独立截面可避免尖刺和超大 Bounds。
+      // 无穷 miter 或超出短段的交点会使轮廓回折自交，此时保留独立截面。
       continue;
     }
 
@@ -2201,17 +2203,14 @@ function createTrailMesh(
       next.fromLeft = outerArc.at(-1);
     }
 
-    // Unity 的数量表示端点间的插入点，因此 4 个点形成 5 个 fan 三角。
-    joins.push(
-      {
-        pointIndex,
-        previousSegmentIndex: previous.index,
-        nextSegmentIndex: next.index,
-        inner,
-        innerSide: innerSign > 0 ? 'left' : 'right',
-        outerArc,
-      },
-    );
+    // Unity 的数量表示端点间的插入点；记在前一段上可合并等价 fan 轮廓。
+    previous.endJoin =
+    {
+      nextSegmentIndex: next.index,
+      inner,
+      innerSide: innerSign > 0 ? 'left' : 'right',
+      outerArc,
+    };
   }
 
   if (Math.floor(numCapVertices) > 0)
@@ -2269,7 +2268,7 @@ function createTrailMesh(
     }
   }
 
-  return { segments, joins, caps };
+  return { segments, caps };
 }
 
 function getTrailMesh(trailData, points, width, trailCfg)
@@ -2307,37 +2306,6 @@ function resolveTrailTransverseProfile(profile)
     : [[0, 1], [1, 1]];
 }
 
-function resolveTrailTransverseBandPositions(profile)
-{
-  const positions = resolveTrailTransverseProfile(profile)
-    .map(([position]) => clamp01(position))
-    .sort((first, second) => first - second);
-  const uniquePositions = [];
-
-  for (const position of positions)
-  {
-    if (
-      uniquePositions.length === 0 ||
-      Math.abs(position - uniquePositions.at(-1)) > 0.0000001
-    )
-    {
-      uniquePositions.push(position);
-    }
-  }
-
-  if (uniquePositions[0] > 0)
-  {
-    uniquePositions.unshift(0);
-  }
-
-  if (uniquePositions.at(-1) < 1)
-  {
-    uniquePositions.push(1);
-  }
-
-  return uniquePositions.length >= 2 ? uniquePositions : [0, 1];
-}
-
 function createTrailCrossSectionGradient(
   context,
   from,
@@ -2358,122 +2326,57 @@ function createTrailCrossSectionGradient(
   return gradient;
 }
 
-function createTrailLongitudinalGradient(
-  context,
-  segment,
-  fromColor,
-  toColor,
-  fromIntensity,
-  toIntensity,
-  colorAtIntensity,
-)
-{
-  const gradient = context.createLinearGradient(
-    segment.from.x,
-    segment.from.y,
-    segment.to.x,
-    segment.to.y,
-  );
-
-  gradient.addColorStop(0, colorAtIntensity(fromColor, fromIntensity));
-  gradient.addColorStop(1, colorAtIntensity(toColor, toIntensity));
-  return gradient;
-}
-
 function fillTrailMeshSegment(
   context,
   segment,
-  fromColor,
-  toColor,
-  fromTransverseProfile,
-  toTransverseProfile,
-  transverseBandPositions,
-  colorAtIntensity,
-)
-{
-  const fromProfile = resolveTrailTransverseProfile(fromTransverseProfile);
-  const toProfile = resolveTrailTransverseProfile(toTransverseProfile);
-
-  for (let index = 1; index < transverseBandPositions.length; index++)
-  {
-    const bandStart = transverseBandPositions[index - 1];
-    const bandEnd = transverseBandPositions[index];
-    const bandCenter = (bandStart + bandEnd) * 0.5;
-    const gradient = createTrailLongitudinalGradient(
-      context,
-      segment,
-      fromColor,
-      toColor,
-      evaluateNumber(fromProfile, bandCenter),
-      evaluateNumber(toProfile, bandCenter),
-      colorAtIntensity,
-    );
-    const fromStart = interpolateTrailMeshEdge(
-      segment.fromLeft,
-      segment.fromRight,
-      bandStart,
-    );
-    const fromEnd = interpolateTrailMeshEdge(
-      segment.fromLeft,
-      segment.fromRight,
-      bandEnd,
-    );
-    const toStart = interpolateTrailMeshEdge(
-      segment.toLeft,
-      segment.toRight,
-      bandStart,
-    );
-    const toEnd = interpolateTrailMeshEdge(
-      segment.toLeft,
-      segment.toRight,
-      bandEnd,
-    );
-
-    // CanvasGradient 只能表达一个维度，分带后可同时保留纵向和横向插值。
-    context.beginPath();
-    context.moveTo(fromStart.x, fromStart.y);
-    context.lineTo(toStart.x, toStart.y);
-    context.lineTo(toEnd.x, toEnd.y);
-    context.lineTo(fromEnd.x, fromEnd.y);
-    context.closePath();
-    context.fillStyle = gradient;
-    context.fill();
-  }
-}
-
-function fillTrailMeshJoin(
-  context,
-  join,
+  endJoin,
   transverseProfile,
   colorAtIntensity,
 )
 {
-  const outerMiddle = join.outerArc[
-    Math.floor(join.outerArc.length * 0.5)
-  ];
-  const left = join.innerSide === 'left' ? join.inner : outerMiddle;
-  const right = join.innerSide === 'left' ? outerMiddle : join.inner;
   const gradient = createTrailCrossSectionGradient(
     context,
-    left,
-    right,
+    segment.fromLeft,
+    segment.fromRight,
     transverseProfile,
     colorAtIntensity,
   );
 
-  for (let index = 1; index < join.outerArc.length; index++)
+  // CanvasGradient 只有一个插值轴；使用段中点能量保留横截面，避免每段拆成 16 次填充。
+  context.beginPath();
+  context.moveTo(segment.fromLeft.x, segment.fromLeft.y);
+
+  if (!endJoin)
   {
-    context.beginPath();
-    context.moveTo(join.inner.x, join.inner.y);
-    context.lineTo(
-      join.outerArc[index - 1].x,
-      join.outerArc[index - 1].y,
-    );
-    context.lineTo(join.outerArc[index].x, join.outerArc[index].y);
-    context.closePath();
-    context.fillStyle = gradient;
-    context.fill();
+    context.lineTo(segment.toLeft.x, segment.toLeft.y);
+    context.lineTo(segment.toRight.x, segment.toRight.y);
   }
+  else if (endJoin.innerSide === 'left')
+  {
+    context.lineTo(endJoin.inner.x, endJoin.inner.y);
+
+    for (let index = endJoin.outerArc.length - 1; index >= 0; index--)
+    {
+      const point = endJoin.outerArc[index];
+
+      context.lineTo(point.x, point.y);
+    }
+  }
+  else
+  {
+    for (const point of endJoin.outerArc)
+    {
+      context.lineTo(point.x, point.y);
+    }
+
+    context.lineTo(endJoin.inner.x, endJoin.inner.y);
+  }
+
+  // fan 与前一段共享一条边，将外轮廓并入同一路径不会改变覆盖区域。
+  context.lineTo(segment.fromRight.x, segment.fromRight.y);
+  context.closePath();
+  context.fillStyle = gradient;
+  context.fill();
 }
 
 function fillTrailMeshCap(
@@ -2580,14 +2483,6 @@ function drawTrailLayer(
       color,
       layer.alpha * opacity * intensity,
     ));
-  const firstPointProfile = resolveTrailPointTransverseProfile(
-    trailData,
-    firstSegment - 1,
-    trailCfg,
-  );
-  const transverseBandPositions = resolveTrailTransverseBandPositions(
-    firstPointProfile,
-  );
 
   for (let index = firstSegment; index <= lastSegment; index++)
   {
@@ -2598,66 +2493,25 @@ function drawTrailLayer(
       continue;
     }
 
-    const fromColor = resolveTrailPointEnergy(
-      trailData,
-      index - 1,
-      trailCfg,
-      layer.materialIntensity,
-    );
-    const toColor = resolveTrailPointEnergy(
-      trailData,
-      index,
-      trailCfg,
-      layer.materialIntensity,
-    );
-    const fromTransverseProfile = resolveTrailPointTransverseProfile(
-      trailData,
-      index - 1,
-      trailCfg,
-    );
-    const toTransverseProfile = resolveTrailPointTransverseProfile(
-      trailData,
-      index,
-      trailCfg,
-    );
+    const progress = (
+      measurement.distances[index - 1] + measurement.distances[index]
+    ) * 0.5 / measurement.totalLength;
+    const color = trailData.segmentEnergies?.[index - 1] ??
+      evaluateTrailLinearEnergy(
+        progress,
+        trailCfg,
+        layer.materialIntensity,
+      );
+    const transverseProfile =
+      trailData.segmentTransverseProfiles?.[index - 1] ??
+        evaluateTrailTransverseProfile(progress, trailCfg);
 
     fillTrailMeshSegment(
       context,
       segment,
-      fromColor,
-      toColor,
-      fromTransverseProfile,
-      toTransverseProfile,
-      transverseBandPositions,
-      resolveCss,
-    );
-  }
-
-  for (const join of mesh.joins)
-  {
-    if (
-      join.previousSegmentIndex < firstSegment ||
-      join.nextSegmentIndex > lastSegment
-    )
-    {
-      continue;
-    }
-
-    const color = resolveTrailPointEnergy(
-      trailData,
-      join.pointIndex,
-      trailCfg,
-      layer.materialIntensity,
-    );
-    const transverseProfile = resolveTrailPointTransverseProfile(
-      trailData,
-      join.pointIndex,
-      trailCfg,
-    );
-
-    fillTrailMeshJoin(
-      context,
-      join,
+      segment.endJoin?.nextSegmentIndex <= lastSegment
+        ? segment.endJoin
+        : null,
       transverseProfile,
       (intensity) => resolveCss(color, intensity),
     );
