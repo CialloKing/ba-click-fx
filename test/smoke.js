@@ -1760,8 +1760,8 @@ assert(
   cancelledVisibleStroke.points.length >= 2 &&
     manualEffect.pointerCancel(40) === true &&
     cancelledVisibleStroke.active === false &&
-    manualEffect.trailStrokes.includes(cancelledVisibleStroke),
-  'pointerCancel 与 Unity Canceled 一样停止发射并保留当前可见轨迹',
+    !manualEffect.trailStrokes.includes(cancelledVisibleStroke),
+  'pointerCancel 强制清理当前可见轨迹，区别于 pointerUp 的自然衰减',
 );
 
 manualEffect.clear();

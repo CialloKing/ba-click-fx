@@ -139,7 +139,7 @@ declare module 'ba-click-fx'
     /** 正常结束逻辑指针，已有拖尾继续自然消失。 */
     pointerUp(pointerId?: number): boolean;
 
-    /** 取消逻辑指针；与 pointerUp 一样让已有拖尾自然消失。 */
+    /** 强制取消逻辑指针，并立即移除当前轨迹。 */
     pointerCancel(pointerId?: number): boolean;
 
     /** 暂停或恢复输入与动画调度；clear 仅在 paused 为 true 时生效。 */
