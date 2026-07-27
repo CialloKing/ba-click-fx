@@ -4,10 +4,20 @@
  * 测试只锁定从 Unity 恢复出的行为参数和生命周期；不再维护旧调参 API。
  */
 
-const modulePath = process.argv.includes('--source')
+const sourceMode = process.argv.includes('--source');
+const modulePath = sourceMode
   ? '../src/fx.js'
   : '../dist/ba-click-fx.js';
 const module = await import(modulePath);
+let ring3AlphaSource = null;
+let createHash = null;
+
+if (sourceMode)
+{
+  ring3AlphaSource = await import('../src/ring3-alpha.js');
+  ({ createHash } = await import('node:crypto'));
+}
+
 const {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
@@ -59,6 +69,27 @@ function getCssPremultipliedSum(value)
   const alpha = channels[3] ?? 1;
 
   return channels.slice(0, 3).reduce((sum, channel) => sum + channel, 0) * alpha;
+}
+
+function getHardClipOffsets(stops)
+{
+  const offsets = [];
+
+  for (let index = 1; index < stops.length; index++)
+  {
+    const [previousOffset, previousColor] = stops[index - 1];
+    const [offset, color] = stops[index];
+
+    if (
+      offset === previousOffset &&
+      (getCssAlpha(previousColor) > 0) !== (getCssAlpha(color) > 0)
+    )
+    {
+      offsets.push(offset);
+    }
+  }
+
+  return offsets;
 }
 
 class EventTargetMock
@@ -613,12 +644,54 @@ assert(
   '圆环宽度按 MeshTri 外半径比例计算，生命周期倍率保持 1',
 );
 assert(
-  UNITY_FX_TOUCH.rings.textureAlphaKeys.length === 17 &&
-    UNITY_FX_TOUCH.rings.textureAlphaKeys[0][0] === 0 &&
-    UNITY_FX_TOUCH.rings.textureAlphaKeys.at(-1)[0] === 1 &&
-    UNITY_FX_TOUCH.rings.textureRadialAlphaKeys[8][1] === 1,
-  '圆环使用 FX_TEX_Grad_Ring3 完整 U 向与径向 Alpha 采样',
+  UNITY_FX_TOUCH.rings.textureUvMin === 0.0005000000237487257 &&
+    UNITY_FX_TOUCH.rings.textureUvMax === 0.999500036239624,
+  '圆环使用 Cylinder002 导出的精确 UV 范围采样 Ring3 Alpha',
 );
+
+if (sourceMode)
+{
+  const {
+    RING3_ALPHA,
+    RING3_ALPHA_HEIGHT,
+    RING3_ALPHA_WIDTH,
+    sampleRing3Alpha,
+  } = ring3AlphaSource;
+  const ring3AlphaHash = createHash('sha256')
+    .update(RING3_ALPHA)
+    .digest('hex');
+
+  assert(
+    RING3_ALPHA_WIDTH === 256 &&
+      RING3_ALPHA_HEIGHT === 128 &&
+      RING3_ALPHA.length === RING3_ALPHA_WIDTH * RING3_ALPHA_HEIGHT,
+    'Ring3 Alpha LUT 解码为完整的 256x128 字节纹理',
+  );
+  assert(
+    ring3AlphaHash ===
+      '6c1d74367a72a0ac830b0f5fdd8f0ee93bc9453c9b8c3cc4d470c2becca9d220',
+    'Ring3 Alpha LUT 的完整字节 SHA256 与解包纹理一致',
+  );
+
+  const nonSeparableSamples = [
+    [129, 80],
+    [136, 80],
+    [129, 92],
+    [136, 92],
+  ].map(([x, y]) =>
+    Math.round(sampleRing3Alpha(
+      (x + 0.5) / RING3_ALPHA_WIDTH,
+      (y + 0.5) / RING3_ALPHA_HEIGHT,
+    ) * 255));
+  const [topLeft, topRight, bottomLeft, bottomRight] = nonSeparableSamples;
+
+  assert(
+    JSON.stringify(nonSeparableSamples) ===
+      JSON.stringify([243, 239, 246, 226]) &&
+      topLeft * bottomRight - topRight * bottomLeft === -3876,
+    'Ring3 Alpha 保留无法由 U/V 一维曲线乘积表达的二维采样差异',
+  );
+}
 assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');
 assert(
   Math.abs(UNITY_FX_TOUCH.shards.clickSpeedMin - 49.8769488) < 0.000001 &&
@@ -978,10 +1051,19 @@ const earlierRing = sampleRingGradients(240);
 const laterRing = sampleRingGradients(300);
 const earlierStops = earlierRing.gradients.flatMap((gradient) => gradient.stops);
 const laterStops = laterRing.gradients.flatMap((gradient) => gradient.stops);
-const earlierSurvivingStops = earlierStops.filter(([, color]) =>
+const isPrimaryRingStop = ([offset]) =>
+  Math.abs(
+    offset * UNITY_FX_TOUCH.rings.arcSamples -
+      Math.round(offset * UNITY_FX_TOUCH.rings.arcSamples),
+  ) < 0.000000000001;
+const earlierPrimaryStops = earlierStops.filter(isPrimaryRingStop);
+const laterPrimaryStops = laterStops.filter(isPrimaryRingStop);
+const earlierSurvivingStops = earlierPrimaryStops.filter(([, color]) =>
   getCssAlpha(color) > 0);
-const laterSurvivingStops = laterStops.filter(([, color]) =>
+const laterSurvivingStops = laterPrimaryStops.filter(([, color]) =>
   getCssAlpha(color) > 0);
+const earlierHardClipOffsets = earlierRing.gradients.flatMap((gradient) =>
+  getHardClipOffsets(gradient.stops));
 
 assert(
   earlierRing.fillCount === UNITY_FX_TOUCH.rings.radialSamples &&
@@ -992,29 +1074,30 @@ assert(
 );
 assert(
   earlierRing.gradients.every((gradient) =>
-    gradient.stops.length === UNITY_FX_TOUCH.rings.arcSamples + 1 &&
+    gradient.stops.length >= UNITY_FX_TOUCH.rings.arcSamples + 1 &&
       gradient.stops[0][0] === 0 &&
-      gradient.stops.at(-1)[0] === 1),
-  '每条径向环带都完整采样 0..1 的纹理 U 坐标',
+      gradient.stops.at(-1)[0] === 1) &&
+    earlierPrimaryStops.length ===
+      UNITY_FX_TOUCH.rings.radialSamples *
+        (UNITY_FX_TOUCH.rings.arcSamples + 1),
+  '每条径向环带保留完整主采样，并允许插入 Ring3 clip 边界',
 );
 assert(
-  earlierStops.every(([, color]) =>
-  {
-    const alpha = getCssAlpha(color);
-
-    return alpha === 0 || alpha === 1;
-  }),
-  '原 Shader 的二值 clip 使采样点只保留或丢弃，不额外生成溶解软边',
+  earlierHardClipOffsets.length >= UNITY_FX_TOUCH.rings.radialSamples * 2 &&
+    earlierHardClipOffsets.every((offset) => offset > 0 && offset < 1),
+  'Ring3 clip 边界用同 offset 的透明与可见 stop 保持硬跳变',
 );
 assert(
   laterSurvivingStops.length < earlierSurvivingStops.length,
   '生命周期晚期溶解阈值升高，通过 clip 的纹理采样点更少',
 );
-const colorProbeIndex = Math.round(0.3125 * UNITY_FX_TOUCH.rings.arcSamples);
-const edgeProbeColor = earlierRing.gradients[0].stops[colorProbeIndex][1];
+const colorProbeOffset = 0.3125;
+const edgeProbeColor = earlierRing.gradients[0].stops.find(
+  ([offset]) => offset === colorProbeOffset,
+)?.[1];
 const centerProbeColor = earlierRing.gradients[
   Math.floor(UNITY_FX_TOUCH.rings.radialSamples * 0.5)
-].stops[colorProbeIndex][1];
+].stops.find(([offset]) => offset === colorProbeOffset)?.[1];
 const particleChannels = getCssChannels(centerProbeColor);
 
 assert(
@@ -3881,11 +3964,11 @@ assert(
       UNITY_FX_TOUCH.rings.bandToOuterRadius &&
     JSON.stringify(legacyClickGeometry.disk.textureRadialEnergyKeys) ===
       JSON.stringify(UNITY_FX_TOUCH.disk.textureRadialEnergyKeys) &&
-    JSON.stringify(legacyClickGeometry.rings.textureAlphaKeys) ===
-      JSON.stringify(UNITY_FX_TOUCH.rings.textureAlphaKeys) &&
-    JSON.stringify(legacyClickGeometry.rings.textureRadialAlphaKeys) ===
-      JSON.stringify(UNITY_FX_TOUCH.rings.textureRadialAlphaKeys),
-  'Legacy 保留圆盘和圆环的 Hermite、Mesh 环宽与二维纹理 Alpha',
+    legacyClickGeometry.rings.textureUvMin ===
+      UNITY_FX_TOUCH.rings.textureUvMin &&
+    legacyClickGeometry.rings.textureUvMax ===
+      UNITY_FX_TOUCH.rings.textureUvMax,
+  'Legacy 保留 Hermite、Mesh 环宽、圆盘纹理与 Ring3 精确 UV',
 );
 legacyEffect.setFxParam('bloom.clickEmissionScale', 0);
 legacyEffect.setFxParam('rings.hdrIntensity', 4);
@@ -3912,11 +3995,15 @@ const controlledLegacyRingStops = legacyEffect.context.conicGradients.flatMap(
 const visibleControlledLegacyRingStop = controlledLegacyRingStops.find(
   ([, color]) => getCssAlpha(color) > 0,
 );
+const controlledLegacyHardClipOffsets = getHardClipOffsets(
+  controlledLegacyRingStops,
+);
 
 assert(
   visibleControlledLegacyRingStop &&
-    controlledLegacyRingStops.some(([, color]) => getCssAlpha(color) === 0),
-  'Legacy Ring3 hard clip 同时保留可见纹理采样并丢弃阈值外采样',
+    controlledLegacyRingStops.some(([, color]) => getCssAlpha(color) === 0) &&
+    controlledLegacyHardClipOffsets.length > 0,
+  'Legacy Ring3 同时保留精确 Alpha，并用同 offset stop 还原 hard clip',
 );
 assert(
   JSON.stringify(
@@ -3989,8 +4076,10 @@ assert(
 );
 assert(
   legacyRingGradients.every((gradient) =>
-    gradient.stops.length === UNITY_FX_TOUCH.rings.arcSamples + 1),
-  'Legacy 每条径向环带完整采样 FX_TEX_Grad_Ring3 的 U 坐标',
+    gradient.stops.length >= UNITY_FX_TOUCH.rings.arcSamples + 1 &&
+      gradient.stops[0][0] === 0 &&
+      gradient.stops.at(-1)[0] === 1),
+  'Legacy 每条径向环带保留完整 Ring3 主采样与额外 clip 边界',
 );
 assert(
   legacyTriangleFillIndices.length === UNITY_FX_TOUCH.shards.clickCount,

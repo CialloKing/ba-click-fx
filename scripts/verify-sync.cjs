@@ -271,9 +271,11 @@ verify(
   '圆环使用 Unity Hermite 阈值和原 Shader 二值 clip',
 );
 verify(
-  /textureRadialAlphaKeys/.test(configJs) &&
-    /bandToOuterRadius/.test(configJs),
-  '圆环保留纹理径向亮度与 MeshTri 固定环宽比例',
+  /sampleRing3Alpha/.test(engineJs) &&
+    /textureUvMin: 0\.0005000000237487257/.test(configJs) &&
+    /textureUvMax: 0\.999500036239624/.test(configJs) &&
+    /bandToOuterRadius: 0\.0598573766034603/.test(configJs),
+  '圆环精确采样 Ring3，并保留 Cylinder002 UV 与固定环宽比例',
 );
 
 console.log('\n✅ Unity 参数同步检查通过\n');

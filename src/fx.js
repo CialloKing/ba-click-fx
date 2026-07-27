@@ -17,6 +17,7 @@ import {
 } from './config.js';
 import { SoftwareBloomRenderer } from './software-bloom.js';
 import { WebGL2BloomRenderer } from './webgl2-bloom.js';
+import { sampleRing3Alpha } from './ring3-alpha.js';
 
 const TAU = Math.PI * 2;
 const LIGHT_BACKGROUND_CONTRAST_COLOR = [76, 255, 255];
@@ -646,18 +647,12 @@ function evaluateRingTextureAlpha(
   ringCfg,
 )
 {
-  const angularAlpha = evaluateNumber(
-    ringCfg.textureAlphaKeys,
-    angularProgress,
-  );
-  const radialAlpha = evaluateNumber(
-    ringCfg.textureRadialAlphaKeys,
-    radialProgress,
-  );
+  const uvSpan = ringCfg.textureUvMax - ringCfg.textureUvMin;
+  const u = ringCfg.textureUvMin + uvSpan * clamp01(angularProgress);
+  const v = ringCfg.textureUvMin + uvSpan * clamp01(radialProgress);
 
-  // FX_TEX_Grad_Ring3 的二维 Alpha 接近可分离分布；U 控制圆周，
-  // V 让环带中央比内外沿约亮 12%。
-  return clamp01(angularAlpha * radialAlpha);
+  // 原网格 UV、Bilinear 和 Clamp 均在采样器内显式还原；Alpha 不经过 sRGB 解码。
+  return sampleRing3Alpha(u, v);
 }
 
 function evaluateRingLuminance(
@@ -677,6 +672,57 @@ function evaluateRingLuminance(
   return textureAlpha >= threshold ? textureAlpha : 0;
 }
 
+function resolveRingTextureProgress(angularProgress, direction)
+{
+  return direction > 0 ? angularProgress : 1 - angularProgress;
+}
+
+function findRingClipBoundary(
+  angularStart,
+  angularEnd,
+  radialProgress,
+  threshold,
+  direction,
+  ringCfg,
+)
+{
+  let start = angularStart;
+  let end = angularEnd;
+  const startTextureProgress = resolveRingTextureProgress(start, direction);
+  const startVisible = evaluateRingTextureAlpha(
+    startTextureProgress,
+    radialProgress,
+    ringCfg,
+  ) >= threshold;
+
+  // 相邻主采样之间再二分原纹理，避免 conic gradient 把 Shader clip
+  // 的不连续边界重新插值成一段软透明过渡。
+  for (let iteration = 0; iteration < 8; iteration++)
+  {
+    const middle = (start + end) * 0.5;
+    const middleTextureProgress = resolveRingTextureProgress(
+      middle,
+      direction,
+    );
+    const middleVisible = evaluateRingTextureAlpha(
+      middleTextureProgress,
+      radialProgress,
+      ringCfg,
+    ) >= threshold;
+
+    if (middleVisible === startVisible)
+    {
+      start = middle;
+    }
+    else
+    {
+      end = middle;
+    }
+  }
+
+  return (start + end) * 0.5;
+}
+
 function createDissolvedRingGradient(
   context,
   ringCfg,
@@ -693,26 +739,54 @@ function createDissolvedRingGradient(
   const gradient = context.createConicGradient(0, 0, 0);
   const sampleCount = Math.max(32, ringCfg.arcSamples);
   const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
-  const stops = [];
+  let previousLuminance = null;
 
   for (let sample = 0; sample <= sampleCount; sample++)
   {
     const angularProgress = sample / sampleCount;
-    const textureProgress = direction > 0
-      ? angularProgress
-      : 1 - angularProgress;
+    const textureProgress = resolveRingTextureProgress(
+      angularProgress,
+      direction,
+    );
     const luminance = evaluateRingLuminance(
       textureProgress,
       radialProgress,
       threshold,
       ringCfg,
     );
-    stops.push([angularProgress, colorForLuminance(luminance)]);
-  }
 
-  for (const [stop, color] of stops)
-  {
-    gradient.addColorStop(stop, color);
+    if (previousLuminance !== null &&
+        (previousLuminance > 0) !== (luminance > 0))
+    {
+      const previousProgress = (sample - 1) / sampleCount;
+      const boundary = findRingClipBoundary(
+        previousProgress,
+        angularProgress,
+        radialProgress,
+        threshold,
+        direction,
+        ringCfg,
+      );
+      const visibleBoundary = colorForLuminance(threshold);
+      const transparentBoundary = colorForLuminance(0);
+
+      if (previousLuminance > 0)
+      {
+        gradient.addColorStop(boundary, visibleBoundary);
+        gradient.addColorStop(boundary, transparentBoundary);
+      }
+      else
+      {
+        gradient.addColorStop(boundary, transparentBoundary);
+        gradient.addColorStop(boundary, visibleBoundary);
+      }
+    }
+
+    gradient.addColorStop(
+      angularProgress,
+      colorForLuminance(luminance),
+    );
+    previousLuminance = luminance;
   }
 
   return gradient;
@@ -740,9 +814,10 @@ function fillDissolvedRingFallback(
     const angularStart = segment / segmentCount;
     const angularEnd = (segment + 1) / segmentCount;
     const angularProgress = (angularStart + angularEnd) * 0.5;
-    const textureProgress = direction > 0
-      ? angularProgress
-      : 1 - angularProgress;
+    const textureProgress = resolveRingTextureProgress(
+      angularProgress,
+      direction,
+    );
     const luminance = evaluateRingLuminance(
       textureProgress,
       radialProgress,
