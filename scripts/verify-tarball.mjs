@@ -213,7 +213,11 @@ if (
     join(installedRoot, 'dist', 'ba-click-fx.iife.js'),
     'utf8',
   );
-  const iifeContext = {};
+  const iifeContext =
+  {
+    // IIFE 在浏览器中天然可用 atob；vm 隔离上下文不会继承宿主全局。
+    atob: globalThis.atob,
+  };
 
   vm.runInNewContext(iifeSource, iifeContext);
   verifyRuntimeApi(iifeContext.BAClickFX, 'IIFE');
