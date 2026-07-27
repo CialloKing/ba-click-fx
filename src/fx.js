@@ -871,7 +871,6 @@ const LEGACY_RING_DISSOLVE_KEYS = [[0, 1], [0.2, 0], [1, 1]];
 const LEGACY_RING_Y_KEYS = [[0, 0], [1, 0.9972414]];
 const LEGACY_RING_WIDTH_START = 5.2;
 const LEGACY_RING_WIDTH_END = 2.4;
-const LEGACY_RING_HDR = 1.0;
 const LEGACY_RING_EDGE_RATIO = 0.1;
 const LEGACY_TRAIL_WIDTH = 4;
 const LEGACY_TRAIL_CORE_WIDTH = 1.7;
@@ -914,8 +913,8 @@ function drawLegacyDissolvedCircle(
   const width = lerp(LEGACY_RING_WIDTH_START, LEGACY_RING_WIDTH_END, progress) * yCurve * scale;
   const threshold = evaluateNumber(LEGACY_RING_DISSOLVE_KEYS, progress);
   const visibleRatio = 1 - threshold;
+  // Legacy 固定为一倍强度，直接复用求值结果可避免恒等颜色复制。
   const particleColor = evaluateColor(ringCfg.colorKeys, progress);
-  const hdrColor = particleColor.map((ch) => ch * LEGACY_RING_HDR);
   const arcLength = TAU * visibleRatio;
   const sweep = ringCfg.dissolveDirection * arcLength;
 
@@ -962,7 +961,7 @@ function drawLegacyDissolvedCircle(
   }
 
   context.closePath();
-  context.fillStyle = colorToCss(hdrColor, opacity);
+  context.fillStyle = colorToCss(particleColor, opacity);
   context.shadowColor = colorToCss(particleColor, opacity * bloomCfg.ringAlpha);
   context.shadowBlur = bloomCfg.ringBlur * scale;
   context.fill();
@@ -1004,7 +1003,7 @@ function drawLegacyDissolvedCircle(
     }
 
     context.closePath();
-    context.fillStyle = colorToCss(hdrColor, opacity * ridgeAlphaBoost);
+    context.fillStyle = colorToCss(particleColor, opacity * ridgeAlphaBoost);
     context.shadowBlur = 0;
     context.fill();
   }

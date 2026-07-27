@@ -3477,6 +3477,7 @@ assert(
   'Legacy 构造完成后无需等待 RAF 即公开实际渲染模式',
 );
 legacyEffect.setFxParam('bloom.clickEmissionScale', 0);
+legacyEffect.setFxParam('rings.hdrIntensity', 4);
 legacyEffect.boom(960, 540);
 legacyEffect.context.filledPaths = [];
 let legacyNow = flushFrames(dom, performance.now(), 1);
@@ -3484,6 +3485,18 @@ const legacyRingPaths = legacyEffect.context.filledPaths.filter((path) =>
   path.length > 3);
 const legacyTrianglePaths = legacyEffect.context.filledPaths.filter((path) =>
   path.length === 3);
+const legacyRingBaseIndices = legacyEffect.context.filledPaths.reduce(
+  (indices, path, index) =>
+  {
+    if (path.length > 3 && legacyEffect.context.fillShadowBlurs[index] > 0)
+    {
+      indices.push(index);
+    }
+
+    return indices;
+  },
+  [],
+);
 
 assert(
   legacyRingPaths.length >= UNITY_FX_TOUCH.rings.count,
@@ -3492,6 +3505,19 @@ assert(
 assert(
   legacyTrianglePaths.length === UNITY_FX_TOUCH.shards.clickCount,
   'Legacy 点击后的第一帧同时绘制三角碎片',
+);
+assert(
+  legacyEffect.getFxConfig().rings.hdrIntensity === 4 &&
+    legacyRingBaseIndices.length === UNITY_FX_TOUCH.rings.count &&
+    legacyRingBaseIndices.every((index) =>
+      JSON.stringify(
+        getCssChannels(legacyEffect.context.filledStyles[index]).slice(0, 3),
+      ) === JSON.stringify(
+        getCssChannels(
+          legacyEffect.context.fillShadowColors[index],
+        ).slice(0, 3),
+      )),
+  'Legacy 圆环固定使用一倍颜色强度，不读取增强模式 HDR 倍率',
 );
 assert(
   legacyEffect.context.fillShadowBlurs.some((blur, index) =>
