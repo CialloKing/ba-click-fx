@@ -19,7 +19,7 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 > 🖱 点击、拖拽或移动鼠标即可预览特效。Click, drag, or move your mouse on the demo page to preview.
 
 <p align="center">
-  <img src="./docs/assets/ba-click-fx-demo.gif" alt="demo" width="45%">
+  <img src="https://github.com/CialloKing/ba-click-fx/releases/download/v1.2.12/ba-click-fx-demo.gif" alt="demo" width="45%">
   &nbsp;&nbsp;
   <img src="./docs/assets/blue-archive-reference.gif" alt="game reference" width="45%">
 </p>
