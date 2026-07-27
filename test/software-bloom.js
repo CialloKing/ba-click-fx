@@ -548,11 +548,28 @@ geometryRenderer.beginFrame();
 geometryRenderer.addDisk(10, 20, 24, [1, 2, 3]);
 geometryRenderer.addDisk(40, 50, 24, [1, 2, 3]);
 
+const diskRedEnergies = [];
+
+for (let index = 0; index < geometryRenderer.vertexCount; index++)
+{
+  diskRedEnergies.push(geometryRenderer.vertexData[index * 5 + 2]);
+}
+
 assert(
   geometryRenderer.vertexCount > 4096 &&
     geometryRenderer.vertexData.length >=
       geometryRenderer.vertexCount * 5,
   'WebGL2 光盘为全部径向色带预留顶点，连续点击不会截断缓冲',
+);
+
+assert(
+  approximatelyEqual(
+    UNITY_FX_TOUCH.disk.textureRadialEnergyKeys[3][1],
+    0.127021063,
+  ) &&
+    diskRedEnergies.some((energy) =>
+      approximatelyEqual(energy, 0.127021063)),
+  '光盘按 Unity sRGB 纹理生成 R_linear² 边缘能量',
 );
 
 geometryRenderer.beginFrame();
