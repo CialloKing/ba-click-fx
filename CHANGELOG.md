@@ -1,5 +1,14 @@
 ﻿# Changelog
 
+## v1.2.12 — Bloom 回退与非 Bloom 优化
+
+- 软件 Bloom、WebGL2 Bloom、原生辉光和 Legacy 的 Bloom 参数与合成路径全部恢复到 v1.2.11 稳定实现，撤销实验性完整 WebGL2 后端及本轮共享 Bloom 管线改动
+- 保留 Unity `TrailRenderer` 的非 Bloom 几何优化：4 个圆角插入点、1 个端帽顶点、有限锐角 miter，以及沿弧长连续的 Stretch 能量与横向纹理采样
+- `pointerCancel()` 在多屏切换、暂停和异常恢复时立即移除当前轨迹；`pointerUp()` 继续让已有拖尾按 0.3 秒自然衰减
+- 圆环数量为 `0` 时按实际可见层生命周期停止 RAF，避免光盘结束后继续空转；数量和模糊参数允许显式设为 `0`
+- 展示页连续参数使用更细步进，寿命、数量和采样精度保留合理整数控制，并补齐 Hit/Flare 重置项
+- 常见问题继续提示纯白背景开启隔离合成；演示 GIF 改由 v1.2.12 Release 资产提供，并从全部可达 Git 历史中移除
+
 ## v1.2.11 — Unity 解包资源严格对齐
 
 - 对照两套解包 Unity 工程重新核验 `FX_Touch` Prefab、材质、网格与纹理资源，并按固定 UI 正交投影、粒子曲线、材质 HDR、碎片局部缩放和 TrailRenderer 参数校准网页实现
