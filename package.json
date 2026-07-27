@@ -73,6 +73,7 @@
     "verify:package": "node scripts/verify-package.mjs",
     "verify:pack": "node scripts/verify-pack.mjs",
     "verify:tarball": "node scripts/verify-tarball.mjs",
+    "check:fast": "node test/smoke.js --source && node scripts/verify-sync.cjs",
     "check": "npm run build && npm run test:bloom && npm run test:source && npm test && npm run verify:sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
     "prepack": "npm run build",
     "prepublishOnly": "npm run check"
