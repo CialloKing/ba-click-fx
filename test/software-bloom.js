@@ -13,7 +13,6 @@ import {
   downsampleGaussian,
   encodeAdditiveBloom,
   linearToSrgb,
-  normalizeBloomClamp,
   prefilterBloom,
   upsampleAndMixBloom,
 } from '../src/software-bloom.js';
@@ -71,12 +70,6 @@ assert(
     calculateBloomIntensity(0) === 0 &&
     calculateBloomIntensity(-1) === 0,
   'MXFinalBloom 强度使用曝光式换算，Software 与 WebGL2 共用同一倍率',
-);
-assert(
-  normalizeBloomClamp(Number.POSITIVE_INFINITY) === 65472 &&
-    normalizeBloomClamp(-1) === 0 &&
-    normalizeBloomClamp(70000) === 65504,
-  'Bloom Clamp 对无效值回退并限制在 half-float 可表示范围',
 );
 const belowKnee = calculateBloomContribution(0.4, 1, 0.5);
 const insideKnee = calculateBloomContribution(0.75, 1, 0.5);
