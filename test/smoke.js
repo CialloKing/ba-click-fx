@@ -3395,10 +3395,13 @@ assert(
 );
 const budgetBlurDraw = budgetGeometry.nativeBlurDraws[0];
 const budgetBlurArgs = budgetBlurDraw?.args ?? [];
-const budgetMinimumX = Math.min(...budgetPoints.map(({ x }) => x));
-const budgetMinimumY = Math.min(...budgetPoints.map(({ y }) => y));
-const budgetMaximumX = Math.max(...budgetPoints.map(({ x }) => x));
-const budgetMaximumY = Math.max(...budgetPoints.map(({ y }) => y));
+const budgetVisiblePoints = budgetPoints.slice(
+  nativeSkippedBudgetSegmentCount,
+);
+const budgetMinimumX = Math.min(...budgetVisiblePoints.map(({ x }) => x));
+const budgetMinimumY = Math.min(...budgetVisiblePoints.map(({ y }) => y));
+const budgetMaximumX = Math.max(...budgetVisiblePoints.map(({ x }) => x));
+const budgetMaximumY = Math.max(...budgetVisiblePoints.map(({ y }) => y));
 const budgetScale = geometryEffect._getScale();
 const budgetBlurRadius = UNITY_FX_TOUCH.trail.outerGlowWidth * budgetScale;
 const budgetHalfWidth = Math.max(
@@ -3418,6 +3421,11 @@ const budgetRegionHeight = Math.max(
   1,
   Math.ceil(budgetMaximumY + budgetMargin) - budgetOriginY,
 );
+const budgetFullRegionWidth = Math.max(
+  1,
+  Math.ceil(Math.max(...budgetPoints.map(({ x }) => x)) + budgetMargin) -
+    Math.floor(Math.min(...budgetPoints.map(({ x }) => x)) - budgetMargin),
+);
 const budgetDpr = geometryEffect.nativeTrailBloomSurface.dpr;
 const expectedBudgetSource = [
   0,
@@ -3431,6 +3439,8 @@ const expectedBudgetDestination = [
   budgetRegionWidth,
   budgetRegionHeight,
 ];
+const budgetBlurSupport = budgetBlurRadius * 3 + 2;
+const budgetNativeVertices = budgetGeometry.nativePaths.flat();
 
 assert(
   budgetGeometry.nativeBlurDraws.length === 1 &&
@@ -3441,8 +3451,14 @@ assert(
     JSON.stringify(budgetBlurArgs.slice(1, 5)) ===
       JSON.stringify(expectedBudgetSource) &&
     JSON.stringify(budgetBlurArgs.slice(5)) ===
-      JSON.stringify(expectedBudgetDestination),
-  'Native 仍按完整轨迹边界清理局部缓冲并只执行一次整体模糊',
+      JSON.stringify(expectedBudgetDestination) &&
+    budgetRegionWidth < budgetFullRegionWidth &&
+    budgetNativeVertices.every(([x, y]) =>
+      x - budgetBlurSupport >= budgetOriginX &&
+        x + budgetBlurSupport <= budgetOriginX + budgetRegionWidth &&
+        y - budgetBlurSupport >= budgetOriginY &&
+        y + budgetBlurSupport <= budgetOriginY + budgetRegionHeight),
+  'Native 只按可见轨迹边界清理缓冲，并为折点和整体模糊保留完整支撑区',
 );
 geometryEffect.pointerCancel(91);
 geometryEffect.destroy();

@@ -2614,9 +2614,13 @@ function drawNativeTrailBloom(
   let minimumY = Infinity;
   let maximumX = -Infinity;
   let maximumY = -Infinity;
+  const firstBoundPointIndex = firstVisibleSegment - 1;
 
-  for (const point of points)
+  // 首个可见段仍需要前一个端点；更早的零能量点不应扩大局部模糊缓冲。
+  for (let index = firstBoundPointIndex; index < points.length; index++)
   {
+    const point = points[index];
+
     minimumX = Math.min(minimumX, point.x);
     minimumY = Math.min(minimumY, point.y);
     maximumX = Math.max(maximumX, point.x);
