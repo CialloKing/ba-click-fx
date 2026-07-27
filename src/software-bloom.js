@@ -3,6 +3,8 @@ const RGBA_CHANNELS = 4;
 const REGION_QUANTUM = 64;
 const MAX_PYRAMID_LEVELS = 16;
 const DEFAULT_DIFFUSION = 7;
+const DEFAULT_BLOOM_CLAMP = 65472;
+const HALF_FLOAT_MAX = 65504;
 
 function clamp(value, minimum, maximum)
 {
@@ -75,6 +77,14 @@ export function calculateBloomIntensity(intensity)
 {
   // MXFinalBloom 将面板值视为曝光档位；直接乘 1.7 会把能量放大约 13.6 倍。
   return Math.pow(2, Math.max(0, intensity) / 10) - 1;
+}
+
+export function normalizeBloomClamp(value)
+{
+  const finiteValue = Number.isFinite(value) ? value : DEFAULT_BLOOM_CLAMP;
+
+  // RGBA16F 无法表示更大的有限值，两条后端必须在进入金字塔前一致钳制。
+  return Math.min(HALF_FLOAT_MAX, Math.max(0, finiteValue));
 }
 
 /**
@@ -282,12 +292,13 @@ export function prefilterBloom(
   outputHeight,
   threshold,
   softKnee,
-  clampMax = 65472,
+  clampMax = DEFAULT_BLOOM_CLAMP,
   highQualityFiltering = true,
   sourceTexelAspect = sourceHeight / sourceWidth,
   sourceBounds = null,
 )
 {
+  const safeClampMax = normalizeBloomClamp(clampMax);
   const scaleX = sourceWidth / outputWidth;
   const scaleY = sourceHeight / outputHeight;
   let startX = 0;
@@ -356,9 +367,9 @@ export function prefilterBloom(
       }
 
       writeThresholdedColor(
-        Math.min(clampMax, output[outputIndex]),
-        Math.min(clampMax, output[outputIndex + 1]),
-        Math.min(clampMax, output[outputIndex + 2]),
+        Math.min(safeClampMax, output[outputIndex]),
+        Math.min(safeClampMax, output[outputIndex + 1]),
+        Math.min(safeClampMax, output[outputIndex + 2]),
         output,
         outputIndex,
         threshold,

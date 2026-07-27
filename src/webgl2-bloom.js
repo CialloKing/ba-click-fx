@@ -1,6 +1,7 @@
 import {
   calculateBloomIntensity,
   calculateBloomPyramidSettings,
+  normalizeBloomClamp,
 } from './software-bloom.js';
 
 const COMPONENTS_PER_VERTEX = 5;
@@ -90,7 +91,9 @@ out vec4 outColor;
 
 vec3 thresholdColor(vec3 color)
 {
-  color = min(color, vec3(u_clampMax));
+  float clampMax = min(max(u_clampMax, 0.0), 65504.0);
+
+  color = min(color, vec3(clampMax));
   float brightness = max(max(color.r, color.g), color.b);
 
   if (brightness <= 0.0)
@@ -1354,7 +1357,7 @@ export class WebGL2BloomRenderer
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_clampMax'),
-      settings.clamp ?? 65472,
+      normalizeBloomClamp(settings.clamp),
     );
     this._drawFullscreen(program, level.down, level.width, level.height);
   }
