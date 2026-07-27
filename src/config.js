@@ -300,7 +300,7 @@ export const UNITY_FX_TOUCH = Object.freeze(
       // Gradient × Stretch 纹理产生，不能再用全局 Alpha 把头部一并压暗。
       trailEmissionAlpha: 1,
       // 点击专用倍率只缩放圆环与光盘的辉光源，不改变清晰几何或拖尾。
-      // 原生三尺度路径在高亮提取前应用该倍率，透明兼容路径缩放阴影 Alpha。
+      // 原生辉光后端复用同一倍率缩放 shadowBlur 的颜色 Alpha。
       clickEmissionScale: 1,
       // FX_MAT_Touch_Tri3 的材质 Alpha 为 1；Bloom 不再用全局 Alpha
       // 压低圆环发射能量。

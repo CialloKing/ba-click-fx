@@ -147,10 +147,10 @@ In enhanced mode, `bloomBackend` selects the Bloom implementation. The demo comb
 |---|---|---|
 | WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Default; runs the game's MXFinalBloom passes on the GPU and falls back automatically when unavailable |
 | Software Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'software' }` | Reference/compatibility implementation using Canvas 2D pixel readback and full-viewport Float32 buffers |
-| Native Glow | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | Avoids pixel readback; clicks use local three-scale Canvas filters in the default fullscreen direct-composite path, while trails use a local offscreen blur |
-| Legacy | `{ renderingMode: 'legacy' }` | Samples the Unity ring texture per pixel and uses Canvas `shadowBlur` for compatibility glow; the Bloom backend is ignored |
+| Native Glow | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | Uses Canvas 2D `shadowBlur`; cheaper, but visually different from post-process Bloom |
+| Legacy | `{ renderingMode: 'legacy' }` | Uses Unity material energy and texture profiles with Canvas `shadowBlur` compatibility glow; the Bloom backend is ignored |
 
-The demo exposes Isolated Compositing as a separate switch beside the four rendering choices. It is disabled by default. For Software, WebGL2, and Legacy it changes only the final CSS compositing boundary, not Bloom thresholds or colour calculations. Native click Bloom stores dark linear energy in opaque RGB, so enabling isolation safely selects its transparent `shadowBlur` compatibility path. The switch is still not a Bloom performance control.
+The demo exposes Isolated Compositing as a separate switch beside the four rendering choices. It is disabled by default and is orthogonal to Software, WebGL2, Native, and Legacy rendering: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
 
 `bloomBackend: 'auto'` tries WebGL2 first, then Software Bloom, then Native Glow. The default `'webgl2'` uses the same fallback chain; explicit `'software'` falls back to Native Glow when pixel readback is unavailable. If both `bloomBackend` and the old `softwareBloomEnabled` field are provided, `bloomBackend` wins. The compatibility field still maps `true` to `'software'` and `false` to `'native'`.
 
@@ -275,7 +275,7 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 
 Click glow can be tuned independently from the trail. This scale changes only
 the ring and center-disk Bloom emission in enhanced mode; Native Glow uses the
-same scale before bright-pass extraction, while Legacy keeps its
+same scale through a monotonic bounded-alpha mapping, while Legacy keeps its
 compatibility output:
 
 ```js
@@ -304,10 +304,10 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `bloom.clickEmissionScale` | 1.0 | Independent glow scale for click rings and the center disk, recommended range `0–4`; does not affect crisp geometry or the trail |
 | `bloom.ringEmissionAlpha` | 1.0 | HDR ring emission aligned with the FX_MAT_Touch_Tri3 material alpha |
 | `bloom.diskEmissionAlpha` | 1.0 | HDR disk emission scale for software Bloom |
-| `bloom.ringBlur` | 80 | Compatibility ring blur radius when Canvas filters are unavailable; also used by Legacy |
-| `bloom.ringAlpha` | 0.35 | Compatibility ring blur intensity when Canvas filters are unavailable |
-| `bloom.diskBlur` | 65 | Compatibility disk blur radius when Canvas filters are unavailable |
-| `bloom.diskAlpha` | 0.65 | Compatibility disk blur intensity when Canvas filters are unavailable |
+| `bloom.ringBlur` | 80 | Native ring blur radius when pixel readback is unavailable |
+| `bloom.ringAlpha` | 0.35 | Native ring blur intensity when pixel readback is unavailable |
+| `bloom.diskBlur` | 65 | Native disk blur radius when pixel readback is unavailable |
+| `bloom.diskAlpha` | 0.65 | Native disk blur intensity when pixel readback is unavailable |
 | `bloom.trailCoverageScale` | 1.0 | Keeps Bloom emission at the same 2.7px width as the Unity triangle strip |
 | `bloom.trailEmissionAlpha` | 1.0 | HDR trail emission scale for software Bloom |
 | `bloom.trailAlpha` | 0.18 | Native local offscreen-blur fallback intensity |
@@ -364,15 +364,11 @@ When `bloomBackend: 'software'` is selected explicitly or WebGL2 is unavailable,
 4. Accumulate from the coarsest mip upward with SampleScale four-tap sampling.
 5. Apply the game's intensity conversion, final four-tap sampling, and additive sRGB composite.
 
-The default `isolatedCompositing: false` blends the main layer directly against the DOM background with `plus-lighter`, preserving Unity's strict additive semantics; additive output necessarily loses colour and contrast on pure white. With `true`, the main layer, WebGL2 Bloom layer, and compatibility layer first resolve inside a transparent group, then composite their coloured result and alpha over the page. This does not change WebGL2 or Software Bloom; Native clicks use the transparent compatibility glow so that their opaque linear buffer cannot appear as a black rectangle inside the isolated group.
+The default `isolatedCompositing: false` blends the main layer directly against the DOM background with `plus-lighter`, preserving Unity's strict additive semantics; additive output necessarily loses colour and contrast on pure white. With `true`, the main layer, WebGL2 Bloom layer, and compatibility layer first resolve inside a transparent group, then composite their coloured result and alpha over the page. This does not change the Bloom algorithm and exists only as a non-game compatibility path for pure-white web backgrounds.
 
 `lightBackgroundContrastAlpha` defaults to `0`, so no visible silhouette outside the game resource is added. Setting it to `0.35` gives a library-owned overlay an independent pale-cyan `darken` mask above the main FX layer. The mask neither receives nor generates Bloom and exists only to recover a crisp silhouette on pure white. It and isolated compositing are both non-game web compatibility options. An existing Canvas supplied as the target can receive neither this separate backdrop-compositing layer nor isolated compositing.
 
-The software backend uses one full-viewport mip pyramid and reuses its Float32 buffers between frames while limiting emission readback to the geometry's actual subregion. It shares the WebGL2 backend's mip-count formula, SampleScale, four-tap sampling, and intensity conversion.
-
-Native Glow performs no pixel readback. In the default fullscreen direct-composite path, the disk, rings, and click shards share one local bright-pass source with enough 8-bit range for overlapping emitters. `1/2`, `1/8`, and `1/16` buffers process the `6px`, `22px`, and far-field scales. Chromium Canvas requires an actual `76px` Gaussian kernel to match the envelope of Unity's `60px` lowest mip; four truncated-linear passes then approximate Linear-to-sRGB over the `0–0.1` linear range. Trails retain their path-bounded local blur.
-
-The four click buffers are created lazily and grow for reuse. `clear()`, leaving Native Glow, or enabling isolated compositing releases their capacity. Isolated compositing, custom containers, external canvases, unavailable effective `plus-lighter`, and unavailable Canvas filters use the transparent `shadowBlur` click fallback in the same frame, preventing black backing rectangles and contaminated host screenshots.
+The software backend uses one full-viewport mip pyramid and reuses its Float32 buffers between frames while limiting emission readback to the geometry's actual subregion. It shares the WebGL2 backend's mip-count formula, SampleScale, four-tap sampling, and intensity conversion. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`, while trail emission is blurred once in a local offscreen buffer.
 
 ---
 
@@ -404,7 +400,6 @@ ba-click-fx/
 │   ├── fx.js            # Engine: ParticleSystem + TrailRenderer lifecycle
 │   ├── main.js           # Demo page + control panel UI
 │   ├── config.js         # Unity FX_Touch parameter snapshot
-│   ├── native-click-bloom.js # Native three-scale local click glow
 │   ├── software-bloom.js # MXFinalBloom Float32 mips and additive composite
 │   ├── webgl2-bloom.js   # WebGL2 HDR emission and MXFinalBloom composite
 │   ├── utils.js          # Pure math utilities
@@ -425,7 +420,6 @@ ba-click-fx/
 - **Main FX layer:** effects use `lighter` internally and the main canvas uses `plus-lighter`; `isolatedCompositing` selects its backdrop.
 - **Light-background compatibility layer:** defaults to zero strength; set it explicitly to 0.35 to add a non-Bloom `darken` canvas for visibility on pure white.
 - **Software Bloom:** full-viewport working canvases plus a Float32 MXFinalBloom pyramid, with a `shadowBlur` fallback when pixel readback is unavailable.
-- **Native Glow:** three reusable Canvas filter scales in the default fullscreen direct path, with transparent compatibility glow for other mount forms.
 - **WebGL2 Bloom:** the default transparent GPU overlay performs the game's MXFinalBloom passes and falls back when capabilities are insufficient.
 - **On-demand rendering:** `requestAnimationFrame` stops when no effects are active.
 - **Zero external dependencies:** browser-native Canvas 2D / WebGL2 APIs only; no third-party runtime.

@@ -1667,9 +1667,6 @@ assert(
 
 Object.assign(shardProbe, savedShardProbe);
 
-// 不透明 RGB 线性缓冲必须由默认全屏 Canvas 直接与页面加色；隔离合成
-// 的透明 shadowBlur 回退在独立实例中验证。
-effect.updateConfig({ isolatedCompositing: false });
 const nativeShadowStart = effect.context.fillShadowBlurs.length;
 const nativeStrokeStart = effect.context.strokeShadowBlurs.length;
 const nativeFilterStart = effect.context.strokeFilters.length;
@@ -1702,8 +1699,8 @@ assert(
 assert(
   effect.context.fillShadowBlurs
     .slice(nativeShadowStart)
-    .every((blur) => blur === 0),
-  'Native 三尺度路径不再给圆盘、碎片和圆环分别叠加单层阴影',
+    .some((blur) => blur > 0),
+  '关闭软件 Bloom 后圆环与圆盘仍回退为原生 shadowBlur',
 );
 assert(
   effect.context.strokeShadowBlurs
@@ -1712,54 +1709,6 @@ assert(
   '原生回退不在拖尾分段接缝叠加 shadowBlur',
 );
 const nativeBloomSurface = effect.nativeTrailBloomSurface;
-const nativeClickBloomRenderer = effect.nativeClickBloomRenderer;
-const nativeClickLayerCanvases = new Set(
-  nativeClickBloomRenderer.layers.map((layer) => layer.canvas),
-);
-const nativeClickLayerDraws = nativeClickBloomRenderer.source.context
-  .drawImageCalls
-  .filter((call) => nativeClickLayerCanvases.has(call.args[0]));
-const nativeClickTransferDraws = effect.context.drawImageCalls
-  .slice(nativeDrawImageStart)
-  .filter((call) => call.args[0] === nativeClickBloomRenderer.source.canvas);
-const nativeClickFilters = nativeClickBloomRenderer.layers.map(
-  (layer) => layer.context.drawImageCalls.at(-1)?.filter,
-);
-const nativeClickBoundsWidth = nativeClickTransferDraws[0]?.args[7];
-const nativeClickBoundsHeight = nativeClickTransferDraws[0]?.args[8];
-const expectedNativeClickWidths = [1 / 2, 1 / 8, 1 / 16].map(
-  (resolutionScale) => Math.ceil(nativeClickBoundsWidth * resolutionScale),
-);
-const expectedNativeClickHeights = [1 / 2, 1 / 8, 1 / 16].map(
-  (resolutionScale) => Math.ceil(nativeClickBoundsHeight * resolutionScale),
-);
-const expectedNativeFarBlur = Math.sqrt(76 ** 2 - 22 ** 2) / 16;
-
-assert(
-  nativeClickBloomRenderer.available &&
-    nativeClickBloomRenderer.source.context.radialGradients.length > 0 &&
-    nativeClickBloomRenderer.source.context.conicGradients.length > 0 &&
-    nativeClickBloomRenderer.source.context.filledPaths.some(
-      (path) => path.length === 3,
-    ) &&
-    nativeClickLayerDraws.length === 3 &&
-    nativeClickTransferDraws.length === 4 &&
-    nativeClickTransferDraws.every(
-      (call) => call.compositeOperation === 'lighter' &&
-        call.filter.startsWith('brightness('),
-    ),
-  'Native 统一提取点击发射，合并三层线性能量后用四段 sRGB 传递绘回',
-);
-assert(
-  nativeClickFilters[0] === 'blur(3px) brightness(4)' &&
-    nativeClickFilters[1] === 'blur(2.75px) brightness(4)' &&
-    nativeClickFilters[2] ===
-      `blur(${expectedNativeFarBlur}px) brightness(4)` &&
-    nativeClickBloomRenderer.layers.every((layer, index) =>
-      layer.activeWidth === expectedNativeClickWidths[index] &&
-      layer.activeHeight === expectedNativeClickHeights[index]),
-  'Native 以 1/2、1/8、1/16 缓冲还原 6px、22px 和校准后的 76px 尺度',
-);
 const nativeGlowGradients = nativeBloomSurface.context.linearGradients;
 const nativeTrailSegmentCount = effect.trailStrokes[0].points.length - 1;
 const nativeSkippedSegmentCount = 1;
@@ -1771,10 +1720,9 @@ const nativeSegmentGradients = nativeGlowGradients.slice(
   0,
   nativeVisibleSegmentCount,
 );
-const nativeTrailBlurDraws = effect.context.drawImageCalls
+const nativeBlurDraws = effect.context.drawImageCalls
   .slice(nativeDrawImageStart)
-  .filter((call) =>
-    call.args[0] === nativeBloomSurface.canvas && call.filter !== 'none');
+  .filter((call) => call.filter !== 'none');
 const nativeTrailPaths = nativeBloomSurface.context.filledPaths;
 const clearTrailPaths = effect.context.filledPaths
   .slice(nativePathStart)
@@ -1788,8 +1736,8 @@ assert(
   effect.context.strokeFilters
     .slice(nativeFilterStart)
     .every((filter) => filter === 'none') &&
-    nativeTrailBlurDraws.length === 1 &&
-    nativeTrailBlurDraws[0].args.length === 9,
+    nativeBlurDraws.length === 1 &&
+    nativeBlurDraws[0].args.length === 9,
   '原生回退在局部缓冲完成着色后只执行一次整体模糊',
 );
 assert(
@@ -1852,19 +1800,8 @@ assert(effect.trailStrokes.length === 0, '松开后轨迹按 0.3 秒自然消失
 
 effect.boom(960, 540);
 assert(effect.waves.length === 1 && effect.shards.length === 4, 'boom() 触发同一套 FX_Touch 点击');
-const nativeClickCanvases = [
-  nativeClickBloomRenderer.source.canvas,
-  ...nativeClickBloomRenderer.layers.map((layer) => layer.canvas),
-];
 effect.clear();
-assert(
-  effect.waves.length === 0 &&
-    effect.shards.length === 0 &&
-    effect.nativeClickBloomRenderer === undefined &&
-    nativeClickCanvases.every((canvas) =>
-      canvas.width === 0 && canvas.height === 0),
-  'clear() 清除全部视觉对象并释放 Native 点击缓冲',
-);
+assert(effect.waves.length === 0 && effect.shards.length === 0, 'clear() 清除全部视觉对象');
 
 effect.destroy();
 assert(
@@ -2742,18 +2679,22 @@ assert(
 );
 clickGlowResetEffect.boom(960, 540);
 flushFrames(dom, performance.now(), 1);
-const disabledNativeClickRenderer = clickGlowResetEffect.nativeClickBloomRenderer;
+const disabledNativeGlowIndices = clickGlowResetEffect.context.fillShadowBlurs
+  .reduce((indices, blur, index) =>
+  {
+    if (blur > 0)
+    {
+      indices.push(index);
+    }
+
+    return indices;
+  }, []);
 
 assert(
-  clickGlowResetEffect.context.radialGradients.length > 0 &&
-    clickGlowResetEffect.context.conicGradients.length > 0 &&
-    clickGlowResetEffect.context.fillShadowBlurs.every((blur) => blur === 0) &&
-    disabledNativeClickRenderer.source.context.radialGradients.length === 0 &&
-    disabledNativeClickRenderer.source.context.conicGradients.length === 0 &&
-    disabledNativeClickRenderer.source.context.filledPaths.some(
-      (path) => path.length === 3,
-    ),
-  '点击发射倍率为零时保留清晰圆盘与圆环，只让碎片继续进入 Native Bloom',
+  disabledNativeGlowIndices.length > 0 &&
+    disabledNativeGlowIndices.every((index) =>
+      getCssAlpha(clickGlowResetEffect.context.fillShadowColors[index]) === 0),
+  '点击发射倍率为零时原生圆环与光盘只关闭阴影、不移除清晰几何',
 );
 clickGlowResetEffect.clear();
 clickGlowResetEffect.setFxParam('bloom.clickEmissionScale', 4);
@@ -2761,120 +2702,30 @@ clickGlowResetEffect.context.fillShadowBlurs = [];
 clickGlowResetEffect.context.fillShadowColors = [];
 clickGlowResetEffect.boom(960, 540);
 flushFrames(dom, performance.now(), 1);
-const boostedNativeSource = clickGlowResetEffect.nativeClickBloomRenderer.source;
-const boostedNativeDisk = boostedNativeSource.context.radialGradients.at(-1)
-  ?.gradient;
-const boostedNativePeak = boostedNativeDisk?.stops.reduce(
-  (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
-  0,
-) ?? 0;
+const boostedNativeGlowAlphas = clickGlowResetEffect.context.fillShadowBlurs
+  .reduce((alphas, blur, index) =>
+  {
+    if (blur > 0)
+    {
+      alphas.push(getCssAlpha(
+        clickGlowResetEffect.context.fillShadowColors[index],
+      ));
+    }
+
+    return alphas;
+  }, []);
 
 assert(
-  clickGlowResetEffect.context.fillShadowBlurs.every((blur) => blur === 0) &&
-    boostedNativeSource.context.conicGradients.length > 0 &&
-    boostedNativePeak > 0 &&
-    boostedNativePeak < 255,
-  'Native 点击发射倍率在阈值前放大统一发射源，并在滑块上限保留能量余量',
+  boostedNativeGlowAlphas.length > 0 &&
+    boostedNativeGlowAlphas.every((alpha) => alpha > 0 && alpha < 1),
+  '原生辉光在滑块上限仍保持单调余量，不会提前钳制为不透明阴影',
 );
 clickGlowResetEffect.resetFxConfig();
 assert(
   clickGlowResetEffect.getFxConfig().bloom.clickEmissionScale === 1,
   'resetFxConfig() 恢复点击发射倍率默认值',
 );
-const boostedNativeCanvases = [
-  boostedNativeSource.canvas,
-  ...clickGlowResetEffect.nativeClickBloomRenderer.layers.map(
-    (layer) => layer.canvas,
-  ),
-];
-clickGlowResetEffect.updateConfig({ bloomBackend: 'software' });
-assert(
-  clickGlowResetEffect.nativeClickBloomRenderer === undefined &&
-    boostedNativeCanvases.every((canvas) =>
-      canvas.width === 0 && canvas.height === 0),
-  '离开 Native 后端时立即释放已增长的点击缓冲',
-);
 clickGlowResetEffect.destroy();
-
-const nativeFilterFallbackEffect = new BAClickFX({ bloomBackend: 'native' });
-
-nativeFilterFallbackEffect.nativeClickBloomRenderer =
-{
-  available: false,
-  ensureAvailable()
-  {
-    return false;
-  },
-  destroy()
-  {
-  },
-};
-nativeFilterFallbackEffect.boom(960, 540);
-flushFrames(dom, performance.now(), 1);
-assert(
-  nativeFilterFallbackEffect.context.fillShadowBlurs.some(
-    (blur) => blur > 0,
-  ) &&
-    nativeFilterFallbackEffect.context.fillShadowColors.some(
-      (color) => getCssAlpha(color) > 0,
-    ),
-  'Canvas filter 不可用时 Native 在同一帧回退圆盘与圆环单层阴影',
-);
-nativeFilterFallbackEffect.destroy();
-
-const isolatedNativeFallbackEffect = new BAClickFX(
-  {
-    bloomBackend: 'native',
-    isolatedCompositing: true,
-  },
-);
-const customNativeHost = document.createElement('div');
-
-customNativeHost.getBoundingClientRect = () =>
-({
-  left: 0,
-  top: 0,
-  width: 1920,
-  height: 1080,
-});
-dom.body.appendChild(customNativeHost);
-const hostedNativeFallbackEffect = new BAClickFX(
-  {
-    target: customNativeHost,
-    bloomBackend: 'native',
-  },
-);
-const externalNativeCanvas = document.createElement('canvas');
-const externalNativeFallbackEffect = new BAClickFX(
-  {
-    target: externalNativeCanvas,
-    bloomBackend: 'native',
-  },
-);
-
-isolatedNativeFallbackEffect.boom(960, 540);
-hostedNativeFallbackEffect.boom(960, 540);
-externalNativeFallbackEffect.boom(960, 540);
-flushFrames(dom, performance.now(), 1);
-assert(
-  isolatedNativeFallbackEffect.nativeClickBloomRenderer === undefined &&
-    hostedNativeFallbackEffect.nativeClickBloomRenderer === undefined &&
-    externalNativeFallbackEffect.nativeClickBloomRenderer === undefined &&
-    isolatedNativeFallbackEffect.context.fillShadowBlurs.some(
-      (blur) => blur > 0,
-    ) &&
-    hostedNativeFallbackEffect.context.fillShadowBlurs.some(
-      (blur) => blur > 0,
-    ) &&
-    externalNativeFallbackEffect.context.fillShadowBlurs.some(
-      (blur) => blur > 0,
-    ),
-  '隔离合成、自定义容器和外部 Canvas 均使用无黑底的透明 Native 回退',
-);
-isolatedNativeFallbackEffect.destroy();
-hostedNativeFallbackEffect.destroy();
-externalNativeFallbackEffect.destroy();
-customNativeHost.remove();
 
 const firstIsolatedEffect = new BAClickFX({ isolatedCompositing: true });
 const secondIsolatedEffect = new BAClickFX({ isolatedCompositing: true });

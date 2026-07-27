@@ -167,10 +167,10 @@ new BAClickFX(options?: {
 |---|---|---|
 | WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 默认；GPU 执行游戏 MXFinalBloom，不可用时自动回退 |
 | 软件 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'software' }` | 参考/兼容实现，使用 Canvas 2D 像素回读和全视口 Float32 缓冲 |
-| 原生辉光 | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | 不回读像素；默认全屏直接合成时点击使用局部三尺度 Canvas filter，拖尾使用局部离屏模糊 |
-| Legacy | `{ renderingMode: 'legacy' }` | 逐像素采样 Unity 圆环纹理，以 Canvas `shadowBlur` 提供兼容辉光；此时忽略 Bloom 后端 |
+| 原生辉光 | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | 使用 Canvas 2D `shadowBlur`，开销较低但观感与后处理 Bloom 不同 |
+| Legacy | `{ renderingMode: 'legacy' }` | 使用 Unity 材质能量和纹理轮廓，以 Canvas `shadowBlur` 提供兼容辉光；此时忽略 Bloom 后端 |
 
-展示页在四档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭；对 Software、WebGL2 和 Legacy，它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值或颜色计算。Native 点击三尺度缓冲以不透明 RGB 保留暗部，因此开启隔离合成时会安全切换到透明 `shadowBlur` 兼容路径；该开关仍不是降低 Bloom 计算量的性能选项。
+展示页在四档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与 Software、WebGL2、Native 或 Legacy 渲染选择正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
 
 `bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。默认值 `'webgl2'` 采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。若同时传入 `bloomBackend` 和旧字段 `softwareBloomEnabled`，以 `bloomBackend` 为准；旧字段仍保持 `true` 等价于 `'software'`、`false` 等价于 `'native'`。
 
@@ -294,7 +294,7 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 ```
 
 点击辉光可独立于轨迹调节。该倍率只改变增强模式下圆环和中心光盘的
-Bloom 发射；原生辉光在高亮提取前应用同一倍率，Legacy 保持兼容输出：
+Bloom 发射；原生辉光使用保持单调的有界 Alpha 映射，Legacy 保持兼容输出：
 
 ```js
 fx.setFxParam('bloom.clickEmissionScale', 1.25);
@@ -324,10 +324,10 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `bloom.clickEmissionScale` | 1.0 | 点击圆环与中心光盘的独立辉光倍率，推荐 `0~4`；不影响清晰几何或轨迹 |
 | `bloom.ringEmissionAlpha` | 1.0 | 与 FX_MAT_Touch_Tri3 材质 Alpha 对齐的圆环 HDR 发射 |
 | `bloom.diskEmissionAlpha` | 1.0 | 软件 Bloom 光盘 HDR 发射校准 |
-| `bloom.ringBlur` | 80 | Canvas filter 不可用时的圆环兼容模糊半径；Legacy 也使用此值 |
-| `bloom.ringAlpha` | 0.35 | Canvas filter 不可用时的圆环兼容模糊强度 |
-| `bloom.diskBlur` | 65 | Canvas filter 不可用时的光盘兼容模糊半径 |
-| `bloom.diskAlpha` | 0.65 | Canvas filter 不可用时的光盘兼容模糊强度 |
+| `bloom.ringBlur` | 80 | 像素回读不可用时的圆环原生模糊半径 |
+| `bloom.ringAlpha` | 0.35 | 像素回读不可用时的圆环原生模糊强度 |
+| `bloom.diskBlur` | 65 | 像素回读不可用时的光盘原生模糊半径 |
+| `bloom.diskAlpha` | 0.65 | 像素回读不可用时的光盘原生模糊强度 |
 | `bloom.trailCoverageScale` | 1.0 | 保持 Bloom 发射源与 Unity 2.7px 三角带同宽 |
 | `bloom.trailEmissionAlpha` | 1.0 | 软件 Bloom 拖尾 HDR 发射校准 |
 | `bloom.trailAlpha` | 0.18 | 原生局部离屏模糊回退强度 |
@@ -384,15 +384,11 @@ WebGL2 与软件 Bloom 共用同一组 HDR 发射参数和 Bloom 配置。WebGL2
 4. 从最低分辨率 mip 开始，以 SampleScale 四点采样累加回每个细层。
 5. 按游戏公式换算 `bloom.intensity`，再执行最终四点采样与 sRGB 加色合成。
 
-默认的 `isolatedCompositing: false` 让主层直接以 `plus-lighter` 与 DOM 背景混合，保持 Unity 的严格加色语义；在纯白背景上，加色结果必然失去颜色和对比度。设为 `true` 后，主层、WebGL2 Bloom 层和兼容层会先在透明组内合成，再将带颜色与 Alpha 的结果覆盖到页面。它不改变 WebGL2 或软件 Bloom 算法；Native 点击会改用透明兼容辉光，以免不透明线性缓冲在隔离组内形成黑色矩形。
+默认的 `isolatedCompositing: false` 让主层直接以 `plus-lighter` 与 DOM 背景混合，保持 Unity 的严格加色语义；在纯白背景上，加色结果必然失去颜色和对比度。设为 `true` 后，主层、WebGL2 Bloom 层和兼容层会先在透明组内合成，再将带颜色与 Alpha 的结果覆盖到页面。这不会改变 Bloom 算法，只是用于纯白网页背景的非游戏兼容路径。
 
 `lightBackgroundContrastAlpha` 默认是 `0`，因此不会创建游戏资源之外的可见轮廓。设为 `0.35` 时，库拥有的覆盖层会在主特效层上方增加独立的 `darken` 淡青色遮罩；它不接收或产生 Bloom，只用于提升纯白背景上的清晰轮廓。该层与隔离合成都属于非游戏网页兼容选项。直接传入已有 Canvas 时既无法插入这层独立背景合成层，也会强制关闭隔离合成。
 
-软件后端固定使用单个全视口 mip 金字塔，Float32 缓冲跨帧复用；发射遮罩仍只回读实际几何覆盖的子区域。它与 WebGL2 后端使用相同的层数公式、SampleScale、四点采样和强度换算。
-
-原生辉光不做像素回读。默认全屏直接合成时，圆盘、圆环和点击碎片先写入统一的局部高亮源，并为重叠图元保留足够的 8 位动态范围；`1/2`、`1/8`、`1/16` 缓冲分别处理 `6px`、`22px` 和远场尺度。Unity 的 `60px` 最低 mip 包络在 Chromium Canvas 上校准为实际 `76px` Gaussian 核，最后用四段截断线性传递近似 `0~0.1` 线性能量的 Linear→sRGB 转换。拖尾继续使用按轨迹边界裁剪的局部整体模糊。
-
-四张点击缓冲按需创建并跨帧增长复用；`clear()`、离开 Native 后端或开启隔离合成时会释放容量。隔离合成、自定义容器、外部 Canvas、实际 `plus-lighter` 不可用或 Canvas filter 不可用时，点击在当前帧使用透明 `shadowBlur` 兼容路径，避免黑底和宿主截图污染。
+软件后端固定使用单个全视口 mip 金字塔，Float32 缓冲跨帧复用；发射遮罩仍只回读实际几何覆盖的子区域。它与 WebGL2 后端使用相同的层数公式、SampleScale、四点采样和强度换算。若运行环境不支持 Canvas 像素回读/写回，圆环和光盘会退回原生 `shadowBlur`，拖尾则在局部离屏缓冲中整体模糊。
 
 ---
 
@@ -424,7 +420,6 @@ ba-click-fx/
 │   ├── fx.js            # 主引擎：ParticleSystem + TrailRenderer 生命周期
 │   ├── main.js           # 演示页面入口 + 控制面板 UI
 │   ├── config.js         # Unity FX_Touch 粒子参数只读快照
-│   ├── native-click-bloom.js # Native 点击三尺度局部辉光
 │   ├── software-bloom.js # MXFinalBloom Float32 mip 与加色合成
 │   ├── webgl2-bloom.js   # WebGL2 HDR 发射与 MXFinalBloom 合成
 │   ├── utils.js          # 纯数学工具
@@ -448,7 +443,6 @@ ba-click-fx/
 - **主特效层**：内部特效通过 `lighter` 合成，主 Canvas 使用 `plus-lighter`；其混合背景由 `isolatedCompositing` 决定
 - **浅色背景兼容层**：默认强度为 0；可显式设为 0.35，使用不参与 Bloom 的 `darken` Canvas 提升纯白背景可见性
 - **软件 Bloom**：全视口工作画布 + Float32 MXFinalBloom 金字塔；像素读回不可用时回退 `shadowBlur`
-- **原生辉光**：默认全屏直接合成时使用三层可复用 Canvas filter；其他挂载形态使用透明兼容辉光
 - **WebGL2 Bloom**：默认透明 GPU 覆盖层执行游戏 MXFinalBloom；能力不足时沿回退链降级
 - **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`
 - **零外部依赖**：仅使用浏览器原生 Canvas 2D / WebGL2 API，不引入第三方运行时
