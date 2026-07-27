@@ -545,27 +545,6 @@ assert(
 );
 
 geometryRenderer.beginFrame();
-geometryRenderer.addTrailTriangle(
-  { x: 0, y: 0 },
-  { x: 10, y: 0 },
-  { x: 0, y: 10 },
-  [
-    [1, 0, 0],
-    [0, 2, 0],
-    [0, 0, 3],
-  ],
-  0.5,
-);
-
-assert(
-  geometryRenderer.vertexCount === 3 &&
-    approximatelyEqual(geometryRenderer.vertexData[2], 0.5) &&
-    approximatelyEqual(geometryRenderer.vertexData[8], 1) &&
-    approximatelyEqual(geometryRenderer.vertexData[14], 1.5),
-  'WebGL2 三角带逐顶点保存线性能量',
-);
-
-geometryRenderer.beginFrame();
 geometryRenderer.addDisk(10, 20, 24, [1, 2, 3]);
 geometryRenderer.addDisk(40, 50, 24, [1, 2, 3]);
 

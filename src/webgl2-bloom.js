@@ -992,65 +992,10 @@ export class WebGL2BloomRenderer
     const second = rotatePoint(vertices[1][0] * size, vertices[1][1] * size);
     const third = rotatePoint(vertices[2][0] * size, vertices[2][1] * size);
 
-    this.addTrailTriangle(first, second, third, color, opacity);
-  }
-
-  addTrailTriangle(first, second, third, color, opacity = 1)
-  {
-    const perVertexColor = Array.isArray(color?.[0]);
-    const firstColor = perVertexColor ? color[0] : color;
-    const secondColor = perVertexColor ? color[1] : color;
-    const thirdColor = perVertexColor ? color[2] : color;
-    const firstRed = firstColor[0] * opacity;
-    const firstGreen = firstColor[1] * opacity;
-    const firstBlue = firstColor[2] * opacity;
-    const secondRed = secondColor[0] * opacity;
-    const secondGreen = secondColor[1] * opacity;
-    const secondBlue = secondColor[2] * opacity;
-    const thirdRed = thirdColor[0] * opacity;
-    const thirdGreen = thirdColor[1] * opacity;
-    const thirdBlue = thirdColor[2] * opacity;
-
-    if (
-      Math.max(
-        firstRed,
-        firstGreen,
-        firstBlue,
-        secondRed,
-        secondGreen,
-        secondBlue,
-        thirdRed,
-        thirdGreen,
-        thirdBlue,
-      ) <= 0
-    )
-    {
-      return;
-    }
-
-    // 三顶点能量让圆角 fan、端帽和三角带保持 Unity 的连续线性插值。
     this._ensureVertexCapacity(3);
-    this._appendVertex(
-      first.x,
-      first.y,
-      firstRed,
-      firstGreen,
-      firstBlue,
-    );
-    this._appendVertex(
-      second.x,
-      second.y,
-      secondRed,
-      secondGreen,
-      secondBlue,
-    );
-    this._appendVertex(
-      third.x,
-      third.y,
-      thirdRed,
-      thirdGreen,
-      thirdBlue,
-    );
+    this._appendVertex(first.x, first.y, red, green, blue);
+    this._appendVertex(second.x, second.y, red, green, blue);
+    this._appendVertex(third.x, third.y, red, green, blue);
   }
 
   addRing(

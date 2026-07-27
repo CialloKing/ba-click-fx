@@ -3009,249 +3009,6 @@ function drawTrailEmission(
   );
 }
 
-function scaleTrailEnergy(color, intensity)
-{
-  return color.map((channel) => channel * intensity);
-}
-
-function appendTrailMeshSegment(
-  renderer,
-  segment,
-  fromColor,
-  toColor,
-  opacity,
-  fromTransverseProfile,
-  toTransverseProfile,
-)
-{
-  const fromProfile = resolveTrailTransverseProfile(fromTransverseProfile);
-  const toProfile = resolveTrailTransverseProfile(toTransverseProfile);
-  const bandPositions = resolveTrailTransverseBandPositions(
-    fromProfile.concat(toProfile),
-  );
-
-  for (let index = 1; index < bandPositions.length; index++)
-  {
-    const previousPosition = bandPositions[index - 1];
-    const currentPosition = bandPositions[index];
-    const previousFrom = interpolateTrailMeshEdge(
-      segment.fromLeft,
-      segment.fromRight,
-      previousPosition,
-    );
-    const previousTo = interpolateTrailMeshEdge(
-      segment.toLeft,
-      segment.toRight,
-      previousPosition,
-    );
-    const currentFrom = interpolateTrailMeshEdge(
-      segment.fromLeft,
-      segment.fromRight,
-      currentPosition,
-    );
-    const currentTo = interpolateTrailMeshEdge(
-      segment.toLeft,
-      segment.toRight,
-      currentPosition,
-    );
-    const previousFromColor = scaleTrailEnergy(
-      fromColor,
-      evaluateNumber(fromProfile, previousPosition),
-    );
-    const previousToColor = scaleTrailEnergy(
-      toColor,
-      evaluateNumber(toProfile, previousPosition),
-    );
-    const currentFromColor = scaleTrailEnergy(
-      fromColor,
-      evaluateNumber(fromProfile, currentPosition),
-    );
-    const currentToColor = scaleTrailEnergy(
-      toColor,
-      evaluateNumber(toProfile, currentPosition),
-    );
-
-    renderer.addTrailTriangle(
-      previousFrom,
-      previousTo,
-      currentTo,
-      [previousFromColor, previousToColor, currentToColor],
-      opacity,
-    );
-    renderer.addTrailTriangle(
-      previousFrom,
-      currentTo,
-      currentFrom,
-      [previousFromColor, currentToColor, currentFromColor],
-      opacity,
-    );
-  }
-}
-
-function appendTrailMeshJoin(
-  renderer,
-  join,
-  color,
-  opacity,
-  transverseProfile,
-)
-{
-  const sourceProfile = resolveTrailTransverseProfile(transverseProfile);
-  const profile = join.innerSide === 'left'
-    ? sourceProfile
-    : sourceProfile.slice().reverse().map(([position, intensity]) =>
-      [1 - position, intensity]);
-
-  for (let arcIndex = 1; arcIndex < join.outerArc.length; arcIndex++)
-  {
-    const previousOuter = join.outerArc[arcIndex - 1];
-    const nextOuter = join.outerArc[arcIndex];
-
-    for (let profileIndex = 1; profileIndex < profile.length; profileIndex++)
-    {
-      const previous = profile[profileIndex - 1];
-      const current = profile[profileIndex];
-      const previousStart = interpolateTrailMeshEdge(
-        join.inner,
-        previousOuter,
-        previous[0],
-      );
-      const previousEnd = interpolateTrailMeshEdge(
-        join.inner,
-        nextOuter,
-        previous[0],
-      );
-      const currentStart = interpolateTrailMeshEdge(
-        join.inner,
-        previousOuter,
-        current[0],
-      );
-      const currentEnd = interpolateTrailMeshEdge(
-        join.inner,
-        nextOuter,
-        current[0],
-      );
-      const previousColor = scaleTrailEnergy(color, previous[1]);
-      const currentColor = scaleTrailEnergy(color, current[1]);
-
-      renderer.addTrailTriangle(
-        previousStart,
-        currentStart,
-        currentEnd,
-        [previousColor, currentColor, currentColor],
-        opacity,
-      );
-
-      if (
-        previousStart.x !== previousEnd.x ||
-        previousStart.y !== previousEnd.y
-      )
-      {
-        renderer.addTrailTriangle(
-          previousStart,
-          currentEnd,
-          previousEnd,
-          [previousColor, currentColor, previousColor],
-          opacity,
-        );
-      }
-    }
-  }
-}
-
-function appendTrailMeshJoins(
-  renderer,
-  mesh,
-  visibleSegments,
-  trailData,
-  trailCfg,
-  materialIntensity,
-  opacity,
-)
-{
-  for (const join of mesh.joins)
-  {
-    if (
-      !visibleSegments.has(join.previousSegmentIndex) ||
-      !visibleSegments.has(join.nextSegmentIndex)
-    )
-    {
-      continue;
-    }
-
-    appendTrailMeshJoin(
-      renderer,
-      join,
-      resolveTrailPointEnergy(
-        trailData,
-        join.pointIndex,
-        trailCfg,
-        materialIntensity,
-      ),
-      opacity,
-      resolveTrailPointTransverseProfile(
-        trailData,
-        join.pointIndex,
-        trailCfg,
-      ),
-    );
-  }
-}
-
-function appendTrailMeshCaps(
-  renderer,
-  mesh,
-  visibleSegments,
-  trailData,
-  trailCfg,
-  materialIntensity,
-  opacity,
-)
-{
-  for (const cap of mesh.caps)
-  {
-    if (!visibleSegments.has(cap.segmentIndex))
-    {
-      continue;
-    }
-
-    const color = resolveTrailPointEnergy(
-      trailData,
-      cap.pointIndex,
-      trailCfg,
-      materialIntensity,
-    );
-    const profile = resolveTrailPointTransverseProfile(
-      trailData,
-      cap.pointIndex,
-      trailCfg,
-    );
-    const leftColor = scaleTrailEnergy(
-      color,
-      evaluateNumber(profile, 0),
-    );
-    const rightColor = scaleTrailEnergy(
-      color,
-      evaluateNumber(profile, 1),
-    );
-    const centerColor = scaleTrailEnergy(
-      color,
-      evaluateNumber(profile, 0.5),
-    );
-    const colors = cap.position === 'start'
-      ? [leftColor, rightColor, centerColor]
-      : [leftColor, centerColor, rightColor];
-
-    renderer.addTrailTriangle(
-      cap.points[0],
-      cap.points[1],
-      cap.points[2],
-      colors,
-      opacity,
-    );
-  }
-}
-
 function appendTrailWebGLBloom(
   renderer,
   points,
@@ -3282,15 +3039,12 @@ function appendTrailWebGLBloom(
   );
   const emissionQuantizationScale = trailOpacity /
     Math.max(1, bloomCfg.emissionRange) * 255;
-  const mesh = getTrailMesh(trailData, points, width, trailCfg);
-  const visibleSegments = new Set();
 
   for (let index = 1; index < points.length; index++)
   {
     // Software 参考实现先经过 8-bit Canvas 发射遮罩；保留相同的半量化裁剪，
     // 避免 WebGL2 在轨迹尾端额外显示参考实现中不存在的微弱光晕。
     if (
-      !mesh.segments[index] ||
       trailData.segmentMaximumEnergies[index - 1] *
         emissionQuantizationScale < 0.5
     )
@@ -3298,54 +3052,17 @@ function appendTrailWebGLBloom(
       continue;
     }
 
-    visibleSegments.add(index);
-    appendTrailMeshSegment(
-      renderer,
-      mesh.segments[index],
-      resolveTrailPointEnergy(
-        trailData,
-        index - 1,
-        trailCfg,
-        bloomCfg.trailEmission,
-      ),
-      resolveTrailPointEnergy(
-        trailData,
-        index,
-        trailCfg,
-        bloomCfg.trailEmission,
-      ),
+    const energy = trailData.segmentEnergies[index - 1];
+
+    renderer.addTrailSegment(
+      points[index - 1],
+      points[index],
+      width,
+      energy,
       trailOpacity,
-      resolveTrailPointTransverseProfile(
-        trailData,
-        index - 1,
-        trailCfg,
-      ),
-      resolveTrailPointTransverseProfile(
-        trailData,
-        index,
-        trailCfg,
-      ),
+      trailData.segmentTransverseProfiles[index - 1],
     );
   }
-
-  appendTrailMeshJoins(
-    renderer,
-    mesh,
-    visibleSegments,
-    trailData,
-    trailCfg,
-    bloomCfg.trailEmission,
-    trailOpacity,
-  );
-  appendTrailMeshCaps(
-    renderer,
-    mesh,
-    visibleSegments,
-    trailData,
-    trailCfg,
-    bloomCfg.trailEmission,
-    trailOpacity,
-  );
 }
 
 export class BAClickFX
