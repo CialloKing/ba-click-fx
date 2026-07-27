@@ -2008,6 +2008,144 @@ class ClickWave
     }
   }
 
+  appendWebGLSceneDiskLayer(renderer, scale, opacity)
+  {
+    const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
+
+    if (diskProgress >= 1)
+    {
+      return;
+    }
+
+    const diskCfg = this.fx.disk;
+    const bloomCfg = this.fx.bloom;
+    const radius = diskCfg.radius * evaluateNumber(
+      diskCfg.sizeKeys,
+      diskProgress,
+    ) * scale;
+    const materialEnergy = evaluateSrgbGradientEnergy(
+      diskCfg.colorKeys,
+      diskProgress,
+      bloomCfg.diskEmission,
+    );
+    const particleAlpha = evaluateNumber(
+      diskCfg.alphaKeys,
+      diskProgress,
+    ) * opacity;
+
+    renderer.addAlphaBlendDisk(
+      this.x,
+      this.y,
+      radius,
+      materialEnergy,
+      opacity,
+      particleAlpha,
+    );
+  }
+
+  appendWebGLSceneAdditiveLayer(renderer, scale, opacity)
+  {
+    const hitProgress = this.ageMs / this.fx.hit.lifetimeMs;
+
+    if (this.fx.hit.enabled && hitProgress < 1)
+    {
+      const hitCfg = this.fx.hit;
+      const alpha = evaluateNumber(hitCfg.alphaKeys, hitProgress) * opacity;
+
+      renderer.addSolidDisk(
+        this.x,
+        this.y,
+        hitCfg.radius * scale,
+        colorToLinearEnergy(
+          evaluateColor(hitCfg.colorKeys, hitProgress),
+          1,
+          true,
+        ),
+        alpha,
+      );
+    }
+
+    const flareProgress = this.ageMs / this.fx.flare.lifetimeMs;
+
+    if (this.fx.flare.enabled && flareProgress < 1)
+    {
+      const flareCfg = this.fx.flare;
+      const alpha = evaluateNumber(flareCfg.alphaKeys, flareProgress) * opacity;
+      const color = colorToLinearEnergy(
+        evaluateColor(flareCfg.colorKeys, flareProgress),
+        1,
+        true,
+      );
+      const radius = flareCfg.radius * scale;
+
+      for (let index = 0; index < flareCfg.rayCount; index++)
+      {
+        const angle = TAU / flareCfg.rayCount * index;
+
+        renderer.addTrailSegment(
+          { x: this.x, y: this.y },
+          {
+            x: this.x + Math.cos(angle) * radius,
+            y: this.y + Math.sin(angle) * radius,
+          },
+          1.5 * scale,
+          color,
+          alpha,
+        );
+      }
+    }
+
+    const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
+
+    if (ringProgress >= 1)
+    {
+      return;
+    }
+
+    const ringCfg = this.fx.rings;
+    const ringMaterialEnergy = evaluateSrgbGradientEnergy(
+      ringCfg.colorKeys,
+      ringProgress,
+      ringCfg.hdrIntensity,
+    );
+    const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
+
+    for (const ring of this.rings)
+    {
+      const geometry = resolveRingGeometry(
+        ring,
+        ringProgress,
+        scale,
+        ringCfg,
+      );
+
+      renderer.addDissolveRing(
+        ring.x,
+        ring.y,
+        geometry.radius,
+        geometry.width,
+        ring.rotation,
+        ringCfg.radialSamples,
+        ringCfg.arcSamples,
+        ringMaterialEnergy,
+        opacity,
+        geometry.threshold,
+        (angularProgress, radialProgress) =>
+        {
+          const textureProgress = direction > 0
+            ? angularProgress
+            : 1 - angularProgress;
+
+          return evaluateRingTextureAlpha(
+            textureProgress,
+            radialProgress,
+            ringCfg,
+          );
+        },
+      );
+    }
+  }
+
   appendWebGLBloom(renderer, scale, opacity)
   {
     if (this.fx.bloom.clickEmissionScale <= 0)
@@ -2170,6 +2308,17 @@ class ShardParticle
   )
   {
     drawTriangleEmission(context, this, scale, opacity, fxConfig);
+  }
+
+  appendWebGLScene(
+    renderer,
+    scale,
+    opacity,
+    fxConfig = UNITY_FX_TOUCH,
+  )
+  {
+    // 碎片材质本身就是加色 HDR，Scene 与 Bloom 发射可共享同一套三角几何。
+    this.appendWebGLBloom(renderer, scale, opacity, fxConfig);
   }
 
   appendWebGLBloom(
@@ -3437,6 +3586,316 @@ function drawTrailEmission(
     },
     firstSegment,
     lastSegment,
+  );
+}
+
+function interpolateTrailMeshEdge(left, right, progress)
+{
+  return {
+    x: lerp(left.x, right.x, progress),
+    y: lerp(left.y, right.y, progress),
+  };
+}
+
+function scaleTrailEnergy(color, intensity)
+{
+  return color.map((channel) => channel * intensity);
+}
+
+function appendTrailMeshSegment(
+  renderer,
+  segment,
+  fromColor,
+  toColor,
+  opacity,
+  fromTransverseProfile,
+  toTransverseProfile,
+)
+{
+  const fromProfile = resolveTrailTransverseProfile(fromTransverseProfile);
+  const toProfile = resolveTrailTransverseProfile(toTransverseProfile);
+  const profileLength = Math.min(fromProfile.length, toProfile.length);
+
+  for (let index = 1; index < profileLength; index++)
+  {
+    const previousFromSample = fromProfile[index - 1];
+    const previousToSample = toProfile[index - 1];
+    const currentFromSample = fromProfile[index];
+    const currentToSample = toProfile[index];
+    const previousFrom = interpolateTrailMeshEdge(
+      segment.fromLeft,
+      segment.fromRight,
+      previousFromSample[0],
+    );
+    const previousTo = interpolateTrailMeshEdge(
+      segment.toLeft,
+      segment.toRight,
+      previousToSample[0],
+    );
+    const currentFrom = interpolateTrailMeshEdge(
+      segment.fromLeft,
+      segment.fromRight,
+      currentFromSample[0],
+    );
+    const currentTo = interpolateTrailMeshEdge(
+      segment.toLeft,
+      segment.toRight,
+      currentToSample[0],
+    );
+    const previousFromColor = scaleTrailEnergy(
+      fromColor,
+      previousFromSample[1],
+    );
+    const previousToColor = scaleTrailEnergy(
+      toColor,
+      previousToSample[1],
+    );
+    const currentFromColor = scaleTrailEnergy(
+      fromColor,
+      currentFromSample[1],
+    );
+    const currentToColor = scaleTrailEnergy(
+      toColor,
+      currentToSample[1],
+    );
+
+    renderer.addTrailTriangle(
+      previousFrom,
+      previousTo,
+      currentTo,
+      [previousFromColor, previousToColor, currentToColor],
+      opacity,
+    );
+    renderer.addTrailTriangle(
+      previousFrom,
+      currentTo,
+      currentFrom,
+      [previousFromColor, currentToColor, currentFromColor],
+      opacity,
+    );
+  }
+}
+
+function appendTrailMeshJoin(
+  renderer,
+  join,
+  color,
+  opacity,
+  transverseProfile,
+)
+{
+  const sourceProfile = resolveTrailTransverseProfile(transverseProfile);
+  const profile = join.innerSide === 'left'
+    ? sourceProfile
+    : sourceProfile.slice().reverse().map(([position, intensity]) =>
+      [1 - position, intensity]);
+
+  for (let arcIndex = 1; arcIndex < join.outerArc.length; arcIndex++)
+  {
+    const previousOuter = join.outerArc[arcIndex - 1];
+    const nextOuter = join.outerArc[arcIndex];
+
+    for (let profileIndex = 1; profileIndex < profile.length; profileIndex++)
+    {
+      const previous = profile[profileIndex - 1];
+      const current = profile[profileIndex];
+      const previousStart = interpolateTrailMeshEdge(
+        join.inner,
+        previousOuter,
+        previous[0],
+      );
+      const previousEnd = interpolateTrailMeshEdge(
+        join.inner,
+        nextOuter,
+        previous[0],
+      );
+      const currentStart = interpolateTrailMeshEdge(
+        join.inner,
+        previousOuter,
+        current[0],
+      );
+      const currentEnd = interpolateTrailMeshEdge(
+        join.inner,
+        nextOuter,
+        current[0],
+      );
+      const previousColor = scaleTrailEnergy(color, previous[1]);
+      const currentColor = scaleTrailEnergy(color, current[1]);
+
+      renderer.addTrailTriangle(
+        previousStart,
+        currentStart,
+        currentEnd,
+        [previousColor, currentColor, currentColor],
+        opacity,
+      );
+
+      if (
+        previousStart.x !== previousEnd.x ||
+        previousStart.y !== previousEnd.y
+      )
+      {
+        renderer.addTrailTriangle(
+          previousStart,
+          currentEnd,
+          previousEnd,
+          [previousColor, currentColor, previousColor],
+          opacity,
+        );
+      }
+    }
+  }
+}
+
+function appendTrailMeshCaps(
+  renderer,
+  mesh,
+  visibleSegments,
+  trailData,
+  trailCfg,
+  opacity,
+)
+{
+  for (const cap of mesh.caps)
+  {
+    if (!visibleSegments.has(cap.segmentIndex))
+    {
+      continue;
+    }
+
+    const color = trailData.pointEnergies[cap.pointIndex];
+    const profile = resolveTrailPointTransverseProfile(
+      trailData,
+      cap.pointIndex,
+      trailCfg,
+    );
+    const leftColor = scaleTrailEnergy(color, profile[0][1]);
+    const rightColor = scaleTrailEnergy(color, profile.at(-1)[1]);
+    const centerIntensity = profile.reduce(
+      (maximum, [, intensity]) => Math.max(maximum, intensity),
+      0,
+    );
+    const centerColor = scaleTrailEnergy(color, centerIntensity);
+    const colors = cap.position === 'start'
+      ? [leftColor, rightColor, centerColor]
+      : [leftColor, centerColor, rightColor];
+
+    renderer.addTrailTriangle(
+      cap.points[0],
+      cap.points[1],
+      cap.points[2],
+      colors,
+      opacity,
+    );
+  }
+}
+
+function appendTrailMeshJoins(
+  renderer,
+  mesh,
+  visibleSegments,
+  trailData,
+  trailCfg,
+  opacity,
+)
+{
+  for (let segmentIndex = 1; segmentIndex < mesh.segments.length; segmentIndex++)
+  {
+    const join = mesh.segments[segmentIndex]?.endJoin;
+
+    if (
+      !join ||
+      !visibleSegments.has(segmentIndex) ||
+      !visibleSegments.has(join.nextSegmentIndex)
+    )
+    {
+      continue;
+    }
+
+    const color = trailData.pointEnergies[segmentIndex];
+    const transverseProfile = resolveTrailPointTransverseProfile(
+      trailData,
+      segmentIndex,
+      trailCfg,
+    );
+
+    appendTrailMeshJoin(
+      renderer,
+      join,
+      color,
+      opacity,
+      transverseProfile,
+    );
+  }
+}
+
+function appendTrailWebGLScene(
+  renderer,
+  points,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  sharedTrailData = null,
+)
+{
+  const trailCfg = fxConfig.trail;
+  const bloomCfg = fxConfig.bloom;
+  const trailOpacity = opacity * (trailCfg.trailOpacity ?? 1);
+  const trailData = sharedTrailData ?? createTrailFrameData(
+    points,
+    trailCfg,
+    bloomCfg.trailEmission,
+  );
+  const width = trailCfg.width * scale;
+
+  if (
+    trailData.measurement.totalLength <= 0 ||
+    trailOpacity <= 0 ||
+    width <= 0
+  )
+  {
+    return;
+  }
+
+  const mesh = getTrailMesh(trailData, points, width, trailCfg);
+  const visibleSegments = new Set();
+
+  for (let index = 1; index < points.length; index++)
+  {
+    const segment = mesh.segments[index];
+
+    if (!segment)
+    {
+      continue;
+    }
+
+    visibleSegments.add(index);
+    appendTrailMeshSegment(
+      renderer,
+      segment,
+      trailData.pointEnergies[index - 1],
+      trailData.pointEnergies[index],
+      trailOpacity,
+      resolveTrailPointTransverseProfile(trailData, index - 1, trailCfg),
+      resolveTrailPointTransverseProfile(trailData, index, trailCfg),
+    );
+  }
+
+  appendTrailMeshJoins(
+    renderer,
+    mesh,
+    visibleSegments,
+    trailData,
+    trailCfg,
+    trailOpacity,
+  );
+  appendTrailMeshCaps(
+    renderer,
+    mesh,
+    visibleSegments,
+    trailData,
+    trailCfg,
+    trailOpacity,
   );
 }
 
