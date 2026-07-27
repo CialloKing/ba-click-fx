@@ -565,6 +565,16 @@ function flushFrames(dom, startTime, count, frameMs = 1000 / 60)
 console.log('\nUnity 参数');
 assert(UNITY_FX_TOUCH.rootDurationMs === 1000, '根粒子持续 1 秒');
 assert(UNITY_FX_TOUCH.disk.lifetimeMs === 200, '短圆盘持续 0.2 秒');
+assert(
+  JSON.stringify(UNITY_FX_TOUCH.disk.sizeKeys) === JSON.stringify(
+    [
+      [0, 0.32583582, 2.4004734, 2.4004734],
+      [0.21392822, 0.7159773, 0.9115745, 0.9115745],
+      [1, 1, 0, 0],
+    ],
+  ),
+  '短圆盘尺寸保留 Unity 的四字段 Hermite 关键帧',
+);
 assert(UNITY_FX_TOUCH.rings.count === 2, 'MeshTri burst 一次生成 2 枚圆环');
 assert(UNITY_FX_TOUCH.rings.lifetimeMs === 600, '溶解圆环持续 0.6 秒');
 assert(UNITY_FX_TOUCH.rings.rotationDirection === -1, '两枚圆环只按逆时针方向旋转');
@@ -2784,9 +2794,12 @@ assert(
 );
 externalWebGLEffect.updateConfig({ renderingMode: 'legacy' });
 assert(
-  externalWebGLEffect.getFxConfig().rings.hdrIntensity === 1 &&
+  externalWebGLEffect.getFxConfig().rings.hdrIntensity ===
+      UNITY_FX_TOUCH.rings.hdrIntensity &&
+    externalWebGLEffect.getFxConfig().rings.bandToOuterRadius ===
+      UNITY_FX_TOUCH.rings.bandToOuterRadius &&
     externalWebGLEffect.getConfig().resolvedBloomBackend === 'legacy',
-  '已有 Canvas target 切换 Legacy 时也应用兼容参数集',
+  '已有 Canvas target 切换 Legacy 时保留 Unity 几何并应用兼容合成',
 );
 externalWebGLEffect.updateConfig({ renderingMode: 'enhanced' });
 assert(
@@ -3852,24 +3865,77 @@ assert(
 const legacyClickGeometry = legacyEffect.getFxConfig();
 
 assert(
-  Math.abs(legacyClickGeometry.disk.radius - 48) < 0.0000001 &&
-    Math.abs(legacyClickGeometry.rings.radiusMin - 51.0560832) < 0.0000001 &&
-    Math.abs(legacyClickGeometry.rings.radiusMax - 59.5654304) < 0.0000001,
-  'Legacy 圆盘与圆环统一使用解包工程的 1.35 正交投影',
+  legacyClickGeometry.disk.radius === UNITY_FX_TOUCH.disk.radius &&
+    legacyClickGeometry.rings.radiusMin === UNITY_FX_TOUCH.rings.radiusMin &&
+    legacyClickGeometry.rings.radiusMax === UNITY_FX_TOUCH.rings.radiusMax,
+  'Legacy 圆盘与圆环使用最终游戏工程的 Ortho 1.0 尺度',
+);
+assert(
+  JSON.stringify(legacyClickGeometry.disk.sizeKeys) ===
+      JSON.stringify(UNITY_FX_TOUCH.disk.sizeKeys) &&
+    JSON.stringify(legacyClickGeometry.rings.sizeKeys) ===
+      JSON.stringify(UNITY_FX_TOUCH.rings.sizeKeys) &&
+    JSON.stringify(legacyClickGeometry.rings.dissolveKeys) ===
+      JSON.stringify(UNITY_FX_TOUCH.rings.dissolveKeys) &&
+    legacyClickGeometry.rings.bandToOuterRadius ===
+      UNITY_FX_TOUCH.rings.bandToOuterRadius &&
+    JSON.stringify(legacyClickGeometry.disk.textureRadialEnergyKeys) ===
+      JSON.stringify(UNITY_FX_TOUCH.disk.textureRadialEnergyKeys) &&
+    JSON.stringify(legacyClickGeometry.rings.textureAlphaKeys) ===
+      JSON.stringify(UNITY_FX_TOUCH.rings.textureAlphaKeys) &&
+    JSON.stringify(legacyClickGeometry.rings.textureRadialAlphaKeys) ===
+      JSON.stringify(UNITY_FX_TOUCH.rings.textureRadialAlphaKeys),
+  'Legacy 保留圆盘和圆环的 Hermite、Mesh 环宽与二维纹理 Alpha',
 );
 legacyEffect.setFxParam('bloom.clickEmissionScale', 0);
 legacyEffect.setFxParam('rings.hdrIntensity', 4);
 legacyEffect.boom(960, 540);
+const legacyWave = legacyEffect.waves[0];
+
+legacyWave.ageMs = 100;
+legacyEffect.context.radialGradients = [];
+legacyWave.drawBase(legacyEffect.context, 1, 1, true, true);
+const legacyDiskRadiusAt100Ms =
+  legacyEffect.context.radialGradients[0]?.args[5];
+
+assert(
+  Math.abs(legacyDiskRadiusAt100Ms - 58.77068378895867) < 0.0000001,
+  'Legacy 圆盘在 100ms 按 Unity Hermite 曲线扩张到正确半径',
+);
+
+legacyWave.ageMs = 300;
+legacyEffect.context.conicGradients = [];
+legacyWave.drawRings(legacyEffect.context, 1, 1, true, true);
+const controlledLegacyRingStops = legacyEffect.context.conicGradients.flatMap(
+  ({ gradient }) => gradient.stops,
+);
+const visibleControlledLegacyRingStop = controlledLegacyRingStops.find(
+  ([, color]) => getCssAlpha(color) > 0,
+);
+
+assert(
+  visibleControlledLegacyRingStop &&
+    controlledLegacyRingStops.some(([, color]) => getCssAlpha(color) === 0),
+  'Legacy Ring3 hard clip 同时保留可见纹理采样并丢弃阈值外采样',
+);
+assert(
+  JSON.stringify(
+    getCssChannels(visibleControlledLegacyRingStop[1]).slice(0, 3),
+  ) === JSON.stringify([76, 167, 255]),
+  'Legacy 圆环保持 sRGB 粒子颜色，不读取增强模式 HDR 倍率',
+);
+legacyWave.ageMs = 0;
 legacyEffect.context.filledPaths = [];
+legacyEffect.context.filledStyles = [];
+legacyEffect.context.fillShadowBlurs = [];
+legacyEffect.context.fillShadowColors = [];
+legacyEffect.context.radialGradients = [];
+legacyEffect.context.conicGradients = [];
 let legacyNow = flushFrames(dom, performance.now(), 1);
-const legacyRingPaths = legacyEffect.context.filledPaths.filter((path) =>
-  path.length > 3);
-const legacyTrianglePaths = legacyEffect.context.filledPaths.filter((path) =>
-  path.length === 3);
-const legacyRingBaseIndices = legacyEffect.context.filledPaths.reduce(
+const legacyTriangleFillIndices = legacyEffect.context.filledPaths.reduce(
   (indices, path, index) =>
   {
-    if (path.length > 3 && legacyEffect.context.fillShadowBlurs[index] > 0)
+    if (path.length === 3)
     {
       indices.push(index);
     }
@@ -3878,18 +3944,61 @@ const legacyRingBaseIndices = legacyEffect.context.filledPaths.reduce(
   },
   [],
 );
-const legacyDiskFillIndex = legacyEffect.context.filledStyles.findIndex(
-  (style) => style instanceof GradientMock,
-);
 const legacyDiskGradient = legacyEffect.context.radialGradients[0]?.gradient;
+const legacyDiskFillIndex = legacyEffect.context.filledStyles.indexOf(
+  legacyDiskGradient,
+);
+const legacyRingGradients = legacyEffect.context.conicGradients.map(
+  ({ gradient }) => gradient,
+);
+const legacyRingGradientSet = new Set(legacyRingGradients);
+const legacyRingFillIndices = legacyEffect.context.filledStyles.reduce(
+  (indices, style, index) =>
+  {
+    if (legacyRingGradientSet.has(style))
+    {
+      indices.push(index);
+    }
+
+    return indices;
+  },
+  [],
+);
+const legacyRingShadowIndices = legacyRingFillIndices.filter((index) =>
+  legacyEffect.context.fillShadowBlurs[index] > 0);
+const legacyRingShadowCounts = Array.from(
+  { length: UNITY_FX_TOUCH.rings.count },
+  (_, ringIndex) =>
+  {
+    const firstFill = ringIndex * UNITY_FX_TOUCH.rings.radialSamples;
+    const ringFillIndices = legacyRingFillIndices.slice(
+      firstFill,
+      firstFill + UNITY_FX_TOUCH.rings.radialSamples,
+    );
+
+    return ringFillIndices.filter((index) =>
+      legacyEffect.context.fillShadowBlurs[index] > 0).length;
+  },
+);
 
 assert(
-  legacyRingPaths.length >= UNITY_FX_TOUCH.rings.count,
-  'Legacy 点击后的第一帧正常绘制圆环',
+  legacyRingGradients.length ===
+      UNITY_FX_TOUCH.rings.count * UNITY_FX_TOUCH.rings.radialSamples &&
+    legacyRingFillIndices.length === legacyRingGradients.length,
+  'Legacy 每枚圆环使用 radialSamples 条 conic gradient 还原二维纹理',
 );
 assert(
-  legacyTrianglePaths.length === UNITY_FX_TOUCH.shards.clickCount,
+  legacyRingGradients.every((gradient) =>
+    gradient.stops.length === UNITY_FX_TOUCH.rings.arcSamples + 1),
+  'Legacy 每条径向环带完整采样 FX_TEX_Grad_Ring3 的 U 坐标',
+);
+assert(
+  legacyTriangleFillIndices.length === UNITY_FX_TOUCH.shards.clickCount,
   'Legacy 点击后的第一帧同时绘制三角碎片',
+);
+assert(
+  Math.min(...legacyRingFillIndices) > Math.max(...legacyTriangleFillIndices),
+  'Tri3 圆环按材质 queue 4499 在圆盘和碎片之后绘制',
 );
 assert(
   legacyDiskFillIndex >= 0 &&
@@ -3904,16 +4013,11 @@ assert(
 );
 assert(
   legacyEffect.getFxConfig().rings.hdrIntensity === 4 &&
-    legacyRingBaseIndices.length === UNITY_FX_TOUCH.rings.count &&
-    legacyRingBaseIndices.every((index) =>
-      JSON.stringify(
-        getCssChannels(legacyEffect.context.filledStyles[index]).slice(0, 3),
-      ) === JSON.stringify(
-        getCssChannels(
-          legacyEffect.context.fillShadowColors[index],
-        ).slice(0, 3),
-      )),
-  'Legacy 圆环固定使用一倍颜色强度，不读取增强模式 HDR 倍率',
+    legacyRingShadowIndices.length === UNITY_FX_TOUCH.rings.count &&
+    legacyRingShadowCounts.every((count) => count === 1) &&
+    legacyRingShadowIndices.every((index) =>
+      getCssAlpha(legacyEffect.context.fillShadowColors[index]) > 0),
+  'Legacy 圆环保持 sRGB 本体，并且每枚圆环只生成一次原生辉光',
 );
 assert(
   legacyEffect.context.fillShadowBlurs.some((blur, index) =>
@@ -4037,7 +4141,7 @@ assert(
       legacyClickGeometry.rings.radiusMin &&
     restoredLegacyClickGeometry.rings.radiusMax ===
       legacyClickGeometry.rings.radiusMax,
-  '切回 Legacy 时会恢复旧版尺度并隐藏增强模式对比层',
+  '切回 Legacy 时保持 Unity 尺度并隐藏增强模式对比层',
 );
 legacyEffect.destroy();
 assert(legacyEffect.destroyed, 'Legacy 实例可正常结束完整生命周期并销毁');

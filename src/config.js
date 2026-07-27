@@ -78,9 +78,9 @@ export const UNITY_FX_TOUCH = Object.freeze(
       ],
       sizeKeys:
       [
-        [0, 0.3258358],
-        [0.2139282, 0.7159773],
-        [1, 1],
+        [0, 0.32583582, 2.4004734, 2.4004734],
+        [0.21392822, 0.7159773, 0.9115745, 0.9115745],
+        [1, 1, 0, 0],
       ],
       // FX_TEX_Circle_01 的 RGB 会在 Shader 中再乘一次 R 通道。
       textureRadialEnergyKeys:

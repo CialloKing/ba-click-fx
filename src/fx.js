@@ -640,21 +640,6 @@ function setOverlayStyle(
   canvas.style.mixBlendMode = mixBlendMode;
 }
 
-/**
- * Legacy 圆环沿用 v1.2.5 的双端收尖算法；增强模式改用纹理采样后仍需保留此函数。
- */
-function smoothstep(edge0, edge1, value)
-{
-  if (edge0 === edge1)
-  {
-    return value < edge0 ? 0 : 1;
-  }
-
-  const progress = clamp01((value - edge0) / (edge1 - edge0));
-
-  return progress * progress * (3 - 2 * progress);
-}
-
 function evaluateRingTextureAlpha(
   angularProgress,
   radialProgress,
@@ -866,14 +851,6 @@ function resolveRingGeometry(ring, progress, scale, ringCfg)
   };
 }
 
-// main 分支的圆环参数（2 元素 keyframe、像素宽度、hdrIntensity=1.0）
-const LEGACY_RING_SIZE_KEYS = [[0.007209778, 0.420509], [0.2139282, 0.7159773], [1, 1]];
-const LEGACY_RING_DISSOLVE_KEYS = [[0, 1], [0.2, 0], [1, 1]];
-const LEGACY_RING_Y_KEYS = [[0, 0], [1, 0.9972414]];
-const LEGACY_CLICK_PROJECTION_SCALE = 1 / 1.35;
-const LEGACY_RING_WIDTH_START = 5.2;
-const LEGACY_RING_WIDTH_END = 2.4;
-const LEGACY_RING_EDGE_RATIO = 0.1;
 const LEGACY_TRAIL_WIDTH = 4;
 const LEGACY_TRAIL_CORE_WIDTH = 1.7;
 const LEGACY_TRAIL_GRADIENT = [
@@ -893,125 +870,6 @@ const LEGACY_TRAIL_CORE_LAYER = {
   alpha: 0.72,
   color: [116, 225, 255],
 };
-
-/**
- * main 分支风格的圆环绘制：简单弧带 + 双向 taper + 径向 ridge 叠加。
- * 不使用 2D 纹理采样和 conic gradient。
- */
-function drawLegacyDissolvedCircle(
-  context,
-  ring,
-  progress,
-  scale,
-  opacity,
-  fxConfig = UNITY_FX_TOUCH,
-)
-{
-  const ringCfg = fxConfig.rings;
-  const bloomCfg = fxConfig.bloom;
-  const radius = ring.radius * evaluateNumber(LEGACY_RING_SIZE_KEYS, progress) * scale;
-  const yProgress = clamp01(progress / 0.07908168);
-  const yCurve = evaluateUnitySmoothCurve(LEGACY_RING_Y_KEYS, yProgress);
-  const width = lerp(LEGACY_RING_WIDTH_START, LEGACY_RING_WIDTH_END, progress) * yCurve * scale;
-  const threshold = evaluateNumber(LEGACY_RING_DISSOLVE_KEYS, progress);
-  const visibleRatio = 1 - threshold;
-  // Legacy 固定为一倍强度，直接复用求值结果可避免恒等颜色复制。
-  const particleColor = evaluateColor(ringCfg.colorKeys, progress);
-  const arcLength = TAU * visibleRatio;
-  const sweep = ringCfg.dissolveDirection * arcLength;
-
-  if (arcLength <= 0.001)
-  {
-    return;
-  }
-
-  const steps = Math.max(6, Math.ceil(ringCfg.arcSamples * visibleRatio));
-  const shouldTaper = visibleRatio < 0.995;
-
-  context.save();
-  context.translate(ring.x, ring.y);
-  context.rotate(ring.rotation);
-  context.beginPath();
-
-  for (let index = 0; index <= steps; index++)
-  {
-    const localProgress = index / steps;
-    const angle = sweep * localProgress;
-    const taper = shouldTaper
-      ? smoothstep(0, LEGACY_RING_EDGE_RATIO, localProgress) *
-        smoothstep(0, LEGACY_RING_EDGE_RATIO, 1 - localProgress)
-      : 1;
-    const outerRadius = radius + width * 0.5 * taper;
-    const x = Math.cos(angle) * outerRadius;
-    const y = Math.sin(angle) * outerRadius;
-
-    if (index === 0) { context.moveTo(x, y); }
-    else { context.lineTo(x, y); }
-  }
-
-  for (let index = steps; index >= 0; index--)
-  {
-    const localProgress = index / steps;
-    const angle = sweep * localProgress;
-    const taper = shouldTaper
-      ? smoothstep(0, LEGACY_RING_EDGE_RATIO, localProgress) *
-        smoothstep(0, LEGACY_RING_EDGE_RATIO, 1 - localProgress)
-      : 1;
-    const innerRadius = Math.max(0, radius - width * 0.5 * taper);
-
-    context.lineTo(Math.cos(angle) * innerRadius, Math.sin(angle) * innerRadius);
-  }
-
-  context.closePath();
-  context.fillStyle = colorToCss(particleColor, opacity);
-  context.shadowColor = colorToCss(particleColor, opacity * bloomCfg.ringAlpha);
-  context.shadowBlur = bloomCfg.ringBlur * scale;
-  context.fill();
-
-  // 径向 ridge 叠加：环带中央比两侧亮约 12%
-  {
-    const ridgeRatio = 0.6;
-    const ridgeAlphaBoost = 1.12;
-
-    context.beginPath();
-
-    for (let index = 0; index <= steps; index++)
-    {
-      const localProgress = index / steps;
-      const angle = sweep * localProgress;
-      const ridgeTaper = shouldTaper
-        ? smoothstep(0, LEGACY_RING_EDGE_RATIO, localProgress) *
-          smoothstep(0, LEGACY_RING_EDGE_RATIO, 1 - localProgress)
-        : 1;
-      const outerRidge = radius + width * 0.5 * ridgeRatio * ridgeTaper;
-      const x = Math.cos(angle) * outerRidge;
-      const y = Math.sin(angle) * outerRidge;
-
-      if (index === 0) { context.moveTo(x, y); }
-      else { context.lineTo(x, y); }
-    }
-
-    for (let index = steps; index >= 0; index--)
-    {
-      const localProgress = index / steps;
-      const angle = sweep * localProgress;
-      const ridgeTaper = shouldTaper
-        ? smoothstep(0, LEGACY_RING_EDGE_RATIO, localProgress) *
-          smoothstep(0, LEGACY_RING_EDGE_RATIO, 1 - localProgress)
-        : 1;
-      const innerRidge = Math.max(0, radius - width * 0.5 * ridgeRatio * ridgeTaper);
-
-      context.lineTo(Math.cos(angle) * innerRidge, Math.sin(angle) * innerRidge);
-    }
-
-    context.closePath();
-    context.fillStyle = colorToCss(particleColor, opacity * ridgeAlphaBoost);
-    context.shadowBlur = 0;
-    context.fill();
-  }
-
-  context.restore();
-}
 
 function drawDissolvedCircle(
   context,
@@ -1066,10 +924,12 @@ function drawDissolvedCircle(
           blur: bloomCfg.ringBlur * scale,
           color: colorToCss(
             particleColor,
-            scaleNativeGlowAlpha(
-              opacity * bloomCfg.ringAlpha,
-              bloomCfg.clickEmissionScale,
-            ),
+            legacy
+              ? opacity * bloomCfg.ringAlpha
+              : scaleNativeGlowAlpha(
+                opacity * bloomCfg.ringAlpha,
+                bloomCfg.clickEmissionScale,
+              ),
           ),
         }
       : null,
@@ -1135,7 +995,10 @@ function drawDisk(
 {
   const diskCfg = fxConfig.disk;
   const bloomCfg = fxConfig.bloom;
-  const radius = diskCfg.radius * evaluateNumber(diskCfg.sizeKeys, progress) * scale;
+  const size = legacy
+    ? evaluateUnityHermiteCurve(diskCfg.sizeKeys, progress)
+    : evaluateNumber(diskCfg.sizeKeys, progress);
+  const radius = diskCfg.radius * size * scale;
   const color = evaluateColor(diskCfg.colorKeys, progress);
   const alpha = evaluateNumber(diskCfg.alphaKeys, progress) * opacity;
   const gradient = context.createRadialGradient(
@@ -1492,7 +1355,7 @@ class ClickWave
     this.update(deltaMs);
   }
 
-  draw(context, scale, opacity, useNativeBloom = true, legacy = false)
+  drawBase(context, scale, opacity, useNativeBloom = true, legacy = false)
   {
     // Hit：撞击爆发，极短极亮
     const hitProgress = this.ageMs / this.fx.hit.lifetimeMs;
@@ -1525,7 +1388,10 @@ class ClickWave
         legacy,
       );
     }
+  }
 
+  drawRings(context, scale, opacity, useNativeBloom = true, legacy = false)
+  {
     const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
 
     if (ringProgress < 1)
@@ -1540,26 +1406,25 @@ class ClickWave
 
       for (const ring of this.rings)
       {
-        if (legacy)
-        {
-          drawLegacyDissolvedCircle(context, ring, ringProgress, scale, opacity, this.fx);
-        }
-        else
-        {
-          drawDissolvedCircle(
-            context,
-            ring,
-            ringProgress,
-            scale,
-            opacity,
-            this.fx,
-            useNativeBloom,
-            false,
-            ringMaterialEnergy,
-          );
-        }
+        drawDissolvedCircle(
+          context,
+          ring,
+          ringProgress,
+          scale,
+          opacity,
+          this.fx,
+          useNativeBloom,
+          legacy,
+          ringMaterialEnergy,
+        );
       }
     }
+  }
+
+  draw(context, scale, opacity, useNativeBloom = true, legacy = false)
+  {
+    this.drawBase(context, scale, opacity, useNativeBloom, legacy);
+    this.drawRings(context, scale, opacity, useNativeBloom, legacy);
   }
 
   drawBloom(context, scale, opacity)
@@ -3381,30 +3246,11 @@ export class BAClickFX
 
   _applyLegacyParams()
   {
-    // Legacy 保留 v1.2.5 的 1.35 正交投影；圆盘和圆环必须共用同一换算比例。
-    this.fxConfig.disk.radius =
-      UNITY_FX_TOUCH.disk.radius * LEGACY_CLICK_PROJECTION_SCALE;
-    this.fxConfig.rings.hdrIntensity = 1.0;
-    this.fxConfig.rings.widthStart = 5.2;
-    this.fxConfig.rings.widthEnd = 2.4;
-    this.fxConfig.rings.radiusMin =
-      UNITY_FX_TOUCH.rings.radiusMin * LEGACY_CLICK_PROJECTION_SCALE;
-    this.fxConfig.rings.radiusMax =
-      UNITY_FX_TOUCH.rings.radiusMax * LEGACY_CLICK_PROJECTION_SCALE;
-    this.fxConfig.rings.sizeKeys = [[0.007209778, 0.420509], [0.2139282, 0.7159773], [1, 1]];
-    this.fxConfig.rings.dissolveKeys = [[0, 1], [0.2, 0], [1, 1]];
-    this.fxConfig.rings.arcSamples = 96;
-    delete this.fxConfig.rings.bandToOuterRadius;
-    delete this.fxConfig.rings.textureAlphaKeys;
-    delete this.fxConfig.rings.textureRadialAlphaKeys;
-    this.fxConfig.trail.gradient = [
-      [0, [0, 100, 220]],
-      [0.5794156, [0, 150, 235]],
-      [0.9794156, [0, 238, 255]],
-      [1, [0, 238, 255]],
-    ];
-    this.fxConfig.trail.coreWidth = 1.7;
-    this.fxConfig.trail.width = 4;
+    // 最终游戏工程使用 Ortho 1.0；Legacy 只保留 Canvas 合成风格，
+    // 点击几何、曲线和纹理裁剪继续共享解包资源真值。
+    this.fxConfig.trail.gradient = structuredClone(LEGACY_TRAIL_GRADIENT);
+    this.fxConfig.trail.coreWidth = LEGACY_TRAIL_CORE_WIDTH;
+    this.fxConfig.trail.width = LEGACY_TRAIL_WIDTH;
     this.fxConfig.bloom.trailAlpha = 0.00;
     this.fxConfig.bloom.ringAlpha = 0.9;
     this.fxConfig.bloom.ringBlur = 80;
@@ -4080,6 +3926,8 @@ export class BAClickFX
       this._updateTrail(this.trailTimeMs, scale, useNativeBloom, legacy);
       this._updateWaves(this.clickTimeMs, scale, useNativeBloom, legacy);
       this._updateShards(this.clickTimeMs, this.trailTimeMs, scale);
+      // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
+      this._drawWaveRings(scale, useNativeBloom, legacy);
 
       if (!legacy)
       {
@@ -4478,12 +4326,17 @@ export class BAClickFX
 
       for (const wave of this.waves)
       {
-        wave.draw(context, scale, this.config.opacity, false);
+        wave.drawBase(context, scale, this.config.opacity, false);
       }
 
       for (const shard of this.shards)
       {
         shard.draw(context, scale, this.config.opacity, this.fxConfig);
+      }
+
+      for (const wave of this.waves)
+      {
+        wave.drawRings(context, scale, this.config.opacity, false);
       }
 
       context.restore();
@@ -5019,7 +4872,21 @@ export class BAClickFX
         continue;
       }
 
-      wave.draw(
+      wave.drawBase(
+        this.context,
+        scale,
+        this.config.opacity,
+        useNativeBloom,
+        legacy,
+      );
+    }
+  }
+
+  _drawWaveRings(scale, useNativeBloom, legacy = false)
+  {
+    for (const wave of this.waves)
+    {
+      wave.drawRings(
         this.context,
         scale,
         this.config.opacity,
