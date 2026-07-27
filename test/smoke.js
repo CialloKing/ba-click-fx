@@ -629,6 +629,11 @@ assert(UNITY_FX_TOUCH.trail.lifetimeMs === 300, 'TrailRenderer.time 为 0.3 秒'
 assert(UNITY_FX_TOUCH.trail.geometryWidth === 2.7, '1080p TrailRenderer 几何带宽为 2.7px');
 assert(UNITY_FX_TOUCH.trail.width === 2.7, '清晰拖尾本体使用 Unity 的 2.7px 带宽');
 assert(
+  UNITY_FX_TOUCH.trail.numCornerVertices === 4 &&
+    UNITY_FX_TOUCH.trail.numCapVertices === 1,
+  'TrailRenderer 使用 4 个圆角插入点和 1 个端帽顶点',
+);
+assert(
   UNITY_FX_TOUCH.trail.gradient[0][1].every((channel) => channel === 0) &&
     UNITY_FX_TOUCH.trail.gradient.at(-1)[1][2] === 255,
   'TrailRenderer 原 Gradient 已反向为 Canvas 的尾部到头部点序',
@@ -652,6 +657,7 @@ const middleTransverseProfile = transverseProfileKeys.find(
   ([position]) => Math.abs(position - 0.624266) < 0.000001,
 );
 const transverseStopCount = transverseProfileKeys[2][1].length * 2 - 1;
+const canvasTrailBandCount = transverseStopCount - 1;
 
 assert(
   transverseProfileKeys.length === 14 &&
@@ -1325,69 +1331,99 @@ assert(
 );
 const trailSegmentCount = effect.trailStrokes[0].points.length - 1;
 const cachedTrailFrameData = effect.trailStrokes[0].trailFrameData;
-const visibleTrailGradients = effect.context.linearGradients.slice(
-  0,
-  trailSegmentCount,
+const visibleTrailGradients = effect.context.linearGradients.filter(
+  ({ gradient }) => gradient.stops.length === 2,
 );
-const bloomTrailGradients = effect.bloomRenderer.sourceContext.linearGradients;
+const visibleTrailQuads = effect.context.filledPaths.filter((path) =>
+  path.length === 4);
+const visibleTrailGradientGroups = Array.from(
+  { length: trailSegmentCount },
+  (_, index) => visibleTrailGradients.slice(
+    index * canvasTrailBandCount,
+    (index + 1) * canvasTrailBandCount,
+  ),
+);
+const bloomTrailGradients = effect.bloomRenderer.sourceContext
+  .linearGradients.filter(({ gradient }) => gradient.stops.length === 2);
+const firstVisibleBand = visibleTrailQuads[0];
+const lastFirstSegmentBand =
+  visibleTrailQuads[canvasTrailBandCount - 1];
+const measuredVisibleTrailWidth = Math.hypot(
+  lastFirstSegmentBand[3][0] - firstVisibleBand[0][0],
+  lastFirstSegmentBand[3][1] - firstVisibleBand[0][1],
+);
 
 assert(
-  visibleTrailGradients.every(({ args }) =>
+  visibleTrailQuads.length === trailSegmentCount * canvasTrailBandCount &&
     Math.abs(
-      Math.hypot(args[2] - args[0], args[3] - args[1]) -
+      measuredVisibleTrailWidth -
         UNITY_FX_TOUCH.trail.width * SIZE_CORRECTION,
-    ) < 0.01),
+    ) < 0.01,
   '可见拖尾横截面保持 Unity 的 2.7px 几何带宽',
 );
 assert(
-  visibleTrailGradients[0].gradient.stops.every(
-    ([, color]) => color === 'rgba(0, 0, 0, 0)',
-  ),
-  '拖尾零纹理能量严格编码为透明，不会在浅色背景形成黑段',
+  visibleTrailGradientGroups[0].every(({ gradient }) =>
+    gradient.stops[0][1] === 'rgba(0, 0, 0, 0)') &&
+    visibleTrailGradientGroups.some((group) =>
+      group.some(({ gradient }) =>
+        gradient.stops[0][1] !== gradient.stops[1][1])),
+  '拖尾尾端透明，并沿每段纵向连续插值',
 );
-const firstVisiblePeak = visibleTrailGradients[0].gradient.stops.reduce(
-  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
-  0,
-);
-const lastVisiblePeak = visibleTrailGradients.at(-1).gradient.stops.reduce(
-  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
-  0,
-);
+let visibleTrailEndpointsContinuous = true;
+
+for (let index = 1; index < visibleTrailGradientGroups.length; index++)
+{
+  for (let band = 0; band < canvasTrailBandCount; band++)
+  {
+    visibleTrailEndpointsContinuous &&=
+      visibleTrailGradientGroups[index - 1][band].gradient.stops[1][1] ===
+        visibleTrailGradientGroups[index][band].gradient.stops[0][1];
+  }
+}
 
 assert(
-  lastVisiblePeak > firstVisiblePeak + 100,
-  '可见拖尾按原 Gradient 与 Stretch 纹理由尾部向头部增强',
+  visibleTrailEndpointsContinuous,
+  '相邻 Canvas 拖尾段共享折点颜色',
 );
-const firstBloomPeak = bloomTrailGradients[0].gradient.stops.reduce(
-  (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
-  0,
-);
-const lastBloomPeak = bloomTrailGradients.at(-1).gradient.stops.reduce(
-  (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
-  0,
-);
+const hasVisibleTransverseVariation = visibleTrailGradientGroups.some(
+  (group) =>
+  {
+    for (let endpoint = 0; endpoint <= 1; endpoint++)
+    {
+      const colors = group.map(
+        ({ gradient }) => gradient.stops[endpoint][1],
+      );
 
-assert(
-  lastBloomPeak > firstBloomPeak + 20,
-  'Bloom 发射源只在拖尾头部保持高亮',
+      if (new Set(colors).size > 1)
+      {
+        return true;
+      }
+    }
+
+    return false;
+  },
 );
 assert(
-  visibleTrailGradients.every(({ gradient }) =>
-    gradient.stops.length === transverseStopCount) &&
-    getCssPremultipliedEnergy(
-      visibleTrailGradients.at(-1).gradient.stops[8][1],
-    ) >
-      getCssPremultipliedEnergy(
-        visibleTrailGradients.at(-1).gradient.stops[0][1],
-      ),
-  '拖尾每一段都从透明边缘羽化到明亮中心',
+  visibleTrailGradients.length ===
+      trailSegmentCount * canvasTrailBandCount &&
+    hasVisibleTransverseVariation,
+  'Canvas 拖尾用 16 条窄带保留二维纹理横截面',
 );
 assert(
-  cachedTrailFrameData?.segmentEnergies.length === trailSegmentCount &&
+  cachedTrailFrameData?.pointEnergies.length === trailSegmentCount + 1 &&
+    cachedTrailFrameData.pointTransverseProfiles.length ===
+      trailSegmentCount + 1 &&
+    cachedTrailFrameData.segmentEnergies.length === trailSegmentCount &&
     cachedTrailFrameData.segmentMaximumEnergies.length === trailSegmentCount &&
     cachedTrailFrameData.segmentTransverseProfiles.length === trailSegmentCount &&
+    cachedTrailFrameData.segmentMaximumEnergies.every((maximum, index) =>
+      maximum >= Math.max(
+        ...cachedTrailFrameData.pointEnergies[index],
+        ...cachedTrailFrameData.segmentEnergies[index],
+        ...cachedTrailFrameData.pointEnergies[index + 1],
+      )) &&
     trailEnergyBuildCount === 1,
-  '同一帧的可见拖尾、Bloom 区域和发射绘制共享分段能量缓存',
+  '同一帧缓存拖尾端点与中点能量',
 );
 const expectedBloomSegmentCount = cachedTrailFrameData
   .segmentMaximumEnergies
@@ -1398,9 +1434,33 @@ const expectedBloomSegmentCount = cachedTrailFrameData
       0.5 * Math.max(1, effect.fxConfig.bloom.emissionRange) / 255)
   .length;
 assert(
-  bloomTrailGradients.length === expectedBloomSegmentCount &&
+  bloomTrailGradients.length ===
+      expectedBloomSegmentCount * canvasTrailBandCount &&
     expectedBloomSegmentCount < trailSegmentCount,
-  'Bloom 发射绘制只跳过量化后严格为零的暗尾分段',
+  'Bloom 发射沿用既有量化裁剪并复用分带几何',
+);
+const firstBloomPeak = bloomTrailGradients
+  .slice(0, canvasTrailBandCount)
+  .reduce(
+    (maximum, { gradient }) => Math.max(
+      maximum,
+      ...gradient.stops.map(([, color]) => getCssColorEnergy(color)),
+    ),
+    0,
+  );
+const lastBloomPeak = bloomTrailGradients
+  .slice(-canvasTrailBandCount)
+  .reduce(
+    (maximum, { gradient }) => Math.max(
+      maximum,
+      ...gradient.stops.map(([, color]) => getCssColorEnergy(color)),
+    ),
+    0,
+  );
+
+assert(
+  lastBloomPeak > firstBloomPeak + 20,
+  'Bloom 发射仍只在拖尾头部保持高亮',
 );
 const trianglePathIndices = effect.context.filledPaths.reduce(
   (indices, path, index) =>
@@ -1481,6 +1541,7 @@ const nativeFilterStart = effect.context.strokeFilters.length;
 const nativeLinearGradientStart = effect.context.linearGradients.length;
 const nativeDrawImageStart = effect.context.drawImageCalls.length;
 const nativeContrastCopyStart = effect.contrastContext.drawImageCalls.length;
+const nativePathStart = effect.context.filledPaths.length;
 
 // 首尾接近的回环路径会暴露首尾弦渐变的投影错误。
 effect.trailStrokes[0].points = [
@@ -1517,9 +1578,29 @@ assert(
 );
 const nativeBloomSurface = effect.nativeTrailBloomSurface;
 const nativeGlowGradients = nativeBloomSurface.context.linearGradients;
+const nativeTrailSegmentCount = effect.trailStrokes[0].points.length - 1;
+const nativeTrailJoinCount = effect.trailStrokes[0].points.length - 2;
+const nativeSegmentGradients = nativeGlowGradients.filter(
+  ({ gradient }) => gradient.stops.length === 2,
+);
+const nativeCrossSectionGradients = nativeGlowGradients.filter(
+  ({ gradient }) => gradient.stops.length === transverseStopCount,
+);
+const nativeSegmentGradientGroups = Array.from(
+  { length: nativeTrailSegmentCount },
+  (_, index) => nativeSegmentGradients.slice(
+    index * canvasTrailBandCount,
+    (index + 1) * canvasTrailBandCount,
+  ),
+);
 const nativeBlurDraws = effect.context.drawImageCalls
   .slice(nativeDrawImageStart)
   .filter((call) => call.filter !== 'none');
+const nativeTrailPaths = nativeBloomSurface.context.filledPaths;
+const clearTrailPaths = effect.context.filledPaths
+  .slice(nativePathStart)
+  .filter((path) => path.length === 3 || path.length === 4)
+  .slice(0, nativeTrailPaths.length);
 
 assert(
   effect.context.strokeFilters
@@ -1531,24 +1612,53 @@ assert(
 );
 assert(
   effect.context.linearGradients.length - nativeLinearGradientStart ===
-      effect.trailStrokes[0].points.length - 1 &&
-    nativeGlowGradients.length === effect.trailStrokes[0].points.length - 1 &&
-    nativeGlowGradients.every(({ gradient }) =>
-      gradient.stops.length === transverseStopCount),
-  '原生回退按真实路径距离与纹理横截面逐段写入发射颜色',
+      nativeTrailSegmentCount * canvasTrailBandCount +
+        nativeTrailJoinCount + 2 &&
+    nativeGlowGradients.length ===
+      nativeTrailSegmentCount * canvasTrailBandCount +
+        nativeTrailJoinCount + 2 &&
+    nativeSegmentGradients.length ===
+      nativeTrailSegmentCount * canvasTrailBandCount &&
+    nativeCrossSectionGradients.length === nativeTrailJoinCount + 2,
+  '原生回退复用纵向窄带及 join/cap 横截面几何',
 );
-const nativeTailPeak = nativeGlowGradients[0].gradient.stops.reduce(
-  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
+let nativeTrailEndpointsContinuous = true;
+
+for (let index = 1; index < nativeSegmentGradientGroups.length; index++)
+{
+  for (let band = 0; band < canvasTrailBandCount; band++)
+  {
+    nativeTrailEndpointsContinuous &&=
+      nativeSegmentGradientGroups[index - 1][band]
+        .gradient.stops[1][1] ===
+      nativeSegmentGradientGroups[index][band].gradient.stops[0][1];
+  }
+}
+
+const nativeTailPeak = nativeSegmentGradientGroups[0].reduce(
+  (maximum, { gradient }) => Math.max(
+    maximum,
+    getCssPremultipliedEnergy(gradient.stops[0][1]),
+  ),
   0,
 );
-const nativeHeadPeak = nativeGlowGradients.at(-1).gradient.stops.reduce(
-  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
+const nativeHeadPeak = nativeSegmentGradientGroups.at(-1).reduce(
+  (maximum, { gradient }) => Math.max(
+    maximum,
+    getCssPremultipliedEnergy(gradient.stops[1][1]),
+  ),
   0,
 );
 
 assert(
-  nativeTailPeak === 0 && nativeHeadPeak > 20,
-  '回环轨迹的尾部保持无辉光，头部仍保留原生模糊能量',
+  nativeTrailEndpointsContinuous &&
+    nativeTailPeak === 0 &&
+    nativeHeadPeak > 20,
+  '回环轨迹逐段共享折点能量且保留首尾亮度',
+);
+assert(
+  JSON.stringify(clearTrailPaths) === JSON.stringify(nativeTrailPaths),
+  'Native 清晰层与局部辉光缓冲复用同一拖尾网格',
 );
 assert(
   nativeBloomSurface.canvas.width < effect.canvas.width &&
@@ -3038,6 +3148,195 @@ assert(
   '大量过期轨迹顶点一次批量删除，不重复 shift 搬移数组',
 );
 expiredTrailEffect.destroy();
+
+console.log('\nTrailRenderer 几何');
+const geometryEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    inputSource: 'manual',
+  },
+);
+let geometryNow = performance.now();
+
+geometryEffect.pointerDown({ x: 100, y: 100, pointerId: 91 });
+geometryEffect.waves.length = 0;
+geometryEffect.shards.length = 0;
+
+function restoreCanvasTrailOutlines(quads, segmentCount)
+{
+  return Array.from({ length: segmentCount }, (_, index) =>
+  {
+    const bands = quads.slice(
+      index * canvasTrailBandCount,
+      (index + 1) * canvasTrailBandCount,
+    );
+
+    return [
+      bands[0][0],
+      bands[0][1],
+      bands.at(-1)[2],
+      bands.at(-1)[3],
+    ];
+  });
+}
+
+function renderCanvasTrailGeometry(points)
+{
+  geometryEffect.currentTrailStroke.points = points.map((point) =>
+  {
+    return {
+      ...point,
+      bornAt: geometryEffect.trailTimeMs,
+    };
+  });
+  geometryEffect.context.filledPaths = [];
+  geometryEffect.context.linearGradients = [];
+
+  if (geometryEffect.nativeTrailBloomSurface)
+  {
+    geometryEffect.nativeTrailBloomSurface.context.filledPaths = [];
+    geometryEffect.nativeTrailBloomSurface.context.linearGradients = [];
+  }
+
+  geometryEffect._requestRender();
+  geometryNow = flushFrames(dom, geometryNow, 1);
+
+  const quads = geometryEffect.context.filledPaths.filter((path) =>
+    path.length === 4);
+  const triangles = geometryEffect.context.filledPaths.filter((path) =>
+    path.length === 3);
+  const segmentGradients = geometryEffect.context.linearGradients.filter(
+    ({ gradient }) => gradient.stops.length === 2,
+  );
+
+  return {
+    quads,
+    triangles,
+    segmentGradients,
+    outlines: restoreCanvasTrailOutlines(quads, points.length - 1),
+    nativePaths: geometryEffect.nativeTrailBloomSurface.context.filledPaths,
+  };
+}
+
+const rightAngleGeometry = renderCanvasTrailGeometry(
+  [
+    { x: 100, y: 100 },
+    { x: 170, y: 100 },
+    { x: 170, y: 170 },
+  ],
+);
+const rightAngleFanCount = UNITY_FX_TOUCH.trail.numCornerVertices + 1;
+const rightAngleFan = rightAngleGeometry.triangles.slice(0, rightAngleFanCount);
+const rightAngleCaps = rightAngleGeometry.triangles.slice(rightAngleFanCount);
+const rightAngleInner = rightAngleGeometry.outlines[0][1];
+const rightAngleTurn = { x: 170, y: 100 };
+const rightAngleOuterArc =
+[
+  rightAngleFan[0][1],
+  ...rightAngleFan.map((triangle) => triangle[2]),
+];
+const rightAngleOuterRadius = Math.hypot(
+  rightAngleOuterArc[0][0] - rightAngleTurn.x,
+  rightAngleOuterArc[0][1] - rightAngleTurn.y,
+);
+let rightAngleEndpointsContinuous = true;
+
+for (let band = 0; band < canvasTrailBandCount; band++)
+{
+  rightAngleEndpointsContinuous &&=
+    rightAngleGeometry.segmentGradients[band].gradient.stops[1][1] ===
+      rightAngleGeometry.segmentGradients[
+        canvasTrailBandCount + band
+      ].gradient.stops[0][1];
+}
+
+assert(
+  rightAngleGeometry.quads.length === 2 * canvasTrailBandCount &&
+    rightAngleEndpointsContinuous &&
+    JSON.stringify(rightAngleInner) ===
+      JSON.stringify(rightAngleGeometry.outlines[1][0]) &&
+    rightAngleFan.length === rightAngleFanCount &&
+    rightAngleFan.every((triangle) =>
+      JSON.stringify(triangle[0]) === JSON.stringify(rightAngleInner)),
+  '90 度折点共享内角和端点颜色，并由 4 个插入点生成 5 个 fan 三角',
+);
+assert(
+  rightAngleOuterArc.length ===
+      UNITY_FX_TOUCH.trail.numCornerVertices + 2 &&
+    rightAngleOuterArc.every(([x, y]) =>
+      Math.abs(
+        Math.hypot(x - rightAngleTurn.x, y - rightAngleTurn.y) -
+          rightAngleOuterRadius,
+      ) < 0.000001) &&
+    rightAngleCaps.length === 2,
+  '圆角保持半带宽半径，numCapVertices=1 生成两个三角端帽',
+);
+assert(
+  JSON.stringify(rightAngleGeometry.quads.concat(
+    rightAngleGeometry.triangles,
+  )) === JSON.stringify(rightAngleGeometry.nativePaths),
+  '清晰层与 Native 离屏层共享同一 Canvas TrailRenderer 网格',
+);
+
+const sharpGeometry = renderCanvasTrailGeometry(
+  [
+    { x: 100, y: 100 },
+    { x: 170, y: 100 },
+    { x: 130, y: 140 },
+  ],
+);
+const sharpFan = sharpGeometry.triangles.slice(0, rightAngleFanCount);
+const sharpTurn = { x: 170, y: 100 };
+const sharpHalfWidth = Math.hypot(
+  sharpFan[0][1][0] - sharpTurn.x,
+  sharpFan[0][1][1] - sharpTurn.y,
+);
+const sharpInnerDistance = Math.hypot(
+  sharpFan[0][0][0] - sharpTurn.x,
+  sharpFan[0][0][1] - sharpTurn.y,
+);
+
+assert(
+  sharpGeometry.quads.length === 2 * canvasTrailBandCount &&
+    sharpGeometry.triangles.length === rightAngleFanCount + 2 &&
+    sharpFan.flat(2).every(Number.isFinite) &&
+    sharpInnerDistance > sharpHalfWidth &&
+    sharpInnerDistance <= sharpHalfWidth * 4,
+  '锐角拖尾保留有限 miter 和完整圆角 fan',
+);
+
+const foldedGeometry = renderCanvasTrailGeometry(
+  [
+    { x: 100, y: 100 },
+    { x: 170, y: 100 },
+    { x: 100, y: 101 },
+  ],
+);
+const foldedTurn = { x: 170, y: 100 };
+const foldedJointVertices =
+[
+  foldedGeometry.outlines[0][1],
+  foldedGeometry.outlines[0][2],
+  foldedGeometry.outlines[1][0],
+  foldedGeometry.outlines[1][3],
+];
+const foldedHalfWidth = Math.hypot(
+  foldedJointVertices[0][0] - foldedTurn.x,
+  foldedJointVertices[0][1] - foldedTurn.y,
+);
+
+assert(
+  foldedGeometry.quads.length === 2 * canvasTrailBandCount &&
+    foldedGeometry.triangles.length === 2 &&
+    foldedGeometry.quads.flat(2).every(Number.isFinite) &&
+    foldedJointVertices.every(([x, y]) =>
+      Math.abs(
+        Math.hypot(x - foldedTurn.x, y - foldedTurn.y) - foldedHalfWidth,
+      ) < 0.000001),
+  '近 180 度回折退化为稳定截面，不生成无限 miter',
+);
+geometryEffect.pointerCancel(91);
+geometryEffect.destroy();
 
 console.log('\nLegacy 模式');
 const legacyEffect = new BAClickFX(
