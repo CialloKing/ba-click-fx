@@ -4945,7 +4945,12 @@ export class BAClickFX
 
     this.lastFrameTime = now;
     this._setResolvedBloomBackend(bloomBackend);
-    this._setWebGLEffectVisible(useWebGLClickEffects);
+
+    if (!useWebGLClickEffects)
+    {
+      this._setWebGLEffectVisible(false);
+    }
+
     this._setWebGLBloomVisible(!useWebGLClickEffects && useWebGL2Bloom);
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
@@ -4996,7 +5001,9 @@ export class BAClickFX
         }
         else
         {
-          // 只有默认帧缓冲成功输出 Scene 后，才能报告实际 WebGL2 后端。
+          // Scene 与 Bloom 都成功写入默认帧缓冲后才切换可见层，
+          // 避免初始化或失败回退时暴露空白、旧帧或半成品帧。
+          this._setWebGLEffectVisible(true);
           this._setResolvedEffectBackend('webgl2');
         }
       }
@@ -6832,6 +6839,7 @@ export class BAClickFX
     this.context.clearRect(0, 0, this.width, this.height);
     this.contrastContext?.clearRect(0, 0, this.width, this.height);
     this.webglBloomRenderer?.clear();
+    this.webglEffectRenderer?.clear();
   }
 
   getConfig()
