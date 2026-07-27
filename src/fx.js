@@ -4175,6 +4175,10 @@ export class BAClickFX
     this._onFrame = this._renderFrame.bind(this);
     this._onWebGLContextLost = this._handleWebGLContextLost.bind(this);
     this._onWebGLContextRestored = this._handleWebGLContextRestored.bind(this);
+    this._onWebGLEffectContextLost =
+      this._handleWebGLEffectContextLost.bind(this);
+    this._onWebGLEffectContextRestored =
+      this._handleWebGLEffectContextRestored.bind(this);
 
     this._resize();
     window.addEventListener('resize', this._onResize);
@@ -4927,6 +4931,9 @@ export class BAClickFX
     this._advanceTrailTime(now);
     const scale = this._getScale();
     const legacy = this._isLegacy;
+
+    this._prepareWebGLEffectBackend();
+
     const bloomBackend = legacy ? 'legacy' : this._resolveBloomBackend();
     const useSoftwareBloom = bloomBackend === 'software';
     const useWebGL2Bloom = bloomBackend === 'webgl2';
@@ -5155,6 +5162,37 @@ export class BAClickFX
     this._requestRender();
   }
 
+  _handleWebGLEffectContextLost()
+  {
+    if (this.destroyed)
+    {
+      return;
+    }
+
+    this._setResolvedEffectBackend('canvas2d');
+    this._requestRender();
+  }
+
+  _handleWebGLEffectContextRestored()
+  {
+    if (this.destroyed)
+    {
+      return;
+    }
+
+    const requested = normalizeEffectBackend(this.config.effectBackend);
+
+    if (
+      this.config.renderingMode !== 'legacy' &&
+      requested !== 'canvas2d'
+    )
+    {
+      // Renderer 先恢复 Program；下一帧再重新验证完整浮点目标。
+      this._setResolvedEffectBackend('pending');
+      this._requestRender();
+    }
+  }
+
   _ensureWebGLEffectRenderer()
   {
     if (this.webglEffectRenderer)
@@ -5208,11 +5246,62 @@ export class BAClickFX
 
     this.webglEffectCanvas = canvas;
     this.webglEffectRenderer = renderer;
+    canvas.addEventListener(
+      'webglcontextlost',
+      this._onWebGLEffectContextLost,
+    );
+    canvas.addEventListener(
+      'webglcontextrestored',
+      this._onWebGLEffectContextRestored,
+    );
     return true;
+  }
+
+  _resizeWebGLEffectRenderer()
+  {
+    const renderer = this.webglEffectRenderer;
+
+    return !!renderer?.resize(
+      this.width,
+      this.height,
+      this.dpr,
+      this.fxConfig.bloom.resolutionScale,
+      this.fxConfig.bloom.diffusion,
+    );
+  }
+
+  _prepareWebGLEffectBackend()
+  {
+    const requested = normalizeEffectBackend(this.config.effectBackend);
+
+    if (
+      this.config.renderingMode === 'legacy' ||
+      requested === 'canvas2d'
+    )
+    {
+      this._destroyWebGLEffectRenderer();
+      this._setResolvedEffectBackend('canvas2d');
+      return false;
+    }
+
+    const ready = this._ensureWebGLEffectRenderer() &&
+      this._resizeWebGLEffectRenderer();
+
+    // Scene 尚未接管可见帧；资源可用只代表请求正在等待下一阶段启用。
+    this._setResolvedEffectBackend(ready ? 'pending' : 'canvas2d');
+    return ready;
   }
 
   _destroyWebGLEffectRenderer()
   {
+    this.webglEffectCanvas?.removeEventListener(
+      'webglcontextlost',
+      this._onWebGLEffectContextLost,
+    );
+    this.webglEffectCanvas?.removeEventListener(
+      'webglcontextrestored',
+      this._onWebGLEffectContextRestored,
+    );
     this.webglEffectRenderer?.destroy();
     this.webglEffectCanvas?.remove();
     this.webglEffectRenderer = null;
@@ -6508,6 +6597,7 @@ export class BAClickFX
     );
     this.webglBloomRenderer?.destroy();
     this.webglBloomRenderer = null;
+    this._destroyWebGLEffectRenderer();
 
     if (this.nativeTrailBloomSurface)
     {
