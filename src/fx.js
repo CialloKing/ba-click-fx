@@ -4932,9 +4932,7 @@ export class BAClickFX
     this._advanceTrailTime(now);
     const scale = this._getScale();
     const legacy = this._isLegacy;
-    this._prepareWebGLEffectBackend();
-    // 资源就绪不代表可见帧已接管；Scene 提交完成前保持分流关闭。
-    let useWebGLClickEffects = false;
+    let useWebGLClickEffects = this._prepareWebGLEffectBackend();
     let bloomBackend = legacy
       ? 'legacy'
       : useWebGLClickEffects
@@ -6020,6 +6018,120 @@ export class BAClickFX
     }
   }
 
+  _renderWebGL2ClickEffects(scale)
+  {
+    const renderer = this.webglEffectRenderer;
+    const bloomCfg = this.fxConfig.bloom;
+
+    if (!renderer?.available || renderer.contextLost)
+    {
+      return false;
+    }
+
+    if (this.waves.length === 0 && this.shards.length === 0)
+    {
+      renderer.clear();
+      return true;
+    }
+
+    try
+    {
+      renderer.beginFrame();
+
+      // Cross2 使用 One / OneMinusSrcAlpha，必须先于普通加色粒子提交。
+      for (const wave of this.waves)
+      {
+        wave.appendWebGLSceneDiskLayer(
+          renderer,
+          scale,
+          this.config.opacity,
+        );
+      }
+
+      for (const shard of this.shards)
+      {
+        shard.appendWebGLScene(
+          renderer,
+          scale,
+          this.config.opacity,
+          this.fxConfig,
+        );
+      }
+
+      // Dissolve MeshTri 的 RenderQueue=4499；最后提交以保留 Unity 覆盖顺序。
+      for (const wave of this.waves)
+      {
+        wave.appendWebGLSceneAdditiveLayer(
+          renderer,
+          scale,
+          this.config.opacity,
+        );
+      }
+
+      if (!renderer.renderScene())
+      {
+        return false;
+      }
+
+      renderer.beginFrame(
+        {
+          preserveSceneStats: true,
+        },
+      );
+
+      const rendered = renderer.render(
+        {
+          threshold: bloomCfg.threshold,
+          softKnee: bloomCfg.softKnee,
+          clamp: bloomCfg.clamp,
+          intensity: bloomCfg.intensity,
+          diffusion: bloomCfg.diffusion,
+        },
+        { preserveCanvas: true },
+      );
+
+      this.webglBloomFrameStats =
+      {
+        available: renderer.available,
+        ...renderer.stats,
+      };
+
+      return rendered;
+    }
+    catch (error)
+    {
+      console.warn('[BAClickFX] 纯 WebGL2 点击渲染失败:', error);
+      renderer.clear();
+      return false;
+    }
+  }
+
+  _drawCanvasClickEffects(scale, useNativeBloom, legacy = false)
+  {
+    for (const wave of this.waves)
+    {
+      wave.drawBase(
+        this.context,
+        scale,
+        this.config.opacity,
+        useNativeBloom,
+        legacy,
+      );
+    }
+
+    for (const shard of this.shards)
+    {
+      shard.draw(
+        this.context,
+        scale,
+        this.config.opacity,
+        this.fxConfig,
+      );
+    }
+
+    this._drawWaveRings(scale, useNativeBloom, legacy);
+  }
+
   _renderWebGL2Bloom(scale)
   {
     const renderer = this.webglBloomRenderer;
@@ -6169,7 +6281,13 @@ export class BAClickFX
     }
   }
 
-  _updateWaves(clickTimeMs, scale, useNativeBloom, legacy = false)
+  _updateWaves(
+    clickTimeMs,
+    scale,
+    useNativeBloom,
+    legacy = false,
+    drawCanvas = true,
+  )
   {
     for (let index = this.waves.length - 1; index >= 0; index--)
     {
@@ -6183,13 +6301,16 @@ export class BAClickFX
         continue;
       }
 
-      wave.drawBase(
-        this.context,
-        scale,
-        this.config.opacity,
-        useNativeBloom,
-        legacy,
-      );
+      if (drawCanvas)
+      {
+        wave.drawBase(
+          this.context,
+          scale,
+          this.config.opacity,
+          useNativeBloom,
+          legacy,
+        );
+      }
     }
   }
 
@@ -6216,7 +6337,7 @@ export class BAClickFX
     }
   }
 
-  _updateShards(clickTimeMs, trailTimeMs, scale)
+  _updateShards(clickTimeMs, trailTimeMs, scale, drawCanvas = true)
   {
     for (let index = this.shards.length - 1; index >= 0; index--)
     {
@@ -6237,12 +6358,15 @@ export class BAClickFX
         continue;
       }
 
-      shard.draw(
-        this.context,
-        scale,
-        this.config.opacity,
-        this.fxConfig,
-      );
+      if (drawCanvas)
+      {
+        shard.draw(
+          this.context,
+          scale,
+          this.config.opacity,
+          this.fxConfig,
+        );
+      }
     }
   }
 
