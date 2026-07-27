@@ -3519,6 +3519,8 @@ legacyEffect.context.strokeStyles = [];
 legacyEffect.context.strokedPaths = [];
 legacyNow = flushFrames(dom, legacyNow, 1);
 const legacyTrailPaths = legacyEffect.context.strokedPaths;
+const legacyGradientChannels = [0, 31, 62].map((index) =>
+  getCssChannels(legacyEffect.context.strokeStyles[index]).slice(0, 3));
 
 assert(
   legacyEffect.getFxConfig().bloom.trailAlpha === 0 &&
@@ -3529,8 +3531,29 @@ assert(
       getCssAlpha(style) > 0) &&
     legacyEffect.context.strokeStyles.at(-1) ===
       'rgba(116, 225, 255, 0.72)' &&
+    JSON.stringify(legacyGradientChannels) ===
+      JSON.stringify([[0, 101, 220], [0, 143, 233], [0, 238, 255]]) &&
     legacyEffect.context.strokeShadowBlurs.every((blur) => blur === 0),
   'Legacy 跳过透明外层，并保持渐变段与核心路径的默认颜色和阴影',
+);
+legacyEffect.setThemeColor('#ff6969');
+legacyEffect.context.strokeStyles = [];
+legacyNow = flushFrames(dom, legacyNow, 1);
+const themedLegacyGradientChannels = [0, 31, 62].map((index) =>
+  getCssChannels(legacyEffect.context.strokeStyles[index]).slice(0, 3));
+
+legacyEffect.setThemeColor('');
+legacyEffect.context.strokeStyles = [];
+legacyNow = flushFrames(dom, legacyNow, 1);
+const restoredLegacyGradientChannels = [0, 31, 62].map((index) =>
+  getCssChannels(legacyEffect.context.strokeStyles[index]).slice(0, 3));
+
+assert(
+  JSON.stringify(themedLegacyGradientChannels) !==
+      JSON.stringify(legacyGradientChannels) &&
+    JSON.stringify(restoredLegacyGradientChannels) ===
+      JSON.stringify(legacyGradientChannels),
+  'Legacy 复用局部颜色缓冲时主题色切换不会污染默认渐变',
 );
 legacyEffect.pointerCancel(92);
 assert(

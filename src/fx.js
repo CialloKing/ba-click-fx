@@ -410,18 +410,24 @@ function evaluateUnitySmoothCurve(keys, progress)
   return keys[keys.length - 1][1];
 }
 
-function evaluateColor(keys, progress)
+function evaluateColor(keys, progress, output = [0, 0, 0])
 {
   if (!keys || keys.length === 0)
   {
-    return [0, 0, 0];
+    output[0] = 0;
+    output[1] = 0;
+    output[2] = 0;
+    return output;
   }
 
   const t = clamp01(progress);
 
   if (t <= keys[0][0])
   {
-    return [...keys[0][1]];
+    output[0] = keys[0][1][0];
+    output[1] = keys[0][1][1];
+    output[2] = keys[0][1][2];
+    return output;
   }
 
   for (let index = 1; index < keys.length; index++)
@@ -434,15 +440,19 @@ function evaluateColor(keys, progress)
       const span = current[0] - previous[0];
       const localProgress = span > 0 ? (t - previous[0]) / span : 1;
 
-      return [
-        lerp(previous[1][0], current[1][0], localProgress),
-        lerp(previous[1][1], current[1][1], localProgress),
-        lerp(previous[1][2], current[1][2], localProgress),
-      ];
+      output[0] = lerp(previous[1][0], current[1][0], localProgress);
+      output[1] = lerp(previous[1][1], current[1][1], localProgress);
+      output[2] = lerp(previous[1][2], current[1][2], localProgress);
+      return output;
     }
   }
 
-  return [...keys[keys.length - 1][1]];
+  const finalColor = keys[keys.length - 1][1];
+
+  output[0] = finalColor[0];
+  output[1] = finalColor[1];
+  output[2] = finalColor[2];
+  return output;
 }
 
 function colorToCss(color, alpha = 1)
@@ -2740,13 +2750,15 @@ function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trai
   context.lineCap = 'butt';
   const distances = measurement.distances;
   const totalLength = measurement.totalLength;
+  const gradient = layer.gradient ? layer.gradient : trailCfg.gradient;
+  // Canvas 保存的是 CSS 字符串；复用函数局部数组不会泄漏到后续描边。
+  const color = [0, 0, 0];
 
   for (let index = 1; index < points.length; index++)
   {
     const progress = ((distances[index - 1] + distances[index]) * 0.5) / totalLength;
-    const color = layer.gradient
-      ? evaluateColor(layer.gradient, progress)
-      : interpolateTrailColor(progress, trailCfg);
+
+    evaluateColor(gradient, progress, color);
     const fadeAlpha = Math.pow(progress, 0.5);
 
     context.beginPath();
