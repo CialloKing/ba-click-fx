@@ -3395,20 +3395,32 @@ legacyNow = flushFrames(dom, legacyNow, 50);
 legacyEffect.updateConfig({ clickEnabled: false });
 legacyEffect.context.shadowBlur = 24;
 legacyEffect.context.shadowColor = 'rgba(255, 0, 0, 1)';
-const legacyTrailStrokeStart = legacyEffect.context.strokeShadowBlurs.length;
-
 legacyEffect.pointerDown({ x: 100, y: 200, pointerId: 92 });
-legacyEffect.pointerMove({ x: 500, y: 200, pointerId: 92 });
-legacyNow = flushFrames(dom, legacyNow, 1);
-const legacyTrailStrokeBlurs = legacyEffect.context.strokeShadowBlurs.slice(
-  legacyTrailStrokeStart,
+legacyEffect.currentTrailStroke.points = Array.from(
+  { length: 64 },
+  (_, index) =>
+  ({
+    x: 100 + index * 8,
+    y: 200 + index % 2 * 8,
+    bornAt: legacyEffect.trailTimeMs,
+  }),
 );
+legacyEffect.context.strokeCount = 0;
+legacyEffect.context.strokeShadowBlurs = [];
+legacyEffect.context.strokeStyles = [];
+legacyEffect.context.strokedPaths = [];
+legacyNow = flushFrames(dom, legacyNow, 1);
+const legacyTrailPaths = legacyEffect.context.strokedPaths;
 
 assert(
-  legacyTrailStrokeBlurs.length ===
-      legacyEffect.currentTrailStroke.points.length + 1 &&
-    legacyTrailStrokeBlurs.every((blur) => blur === 0),
-  'Legacy 三层拖尾保持原描边数量且不会继承外部 Canvas 阴影',
+  legacyEffect.getFxConfig().bloom.trailAlpha === 0 &&
+    legacyEffect.context.strokeCount === 64 &&
+    legacyTrailPaths.filter((path) => path.length === 2).length === 63 &&
+    legacyTrailPaths.filter((path) => path.length === 64).length === 1 &&
+    legacyEffect.context.strokeStyles.every((style) =>
+      getCssAlpha(style) > 0) &&
+    legacyEffect.context.strokeShadowBlurs.every((blur) => blur === 0),
+  'Legacy 跳过透明外层，仅提交 63 个渐变段和 1 条无继承阴影的核心路径',
 );
 legacyEffect.pointerCancel(92);
 assert(

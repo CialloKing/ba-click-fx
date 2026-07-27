@@ -2667,8 +2667,11 @@ function drawNativeTrailBloom(
  */
 function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trailCfg, layer)
 {
-  if (measurement.totalLength <= 0)
+  const effectiveAlpha = layer.alpha * opacity;
+
+  if (measurement.totalLength <= 0 || effectiveAlpha <= 0)
   {
+    // Legacy 参数会关闭外层假辉光；透明层不应继续构建整条路径。
     return;
   }
 
@@ -2683,7 +2686,7 @@ function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trai
   if (layer.color)
   {
     context.lineCap = 'round';
-    context.strokeStyle = colorToCss(layer.color, layer.alpha * opacity);
+    context.strokeStyle = colorToCss(layer.color, effectiveAlpha);
     context.beginPath();
     context.moveTo(points[0].x, points[0].y);
 
@@ -2713,7 +2716,7 @@ function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trai
     context.beginPath();
     context.moveTo(points[index - 1].x, points[index - 1].y);
     context.lineTo(points[index].x, points[index].y);
-    context.strokeStyle = colorToCss(color, layer.alpha * opacity * fadeAlpha);
+    context.strokeStyle = colorToCss(color, effectiveAlpha * fadeAlpha);
     context.stroke();
   }
 
