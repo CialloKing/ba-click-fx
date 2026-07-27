@@ -15,7 +15,10 @@ import {
   normalizeTimeScale,
   SIZE_CORRECTION,
 } from './config.js';
-import { SoftwareBloomRenderer } from './software-bloom.js';
+import {
+  SoftwareBloomRenderer,
+  calculateBloomContribution,
+} from './software-bloom.js';
 import { WebGL2BloomRenderer } from './webgl2-bloom.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
 
@@ -547,6 +550,55 @@ function linearEnergyToAdditiveCss(color, opacity = 1)
   return `rgba(${Math.round(red / alpha * 255)}, ${
     Math.round(green / alpha * 255)}, ${
     Math.round(blue / alpha * 255)}, ${alpha})`;
+}
+
+function gammaToLinearEnergy(value)
+{
+  const gamma = Math.max(0, value);
+
+  if (gamma <= 0.04045)
+  {
+    return gamma / 12.92;
+  }
+
+  return ((gamma + 0.055) / 1.055) ** 2.4;
+}
+
+/**
+ * 原生 Canvas 无法保留 HDR，因此先按 Unity MXFinalBloom 提取高亮，
+ * 再用回退强度映射到可模糊的加色源，避免低能尾段也产生均匀光雾。
+ */
+function linearEnergyToNativeTrailBloomCss(
+  color,
+  opacity,
+  intensity,
+  bloomCfg,
+)
+{
+  const sourceScale = clamp01(opacity) * Math.max(0, intensity);
+  const source = color.map((channel) => Math.max(0, channel * sourceScale));
+  const brightness = Math.max(...source);
+
+  if (brightness <= 0)
+  {
+    return 'rgba(0, 0, 0, 0)';
+  }
+
+  const contribution = calculateBloomContribution(
+    brightness,
+    gammaToLinearEnergy(bloomCfg.threshold),
+    bloomCfg.softKnee,
+  );
+
+  if (contribution <= 0)
+  {
+    return 'rgba(0, 0, 0, 0)';
+  }
+
+  const contributionScale = contribution / brightness;
+  const brightPass = source.map((channel) => channel * contributionScale);
+
+  return linearEnergyToAdditiveCss(brightPass, bloomCfg.trailAlpha);
 }
 
 function linearEnergyToEmissionCss(
@@ -3136,8 +3188,14 @@ function drawNativeTrailBloom(
     trailCfg,
     {
       width: trailCfg.geometryWidth,
-      alpha: bloomCfg.trailAlpha,
       materialIntensity: bloomCfg.trailEmission,
+      colorAtIntensity: (color, intensity) =>
+        linearEnergyToNativeTrailBloomCss(
+          color,
+          opacity,
+          intensity,
+          bloomCfg,
+        ),
     },
     firstVisibleSegment,
   );
