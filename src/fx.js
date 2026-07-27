@@ -4054,6 +4054,7 @@ export class BAClickFX
     this.webglEffectCanvas = null;
     this.webglEffectRenderer = null;
     this.webglEffectUnavailable = false;
+    this.webglEffectVisible = false;
 
     if (!this.canvas)
     {
@@ -4931,18 +4932,23 @@ export class BAClickFX
     this._advanceTrailTime(now);
     const scale = this._getScale();
     const legacy = this._isLegacy;
-
     this._prepareWebGLEffectBackend();
-
-    const bloomBackend = legacy ? 'legacy' : this._resolveBloomBackend();
-    const useSoftwareBloom = bloomBackend === 'software';
-    const useWebGL2Bloom = bloomBackend === 'webgl2';
+    // 资源就绪不代表可见帧已接管；Scene 提交完成前保持分流关闭。
+    let useWebGLClickEffects = false;
+    let bloomBackend = legacy
+      ? 'legacy'
+      : useWebGLClickEffects
+        ? 'webgl2'
+        : this._resolveBloomBackend();
+    let useSoftwareBloom = bloomBackend === 'software';
+    let useWebGL2Bloom = bloomBackend === 'webgl2';
     // Legacy 本身就是 Canvas 阴影路径，不能因不属于增强后端而关闭圆盘辉光。
-    const useNativeBloom = legacy || bloomBackend === 'native';
+    let useNativeBloom = legacy || bloomBackend === 'native';
 
     this.lastFrameTime = now;
     this._setResolvedBloomBackend(bloomBackend);
-    this._setWebGLBloomVisible(useWebGL2Bloom);
+    this._setWebGLEffectVisible(useWebGLClickEffects);
+    this._setWebGLBloomVisible(!useWebGLClickEffects && useWebGL2Bloom);
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
     // 推入当前实例的主题色偏移，渲染完成后清空，保证多实例安全
@@ -4953,29 +4959,85 @@ export class BAClickFX
 
     try
     {
-      this._updateTrail(this.trailTimeMs, scale, useNativeBloom, legacy);
-      this._updateWaves(this.clickTimeMs, scale, useNativeBloom, legacy);
-      this._updateShards(this.clickTimeMs, this.trailTimeMs, scale);
-      // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
-      this._drawWaveRings(scale, useNativeBloom, legacy);
+      this._updateTrail(
+        this.trailTimeMs,
+        scale,
+        useWebGLClickEffects || useNativeBloom,
+        legacy,
+      );
+      this._updateWaves(
+        this.clickTimeMs,
+        scale,
+        useNativeBloom,
+        legacy,
+        !useWebGLClickEffects,
+      );
+      this._updateShards(
+        this.clickTimeMs,
+        this.trailTimeMs,
+        scale,
+        !useWebGLClickEffects,
+      );
 
-      if (!legacy)
+      if (useWebGLClickEffects)
+      {
+        if (!this._renderWebGL2ClickEffects(scale))
+        {
+          useWebGLClickEffects = false;
+          this._setResolvedEffectBackend('canvas2d');
+          this._setWebGLEffectVisible(false);
+          bloomBackend = this._resolveBloomBackend();
+          useSoftwareBloom = bloomBackend === 'software';
+          useWebGL2Bloom = bloomBackend === 'webgl2';
+          useNativeBloom = bloomBackend === 'native';
+          this._setResolvedBloomBackend(bloomBackend);
+          this._setWebGLBloomVisible(useWebGL2Bloom);
+          this._drawCanvasClickEffects(scale, useNativeBloom);
+        }
+      }
+      else
+      {
+        // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
+        this._drawWaveRings(scale, useNativeBloom, legacy);
+      }
+
+      if (!legacy && !useWebGLClickEffects)
       {
         this._renderLightBackgroundContrast(
           scale,
           useSoftwareBloom || useWebGL2Bloom,
         );
       }
+      else if (useWebGLClickEffects && this.contrastContext)
+      {
+        this.contrastContext.setTransform(
+          this.dpr,
+          0,
+          0,
+          this.dpr,
+          0,
+          0,
+        );
+        this.contrastContext.clearRect(0, 0, this.width, this.height);
+      }
 
-      if (useSoftwareBloom && this._hasVisibleEffects())
+      if (
+        !useWebGLClickEffects &&
+        useSoftwareBloom &&
+        this._hasVisibleEffects()
+      )
       {
         this._renderSoftwareBloom(scale);
       }
-      else if (useWebGL2Bloom && this._hasVisibleEffects())
+      else if (
+        !useWebGLClickEffects &&
+        useWebGL2Bloom &&
+        this._hasVisibleEffects()
+      )
       {
         this._renderWebGL2Bloom(scale);
       }
-      else if (useWebGL2Bloom)
+      else if (!useWebGLClickEffects && useWebGL2Bloom)
       {
         this.webglBloomRenderer?.clear();
       }
@@ -5169,6 +5231,7 @@ export class BAClickFX
       return;
     }
 
+    this._setWebGLEffectVisible(false);
     this._setResolvedEffectBackend('canvas2d');
     this._requestRender();
   }
@@ -5292,6 +5355,28 @@ export class BAClickFX
     return ready;
   }
 
+  _setWebGLEffectVisible(visible)
+  {
+    if (!this.webglEffectCanvas)
+    {
+      this.webglEffectVisible = false;
+      return;
+    }
+
+    if (this.webglEffectVisible === visible)
+    {
+      return;
+    }
+
+    this.webglEffectVisible = visible;
+    this.webglEffectCanvas.style.display = visible ? '' : 'none';
+
+    if (!visible)
+    {
+      this.webglEffectRenderer?.clear();
+    }
+  }
+
   _destroyWebGLEffectRenderer()
   {
     this.webglEffectCanvas?.removeEventListener(
@@ -5306,6 +5391,7 @@ export class BAClickFX
     this.webglEffectCanvas?.remove();
     this.webglEffectRenderer = null;
     this.webglEffectCanvas = null;
+    this.webglEffectVisible = false;
   }
 
   _ensureWebGLBloomRenderer()
