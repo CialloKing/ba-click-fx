@@ -15,8 +15,15 @@ import {
   normalizeTimeScale,
   SIZE_CORRECTION,
 } from './config.js';
-import { SoftwareBloomRenderer } from './software-bloom.js';
+import {
+  SoftwareBloomRenderer,
+  calculateBloomContribution,
+} from './software-bloom.js';
 import { WebGL2BloomRenderer } from './webgl2-bloom.js';
+import {
+  NATIVE_CLICK_BLOOM_FAR_SIGMA,
+  NativeClickBloomRenderer,
+} from './native-click-bloom.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
 
 const TAU = Math.PI * 2;
@@ -564,6 +571,76 @@ function linearEnergyToEmissionCss(
   const blue = Math.round(clamp(color[2] * scale * 255, 0, 255));
 
   return `rgb(${red}, ${green}, ${blue})`;
+}
+
+function gammaToLinearEnergy(value)
+{
+  const gamma = Math.max(0, value);
+
+  if (gamma <= 0.04045)
+  {
+    return gamma / 12.92;
+  }
+
+  return ((gamma + 0.055) / 1.055) ** 2.4;
+}
+
+function linearEnergyToNativeBloomCss(
+  color,
+  opacity,
+  emissionRange,
+  energyScale = 1,
+  threshold,
+  softKnee,
+)
+{
+  const sourceScale = clamp01(opacity) * Math.max(0, energyScale);
+  const red = Math.max(0, color[0] * sourceScale);
+  const green = Math.max(0, color[1] * sourceScale);
+  const blue = Math.max(0, color[2] * sourceScale);
+  const brightness = Math.max(red, green, blue);
+  const contribution = calculateBloomContribution(
+    brightness,
+    gammaToLinearEnergy(threshold),
+    softKnee,
+  );
+
+  if (contribution <= 0 || brightness <= 0)
+  {
+    return 'rgba(0, 0, 0, 0)';
+  }
+
+  const brightPassScale = contribution / brightness /
+    Math.max(1, emissionRange);
+  const encodedRed = Math.round(clamp(red * brightPassScale * 255, 0, 255));
+  const encodedGreen = Math.round(clamp(green * brightPassScale * 255, 0, 255));
+  const encodedBlue = Math.round(clamp(blue * brightPassScale * 255, 0, 255));
+
+  return `rgb(${encodedRed}, ${encodedGreen}, ${encodedBlue})`;
+}
+
+function resolveNativeClickEmissionRange(fxConfig)
+{
+  const bloomCfg = fxConfig.bloom;
+  const ringPeak = fxConfig.rings.hdrIntensity *
+    bloomCfg.ringEmissionAlpha *
+    bloomCfg.clickEmissionScale;
+  const diskPeak = bloomCfg.diskEmission *
+    bloomCfg.diskEmissionAlpha *
+    bloomCfg.clickEmissionScale;
+  const shardStartPeak = Math.max(...fxConfig.shards.startColor);
+  const shardPeak = fxConfig.shards.hdrIntensity * shardStartPeak;
+  const ringOverlapPeak = ringPeak * Math.max(0, fxConfig.rings.count);
+  const centerOverlapPeak = diskPeak +
+    shardPeak * Math.max(0, fxConfig.shards.clickCount);
+
+  // 圆环之间、圆盘与初生碎片之间会发生空间重叠，编码范围必须容纳同一区域
+  // 的并发峰值；同时不沿用拖尾的固定 23.97，避免远层细环被 8 位量化吞掉。
+  return clamp(
+    Math.max(1, ringOverlapPeak, centerOverlapPeak),
+    1,
+    bloomCfg.emissionRange,
+  );
 }
 
 /**
@@ -1420,6 +1497,7 @@ function drawDissolvedCircleEmission(
   opacity,
   fxConfig = UNITY_FX_TOUCH,
   sharedMaterialEnergy = null,
+  encodeEmission = linearEnergyToEmissionCss,
 )
 {
   const ringCfg = fxConfig.rings;
@@ -1446,7 +1524,7 @@ function drawDissolvedCircleEmission(
     geometry.width,
     geometry.threshold,
     ringCfg,
-    (luminance) => linearEnergyToEmissionCss(
+    (luminance) => encodeEmission(
       materialEnergy,
       opacity * luminance * bloomCfg.ringEmissionAlpha,
       bloomCfg.emissionRange,
@@ -1525,6 +1603,7 @@ function drawDiskEmission(
   scale,
   opacity,
   fxConfig = UNITY_FX_TOUCH,
+  encodeEmission = linearEnergyToEmissionCss,
 )
 {
   const diskCfg = fxConfig.disk;
@@ -1548,7 +1627,7 @@ function drawDiskEmission(
   {
     gradient.addColorStop(
       position,
-      linearEnergyToEmissionCss(
+      encodeEmission(
         materialEnergy,
         opacity * bloomCfg.diskEmissionAlpha * energy,
         bloomCfg.emissionRange,
@@ -1637,6 +1716,7 @@ function drawTriangleEmission(
   scale,
   opacity,
   fxConfig = UNITY_FX_TOUCH,
+  encodeEmission = linearEnergyToEmissionCss,
 )
 {
   const shardCfg = fxConfig.shards;
@@ -1668,7 +1748,7 @@ function drawTriangleEmission(
   context.lineTo(textureFrame[1][0] * size, textureFrame[1][1] * size);
   context.lineTo(textureFrame[2][0] * size, textureFrame[2][1] * size);
   context.closePath();
-  context.fillStyle = linearEnergyToEmissionCss(
+  context.fillStyle = encodeEmission(
     materialEnergy,
     alpha,
     bloomCfg.emissionRange,
@@ -1913,7 +1993,12 @@ class ClickWave
     this.drawRings(context, scale, opacity, useNativeBloom, legacy);
   }
 
-  drawBloom(context, scale, opacity)
+  drawBloom(
+    context,
+    scale,
+    opacity,
+    encodeEmission = linearEnergyToEmissionCss,
+  )
   {
     if (this.fx.bloom.clickEmissionScale <= 0)
     {
@@ -1925,7 +2010,15 @@ class ClickWave
 
     if (diskProgress < 1)
     {
-      drawDiskEmission(context, this, diskProgress, scale, opacity, this.fx);
+      drawDiskEmission(
+        context,
+        this,
+        diskProgress,
+        scale,
+        opacity,
+        this.fx,
+        encodeEmission,
+      );
     }
 
     const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
@@ -1948,6 +2041,7 @@ class ClickWave
           opacity,
           this.fx,
           ringMaterialEnergy,
+          encodeEmission,
         );
       }
     }
@@ -2112,9 +2206,17 @@ class ShardParticle
     scale,
     opacity,
     fxConfig = UNITY_FX_TOUCH,
+    encodeEmission = linearEnergyToEmissionCss,
   )
   {
-    drawTriangleEmission(context, this, scale, opacity, fxConfig);
+    drawTriangleEmission(
+      context,
+      this,
+      scale,
+      opacity,
+      fxConfig,
+      encodeEmission,
+    );
   }
 
   appendWebGLBloom(
@@ -3603,6 +3705,8 @@ export class BAClickFX
       bloomPixels: 0,
     };
     this.nativeTrailBloomSurface = undefined;
+    this.nativeClickBloomRenderer = undefined;
+    this.nativeClickBloomCompositingSupported = undefined;
     this.legacyRingRasterizer = undefined;
 
     this.width = 0;
@@ -4396,6 +4500,12 @@ export class BAClickFX
     const useWebGL2Bloom = bloomBackend === 'webgl2';
     // Legacy 本身就是 Canvas 阴影路径，不能因不属于增强后端而关闭圆盘辉光。
     const useNativeBloom = legacy || bloomBackend === 'native';
+    const useNativeClickBloom = !legacy &&
+      bloomBackend === 'native' &&
+      this._canUseNativeClickBloom() &&
+      this._hasNativeClickBloomSources() &&
+      this._getNativeClickBloomRenderer().ensureAvailable();
+    const useNativeClickShadow = useNativeBloom && !useNativeClickBloom;
 
     this.lastFrameTime = now;
     this._setResolvedBloomBackend(bloomBackend);
@@ -4411,10 +4521,15 @@ export class BAClickFX
     try
     {
       this._updateTrail(this.trailTimeMs, scale, useNativeBloom, legacy);
-      this._updateWaves(this.clickTimeMs, scale, useNativeBloom, legacy);
+      this._updateWaves(
+        this.clickTimeMs,
+        scale,
+        useNativeClickShadow,
+        legacy,
+      );
       this._updateShards(this.clickTimeMs, this.trailTimeMs, scale);
       // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
-      this._drawWaveRings(scale, useNativeBloom, legacy);
+      this._drawWaveRings(scale, useNativeClickShadow, legacy);
 
       if (!legacy)
       {
@@ -4435,6 +4550,10 @@ export class BAClickFX
       else if (useWebGL2Bloom)
       {
         this.webglBloomRenderer?.clear();
+      }
+      else if (useNativeClickBloom && this._hasVisibleEffects())
+      {
+        this._renderNativeClickBloom(scale);
       }
     }
     catch (error)
@@ -4756,6 +4875,31 @@ export class BAClickFX
     return this.nativeTrailBloomSurface;
   }
 
+  _getNativeClickBloomRenderer()
+  {
+    if (this.nativeClickBloomRenderer === undefined)
+    {
+      // 原生后端空闲时不分配四张局部缓冲；首个可见点击才建立缓存。
+      this.nativeClickBloomRenderer = new NativeClickBloomRenderer(
+        () => createCanvas(),
+      );
+    }
+
+    return this.nativeClickBloomRenderer;
+  }
+
+  _releaseNativeClickBloomRenderer()
+  {
+    if (this.nativeClickBloomRenderer === undefined)
+    {
+      return;
+    }
+
+    this.nativeClickBloomRenderer?.destroy();
+    // undefined 表示仍可在下次进入安全的 Native 路径时惰性重建。
+    this.nativeClickBloomRenderer = undefined;
+  }
+
   _getLegacyRingRasterizer()
   {
     if (this.legacyRingRasterizer === undefined)
@@ -4848,6 +4992,209 @@ export class BAClickFX
     );
     context.fillRect(0, 0, this.contrastCanvas.width, this.contrastCanvas.height);
     context.restore();
+  }
+
+  _hasNativeClickBloomSources()
+  {
+    const hasWaveEmission = this.fxConfig.bloom.clickEmissionScale > 0 &&
+      this.waves.length > 0;
+    const hasClickShard = this.shards.some((shard) => shard.kind === 'click');
+
+    return hasWaveEmission || hasClickShard;
+  }
+
+  _canUseNativeClickBloom()
+  {
+    // 三尺度路径用不透明 RGB 保存线性暗部。仅默认全屏层能确认黑色最终
+    // 直接与页面加色；隔离组、自定义容器和外部 Canvas 均使用透明回退。
+    if (
+      !this.ownsCanvas ||
+      this.host ||
+      this.config.isolatedCompositing
+    )
+    {
+      return false;
+    }
+
+    if (this.nativeClickBloomCompositingSupported === undefined)
+    {
+      // 读取一次实际样式，避免外部 !important 规则让 inline 值产生误判；
+      // 缓存结果可避免每个动画帧强制重新计算样式。
+      const style = typeof window.getComputedStyle === 'function'
+        ? window.getComputedStyle(this.canvas)
+        : this.canvas.style;
+
+      this.nativeClickBloomCompositingSupported =
+        style?.mixBlendMode === 'plus-lighter';
+    }
+
+    return this.nativeClickBloomCompositingSupported;
+  }
+
+  _getNativeClickBloomBounds(scale)
+  {
+    let minimumX = Infinity;
+    let minimumY = Infinity;
+    let maximumX = -Infinity;
+    let maximumY = -Infinity;
+    const addBounds = (x, y, radius) =>
+    {
+      if (radius <= 0)
+      {
+        return;
+      }
+
+      minimumX = Math.min(minimumX, x - radius);
+      minimumY = Math.min(minimumY, y - radius);
+      maximumX = Math.max(maximumX, x + radius);
+      maximumY = Math.max(maximumY, y + radius);
+    };
+
+    if (this.fxConfig.bloom.clickEmissionScale > 0)
+    {
+      for (const wave of this.waves)
+      {
+        const diskProgress = wave.ageMs / this.fxConfig.disk.lifetimeMs;
+
+        if (diskProgress < 1)
+        {
+          addBounds(
+            wave.x,
+            wave.y,
+            this.fxConfig.disk.radius * evaluateNumber(
+              this.fxConfig.disk.sizeKeys,
+              diskProgress,
+            ) * scale,
+          );
+        }
+
+        const ringProgress = wave.ageMs / this.fxConfig.rings.lifetimeMs;
+
+        if (ringProgress < 1)
+        {
+          for (const ring of wave.rings)
+          {
+            const geometry = resolveRingGeometry(
+              ring,
+              ringProgress,
+              scale,
+              this.fxConfig.rings,
+            );
+
+            addBounds(
+              ring.x,
+              ring.y,
+              geometry.radius + geometry.width * 0.5,
+            );
+          }
+        }
+      }
+    }
+
+    for (const shard of this.shards)
+    {
+      if (shard.kind !== 'click')
+      {
+        continue;
+      }
+
+      const progress = clamp01(shard.ageMs / shard.lifetimeMs);
+      const size = shard.size * evaluateUnityHermiteCurve(
+        this.fxConfig.shards.sizeKeys,
+        progress,
+      ) * scale;
+
+      addBounds(shard.x, shard.y, size);
+    }
+
+    if (!Number.isFinite(minimumX))
+    {
+      return null;
+    }
+
+    // Chromium 最低层需用 76px 核还原 Unity 60px mip 包络；边界按实际
+    // 校准核保留三倍 sigma，避免局部 Canvas 截断远场。
+    const padding = NATIVE_CLICK_BLOOM_FAR_SIGMA * scale * 3 + 2;
+    const left = clamp(Math.floor(minimumX - padding), 0, this.width);
+    const top = clamp(Math.floor(minimumY - padding), 0, this.height);
+    const right = clamp(Math.ceil(maximumX + padding), left, this.width);
+    const bottom = clamp(Math.ceil(maximumY + padding), top, this.height);
+
+    return {
+      x: left,
+      y: top,
+      width: Math.max(1, right - left),
+      height: Math.max(1, bottom - top),
+    };
+  }
+
+  _renderNativeClickBloom(scale)
+  {
+    const bounds = this._getNativeClickBloomBounds(scale);
+
+    if (!bounds)
+    {
+      return true;
+    }
+
+    const renderer = this._getNativeClickBloomRenderer();
+    const bloomCfg = this.fxConfig.bloom;
+    const nativeEmissionRange = resolveNativeClickEmissionRange(this.fxConfig);
+    const encodeEmission = (
+      color,
+      opacity,
+      _emissionRange,
+      energyScale = 1,
+    ) => linearEnergyToNativeBloomCss(
+      color,
+      opacity,
+      nativeEmissionRange,
+      energyScale,
+      bloomCfg.threshold,
+      bloomCfg.softKnee,
+    );
+
+    return renderer.render(
+      this.context,
+      bounds,
+      this.dpr,
+      {
+        intensity: bloomCfg.intensity,
+        emissionRange: nativeEmissionRange,
+        scale,
+      },
+      (context) =>
+      {
+        context.save();
+        context.globalCompositeOperation = 'lighter';
+
+        for (const wave of this.waves)
+        {
+          wave.drawBloom(
+            context,
+            scale,
+            this.config.opacity,
+            encodeEmission,
+          );
+        }
+
+        for (const shard of this.shards)
+        {
+          if (shard.kind === 'click')
+          {
+            shard.drawBloom(
+              context,
+              scale,
+              this.config.opacity,
+              this.fxConfig,
+              encodeEmission,
+            );
+          }
+        }
+
+        context.restore();
+      },
+    );
   }
 
   _getSoftwareBloomRegions(scale)
@@ -5547,6 +5894,7 @@ export class BAClickFX
 
     const previousRenderingMode = this.config.renderingMode;
     const previousBloomBackend = this.config.bloomBackend;
+    const previousIsolatedCompositing = this.config.isolatedCompositing;
 
     if (
       isInputSource(overrides.inputSource) &&
@@ -5704,6 +6052,17 @@ export class BAClickFX
       }
     }
 
+    if (
+      (previousRenderingMode !== 'legacy' && this._isLegacy) ||
+      (previousBloomBackend !== this.config.bloomBackend &&
+        this.config.bloomBackend !== 'native') ||
+      (!previousIsolatedCompositing && this.config.isolatedCompositing)
+    )
+    {
+      // 离开可用路径后释放可能已增长到全屏的四张局部缓冲。
+      this._releaseNativeClickBloomRenderer();
+    }
+
     if (Number.isFinite(overrides.maxDpr))
     {
       this.config.maxDpr = Math.max(1, overrides.maxDpr);
@@ -5811,6 +6170,7 @@ export class BAClickFX
     this.trailStrokes.length = 0;
     this.currentTrailStroke = null;
     this._trimBloomRendererPool(0, 0);
+    this._releaseNativeClickBloomRenderer();
     this.context.clearRect(0, 0, this.width, this.height);
     this.contrastContext?.clearRect(0, 0, this.width, this.height);
     this.webglBloomRenderer?.clear();
@@ -5867,6 +6227,9 @@ export class BAClickFX
       this.nativeTrailBloomSurface.canvas.height = 0;
       this.nativeTrailBloomSurface = null;
     }
+
+    this.nativeClickBloomRenderer?.destroy();
+    this.nativeClickBloomRenderer = null;
 
     if (this.legacyRingRasterizer)
     {
