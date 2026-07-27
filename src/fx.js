@@ -926,6 +926,407 @@ function resolveRingGeometry(ring, progress, scale, ringCfg)
   };
 }
 
+const LEGACY_RING_RASTER_RESOLUTIONS = [256, 384, 512, 768, 1024];
+
+function selectLegacyRingRasterResolution(requiredDiameter)
+{
+  for (const resolution of LEGACY_RING_RASTER_RESOLUTIONS)
+  {
+    if (requiredDiameter <= resolution)
+    {
+      return resolution;
+    }
+  }
+
+  // 极端缩放继续复用最大缓冲，避免单次点击分配不可控的大块 ImageData。
+  return LEGACY_RING_RASTER_RESOLUTIONS.at(-1);
+}
+
+class LegacyRingRasterizer
+{
+  constructor(canvas, context)
+  {
+    this.canvas = canvas;
+    this.context = context;
+    this.resolution = 0;
+    this.imageData = null;
+    this.pixelOffsets = new Uint32Array(0);
+    this.angularProgresses = new Float32Array(0);
+    this.radialDistances = new Float32Array(0);
+    this.sampleAlphas = new Float32Array(0);
+    this.sampleCount = 0;
+    this.cacheRevision = 0;
+    this.cacheResolution = 0;
+    this.cacheTextureUvMin = NaN;
+    this.cacheTextureUvMax = NaN;
+    this.cacheDissolveDirection = 0;
+    this.cacheBandToOuterRadius = NaN;
+    this.cacheWidthStart = NaN;
+    this.cacheWidthEnd = NaN;
+    this.staticWidth = true;
+    this.particleColor = [0, 0, 0];
+    this.lastThreshold = 0;
+    this.lastBandRatio = 0;
+  }
+
+  static create()
+  {
+    const canvas = createCanvas();
+    const context = canvas.getContext('2d');
+
+    if (
+      !context ||
+      typeof context.createImageData !== 'function' ||
+      typeof context.putImageData !== 'function'
+    )
+    {
+      canvas.width = 0;
+      canvas.height = 0;
+      return null;
+    }
+
+    return new LegacyRingRasterizer(canvas, context);
+  }
+
+  _resolveResolution(rings, scale, dpr, ringCfg)
+  {
+    let maximumRadius = 0;
+    let maximumSize = 1;
+
+    for (const ring of rings)
+    {
+      maximumRadius = Math.max(maximumRadius, ring.radius);
+    }
+
+    for (const key of ringCfg.sizeKeys)
+    {
+      maximumSize = Math.max(maximumSize, Number(key[1]) || 0);
+    }
+
+    const requiredDiameter = Math.ceil(
+      maximumRadius * maximumSize * scale * Math.max(1, dpr) * 2,
+    );
+
+    return selectLegacyRingRasterResolution(requiredDiameter);
+  }
+
+  _matchesSampleCache(resolution, ringCfg)
+  {
+    const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
+
+    return this.cacheResolution === resolution &&
+      this.cacheTextureUvMin === ringCfg.textureUvMin &&
+      this.cacheTextureUvMax === ringCfg.textureUvMax &&
+      this.cacheDissolveDirection === direction &&
+      this.cacheBandToOuterRadius === ringCfg.bandToOuterRadius &&
+      this.cacheWidthStart === ringCfg.widthStart &&
+      this.cacheWidthEnd === ringCfg.widthEnd;
+  }
+
+  _ensureSurface(resolution)
+  {
+    if (this.resolution === resolution && this.imageData)
+    {
+      return;
+    }
+
+    this.canvas.width = resolution;
+    this.canvas.height = resolution;
+    this.resolution = resolution;
+    this.imageData = this.context.createImageData(resolution, resolution);
+  }
+
+  _rebuildSampleCache(resolution, ringCfg)
+  {
+    this._ensureSurface(resolution);
+
+    const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
+    const maximumWidthMultiplier = Math.max(
+      0,
+      ringCfg.widthStart,
+      ringCfg.widthEnd,
+    );
+    const maximumBandRatio = clamp01(
+      ringCfg.bandToOuterRadius * maximumWidthMultiplier,
+    );
+    const innerRadius = 1 - maximumBandRatio;
+    const center = resolution * 0.5;
+    let sampleCount = 0;
+
+    if (maximumBandRatio > 0)
+    {
+      for (let y = 0; y < resolution; y++)
+      {
+        const dy = (y + 0.5 - center) / center;
+
+        for (let x = 0; x < resolution; x++)
+        {
+          const dx = (x + 0.5 - center) / center;
+          const radius = Math.hypot(dx, dy);
+
+          if (radius >= innerRadius && radius <= 1)
+          {
+            sampleCount++;
+          }
+        }
+      }
+    }
+
+    this.pixelOffsets = new Uint32Array(sampleCount);
+    this.angularProgresses = new Float32Array(sampleCount);
+    this.radialDistances = new Float32Array(sampleCount);
+    this.sampleAlphas = new Float32Array(sampleCount);
+    this.sampleCount = sampleCount;
+    this.staticWidth = ringCfg.widthStart === ringCfg.widthEnd;
+    let sampleIndex = 0;
+
+    for (let y = 0; y < resolution; y++)
+    {
+      const dy = (y + 0.5 - center) / center;
+
+      for (let x = 0; x < resolution; x++)
+      {
+        const dx = (x + 0.5 - center) / center;
+        const radius = Math.hypot(dx, dy);
+
+        if (radius < innerRadius || radius > 1)
+        {
+          continue;
+        }
+
+        let angularProgress = Math.atan2(dy, dx) / TAU;
+
+        if (angularProgress < 0)
+        {
+          angularProgress += 1;
+        }
+
+        this.pixelOffsets[sampleIndex] = (y * resolution + x) * 4;
+        this.angularProgresses[sampleIndex] = angularProgress;
+        this.radialDistances[sampleIndex] = radius;
+
+        if (this.staticWidth)
+        {
+          const radialProgress = maximumBandRatio > 0
+            ? (radius - innerRadius) / maximumBandRatio
+            : 0;
+          const textureProgress = resolveRingTextureProgress(
+            angularProgress,
+            direction,
+          );
+
+          this.sampleAlphas[sampleIndex] = evaluateRingTextureAlpha(
+            textureProgress,
+            radialProgress,
+            ringCfg,
+          );
+        }
+
+        sampleIndex++;
+      }
+    }
+
+    // 配置变化可能缩窄候选环带；清空旧像素，避免上一次缓存留在新环带之外。
+    this.imageData.data.fill(0);
+    this.cacheResolution = resolution;
+    this.cacheTextureUvMin = ringCfg.textureUvMin;
+    this.cacheTextureUvMax = ringCfg.textureUvMax;
+    this.cacheDissolveDirection = direction;
+    this.cacheBandToOuterRadius = ringCfg.bandToOuterRadius;
+    this.cacheWidthStart = ringCfg.widthStart;
+    this.cacheWidthEnd = ringCfg.widthEnd;
+    this.cacheRevision++;
+  }
+
+  _clearPixel(data, offset)
+  {
+    data[offset] = 0;
+    data[offset + 1] = 0;
+    data[offset + 2] = 0;
+    data[offset + 3] = 0;
+  }
+
+  _writeVisiblePixel(data, offset, materialEnergy, opacity, textureAlpha)
+  {
+    const energyScale = clamp01(opacity * textureAlpha);
+    const red = clamp01(materialEnergy[0] * energyScale);
+    const green = clamp01(materialEnergy[1] * energyScale);
+    const blue = clamp01(materialEnergy[2] * energyScale);
+    const alpha = Math.max(red, green, blue);
+
+    if (alpha <= 0.00001)
+    {
+      this._clearPixel(data, offset);
+      return;
+    }
+
+    // ImageData 使用非预乘 RGB；按清晰层的加色编码写入后由 Canvas 自身预乘。
+    data[offset] = Math.round(red / alpha * 255);
+    data[offset + 1] = Math.round(green / alpha * 255);
+    data[offset + 2] = Math.round(blue / alpha * 255);
+    data[offset + 3] = Math.round(alpha * 255);
+  }
+
+  _writeMask(progress, threshold, opacity, materialEnergy, ringCfg)
+  {
+    const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
+    const widthMultiplier = lerp(
+      ringCfg.widthStart,
+      ringCfg.widthEnd,
+      progress,
+    );
+    const bandRatio = clamp01(
+      ringCfg.bandToOuterRadius * Math.max(0, widthMultiplier),
+    );
+    const innerRadius = 1 - bandRatio;
+    const data = this.imageData.data;
+
+    for (let index = 0; index < this.sampleCount; index++)
+    {
+      const offset = this.pixelOffsets[index];
+      const radius = this.radialDistances[index];
+
+      if (bandRatio <= 0 || radius < innerRadius)
+      {
+        this._clearPixel(data, offset);
+        continue;
+      }
+
+      let textureAlpha = this.sampleAlphas[index];
+
+      if (!this.staticWidth)
+      {
+        const radialProgress = (radius - innerRadius) / bandRatio;
+        const textureProgress = resolveRingTextureProgress(
+          this.angularProgresses[index],
+          direction,
+        );
+
+        textureAlpha = evaluateRingTextureAlpha(
+          textureProgress,
+          radialProgress,
+          ringCfg,
+        );
+        this.sampleAlphas[index] = textureAlpha;
+      }
+
+      if (textureAlpha < threshold)
+      {
+        this._clearPixel(data, offset);
+        continue;
+      }
+
+      this._writeVisiblePixel(
+        data,
+        offset,
+        materialEnergy,
+        opacity,
+        textureAlpha,
+      );
+    }
+
+    this.lastThreshold = threshold;
+    this.lastBandRatio = bandRatio;
+    this.context.putImageData(this.imageData, 0, 0);
+  }
+
+  draw(
+    targetContext,
+    rings,
+    progress,
+    scale,
+    dpr,
+    opacity,
+    fxConfig,
+    useNativeBloom,
+    materialEnergy,
+  )
+  {
+    const ringCfg = fxConfig.rings;
+    const bloomCfg = fxConfig.bloom;
+    const resolution = this._resolveResolution(rings, scale, dpr, ringCfg);
+
+    try
+    {
+      if (!this._matchesSampleCache(resolution, ringCfg))
+      {
+        this._rebuildSampleCache(resolution, ringCfg);
+      }
+
+      const threshold = clamp01(evaluateUnityHermiteCurve(
+        ringCfg.dissolveKeys,
+        progress,
+      ));
+
+      this._writeMask(
+        progress,
+        threshold,
+        opacity,
+        materialEnergy,
+        ringCfg,
+      );
+    }
+    catch
+    {
+      // 离屏分配失败时保留旧 conic 路径，Legacy 兼容模式不能因此停止绘制。
+      return false;
+    }
+
+    evaluateColor(ringCfg.colorKeys, progress, this.particleColor);
+    const shadowColor = useNativeBloom
+      ? colorToCss(this.particleColor, opacity * bloomCfg.ringAlpha)
+      : 'transparent';
+
+    for (const ring of rings)
+    {
+      const geometry = resolveRingGeometry(ring, progress, scale, ringCfg);
+
+      if (geometry.width <= 0.001)
+      {
+        continue;
+      }
+
+      const outerRadius = geometry.radius + geometry.width * 0.5;
+
+      targetContext.save();
+      targetContext.translate(ring.x, ring.y);
+      targetContext.rotate(ring.rotation);
+      // mask 已按目标物理尺寸生成；关闭二次平滑才能保留 Shader clip 的硬边界。
+      targetContext.imageSmoothingEnabled = false;
+      targetContext.shadowBlur = useNativeBloom
+        ? bloomCfg.ringBlur * scale
+        : 0;
+      targetContext.shadowColor = shadowColor;
+      targetContext.drawImage(
+        this.canvas,
+        0,
+        0,
+        this.resolution,
+        this.resolution,
+        -outerRadius,
+        -outerRadius,
+        outerRadius * 2,
+        outerRadius * 2,
+      );
+      targetContext.restore();
+    }
+
+    return true;
+  }
+
+  destroy()
+  {
+    this.canvas.width = 0;
+    this.canvas.height = 0;
+    this.imageData = null;
+    this.pixelOffsets = new Uint32Array(0);
+    this.angularProgresses = new Float32Array(0);
+    this.radialDistances = new Float32Array(0);
+    this.sampleAlphas = new Float32Array(0);
+    this.sampleCount = 0;
+  }
+}
+
 const LEGACY_TRAIL_WIDTH = 4;
 const LEGACY_TRAIL_CORE_WIDTH = 1.7;
 const LEGACY_TRAIL_GRADIENT = [
@@ -1451,7 +1852,15 @@ class ClickWave
     }
   }
 
-  drawRings(context, scale, opacity, useNativeBloom = true, legacy = false)
+  drawRings(
+    context,
+    scale,
+    opacity,
+    useNativeBloom = true,
+    legacy = false,
+    legacyRingRasterizer = null,
+    dpr = 1,
+  )
   {
     const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
 
@@ -1462,6 +1871,24 @@ class ClickWave
         ringProgress,
         this.fx.rings.hdrIntensity,
       );
+
+      if (
+        legacy &&
+        legacyRingRasterizer?.draw(
+          context,
+          this.rings,
+          ringProgress,
+          scale,
+          dpr,
+          opacity,
+          this.fx,
+          useNativeBloom,
+          ringMaterialEnergy,
+        )
+      )
+      {
+        return;
+      }
 
       for (const ring of this.rings)
       {
@@ -3176,6 +3603,7 @@ export class BAClickFX
       bloomPixels: 0,
     };
     this.nativeTrailBloomSurface = undefined;
+    this.legacyRingRasterizer = undefined;
 
     this.width = 0;
     this.height = 0;
@@ -4328,6 +4756,17 @@ export class BAClickFX
     return this.nativeTrailBloomSurface;
   }
 
+  _getLegacyRingRasterizer()
+  {
+    if (this.legacyRingRasterizer === undefined)
+    {
+      // Legacy 首次真正绘制圆环时才分配像素缓冲，空闲或增强模式不承担成本。
+      this.legacyRingRasterizer = LegacyRingRasterizer.create();
+    }
+
+    return this.legacyRingRasterizer;
+  }
+
   get _isLegacy()
   {
     return this.config.renderingMode === 'legacy';
@@ -4943,6 +5382,13 @@ export class BAClickFX
 
   _drawWaveRings(scale, useNativeBloom, legacy = false)
   {
+    const hasLegacyRings = legacy && this.waves.some(
+      (wave) => wave.rings.length > 0,
+    );
+    const legacyRingRasterizer = hasLegacyRings
+      ? this._getLegacyRingRasterizer()
+      : null;
+
     for (const wave of this.waves)
     {
       wave.drawRings(
@@ -4951,6 +5397,8 @@ export class BAClickFX
         this.config.opacity,
         useNativeBloom,
         legacy,
+        legacyRingRasterizer,
+        this.dpr,
       );
     }
   }
@@ -5418,6 +5866,12 @@ export class BAClickFX
       this.nativeTrailBloomSurface.canvas.width = 0;
       this.nativeTrailBloomSurface.canvas.height = 0;
       this.nativeTrailBloomSurface = null;
+    }
+
+    if (this.legacyRingRasterizer)
+    {
+      this.legacyRingRasterizer.destroy();
+      this.legacyRingRasterizer = null;
     }
 
     if (this.ownsCanvas)

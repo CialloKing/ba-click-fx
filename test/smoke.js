@@ -174,12 +174,14 @@ class ContextMock
     this.strokedPaths = [];
     this.fillShadowBlurs = [];
     this.fillShadowColors = [];
+    this.fillOrders = [];
     this.radialGradients = [];
     this.linearGradients = [];
     this.conicGradients = [];
     this.fillRects = [];
     this.drawImageCalls = [];
     this.putImageDataCount = 0;
+    this.putImageDataCalls = [];
     this.getImageDataCalls = [];
     this.clearRectCalls = [];
     this.hasVisiblePixels = false;
@@ -187,7 +189,11 @@ class ContextMock
     this.shadowBlur = 0;
     this.shadowColor = 'transparent';
     this.filter = 'none';
+    this.imageSmoothingEnabled = true;
     this.stateStack = [];
+    this.currentTransform = [1, 0, 0, 1, 0, 0];
+    this.currentRotation = 0;
+    this.drawSequence = 0;
     this._lineJoin = 'miter';
   }
 
@@ -202,8 +208,10 @@ class ContextMock
     return this._lineJoin;
   }
 
-  setTransform()
+  setTransform(a = 1, b = 0, c = 0, d = 1, e = 0, f = 0)
   {
+    this.currentTransform = [a, b, c, d, e, f];
+    this.currentRotation = Math.atan2(b, a);
   }
   clearRect(...args)
   {
@@ -219,7 +227,10 @@ class ContextMock
         shadowBlur: this.shadowBlur,
         shadowColor: this.shadowColor,
         filter: this.filter,
+        imageSmoothingEnabled: this.imageSmoothingEnabled,
         lineJoin: this._lineJoin,
+        transform: [...this.currentTransform],
+        rotation: this.currentRotation,
       },
     );
   }
@@ -234,16 +245,42 @@ class ContextMock
       this.shadowBlur = state.shadowBlur;
       this.shadowColor = state.shadowColor;
       this.filter = state.filter;
+      this.imageSmoothingEnabled = state.imageSmoothingEnabled;
       this._lineJoin = state.lineJoin;
+      this.currentTransform = state.transform;
+      this.currentRotation = state.rotation;
     }
   }
 
-  translate()
+  translate(x, y)
   {
+    const [a, b, c, d, e, f] = this.currentTransform;
+
+    this.currentTransform = [
+      a,
+      b,
+      c,
+      d,
+      a * x + c * y + e,
+      b * x + d * y + f,
+    ];
   }
 
-  rotate()
+  rotate(angle)
   {
+    const [a, b, c, d, e, f] = this.currentTransform;
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+
+    this.currentTransform = [
+      a * cosine + c * sine,
+      b * cosine + d * sine,
+      c * cosine - a * sine,
+      d * cosine - b * sine,
+      e,
+      f,
+    ];
+    this.currentRotation += angle;
   }
   beginPath()
   {
@@ -286,6 +323,7 @@ class ContextMock
     this.filledStyles.push(this.fillStyle);
     this.fillShadowBlurs.push(this.shadowBlur);
     this.fillShadowColors.push(this.shadowColor);
+    this.fillOrders.push(++this.drawSequence);
     this.hasVisiblePixels = true;
   }
 
@@ -360,6 +398,7 @@ class ContextMock
   putImageData(imageData, ...args)
   {
     this.putImageDataCount++;
+    this.putImageDataCalls.push({ imageData, args });
     this.lastImageData = imageData;
     this.lastPutImageDataArgs = args;
     this.hasVisiblePixels = imageData.data.some((value) => value > 0);
@@ -372,6 +411,12 @@ class ContextMock
         args,
         compositeOperation: this.globalCompositeOperation,
         filter: this.filter,
+        shadowBlur: this.shadowBlur,
+        shadowColor: this.shadowColor,
+        imageSmoothingEnabled: this.imageSmoothingEnabled,
+        transform: [...this.currentTransform],
+        rotation: this.currentRotation,
+        order: ++this.drawSequence,
       },
     );
 
@@ -3988,43 +4033,173 @@ assert(
 
 legacyWave.ageMs = 300;
 legacyEffect.context.conicGradients = [];
-legacyWave.drawRings(legacyEffect.context, 1, 1, true, true);
-const controlledLegacyRingStops = legacyEffect.context.conicGradients.flatMap(
-  ({ gradient }) => gradient.stops,
-);
-const visibleControlledLegacyRingStop = controlledLegacyRingStops.find(
-  ([, color]) => getCssAlpha(color) > 0,
-);
-const controlledLegacyHardClipOffsets = getHardClipOffsets(
-  controlledLegacyRingStops,
-);
+legacyEffect.context.drawImageCalls = [];
+const legacyRingRasterizer = legacyEffect._getLegacyRingRasterizer();
+const controlledLegacyPutStart =
+  legacyRingRasterizer.context.putImageDataCount;
 
-assert(
-  visibleControlledLegacyRingStop &&
-    controlledLegacyRingStops.some(([, color]) => getCssAlpha(color) === 0) &&
-    controlledLegacyHardClipOffsets.length > 0,
-  'Legacy Ring3 同时保留精确 Alpha，并用同 offset stop 还原 hard clip',
+legacyWave.drawRings(
+  legacyEffect.context,
+  1,
+  1,
+  true,
+  true,
+  legacyRingRasterizer,
+  legacyEffect.dpr,
 );
-assert(
-  controlledLegacyRingStops.some(([, color]) =>
+const controlledLegacyRingDraws = legacyEffect.context.drawImageCalls.filter(
+  (call) => call.args[0] === legacyRingRasterizer.canvas,
+);
+const controlledLegacyMaskData = legacyRingRasterizer.imageData.data;
+let controlledVisibleSample = -1;
+let controlledClippedSample = -1;
+let controlledHdrSample = -1;
+let controlledMaskMatchesClip = true;
+
+for (let index = 0; index < legacyRingRasterizer.sampleCount; index++)
+{
+  const offset = legacyRingRasterizer.pixelOffsets[index];
+  const expectedVisible = legacyRingRasterizer.sampleAlphas[index] >=
+    legacyRingRasterizer.lastThreshold;
+  const visible = controlledLegacyMaskData[offset + 3] > 0;
+
+  if (visible && controlledVisibleSample < 0)
   {
-    const channels = getCssChannels(color);
+    controlledVisibleSample = index;
+  }
 
-    return channels[0] > 0 &&
-      channels[0] < 255 &&
-      channels[1] === 255 &&
-      channels[2] === 255 &&
-      channels[3] === 1;
-  }),
+  if (!visible && controlledClippedSample < 0)
+  {
+    controlledClippedSample = index;
+  }
+
+  if (
+    visible &&
+    controlledHdrSample < 0 &&
+    controlledLegacyMaskData[offset] > 0 &&
+    controlledLegacyMaskData[offset] < 255 &&
+    controlledLegacyMaskData[offset + 1] === 255 &&
+    controlledLegacyMaskData[offset + 2] === 255 &&
+    controlledLegacyMaskData[offset + 3] === 255
+  )
+  {
+    controlledHdrSample = index;
+  }
+
+  if (visible !== expectedVisible)
+  {
+    controlledMaskMatchesClip = false;
+    break;
+  }
+}
+
+assert(
+  legacyEffect.context.conicGradients.length === 0 &&
+    legacyRingRasterizer.context.putImageDataCount ===
+      controlledLegacyPutStart + 1 &&
+    controlledLegacyRingDraws.length === UNITY_FX_TOUCH.rings.count &&
+    controlledLegacyRingDraws.every((call) =>
+      call.args[0] === legacyRingRasterizer.canvas),
+  'Legacy 每个 wave 只栅格一次 Ring3，并让两枚圆环共享同一像素纹理',
+);
+assert(
+  controlledVisibleSample >= 0 &&
+    controlledClippedSample >= 0 &&
+    controlledMaskMatchesClip,
+  'Legacy Ring3 对全部极坐标像素执行 Bilinear 后 hard clip，不遗漏窄断口',
+);
+const controlledHdrOffset = legacyRingRasterizer.pixelOffsets[
+  controlledHdrSample
+];
+
+assert(
+  controlledHdrSample >= 0 &&
+    controlledLegacyMaskData[controlledHdrOffset] > 0 &&
+    controlledLegacyMaskData[controlledHdrOffset] < 255 &&
+    controlledLegacyMaskData[controlledHdrOffset + 1] === 255 &&
+    controlledLegacyMaskData[controlledHdrOffset + 2] === 255 &&
+    controlledLegacyMaskData[controlledHdrOffset + 3] === 255,
   'Legacy 圆环本体保留 Tri3 的 Linear 插值与 HDR 材质能量',
+);
+
+if (sourceMode)
+{
+  const sampleIndex = Math.floor(legacyRingRasterizer.sampleCount * 0.37);
+  const angularProgress = legacyRingRasterizer.angularProgresses[sampleIndex];
+  const radialProgress = (
+    legacyRingRasterizer.radialDistances[sampleIndex] -
+      (1 - legacyRingRasterizer.lastBandRatio)
+  ) / legacyRingRasterizer.lastBandRatio;
+  const ringCfg = legacyEffect.getFxConfig().rings;
+  const textureProgress = ringCfg.dissolveDirection >= 0
+    ? angularProgress
+    : 1 - angularProgress;
+  const uvSpan = ringCfg.textureUvMax - ringCfg.textureUvMin;
+  const expectedAlpha = ring3AlphaSource.sampleRing3Alpha(
+    ringCfg.textureUvMin + uvSpan * textureProgress,
+    ringCfg.textureUvMin + uvSpan * radialProgress,
+  );
+
+  assert(
+    Math.abs(
+      legacyRingRasterizer.sampleAlphas[sampleIndex] - expectedAlpha,
+    ) < 0.00001,
+    'Legacy 极坐标缓存逐像素复用 Ring3 原纹理 Bilinear 采样器',
+  );
+}
+
+const stableLegacyCanvas = legacyRingRasterizer.canvas;
+const stableLegacyImageData = legacyRingRasterizer.imageData;
+const stableLegacyPixelOffsets = legacyRingRasterizer.pixelOffsets;
+const stableLegacySampleAlphas = legacyRingRasterizer.sampleAlphas;
+const stableLegacyCacheRevision = legacyRingRasterizer.cacheRevision;
+
+for (const ageMs of [420, 480])
+{
+  legacyWave.ageMs = ageMs;
+  legacyWave.drawRings(
+    legacyEffect.context,
+    1,
+    1,
+    true,
+    true,
+    legacyRingRasterizer,
+    legacyEffect.dpr,
+  );
+
+  for (let index = 0; index < legacyRingRasterizer.sampleCount; index++)
+  {
+    const offset = legacyRingRasterizer.pixelOffsets[index];
+    const expectedVisible = legacyRingRasterizer.sampleAlphas[index] >=
+      legacyRingRasterizer.lastThreshold;
+
+    if ((legacyRingRasterizer.imageData.data[offset + 3] > 0) !== expectedVisible)
+    {
+      controlledMaskMatchesClip = false;
+      break;
+    }
+  }
+}
+
+assert(
+  controlledMaskMatchesClip &&
+    legacyRingRasterizer.canvas === stableLegacyCanvas &&
+    legacyRingRasterizer.imageData === stableLegacyImageData &&
+    legacyRingRasterizer.pixelOffsets === stableLegacyPixelOffsets &&
+    legacyRingRasterizer.sampleAlphas === stableLegacySampleAlphas &&
+    legacyRingRasterizer.cacheRevision === stableLegacyCacheRevision,
+  'Legacy 在 0.7/0.8 生命周期完整裁剪 Ring3，并跨帧复用像素缓冲',
 );
 legacyWave.ageMs = 0;
 legacyEffect.context.filledPaths = [];
 legacyEffect.context.filledStyles = [];
 legacyEffect.context.fillShadowBlurs = [];
 legacyEffect.context.fillShadowColors = [];
+legacyEffect.context.fillOrders = [];
 legacyEffect.context.radialGradients = [];
 legacyEffect.context.conicGradients = [];
+legacyEffect.context.drawImageCalls = [];
+const legacyFramePutStart = legacyRingRasterizer.context.putImageDataCount;
 let legacyNow = flushFrames(dom, performance.now(), 1);
 const legacyTriangleFillIndices = legacyEffect.context.filledPaths.reduce(
   (indices, path, index) =>
@@ -4042,58 +4217,27 @@ const legacyDiskGradient = legacyEffect.context.radialGradients[0]?.gradient;
 const legacyDiskFillIndex = legacyEffect.context.filledStyles.indexOf(
   legacyDiskGradient,
 );
-const legacyRingGradients = legacyEffect.context.conicGradients.map(
-  ({ gradient }) => gradient,
+const legacyRingDraws = legacyEffect.context.drawImageCalls.filter(
+  (call) => call.args[0] === legacyRingRasterizer.canvas,
 );
-const legacyRingGradientSet = new Set(legacyRingGradients);
-const legacyRingFillIndices = legacyEffect.context.filledStyles.reduce(
-  (indices, style, index) =>
-  {
-    if (legacyRingGradientSet.has(style))
-    {
-      indices.push(index);
-    }
-
-    return indices;
-  },
-  [],
-);
-const legacyRingShadowIndices = legacyRingFillIndices.filter((index) =>
-  legacyEffect.context.fillShadowBlurs[index] > 0);
-const legacyRingShadowCounts = Array.from(
-  { length: UNITY_FX_TOUCH.rings.count },
-  (_, ringIndex) =>
-  {
-    const firstFill = ringIndex * UNITY_FX_TOUCH.rings.radialSamples;
-    const ringFillIndices = legacyRingFillIndices.slice(
-      firstFill,
-      firstFill + UNITY_FX_TOUCH.rings.radialSamples,
-    );
-
-    return ringFillIndices.filter((index) =>
-      legacyEffect.context.fillShadowBlurs[index] > 0).length;
-  },
-);
+const legacyScale = legacyEffect._getScale();
 
 assert(
-  legacyRingGradients.length ===
-      UNITY_FX_TOUCH.rings.count * UNITY_FX_TOUCH.rings.radialSamples &&
-    legacyRingFillIndices.length === legacyRingGradients.length,
-  'Legacy 每枚圆环使用 radialSamples 条 conic gradient 还原二维纹理',
-);
-assert(
-  legacyRingGradients.every((gradient) =>
-    gradient.stops.length >= UNITY_FX_TOUCH.rings.arcSamples + 1 &&
-      gradient.stops[0][0] === 0 &&
-      gradient.stops.at(-1)[0] === 1),
-  'Legacy 每条径向环带保留完整 Ring3 主采样与额外 clip 边界',
+  legacyEffect.context.conicGradients.length === 0 &&
+    legacyRingRasterizer.context.putImageDataCount ===
+      legacyFramePutStart + 1 &&
+    legacyRingDraws.length === UNITY_FX_TOUCH.rings.count,
+  'Legacy 运行帧不再构建 96x8 conic band，并让两枚圆环共用一次纹理更新',
 );
 assert(
   legacyTriangleFillIndices.length === UNITY_FX_TOUCH.shards.clickCount,
   'Legacy 点击后的第一帧同时绘制三角碎片',
 );
 assert(
-  Math.min(...legacyRingFillIndices) > Math.max(...legacyTriangleFillIndices),
+  Math.min(...legacyRingDraws.map((call) => call.order)) >
+    Math.max(...legacyTriangleFillIndices.map(
+      (index) => legacyEffect.context.fillOrders[index],
+    )),
   'Tri3 圆环按材质 queue 4499 在圆盘和碎片之后绘制',
 );
 assert(
@@ -4112,15 +4256,18 @@ assert(
 );
 assert(
   legacyEffect.getFxConfig().rings.hdrIntensity === 4 &&
-    legacyRingShadowIndices.length === UNITY_FX_TOUCH.rings.count &&
-    legacyRingShadowCounts.every((count) => count === 1) &&
-    legacyRingShadowIndices.every((index) =>
-      getCssAlpha(legacyEffect.context.fillShadowColors[index]) > 0),
-  'Legacy 圆环保留 HDR 本体，并且每枚圆环只生成一次原生辉光',
+    legacyRingDraws.every((call, index) =>
+      call.shadowBlur === legacyEffect.getFxConfig().bloom.ringBlur *
+        legacyScale &&
+      getCssAlpha(call.shadowColor) > 0 &&
+      call.imageSmoothingEnabled === false &&
+      call.args[7] === call.args[8] &&
+      Math.abs(call.rotation - legacyWave.rings[index].rotation) < 0.000001),
+  'Legacy 圆环保留 HDR 本体，并让每枚完整像素环带只生成一次原生辉光',
 );
 assert(
-  legacyEffect.context.fillShadowBlurs.some((blur, index) =>
-    blur > 0 && getCssAlpha(legacyEffect.context.fillShadowColors[index]) > 0),
+  legacyRingDraws.every((call) =>
+    call.shadowBlur > 0 && getCssAlpha(call.shadowColor) > 0),
   '点击发射倍率不改变 Legacy 兼容圆环辉光',
 );
 
