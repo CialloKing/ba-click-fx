@@ -4992,6 +4992,11 @@ export class BAClickFX
           this._setWebGLBloomVisible(useWebGL2Bloom);
           this._drawCanvasClickEffects(scale, useNativeBloom);
         }
+        else
+        {
+          // 只有默认帧缓冲成功输出 Scene 后，才能报告实际 WebGL2 后端。
+          this._setResolvedEffectBackend('webgl2');
+        }
       }
       else
       {
@@ -5348,8 +5353,16 @@ export class BAClickFX
     const ready = this._ensureWebGLEffectRenderer() &&
       this._resizeWebGLEffectRenderer();
 
-    // Scene 尚未接管可见帧；资源可用只代表请求正在等待下一阶段启用。
-    this._setResolvedEffectBackend(ready ? 'pending' : 'canvas2d');
+    if (!ready)
+    {
+      this._setResolvedEffectBackend('canvas2d');
+    }
+    else if (this.resolvedEffectBackend !== 'webgl2')
+    {
+      // 首个可见 Scene 提交成功前保持 pending；成功后不在每帧重复降级。
+      this._setResolvedEffectBackend('pending');
+    }
+
     return ready;
   }
 
