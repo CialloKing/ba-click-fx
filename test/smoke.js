@@ -3536,6 +3536,18 @@ assert(
     legacyEffect.context.strokeShadowBlurs.every((blur) => blur === 0),
   'Legacy 跳过透明外层，并保持渐变段与核心路径的默认颜色和阴影',
 );
+legacyEffect.setFxParam('bloom.trailAlpha', 0.25);
+legacyEffect.context.strokeStyles = [];
+legacyEffect.context.strokedPaths = [];
+legacyNow = flushFrames(dom, legacyNow, 1);
+
+assert(
+  legacyEffect.context.strokedPaths.length === 65 &&
+    legacyEffect.context.strokedPaths[0].length === 64 &&
+    legacyEffect.context.strokeStyles[0] === 'rgba(0, 88, 224, 0.25)',
+  'Legacy 只跳过透明外层，宿主配置正 Alpha 时仍恢复完整外层描边',
+);
+legacyEffect.setFxParam('bloom.trailAlpha', 0);
 legacyEffect.setThemeColor('#ff6969');
 legacyEffect.context.strokeStyles = [];
 legacyNow = flushFrames(dom, legacyNow, 1);

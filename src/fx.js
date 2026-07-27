@@ -2796,12 +2796,23 @@ function drawTrail(
   if (legacy)
   {
     // main 分支风格：三层 sRGB 描边，使用 main 分支的宽度和渐变色
-    drawLegacyTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
-      {
-        width: trailCfg.outerGlowWidth,
-        alpha: bloomCfg.trailAlpha,
-        color: LEGACY_TRAIL_OUTER_COLOR,
-      });
+    if (bloomCfg.trailAlpha !== 0)
+    {
+      drawLegacyTrailLayer(
+        context,
+        points,
+        measurement,
+        scale,
+        trailOpacity,
+        trailCfg,
+        {
+          width: trailCfg.outerGlowWidth,
+          alpha: bloomCfg.trailAlpha,
+          color: LEGACY_TRAIL_OUTER_COLOR,
+        },
+      );
+    }
+
     drawLegacyTrailLayer(
       context,
       points,
