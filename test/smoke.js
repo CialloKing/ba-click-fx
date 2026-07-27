@@ -1583,6 +1583,42 @@ assert(
   'destroy() 移除监听、隔离合成根与自有 Canvas',
 );
 
+const ringlessEffect = new BAClickFX({ bloomBackend: 'native' });
+let ringlessNow = performance.now();
+
+ringlessEffect.setFxParam('rings.count', 0);
+ringlessEffect.setFxParam('shards.clickCount', 0);
+ringlessEffect.boom(400, 300);
+ringlessNow = flushFrames(dom, ringlessNow, 1, 199);
+assert(
+  ringlessEffect.waves.length === 1 &&
+    ringlessEffect.waves[0].rings.length === 0 &&
+    dom.frames.size === 1,
+  '零圆环点击在 199ms 时仍保留可见光盘与下一帧调度',
+);
+ringlessNow = flushFrames(dom, ringlessNow, 1, 2);
+assert(
+  ringlessEffect.waves.length === 0 &&
+    ringlessEffect._hasVisibleEffects() === false &&
+    dom.frames.size === 0,
+  '零圆环点击在 200ms 光盘结束后立即释放 RAF',
+);
+
+ringlessEffect.setFxParam('rings.count', UNITY_FX_TOUCH.rings.count);
+ringlessEffect.boom(400, 300);
+ringlessNow = flushFrames(dom, ringlessNow, 1, 201);
+assert(
+  ringlessEffect.waves.length === 1 &&
+    ringlessEffect.waves[0].rings.length === UNITY_FX_TOUCH.rings.count,
+  '恢复圆环数量后 200ms 光盘结束不会提前回收仍可见圆环',
+);
+ringlessNow = flushFrames(dom, ringlessNow, 1, 400);
+assert(
+  ringlessEffect.waves.length === 0 && dom.frames.size === 0,
+  '存在圆环时 ClickWave 保持完整 600ms 生命周期后停止 RAF',
+);
+ringlessEffect.destroy();
+
 console.log('\n宿主手动输入');
 const pointerEventTypes = [
   'pointerdown',
