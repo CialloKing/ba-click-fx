@@ -1650,7 +1650,25 @@ class ClickWave
 
   get dead()
   {
-    return this.ageMs >= this.fx.rings.lifetimeMs;
+    let lifetimeMs = this.fx.disk.lifetimeMs;
+
+    if (this.fx.hit.enabled)
+    {
+      lifetimeMs = Math.max(lifetimeMs, this.fx.hit.lifetimeMs);
+    }
+
+    if (this.fx.flare.enabled)
+    {
+      lifetimeMs = Math.max(lifetimeMs, this.fx.flare.lifetimeMs);
+    }
+
+    if (this.rings.length > 0)
+    {
+      // count=0 时没有圆环可见，不能让不存在的 600ms 粒子继续占用 RAF。
+      lifetimeMs = Math.max(lifetimeMs, this.fx.rings.lifetimeMs);
+    }
+
+    return this.ageMs >= lifetimeMs;
   }
 }
 
@@ -4771,9 +4789,12 @@ export class BAClickFX
       }
       else
       {
-        const isTimeOrDistance = /(Ms|Spacing|Count|Radius|Width|Blur)$/.test(lastKey);
-        const min = isTimeOrDistance ? 1 : 0;
+        const requiresPositiveValue = /(Ms|Spacing|Radius|Width)$/.test(
+          lastKey,
+        );
+        const min = requiresPositiveValue ? 1 : 0;
 
+        // Count/maxCount=0 用于禁用发射，Blur=0 用于关闭原生模糊。
         target[lastKey] = Math.max(min, value);
       }
 
