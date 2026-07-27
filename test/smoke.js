@@ -3518,6 +3518,8 @@ const repeatedEndpointGeometry = renderCanvasTrailGeometry(
   ],
 );
 const repeatedEndpointProfileIndices = [];
+const repeatedEndpointSegmentLengths = geometryEffect.currentTrailStroke
+  .trailFrameData.measurement.segmentLengths;
 
 geometryEffect.currentTrailStroke.trailFrameData.pointTransverseProfiles
   .forEach((profile, index) =>
@@ -3531,10 +3533,50 @@ geometryEffect.currentTrailStroke.trailFrameData.pointTransverseProfiles
 assert(
   JSON.stringify(repeatedEndpointProfileIndices) ===
       JSON.stringify([1, 3]) &&
+    JSON.stringify(repeatedEndpointSegmentLengths) ===
+      JSON.stringify([0, 0, 60, 60, 0]) &&
     repeatedEndpointGeometry.paths.length === 4 &&
     JSON.stringify(repeatedEndpointGeometry.paths) ===
       JSON.stringify(repeatedEndpointGeometry.nativePaths),
   '重复首尾点按真实端帽索引缓存横截面，并保持 Native 与清晰路径一致',
+);
+const straightBudgetPoints = Array.from(
+  { length: budgetPointCount },
+  (_, index) =>
+  ({
+    x: 100 + index * 8,
+    y: 300,
+  }),
+);
+const originalHypot = Math.hypot;
+let segmentHypotCount = 0;
+let straightBudgetGeometry;
+
+Math.hypot = (...values) =>
+{
+  segmentHypotCount++;
+  return originalHypot(...values);
+};
+
+try
+{
+  straightBudgetGeometry = renderCanvasTrailGeometry(straightBudgetPoints);
+}
+finally
+{
+  Math.hypot = originalHypot;
+}
+
+const straightSegmentLengths = geometryEffect.currentTrailStroke
+  .trailFrameData.measurement.segmentLengths;
+
+assert(
+  segmentHypotCount === budgetPointCount - 1 &&
+    straightSegmentLengths.length === budgetPointCount &&
+    straightSegmentLengths[0] === 0 &&
+    straightSegmentLengths.slice(1).every((length) => length === 8) &&
+    straightBudgetGeometry.paths.length === budgetPointCount + 1,
+  '64 点直线只测量 63 次段长，并让网格复用相同浮点结果',
 );
 geometryEffect.pointerCancel(91);
 geometryEffect.destroy();
@@ -3626,6 +3668,8 @@ const legacyGradientChannels = [0, 31, 62].map((index) =>
 
 assert(
   legacyEffect.getFxConfig().bloom.trailAlpha === 0 &&
+    legacyEffect.currentTrailStroke.trailFrameData.measurement
+      .segmentLengths === null &&
     legacyEffect.context.strokeCount === 64 &&
     legacyTrailPaths.filter((path) => path.length === 2).length === 63 &&
     legacyTrailPaths.filter((path) => path.length === 64).length === 1 &&

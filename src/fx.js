@@ -1867,19 +1867,28 @@ function interpolateTrailColor(progress, trailCfg = UNITY_FX_TOUCH.trail)
   return evaluateColor(trailCfg.gradient, progress);
 }
 
-function measureTrail(points)
+function measureTrail(points, cacheSegmentLengths = false)
 {
   let totalLength = 0;
   const distances = [0];
+  const segmentLengths = cacheSegmentLengths ? [0] : null;
 
   for (let index = 1; index < points.length; index++)
   {
-    totalLength += distance(points[index - 1], points[index]);
+    const segmentLength = distance(points[index - 1], points[index]);
+
+    totalLength += segmentLength;
     distances.push(totalLength);
+
+    if (segmentLengths)
+    {
+      segmentLengths.push(segmentLength);
+    }
   }
 
   return {
     distances,
+    segmentLengths,
     totalLength,
   };
 }
@@ -1890,7 +1899,8 @@ function createTrailFrameData(
   materialIntensity = null,
 )
 {
-  const measurement = measureTrail(points);
+  // Legacy 只消费累计距离，不为未使用的 Canvas 网格分配段长缓存。
+  const measurement = measureTrail(points, materialIntensity !== null);
   const pointEnergies = [];
   const pointTransverseProfiles = new Array(points.length);
   const segmentEnergies = [];
@@ -2079,6 +2089,7 @@ function createTrailMesh(
   width,
   numCornerVertices = 0,
   numCapVertices = 0,
+  segmentLengths = null,
 )
 {
   const halfWidth = Math.max(0, width) * 0.5;
@@ -2096,7 +2107,8 @@ function createTrailMesh(
     const to = points[index];
     const deltaX = to.x - from.x;
     const deltaY = to.y - from.y;
-    const length = Math.hypot(deltaX, deltaY);
+    // 弧长测量已计算同一段长度；复用原值可保持累计距离与网格完全一致。
+    const length = segmentLengths?.[index] ?? Math.hypot(deltaX, deltaY);
 
     if (length <= 0.000001)
     {
@@ -2316,7 +2328,13 @@ function getTrailMesh(trailData, points, width, trailCfg)
   {
     trailData.meshCache.set(
       cacheKey,
-      createTrailMesh(points, width, cornerVertices, capVertices),
+      createTrailMesh(
+        points,
+        width,
+        cornerVertices,
+        capVertices,
+        trailData.measurement.segmentLengths,
+      ),
     );
   }
 
