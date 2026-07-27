@@ -26,7 +26,7 @@ function gammaToLinear(value)
   return Math.pow((gamma + 0.055) / 1.055, 2.4);
 }
 
-export function calculateBloomPyramidSettings(
+function calculatePyramidSettings(
   displayWidth,
   displayHeight,
   resolutionScale,
@@ -34,19 +34,15 @@ export function calculateBloomPyramidSettings(
 )
 {
   const safeScale = clamp(resolutionScale, 0.1, 0.75);
-  const width = Math.max(1, Math.floor(displayWidth * safeScale));
-  const height = Math.max(1, Math.floor(displayHeight * safeScale));
   const maxSize = Math.max(
     1,
-    width,
-    height,
+    Math.floor(displayWidth * safeScale),
+    Math.floor(displayHeight * safeScale),
   );
   const logIterations = Math.log2(maxSize) +
     Math.min(Math.max(0, diffusion), 10) - 10;
 
   return {
-    width,
-    height,
     levelCount: clamp(
       Math.floor(logIterations),
       1,
@@ -933,7 +929,7 @@ export class SoftwareBloomRenderer
     const sourceHeight = Math.max(1, Math.round(regionHeight * samplingScale));
     const width = Math.max(1, Math.floor(sourceWidth * safeScale));
     const height = Math.max(1, Math.floor(sourceHeight * safeScale));
-    const pyramid = calculateBloomPyramidSettings(
+    const pyramid = calculatePyramidSettings(
       displayWidth,
       displayHeight,
       safeScale,
@@ -1062,7 +1058,7 @@ export class SoftwareBloomRenderer
     const pixelDisplayHeight = Math.max(1, Math.round(
       displayHeight * safeSamplingScale,
     ));
-    const levelCount = calculateBloomPyramidSettings(
+    const levelCount = calculatePyramidSettings(
       pixelDisplayWidth,
       pixelDisplayHeight,
       resolutionScale,
