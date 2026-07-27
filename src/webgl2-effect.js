@@ -258,7 +258,7 @@ precision highp float;
 
 uniform sampler2D u_high;
 uniform sampler2D u_low;
-uniform vec2 u_highTexel;
+uniform vec2 u_lowTexel;
 uniform float u_sampleScale;
 
 in vec2 v_uv;
@@ -276,9 +276,9 @@ vec3 sampleBox(sampler2D source, vec2 uv, vec2 offset)
 
 void main()
 {
-  vec2 offset = u_highTexel * (u_sampleScale * 0.5);
-  vec3 high = sampleBox(u_high, v_uv, offset);
-  vec3 low = texture(u_low, v_uv).rgb;
+  vec3 high = texture(u_high, v_uv).rgb;
+  vec2 offset = u_lowTexel * (u_sampleScale * 0.5);
+  vec3 low = sampleBox(u_low, v_uv, offset);
 
   outColor = vec4(high + low, 1.0);
 }
@@ -2281,9 +2281,9 @@ export class WebGL2EffectRenderer
     this._bindTexture(program, 'u_high', highLevel.down.texture, 0);
     this._bindTexture(program, 'u_low', lowTexture, 1);
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_highTexel'),
-      1 / highLevel.width,
-      1 / highLevel.height,
+      gl.getUniformLocation(program, 'u_lowTexel'),
+      1 / lowLevel.width,
+      1 / lowLevel.height,
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_sampleScale'),
