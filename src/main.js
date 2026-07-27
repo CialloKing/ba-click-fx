@@ -88,7 +88,14 @@ function bindToggle(id, onChange)
 // ── 基础控件 → updateConfig ─────────────────────────────────────────────
 bindRange('ctrlScale', 'outScale', (v) => effect.updateConfig({ scale: v }));
 bindRange('ctrlOpacity', 'outOpacity', (v) => effect.updateConfig({ opacity: v }));
-bindRange('ctrlDpr', 'outDpr', (v) => effect.updateConfig({ maxDpr: Math.round(v) }));
+bindRange('ctrlDpr', 'outDpr', (value) =>
+{
+  effect.updateConfig(
+    {
+      maxDpr: value,
+    },
+  );
+});
 
 bindToggle('ctrlIsolatedCompositing', (checked) =>
   effect.updateConfig({ isolatedCompositing: checked }));
@@ -406,7 +413,7 @@ function formatRingDirection(value, lang = currentLang)
 }
 
 bindRange('ctrlRingCount', 'outRingCount', (v) => effect.setFxParam('rings.count', v), true);
-bindRange('ctrlDiskRadius', 'outDiskRadius', (v) => effect.setFxParam('disk.radius', v), true);
+bindRange('ctrlDiskRadius', 'outDiskRadius', (v) => effect.setFxParam('disk.radius', v));
 bindRange('ctrlDiskLife', 'outDiskLife', (v) => effect.setFxParam('disk.lifetimeMs', v), true);
 bindRange('ctrlAngVelMul', 'outAngVelMul', (v) => effect.setFxParam('rings.angularVelocityMultiplier', v));
 bindRange('ctrlArcSamples', 'outArcSamples', (v) => effect.setFxParam('rings.arcSamples', v), true);
@@ -425,10 +432,10 @@ bindRange('ctrlClickShardLifeMax', 'outClickShardLifeMax', (v) => effect.setFxPa
 
 // ── Hit / Flare ────────────────────────────────────────────────────────
 bindToggle('ctrlHitEnabled', (c) => effect.setFxParam('hit.enabled', c));
-bindRange('ctrlHitRadius', 'outHitRadius', (v) => effect.setFxParam('hit.radius', v), true);
+bindRange('ctrlHitRadius', 'outHitRadius', (v) => effect.setFxParam('hit.radius', v));
 bindRange('ctrlHitLife', 'outHitLife', (v) => effect.setFxParam('hit.lifetimeMs', v), true);
 bindToggle('ctrlFlareEnabled', (c) => effect.setFxParam('flare.enabled', c));
-bindRange('ctrlFlareRadius', 'outFlareRadius', (v) => effect.setFxParam('flare.radius', v), true);
+bindRange('ctrlFlareRadius', 'outFlareRadius', (v) => effect.setFxParam('flare.radius', v));
 bindRange('ctrlFlareLife', 'outFlareLife', (v) => effect.setFxParam('flare.lifetimeMs', v), true);
 bindRange('ctrlFlareRays', 'outFlareRays', (v) => effect.setFxParam('flare.rayCount', v), true);
 bindRange('ctrlGeomWidth', 'outGeomWidth', (v) => effect.setFxParam('trail.geometryWidth', v));
@@ -459,7 +466,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlOpacity').value = '1';
   document.getElementById('outOpacity').textContent = '1.00';
   document.getElementById('ctrlDpr').value = '2';
-  document.getElementById('outDpr').textContent = '2';
+  document.getElementById('outDpr').textContent = '2.00';
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
   document.getElementById('ctrlInputSource').value = 'dom';
   document.getElementById('ctrlClickTimeScale').value = '1';
@@ -507,6 +514,11 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlRingDir', 'outRingDir', -1, true],
     ['ctrlClickShardLifeMin', 'outClickShardLifeMin', 600, true],
     ['ctrlClickShardLifeMax', 'outClickShardLifeMax', 700, true],
+    ['ctrlHitRadius', 'outHitRadius', 24, false],
+    ['ctrlHitLife', 'outHitLife', 80, true],
+    ['ctrlFlareRadius', 'outFlareRadius', 36, false],
+    ['ctrlFlareLife', 'outFlareLife', 150, true],
+    ['ctrlFlareRays', 'outFlareRays', 6, true],
     ['ctrlGeomWidth', 'outGeomWidth', 2.7, false],
     ['ctrlMinVertDist', 'outMinVertDist', 5.4, false],
     ['ctrlTrailShardLifeMin', 'outTrailShardLifeMin', 200, true],
