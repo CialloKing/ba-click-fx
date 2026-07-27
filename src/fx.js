@@ -2576,6 +2576,17 @@ function drawNativeTrailBloom(
     return;
   }
 
+  // 只裁剪 Unity Stretch 的零能量前缀；宿主自定义可见 start cap 时保留完整范围。
+  const firstVisibleSegmentOffset = trailData.segmentEnergies.findIndex(
+    (energy) => energy.some((channel) => channel !== 0),
+  );
+  const startCapIsTransparent = trailData.pointEnergies[0]?.every(
+    (channel) => channel === 0,
+  ) === true;
+  const firstVisibleSegment =
+    startCapIsTransparent && firstVisibleSegmentOffset >= 0
+      ? firstVisibleSegmentOffset + 1
+      : 1;
   const blurRadius = Math.max(0, trailCfg.outerGlowWidth * scale);
   const halfWidth = Math.max(0.5, trailCfg.geometryWidth * scale * 0.5);
   const margin = Math.ceil(blurRadius * 3 + halfWidth + 2);
@@ -2640,6 +2651,7 @@ function drawNativeTrailBloom(
       alpha: bloomCfg.trailAlpha,
       materialIntensity: bloomCfg.trailEmission,
     },
+    firstVisibleSegment,
   );
 
   context.save();

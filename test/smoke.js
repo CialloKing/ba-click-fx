@@ -1558,10 +1558,14 @@ assert(
 const nativeBloomSurface = effect.nativeTrailBloomSurface;
 const nativeGlowGradients = nativeBloomSurface.context.linearGradients;
 const nativeTrailSegmentCount = effect.trailStrokes[0].points.length - 1;
-const nativeTrailDrawCount = nativeTrailSegmentCount + 2;
+const nativeSkippedSegmentCount = 1;
+const clearTrailDrawCount = nativeTrailSegmentCount + 2;
+const nativeVisibleSegmentCount =
+  nativeTrailSegmentCount - nativeSkippedSegmentCount;
+const nativeTrailDrawCount = nativeVisibleSegmentCount + 1;
 const nativeSegmentGradients = nativeGlowGradients.slice(
   0,
-  nativeTrailSegmentCount,
+  nativeVisibleSegmentCount,
 );
 const nativeBlurDraws = effect.context.drawImageCalls
   .slice(nativeDrawImageStart)
@@ -1569,7 +1573,11 @@ const nativeBlurDraws = effect.context.drawImageCalls
 const nativeTrailPaths = nativeBloomSurface.context.filledPaths;
 const clearTrailPaths = effect.context.filledPaths
   .slice(nativePathStart)
-  .slice(0, nativeTrailPaths.length);
+  .slice(0, clearTrailDrawCount);
+const clearTrailGradients = effect.context.linearGradients.slice(
+  nativeLinearGradientStart,
+  nativeLinearGradientStart + clearTrailDrawCount,
+);
 
 assert(
   effect.context.strokeFilters
@@ -1581,14 +1589,18 @@ assert(
 );
 assert(
   effect.context.linearGradients.length - nativeLinearGradientStart ===
-      nativeTrailDrawCount &&
+      clearTrailDrawCount &&
     nativeGlowGradients.length === nativeTrailDrawCount &&
     nativeTrailPaths.length === nativeTrailDrawCount &&
     nativeGlowGradients.every(({ gradient }) =>
       gradient.stops.length === transverseStopCount),
-  '原生回退将 join 并入段轮廓，每个 segment 和 cap 只提交一次',
+  '原生回退跳过严格透明尾段，剩余 segment 和 end cap 各提交一次',
 );
-const nativeTailPeak = nativeSegmentGradients[0].gradient.stops.reduce(
+const clearTailPeak = clearTrailGradients[0].gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
+  0,
+);
+const firstNativePeak = nativeSegmentGradients[0].gradient.stops.reduce(
   (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
   0,
 );
@@ -1598,12 +1610,21 @@ const nativeHeadPeak = nativeSegmentGradients.at(-1).gradient.stops.reduce(
 );
 
 assert(
-  nativeTailPeak === 0 && nativeHeadPeak > 20,
-  '回环轨迹的尾部保持无辉光，头部仍保留原生模糊能量',
+  clearTailPeak === 0 && firstNativePeak > 0 && nativeHeadPeak > 20,
+  '回环轨迹只裁剪零能量尾段，首个可见段与高亮头部保持原生模糊能量',
 );
+const expectedNativeTrailPaths = [
+  ...clearTrailPaths.slice(
+    nativeSkippedSegmentCount,
+    nativeTrailSegmentCount,
+  ),
+  clearTrailPaths.at(-1),
+];
+
 assert(
-  JSON.stringify(clearTrailPaths) === JSON.stringify(nativeTrailPaths),
-  'Native 清晰层与局部辉光缓冲复用同一拖尾网格',
+  JSON.stringify(expectedNativeTrailPaths) ===
+    JSON.stringify(nativeTrailPaths),
+  'Native 可见段与 end cap 继续复用清晰层的同一拖尾网格',
 );
 assert(
   nativeBloomSurface.canvas.width < effect.canvas.width &&
@@ -3118,11 +3139,13 @@ function renderCanvasTrailGeometry(points)
   });
   geometryEffect.context.filledPaths = [];
   geometryEffect.context.linearGradients = [];
+  geometryEffect.context.drawImageCalls = [];
 
   if (geometryEffect.nativeTrailBloomSurface)
   {
     geometryEffect.nativeTrailBloomSurface.context.filledPaths = [];
     geometryEffect.nativeTrailBloomSurface.context.linearGradients = [];
+    geometryEffect.nativeTrailBloomSurface.context.clearRectCalls = [];
   }
 
   geometryEffect._requestRender();
@@ -3136,6 +3159,7 @@ function renderCanvasTrailGeometry(points)
     path.length === joinedTrailPathLength);
   const triangles = paths.filter((path) =>
     path.length === 3);
+  const nativeSurface = geometryEffect.nativeTrailBloomSurface;
 
   return {
     paths,
@@ -3144,9 +3168,11 @@ function renderCanvasTrailGeometry(points)
     joinedSegments,
     triangles,
     gradients: geometryEffect.context.linearGradients,
-    nativePaths: geometryEffect.nativeTrailBloomSurface.context.filledPaths,
-    nativeGradients:
-      geometryEffect.nativeTrailBloomSurface.context.linearGradients,
+    nativePaths: nativeSurface.context.filledPaths,
+    nativeGradients: nativeSurface.context.linearGradients,
+    nativeBlurDraws: geometryEffect.context.drawImageCalls.filter((call) =>
+      call.filter !== 'none'),
+    nativeClearRects: nativeSurface.context.clearRectCalls,
   };
 }
 
@@ -3332,14 +3358,19 @@ assert(
   'trailAlways 的 0.5px 短种子段在 miter 越界时保留独立截面',
 );
 const budgetPointCount = 64;
-const budgetGeometry = renderCanvasTrailGeometry(
-  Array.from({ length: budgetPointCount }, (_, index) =>
+const budgetPoints = Array.from(
+  { length: budgetPointCount },
+  (_, index) =>
   ({
     x: 120 + index * 8,
     y: 200 + index % 2 * 8,
-  })),
+  }),
 );
+const budgetGeometry = renderCanvasTrailGeometry(budgetPoints);
 const trailLayerDrawBudget = budgetPointCount + 1;
+const nativeSkippedBudgetSegmentCount = 16;
+const nativeTrailDrawBudget = trailLayerDrawBudget -
+  nativeSkippedBudgetSegmentCount - 1;
 
 assert(
   budgetGeometry.segmentPaths.length === budgetPointCount - 1 &&
@@ -3348,9 +3379,70 @@ assert(
     budgetGeometry.triangles.length === 2 &&
     budgetGeometry.paths.length === trailLayerDrawBudget &&
     budgetGeometry.gradients.length === trailLayerDrawBudget &&
-    budgetGeometry.nativePaths.length === trailLayerDrawBudget &&
-    budgetGeometry.nativeGradients.length === trailLayerDrawBudget,
-  '64 点拖尾每层严格限制为 65 次路径和渐变提交',
+    budgetGeometry.gradients
+      .slice(0, nativeSkippedBudgetSegmentCount)
+      .every(({ gradient }) => gradient.stops.every(([, color]) =>
+        getCssPremultipliedEnergy(color) === 0)) &&
+    budgetGeometry.nativePaths.length === nativeTrailDrawBudget &&
+    budgetGeometry.nativeGradients.length === nativeTrailDrawBudget &&
+    JSON.stringify(budgetGeometry.nativePaths[0]) ===
+      JSON.stringify(
+        budgetGeometry.segmentPaths[nativeSkippedBudgetSegmentCount],
+      ) &&
+    JSON.stringify(budgetGeometry.nativePaths.at(-1)) ===
+      JSON.stringify(budgetGeometry.paths.at(-1)),
+  '64 点清晰层保持 65 次提交，Native 跳过 16 个零能量段和 start cap',
+);
+const budgetBlurDraw = budgetGeometry.nativeBlurDraws[0];
+const budgetBlurArgs = budgetBlurDraw?.args ?? [];
+const budgetMinimumX = Math.min(...budgetPoints.map(({ x }) => x));
+const budgetMinimumY = Math.min(...budgetPoints.map(({ y }) => y));
+const budgetMaximumX = Math.max(...budgetPoints.map(({ x }) => x));
+const budgetMaximumY = Math.max(...budgetPoints.map(({ y }) => y));
+const budgetScale = geometryEffect._getScale();
+const budgetBlurRadius = UNITY_FX_TOUCH.trail.outerGlowWidth * budgetScale;
+const budgetHalfWidth = Math.max(
+  0.5,
+  UNITY_FX_TOUCH.trail.geometryWidth * budgetScale * 0.5,
+);
+const budgetMargin = Math.ceil(
+  budgetBlurRadius * 3 + budgetHalfWidth + 2,
+);
+const budgetOriginX = Math.floor(budgetMinimumX - budgetMargin);
+const budgetOriginY = Math.floor(budgetMinimumY - budgetMargin);
+const budgetRegionWidth = Math.max(
+  1,
+  Math.ceil(budgetMaximumX + budgetMargin) - budgetOriginX,
+);
+const budgetRegionHeight = Math.max(
+  1,
+  Math.ceil(budgetMaximumY + budgetMargin) - budgetOriginY,
+);
+const budgetDpr = geometryEffect.nativeTrailBloomSurface.dpr;
+const expectedBudgetSource = [
+  0,
+  0,
+  Math.ceil(budgetRegionWidth * budgetDpr),
+  Math.ceil(budgetRegionHeight * budgetDpr),
+];
+const expectedBudgetDestination = [
+  budgetOriginX,
+  budgetOriginY,
+  budgetRegionWidth,
+  budgetRegionHeight,
+];
+
+assert(
+  budgetGeometry.nativeBlurDraws.length === 1 &&
+    budgetBlurArgs[0] === geometryEffect.nativeTrailBloomSurface.canvas &&
+    budgetGeometry.nativeClearRects.length === 1 &&
+    JSON.stringify(budgetGeometry.nativeClearRects[0]) ===
+      JSON.stringify(expectedBudgetSource) &&
+    JSON.stringify(budgetBlurArgs.slice(1, 5)) ===
+      JSON.stringify(expectedBudgetSource) &&
+    JSON.stringify(budgetBlurArgs.slice(5)) ===
+      JSON.stringify(expectedBudgetDestination),
+  'Native 仍按完整轨迹边界清理局部缓冲并只执行一次整体模糊',
 );
 geometryEffect.pointerCancel(91);
 geometryEffect.destroy();
