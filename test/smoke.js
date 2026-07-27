@@ -4006,10 +4006,17 @@ assert(
   'Legacy Ring3 同时保留精确 Alpha，并用同 offset stop 还原 hard clip',
 );
 assert(
-  JSON.stringify(
-    getCssChannels(visibleControlledLegacyRingStop[1]).slice(0, 3),
-  ) === JSON.stringify([76, 167, 255]),
-  'Legacy 圆环保持 sRGB 粒子颜色，不读取增强模式 HDR 倍率',
+  controlledLegacyRingStops.some(([, color]) =>
+  {
+    const channels = getCssChannels(color);
+
+    return channels[0] > 0 &&
+      channels[0] < 255 &&
+      channels[1] === 255 &&
+      channels[2] === 255 &&
+      channels[3] === 1;
+  }),
+  'Legacy 圆环本体保留 Tri3 的 Linear 插值与 HDR 材质能量',
 );
 legacyWave.ageMs = 0;
 legacyEffect.context.filledPaths = [];
@@ -4091,14 +4098,17 @@ assert(
 );
 assert(
   legacyDiskFillIndex >= 0 &&
-    legacyDiskGradient?.stops.length === 4 &&
+    legacyDiskGradient?.stops.length ===
+      UNITY_FX_TOUCH.disk.textureRadialEnergyKeys.length &&
     legacyDiskGradient.stops[0][1] === legacyDiskGradient.stops[1][1] &&
+    legacyDiskGradient.stops.some(([position, color]) =>
+      position === 0.92 && getCssAlpha(color) === 0) &&
     legacyEffect.context.fillShadowBlurs[legacyDiskFillIndex] ===
       legacyEffect.getFxConfig().bloom.diskBlur &&
     getCssAlpha(
       legacyEffect.context.fillShadowColors[legacyDiskFillIndex],
     ) > 0,
-  'Legacy 圆盘复用中心渐变色，并继续使用与圆环一致的原生辉光',
+  'Legacy 圆盘采样 Circle_01 实测轮廓，并继续使用原生辉光近似',
 );
 assert(
   legacyEffect.getFxConfig().rings.hdrIntensity === 4 &&
@@ -4106,7 +4116,7 @@ assert(
     legacyRingShadowCounts.every((count) => count === 1) &&
     legacyRingShadowIndices.every((index) =>
       getCssAlpha(legacyEffect.context.fillShadowColors[index]) > 0),
-  'Legacy 圆环保持 sRGB 本体，并且每枚圆环只生成一次原生辉光',
+  'Legacy 圆环保留 HDR 本体，并且每枚圆环只生成一次原生辉光',
 );
 assert(
   legacyEffect.context.fillShadowBlurs.some((blur, index) =>

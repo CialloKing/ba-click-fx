@@ -168,7 +168,7 @@ new BAClickFX(options?: {
 | WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 默认；GPU 执行游戏 MXFinalBloom，不可用时自动回退 |
 | 软件 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'software' }` | 参考/兼容实现，使用 Canvas 2D 像素回读和全视口 Float32 缓冲 |
 | 原生辉光 | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | 使用 Canvas 2D `shadowBlur`，开销较低但观感与后处理 Bloom 不同 |
-| Legacy | `{ renderingMode: 'legacy' }` | 保留旧版 sRGB、合成和辉光行为；此时忽略 Bloom 后端 |
+| Legacy | `{ renderingMode: 'legacy' }` | 使用 Unity 材质能量和纹理轮廓，以 Canvas `shadowBlur` 提供兼容辉光；此时忽略 Bloom 后端 |
 
 展示页在四档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与 Software、WebGL2、Native 或 Legacy 渲染选择正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
 

@@ -326,8 +326,8 @@ export const CONFIG = Object.freeze(
     inputSource: 'dom',
     clickTimeScale: 1,
     trailTimeScale: 1,
-    // 'enhanced' 使用线性能量编码，并由 bloomBackend 选择 Bloom 实现；
-    // 'legacy' 使用 sRGB 颜色 + shadowBlur（main 分支风格）。
+    // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
+    // 替换为兼容性更高的 Canvas shadowBlur，并保留旧版拖尾合成风格。
     renderingMode: 'enhanced',
     // 默认使用 GPU Bloom；能力不足时依次回退软件 Bloom 与原生辉光。
     bloomBackend: DEFAULT_BLOOM_BACKEND,

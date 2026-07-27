@@ -970,19 +970,17 @@ function drawDissolvedCircle(
 
   // 同一圆环的所有径向带和渐变 stop 使用相同材质能量。若在回调中计算，
   // 每帧会重复执行上千次主题变换和 sRGB 解码。
-  const materialEnergy = legacy
-    ? null
-    : sharedMaterialEnergy ?? evaluateSrgbGradientEnergy(
-      ringCfg.colorKeys,
-      progress,
-      ringCfg.hdrIntensity,
-    );
-  const colorForLuminance = legacy
-    ? (luminance) => colorToCss(particleColor, opacity * luminance)
-    : (luminance) => linearEnergyToAdditiveCss(
-      materialEnergy,
-      opacity * luminance,
-    );
+  const materialEnergy = sharedMaterialEnergy ?? evaluateSrgbGradientEnergy(
+    ringCfg.colorKeys,
+    progress,
+    ringCfg.hdrIntensity,
+  );
+  // Legacy 只替换 Bloom 为 Canvas shadow；Tri3 本体仍必须保留原材质的
+  // Linear 色彩空间与 HDR 强度，否则清晰环带会比 Unity 明显偏蓝、偏暗。
+  const colorForLuminance = (luminance) => linearEnergyToAdditiveCss(
+    materialEnergy,
+    opacity * luminance,
+  );
 
   context.save();
   context.translate(ring.x, ring.y);
@@ -1085,32 +1083,20 @@ function drawDisk(
     Math.max(radius, 0.01),
   );
 
-  if (legacy)
-  {
-    // main 分支风格：sRGB 颜色 + 标准 alpha
-    const centerColor = colorToCss(color, alpha);
+  const materialEnergy = evaluateSrgbGradientEnergy(
+    diskCfg.colorKeys,
+    progress,
+    bloomCfg.diskEmission,
+  );
 
-    gradient.addColorStop(0, centerColor);
-    gradient.addColorStop(0.88, centerColor);
-    gradient.addColorStop(0.97, colorToCss(color, alpha * 0.55));
-    gradient.addColorStop(1, colorToCss(color, 0));
-  }
-  else
+  for (const [position, energy] of diskCfg.textureRadialEnergyKeys)
   {
-    const materialEnergy = evaluateSrgbGradientEnergy(
-      diskCfg.colorKeys,
-      progress,
-      bloomCfg.diskEmission,
+    // AlphaBlendAdd 的 RGB 不乘粒子 Alpha；Legacy 也必须采样 Circle_01，
+    // 生命周期 Alpha 只影响目标颜色衰减和原生辉光近似。
+    gradient.addColorStop(
+      position,
+      linearEnergyToAdditiveCss(materialEnergy, opacity * energy),
     );
-
-    for (const [position, energy] of diskCfg.textureRadialEnergyKeys)
-    {
-      // AlphaBlendAdd 的 RGB 不乘粒子 Alpha；Alpha 只衰减已有目标颜色。
-      gradient.addColorStop(
-        position,
-        linearEnergyToAdditiveCss(materialEnergy, opacity * energy),
-      );
-    }
   }
 
   context.save();
@@ -1471,13 +1457,11 @@ class ClickWave
 
     if (ringProgress < 1)
     {
-      const ringMaterialEnergy = legacy
-        ? null
-        : evaluateSrgbGradientEnergy(
-          this.fx.rings.colorKeys,
-          ringProgress,
-          this.fx.rings.hdrIntensity,
-        );
+      const ringMaterialEnergy = evaluateSrgbGradientEnergy(
+        this.fx.rings.colorKeys,
+        ringProgress,
+        this.fx.rings.hdrIntensity,
+      );
 
       for (const ring of this.rings)
       {

@@ -148,7 +148,7 @@ In enhanced mode, `bloomBackend` selects the Bloom implementation. The demo comb
 | WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Default; runs the game's MXFinalBloom passes on the GPU and falls back automatically when unavailable |
 | Software Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'software' }` | Reference/compatibility implementation using Canvas 2D pixel readback and full-viewport Float32 buffers |
 | Native Glow | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | Uses Canvas 2D `shadowBlur`; cheaper, but visually different from post-process Bloom |
-| Legacy | `{ renderingMode: 'legacy' }` | Preserves the older sRGB, compositing, and glow behaviour; the Bloom backend is ignored |
+| Legacy | `{ renderingMode: 'legacy' }` | Uses Unity material energy and texture profiles with Canvas `shadowBlur` compatibility glow; the Bloom backend is ignored |
 
 The demo exposes Isolated Compositing as a separate switch beside the four rendering choices. It is disabled by default and is orthogonal to Software, WebGL2, Native, and Legacy rendering: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
 

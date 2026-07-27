@@ -51,7 +51,7 @@ declare module 'ba-click-fx'
     clickTimeScale?: number;
     /** 拖尾衰减和拖尾碎片的时间倍率，必须有限且大于 0。默认 1。 */
     trailTimeScale?: number;
-    /** 渲染模式：'enhanced'（默认，线性能量）或 'legacy'（sRGB + shadowBlur，main 分支风格）。 */
+    /** 渲染模式：'enhanced'（默认，完整 Bloom）或 'legacy'（Unity 材质主体 + Canvas shadowBlur）。 */
     renderingMode?: 'enhanced' | 'legacy';
     /** Bloom 后端。默认 'webgl2'；不可用时会自动回退软件 Bloom 与原生辉光。 */
     bloomBackend?: BAClickFXBloomBackend;
