@@ -498,6 +498,7 @@ function createResizeTestRenderer(maximumSize = 64)
 {
   let nextTargetId = 1;
   const targetCreations = [];
+  const createdTargets = [];
   const deletedTextures = new Set();
   const deletedFramebuffers = new Set();
   const pendingErrors = [];
@@ -573,6 +574,7 @@ function createResizeTestRenderer(maximumSize = 64)
       emissionVao: null,
       fullscreenVao: null,
       failureSourceWidth: null,
+      failureAfterTargetCount: null,
       stats:
       {
         vertexCount: 0,
@@ -589,23 +591,38 @@ function createResizeTestRenderer(maximumSize = 64)
 
     if (renderer.sourceWidth === renderer.failureSourceWidth)
     {
-      pendingErrors.push(gl.OUT_OF_MEMORY);
-      throw new Error('模拟 RenderTarget 分配失败');
+      if (renderer.failureAfterTargetCount === 0)
+      {
+        pendingErrors.push(gl.OUT_OF_MEMORY);
+        throw new Error('模拟 RenderTarget 分配失败');
+      }
+
+      renderer.failureAfterTargetCount--;
     }
 
     const id = nextTargetId++;
-
-    return {
+    const target =
+    {
       width,
       height,
-      texture: { id },
-      framebuffer: { id },
+      texture:
+      {
+        id,
+      },
+      framebuffer:
+      {
+        id,
+      },
     };
+
+    createdTargets.push(target);
+    return target;
   };
 
   return {
     renderer,
     targetCreations,
+    createdTargets,
     deletedTextures,
     deletedFramebuffers,
     pendingErrors,
@@ -655,18 +672,31 @@ try
   recoveredResizeTarget = resizeRenderer.sourceTarget;
 
   resizeRenderer.failureSourceWidth = 48;
+  resizeRenderer.failureAfterTargetCount = 2;
+  const partialTargetStart = resizeHarness.createdTargets.length;
   assert(
-    !resizeRenderer.resize(48, 32, 1, 0.5, 0) &&
+    !resizeRenderer.resize(48, 32, 1, 0.5, 10) &&
       resizeRenderer.available &&
       resizeRenderer.sourceTarget === null &&
       resizeRenderer.failedResizeSignature !== null &&
       resizeHarness.pendingErrors.length === 0,
     'RenderTarget 创建异常只回退当前尺寸，并排空显存错误状态',
   );
+  const partialTargets = resizeHarness.createdTargets.slice(
+    partialTargetStart,
+  );
+
+  assert(
+    partialTargets.length === 2 &&
+      partialTargets.every((target) =>
+        resizeHarness.deletedTextures.has(target.texture) &&
+          resizeHarness.deletedFramebuffers.has(target.framebuffer)),
+    'WebGL2 分配中途失败会释放已创建的 source 与 mip 目标',
+  );
   const allocationFailureCreationCount = resizeHarness.targetCreations.length;
 
   assert(
-    !resizeRenderer.resize(48, 32, 1, 0.5, 0) &&
+    !resizeRenderer.resize(48, 32, 1, 0.5, 10) &&
       resizeWarnings.length === 2 &&
       resizeHarness.targetCreations.length === allocationFailureCreationCount,
     '相同的分配失败尺寸不会在后续探测中重复分配',
@@ -676,7 +706,7 @@ try
   resizeRenderer._forgetResourceReferences();
   assert(
     resizeRenderer.failedResizeSignature === null &&
-      resizeRenderer.resize(48, 32, 1, 0.5, 0),
+      resizeRenderer.resize(48, 32, 1, 0.5, 10),
     'Context 资源失效后清除失败尺寸缓存并允许重新探测',
   );
 }
