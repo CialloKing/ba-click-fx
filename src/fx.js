@@ -1150,8 +1150,10 @@ function drawDisk(
   if (legacy)
   {
     // main 分支风格：sRGB 颜色 + 标准 alpha
-    gradient.addColorStop(0, colorToCss(color, alpha));
-    gradient.addColorStop(0.88, colorToCss(color, alpha));
+    const centerColor = colorToCss(color, alpha);
+
+    gradient.addColorStop(0, centerColor);
+    gradient.addColorStop(0.88, centerColor);
     gradient.addColorStop(0.97, colorToCss(color, alpha * 0.55));
     gradient.addColorStop(1, colorToCss(color, 0));
   }

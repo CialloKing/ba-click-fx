@@ -3731,6 +3731,7 @@ const legacyRingBaseIndices = legacyEffect.context.filledPaths.reduce(
 const legacyDiskFillIndex = legacyEffect.context.filledStyles.findIndex(
   (style) => style instanceof GradientMock,
 );
+const legacyDiskGradient = legacyEffect.context.radialGradients[0]?.gradient;
 
 assert(
   legacyRingPaths.length >= UNITY_FX_TOUCH.rings.count,
@@ -3742,12 +3743,14 @@ assert(
 );
 assert(
   legacyDiskFillIndex >= 0 &&
+    legacyDiskGradient?.stops.length === 4 &&
+    legacyDiskGradient.stops[0][1] === legacyDiskGradient.stops[1][1] &&
     legacyEffect.context.fillShadowBlurs[legacyDiskFillIndex] ===
       legacyEffect.getFxConfig().bloom.diskBlur &&
     getCssAlpha(
       legacyEffect.context.fillShadowColors[legacyDiskFillIndex],
     ) > 0,
-  'Legacy 圆盘继续使用旧版原生辉光，与圆环保持一致',
+  'Legacy 圆盘复用中心渐变色，并继续使用与圆环一致的原生辉光',
 );
 assert(
   legacyEffect.getFxConfig().rings.hdrIntensity === 4 &&
