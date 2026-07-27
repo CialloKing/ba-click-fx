@@ -1,5 +1,9 @@
 import './style.css';
-import { BAClickFX, BLOOM_BACKEND_CHANGE_EVENT } from './fx.js';
+import {
+  BAClickFX,
+  BLOOM_BACKEND_CHANGE_EVENT,
+  EFFECT_BACKEND_CHANGE_EVENT,
+} from './fx.js';
 
 function acceptDemoPointer(event)
 {
@@ -309,10 +313,35 @@ const ctrlRenderMode = document.getElementById('ctrlRenderMode');
 const DEFAULT_RENDER_MODE = 'webgl2-bloom';
 const RENDER_MODE_CONFIGS = Object.freeze(
   {
-    'software-bloom': { renderingMode: 'enhanced', bloomBackend: 'software' },
-    'webgl2-bloom': { renderingMode: 'enhanced', bloomBackend: 'webgl2' },
-    'native-bloom': { renderingMode: 'enhanced', bloomBackend: 'native' },
-    legacy: { renderingMode: 'legacy' },
+    'full-webgl2':
+    {
+      effectBackend: 'webgl2',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    },
+    'software-bloom':
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'enhanced',
+      bloomBackend: 'software',
+    },
+    'webgl2-bloom':
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    },
+    'native-bloom':
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'enhanced',
+      bloomBackend: 'native',
+    },
+    legacy:
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'legacy',
+    },
   },
 );
 
@@ -328,16 +357,28 @@ function updateRenderBackendStatus()
   const d = I18N[currentLang] || I18N.zh;
   const snapshot = effect.getConfig();
   const backendLabels = {
+    canvas2d: d.renderCanvas2D,
     auto: d.renderAutoBloom,
     software: d.renderSoftwareBloom,
     webgl2: d.renderWebGL2Bloom,
     native: d.renderNativeBloom,
     legacy: d.renderLegacy,
   };
-  const resolved = snapshot.resolvedBloomBackend;
-  const expected = snapshot.renderingMode === 'legacy'
-    ? 'legacy'
-    : snapshot.bloomBackend;
+  const useEffectBackend = snapshot.renderingMode !== 'legacy' &&
+    snapshot.effectBackend !== 'canvas2d';
+  const resolved = useEffectBackend
+    ? snapshot.resolvedEffectBackend
+    : snapshot.resolvedBloomBackend;
+  const expected = useEffectBackend
+    ? snapshot.effectBackend
+    : snapshot.renderingMode === 'legacy'
+      ? 'legacy'
+      : snapshot.bloomBackend;
+  const webGL2Label = useEffectBackend
+    ? d.renderFullWebGL2
+    : d.renderWebGL2Bloom;
+
+  backendLabels.webgl2 = webGL2Label;
   const resolvedLabel = backendLabels[resolved] || resolved;
   const requestedLabel = backendLabels[expected] || expected;
 
@@ -371,6 +412,10 @@ function applyRenderMode(mode)
 
 effect.canvas.addEventListener(
   BLOOM_BACKEND_CHANGE_EVENT,
+  updateRenderBackendStatus,
+);
+effect.canvas.addEventListener(
+  EFFECT_BACKEND_CHANGE_EVENT,
   updateRenderBackendStatus,
 );
 
@@ -735,6 +780,8 @@ const I18N = {
     hostApiDom: 'DOM 模式：库自动监听 window 指针事件。',
     hostApiManual: '手动模式：展示页通过公开 pointer API 注入输入。',
     hostApiPaused: '已暂停：输入和 RAF 已停止。',
+    renderCanvas2D: 'Canvas 2D',
+    renderFullWebGL2: '纯 WebGL2（实验）',
     renderSoftwareBloom: '软件 Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: '原生辉光',
@@ -823,6 +870,8 @@ const I18N = {
     hostApiDom: 'DOM mode: the library listens for window pointer events.',
     hostApiManual: 'Manual mode: the demo injects input through the public pointer API.',
     hostApiPaused: 'Paused: input and RAF scheduling are stopped.',
+    renderCanvas2D: 'Canvas 2D',
+    renderFullWebGL2: 'Full WebGL2 (Experimental)',
     renderSoftwareBloom: 'Software Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: 'Native Glow',
@@ -1033,6 +1082,7 @@ function switchLanguage(lang)
 
   // 渲染模式下拉选项文本
   const renderModeOptions = {
+    'full-webgl2': d.renderFullWebGL2,
     'software-bloom': d.renderSoftwareBloom,
     'webgl2-bloom': d.renderWebGL2Bloom,
     'native-bloom': d.renderNativeBloom,
