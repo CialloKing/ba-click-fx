@@ -3511,8 +3511,10 @@ assert(
     legacyTrailPaths.filter((path) => path.length === 64).length === 1 &&
     legacyEffect.context.strokeStyles.every((style) =>
       getCssAlpha(style) > 0) &&
+    legacyEffect.context.strokeStyles.at(-1) ===
+      'rgba(116, 225, 255, 0.72)' &&
     legacyEffect.context.strokeShadowBlurs.every((blur) => blur === 0),
-  'Legacy 跳过透明外层，仅提交 63 个渐变段和 1 条无继承阴影的核心路径',
+  'Legacy 跳过透明外层，并保持渐变段与核心路径的默认颜色和阴影',
 );
 legacyEffect.pointerCancel(92);
 assert(

@@ -858,10 +858,30 @@ function resolveRingGeometry(ring, progress, scale, ringCfg)
 // main 分支的圆环参数（2 元素 keyframe、像素宽度、hdrIntensity=1.0）
 const LEGACY_RING_SIZE_KEYS = [[0.007209778, 0.420509], [0.2139282, 0.7159773], [1, 1]];
 const LEGACY_RING_DISSOLVE_KEYS = [[0, 1], [0.2, 0], [1, 1]];
+const LEGACY_RING_Y_KEYS = [[0, 0], [1, 0.9972414]];
 const LEGACY_RING_WIDTH_START = 5.2;
 const LEGACY_RING_WIDTH_END = 2.4;
 const LEGACY_RING_HDR = 1.0;
 const LEGACY_RING_EDGE_RATIO = 0.1;
+const LEGACY_TRAIL_WIDTH = 4;
+const LEGACY_TRAIL_CORE_WIDTH = 1.7;
+const LEGACY_TRAIL_GRADIENT = [
+  [0, [0, 100, 220]],
+  [0.5794156, [0, 150, 235]],
+  [0.9794156, [0, 238, 255]],
+  [1, [0, 238, 255]],
+];
+const LEGACY_TRAIL_OUTER_COLOR = [0, 88, 224];
+const LEGACY_TRAIL_MIDDLE_LAYER = {
+  width: LEGACY_TRAIL_WIDTH,
+  alpha: 1,
+  gradient: LEGACY_TRAIL_GRADIENT,
+};
+const LEGACY_TRAIL_CORE_LAYER = {
+  width: LEGACY_TRAIL_CORE_WIDTH,
+  alpha: 0.72,
+  color: [116, 225, 255],
+};
 
 /**
  * main 分支风格的圆环绘制：简单弧带 + 双向 taper + 径向 ridge 叠加。
@@ -880,7 +900,7 @@ function drawLegacyDissolvedCircle(
   const bloomCfg = fxConfig.bloom;
   const radius = ring.radius * evaluateNumber(LEGACY_RING_SIZE_KEYS, progress) * scale;
   const yProgress = clamp01(progress / 0.07908168);
-  const yCurve = evaluateUnitySmoothCurve([[0, 0], [1, 0.9972414]], yProgress);
+  const yCurve = evaluateUnitySmoothCurve(LEGACY_RING_Y_KEYS, yProgress);
   const width = lerp(LEGACY_RING_WIDTH_START, LEGACY_RING_WIDTH_END, progress) * yCurve * scale;
   const threshold = evaluateNumber(LEGACY_RING_DISSOLVE_KEYS, progress);
   const visibleRatio = 1 - threshold;
@@ -2760,33 +2780,30 @@ function drawTrail(
   if (legacy)
   {
     // main 分支风格：三层 sRGB 描边，使用 main 分支的宽度和渐变色
-    const LEGACY_TRAIL_WIDTH = 4;
-    const LEGACY_TRAIL_CORE_WIDTH = 1.7;
-    const LEGACY_TRAIL_GRADIENT = [
-      [0, [0, 100, 220]],
-      [0.5794156, [0, 150, 235]],
-      [0.9794156, [0, 238, 255]],
-      [1, [0, 238, 255]],
-    ];
-
     drawLegacyTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
       {
         width: trailCfg.outerGlowWidth,
         alpha: bloomCfg.trailAlpha,
-        color: [0, 88, 224],
+        color: LEGACY_TRAIL_OUTER_COLOR,
       });
-    drawLegacyTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
-      {
-        width: LEGACY_TRAIL_WIDTH,
-        alpha: 1,
-        gradient: LEGACY_TRAIL_GRADIENT,
-      });
-    drawLegacyTrailLayer(context, points, measurement, scale, trailOpacity, trailCfg,
-      {
-        width: LEGACY_TRAIL_CORE_WIDTH,
-        alpha: 0.72,
-        color: [116, 225, 255],
-      });
+    drawLegacyTrailLayer(
+      context,
+      points,
+      measurement,
+      scale,
+      trailOpacity,
+      trailCfg,
+      LEGACY_TRAIL_MIDDLE_LAYER,
+    );
+    drawLegacyTrailLayer(
+      context,
+      points,
+      measurement,
+      scale,
+      trailOpacity,
+      trailCfg,
+      LEGACY_TRAIL_CORE_LAYER,
+    );
     return;
   }
 
