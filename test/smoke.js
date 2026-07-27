@@ -3360,6 +3360,7 @@ const legacyEffect = new BAClickFX(
   {
     renderingMode: 'legacy',
     bloomBackend: 'software',
+    inputSource: 'manual',
   },
 );
 
@@ -3391,6 +3392,25 @@ assert(
 );
 
 legacyNow = flushFrames(dom, legacyNow, 50);
+legacyEffect.updateConfig({ clickEnabled: false });
+legacyEffect.context.shadowBlur = 24;
+legacyEffect.context.shadowColor = 'rgba(255, 0, 0, 1)';
+const legacyTrailStrokeStart = legacyEffect.context.strokeShadowBlurs.length;
+
+legacyEffect.pointerDown({ x: 100, y: 200, pointerId: 92 });
+legacyEffect.pointerMove({ x: 500, y: 200, pointerId: 92 });
+legacyNow = flushFrames(dom, legacyNow, 1);
+const legacyTrailStrokeBlurs = legacyEffect.context.strokeShadowBlurs.slice(
+  legacyTrailStrokeStart,
+);
+
+assert(
+  legacyTrailStrokeBlurs.length ===
+      legacyEffect.currentTrailStroke.points.length + 1 &&
+    legacyTrailStrokeBlurs.every((blur) => blur === 0),
+  'Legacy 三层拖尾保持原描边数量且不会继承外部 Canvas 阴影',
+);
+legacyEffect.pointerCancel(92);
 assert(
   dom.appendedCanvases.includes(legacyEffect.contrastCanvas) &&
     legacyEffect.contrastCanvas.style.display === 'none',

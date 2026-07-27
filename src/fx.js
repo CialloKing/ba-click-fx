@@ -2675,6 +2675,10 @@ function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trai
   context.save();
   context.lineJoin = 'round';
   context.lineWidth = Math.max(0.5, layer.width * scale);
+  // Legacy 拖尾只靠分层描边模拟辉光；每层清理一次继承状态，
+  // 避免固定色层沾上外部阴影，也避免渐变层逐段重复写入 Canvas 状态。
+  context.shadowBlur = 0;
+  context.shadowColor = 'transparent';
 
   if (layer.color)
   {
@@ -2710,8 +2714,6 @@ function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trai
     context.moveTo(points[index - 1].x, points[index - 1].y);
     context.lineTo(points[index].x, points[index].y);
     context.strokeStyle = colorToCss(color, layer.alpha * opacity * fadeAlpha);
-    context.shadowBlur = 0;
-    context.shadowColor = 'transparent';
     context.stroke();
   }
 
