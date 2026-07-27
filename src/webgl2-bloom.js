@@ -852,8 +852,23 @@ export class WebGL2BloomRenderer
     const cosineStep = Math.cos(angleStep);
     const sineStep = Math.sin(angleStep);
 
-    // 每段由一个中心三角形和一个渐隐四边形组成；一次扩容避免热循环检查。
-    this._ensureVertexCapacity(segments * 9);
+    let requiredVertices = 0;
+
+    for (
+      let ringIndex = 0;
+      ringIndex < DISK_BLOOM_RADIAL_STOPS.length - 1;
+      ringIndex++
+    )
+    {
+      const innerRadius = radius * DISK_BLOOM_RADIAL_STOPS[ringIndex][0];
+
+      requiredVertices += innerRadius <= 0.00001
+        ? segments * 3
+        : segments * 6;
+    }
+
+    // 必须按全部径向色带预留空间，否则多次点击会静默截断 TypedArray 写入。
+    this._ensureVertexCapacity(requiredVertices);
 
     for (
       let ringIndex = 0;

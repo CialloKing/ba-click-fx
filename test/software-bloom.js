@@ -528,6 +528,17 @@ assert(
 );
 
 geometryRenderer.beginFrame();
+geometryRenderer.addDisk(10, 20, 24, [1, 2, 3]);
+geometryRenderer.addDisk(40, 50, 24, [1, 2, 3]);
+
+assert(
+  geometryRenderer.vertexCount > 4096 &&
+    geometryRenderer.vertexData.length >=
+      geometryRenderer.vertexCount * 5,
+  'WebGL2 光盘为全部径向色带预留顶点，连续点击不会截断缓冲',
+);
+
+geometryRenderer.beginFrame();
 const headCenterToEdge =
   UNITY_FX_TOUCH.trail.textureTransverseProfileKeys.at(-1)[1];
 const headTransverseProfile = [];
