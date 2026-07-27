@@ -22,6 +22,7 @@ import {
   calculateBloomContribution,
 } from './software-bloom.js';
 import { WebGL2BloomRenderer } from './webgl2-bloom.js';
+import { WebGL2EffectRenderer } from './webgl2-effect.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
 
 const TAU = Math.PI * 2;
@@ -4050,6 +4051,9 @@ export class BAClickFX
     this.webglBloomRenderer = null;
     this.webglBloomUnavailable = false;
     this.webglBloomVisible = false;
+    this.webglEffectCanvas = null;
+    this.webglEffectRenderer = null;
+    this.webglEffectUnavailable = false;
 
     if (!this.canvas)
     {
@@ -4224,7 +4228,12 @@ export class BAClickFX
 
   _getOverlayLayers()
   {
-    return [this.canvas, this.webglBloomCanvas, this.contrastCanvas]
+    return [
+      this.canvas,
+      this.webglBloomCanvas,
+      this.webglEffectCanvas,
+      this.contrastCanvas,
+    ]
       .filter(Boolean);
   }
 
@@ -5144,6 +5153,70 @@ export class BAClickFX
     // Renderer 会先在自己的 restored 监听器中重建资源；下一帧再验证完整链路。
     this._setResolvedBloomBackend('pending');
     this._requestRender();
+  }
+
+  _ensureWebGLEffectRenderer()
+  {
+    if (this.webglEffectRenderer)
+    {
+      return this.webglEffectRenderer.available;
+    }
+
+    if (
+      this.webglEffectUnavailable ||
+      !this.ownsCanvas ||
+      !this.overlayParent
+    )
+    {
+      return false;
+    }
+
+    const canvas = createCanvas();
+
+    setOverlayStyle(
+      canvas,
+      !this.host && !this.config.isolatedCompositing,
+      '2147483646',
+      'plus-lighter',
+    );
+    // 独立 Canvas 在 Scene 后端接管前保持隐藏，避免与稳定 Bloom 层叠加。
+    canvas.style.display = 'none';
+    this.overlayParent.appendChild(canvas);
+
+    let renderer = null;
+
+    try
+    {
+      renderer = new WebGL2EffectRenderer(canvas);
+
+      if (!renderer.available)
+      {
+        this.webglEffectUnavailable = true;
+        renderer.destroy();
+        canvas.remove();
+        return false;
+      }
+    }
+    catch (error)
+    {
+      console.warn('[BAClickFX] 纯 WebGL2 创建失败:', error);
+      this.webglEffectUnavailable = true;
+      renderer?.destroy();
+      canvas.remove();
+      return false;
+    }
+
+    this.webglEffectCanvas = canvas;
+    this.webglEffectRenderer = renderer;
+    return true;
+  }
+
+  _destroyWebGLEffectRenderer()
+  {
+    this.webglEffectRenderer?.destroy();
+    this.webglEffectCanvas?.remove();
+    this.webglEffectRenderer = null;
+    this.webglEffectCanvas = null;
   }
 
   _ensureWebGLBloomRenderer()
