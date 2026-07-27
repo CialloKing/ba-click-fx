@@ -6,7 +6,6 @@
  */
 
 import {
-  calculateBloomIntensity,
   calculateBloomContribution,
   decodeEmissionMask,
   downsampleGaussian,
@@ -55,12 +54,6 @@ function arraysApproximatelyEqual(left, right, epsilon = 0.000001)
 }
 
 console.log('\nSoftware Bloom 阈值与色彩空间');
-assert(
-  approximatelyEqual(calculateBloomIntensity(1.7), 0.1250584847) &&
-    calculateBloomIntensity(0) === 0 &&
-    calculateBloomIntensity(-1) === 0,
-  'MXFinalBloom 强度使用曝光式换算，Software 与 WebGL2 共用同一倍率',
-);
 const belowKnee = calculateBloomContribution(0.4, 1, 0.5);
 const insideKnee = calculateBloomContribution(0.75, 1, 0.5);
 const atThreshold = calculateBloomContribution(1, 1, 0.5);

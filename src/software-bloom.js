@@ -67,12 +67,6 @@ export function linearToSrgb(value)
   return 1.055 * Math.pow(linear, 1 / 2.4) - 0.055;
 }
 
-export function calculateBloomIntensity(intensity)
-{
-  // MXFinalBloom 将面板值视为曝光档位；直接乘 1.7 会把能量放大约 13.6 倍。
-  return Math.pow(2, Math.max(0, intensity) / 10) - 1;
-}
-
 /**
  * 计算带 Soft Knee 的高亮贡献，与 MXFinalBloom 的预过滤公式一致。
  */
@@ -584,7 +578,7 @@ export function encodeAdditiveBloom(
   edgeCorrection = null,
 )
 {
-  const safeIntensity = calculateBloomIntensity(intensity);
+  const safeIntensity = Math.pow(2, Math.max(0, intensity) / 10) - 1;
   const safeWidth = Math.max(1, Math.floor(width));
   const sourceHeight = Math.ceil(
     source.length / (safeWidth * RGB_CHANNELS),
