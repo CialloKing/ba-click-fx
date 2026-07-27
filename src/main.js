@@ -49,7 +49,7 @@ function applyTheme(name)
 }
 
 // ── 控件绑定 ────────────────────────────────────────────────────────────
-function bindRange(id, outId, onChange, intOnly = false)
+function bindRange(id, outId, onChange, intOnly = false, applyEvent = 'input')
 {
   const el = document.getElementById(id);
   const out = document.getElementById(outId);
@@ -64,9 +64,22 @@ function bindRange(id, outId, onChange, intOnly = false)
     const value = parseFloat(el.value);
 
     out.textContent = intOnly ? String(Math.round(value)) : value.toFixed(2);
-    onChange(value);
+
+    if (applyEvent === 'input')
+    {
+      onChange(value);
+    }
+
     localStorage.setItem('bafx-' + id, el.value);
   });
+
+  if (applyEvent !== 'input')
+  {
+    el.addEventListener(applyEvent, () =>
+    {
+      onChange(parseFloat(el.value));
+    });
+  }
 }
 
 function bindToggle(id, onChange)
@@ -88,6 +101,7 @@ function bindToggle(id, onChange)
 // ── 基础控件 → updateConfig ─────────────────────────────────────────────
 bindRange('ctrlScale', 'outScale', (v) => effect.updateConfig({ scale: v }));
 bindRange('ctrlOpacity', 'outOpacity', (v) => effect.updateConfig({ opacity: v }));
+// DPR 会重建 Canvas 与 RenderTarget，拖动结束后再应用可避免连续抖动。
 bindRange('ctrlDpr', 'outDpr', (value) =>
 {
   effect.updateConfig(
@@ -95,7 +109,7 @@ bindRange('ctrlDpr', 'outDpr', (value) =>
       maxDpr: value,
     },
   );
-});
+}, false, 'change');
 
 bindToggle('ctrlIsolatedCompositing', (checked) =>
   effect.updateConfig({ isolatedCompositing: checked }));
@@ -1121,8 +1135,9 @@ switchLanguage(currentLang);
   if (dprEl && localStorage.getItem('bafx-ctrlDpr'))
   {
     dprEl.value = localStorage.getItem('bafx-ctrlDpr');
-    document.getElementById('outDpr').textContent = dprEl.value;
-    effect.updateConfig({ maxDpr: Math.round(parseFloat(dprEl.value)) });
+    // 复用即时输入路径，确保显示值、持久化值和实际配置保持同一精度。
+    dprEl.dispatchEvent(new Event('input'));
+    dprEl.dispatchEvent(new Event('change'));
   }
 
   if (localStorage.getItem('bafx-ctrlClick') === 'false')

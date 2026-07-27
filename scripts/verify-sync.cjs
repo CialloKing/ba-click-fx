@@ -45,6 +45,61 @@ verify(
     /\['ctrlClickGlow', 'bloom\.clickEmissionScale'\]/.test(mainJs),
   '点击辉光滑块支持重置与本地设置恢复',
 );
+const preciseRangeSteps =
+{
+  ctrlScale: '0.01',
+  ctrlOpacity: '0.01',
+  ctrlDpr: '0.1',
+  ctrlClickTimeScale: '0.01',
+  ctrlTrailTimeScale: '0.01',
+  ctrlRingWStart: '0.01',
+  ctrlRingWEnd: '0.01',
+  ctrlRingLife: '1',
+  ctrlMaxShards: '1',
+  ctrlBloomRing: '0.1',
+  ctrlBloomThreshold: '0.01',
+  ctrlBloomIntensity: '0.01',
+  ctrlBloomDiffusion: '0.01',
+  ctrlClickGlow: '0.01',
+  ctrlDiskRadius: '0.01',
+  ctrlDiskLife: '1',
+  ctrlAngVelMul: '0.01',
+  ctrlArcSamples: '1',
+  ctrlClickShardLifeMin: '1',
+  ctrlClickShardLifeMax: '1',
+  ctrlHitRadius: '0.01',
+  ctrlHitLife: '1',
+  ctrlFlareRadius: '0.01',
+  ctrlFlareLife: '1',
+  ctrlTrailW: '0.01',
+  ctrlTrailGlowW: '0.1',
+  ctrlTrailLife: '1',
+  ctrlTrailOpacity: '0.01',
+  ctrlGeomWidth: '0.01',
+  ctrlMinVertDist: '0.01',
+  ctrlTrailShardLifeMin: '1',
+  ctrlTrailShardLifeMax: '1',
+  ctrlBloomDisk: '0.1',
+};
+
+for (const [controlId, expectedStep] of Object.entries(preciseRangeSteps))
+{
+  const control = indexHtml.match(
+    new RegExp(`<input\\s+[^>]*id="${controlId}"[^>]*>`),
+  )?.[0] ?? '';
+
+  verify(
+    control.includes(`step="${expectedStep}"`),
+    `${controlId} 使用精细步进 ${expectedStep}`,
+  );
+}
+
+verify(
+  /bindRange\('ctrlDpr', 'outDpr',[\s\S]*?\}, false, 'change'\);/.test(mainJs) &&
+    /dprEl\.dispatchEvent\(new Event\('input'\)\);[\s\S]*?dprEl\.dispatchEvent\(new Event\('change'\)\);/.test(mainJs) &&
+    !/maxDpr: Math\.round/.test(mainJs),
+  '小数 DPR 仅在提交时应用，并按原精度恢复',
+);
 const ringCountControl = indexHtml.match(
   /<input\s+[^>]*id="ctrlRingCount"[^>]*>/,
 )?.[0] ?? '';
