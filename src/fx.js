@@ -4960,8 +4960,9 @@ export class BAClickFX
       this._updateTrail(
         this.trailTimeMs,
         scale,
-        useWebGLClickEffects || useNativeBloom,
+        useNativeBloom,
         legacy,
+        !useWebGLClickEffects,
       );
       this._updateWaves(
         this.clickTimeMs,
@@ -4990,6 +4991,7 @@ export class BAClickFX
           useNativeBloom = bloomBackend === 'native';
           this._setResolvedBloomBackend(bloomBackend);
           this._setWebGLBloomVisible(useWebGL2Bloom);
+          this._drawCanvasTrails(scale, useNativeBloom, legacy);
           this._drawCanvasClickEffects(scale, useNativeBloom);
         }
         else
@@ -6041,7 +6043,15 @@ export class BAClickFX
       return false;
     }
 
-    if (this.waves.length === 0 && this.shards.length === 0)
+    const hasVisibleTrail = this.trailStrokes.some(
+      (stroke) => stroke.points.length >= 2,
+    );
+
+    if (
+      !hasVisibleTrail &&
+      this.waves.length === 0 &&
+      this.shards.length === 0
+    )
     {
       renderer.clear();
       return true;
@@ -6050,6 +6060,25 @@ export class BAClickFX
     try
     {
       renderer.beginFrame();
+
+      // 原游戏将 2px HDR TrailRenderer 与点击粒子写入同一 Scene，
+      // 后续 Bloom 必须从这份完整 HDR 颜色缓冲统一提取。
+      for (const stroke of this.trailStrokes)
+      {
+        if (stroke.points.length < 2)
+        {
+          continue;
+        }
+
+        appendTrailWebGLScene(
+          renderer,
+          stroke.points,
+          scale,
+          this.config.opacity,
+          this.fxConfig,
+          stroke.trailFrameData,
+        );
+      }
 
       // Cross2 使用 One / OneMinusSrcAlpha，必须先于普通加色粒子提交。
       for (const wave of this.waves)
@@ -6145,6 +6174,39 @@ export class BAClickFX
     this._drawWaveRings(scale, useNativeBloom, legacy);
   }
 
+  _drawCanvasTrails(scale, useNativeBloom, legacy = false)
+  {
+    const nativeBloomSurface = useNativeBloom && !legacy
+      ? this._getNativeTrailBloomSurface()
+      : null;
+
+    for (
+      let strokeIndex = this.trailStrokes.length - 1;
+      strokeIndex >= 0;
+      strokeIndex--
+    )
+    {
+      const stroke = this.trailStrokes[strokeIndex];
+
+      if (stroke.points.length < 2)
+      {
+        continue;
+      }
+
+      drawTrail(
+        this.context,
+        stroke.points,
+        scale,
+        this.config.opacity,
+        this.fxConfig,
+        useNativeBloom,
+        legacy,
+        nativeBloomSurface,
+        stroke.trailFrameData,
+      );
+    }
+  }
+
   _renderWebGL2Bloom(scale)
   {
     const renderer = this.webglBloomRenderer;
@@ -6231,12 +6293,15 @@ export class BAClickFX
     this._setResolvedBloomBackend('native');
   }
 
-  _updateTrail(trailTimeMs, scale, useNativeBloom, legacy = false)
+  _updateTrail(
+    trailTimeMs,
+    scale,
+    useNativeBloom,
+    legacy = false,
+    drawCanvas = true,
+  )
   {
     const lifetime = this.fxConfig.trail.lifetimeMs;
-    const nativeBloomSurface = useNativeBloom && !legacy
-      ? this._getNativeTrailBloomSurface()
-      : null;
 
     for (let strokeIndex = this.trailStrokes.length - 1; strokeIndex >= 0; strokeIndex--)
     {
@@ -6269,17 +6334,6 @@ export class BAClickFX
           this.fxConfig.trail,
           materialIntensity,
         );
-        drawTrail(
-          this.context,
-          stroke.points,
-          scale,
-          this.config.opacity,
-          this.fxConfig,
-          useNativeBloom,
-          legacy,
-          nativeBloomSurface,
-          stroke.trailFrameData,
-        );
       }
       else
       {
@@ -6291,6 +6345,11 @@ export class BAClickFX
         // 已松开的单点无法再形成可见线段；立即移除可避免 RAF 休眠后残留容器。
         this.trailStrokes.splice(strokeIndex, 1);
       }
+    }
+
+    if (drawCanvas)
+    {
+      this._drawCanvasTrails(scale, useNativeBloom, legacy);
     }
   }
 
