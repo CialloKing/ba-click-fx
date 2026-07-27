@@ -870,6 +870,7 @@ function resolveRingGeometry(ring, progress, scale, ringCfg)
 const LEGACY_RING_SIZE_KEYS = [[0.007209778, 0.420509], [0.2139282, 0.7159773], [1, 1]];
 const LEGACY_RING_DISSOLVE_KEYS = [[0, 1], [0.2, 0], [1, 1]];
 const LEGACY_RING_Y_KEYS = [[0, 0], [1, 0.9972414]];
+const LEGACY_CLICK_PROJECTION_SCALE = 1 / 1.35;
 const LEGACY_RING_WIDTH_START = 5.2;
 const LEGACY_RING_WIDTH_END = 2.4;
 const LEGACY_RING_EDGE_RATIO = 0.1;
@@ -3377,11 +3378,16 @@ export class BAClickFX
 
   _applyLegacyParams()
   {
+    // Legacy 保留 v1.2.5 的 1.35 正交投影；圆盘和圆环必须共用同一换算比例。
+    this.fxConfig.disk.radius =
+      UNITY_FX_TOUCH.disk.radius * LEGACY_CLICK_PROJECTION_SCALE;
     this.fxConfig.rings.hdrIntensity = 1.0;
     this.fxConfig.rings.widthStart = 5.2;
     this.fxConfig.rings.widthEnd = 2.4;
-    this.fxConfig.rings.radiusMin = 51;
-    this.fxConfig.rings.radiusMax = 59;
+    this.fxConfig.rings.radiusMin =
+      UNITY_FX_TOUCH.rings.radiusMin * LEGACY_CLICK_PROJECTION_SCALE;
+    this.fxConfig.rings.radiusMax =
+      UNITY_FX_TOUCH.rings.radiusMax * LEGACY_CLICK_PROJECTION_SCALE;
     this.fxConfig.rings.sizeKeys = [[0.007209778, 0.420509], [0.2139282, 0.7159773], [1, 1]];
     this.fxConfig.rings.dissolveKeys = [[0, 1], [0.2, 0], [1, 1]];
     this.fxConfig.rings.arcSamples = 96;

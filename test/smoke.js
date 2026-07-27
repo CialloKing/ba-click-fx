@@ -3699,6 +3699,14 @@ assert(
   legacyEffect.getConfig().resolvedBloomBackend === 'legacy',
   'Legacy 构造完成后无需等待 RAF 即公开实际渲染模式',
 );
+const legacyClickGeometry = legacyEffect.getFxConfig();
+
+assert(
+  Math.abs(legacyClickGeometry.disk.radius - 48) < 0.0000001 &&
+    Math.abs(legacyClickGeometry.rings.radiusMin - 51.0560832) < 0.0000001 &&
+    Math.abs(legacyClickGeometry.rings.radiusMax - 59.5654304) < 0.0000001,
+  'Legacy 圆盘与圆环统一使用解包工程的 1.35 正交投影',
+);
 legacyEffect.setFxParam('bloom.clickEmissionScale', 0);
 legacyEffect.setFxParam('rings.hdrIntensity', 4);
 legacyEffect.boom(960, 540);
@@ -3830,23 +3838,35 @@ legacyEffect.updateConfig({ renderingMode: 'enhanced' });
 legacyNow = flushFrames(dom, legacyNow, 1);
 const restoredEnhancedTrailData = legacyEffect.currentTrailStroke
   .trailFrameData;
+const enhancedClickGeometry = legacyEffect.getFxConfig();
 
 assert(
   legacyEffect.canvas.style.mixBlendMode === 'plus-lighter' &&
     legacyEffect.contrastCanvas.style.display === '' &&
     legacyEffect.getConfig().resolvedBloomBackend === 'software' &&
+    enhancedClickGeometry.disk.radius === UNITY_FX_TOUCH.disk.radius &&
+    enhancedClickGeometry.rings.radiusMin ===
+      UNITY_FX_TOUCH.rings.radiusMin &&
+    enhancedClickGeometry.rings.radiusMax ===
+      UNITY_FX_TOUCH.rings.radiusMax &&
     restoredEnhancedTrailData.pointEnergies.length === 64 &&
     restoredEnhancedTrailData.segmentEnergies.length === 63,
-  'Legacy 实例运行时切回增强模式会恢复加色层与对比层',
+  'Legacy 实例运行时切回增强模式会恢复加色层、对比层与 Unity 尺度',
 );
 legacyEffect.pointerCancel(92);
 legacyEffect.updateConfig({ renderingMode: 'legacy' });
+const restoredLegacyClickGeometry = legacyEffect.getFxConfig();
 assert(
   legacyEffect.canvas.style.mixBlendMode === '' &&
     legacyEffect.canvas.style.zIndex === '2147483647' &&
     legacyEffect.contrastCanvas.style.display === 'none' &&
-    legacyEffect.getConfig().resolvedBloomBackend === 'legacy',
-  '切回 Legacy 时会隐藏增强模式对比层，避免残留轮廓',
+    legacyEffect.getConfig().resolvedBloomBackend === 'legacy' &&
+    restoredLegacyClickGeometry.disk.radius === legacyClickGeometry.disk.radius &&
+    restoredLegacyClickGeometry.rings.radiusMin ===
+      legacyClickGeometry.rings.radiusMin &&
+    restoredLegacyClickGeometry.rings.radiusMax ===
+      legacyClickGeometry.rings.radiusMax,
+  '切回 Legacy 时会恢复旧版尺度并隐藏增强模式对比层',
 );
 legacyEffect.destroy();
 assert(legacyEffect.destroyed, 'Legacy 实例可正常结束完整生命周期并销毁');
