@@ -494,6 +494,205 @@ assert(
   '局部 Bloom 只在裁剪边界移除底色，并向内部平滑保留低频辉光',
 );
 
+function createResizeTestRenderer(maximumSize = 64)
+{
+  let nextTargetId = 1;
+  const targetCreations = [];
+  const deletedTextures = new Set();
+  const deletedFramebuffers = new Set();
+  const gl =
+  {
+    deleteTexture(texture)
+    {
+      if (texture)
+      {
+        deletedTextures.add(texture);
+      }
+    },
+    deleteFramebuffer(framebuffer)
+    {
+      if (framebuffer)
+      {
+        deletedFramebuffers.add(framebuffer);
+      }
+    },
+    deleteProgram()
+    {
+    },
+    deleteBuffer()
+    {
+    },
+    deleteVertexArray()
+    {
+    },
+  };
+  const canvas =
+  {
+    width: 0,
+    height: 0,
+    removeEventListener()
+    {
+    },
+  };
+  const renderer = Object.create(WebGL2BloomRenderer.prototype);
+
+  Object.assign(
+    renderer,
+    {
+      canvas,
+      gl,
+      available: true,
+      contextLost: false,
+      displayWidth: 1,
+      displayHeight: 1,
+      sourceWidth: 0,
+      sourceHeight: 0,
+      width: 0,
+      height: 0,
+      dpr: 1,
+      resolutionScale: 0,
+      diffusion: 0,
+      sampleScale: 1,
+      maximumTextureSize: maximumSize,
+      maximumViewportWidth: maximumSize,
+      maximumViewportHeight: maximumSize,
+      vertexCount: 0,
+      vertexData: new Float32Array(1),
+      sourceTarget: null,
+      levels: [],
+      failedResizeSignature: null,
+      programs: null,
+      emissionBuffer: null,
+      emissionVao: null,
+      fullscreenVao: null,
+      failureSourceWidth: null,
+      stats:
+      {
+        vertexCount: 0,
+        levelCount: 0,
+        bloomPixels: 0,
+      },
+      _onContextLost: null,
+      _onContextRestored: null,
+    },
+  );
+  renderer._createTarget = (width, height) =>
+  {
+    targetCreations.push([width, height]);
+
+    if (renderer.sourceWidth === renderer.failureSourceWidth)
+    {
+      throw new Error('模拟 RenderTarget 分配失败');
+    }
+
+    const id = nextTargetId++;
+
+    return {
+      width,
+      height,
+      texture: { id },
+      framebuffer: { id },
+    };
+  };
+
+  return {
+    renderer,
+    targetCreations,
+    deletedTextures,
+    deletedFramebuffers,
+  };
+}
+
+console.log('\nWebGL2 尺寸失败恢复');
+const resizeHarness = createResizeTestRenderer();
+const resizeRenderer = resizeHarness.renderer;
+const previousConsoleWarn = console.warn;
+const resizeWarnings = [];
+let firstResizeTarget = null;
+let recoveredResizeTarget = null;
+
+console.warn = (...args) =>
+{
+  resizeWarnings.push(args.join(' '));
+};
+
+try
+{
+  assert(
+    resizeRenderer.resize(64, 32, 1, 0.5, 0),
+    'WebGL2 在设备限制内先建立正常尺寸目标',
+  );
+  firstResizeTarget = resizeRenderer.sourceTarget;
+
+  assert(
+    !resizeRenderer.resize(128, 32, 1, 0.5, 0) &&
+      resizeRenderer.available &&
+      resizeRenderer.sourceTarget === null &&
+      resizeRenderer.levels.length === 0,
+    'WebGL2 超限尺寸只回退当前帧，不永久禁用已初始化上下文',
+  );
+  const oversizeCreationCount = resizeHarness.targetCreations.length;
+
+  assert(
+    !resizeRenderer.resize(128, 32, 1, 0.5, 0) &&
+      resizeWarnings.length === 1 &&
+      resizeHarness.targetCreations.length === oversizeCreationCount,
+    'WebGL2 缓存相同超限尺寸，不重复警告或创建 GPU 目标',
+  );
+  assert(
+    resizeRenderer.resize(64, 32, 1, 0.5, 0),
+    'WebGL2 从超限尺寸缩回后重新分配目标',
+  );
+  recoveredResizeTarget = resizeRenderer.sourceTarget;
+
+  resizeRenderer.failureSourceWidth = 48;
+  assert(
+    !resizeRenderer.resize(48, 32, 1, 0.5, 0) &&
+      resizeRenderer.available &&
+      resizeRenderer.sourceTarget === null &&
+      resizeRenderer.failedResizeSignature !== null,
+    'RenderTarget 创建异常只使当前尺寸回退，并释放半成品目标',
+  );
+  const allocationFailureCreationCount = resizeHarness.targetCreations.length;
+
+  assert(
+    !resizeRenderer.resize(48, 32, 1, 0.5, 0) &&
+      resizeWarnings.length === 2 &&
+      resizeHarness.targetCreations.length === allocationFailureCreationCount,
+    '相同的分配失败尺寸不会在后续探测中重复分配',
+  );
+
+  resizeRenderer.failureSourceWidth = null;
+  resizeRenderer._forgetResourceReferences();
+  assert(
+    resizeRenderer.failedResizeSignature === null &&
+      resizeRenderer.resize(48, 32, 1, 0.5, 0),
+    'Context 资源失效后清除失败尺寸缓存并允许重新探测',
+  );
+}
+finally
+{
+  console.warn = previousConsoleWarn;
+}
+
+assert(
+  resizeWarnings.length === 2 &&
+    recoveredResizeTarget &&
+    recoveredResizeTarget !== firstResizeTarget &&
+    resizeHarness.deletedTextures.has(firstResizeTarget.texture) &&
+    resizeHarness.deletedFramebuffers.has(firstResizeTarget.framebuffer),
+  'WebGL2 尺寸失败与恢复替换旧目标且不残留旧资源引用',
+);
+resizeRenderer.failedResizeSignature = '待销毁尺寸';
+resizeRenderer.destroy();
+assert(
+  !resizeRenderer.available &&
+    resizeRenderer.failedResizeSignature === null &&
+    resizeRenderer.sourceTarget === null &&
+    resizeRenderer.levels.length === 0,
+  'WebGL2 renderer 销毁时同时清除目标和失败尺寸缓存',
+);
+
 const rendererCanvas =
 {
   addEventListener()

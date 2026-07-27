@@ -365,6 +365,7 @@ export class WebGL2BloomRenderer
     );
     this.sourceTarget = null;
     this.levels = [];
+    this.failedResizeSignature = null;
     this.programs = null;
     this.emissionBuffer = null;
     this.emissionVao = null;
@@ -529,6 +530,8 @@ export class WebGL2BloomRenderer
   {
     this.sourceTarget = null;
     this.levels = [];
+    // Context 恢复后资源能力可能变化，旧尺寸的失败结论不能继续复用。
+    this.failedResizeSignature = null;
     this.programs = null;
     this.emissionBuffer = null;
     this.emissionVao = null;
@@ -714,15 +717,33 @@ export class WebGL2BloomRenderer
         (total, level) => total + level.width * level.height,
         0,
       );
+      this.failedResizeSignature = null;
       return true;
     }
     catch (error)
     {
       console.warn('[BAClickFX] WebGL2 Bloom 缓冲创建失败:', error);
-      this.available = false;
+      this.failedResizeSignature = this._createResizeSignature(
+        this.sourceWidth,
+        this.sourceHeight,
+        this.width,
+        this.height,
+        this.diffusion,
+      );
       this._deleteTargets();
       return false;
     }
+  }
+
+  _createResizeSignature(
+    sourceWidth,
+    sourceHeight,
+    width,
+    height,
+    diffusion,
+  )
+  {
+    return `${sourceWidth}:${sourceHeight}:${width}:${height}:${diffusion}`;
   }
 
   resize(
@@ -750,6 +771,19 @@ export class WebGL2BloomRenderer
       sourceHeight * safeScale,
     ));
     const safeDiffusion = clamp(diffusion, 0, 10);
+    const resizeSignature = this._createResizeSignature(
+      sourceWidth,
+      sourceHeight,
+      width,
+      height,
+      safeDiffusion,
+    );
+
+    if (resizeSignature === this.failedResizeSignature)
+    {
+      // 同一渲染帧可能从后端解析和绘制路径各探测一次，失败尺寸只尝试一次。
+      return false;
+    }
 
     if (
       sourceWidth > this.maximumTextureSize ||
@@ -758,9 +792,9 @@ export class WebGL2BloomRenderer
       sourceHeight > this.maximumViewportHeight
     )
     {
+      this.failedResizeSignature = resizeSignature;
       console.warn('[BAClickFX] WebGL2 Bloom 尺寸超过设备上限，回退软件 Bloom');
       this._deleteTargets();
-      this.available = false;
       return false;
     }
 
@@ -768,7 +802,9 @@ export class WebGL2BloomRenderer
       sourceHeight === this.sourceHeight &&
       width === this.width &&
       height === this.height &&
-      safeDiffusion === this.diffusion;
+      safeDiffusion === this.diffusion &&
+      this.sourceTarget !== null &&
+      this.levels.length > 0;
 
     this.displayWidth = safeDisplayWidth;
     this.displayHeight = safeDisplayHeight;
@@ -780,6 +816,7 @@ export class WebGL2BloomRenderer
 
     if (unchanged)
     {
+      this.failedResizeSignature = null;
       return this.available;
     }
 
@@ -1479,5 +1516,6 @@ export class WebGL2BloomRenderer
     this.maximumTextureSize = 0;
     this.maximumViewportWidth = 0;
     this.maximumViewportHeight = 0;
+    this.failedResizeSignature = null;
   }
 }
