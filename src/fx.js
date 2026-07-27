@@ -1525,9 +1525,9 @@ function drawDisk(
 {
   const diskCfg = fxConfig.disk;
   const bloomCfg = fxConfig.bloom;
-  const size = legacy
-    ? evaluateUnityHermiteCurve(diskCfg.sizeKeys, progress)
-    : evaluateNumber(diskCfg.sizeKeys, progress);
+  // Size over Lifetime 是带切线的 Unity AnimationCurve；所有后端必须
+  // 共享 Hermite 求值，否则清晰圆盘与 Bloom 发射会在扩张阶段错位。
+  const size = evaluateUnityHermiteCurve(diskCfg.sizeKeys, progress);
   const radius = diskCfg.radius * size * scale;
   const color = evaluateColor(diskCfg.colorKeys, progress);
   const alpha = evaluateNumber(diskCfg.alphaKeys, progress) * opacity;
@@ -1585,7 +1585,10 @@ function drawDiskEmission(
 {
   const diskCfg = fxConfig.disk;
   const bloomCfg = fxConfig.bloom;
-  const radius = diskCfg.radius * evaluateNumber(diskCfg.sizeKeys, progress) * scale;
+  const radius = diskCfg.radius * evaluateUnityHermiteCurve(
+    diskCfg.sizeKeys,
+    progress,
+  ) * scale;
   const materialEnergy = evaluateSrgbGradientEnergy(
     diskCfg.colorKeys,
     progress,
@@ -2024,7 +2027,7 @@ class ClickWave
 
     const diskCfg = this.fx.disk;
     const bloomCfg = this.fx.bloom;
-    const radius = diskCfg.radius * evaluateNumber(
+    const radius = diskCfg.radius * evaluateUnityHermiteCurve(
       diskCfg.sizeKeys,
       diskProgress,
     ) * scale;
@@ -2164,7 +2167,7 @@ class ClickWave
     {
       const diskCfg = this.fx.disk;
       const bloomCfg = this.fx.bloom;
-      const radius = diskCfg.radius * evaluateNumber(
+      const radius = diskCfg.radius * evaluateUnityHermiteCurve(
         diskCfg.sizeKeys,
         diskProgress,
       ) * scale;
