@@ -4144,7 +4144,15 @@ export class BAClickFX
 
     if (this.webglBloomRenderer)
     {
-      return this.webglBloomRenderer.available ? 'webgl2' : fallback;
+      const renderer = this.webglBloomRenderer;
+
+      return (
+        renderer.available &&
+        renderer.sourceTarget &&
+        renderer.levels?.length > 0
+      )
+        ? 'webgl2'
+        : fallback;
     }
 
     if (
@@ -4271,16 +4279,8 @@ export class BAClickFX
     {
       renderer = new WebGL2BloomRenderer(canvas);
 
-      if (
-        !renderer.available ||
-        !renderer.resize(
-          this.width,
-          this.height,
-          this.dpr,
-          this.fxConfig.bloom.resolutionScale,
-          this.fxConfig.bloom.diffusion,
-        )
-      )
+      // Context 与 Program 初始化失败才是永久故障；当前尺寸分配失败仍可缩小恢复。
+      if (!renderer.available)
       {
         this.webglBloomUnavailable = true;
         renderer.destroy();
@@ -4304,6 +4304,19 @@ export class BAClickFX
     return renderer.available;
   }
 
+  _resizeWebGLBloomRenderer()
+  {
+    const renderer = this.webglBloomRenderer;
+
+    return !!renderer?.resize(
+      this.width,
+      this.height,
+      this.dpr,
+      this.fxConfig.bloom.resolutionScale,
+      this.fxConfig.bloom.diffusion,
+    );
+  }
+
   _resolveBloomBackend()
   {
     const requested = normalizeBloomBackend(this.config.bloomBackend);
@@ -4318,7 +4331,10 @@ export class BAClickFX
       return this.bloomRenderer.available ? 'software' : 'native';
     }
 
-    if (this._ensureWebGLBloomRenderer())
+    if (
+      this._ensureWebGLBloomRenderer() &&
+      this._resizeWebGLBloomRenderer()
+    )
     {
       return 'webgl2';
     }
@@ -4848,13 +4864,7 @@ export class BAClickFX
 
     if (
       !renderer ||
-      !renderer.resize(
-        this.width,
-        this.height,
-        this.dpr,
-        bloomCfg.resolutionScale,
-        diffusion,
-      )
+      !this._resizeWebGLBloomRenderer()
     )
     {
       this._fallbackFromWebGL2(scale);

@@ -2895,6 +2895,7 @@ contextLifecycleEffect.canvas.addEventListener(
   },
 );
 contextLifecycleEffect._ensureWebGLBloomRenderer = () => true;
+contextLifecycleEffect._resizeWebGLBloomRenderer = () => true;
 flushFrames(dom, performance.now(), 1);
 contextLifecycleEffect._handleWebGLContextLost();
 contextLifecycleEffect._handleWebGLContextRestored();
@@ -2942,6 +2943,140 @@ assert(
   '一次更新渲染模式与 Bloom 后端只派发最终 pending 状态',
 );
 contextLifecycleEffect.destroy();
+
+const resizeRecoveryEffect = new BAClickFX(
+  {
+    bloomBackend: 'webgl2',
+  },
+);
+const resizeRecoveryEvents = [];
+const resizeRecoveryCanvas = document.createElement('canvas');
+let resizeCanSucceed = false;
+let resizeCallCount = 0;
+
+resizeRecoveryEffect.overlayParent.appendChild(resizeRecoveryCanvas);
+const resizeRecoveryRenderer =
+{
+  available: true,
+  sourceTarget: null,
+  levels: [],
+  destroyed: false,
+  resize()
+  {
+    resizeCallCount++;
+
+    if (!resizeCanSucceed)
+    {
+      this.sourceTarget = null;
+      this.levels = [];
+      return false;
+    }
+
+    this.sourceTarget ??= true;
+
+    if (this.levels.length === 0)
+    {
+      this.levels.push(true);
+    }
+
+    return true;
+  },
+  clear()
+  {
+  },
+  destroy()
+  {
+    this.available = false;
+    this.destroyed = true;
+  },
+};
+
+resizeRecoveryEffect.webglBloomCanvas = resizeRecoveryCanvas;
+resizeRecoveryEffect.webglBloomRenderer = resizeRecoveryRenderer;
+resizeRecoveryEffect.canvas.addEventListener(
+  BLOOM_BACKEND_CHANGE_EVENT,
+  (event) =>
+  {
+    resizeRecoveryEvents.push(event.detail.resolvedBloomBackend);
+  },
+);
+
+let resizeRecoveryNow = flushFrames(dom, performance.now(), 1);
+
+assert(
+  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'software' &&
+    resizeRecoveryEvents.join(',') === 'software' &&
+    resizeRecoveryEffect.webglBloomRenderer === resizeRecoveryRenderer &&
+    resizeRecoveryEffect.webglBloomCanvas === resizeRecoveryCanvas &&
+    !resizeRecoveryEffect.webglBloomUnavailable,
+  'WebGL2 当前尺寸失败时稳定回退 Software，并保留可恢复的 renderer',
+);
+resizeRecoveryEffect._requestRender();
+resizeRecoveryNow = flushFrames(dom, resizeRecoveryNow, 1);
+assert(
+  resizeRecoveryEvents.join(',') === 'software' &&
+    resizeCallCount === 2,
+  'WebGL2 尺寸持续失败时不重复派发后端状态事件',
+);
+
+resizeRecoveryEffect.updateConfig(
+  {
+    bloomBackend: 'auto',
+  },
+);
+assert(
+  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'software' &&
+    resizeRecoveryEvents.join(',') === 'software',
+  '配置切换不会仅凭可用 Context 把空目标误报为 WebGL2',
+);
+resizeRecoveryNow = flushFrames(dom, resizeRecoveryNow, 1);
+resizeRecoveryRenderer.sourceTarget = true;
+resizeRecoveryRenderer.levels = [];
+resizeRecoveryEffect.updateConfig(
+  {
+    bloomBackend: 'webgl2',
+  },
+);
+assert(
+  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'software' &&
+    resizeRecoveryEvents.join(',') === 'software',
+  '缺少 Bloom 金字塔时仍公开实际回退后端',
+);
+resizeRecoveryNow = flushFrames(dom, resizeRecoveryNow, 1);
+resizeRecoveryEffect.updateConfig(
+  {
+    renderingMode: 'legacy',
+  },
+);
+resizeRecoveryEffect.updateConfig(
+  {
+    renderingMode: 'enhanced',
+  },
+);
+assert(
+  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'software' &&
+    resizeRecoveryEvents.join(',') === 'software,legacy,software',
+  'Legacy 往返后仍按目标完整性公开 Software 回退',
+);
+resizeRecoveryNow = flushFrames(dom, resizeRecoveryNow, 1);
+
+resizeCanSucceed = true;
+resizeRecoveryEffect._requestRender();
+resizeRecoveryNow = flushFrames(dom, resizeRecoveryNow, 1);
+resizeRecoveryEffect._requestRender();
+flushFrames(dom, resizeRecoveryNow, 1);
+assert(
+  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'webgl2' &&
+    resizeRecoveryEvents.join(',') === 'software,legacy,software,webgl2' &&
+    resizeRecoveryRenderer.sourceTarget &&
+    resizeRecoveryRenderer.levels.length === 1,
+  'WebGL2 尺寸恢复后只派发一次 WebGL2 恢复状态',
+);
+resizeRecoveryEffect.destroy();
+assert(
+  resizeRecoveryRenderer.destroyed && resizeRecoveryCanvas.removed,
+  '可恢复 WebGL2 renderer 仍由实例销毁流程统一释放',
+);
 
 const softwareFailureEffect = new BAClickFX({ bloomBackend: 'software' });
 const softwareFailureEvents = [];
