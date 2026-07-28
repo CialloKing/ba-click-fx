@@ -23,6 +23,7 @@ import {
   calculateBloomContribution,
 } from './software-bloom.js';
 import { WebGL2EffectRenderer } from './webgl2-effect.js';
+import { WebGL2CanvasSceneRenderer } from './webgl2-canvas-scene.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
 import {
   TRIANGLE_TEXTURE_SIZE,
@@ -4335,6 +4336,10 @@ export class BAClickFX
     this.webglEffectRenderer = null;
     this.webglEffectUnavailable = false;
     this.webglEffectVisible = false;
+    this.canvasSceneCanvas = null;
+    this.canvasSceneRenderer = null;
+    this.canvasSceneUnavailable = false;
+    this.canvasSceneVisible = false;
     this.sceneBackgroundSource = null;
     this.sceneBackgroundFit = 'cover';
 
@@ -4464,6 +4469,10 @@ export class BAClickFX
       this._handleWebGLEffectContextLost.bind(this);
     this._onWebGLEffectContextRestored =
       this._handleWebGLEffectContextRestored.bind(this);
+    this._onCanvasSceneContextLost =
+      this._handleCanvasSceneContextLost.bind(this);
+    this._onCanvasSceneContextRestored =
+      this._handleCanvasSceneContextRestored.bind(this);
 
     this._resize();
     window.addEventListener('resize', this._onResize);
@@ -4521,6 +4530,7 @@ export class BAClickFX
       this.canvas,
       this.webglBloomCanvas,
       this.webglEffectCanvas,
+      this.canvasSceneCanvas,
       this.contrastCanvas,
     ]
       .filter(Boolean);
@@ -5708,6 +5718,152 @@ export class BAClickFX
     this.webglEffectRenderer = null;
     this.webglEffectCanvas = null;
     this.webglEffectVisible = false;
+  }
+
+  _handleCanvasSceneContextLost()
+  {
+    if (this.destroyed)
+    {
+      return;
+    }
+
+    // Final Pass 丢失时立即恢复稳定 Canvas，不能把空白 WebGL 层留给宿主。
+    this._setCanvasSceneVisible(false);
+    this._setCanvasOutputVisible(true);
+    this._requestRender();
+  }
+
+  _handleCanvasSceneContextRestored()
+  {
+    if (this.destroyed)
+    {
+      return;
+    }
+
+    // Renderer 先重建 Program；下一帧再按当前尺寸验证全部目标。
+    this._requestRender();
+  }
+
+  _ensureCanvasSceneRenderer()
+  {
+    if (this.canvasSceneRenderer)
+    {
+      return this.canvasSceneRenderer.available;
+    }
+
+    if (
+      this.canvasSceneUnavailable ||
+      !this.ownsCanvas ||
+      !this.overlayParent
+    )
+    {
+      return false;
+    }
+
+    const canvas = createCanvas();
+
+    setOverlayStyle(
+      canvas,
+      !this.host && !this.config.isolatedCompositing,
+      '2147483647',
+      '',
+    );
+    // 首个完整帧成功前保持旧 Canvas 可见，避免资源创建时闪烁。
+    canvas.style.display = 'none';
+    this.overlayParent.appendChild(canvas);
+
+    let renderer = null;
+
+    try
+    {
+      renderer = new WebGL2CanvasSceneRenderer(canvas);
+
+      if (!renderer.available)
+      {
+        this.canvasSceneUnavailable = true;
+        renderer.destroy();
+        canvas.remove();
+        return false;
+      }
+
+      if (this.sceneBackgroundSource)
+      {
+        renderer.setSceneBackground(
+          this.sceneBackgroundSource,
+          {
+            fit: this.sceneBackgroundFit,
+          },
+        );
+      }
+    }
+    catch (error)
+    {
+      console.warn('[BAClickFX] Canvas Scene Final Pass 创建失败:', error);
+      this.canvasSceneUnavailable = true;
+      renderer?.destroy();
+      canvas.remove();
+      return false;
+    }
+
+    this.canvasSceneCanvas = canvas;
+    this.canvasSceneRenderer = renderer;
+    canvas.addEventListener(
+      'webglcontextlost',
+      this._onCanvasSceneContextLost,
+    );
+    canvas.addEventListener(
+      'webglcontextrestored',
+      this._onCanvasSceneContextRestored,
+    );
+    return true;
+  }
+
+  _resizeCanvasSceneRenderer()
+  {
+    return !!this.canvasSceneRenderer?.resize(
+      this.width,
+      this.height,
+      this.dpr,
+    );
+  }
+
+  _setCanvasSceneVisible(visible)
+  {
+    if (!this.canvasSceneCanvas)
+    {
+      this.canvasSceneVisible = false;
+      return;
+    }
+
+    if (this.canvasSceneVisible === visible)
+    {
+      return;
+    }
+
+    this.canvasSceneVisible = visible;
+    this.canvasSceneCanvas.style.display = visible ? '' : 'none';
+
+    if (!visible)
+    {
+      this.canvasSceneRenderer?.clear();
+    }
+  }
+
+  _destroyCanvasSceneRenderer()
+  {
+    this.canvasSceneCanvas?.removeEventListener(
+      'webglcontextlost',
+      this._onCanvasSceneContextLost,
+    );
+    this.canvasSceneCanvas?.removeEventListener(
+      'webglcontextrestored',
+      this._onCanvasSceneContextRestored,
+    );
+    this.canvasSceneRenderer?.destroy();
+    this.canvasSceneCanvas?.remove();
+    this.canvasSceneRenderer = null;
+    this.canvasSceneCanvas = null;
+    this.canvasSceneVisible = false;
   }
 
   _ensureWebGLBloomRenderer()
@@ -7155,6 +7311,7 @@ export class BAClickFX
     this.contrastContext?.clearRect(0, 0, this.width, this.height);
     this.webglBloomRenderer?.clear();
     this.webglEffectRenderer?.clear();
+    this.canvasSceneRenderer?.clear();
   }
 
   /**
@@ -7179,6 +7336,7 @@ export class BAClickFX
     {
       this.webglEffectRenderer?.setSceneBackground(null);
       this.webglBloomRenderer?.setSceneBackground(null);
+      this.canvasSceneRenderer?.setSceneBackground(null);
       this.sceneBackgroundSource = null;
       this.sceneBackgroundFit = fit;
       this._requestRender();
@@ -7196,6 +7354,14 @@ export class BAClickFX
     if (
       this.webglBloomRenderer &&
       !this.webglBloomRenderer.setSceneBackground(source, { fit })
+    )
+    {
+      return false;
+    }
+
+    if (
+      this.canvasSceneRenderer &&
+      !this.canvasSceneRenderer.setSceneBackground(source, { fit })
     )
     {
       return false;
@@ -7253,6 +7419,7 @@ export class BAClickFX
     this.webglBloomRenderer?.destroy();
     this.webglBloomRenderer = null;
     this._destroyWebGLEffectRenderer();
+    this._destroyCanvasSceneRenderer();
 
     if (this.nativeTrailBloomSurface)
     {
@@ -7277,6 +7444,8 @@ export class BAClickFX
 
     this.webglBloomCanvas = null;
     this.webglBloomVisible = false;
+    this.canvasSceneCanvas = null;
+    this.canvasSceneVisible = false;
     this.sceneBackgroundSource = null;
     this.overlayParent = null;
     this.overlayMountParent = null;
