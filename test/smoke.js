@@ -2652,6 +2652,21 @@ assert(
     !shardOwnerEffect.trailShardCounts.has(emptyTrailOwnerId),
   '松开时立即释放没有存活拖尾碎片的空 owner 计数',
 );
+
+shardOwnerEffect.setFxParam('shards.maxCount', 50);
+shardOwnerEffect.setFxParam('shards.trailSpacing', 1);
+shardOwnerEffect.pointerDown({ x: 100, y: 400, pointerId: 84 });
+const capacityTrailOwnerId = shardOwnerEffect.activeTrailOwnerId;
+
+shardOwnerEffect.pointerMove({ x: 200, y: 400, pointerId: 84 });
+const capacityTrailShards = shardOwnerEffect.shards.filter((shard) =>
+  shard.kind === 'trail' && shard.ownerId === capacityTrailOwnerId);
+
+assert(
+  capacityTrailShards.length === 50 &&
+    shardOwnerEffect.trailShardCounts.get(capacityTrailOwnerId) === 50,
+  '超长单段按 Unity maxNumParticles=50 发射，不再截断为 32 枚',
+);
 shardOwnerEffect.destroy();
 
 const coalescedEffect = new BAClickFX(

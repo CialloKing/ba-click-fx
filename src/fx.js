@@ -5663,40 +5663,37 @@ export class BAClickFX
     const segmentLength = distance(from, to);
     const spacing = Math.max(1, this.fxConfig.shards.trailSpacing * scale);
     let nextDistance = spacing - this.trailDistanceSinceShard;
-    let spawned = 0;
+    const ownerId = this.currentTrailStroke?.ownerId ??
+      this.activeTrailOwnerId;
+    let ownerShardCount = Number.isFinite(ownerId)
+      ? this.trailShardCounts.get(ownerId) ?? 0
+      : 0;
 
-    while (nextDistance <= segmentLength && spawned < 32)
+    while (
+      Number.isFinite(ownerId) &&
+      nextDistance <= segmentLength &&
+      ownerShardCount < this.fxConfig.shards.maxCount
+    )
     {
       const progress = segmentLength > 0 ? nextDistance / segmentLength : 0;
       const x = lerp(from.x, to.x, progress);
       const y = lerp(from.y, to.y, progress);
       const angle = random(0, TAU);
-      const ownerId = this.currentTrailStroke?.ownerId ??
-        this.activeTrailOwnerId;
-      const ownerShardCount = Number.isFinite(ownerId)
-        ? this.trailShardCounts.get(ownerId) ?? 0
-        : 0;
 
-      if (
-        Number.isFinite(ownerId) &&
-        ownerShardCount < this.fxConfig.shards.maxCount
-      )
-      {
-        this.shards.push(createShard(
-          x,
-          y,
-          angle,
-          'trail',
-          scale,
-          this.fxConfig.shards,
-          lerp(fromTime, toTime, progress),
-          ownerId,
-        ));
-        this.trailShardCounts.set(ownerId, ownerShardCount + 1);
-      }
+      this.shards.push(createShard(
+        x,
+        y,
+        angle,
+        'trail',
+        scale,
+        this.fxConfig.shards,
+        lerp(fromTime, toTime, progress),
+        ownerId,
+      ));
+      ownerShardCount++;
+      this.trailShardCounts.set(ownerId, ownerShardCount);
 
       nextDistance += spacing;
-      spawned++;
     }
 
     this.trailDistanceSinceShard = (this.trailDistanceSinceShard + segmentLength) % spacing;
