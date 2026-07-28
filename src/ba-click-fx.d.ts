@@ -215,6 +215,65 @@ declare module 'ba-click-fx'
     readonly changes: readonly BAClickFXParamRenameMigration[];
   }
 
+  export type BAClickFXParamValue = number | boolean;
+
+  export interface BAClickFXParamPatchOptions
+  {
+    /** 传入持久化补丁所使用的 Schema 版本，默认当前版本。 */
+    schemaVersion?: number;
+    /** 有任一拒绝项时回滚整批，默认 false。 */
+    strict?: boolean;
+    /** 应用补丁前先恢复当前渲染模式的默认基线，默认 false。 */
+    reset?: boolean;
+  }
+
+  export interface BAClickFXParamAppliedEntry
+  {
+    readonly path: string;
+    readonly value: BAClickFXParamValue;
+  }
+
+  export type BAClickFXParamNormalizationReason =
+    | 'renamed'
+    | 'clamped'
+    | 'boolean-coercion';
+
+  export interface BAClickFXParamNormalizedEntry
+  {
+    readonly path: string;
+    readonly from: unknown;
+    readonly to: unknown;
+    readonly reason: BAClickFXParamNormalizationReason;
+  }
+
+  export type BAClickFXParamRejectionReason =
+    | 'destroyed'
+    | 'duplicate-path'
+    | 'invalid-patch'
+    | 'invalid-type'
+    | 'migration-conflict'
+    | 'missing-migration'
+    | 'non-finite-number'
+    | 'unknown-path'
+    | 'unsupported-schema-version';
+
+  export interface BAClickFXParamRejectedEntry
+  {
+    readonly path: string;
+    readonly value: unknown;
+    readonly reason: BAClickFXParamRejectionReason;
+    readonly targetPath?: string;
+  }
+
+  export interface BAClickFXParamPatchResult
+  {
+    readonly applied: readonly BAClickFXParamAppliedEntry[];
+    readonly normalized: readonly BAClickFXParamNormalizedEntry[];
+    readonly rejected: readonly BAClickFXParamRejectedEntry[];
+    readonly committed: boolean;
+    readonly schemaVersion: number;
+  }
+
   export const CONFIG: Readonly<BAClickFXConfig>;
   export const FX_PARAM_SCHEMA_VERSION: 1;
   export const FX_PARAM_SCHEMA: readonly BAClickFXParamDescriptor[];
@@ -272,8 +331,14 @@ declare module 'ba-click-fx'
     /** 设置主题色（CSS 十六进制），所有蓝色系特效的 hue 将以此偏移。传入空字符串恢复默认。 */
     setThemeColor(hex: string): void;
 
-    /** 通过点号路径修改特效参数，如 'bloom.clickEmissionScale' 或 'hit.enabled'。 */
-    setFxParam(path: string, value: number | boolean): void;
+    /** 通过点号路径修改特效参数；未知路径或非法值返回 false 且保持配置不变。 */
+    setFxParam(path: string, value: BAClickFXParamValue): boolean;
+
+    /** 原子验证并批量应用扁平点号路径补丁。 */
+    setFxParams(
+      patch: Readonly<Record<string, BAClickFXParamValue>>,
+      options?: BAClickFXParamPatchOptions,
+    ): BAClickFXParamPatchResult;
 
     /** 返回当前完整特效配置的深拷贝（与 UNITY_FX_TOUCH 同结构）。 */
     getFxConfig(): Record<string, unknown>;

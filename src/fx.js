@@ -7,7 +7,9 @@
 
 import {
   CONFIG,
+  FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
+  FX_PARAM_SCHEMA_VERSION,
   UNITY_FX_TOUCH,
   createConfig,
   isBloomBackend,
@@ -19,6 +21,7 @@ import {
   normalizeTimeScale,
   SIZE_CORRECTION,
 } from './config.js';
+import { applyFxParamPatch } from './fx-param-patch.js';
 import {
   SoftwareBloomRenderer,
   calculateBloomContribution,
@@ -5159,18 +5162,42 @@ export class BAClickFX
     this.overlayParent = parent;
   }
 
-  _applyLegacyParams()
+  _applyLegacyParams(target = this.fxConfig)
   {
     // 最终游戏工程使用 Ortho 1.0；Legacy 只保留 Canvas 合成风格，
     // 点击几何、曲线和纹理裁剪继续共享解包资源真值。
-    this.fxConfig.trail.gradient = structuredClone(LEGACY_TRAIL_GRADIENT);
-    this.fxConfig.trail.coreWidth = LEGACY_TRAIL_CORE_WIDTH;
-    this.fxConfig.trail.width = LEGACY_TRAIL_WIDTH;
-    this.fxConfig.bloom.trailAlpha = 0.00;
+    target.trail.gradient = structuredClone(LEGACY_TRAIL_GRADIENT);
+    target.trail.coreWidth = LEGACY_TRAIL_CORE_WIDTH;
+    target.trail.width = LEGACY_TRAIL_WIDTH;
+    target.bloom.trailAlpha = 0.00;
     // 点击 Bloom 来自同一套 Unity 材质和后处理，Legacy 不再覆盖其强度。
-    this.fxConfig.bloom.ringBlur = 80;
-    this.fxConfig.bloom.diskBlur = 65;
-    this.fxConfig.bloom.shardBlur = 0;
+    target.bloom.ringBlur = 80;
+    target.bloom.diskBlur = 65;
+    target.bloom.shardBlur = 0;
+  }
+
+  _createFxParamResetBaseline()
+  {
+    const baseline = structuredClone(UNITY_FX_TOUCH);
+
+    if (this.config.renderingMode === 'legacy')
+    {
+      this._applyLegacyParams(baseline);
+    }
+
+    return baseline;
+  }
+
+  _commitFxParamConfig(nextConfig)
+  {
+    // 活动 ClickWave 持有配置根对象引用；保留根身份才能让运行时调参
+    // 同时作用于已经生成的点击，而候选树仍保证校验阶段不泄露半成品。
+    for (const key of Object.keys(this.fxConfig))
+    {
+      delete this.fxConfig[key];
+    }
+
+    Object.assign(this.fxConfig, nextConfig);
   }
 
   _resize()
@@ -8423,65 +8450,61 @@ export class BAClickFX
     this._requestRender();
   }
 
+  setFxParams(patch, options = {})
+  {
+    if (this.destroyed)
+    {
+      return {
+        applied: [],
+        normalized: [],
+        rejected:
+        [
+          {
+            path: '$instance',
+            value: null,
+            reason: 'destroyed',
+          },
+        ],
+        committed: false,
+        schemaVersion: FX_PARAM_SCHEMA_VERSION,
+      };
+    }
+
+    const prepared = applyFxParamPatch(
+      patch,
+      {
+        baseline: this.fxConfig,
+        reset: options.reset === true,
+        resetBaseline: this._createFxParamResetBaseline(),
+        strict: options.strict === true,
+        schemaVersion: options.schemaVersion ?? FX_PARAM_SCHEMA_VERSION,
+      },
+    );
+    const { nextConfig, ...result } = prepared;
+
+    if (result.committed)
+    {
+      // 候选树已经完整验证；同步提交期间不会执行渲染或宿主回调。
+      this._commitFxParamConfig(nextConfig);
+      this._requestRender();
+    }
+
+    return result;
+  }
+
   /**
-   * 设置特效参数。path 支持点号路径，如 'rings.hdrIntensity'。
+   * 设置单个特效参数。返回 false 时配置保持不变。
    * @param {string} path — 参数路径
    * @param {number|boolean} value — 新值
    */
   setFxParam(path, value)
   {
-    if (this.destroyed)
-    {
-      return;
-    }
+    const result = this.setFxParams(
+      { [path]: value },
+      { strict: true },
+    );
 
-    const keys = path.split('.');
-    let target = this.fxConfig;
-
-    for (let i = 0; i < keys.length - 1; i++)
-    {
-      if (!target[keys[i]])
-      {
-        return;
-      }
-
-      target = target[keys[i]];
-    }
-
-    const lastKey = keys[keys.length - 1];
-
-    if (typeof target[lastKey] === 'boolean')
-    {
-      target[lastKey] = !!value;
-      this._requestRender();
-    }
-    else if (typeof target[lastKey] === 'number')
-    {
-      if (!Number.isFinite(value))
-      {
-        return;
-      }
-
-      const isDirection = path === 'rings.rotationDirection' ||
-        path === 'rings.dissolveDirection';
-
-      if (isDirection)
-      {
-        target[lastKey] = clamp(value, -1, 1);
-      }
-      else
-      {
-        const requiresPositiveValue = /(Ms|Spacing|Radius|Width)$/.test(
-          lastKey,
-        );
-        const min = requiresPositiveValue ? 1 : 0;
-
-        // Count/maxCount=0 用于禁用发射，Blur=0 用于关闭原生模糊。
-        target[lastKey] = Math.max(min, value);
-      }
-
-      this._requestRender();
-    }
+    return result.committed && result.applied.length === 1;
   }
 
   /** @returns {object} 当前完整特效配置的深拷贝 */
@@ -8752,7 +8775,9 @@ export {
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
   EFFECT_BACKEND_CHANGE_EVENT,
+  FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
+  FX_PARAM_SCHEMA_VERSION,
   UNITY_FX_TOUCH,
   createConfig,
   SIZE_CORRECTION,

@@ -25,7 +25,9 @@ const {
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
   EFFECT_BACKEND_CHANGE_EVENT,
+  FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
+  FX_PARAM_SCHEMA_VERSION,
   UNITY_FX_TOUCH,
   createConfig,
   SIZE_CORRECTION,
@@ -930,6 +932,12 @@ assert(
   EFFECT_BACKEND_CHANGE_EVENT === 'baclickfxeffectbackendchange',
   '导出完整特效后端解析状态事件名，调用方无需硬编码字符串',
 );
+assert(
+  FX_PARAM_SCHEMA_VERSION === 1 &&
+    FX_PARAM_MIGRATIONS[0]?.changes[0]?.from === 'bloom.scatter' &&
+    FX_PARAM_MIGRATIONS[0]?.changes[0]?.to === 'bloom.diffusion',
+  '正式入口导出参数 Schema 版本与迁移合同',
+);
 
 console.log('\n配置隔离');
 const leftConfig = createConfig();
@@ -1010,6 +1018,92 @@ assert(
 
 console.log('\n指针生命周期');
 const dom = installDom();
+const paramApiEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    inputSource: 'manual',
+  },
+);
+const singleParamAccepted = paramApiEffect.setFxParam(
+  'rings.rotationDirection',
+  -1,
+);
+const singleParamRejected = paramApiEffect.setFxParam(
+  'bloom.intensity',
+  Number.NaN,
+);
+
+assert(
+  singleParamAccepted === true &&
+    singleParamRejected === false &&
+    paramApiEffect.getFxConfig().rings.rotationDirection === -1,
+  'setFxParam 返回可检测结果且非法值不改变配置',
+);
+
+const partialBatchResult = paramApiEffect.setFxParams(
+  {
+    'hit.enabled': 0,
+    'rings.count': 128,
+    'unknown.path': 1,
+  },
+);
+
+assert(
+  partialBatchResult.committed === true &&
+    !('nextConfig' in partialBatchResult) &&
+    partialBatchResult.applied.length === 2 &&
+    partialBatchResult.normalized.some((entry) =>
+      entry.path === 'hit.enabled' && entry.to === false) &&
+    partialBatchResult.normalized.some((entry) =>
+      entry.path === 'rings.count' && entry.to === 64) &&
+    partialBatchResult.rejected[0]?.reason === 'unknown-path' &&
+    paramApiEffect.getFxConfig().hit.enabled === false &&
+    paramApiEffect.getFxConfig().rings.count === 64,
+  'setFxParams 非严格模式原子提交有效项并报告规范化与拒绝项',
+);
+
+const migratedBatchResult = paramApiEffect.setFxParams(
+  {
+    'bloom.scatter': 6.25,
+  },
+  {
+    schemaVersion: 0,
+    strict: true,
+  },
+);
+
+assert(
+  migratedBatchResult.committed === true &&
+    migratedBatchResult.applied[0]?.path === 'bloom.diffusion' &&
+    migratedBatchResult.normalized[0]?.reason === 'renamed' &&
+    paramApiEffect.getFxConfig().bloom.diffusion === 6.25,
+  'setFxParams 按 Schema 版本迁移 bloom.scatter 旧路径',
+);
+
+const beforeStrictBatch = paramApiEffect.getFxConfig();
+const strictBatchResult = paramApiEffect.setFxParams(
+  {
+    'rings.count': 2,
+    'rings.notReal': 1,
+  },
+  { strict: true },
+);
+
+assert(
+  strictBatchResult.committed === false &&
+    strictBatchResult.applied.length === 0 &&
+    JSON.stringify(paramApiEffect.getFxConfig()) ===
+      JSON.stringify(beforeStrictBatch),
+  'setFxParams 严格模式在任一拒绝项出现时回滚整批',
+);
+paramApiEffect.destroy();
+assert(
+  paramApiEffect.setFxParams({ 'rings.count': 1 }).rejected[0]?.reason ===
+    'destroyed',
+  '销毁后的批量参数写入返回可检测拒绝原因',
+);
+
 const defaultBackendEffect = new BAClickFX();
 
 assert(
