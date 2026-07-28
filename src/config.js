@@ -187,7 +187,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
         [0.15445095, 1, 0, 0],
         [1, 0, -2.1621501, -2.1621501],
       ],
-      // FX_TEX_Triangle_02_1 是 2×1 图集；完整 RGBA 纹理由各后端共享。
+      // FX_TEX_Triangle_02_1 是 2×1 图集；共享纹理保存左侧单帧，
+      // 右侧帧与左帧仅垂直翻转，由各后端在运行时还原。
       // 这些实测边界仅供不支持纹理 Canvas 的兼容回退使用。
       textureFrames:
       [
