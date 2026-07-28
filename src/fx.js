@@ -5940,6 +5940,10 @@ export class BAClickFX
       bloomBackend,
       legacy,
     );
+    // WebGL2 Bloom 已复用完整 Scene Renderer。成功路径无需先栅格一份
+    // 随后会被隐藏的 Canvas；GPU 当帧失败时再由回退路径补画即可。
+    const drawCanvasOutput =
+      !useWebGLClickEffects && !useCanvasScene && !useWebGL2Bloom;
     let canvasSceneRendered = false;
 
     this.lastFrameTime = now;
@@ -5984,19 +5988,19 @@ export class BAClickFX
         scale,
         useNativeBloom,
         legacy,
-        !useWebGLClickEffects && !useCanvasScene,
+        drawCanvasOutput,
       );
       this._updateWaves(
         this.clickTimeMs,
         scale,
         useNativeBloom,
-        !useWebGLClickEffects && !useCanvasScene,
+        drawCanvasOutput,
       );
       this._updateShards(
         this.clickTimeMs,
         this.trailTimeMs,
         scale,
-        !useWebGLClickEffects && !useCanvasScene,
+        drawCanvasOutput,
       );
 
       if (useWebGLClickEffects)
@@ -6043,7 +6047,7 @@ export class BAClickFX
           this._setCanvasSceneVisible(canvasSceneRendered);
           this._setCanvasOutputVisible(!canvasSceneRendered);
         }
-        else
+        else if (!useWebGL2Bloom)
         {
           // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
           this._drawWaveRings(scale, useNativeBloom, legacy);
@@ -6054,7 +6058,7 @@ export class BAClickFX
       {
         this._clearLightBackgroundContrast();
       }
-      else if (!legacy && !useWebGLClickEffects)
+      else if (!legacy && !useWebGLClickEffects && !useWebGL2Bloom)
       {
         this._renderLightBackgroundContrast(
           scale,
@@ -8003,12 +8007,25 @@ export class BAClickFX
 
     if (this.bloomRenderer.available)
     {
+      // 成功路径不再预画隐藏 Canvas；GPU 失败后才建立同帧软件回退输入。
+      this._drawCanvasFallbackFrame(scale, false, false);
+      this._renderLightBackgroundContrast(scale, true);
       this._setResolvedBloomBackend('software');
       this._renderSoftwareBloom(scale);
+
+      if (!this.bloomRenderer.available)
+      {
+        // 像素回读也失败时重画一次原生阴影，避免当前帧只有清晰几何。
+        this._drawCanvasFallbackFrame(scale, true, false);
+        this._renderLightBackgroundContrast(scale, false);
+        this._setResolvedBloomBackend('native');
+      }
+
       return;
     }
 
-    // 原生阴影必须在清晰几何绘制阶段启用；当前帧无法补画，下一帧切换。
+    this._drawCanvasFallbackFrame(scale, true, false);
+    this._renderLightBackgroundContrast(scale, false);
     this._setResolvedBloomBackend('native');
   }
 

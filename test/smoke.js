@@ -3483,6 +3483,81 @@ externalFullWebGLEffect.destroy();
 legacyFullWebGLEffect.destroy();
 
 console.log('\nBloom 后端 API');
+const unifiedWebGLBloomEffect = new BAClickFX(
+  {
+    bloomBackend: 'webgl2',
+  },
+);
+const unifiedWebGLBloomCanvas = document.createElement('canvas');
+const unifiedWebGLBloomRenderer =
+{
+  available: true,
+  contextLost: false,
+  sourceTarget: true,
+  levels: [true],
+  clear()
+  {
+  },
+  releaseFrameResources()
+  {
+    this.sourceTarget = null;
+    this.levels = [];
+  },
+  destroy()
+  {
+    this.available = false;
+  },
+};
+let unifiedSceneRenderCount = 0;
+
+unifiedWebGLBloomEffect.overlayParent.appendChild(unifiedWebGLBloomCanvas);
+unifiedWebGLBloomEffect.webglBloomCanvas = unifiedWebGLBloomCanvas;
+unifiedWebGLBloomEffect.webglBloomRenderer = unifiedWebGLBloomRenderer;
+unifiedWebGLBloomEffect._ensureWebGLBloomRenderer = () => true;
+unifiedWebGLBloomEffect._resizeWebGLBloomRenderer = () => true;
+unifiedWebGLBloomEffect._renderWebGL2Scene = () =>
+{
+  unifiedSceneRenderCount++;
+  return true;
+};
+
+const unifiedCanvasCounts =
+{
+  fills: unifiedWebGLBloomEffect.context.fillCount,
+  strokes: unifiedWebGLBloomEffect.context.strokeCount,
+  images: unifiedWebGLBloomEffect.context.drawImageCalls.length,
+};
+
+unifiedWebGLBloomEffect.boom(960, 540);
+let unifiedWebGLNow = flushFrames(dom, performance.now(), 1);
+assert(
+  unifiedSceneRenderCount === 1 &&
+    unifiedWebGLBloomEffect.context.fillCount === unifiedCanvasCounts.fills &&
+    unifiedWebGLBloomEffect.context.strokeCount ===
+      unifiedCanvasCounts.strokes &&
+    unifiedWebGLBloomEffect.context.drawImageCalls.length ===
+      unifiedCanvasCounts.images &&
+    unifiedWebGLBloomEffect.canvas.style.visibility === 'hidden',
+  'WebGL2 Bloom 成功帧复用完整 Scene 且不重复栅格隐藏 Canvas',
+);
+
+const fallbackImageStart =
+  unifiedWebGLBloomEffect.context.drawImageCalls.length;
+
+unifiedWebGLBloomEffect._renderWebGL2Scene = () => false;
+unifiedWebGLBloomEffect._requestRender();
+unifiedWebGLNow = flushFrames(dom, unifiedWebGLNow, 1);
+assert(
+  unifiedWebGLBloomEffect.getConfig().resolvedBloomBackend === 'software' &&
+    unifiedWebGLBloomEffect.canvas.style.visibility === '' &&
+    unifiedWebGLBloomEffect.context.drawImageCalls
+      .slice(fallbackImageStart)
+      .some((call) =>
+        call.args[0] === unifiedWebGLBloomEffect.bloomRenderer.outputCanvas),
+  'WebGL2 Bloom 当帧失败后才补画 Canvas 并完成软件 Bloom 回退',
+);
+unifiedWebGLBloomEffect.destroy();
+
 const webglEffect = new BAClickFX(
   {
     bloomBackend: 'webgl2',
