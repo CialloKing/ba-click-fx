@@ -8,13 +8,18 @@ import {
   CIRCLE_TEXTURE_SIZE,
 } from './circle-texture.js';
 import {
+  RING3_ALPHA,
+  RING3_ALPHA_HEIGHT,
+  RING3_ALPHA_WIDTH,
+} from './ring3-alpha.js';
+import {
   gammaToLinear,
   resolveUnityBloomClamp,
 } from './bloom-color-space.js';
 
 const COMPONENTS_PER_VERTEX = 6;
 const COMPONENTS_PER_DISK_VERTEX = 8;
-const COMPONENTS_PER_RING_VERTEX = 8;
+const COMPONENTS_PER_RING_VERTEX = 9;
 const COMPONENTS_PER_TRIANGLE_VERTEX = 8;
 const INITIAL_VERTEX_CAPACITY = 4096;
 const MAX_PYRAMID_LEVELS = 16;
@@ -306,17 +311,17 @@ const DISSOLVE_RING_VERTEX_SHADER = `#version 300 es
 precision highp float;
 
 layout(location = 0) in vec2 a_position;
-layout(location = 1) in float a_textureAlpha;
+layout(location = 1) in vec2 a_uv;
 layout(location = 2) in vec3 a_materialColor;
 layout(location = 3) in float a_dissolveThreshold;
-layout(location = 4) in float a_coverage;
+layout(location = 4) in float a_coverageOpacity;
 
 uniform vec2 u_displaySize;
 
-out float v_textureAlpha;
+out vec2 v_uv;
 out vec3 v_materialColor;
 out float v_dissolveThreshold;
-out float v_coverage;
+out float v_coverageOpacity;
 
 void main()
 {
@@ -327,34 +332,38 @@ void main()
     0.0,
     1.0
   );
-  v_textureAlpha = a_textureAlpha;
+  v_uv = a_uv;
   v_materialColor = a_materialColor;
   v_dissolveThreshold = a_dissolveThreshold;
-  v_coverage = a_coverage;
+  v_coverageOpacity = a_coverageOpacity;
 }
 `;
 
 const DISSOLVE_RING_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
-in float v_textureAlpha;
+in vec2 v_uv;
 in vec3 v_materialColor;
 in float v_dissolveThreshold;
-in float v_coverage;
+in float v_coverageOpacity;
 
+uniform sampler2D u_texture;
 uniform bool u_transparentOverlay;
 
 out vec4 outColor;
 
 void main()
 {
+  // Unity 在片元阶段以 Bilinear + Clamp 采样 Ring3，而不是插值顶点 Alpha。
+  float textureAlpha = texture(u_texture, v_uv).r;
+
   // Unity clip(alpha - threshold) 是硬裁剪，通过的片元保留原纹理 Alpha。
-  if (v_textureAlpha < v_dissolveThreshold)
+  if (textureAlpha < v_dissolveThreshold)
   {
     discard;
   }
 
-  float textureAlpha = clamp(v_textureAlpha, 0.0, 1.0);
+  textureAlpha = clamp(textureAlpha, 0.0, 1.0);
   vec3 materialColor = max(v_materialColor, vec3(0.0));
 
   if (u_transparentOverlay)
@@ -362,7 +371,7 @@ void main()
     // RGB 预乘纹理 Alpha 后改用 One/One，结果与 Unity SrcAlpha/One 相同。
     outColor = vec4(
       materialColor * textureAlpha,
-      clamp(v_coverage, 0.0, 1.0)
+      textureAlpha * clamp(v_coverageOpacity, 0.0, 1.0)
     );
     return;
   }
@@ -776,6 +785,7 @@ export class WebGL2EffectRenderer
     this.sceneDiskVao = null;
     this.ringBuffer = null;
     this.ringVao = null;
+    this.ringTexture = null;
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
@@ -904,6 +914,7 @@ export class WebGL2EffectRenderer
       this.sceneDiskVao = gl.createVertexArray();
       this.ringBuffer = gl.createBuffer();
       this.ringVao = gl.createVertexArray();
+      this.ringTexture = gl.createTexture();
       this.triangleBuffer = gl.createBuffer();
       this.triangleVao = gl.createVertexArray();
       this.triangleTexture = gl.createTexture();
@@ -918,6 +929,7 @@ export class WebGL2EffectRenderer
         !this.sceneDiskVao ||
         !this.ringBuffer ||
         !this.ringVao ||
+        !this.ringTexture ||
         !this.triangleBuffer ||
         !this.triangleVao ||
         !this.triangleTexture ||
@@ -1026,7 +1038,7 @@ export class WebGL2EffectRenderer
       gl.enableVertexAttribArray(1);
       gl.vertexAttribPointer(
         1,
-        1,
+        2,
         gl.FLOAT,
         false,
         ringStride,
@@ -1039,7 +1051,7 @@ export class WebGL2EffectRenderer
         gl.FLOAT,
         false,
         ringStride,
-        3 * Float32Array.BYTES_PER_ELEMENT,
+        4 * Float32Array.BYTES_PER_ELEMENT,
       );
       gl.enableVertexAttribArray(3);
       gl.vertexAttribPointer(
@@ -1048,7 +1060,7 @@ export class WebGL2EffectRenderer
         gl.FLOAT,
         false,
         ringStride,
-        6 * Float32Array.BYTES_PER_ELEMENT,
+        7 * Float32Array.BYTES_PER_ELEMENT,
       );
       gl.enableVertexAttribArray(4);
       gl.vertexAttribPointer(
@@ -1057,7 +1069,7 @@ export class WebGL2EffectRenderer
         gl.FLOAT,
         false,
         ringStride,
-        7 * Float32Array.BYTES_PER_ELEMENT,
+        8 * Float32Array.BYTES_PER_ELEMENT,
       );
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
@@ -1106,6 +1118,24 @@ export class WebGL2EffectRenderer
       );
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+      // Ring3 的 Alpha 不参与 sRGB 解码；R8 保留 Unity Alpha 采样真值。
+      gl.bindTexture(gl.TEXTURE_2D, this.ringTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.R8,
+        RING3_ALPHA_WIDTH,
+        RING3_ALPHA_HEIGHT,
+        0,
+        gl.RED,
+        gl.UNSIGNED_BYTE,
+        RING3_ALPHA,
+      );
 
       // 解包纹理禁用 Mipmap，并沿用 Unity importer 的 Bilinear + Clamp。
       gl.bindTexture(gl.TEXTURE_2D, this.triangleTexture);
@@ -1202,6 +1232,7 @@ export class WebGL2EffectRenderer
     this.sceneDiskVao = null;
     this.ringBuffer = null;
     this.ringVao = null;
+    this.ringTexture = null;
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
@@ -1372,6 +1403,7 @@ export class WebGL2EffectRenderer
     gl.deleteVertexArray(this.sceneDiskVao);
     gl.deleteBuffer(this.ringBuffer);
     gl.deleteVertexArray(this.ringVao);
+    gl.deleteTexture(this.ringTexture);
     gl.deleteBuffer(this.triangleBuffer);
     gl.deleteVertexArray(this.triangleVao);
     gl.deleteTexture(this.triangleTexture);
@@ -1385,6 +1417,7 @@ export class WebGL2EffectRenderer
     this.sceneDiskVao = null;
     this.ringBuffer = null;
     this.ringVao = null;
+    this.ringTexture = null;
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
@@ -2104,6 +2137,12 @@ export class WebGL2EffectRenderer
         this.displayWidth,
         this.displayHeight,
       );
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.ringTexture);
+      gl.uniform1i(
+        gl.getUniformLocation(ringProgram, 'u_texture'),
+        0,
+      );
       gl.bindVertexArray(this.ringVao);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.ringBuffer);
       gl.bufferData(
@@ -2305,24 +2344,26 @@ export class WebGL2EffectRenderer
   _appendRingVertex(
     x,
     y,
-    textureAlpha,
+    u,
+    v,
     red,
     green,
     blue,
     dissolveThreshold,
-    coverage,
+    coverageOpacity,
   )
   {
     const offset = this.ringVertexCount * COMPONENTS_PER_RING_VERTEX;
 
     this.ringVertexData[offset] = x;
     this.ringVertexData[offset + 1] = y;
-    this.ringVertexData[offset + 2] = clamp(textureAlpha, 0, 1);
-    this.ringVertexData[offset + 3] = Math.max(0, red);
-    this.ringVertexData[offset + 4] = Math.max(0, green);
-    this.ringVertexData[offset + 5] = Math.max(0, blue);
-    this.ringVertexData[offset + 6] = clamp(dissolveThreshold, 0, 1);
-    this.ringVertexData[offset + 7] = clamp(coverage, 0, 1);
+    this.ringVertexData[offset + 2] = u;
+    this.ringVertexData[offset + 3] = v;
+    this.ringVertexData[offset + 4] = Math.max(0, red);
+    this.ringVertexData[offset + 5] = Math.max(0, green);
+    this.ringVertexData[offset + 6] = Math.max(0, blue);
+    this.ringVertexData[offset + 7] = clamp(dissolveThreshold, 0, 1);
+    this.ringVertexData[offset + 8] = clamp(coverageOpacity, 0, 1);
     this.ringVertexCount++;
   }
 
@@ -2789,7 +2830,9 @@ export class WebGL2EffectRenderer
     materialColor,
     opacity,
     dissolveThreshold,
-    sampleTextureAlpha,
+    textureUvMin,
+    textureUvMax,
+    dissolveDirection,
   )
   {
     const red = materialColor[0] * opacity;
@@ -2799,8 +2842,7 @@ export class WebGL2EffectRenderer
     if (
       radius <= 0 ||
       width <= 0 ||
-      Math.max(red, green, blue) <= 0 ||
-      typeof sampleTextureAlpha !== 'function'
+      Math.max(red, green, blue) <= 0
     )
     {
       return;
@@ -2810,16 +2852,20 @@ export class WebGL2EffectRenderer
     const segments = clamp(Math.round(segmentCount), 32, 512);
     const innerEdge = Math.max(0, radius - width * 0.5);
     const bandWidth = width / bands;
-    const angleStep = Math.PI * 2 / segments;
     const cosine = new Float64Array(segments + 1);
     const sine = new Float64Array(segments + 1);
-    const textureAlpha = new Float32Array(
-      (bands + 1) * (segments + 1),
-    );
     const coverageOpacity = clamp(opacity, 0, 1);
     const safeThreshold = Number.isFinite(dissolveThreshold)
       ? clamp(dissolveThreshold, 0, 1)
       : 1;
+    const safeUvMin = Number.isFinite(textureUvMin)
+      ? clamp(textureUvMin, 0, 1)
+      : 0;
+    const safeUvMax = Number.isFinite(textureUvMax)
+      ? clamp(textureUvMax, 0, 1)
+      : 1;
+    const uvSpan = safeUvMax - safeUvMin;
+    const direction = dissolveDirection >= 0 ? 1 : -1;
 
     for (let segment = 0; segment <= segments; segment++)
     {
@@ -2830,33 +2876,15 @@ export class WebGL2EffectRenderer
       sine[segment] = Math.sin(angle);
     }
 
-    for (let band = 0; band <= bands; band++)
-    {
-      const radialProgress = band / bands;
-
-      for (let segment = 0; segment <= segments; segment++)
-      {
-        const value = sampleTextureAlpha(
-          segment / segments,
-          radialProgress,
-        );
-        const sampleIndex = band * (segments + 1) + segment;
-
-        textureAlpha[sampleIndex] = Number.isFinite(value)
-          ? clamp(value, 0, 1)
-          : 0;
-      }
-    }
-
-    // 不在 CPU 跳过溶解区域；完整网格让 Fragment discard 保留硬裁剪边界。
+    // 保留 96×8 拓扑，但把原纹理 UV 交给 Fragment Shader 逐片元采样。
     this._ensureRingVertexCapacity(bands * segments * 6);
 
     for (let band = 0; band < bands; band++)
     {
       const innerRadius = innerEdge + bandWidth * band;
       const outerRadius = innerEdge + bandWidth * (band + 1);
-      const innerRow = band * (segments + 1);
-      const outerRow = (band + 1) * (segments + 1);
+      const innerV = safeUvMin + uvSpan * band / bands;
+      const outerV = safeUvMin + uvSpan * (band + 1) / bands;
 
       for (let segment = 0; segment < segments; segment++)
       {
@@ -2869,70 +2897,82 @@ export class WebGL2EffectRenderer
         const outerStartY = y + sine[segment] * outerRadius;
         const outerEndX = x + cosine[nextSegment] * outerRadius;
         const outerEndY = y + sine[nextSegment] * outerRadius;
-        const innerStartAlpha = textureAlpha[innerRow + segment];
-        const innerEndAlpha = textureAlpha[innerRow + nextSegment];
-        const outerStartAlpha = textureAlpha[outerRow + segment];
-        const outerEndAlpha = textureAlpha[outerRow + nextSegment];
+        const startProgress = segment / segments;
+        const endProgress = nextSegment / segments;
+        const startTextureProgress = direction > 0
+          ? startProgress
+          : 1 - startProgress;
+        const endTextureProgress = direction > 0
+          ? endProgress
+          : 1 - endProgress;
+        const startU = safeUvMin + uvSpan * startTextureProgress;
+        const endU = safeUvMin + uvSpan * endTextureProgress;
 
         this._appendRingVertex(
           innerStartX,
           innerStartY,
-          innerStartAlpha,
+          startU,
+          innerV,
           red,
           green,
           blue,
           safeThreshold,
-          innerStartAlpha * coverageOpacity,
+          coverageOpacity,
         );
         this._appendRingVertex(
           innerEndX,
           innerEndY,
-          innerEndAlpha,
+          endU,
+          innerV,
           red,
           green,
           blue,
           safeThreshold,
-          innerEndAlpha * coverageOpacity,
+          coverageOpacity,
         );
         this._appendRingVertex(
           outerEndX,
           outerEndY,
-          outerEndAlpha,
+          endU,
+          outerV,
           red,
           green,
           blue,
           safeThreshold,
-          outerEndAlpha * coverageOpacity,
+          coverageOpacity,
         );
         this._appendRingVertex(
           innerStartX,
           innerStartY,
-          innerStartAlpha,
+          startU,
+          innerV,
           red,
           green,
           blue,
           safeThreshold,
-          innerStartAlpha * coverageOpacity,
+          coverageOpacity,
         );
         this._appendRingVertex(
           outerEndX,
           outerEndY,
-          outerEndAlpha,
+          endU,
+          outerV,
           red,
           green,
           blue,
           safeThreshold,
-          outerEndAlpha * coverageOpacity,
+          coverageOpacity,
         );
         this._appendRingVertex(
           outerStartX,
           outerStartY,
-          outerStartAlpha,
+          startU,
+          outerV,
           red,
           green,
           blue,
           safeThreshold,
-          outerStartAlpha * coverageOpacity,
+          coverageOpacity,
         );
       }
     }

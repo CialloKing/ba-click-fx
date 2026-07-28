@@ -2901,18 +2901,9 @@ class ClickWave
         ringMaterialEnergy,
         opacity,
         geometry.threshold,
-        (angularProgress, radialProgress) =>
-        {
-          const textureProgress = direction > 0
-            ? angularProgress
-            : 1 - angularProgress;
-
-          return evaluateRingTextureAlpha(
-            textureProgress,
-            radialProgress,
-            ringCfg,
-          );
-        },
+        ringCfg.textureUvMin,
+        ringCfg.textureUvMax,
+        direction,
       );
     }
   }

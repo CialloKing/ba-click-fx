@@ -12,12 +12,19 @@ const module = await import(modulePath);
 let ring3AlphaSource = null;
 let circleTextureSource = null;
 let createHash = null;
+let webgl2EffectSourceText = null;
 
 if (sourceMode)
 {
   ring3AlphaSource = await import('../src/ring3-alpha.js');
   circleTextureSource = await import('../src/circle-texture.js');
   ({ createHash } = await import('node:crypto'));
+  const { readFileSync } = await import('node:fs');
+
+  webgl2EffectSourceText = readFileSync(
+    new URL('../src/webgl2-effect.js', import.meta.url),
+    'utf8',
+  );
 }
 
 const {
@@ -777,6 +784,18 @@ if (sourceMode)
     ring3AlphaHash ===
       '6c1d74367a72a0ac830b0f5fdd8f0ee93bc9453c9b8c3cc4d470c2becca9d220',
     'Ring3 Alpha LUT 的完整字节 SHA256 与解包纹理一致',
+  );
+  assert(
+    webgl2EffectSourceText.includes('gl.R8') &&
+      webgl2EffectSourceText.includes(
+        'float textureAlpha = texture(u_texture, v_uv).r;',
+      ) &&
+      webgl2EffectSourceText.includes(
+        'layout(location = 1) in vec2 a_uv;',
+      ) &&
+      !webgl2EffectSourceText.includes('a_textureAlpha') &&
+      !webgl2EffectSourceText.includes('sampleTextureAlpha'),
+    '完整 WebGL2 在 Fragment Shader 逐片元采样 Ring3 并执行溶解裁剪',
   );
 
   const nonSeparableSamples = [
