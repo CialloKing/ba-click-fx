@@ -343,7 +343,7 @@ declare module 'ba-click-fx'
     /** 返回当前完整特效配置的深拷贝（与 UNITY_FX_TOUCH 同结构）。 */
     getFxConfig(): Record<string, unknown>;
 
-    /** 重置所有特效参数为游戏默认值。 */
+    /** 重置所有特效参数为当前 Enhanced 或 Legacy 模式的默认基线。 */
     resetFxConfig(): void;
 
     clearTrail(): void;

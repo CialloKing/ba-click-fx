@@ -3254,6 +3254,48 @@ assert(
 );
 clickGlowResetEffect.destroy();
 
+const legacyResetEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    renderingMode: 'legacy',
+  },
+);
+
+legacyResetEffect.setFxParam('trail.width', 20);
+legacyResetEffect.setFxParam('bloom.trailAlpha', 0.6);
+const legacyResetPatch = legacyResetEffect.setFxParams(
+  {
+    'rings.count': 3,
+  },
+  {
+    reset: true,
+    strict: true,
+  },
+);
+let legacyResetConfig = legacyResetEffect.getFxConfig();
+
+assert(
+  legacyResetPatch.committed === true &&
+    legacyResetConfig.rings.count === 3 &&
+    legacyResetConfig.trail.width === 4 &&
+    legacyResetConfig.bloom.trailAlpha === 0,
+  'setFxParams reset 先恢复当前 Legacy 基线再原子应用补丁',
+);
+legacyResetEffect.setFxParam('trail.width', 12);
+legacyResetEffect.setFxParam('rings.count', 0);
+legacyResetEffect.resetFxConfig();
+legacyResetConfig = legacyResetEffect.getFxConfig();
+assert(
+  legacyResetConfig.rings.count === UNITY_FX_TOUCH.rings.count &&
+    legacyResetConfig.trail.width === 4 &&
+    legacyResetConfig.trail.coreWidth === 1.7 &&
+    legacyResetConfig.bloom.trailAlpha === 0 &&
+    legacyResetConfig.bloom.ringBlur === 80 &&
+    legacyResetConfig.bloom.diskBlur === 65,
+  'resetFxConfig 恢复 Legacy 模式完整默认基线而不是裸 Unity 配置',
+);
+legacyResetEffect.destroy();
+
 const firstIsolatedEffect = new BAClickFX({ isolatedCompositing: true });
 const secondIsolatedEffect = new BAClickFX({ isolatedCompositing: true });
 const secondOverlayRoot = secondIsolatedEffect.overlayRoot;

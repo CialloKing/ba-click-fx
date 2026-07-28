@@ -8381,7 +8381,7 @@ export class BAClickFX
             }
           }
 
-          this.fxConfig = structuredClone(UNITY_FX_TOUCH);
+          this._commitFxParamConfig(this._createFxParamResetBaseline());
         }
       }
     }
@@ -8516,8 +8516,13 @@ export class BAClickFX
   /** 重置所有特效参数为游戏默认值 */
   resetFxConfig()
   {
-    this.fxConfig = structuredClone(UNITY_FX_TOUCH);
-    this._requestRender();
+    this.setFxParams(
+      {},
+      {
+        reset: true,
+        strict: true,
+      },
+    );
   }
 
   /** 清除拖尾顶点和拖拽产生的碎片，不影响仍在播放的点击。 */
