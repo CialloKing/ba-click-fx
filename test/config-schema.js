@@ -6,10 +6,14 @@
 
 import assert from 'node:assert/strict';
 import {
+  CONFIG,
+  DEFAULT_THEME_COLOR,
   FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
   UNITY_FX_TOUCH,
+  createConfig,
+  normalizeThemeColor,
 } from '../src/config.js';
 
 let passed = 0;
@@ -164,5 +168,22 @@ assert.deepEqual(
   ],
 );
 check(true, '0 -> 1 迁移将 bloom.scatter 重命名为 bloom.diffusion');
+
+console.log('\n主题色配置契约');
+check(
+  DEFAULT_THEME_COLOR === '#4ca7ff' &&
+    CONFIG.themeColor === DEFAULT_THEME_COLOR,
+  '默认配置导出游戏基准蓝',
+);
+check(
+  normalizeThemeColor('#4CA7FF') === DEFAULT_THEME_COLOR &&
+    normalizeThemeColor('') === DEFAULT_THEME_COLOR,
+  '主题色规范化为小写并让无效值回退游戏蓝',
+);
+check(
+  createConfig({ themeColor: '#FF6969' }).themeColor === '#ff6969' &&
+    createConfig({ themeColor: 'red' }).themeColor === DEFAULT_THEME_COLOR,
+  '构造配置保存合法主题色并拒绝非十六进制颜色',
+);
 
 console.log(`\n参数 Schema 测试完成：${passed} 项通过。`);

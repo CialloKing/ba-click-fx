@@ -17,6 +17,9 @@ const OUTPUT_COMPOSITING_MODES = new Set([
   'transparent-overlay',
 ]);
 
+// 主题色属于宿主配置状态；固定导出游戏蓝可避免各适配层重复写常量。
+export const DEFAULT_THEME_COLOR = '#4ca7ff';
+
 // FX_Touch 使用独立的 UI 正交投影（高度 2 世界单位），不跟随场景相机。
 export const SIZE_CORRECTION = 1;
 
@@ -932,6 +935,7 @@ export const CONFIG = Object.freeze(
   {
     scale: 1,
     opacity: 1,
+    themeColor: DEFAULT_THEME_COLOR,
     clickEnabled: true,
     trailEnabled: true,
     trailAlways: false,
@@ -1000,6 +1004,16 @@ export function normalizeTimeScale(value, fallback = 1)
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+export function normalizeThemeColor(value, fallback = DEFAULT_THEME_COLOR)
+{
+  if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value))
+  {
+    return fallback;
+  }
+
+  return value.toLowerCase();
+}
+
 /**
  * 每个引擎实例持有独立的运行配置；Unity 参数本身保持只读。
  * @param {object} [overrides]
@@ -1042,6 +1056,10 @@ export function createConfig(overrides = {})
     overrides.outputCompositing,
     CONFIG.outputCompositing,
   );
+  const themeColor = normalizeThemeColor(
+    overrides.themeColor,
+    CONFIG.themeColor,
+  );
 
   return {
     ...CONFIG,
@@ -1051,6 +1069,7 @@ export function createConfig(overrides = {})
     clickTimeScale,
     trailTimeScale,
     outputCompositing,
+    themeColor,
     bloomBackend,
     softwareBloomEnabled: bloomBackend !== 'native',
     isolatedCompositing: typeof overrides.isolatedCompositing === 'boolean'
