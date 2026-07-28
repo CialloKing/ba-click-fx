@@ -1,30 +1,18 @@
 import {
+  CIRCLE_TEXTURE_RGBA,
+  CIRCLE_TEXTURE_SIZE,
+} from './circle-texture.js';
+import {
   TRIANGLE_TEXTURE_RGBA,
   TRIANGLE_TEXTURE_SIZE,
   resolveTriangleTextureFrame,
 } from './triangle-texture.js';
 
 const COMPONENTS_PER_VERTEX = 5;
+const DISK_COMPONENTS_PER_VERTEX = 7;
 const TRIANGLE_COMPONENTS_PER_VERTEX = 8;
 const INITIAL_VERTEX_CAPACITY = 4096;
 const MAX_PYRAMID_LEVELS = 16;
-const DISK_BLOOM_RADIAL_STOPS = Object.freeze(
-  [
-    // Circle_01 的 sRGB 采样会先解码为线性 R，Shader RGB 再乘一次 R。
-    [0, 1],
-    [0.84, 1],
-    [0.88, 1],
-    [0.885, 0.127021063],
-    [0.89, 0.029392051],
-    [0.895, 0.010453372],
-    [0.9, 0.003970262],
-    [0.905, 0.000231299],
-    [0.91, 0.000026848],
-    [0.915, 0.000002303],
-    [0.92, 0],
-    [1, 0],
-  ],
-);
 
 const EMISSION_VERTEX_SHADER = `#version 300 es
 precision highp float;
@@ -230,6 +218,55 @@ void main()
 }
 `;
 
+const DISK_EMISSION_VERTEX_SHADER = `#version 300 es
+precision highp float;
+
+in vec2 a_position;
+in vec2 a_uv;
+in vec3 a_materialColor;
+
+uniform vec2 u_displaySize;
+
+out vec2 v_uv;
+out vec3 v_materialColor;
+
+void main()
+{
+  vec2 normalized = a_position / u_displaySize;
+  gl_Position = vec4(
+    normalized.x * 2.0 - 1.0,
+    1.0 - normalized.y * 2.0,
+    0.0,
+    1.0
+  );
+  v_uv = a_uv;
+  v_materialColor = a_materialColor;
+}
+`;
+
+const DISK_EMISSION_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+uniform sampler2D u_circleTexture;
+
+in vec2 v_uv;
+in vec3 v_materialColor;
+out vec4 outColor;
+
+void main()
+{
+  vec4 sampleColor = texture(u_circleTexture, v_uv);
+  // Cross2 将线性 R 作为 Coverage，RGB 还要再乘一次同一个 R。
+  float textureAlpha = sampleColor.r;
+  vec3 emission = sampleColor.rgb *
+    max(v_materialColor, vec3(0.0)) *
+    textureAlpha;
+
+  // 独立 Bloom 只保存 HDR 发射能量；生命周期 Alpha 不参与源 RGB。
+  outColor = vec4(emission, 1.0);
+}
+`;
+
 const TRIANGLE_EMISSION_VERTEX_SHADER = `#version 300 es
 precision highp float;
 
@@ -426,6 +463,10 @@ export class WebGL2BloomRenderer
     this.vertexData = new Float32Array(
       INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_VERTEX,
     );
+    this.diskVertexCount = 0;
+    this.diskVertexData = new Float32Array(
+      INITIAL_VERTEX_CAPACITY * DISK_COMPONENTS_PER_VERTEX,
+    );
     this.triangleVertexCount = 0;
     this.triangleVertexData = new Float32Array(
       INITIAL_VERTEX_CAPACITY * TRIANGLE_COMPONENTS_PER_VERTEX,
@@ -436,6 +477,9 @@ export class WebGL2BloomRenderer
     this.programs = null;
     this.emissionBuffer = null;
     this.emissionVao = null;
+    this.diskEmissionBuffer = null;
+    this.diskEmissionVao = null;
+    this.circleTexture = null;
     this.triangleEmissionBuffer = null;
     this.triangleEmissionVao = null;
     this.triangleTexture = null;
@@ -502,6 +546,11 @@ export class WebGL2BloomRenderer
         EMISSION_VERTEX_SHADER,
         EMISSION_FRAGMENT_SHADER,
       );
+      this.programs.diskEmission = createProgram(
+        gl,
+        DISK_EMISSION_VERTEX_SHADER,
+        DISK_EMISSION_FRAGMENT_SHADER,
+      );
       this.programs.triangleEmission = createProgram(
         gl,
         TRIANGLE_EMISSION_VERTEX_SHADER,
@@ -529,6 +578,9 @@ export class WebGL2BloomRenderer
       );
       this.emissionBuffer = gl.createBuffer();
       this.emissionVao = gl.createVertexArray();
+      this.diskEmissionBuffer = gl.createBuffer();
+      this.diskEmissionVao = gl.createVertexArray();
+      this.circleTexture = gl.createTexture();
       this.triangleEmissionBuffer = gl.createBuffer();
       this.triangleEmissionVao = gl.createVertexArray();
       this.triangleTexture = gl.createTexture();
@@ -537,6 +589,9 @@ export class WebGL2BloomRenderer
       if (
         !this.emissionBuffer ||
         !this.emissionVao ||
+        !this.diskEmissionBuffer ||
+        !this.diskEmissionVao ||
+        !this.circleTexture ||
         !this.triangleEmissionBuffer ||
         !this.triangleEmissionVao ||
         !this.triangleTexture ||
@@ -576,6 +631,52 @@ export class WebGL2BloomRenderer
         false,
         stride,
         2 * Float32Array.BYTES_PER_ELEMENT,
+      );
+
+      gl.bindVertexArray(this.diskEmissionVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.diskEmissionBuffer);
+
+      const diskStride = DISK_COMPONENTS_PER_VERTEX *
+        Float32Array.BYTES_PER_ELEMENT;
+      const diskPositionLocation = gl.getAttribLocation(
+        this.programs.diskEmission,
+        'a_position',
+      );
+      const diskUvLocation = gl.getAttribLocation(
+        this.programs.diskEmission,
+        'a_uv',
+      );
+      const diskMaterialColorLocation = gl.getAttribLocation(
+        this.programs.diskEmission,
+        'a_materialColor',
+      );
+
+      gl.enableVertexAttribArray(diskPositionLocation);
+      gl.vertexAttribPointer(
+        diskPositionLocation,
+        2,
+        gl.FLOAT,
+        false,
+        diskStride,
+        0,
+      );
+      gl.enableVertexAttribArray(diskUvLocation);
+      gl.vertexAttribPointer(
+        diskUvLocation,
+        2,
+        gl.FLOAT,
+        false,
+        diskStride,
+        2 * Float32Array.BYTES_PER_ELEMENT,
+      );
+      gl.enableVertexAttribArray(diskMaterialColorLocation);
+      gl.vertexAttribPointer(
+        diskMaterialColorLocation,
+        3,
+        gl.FLOAT,
+        false,
+        diskStride,
+        4 * Float32Array.BYTES_PER_ELEMENT,
       );
 
       gl.bindVertexArray(this.triangleEmissionVao);
@@ -635,6 +736,24 @@ export class WebGL2BloomRenderer
         false,
         triangleStride,
         7 * Float32Array.BYTES_PER_ELEMENT,
+      );
+
+      // Circle_01 与 Unity importer 一致：sRGB、Bilinear、Repeat、无 Mipmap。
+      gl.bindTexture(gl.TEXTURE_2D, this.circleTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.SRGB8_ALPHA8,
+        CIRCLE_TEXTURE_SIZE,
+        CIRCLE_TEXTURE_SIZE,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        CIRCLE_TEXTURE_RGBA,
       );
 
       // Unity 以 sRGB 采样纹理 RGB；SRGB8_ALPHA8 让硬件只线性化 RGB，
@@ -699,6 +818,9 @@ export class WebGL2BloomRenderer
     this.programs = null;
     this.emissionBuffer = null;
     this.emissionVao = null;
+    this.diskEmissionBuffer = null;
+    this.diskEmissionVao = null;
+    this.circleTexture = null;
     this.triangleEmissionBuffer = null;
     this.triangleEmissionVao = null;
     this.triangleTexture = null;
@@ -816,6 +938,9 @@ export class WebGL2BloomRenderer
 
     gl.deleteBuffer(this.emissionBuffer);
     gl.deleteVertexArray(this.emissionVao);
+    gl.deleteBuffer(this.diskEmissionBuffer);
+    gl.deleteVertexArray(this.diskEmissionVao);
+    gl.deleteTexture(this.circleTexture);
     gl.deleteBuffer(this.triangleEmissionBuffer);
     gl.deleteVertexArray(this.triangleEmissionVao);
     gl.deleteTexture(this.triangleTexture);
@@ -823,6 +948,9 @@ export class WebGL2BloomRenderer
     this.programs = null;
     this.emissionBuffer = null;
     this.emissionVao = null;
+    this.diskEmissionBuffer = null;
+    this.diskEmissionVao = null;
+    this.circleTexture = null;
     this.triangleEmissionBuffer = null;
     this.triangleEmissionVao = null;
     this.triangleTexture = null;
@@ -1027,6 +1155,7 @@ export class WebGL2BloomRenderer
   beginFrame()
   {
     this.vertexCount = 0;
+    this.diskVertexCount = 0;
     this.triangleVertexCount = 0;
     this.stats.vertexCount = 0;
   }
@@ -1068,6 +1197,47 @@ export class WebGL2BloomRenderer
     this.vertexData[offset + 3] = Math.max(0, green);
     this.vertexData[offset + 4] = Math.max(0, blue);
     this.vertexCount++;
+  }
+
+  _ensureDiskVertexCapacity(additionalVertices)
+  {
+    const requiredComponents = (
+      this.diskVertexCount + additionalVertices
+    ) * DISK_COMPONENTS_PER_VERTEX;
+
+    if (requiredComponents <= this.diskVertexData.length)
+    {
+      return;
+    }
+
+    let nextLength = this.diskVertexData.length;
+
+    while (nextLength < requiredComponents)
+    {
+      nextLength = Math.ceil(nextLength * 1.5);
+    }
+
+    const next = new Float32Array(nextLength);
+
+    next.set(this.diskVertexData.subarray(
+      0,
+      this.diskVertexCount * DISK_COMPONENTS_PER_VERTEX,
+    ));
+    this.diskVertexData = next;
+  }
+
+  _appendDiskVertex(x, y, u, v, red, green, blue)
+  {
+    const offset = this.diskVertexCount * DISK_COMPONENTS_PER_VERTEX;
+
+    this.diskVertexData[offset] = x;
+    this.diskVertexData[offset + 1] = y;
+    this.diskVertexData[offset + 2] = u;
+    this.diskVertexData[offset + 3] = v;
+    this.diskVertexData[offset + 4] = Math.max(0, red);
+    this.diskVertexData[offset + 5] = Math.max(0, green);
+    this.diskVertexData[offset + 6] = Math.max(0, blue);
+    this.diskVertexCount++;
   }
 
   _ensureTriangleVertexCapacity(additionalVertices)
@@ -1122,7 +1292,15 @@ export class WebGL2BloomRenderer
     this.triangleVertexCount++;
   }
 
-  addDisk(x, y, radius, color, opacity = 1, segmentCount = 64)
+  addDisk(
+    x,
+    y,
+    radius,
+    color,
+    opacity = 1,
+    rotation = 0,
+    segmentCount = 64,
+  )
   {
     const red = color[0] * opacity;
     const green = color[1] * opacity;
@@ -1133,119 +1311,31 @@ export class WebGL2BloomRenderer
       return;
     }
 
-    const segments = clamp(Math.round(segmentCount), 24, 128);
-    const angleStep = Math.PI * 2 / segments;
-    const cosineStep = Math.cos(angleStep);
-    const sineStep = Math.sin(angleStep);
-
-    // 每段由一个中心三角形和一个渐隐四边形组成；一次扩容避免热循环检查。
-    this._ensureVertexCapacity(segments * 9);
-
-    for (
-      let ringIndex = 0;
-      ringIndex < DISK_BLOOM_RADIAL_STOPS.length - 1;
-      ringIndex++
-    )
+    const angle = Number.isFinite(rotation) ? rotation : 0;
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    const appendCorner = (localX, localY, u, v) =>
     {
-      const inner = DISK_BLOOM_RADIAL_STOPS[ringIndex];
-      const outer = DISK_BLOOM_RADIAL_STOPS[ringIndex + 1];
-      const innerRed = red * inner[1];
-      const innerGreen = green * inner[1];
-      const innerBlue = blue * inner[1];
-      const outerRed = red * outer[1];
-      const outerGreen = green * outer[1];
-      const outerBlue = blue * outer[1];
-      const innerRadius = radius * inner[0];
-      const outerRadius = radius * outer[0];
-      let startCosine = 1;
-      let startSine = 0;
+      this._appendDiskVertex(
+        x + localX * cosine - localY * sine,
+        y + localX * sine + localY * cosine,
+        u,
+        v,
+        red,
+        green,
+        blue,
+      );
+    };
 
-      for (let segment = 0; segment < segments; segment++)
-      {
-        const lastSegment = segment === segments - 1;
-        const endCosine = lastSegment
-          ? 1
-          : startCosine * cosineStep - startSine * sineStep;
-        const endSine = lastSegment
-          ? 0
-          : startSine * cosineStep + startCosine * sineStep;
-        const innerStartX = x + startCosine * innerRadius;
-        const innerStartY = y + startSine * innerRadius;
-        const innerEndX = x + endCosine * innerRadius;
-        const innerEndY = y + endSine * innerRadius;
-        const outerStartX = x + startCosine * outerRadius;
-        const outerStartY = y + startSine * outerRadius;
-        const outerEndX = x + endCosine * outerRadius;
-        const outerEndY = y + endSine * outerRadius;
-
-        if (innerRadius <= 0.00001)
-        {
-          this._appendVertex(x, y, innerRed, innerGreen, innerBlue);
-          this._appendVertex(
-            outerEndX,
-            outerEndY,
-            outerRed,
-            outerGreen,
-            outerBlue,
-          );
-          this._appendVertex(
-            outerStartX,
-            outerStartY,
-            outerRed,
-            outerGreen,
-            outerBlue,
-          );
-          startCosine = endCosine;
-          startSine = endSine;
-          continue;
-        }
-
-        this._appendVertex(
-          innerStartX,
-          innerStartY,
-          innerRed,
-          innerGreen,
-          innerBlue,
-        );
-        this._appendVertex(
-          innerEndX,
-          innerEndY,
-          innerRed,
-          innerGreen,
-          innerBlue,
-        );
-        this._appendVertex(
-          outerEndX,
-          outerEndY,
-          outerRed,
-          outerGreen,
-          outerBlue,
-        );
-        this._appendVertex(
-          innerStartX,
-          innerStartY,
-          innerRed,
-          innerGreen,
-          innerBlue,
-        );
-        this._appendVertex(
-          outerEndX,
-          outerEndY,
-          outerRed,
-          outerGreen,
-          outerBlue,
-        );
-        this._appendVertex(
-          outerStartX,
-          outerStartY,
-          outerRed,
-          outerGreen,
-          outerBlue,
-        );
-        startCosine = endCosine;
-        startSine = endSine;
-      }
-    }
+    // segmentCount 仅为兼容旧调用保留；完整纹理由两个三角形覆盖整个 Billboard。
+    void segmentCount;
+    this._ensureDiskVertexCapacity(6);
+    appendCorner(-radius, -radius, 0, 0);
+    appendCorner(radius, -radius, 1, 0);
+    appendCorner(radius, radius, 1, 1);
+    appendCorner(-radius, -radius, 0, 0);
+    appendCorner(radius, radius, 1, 1);
+    appendCorner(-radius, radius, 0, 1);
   }
 
   addTriangle(
@@ -1582,6 +1672,35 @@ export class WebGL2BloomRenderer
       gl.drawArrays(gl.TRIANGLES, 0, this.vertexCount);
     }
 
+    if (this.diskVertexCount > 0)
+    {
+      const program = this.programs.diskEmission;
+
+      gl.useProgram(program);
+      gl.uniform2f(
+        gl.getUniformLocation(program, 'u_displaySize'),
+        this.displayWidth,
+        this.displayHeight,
+      );
+      this._bindTexture(
+        program,
+        'u_circleTexture',
+        this.circleTexture,
+        0,
+      );
+      gl.bindVertexArray(this.diskEmissionVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.diskEmissionBuffer);
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        this.diskVertexData.subarray(
+          0,
+          this.diskVertexCount * DISK_COMPONENTS_PER_VERTEX,
+        ),
+        gl.DYNAMIC_DRAW,
+      );
+      gl.drawArrays(gl.TRIANGLES, 0, this.diskVertexCount);
+    }
+
     if (this.triangleVertexCount > 0)
     {
       const program = this.programs.triangleEmission;
@@ -1737,7 +1856,11 @@ export class WebGL2BloomRenderer
 
     try
     {
-      if (this.vertexCount === 0 && this.triangleVertexCount === 0)
+      if (
+        this.vertexCount === 0 &&
+        this.diskVertexCount === 0 &&
+        this.triangleVertexCount === 0
+      )
       {
         this.clear();
         return true;
@@ -1766,7 +1889,9 @@ export class WebGL2BloomRenderer
       }
 
       this._renderFinal(bloomTexture, settings);
-      this.stats.vertexCount = this.vertexCount + this.triangleVertexCount;
+      this.stats.vertexCount = this.vertexCount +
+        this.diskVertexCount +
+        this.triangleVertexCount;
 
       const error = gl.getError();
 
@@ -1790,6 +1915,7 @@ export class WebGL2BloomRenderer
   clear()
   {
     this.vertexCount = 0;
+    this.diskVertexCount = 0;
     this.triangleVertexCount = 0;
     this.stats.vertexCount = 0;
 
@@ -1813,6 +1939,8 @@ export class WebGL2BloomRenderer
     this.contextLost = false;
     this.vertexCount = 0;
     this.vertexData = new Float32Array(0);
+    this.diskVertexCount = 0;
+    this.diskVertexData = new Float32Array(0);
     this.triangleVertexCount = 0;
     this.triangleVertexData = new Float32Array(0);
     this.maximumTextureSize = 0;

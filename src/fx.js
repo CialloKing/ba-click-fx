@@ -2047,6 +2047,9 @@ class ClickWave
     this.lastUpdateTimeMs = Number.isFinite(lastUpdateTimeMs)
       ? lastUpdateTimeMs
       : null;
+    // Cross2 的 Start Rotation 是 0..2pi；同一粒子的 Scene 与 Bloom
+    // 必须复用这次采样，不能在不同渲染阶段分别随机。
+    this.diskRotation = random(0, TAU);
     this.rings = [];
 
     const ringCfg = fxConfig.rings;
@@ -2310,6 +2313,7 @@ class ClickWave
       materialEnergy,
       opacity,
       particleAlpha,
+      this.diskRotation,
     );
   }
 
@@ -2447,6 +2451,7 @@ class ClickWave
         radius,
         materialEnergy,
         emissionOpacity,
+        this.diskRotation,
       );
     }
 

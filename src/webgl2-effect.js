@@ -3,9 +3,13 @@ import {
   TRIANGLE_TEXTURE_SIZE,
   resolveTriangleTextureFrame,
 } from './triangle-texture.js';
+import {
+  CIRCLE_TEXTURE_RGBA,
+  CIRCLE_TEXTURE_SIZE,
+} from './circle-texture.js';
 
 const COMPONENTS_PER_VERTEX = 6;
-const COMPONENTS_PER_DISK_VERTEX = 6;
+const COMPONENTS_PER_DISK_VERTEX = 8;
 const COMPONENTS_PER_RING_VERTEX = 8;
 const COMPONENTS_PER_TRIANGLE_VERTEX = 8;
 const INITIAL_VERTEX_CAPACITY = 4096;
@@ -211,13 +215,15 @@ const SCENE_DISK_VERTEX_SHADER = `#version 300 es
 precision highp float;
 
 layout(location = 0) in vec2 a_position;
-layout(location = 1) in vec3 a_color;
-layout(location = 2) in float a_alpha;
+layout(location = 1) in vec2 a_uv;
+layout(location = 2) in vec3 a_materialColor;
+layout(location = 3) in float a_particleAlpha;
 
 uniform vec2 u_displaySize;
 
-out vec3 v_color;
-out float v_alpha;
+out vec2 v_uv;
+out vec3 v_materialColor;
+out float v_particleAlpha;
 
 void main()
 {
@@ -228,24 +234,35 @@ void main()
     0.0,
     1.0
   );
-  v_color = a_color;
-  v_alpha = a_alpha;
+  v_uv = a_uv;
+  v_materialColor = a_materialColor;
+  v_particleAlpha = a_particleAlpha;
 }
 `;
 
 const SCENE_DISK_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
-in vec3 v_color;
-in float v_alpha;
+uniform sampler2D u_texture;
+
+in vec2 v_uv;
+in vec3 v_materialColor;
+in float v_particleAlpha;
 out vec4 outColor;
 
 void main()
 {
-  // Cross2 源 RGB 不乘生命周期 Alpha；Alpha 只控制目标颜色衰减。
+  vec4 sampleColor = texture(u_texture, v_uv);
+  // Cross2 的 _RGBRGBA=0 读取线性 R 作为透明度，原图 A 恒为 1。
+  float textureAlpha = sampleColor.r;
+  vec3 color = sampleColor.rgb *
+    max(v_materialColor, vec3(0.0)) * textureAlpha;
+  // 生命周期 Alpha 只控制目标颜色衰减，不能再次乘入源 RGB。
+  float alpha = textureAlpha * clamp(v_particleAlpha, 0.0, 1.0);
+
   outColor = vec4(
-    max(v_color, vec3(0.0)),
-    clamp(v_alpha, 0.0, 1.0)
+    color,
+    clamp(alpha, 0.0, 1.0)
   );
 }
 `;
@@ -603,6 +620,7 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
+    this.circleTexture = null;
     this.fullscreenVao = null;
     this.stats =
     {
@@ -725,6 +743,7 @@ export class WebGL2EffectRenderer
       this.triangleBuffer = gl.createBuffer();
       this.triangleVao = gl.createVertexArray();
       this.triangleTexture = gl.createTexture();
+      this.circleTexture = gl.createTexture();
       this.fullscreenVao = gl.createVertexArray();
 
       if (
@@ -737,7 +756,8 @@ export class WebGL2EffectRenderer
         !this.ringVao ||
         !this.triangleBuffer ||
         !this.triangleVao ||
-        !this.triangleTexture
+        !this.triangleTexture ||
+        !this.circleTexture
       )
       {
         throw new Error('WebGL2 无法创建几何缓冲');
@@ -799,7 +819,7 @@ export class WebGL2EffectRenderer
       gl.enableVertexAttribArray(1);
       gl.vertexAttribPointer(
         1,
-        3,
+        2,
         gl.FLOAT,
         false,
         diskStride,
@@ -808,11 +828,20 @@ export class WebGL2EffectRenderer
       gl.enableVertexAttribArray(2);
       gl.vertexAttribPointer(
         2,
+        3,
+        gl.FLOAT,
+        false,
+        diskStride,
+        4 * Float32Array.BYTES_PER_ELEMENT,
+      );
+      gl.enableVertexAttribArray(3);
+      gl.vertexAttribPointer(
+        3,
         1,
         gl.FLOAT,
         false,
         diskStride,
-        5 * Float32Array.BYTES_PER_ELEMENT,
+        7 * Float32Array.BYTES_PER_ELEMENT,
       );
 
       gl.bindVertexArray(this.ringVao);
@@ -931,6 +960,24 @@ export class WebGL2EffectRenderer
         gl.UNSIGNED_BYTE,
         TRIANGLE_TEXTURE_RGBA,
       );
+
+      // Circle_01 使用 Repeat；完整 Quad 在片元阶段采样才能保留二维边缘。
+      gl.bindTexture(gl.TEXTURE_2D, this.circleTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.SRGB8_ALPHA8,
+        CIRCLE_TEXTURE_SIZE,
+        CIRCLE_TEXTURE_SIZE,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        CIRCLE_TEXTURE_RGBA,
+      );
       gl.bindTexture(gl.TEXTURE_2D, null);
 
       this.contextLost = false;
@@ -982,6 +1029,7 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
+    this.circleTexture = null;
     this.fullscreenVao = null;
     this.vertexCount = 0;
     this.sceneDiskVertexCount = 0;
@@ -1118,6 +1166,7 @@ export class WebGL2EffectRenderer
     gl.deleteBuffer(this.triangleBuffer);
     gl.deleteVertexArray(this.triangleVao);
     gl.deleteTexture(this.triangleTexture);
+    gl.deleteTexture(this.circleTexture);
     gl.deleteVertexArray(this.fullscreenVao);
     this.programs = null;
     this.emissionBuffer = null;
@@ -1129,6 +1178,7 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
+    this.circleTexture = null;
     this.fullscreenVao = null;
     this.stats.vertexCount = 0;
     this.stats.sceneVertexCount = 0;
@@ -1379,6 +1429,12 @@ export class WebGL2EffectRenderer
         gl.getUniformLocation(diskProgram, 'u_displaySize'),
         this.displayWidth,
         this.displayHeight,
+      );
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.circleTexture);
+      gl.uniform1i(
+        gl.getUniformLocation(diskProgram, 'u_texture'),
+        0,
       );
       gl.bindVertexArray(this.sceneDiskVao);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.sceneDiskBuffer);
@@ -1663,17 +1719,28 @@ export class WebGL2EffectRenderer
     this.sceneDiskVertexData = next;
   }
 
-  _appendSceneDiskVertex(x, y, red, green, blue, alpha)
+  _appendSceneDiskVertex(
+    x,
+    y,
+    u,
+    v,
+    red,
+    green,
+    blue,
+    particleAlpha,
+  )
   {
     const offset = this.sceneDiskVertexCount *
       COMPONENTS_PER_DISK_VERTEX;
 
     this.sceneDiskVertexData[offset] = x;
     this.sceneDiskVertexData[offset + 1] = y;
-    this.sceneDiskVertexData[offset + 2] = Math.max(0, red);
-    this.sceneDiskVertexData[offset + 3] = Math.max(0, green);
-    this.sceneDiskVertexData[offset + 4] = Math.max(0, blue);
-    this.sceneDiskVertexData[offset + 5] = clamp(alpha, 0, 1);
+    this.sceneDiskVertexData[offset + 2] = u;
+    this.sceneDiskVertexData[offset + 3] = v;
+    this.sceneDiskVertexData[offset + 4] = Math.max(0, red);
+    this.sceneDiskVertexData[offset + 5] = Math.max(0, green);
+    this.sceneDiskVertexData[offset + 6] = Math.max(0, blue);
+    this.sceneDiskVertexData[offset + 7] = clamp(particleAlpha, 0, 1);
     this.sceneDiskVertexCount++;
   }
 
@@ -1941,14 +2008,15 @@ export class WebGL2EffectRenderer
     color,
     opacity = 1,
     particleAlpha = 1,
+    rotation = 0,
     segmentCount = 64,
   )
   {
-    const coverageOpacity = opacity * particleAlpha;
     // 解包 Shader 的 vertex.a 只进入输出 Alpha，不能削弱 HDR RGB 或 Bloom。
     const red = color[0] * opacity;
     const green = color[1] * opacity;
     const blue = color[2] * opacity;
+    const coverageOpacity = opacity * particleAlpha;
 
     if (
       radius <= 0 ||
@@ -1958,25 +2026,34 @@ export class WebGL2EffectRenderer
       return;
     }
 
-    // Circle_01 的 RGB 还会再乘一次 R；Coverage 则只使用一次 R。
-    this._appendRadialDisk(
-      x,
-      y,
-      radius,
-      segmentCount,
-      (count) => this._ensureSceneDiskVertexCapacity(count),
-      (vertexX, vertexY, textureAlpha, energy) =>
-      {
-        this._appendSceneDiskVertex(
-          vertexX,
-          vertexY,
-          red * energy,
-          green * energy,
-          blue * energy,
-          coverageOpacity * textureAlpha,
-        );
-      },
-    );
+    // segmentCount 仅为旧调用兼容保留；Unity Billboard 本身始终是一个 Quad。
+    void segmentCount;
+
+    const angle = Number.isFinite(rotation) ? rotation : 0;
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    const appendCorner = (localX, localY, u, v) =>
+    {
+      this._appendSceneDiskVertex(
+        x + localX * cosine - localY * sine,
+        y + localX * sine + localY * cosine,
+        u,
+        v,
+        red,
+        green,
+        blue,
+        coverageOpacity,
+      );
+    };
+
+    // PNG 数据按顶行到末行保存，屏幕上边沿因此对应 V=0。
+    this._ensureSceneDiskVertexCapacity(6);
+    appendCorner(-radius, -radius, 0, 0);
+    appendCorner(radius, -radius, 1, 0);
+    appendCorner(radius, radius, 1, 1);
+    appendCorner(-radius, -radius, 0, 0);
+    appendCorner(radius, radius, 1, 1);
+    appendCorner(-radius, radius, 0, 1);
   }
 
   addSceneDisk(
@@ -1986,6 +2063,7 @@ export class WebGL2EffectRenderer
     color,
     opacity = 1,
     particleAlpha = 1,
+    rotation = 0,
     segmentCount = 64,
   )
   {
@@ -1997,6 +2075,7 @@ export class WebGL2EffectRenderer
       color,
       opacity,
       particleAlpha,
+      rotation,
       segmentCount,
     );
   }
