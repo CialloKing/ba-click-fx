@@ -35,6 +35,8 @@ const metrics =
   cases: {},
   compositor: {},
   contextLifecycle: {},
+  trailContextLifecycle: {},
+  trailTextureResourceLifecycle: {},
 };
 
 let currentPage = null;
@@ -410,11 +412,8 @@ function validateWebGLTrailProbe(result, label)
   );
 }
 
-function validateWebGLTrailPair(fullWebGL2, webGL2Bloom)
+function validateWebGLTrailProfiles(first, second, label)
 {
-  const first = fullWebGL2.trailProfile;
-  const second = webGL2Bloom.trailProfile;
-
   for (const key of [
     'headEnergy',
     'tailEnergy',
@@ -424,28 +423,42 @@ function validateWebGLTrailPair(fullWebGL2, webGL2Bloom)
   {
     assert(
       Math.abs(first[key] - second[key]) <= 2 / 255,
-      `两种 WebGL2 模式的拖尾探针 ${key} 不一致`,
+      `${label}: 拖尾探针 ${key} 不一致`,
       {
-        fullWebGL2: first,
-        webGL2Bloom: second,
+        first,
+        second,
       },
     );
   }
 }
 
+function validateWebGLTrailPair(fullWebGL2, webGL2Bloom)
+{
+  validateWebGLTrailProfiles(
+    fullWebGL2.trailProfile,
+    webGL2Bloom.trailProfile,
+    '完整 WebGL2 与 WebGL2 Bloom',
+  );
+}
+
+function validateWebGLTrailDirection(profile, label)
+{
+  assert(
+    profile.upperEdgeEnergy > profile.lowerEdgeEnergy + 0.02,
+    `${label}: Trail_03 可见横截面方向偏离 Unity 诊断帧`,
+    profile,
+  );
+}
+
 function validateWebGLTrailDirections(fullWebGL2, webGL2Bloom)
 {
-  const profiles =
-  {
-    fullWebGL2: fullWebGL2.trailProfile,
-    webGL2Bloom: webGL2Bloom.trailProfile,
-  };
-
-  assert(
-    Object.values(profiles).every((profile) =>
-      profile.upperEdgeEnergy > profile.lowerEdgeEnergy + 0.02),
-    '两种 WebGL2 模式的 Trail_03 可见横截面方向偏离 Unity 诊断帧',
-    profiles,
+  validateWebGLTrailDirection(
+    fullWebGL2.trailProfile,
+    '完整 WebGL2',
+  );
+  validateWebGLTrailDirection(
+    webGL2Bloom.trailProfile,
+    'WebGL2 Bloom',
   );
 }
 
@@ -1120,6 +1133,36 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     await session.context.close();
   }
 
+  currentLabel = 'trail-texture-resource-fixture-startup';
+  const trailResourceSession = await openFixture(browserInstance, baseUrl, 1);
+
+  currentPage = trailResourceSession.page;
+  currentLabel = 'trail-texture-resource-lifecycle';
+  const trailTextureResourceLifecycle =
+    await trailResourceSession.page.evaluate(
+      () => window.browserPixelSuite.runTrailTextureResourceLifecycle(),
+    );
+
+  assert(
+    Object.values(trailTextureResourceLifecycle).every(Boolean),
+    'Trail 静态纹理的闲置释放或销毁合同失败',
+    trailTextureResourceLifecycle,
+  );
+  metrics.trailTextureResourceLifecycle = trailTextureResourceLifecycle;
+  assert(
+    trailResourceSession.pageErrors.length === 0 &&
+      trailResourceSession.consoleErrors.length === 0,
+    'Trail 静态纹理资源夹具出现未处理异常',
+    {
+      consoleErrors: trailResourceSession.consoleErrors,
+      pageErrors: trailResourceSession.pageErrors,
+    },
+  );
+  await trailResourceSession.page.evaluate(
+    () => window.browserPixelSuite.dispose(),
+  );
+  await trailResourceSession.context.close();
+
   // Context 丢失可能让 GPU 进程短暂回收共享资源，独立于 DPR 矩阵执行。
   for (const mode of ['full-webgl2', 'webgl2-bloom'])
   {
@@ -1178,6 +1221,37 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     }
 
     metrics.contextLifecycle[mode] = lifecycle;
+
+    currentLabel = `${mode}__trail-context-lifecycle`;
+    const trailLifecycle = await contextSession.page.evaluate(
+      (input) => window.browserPixelSuite.runTrailContextLifecycle(input),
+      mode,
+    );
+    const expectedTrailRoute = mode === 'full-webgl2'
+      ? trailLifecycle.restoredRoute.effect === 'webgl2'
+      : trailLifecycle.restoredRoute.bloom === 'webgl2';
+
+    assert(
+      expectedTrailRoute &&
+        Object.values(trailLifecycle.texture).every(Boolean),
+      `${mode}: Context 恢复没有重建有效的 Trail 静态纹理`,
+      trailLifecycle,
+    );
+    validateWebGLTrailProfiles(
+      trailLifecycle.beforeProfile,
+      trailLifecycle.restoredProfile,
+      `${mode} Context 恢复`,
+    );
+    validateWebGLTrailDirection(
+      trailLifecycle.beforeProfile,
+      `${mode} Context 恢复前`,
+    );
+    validateWebGLTrailDirection(
+      trailLifecycle.restoredProfile,
+      `${mode} Context 恢复后`,
+    );
+    metrics.trailContextLifecycle[mode] = trailLifecycle;
+
     assert(
       contextSession.pageErrors.length === 0 &&
         contextSession.consoleErrors.length === 0,

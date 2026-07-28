@@ -789,6 +789,170 @@ async function runContextLifecycle(mode)
   };
 }
 
+function getWebGLModeResources(effect, mode)
+{
+  if (mode === 'full-webgl2')
+  {
+    return {
+      canvas: effect.webglEffectCanvas,
+      renderer: effect.webglEffectRenderer,
+    };
+  }
+
+  return {
+    canvas: effect.webglBloomCanvas,
+    renderer: effect.webglBloomRenderer,
+  };
+}
+
+async function runTrailTextureResourceLifecycle()
+{
+  const fixture = await prepareEffect(
+    {
+      mode: 'full-webgl2',
+      opacity: 1,
+      isolatedCompositing: true,
+      background: 'transparent',
+      outputCompositing: 'scene',
+      shadow: false,
+      containStrict: false,
+      includeClick: false,
+      includeTrail: true,
+      includeTrailShards: false,
+      straightTrailProbe: true,
+      inspectTrailTexture: true,
+      scale: 64,
+    },
+  );
+  const effect = fixture.effect;
+  const resources = getWebGLModeResources(effect, 'full-webgl2');
+  const renderer = resources.renderer;
+  const context = renderer?.gl;
+  const texture = renderer?.trailTexture;
+
+  if (!renderer || !context || !texture)
+  {
+    throw new Error('纯 WebGL2 没有建立 Trail 静态纹理');
+  }
+
+  const initialTextureValid = context.isTexture(texture);
+  const hadFrameTargets = renderer.sourceTarget !== null &&
+    renderer.levels.length > 0;
+
+  effect.updateConfig({ effectBackend: 'canvas2d' });
+
+  const releaseRetainedTexture = renderer.trailTexture === texture &&
+    context.isTexture(texture);
+  const releaseClearedFrameTargets = renderer.sourceTarget === null &&
+    renderer.levels.length === 0;
+  const canvas = resources.canvas;
+
+  effect.destroy();
+
+  const destroyDeletedTexture = !context.isTexture(texture) &&
+    renderer.trailTexture === null;
+  const destroyClearedCpuTrail = renderer.trailVertexData.length === 0;
+
+  // destroy() 必须先移除恢复监听；伪恢复事件不能重新建立已销毁资源。
+  canvas.dispatchEvent(new Event('webglcontextrestored'));
+
+  return {
+    initialTextureValid,
+    hadFrameTargets,
+    releaseRetainedTexture,
+    releaseClearedFrameTargets,
+    destroyDeletedTexture,
+    destroyClearedCpuTrail,
+    restoreIgnoredAfterDestroy: renderer.trailTexture === null &&
+      renderer.available === false,
+  };
+}
+
+async function runTrailContextLifecycle(mode)
+{
+  const fixture = await prepareEffect(
+    {
+      mode,
+      opacity: 1,
+      isolatedCompositing: true,
+      background: 'transparent',
+      outputCompositing: 'scene',
+      shadow: false,
+      containStrict: false,
+      includeClick: false,
+      includeTrail: true,
+      includeTrailShards: false,
+      straightTrailProbe: true,
+      inspectTrailTexture: true,
+      scale: 64,
+    },
+  );
+  const effect = fixture.effect;
+  const resources = getWebGLModeResources(effect, mode);
+  const canvas = resources.canvas;
+  const renderer = resources.renderer;
+  const context = canvas?.getContext('webgl2');
+  const extension = context?.getExtension('WEBGL_lose_context');
+  const originalTexture = renderer?.trailTexture;
+
+  if (!canvas || !renderer || !context || !extension || !originalTexture)
+  {
+    throw new Error(`${mode} 无法建立 Trail Context 生命周期夹具`);
+  }
+
+  const beforeImage = captureLayers(
+    effect,
+    fixture.target,
+    'transparent',
+  );
+  const beforeProfile = summarizeStraightTrail(beforeImage, effect);
+  const originalTextureValid = context.isTexture(originalTexture);
+  const lostEvent = waitForCanvasEvent(canvas, 'webglcontextlost');
+
+  extension.loseContext();
+  await lostEvent;
+  await runAnimationFrame(SAMPLE_TIME_MS + 1);
+
+  const restoredEvent = waitForCanvasEvent(canvas, 'webglcontextrestored');
+
+  // Chromium 需要先完成一次丢失后的 GPU 任务清理，立即 restore 会被忽略。
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  extension.restoreContext();
+  await restoredEvent;
+  await runAnimationFrame(SAMPLE_TIME_MS + 2);
+  await runAnimationFrame(SAMPLE_TIME_MS + 3);
+
+  const restoredResources = getWebGLModeResources(effect, mode);
+  const restoredTexture = restoredResources.renderer?.trailTexture;
+  const restoredImage = captureLayers(
+    effect,
+    fixture.target,
+    'transparent',
+  );
+  const restoredProfile = summarizeStraightTrail(restoredImage, effect);
+  const restoredRoute = effect.getConfig();
+
+  return {
+    mode,
+    beforeProfile,
+    restoredProfile,
+    texture:
+    {
+      originalValid: originalTextureValid,
+      rendererReused: restoredResources.renderer === renderer,
+      replaced: restoredTexture !== originalTexture,
+      restoredValid: Boolean(
+        restoredTexture && context.isTexture(restoredTexture),
+      ),
+    },
+    restoredRoute:
+    {
+      effect: restoredRoute.resolvedEffectBackend,
+      bloom: restoredRoute.resolvedBloomBackend,
+    },
+  };
+}
+
 async function waitForCompositorFrame()
 {
   await new Promise((resolve) => nativeRequestAnimationFrame(resolve));
@@ -812,6 +976,8 @@ window.browserPixelSuite = Object.freeze(
     runCase,
     runSceneBackgroundReset,
     runContextLifecycle,
+    runTrailTextureResourceLifecycle,
+    runTrailContextLifecycle,
     waitForCompositorFrame,
     getStageClip,
     dispose: disposeActiveFixture,
