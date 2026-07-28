@@ -436,25 +436,15 @@ void main()
   float alpha = u_hasScene
     ? clamp(scene.a, 0.0, 1.0)
     : maximumSrgb;
-  // Unity 在同一线性 HDR 缓冲中合成背景后才转换到 sRGB。网页背景无法被
-  // 通用库可靠回读，因此透明区域不能先独立 Gamma 提亮再由 DOM 重复相加。
-  // Coverage=1 时保留 Unity 输出；Coverage=0 时输出线性能量，中间连续过渡。
-  vec3 displayColor = u_hasScene
-    ? mix(clamp(linear, 0.0, 1.0), srgb, alpha)
-    : srgb;
-  float maximumDisplay = max(
-    max(displayColor.r, displayColor.g),
-    displayColor.b
-  );
 
-  if (maximumDisplay <= 0.00001 && alpha <= 0.00001)
+  if (maximumSrgb <= 0.00001 && alpha <= 0.00001)
   {
     outColor = vec4(0.0);
     return;
   }
 
   // WebGL Canvas 以预乘 Alpha 交给页面合成器；RGB 直接保存加色贡献。
-  outColor = vec4(displayColor, alpha);
+  outColor = vec4(srgb, alpha);
 }
 `;
 
