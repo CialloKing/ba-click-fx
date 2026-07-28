@@ -328,7 +328,7 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `rings.lifetimeMs` | 600 | Ring lifetime (ms) |
 | `shards.hdrIntensity` | 5.992157 | Shard material HDR intensity; the source Start Color is also applied during rendering |
 | `shards.clickCount` | 4 | Click shard count |
-| `shards.maxCount` | 96 | Max shards |
+| `shards.maxCount` | 50 | Trail-shard limit per press; click shards and older instances do not consume it |
 | `shards.trailSpacing` | 108 | Trail shard spacing |
 | `bloom.threshold` | 1.0 | Bright-pass threshold |
 | `bloom.softKnee` | 0 | Soft transition around the threshold |

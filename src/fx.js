@@ -3083,6 +3083,7 @@ function createShard(
   scale,
   shardCfg = UNITY_FX_TOUCH.shards,
   lastUpdateTimeMs = null,
+  ownerId = null,
 )
 {
   const isClick = kind === 'click';
@@ -3107,6 +3108,7 @@ function createShard(
       lifetimeMs,
       size: random(shardCfg.sizeMin, shardCfg.sizeMax),
       lastUpdateTimeMs,
+      ownerId,
     },
   );
 }
@@ -4956,6 +4958,9 @@ export class BAClickFX
     this.shards = [];
     this.trailStrokes = [];
     this.currentTrailStroke = null;
+    this.activeTrailOwnerId = null;
+    this.nextTrailOwnerId = 1;
+    this.trailShardCounts = new Map();
     this.activePointerId = null;
     this.activePointerSource = null;
     this.lastPointerPosition = null;
@@ -5372,6 +5377,7 @@ export class BAClickFX
 
     this.activePointerId = pointer.pointerId;
     this.activePointerSource = 'press';
+    this._beginTrailOwner();
     this.lastPointerPosition = { x: pointer.x, y: pointer.y };
     this.lastPointerTime = this._getTrailInputTime();
     this.trailDistanceSinceShard = 0;
@@ -5459,6 +5465,7 @@ export class BAClickFX
     {
       this.activePointerId = pointer.pointerId;
       this.activePointerSource = 'hover';
+      this._beginTrailOwner();
       this.lastPointerPosition = position;
       this.lastPointerTime = now;
       this.trailDistanceSinceShard = 0;
@@ -5498,9 +5505,41 @@ export class BAClickFX
 
     this.currentTrailStroke = {
       active: true,
+      ownerId: this.activeTrailOwnerId,
       points,
     };
     this.trailStrokes.push(this.currentTrailStroke);
+  }
+
+  _beginTrailOwner()
+  {
+    const ownerId = this.nextTrailOwnerId;
+
+    // 每次按下对应官方对象池中的一个 FX_Touch 实例，粒子上限不能跨实例共享。
+    this.nextTrailOwnerId++;
+    this.activeTrailOwnerId = ownerId;
+    this.trailShardCounts.set(ownerId, 0);
+  }
+
+  _releaseTrailShardOwner(shard)
+  {
+    if (shard.kind !== 'trail' || !Number.isFinite(shard.ownerId))
+    {
+      return;
+    }
+
+    const nextCount = Math.max(
+      0,
+      (this.trailShardCounts.get(shard.ownerId) ?? 0) - 1,
+    );
+
+    if (nextCount === 0 && shard.ownerId !== this.activeTrailOwnerId)
+    {
+      this.trailShardCounts.delete(shard.ownerId);
+      return;
+    }
+
+    this.trailShardCounts.set(shard.ownerId, nextCount);
   }
 
   _ensureCurrentTrailStroke(now)
@@ -5593,8 +5632,16 @@ export class BAClickFX
       const x = lerp(from.x, to.x, progress);
       const y = lerp(from.y, to.y, progress);
       const angle = random(0, TAU);
+      const ownerId = this.currentTrailStroke?.ownerId ??
+        this.activeTrailOwnerId;
+      const ownerShardCount = Number.isFinite(ownerId)
+        ? this.trailShardCounts.get(ownerId) ?? 0
+        : 0;
 
-      if (this.shards.length < this.fxConfig.shards.maxCount)
+      if (
+        Number.isFinite(ownerId) &&
+        ownerShardCount < this.fxConfig.shards.maxCount
+      )
       {
         this.shards.push(createShard(
           x,
@@ -5604,7 +5651,9 @@ export class BAClickFX
           scale,
           this.fxConfig.shards,
           lerp(fromTime, toTime, progress),
+          ownerId,
         ));
+        this.trailShardCounts.set(ownerId, ownerShardCount + 1);
       }
 
       nextDistance += spacing;
@@ -5670,6 +5719,8 @@ export class BAClickFX
 
   _releaseActivePointer(discardCurrentStroke = false)
   {
+    const releasedOwnerId = this.activeTrailOwnerId;
+
     if (this.currentTrailStroke)
     {
       // 正常松开保留顶点自然衰减；异常取消必须丢弃当前 stroke。
@@ -5688,6 +5739,17 @@ export class BAClickFX
     }
 
     this.currentTrailStroke = null;
+    this.activeTrailOwnerId = null;
+
+    if (
+      releasedOwnerId !== null &&
+      (this.trailShardCounts.get(releasedOwnerId) ?? 0) === 0
+    )
+    {
+      // 无存活粒子的 Unity 实例可以随指针一起释放，避免按点击次数积累空计数。
+      this.trailShardCounts.delete(releasedOwnerId);
+    }
+
     this.activePointerId = null;
     this.activePointerSource = null;
     this.lastPointerPosition = null;
@@ -7942,6 +8004,7 @@ export class BAClickFX
 
       if (shard.dead)
       {
+        this._releaseTrailShardOwner(shard);
         this.shards.splice(index, 1);
         continue;
       }
@@ -8346,6 +8409,13 @@ export class BAClickFX
     this.trailStrokes.length = 0;
     this.currentTrailStroke = null;
     this.shards = this.shards.filter((shard) => shard.kind !== 'trail');
+    this.trailShardCounts.clear();
+
+    if (this.activeTrailOwnerId !== null)
+    {
+      this.trailShardCounts.set(this.activeTrailOwnerId, 0);
+    }
+
     // 不在此处 clearRect；_requestRender 下一帧会完整重绘，不影响点击特效
     this._requestRender();
   }
@@ -8357,6 +8427,7 @@ export class BAClickFX
     this.shards.length = 0;
     this.trailStrokes.length = 0;
     this.currentTrailStroke = null;
+    this.trailShardCounts.clear();
     this._trimBloomRendererPool(0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
     this.contrastContext?.clearRect(0, 0, this.width, this.height);

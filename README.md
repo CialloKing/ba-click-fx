@@ -348,7 +348,7 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `rings.lifetimeMs` | 600 | 圆环寿命 (ms) |
 | `shards.hdrIntensity` | 5.992157 | 碎片材质 HDR 强度；渲染时还会乘资源起始色 |
 | `shards.clickCount` | 4 | 点击碎片数量 |
-| `shards.maxCount` | 96 | 碎片上限 |
+| `shards.maxCount` | 50 | 每次按下实例的拖尾碎片上限；点击碎片和旧实例不占用额度 |
 | `shards.trailSpacing` | 108 | 拖尾碎片间距 |
 | `bloom.threshold` | 1.0 | 高亮提取阈值 |
 | `bloom.softKnee` | 0 | 阈值过渡柔和度 |

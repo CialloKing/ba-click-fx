@@ -226,7 +226,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
         [1, 1],
       ],
       trailSpacing: WORLD_TO_REFERENCE_PIXELS / 5,
-      maxCount: 96,
+      // 原 Ring (4) 的 maxNumParticles=50，作用域是每个 FX_Touch 实例。
+      maxCount: 50,
     },
     trail:
     {

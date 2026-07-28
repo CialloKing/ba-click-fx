@@ -817,6 +817,10 @@ assert(
   '碎片使用 Unity Hermite 尺寸曲线与 2×1 图集的实测轮廓',
 );
 assert(UNITY_FX_TOUCH.shards.trailSpacing === 108, '拖拽每 108px 生成一枚碎片');
+assert(
+  UNITY_FX_TOUCH.shards.maxCount === 50,
+  'Ring (4) 保留 Prefab 每个 FX_Touch 实例 50 枚粒子上限',
+);
 assert(UNITY_FX_TOUCH.trail.lifetimeMs === 300, 'TrailRenderer.time 为 0.3 秒');
 assert(UNITY_FX_TOUCH.trail.geometryWidth === 2.7, '1080p TrailRenderer 几何带宽为 2.7px');
 assert(UNITY_FX_TOUCH.trail.width === 2.7, '清晰拖尾本体使用 Unity 的 2.7px 带宽');
@@ -2317,6 +2321,83 @@ assert(
   '运行时恢复 manual 会完整解除 DOM 指针监听',
 );
 manualEffect.destroy();
+
+const shardOwnerEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    inputSource: 'manual',
+  },
+);
+
+shardOwnerEffect.setFxParam('shards.maxCount', 1);
+shardOwnerEffect.setFxParam('shards.trailSpacing', 20);
+shardOwnerEffect.pointerDown({ x: 100, y: 100, pointerId: 81 });
+const firstTrailOwnerId = shardOwnerEffect.activeTrailOwnerId;
+
+shardOwnerEffect.pointerMove({ x: 500, y: 100, pointerId: 81 });
+const firstOwnerTrailShards = shardOwnerEffect.shards.filter((shard) =>
+  shard.kind === 'trail' && shard.ownerId === firstTrailOwnerId);
+
+assert(
+  firstOwnerTrailShards.length === 1 &&
+    shardOwnerEffect.shards.filter((shard) => shard.kind === 'click').length ===
+      UNITY_FX_TOUCH.shards.clickCount,
+  '点击碎片不占用当前 FX_Touch 实例的拖尾粒子额度',
+);
+
+shardOwnerEffect.pointerUp(81);
+shardOwnerEffect.pointerDown({ x: 100, y: 200, pointerId: 82 });
+const secondTrailOwnerId = shardOwnerEffect.activeTrailOwnerId;
+
+shardOwnerEffect.pointerMove({ x: 500, y: 200, pointerId: 82 });
+const allOwnedTrailShards = shardOwnerEffect.shards.filter((shard) =>
+  shard.kind === 'trail');
+
+assert(
+  firstTrailOwnerId !== secondTrailOwnerId &&
+    allOwnedTrailShards.length === 2 &&
+    allOwnedTrailShards.some((shard) =>
+      shard.ownerId === firstTrailOwnerId) &&
+    allOwnedTrailShards.some((shard) =>
+      shard.ownerId === secondTrailOwnerId),
+  '旧按下实例的存活拖尾碎片不占用新 FX_Touch 实例额度',
+);
+
+firstOwnerTrailShards[0].ageMs = firstOwnerTrailShards[0].lifetimeMs;
+shardOwnerEffect._updateShards(
+  shardOwnerEffect.clickTimeMs,
+  shardOwnerEffect.trailTimeMs,
+  shardOwnerEffect._getScale(),
+  false,
+);
+assert(
+  !shardOwnerEffect.trailShardCounts.has(firstTrailOwnerId) &&
+    shardOwnerEffect.trailShardCounts.get(secondTrailOwnerId) === 1,
+  '拖尾碎片死亡后只归还所属 FX_Touch 实例的额度',
+);
+
+shardOwnerEffect.pointerCancel(82);
+const secondOwnerTrailShard = shardOwnerEffect.shards.find((shard) =>
+  shard.kind === 'trail' && shard.ownerId === secondTrailOwnerId);
+
+secondOwnerTrailShard.ageMs = secondOwnerTrailShard.lifetimeMs;
+shardOwnerEffect._updateShards(
+  shardOwnerEffect.clickTimeMs,
+  shardOwnerEffect.trailTimeMs,
+  shardOwnerEffect._getScale(),
+  false,
+);
+shardOwnerEffect.pointerDown({ x: 100, y: 300, pointerId: 83 });
+const emptyTrailOwnerId = shardOwnerEffect.activeTrailOwnerId;
+
+shardOwnerEffect.pointerUp(83);
+assert(
+  shardOwnerEffect.trailShardCounts.size === 0 &&
+    !shardOwnerEffect.trailShardCounts.has(emptyTrailOwnerId),
+  '松开时立即释放没有存活拖尾碎片的空 owner 计数',
+);
+shardOwnerEffect.destroy();
 
 const coalescedEffect = new BAClickFX(
   {

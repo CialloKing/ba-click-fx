@@ -762,7 +762,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlRingWEnd', 'outRingWEnd', 1, false],
     ['ctrlRingLife', 'outRingLife', 600, true],
     ['ctrlClickShards', 'outClickShards', 4, true],
-    ['ctrlMaxShards', 'outMaxShards', 96, true],
+    ['ctrlMaxShards', 'outMaxShards', 50, true],
     ['ctrlBloomRing', 'outBloomRing', 80, false],
     ['ctrlBloomThreshold', 'outBloomThreshold', 1, false],
     ['ctrlBloomIntensity', 'outBloomIntensity', 1.7, false],
