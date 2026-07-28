@@ -337,7 +337,7 @@ export const CONFIG = Object.freeze(
     trailTimeScale: 1,
     // 默认保留 Unity Scene 合成；透明桌面宿主必须显式选择覆盖层输出。
     outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
-    // 纯 WebGL2 仍属实验路径；默认继续使用已发布的 Canvas2D 清晰本体。
+    // 纯 WebGL2 是可选完整特效后端；默认继续使用兼容性更广的 Canvas2D。
     effectBackend: DEFAULT_EFFECT_BACKEND,
     // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
     // 替换为兼容性更高的 Canvas shadowBlur，并保留旧版拖尾合成风格。
