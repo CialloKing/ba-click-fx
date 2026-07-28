@@ -2043,7 +2043,15 @@ function evaluateRingAngularVelocity(angularBlend, progress, ringCfg = UNITY_FX_
   return velocity * ringCfg.angularVelocityMultiplier * ringCfg.rotationDirection;
 }
 
-function drawHit(context, wave, progress, scale, opacity, fxConfig)
+function drawHit(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig,
+  linearOutput = false,
+)
 {
   const cfg = fxConfig.hit;
   const radius = cfg.radius * scale;
@@ -2058,12 +2066,20 @@ function drawHit(context, wave, progress, scale, opacity, fxConfig)
   context.save();
   context.beginPath();
   context.arc(wave.x, wave.y, radius, 0, TAU);
-  context.fillStyle = colorToCss(color, alpha);
+  context.fillStyle = colorToCanvasOutputCss(color, alpha, linearOutput);
   context.fill();
   context.restore();
 }
 
-function drawFlare(context, wave, progress, scale, opacity, fxConfig)
+function drawFlare(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig,
+  linearOutput = false,
+)
 {
   const cfg = fxConfig.flare;
   const radius = cfg.radius * scale;
@@ -2077,6 +2093,8 @@ function drawFlare(context, wave, progress, scale, opacity, fxConfig)
 
   context.save();
   context.translate(wave.x, wave.y);
+  // Final Pass 直接采样 Canvas 预乘颜色，因此附加粒子也必须写入线性能量。
+  context.strokeStyle = colorToCanvasOutputCss(color, alpha, linearOutput);
 
   for (let i = 0; i < cfg.rayCount; i++)
   {
@@ -2087,7 +2105,6 @@ function drawFlare(context, wave, progress, scale, opacity, fxConfig)
     context.beginPath();
     context.moveTo(0, 0);
     context.lineTo(endX, endY);
-    context.strokeStyle = colorToCss(color, alpha);
     context.lineWidth = 1.5 * scale;
     context.stroke();
   }
@@ -2170,14 +2187,22 @@ class ClickWave
     this.update(deltaMs);
   }
 
-  drawAdditiveBase(context, scale, opacity)
+  drawAdditiveBase(context, scale, opacity, linearOutput = false)
   {
     // Hit：撞击爆发，极短极亮
     const hitProgress = this.ageMs / this.fx.hit.lifetimeMs;
 
     if (this.fx.hit.enabled && hitProgress < 1)
     {
-      drawHit(context, this, hitProgress, scale, opacity, this.fx);
+      drawHit(
+        context,
+        this,
+        hitProgress,
+        scale,
+        opacity,
+        this.fx,
+        linearOutput,
+      );
     }
 
     // Flare：星形闪光
@@ -2185,7 +2210,15 @@ class ClickWave
 
     if (this.fx.flare.enabled && flareProgress < 1)
     {
-      drawFlare(context, this, flareProgress, scale, opacity, this.fx);
+      drawFlare(
+        context,
+        this,
+        flareProgress,
+        scale,
+        opacity,
+        this.fx,
+        linearOutput,
+      );
     }
   }
 
@@ -6938,6 +6971,7 @@ export class BAClickFX
           this.context,
           scale,
           this.config.opacity,
+          true,
         );
       }
 
