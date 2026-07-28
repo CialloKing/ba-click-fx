@@ -690,7 +690,7 @@ export class WebGL2EffectRenderer
   constructor(canvas)
   {
     this.canvas = canvas;
-    // 独立后端始终接管清晰 Scene；Bloom-only 模式继续使用稳定的旧渲染器。
+    // 两种 WebGL2 模式共享完整 Scene，避免清晰层和 Bloom 分层输出产生色差。
     this.sceneEnabled = true;
     this.gl = null;
     this.available = false;
@@ -1124,7 +1124,7 @@ export class WebGL2EffectRenderer
     }
     catch (error)
     {
-      console.warn('[BAClickFX] 纯 WebGL2 初始化失败:', error);
+      console.warn('[BAClickFX] WebGL2 Scene 初始化失败:', error);
       this.available = false;
       this._deleteResources();
     }
@@ -1559,7 +1559,7 @@ export class WebGL2EffectRenderer
       deleteTarget(gl, target);
       deleteTarget(gl, this.sceneBackgroundTarget);
       this.sceneBackgroundTarget = null;
-      // 背景额外缓冲分配失败不能污染下一帧并禁用整个纯 WebGL2 后端。
+      // 背景额外缓冲分配失败不能污染下一帧并禁用整个 Scene 后端。
       this._discardPendingErrors();
       return false;
     }
@@ -1669,7 +1669,7 @@ export class WebGL2EffectRenderer
     }
     catch (error)
     {
-      console.warn('[BAClickFX] 纯 WebGL2 缓冲创建失败:', error);
+      console.warn('[BAClickFX] WebGL2 Scene 缓冲创建失败:', error);
       this.failedResizeSignature = this._createResizeSignature(
         this.sourceWidth,
         this.sourceHeight,
@@ -1741,7 +1741,7 @@ export class WebGL2EffectRenderer
     )
     {
       this.failedResizeSignature = resizeSignature;
-      console.warn('[BAClickFX] 纯 WebGL2 尺寸超过设备上限，回退 Canvas2D');
+      console.warn('[BAClickFX] WebGL2 Scene 尺寸超过设备上限');
       this._deleteTargets();
       return false;
     }
@@ -3379,7 +3379,7 @@ export class WebGL2EffectRenderer
     }
     catch (error)
     {
-      console.warn('[BAClickFX] 纯 WebGL2 渲染失败，回退 Canvas2D:', error);
+      console.warn('[BAClickFX] WebGL2 Scene 渲染失败:', error);
       this.clear();
       this._deleteTargets();
       this.available = false;

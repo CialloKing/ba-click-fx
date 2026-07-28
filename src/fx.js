@@ -22,7 +22,6 @@ import {
   SoftwareBloomRenderer,
   calculateBloomContribution,
 } from './software-bloom.js';
-import { WebGL2BloomRenderer } from './webgl2-bloom.js';
 import { WebGL2EffectRenderer } from './webgl2-effect.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
 import {
@@ -5729,8 +5728,8 @@ export class BAClickFX
 
     const canvas = createCanvas();
 
-    // Bloom Shader 已输出合法预乘结果，外层继续用普通 source-over，
-    // 避免独立 GPU 图层在桌面上重复执行加色。
+    // WebGL2 Bloom 复用完整 Scene Renderer，确保清晰层和 Bloom 只经过
+    // 一次线性到 sRGB 的最终输出，不再交给浏览器拆成两个图层合成。
     setOverlayStyle(
       canvas,
       !this.host && !this.config.isolatedCompositing,
@@ -5744,7 +5743,7 @@ export class BAClickFX
 
     try
     {
-      renderer = new WebGL2BloomRenderer(canvas);
+      renderer = new WebGL2EffectRenderer(canvas);
 
       // Context 与 Program 初始化失败才是永久故障；当前尺寸分配失败仍可缩小恢复。
       if (!renderer.available)
@@ -5753,6 +5752,16 @@ export class BAClickFX
         renderer.destroy();
         canvas.remove();
         return false;
+      }
+
+      if (this.sceneBackgroundSource)
+      {
+        renderer.setSceneBackground(
+          this.sceneBackgroundSource,
+          {
+            fit: this.sceneBackgroundFit,
+          },
+        );
       }
     }
     catch (error)
@@ -5811,6 +5820,12 @@ export class BAClickFX
 
   _setWebGLBloomVisible(visible)
   {
+    if (!visible)
+    {
+      // Bloom Scene 失败或退出后，Canvas 必须立即恢复，供同帧软件回退使用。
+      this._setCanvasOutputVisible(true);
+    }
+
     if (!this.webglBloomCanvas)
     {
       this.webglBloomVisible = false;
@@ -5828,6 +5843,24 @@ export class BAClickFX
     if (!visible)
     {
       this.webglBloomRenderer?.clear();
+    }
+  }
+
+  _setCanvasOutputVisible(visible)
+  {
+    if (!this.ownsCanvas)
+    {
+      return;
+    }
+
+    const visibility = visible ? '' : 'hidden';
+
+    // 使用 visibility 保留 Canvas 尺寸和内容，WebGL 失败时无需重建回退帧。
+    this.canvas.style.visibility = visibility;
+
+    if (this.contrastCanvas)
+    {
+      this.contrastCanvas.style.visibility = visibility;
     }
   }
 
@@ -6354,9 +6387,8 @@ export class BAClickFX
     }
   }
 
-  _renderWebGL2ClickEffects(scale)
+  _renderWebGL2Scene(renderer, scale)
   {
-    const renderer = this.webglEffectRenderer;
     const bloomCfg = this.fxConfig.bloom;
 
     if (!renderer?.available || renderer.contextLost)
@@ -6468,10 +6500,15 @@ export class BAClickFX
     }
     catch (error)
     {
-      console.warn('[BAClickFX] 纯 WebGL2 点击渲染失败:', error);
+      console.warn('[BAClickFX] WebGL2 Scene 渲染失败:', error);
       renderer.clear();
       return false;
     }
+  }
+
+  _renderWebGL2ClickEffects(scale)
+  {
+    return this._renderWebGL2Scene(this.webglEffectRenderer, scale);
   }
 
   _drawCanvasClickEffects(scale, useNativeBloom, legacy = false)
@@ -6536,8 +6573,6 @@ export class BAClickFX
   _renderWebGL2Bloom(scale)
   {
     const renderer = this.webglBloomRenderer;
-    const bloomCfg = this.fxConfig.bloom;
-    const diffusion = bloomCfg.diffusion;
 
     if (
       !renderer ||
@@ -6548,61 +6583,15 @@ export class BAClickFX
       return;
     }
 
-    renderer.beginFrame();
-
-    for (const stroke of this.trailStrokes)
-    {
-      if (stroke.points.length < 2)
-      {
-        continue;
-      }
-
-      appendTrailWebGLBloom(
-        renderer,
-        stroke.points,
-        scale,
-        this.config.opacity,
-        this.fxConfig,
-        stroke.trailFrameData,
-      );
-    }
-
-    for (const wave of this.waves)
-    {
-      wave.appendWebGLBloom(renderer, scale, this.config.opacity);
-    }
-
-    for (const shard of this.shards)
-    {
-      shard.appendWebGLBloom(
-        renderer,
-        scale,
-        this.config.opacity,
-        this.fxConfig,
-      );
-    }
-
-    const rendered = renderer.render(
-      {
-        threshold: bloomCfg.threshold,
-        softKnee: bloomCfg.softKnee,
-        clamp: bloomCfg.clamp,
-        intensity: bloomCfg.intensity,
-        diffusion,
-        outputCompositing: this.config.outputCompositing,
-      },
-    );
-
-    this.webglBloomFrameStats =
-    {
-      available: renderer.available,
-      ...renderer.stats,
-    };
-
-    if (!rendered)
+    if (!this._renderWebGL2Scene(renderer, scale))
     {
       this._fallbackFromWebGL2(scale);
+      return;
     }
+
+    // Scene 与 Bloom 已写入同一个预乘输出，隐藏旧 Canvas 可避免重复叠加。
+    this._setWebGLBloomVisible(true);
+    this._setCanvasOutputVisible(false);
   }
 
   _fallbackFromWebGL2(scale)
@@ -7169,7 +7158,7 @@ export class BAClickFX
   }
 
   /**
-   * 为纯 WebGL2 提供特效下方的真实不透明栅格场景；调用方负责解码与 CORS。
+   * 为 WebGL2 Scene 提供特效下方的真实不透明栅格场景；调用方负责解码与 CORS。
    * 资源对象不进入 getConfig()，避免配置快照持有宿主 DOM 生命周期。
    */
   setSceneBackground(source, options = {})
@@ -7189,6 +7178,7 @@ export class BAClickFX
     if (source === null)
     {
       this.webglEffectRenderer?.setSceneBackground(null);
+      this.webglBloomRenderer?.setSceneBackground(null);
       this.sceneBackgroundSource = null;
       this.sceneBackgroundFit = fit;
       this._requestRender();
@@ -7198,6 +7188,14 @@ export class BAClickFX
     if (
       this.webglEffectRenderer &&
       !this.webglEffectRenderer.setSceneBackground(source, { fit })
+    )
+    {
+      return false;
+    }
+
+    if (
+      this.webglBloomRenderer &&
+      !this.webglBloomRenderer.setSceneBackground(source, { fit })
     )
     {
       return false;
