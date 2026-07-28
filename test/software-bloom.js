@@ -616,6 +616,52 @@ assert(
   'transparent-overlay 的 Alpha 与 HDR 发射强度解耦',
 );
 
+const sceneCoverage = new Float32Array([0.45, 0.45, 0, 1]);
+const bloomCoverage = new Float32Array([0.45, 0.7, 0.2, 1]);
+const residualOverlayRgba = new Uint8ClampedArray(16);
+
+encodeAdditiveBloom(
+  new Float32Array([
+    4, 2, 1,
+    4, 2, 1,
+    4, 2, 1,
+    4, 2, 1,
+  ]),
+  residualOverlayRgba,
+  1.7,
+  4,
+  null,
+  null,
+  {
+    outputCompositing: 'transparent-overlay',
+    coverage: bloomCoverage,
+    sceneCoverage,
+  },
+);
+
+const compositeAlpha = (pixel) =>
+{
+  const sourceAlpha = residualOverlayRgba[pixel * 4 + 3] / 255;
+  const destinationAlpha = sceneCoverage[pixel];
+
+  return sourceAlpha + destinationAlpha * (1 - sourceAlpha);
+};
+
+assert(
+  residualOverlayRgba[3] === 0 &&
+    approximatelyEqual(compositeAlpha(0), 0.45),
+  'Bloom Coverage 未超过清晰 Coverage 时不再抬高中心 Alpha',
+);
+assert(
+  approximatelyEqual(compositeAlpha(1), 0.7, 1 / 255) &&
+    approximatelyEqual(compositeAlpha(2), 0.2, 1 / 255),
+  '残余 Alpha 经 source-over 后等于 max(sceneCoverage, bloomCoverage)',
+);
+assert(
+  residualOverlayRgba[15] === 0 && compositeAlpha(3) === 1,
+  '清晰层完全覆盖时不会产生无效或非有限的残余 Alpha',
+);
+
 const explicitSceneRgba = new Uint8ClampedArray(rgba.length);
 
 encodeAdditiveBloom(
@@ -745,9 +791,13 @@ assert(
     coverageRenderer.outputBounds === null &&
     !coverageRenderer.coverageFrameReady &&
     coverageRenderer.sourceCoverage.length > 0 &&
+    coverageRenderer.coverageLevels[0].width === coverageRenderer.width &&
+    coverageRenderer.coverageLevels[0].height === coverageRenderer.height &&
+    coverageRenderer.coverageLevels[0].down.length ===
+      coverageRenderer.outputImageData.data.length / 4 &&
     coverageRenderer.coverageLevels.every((level) =>
       level.down.every((value) => value === 0)),
-  '透明模式空亮区清除旧输出且不会保留上一帧 Coverage',
+  '透明模式以输出分辨率保存清晰 Coverage 且空帧不保留旧值',
 );
 const allocatedCoverageCanvas = coverageRenderer.coverageCanvas;
 

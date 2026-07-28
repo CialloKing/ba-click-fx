@@ -781,8 +781,8 @@ export function upsampleAndMixBloom(
 /**
  * 将线性 HDR Bloom 转成可由透明 Canvas 保存的 sRGB 贡献。
  *
- * scene 保留原有的加色编码。transparent-overlay 的 Alpha 只读取独立
- * Coverage，HDR RGB 超出 Alpha 可承载范围时等比例压缩，不能反向抬高 Alpha。
+ * scene 保留原有的加色编码。transparent-overlay 的目标 Alpha 只读取独立
+ * Coverage，并输出 source-over 所需的残余 Alpha；HDR RGB 不能反向抬高 Alpha。
  */
 export function encodeAdditiveBloom(
   source,
@@ -798,6 +798,9 @@ export function encodeAdditiveBloom(
   const transparentOverlay =
     options?.outputCompositing === 'transparent-overlay';
   const coverage = transparentOverlay ? options?.coverage : null;
+  const sceneCoverage = transparentOverlay
+    ? options?.sceneCoverage
+    : null;
   const safeWidth = Math.max(1, Math.floor(width));
   const sourceHeight = Math.ceil(
     source.length / (safeWidth * RGB_CHANNELS),
@@ -880,9 +883,21 @@ export function encodeAdditiveBloom(
       ) * safeIntensity);
       const maximumSrgb = Math.max(red, green, blue);
       const pixelIndex = y * safeWidth + x;
-      const alpha = transparentOverlay
-        ? clamp01(coverage?.[pixelIndex] ?? 0)
-        : maximumSrgb;
+      let alpha = maximumSrgb;
+
+      if (transparentOverlay)
+      {
+        const sceneAlpha = clamp01(sceneCoverage?.[pixelIndex] ?? 0);
+        const bloomAlpha = clamp01(coverage?.[pixelIndex] ?? 0);
+        const targetAlpha = Math.max(sceneAlpha, bloomAlpha);
+
+        // 主清晰层已经在目标 Canvas。求 source-over 的残余源 Alpha，令
+        // residual + scene * (1 - residual) = max(scene, bloom)。
+        // scene 已覆盖目标时必须输出零，不能用 union 再抬高点击中心。
+        alpha = targetAlpha > sceneAlpha && sceneAlpha < 1
+          ? clamp01((targetAlpha - sceneAlpha) / (1 - sceneAlpha))
+          : 0;
+      }
 
       if (maximumSrgb <= 0.00001 || alpha <= 0.00001)
       {
@@ -1794,6 +1809,9 @@ export class SoftwareBloomRenderer
       {
         outputCompositing: settings.outputCompositing,
         coverage: compositeCoverage,
+        // mip0 的 down 缓冲与输出 ImageData 尺寸完全相同；读取源分辨率
+        // Coverage 会在 resolutionScale < 1 时造成索引和 DPR 错位。
+        sceneCoverage: firstCoverageLevel?.down,
       },
     );
     this.outputBounds = bloomBounds;
