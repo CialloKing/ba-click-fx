@@ -557,6 +557,31 @@ function linearEnergyToAdditiveCss(color, opacity = 1)
     Math.round(blue / alpha * 255)}, ${alpha})`;
 }
 
+/**
+ * 将线性能量编码为指定 Coverage 的预乘颜色。超出 Coverage 可承载范围的
+ * HDR 能量在清晰层钳制，完整能量仍由独立 Bloom 发射路径保留。
+ */
+function linearEnergyToOverlayCss(
+  color,
+  contributionOpacity,
+  coverageAlpha,
+)
+{
+  const alpha = clamp01(coverageAlpha);
+
+  if (alpha <= 0.00001)
+  {
+    return 'rgba(0, 0, 0, 0)';
+  }
+
+  const scale = Math.max(0, contributionOpacity) / alpha;
+  const red = Math.round(clamp01(color[0] * scale) * 255);
+  const green = Math.round(clamp01(color[1] * scale) * 255);
+  const blue = Math.round(clamp01(color[2] * scale) * 255);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
 function gammaToLinearEnergy(value)
 {
   const gamma = Math.max(0, value);
@@ -1522,6 +1547,7 @@ function drawDisk(
   fxConfig = UNITY_FX_TOUCH,
   useNativeBloom = true,
   legacy = false,
+  outputCompositing = 'scene',
 )
 {
   const diskCfg = fxConfig.disk;
@@ -1553,7 +1579,14 @@ function drawDisk(
     // 的 R 通道仍同时决定 RGB 能量和覆盖率，不能退回实心圆盘近似。
     gradient.addColorStop(
       position,
-      linearEnergyToAdditiveCss(materialEnergy, alpha * energy),
+      outputCompositing === 'transparent-overlay'
+        ? linearEnergyToOverlayCss(
+            materialEnergy,
+            alpha * energy,
+            // Circle_01 的 RGB 能量是 R²，Coverage 使用原始 R。
+            alpha * Math.sqrt(Math.max(0, energy)),
+          )
+        : linearEnergyToAdditiveCss(materialEnergy, alpha * energy),
     );
   }
 
@@ -1881,7 +1914,14 @@ class ClickWave
     this.update(deltaMs);
   }
 
-  drawBase(context, scale, opacity, useNativeBloom = true, legacy = false)
+  drawBase(
+    context,
+    scale,
+    opacity,
+    useNativeBloom = true,
+    legacy = false,
+    outputCompositing = 'scene',
+  )
   {
     // Hit：撞击爆发，极短极亮
     const hitProgress = this.ageMs / this.fx.hit.lifetimeMs;
@@ -1912,6 +1952,7 @@ class ClickWave
         this.fx,
         useNativeBloom,
         legacy,
+        outputCompositing,
       );
     }
   }
@@ -1971,9 +2012,23 @@ class ClickWave
     }
   }
 
-  draw(context, scale, opacity, useNativeBloom = true, legacy = false)
+  draw(
+    context,
+    scale,
+    opacity,
+    useNativeBloom = true,
+    legacy = false,
+    outputCompositing = 'scene',
+  )
   {
-    this.drawBase(context, scale, opacity, useNativeBloom, legacy);
+    this.drawBase(
+      context,
+      scale,
+      opacity,
+      useNativeBloom,
+      legacy,
+      outputCompositing,
+    );
     this.drawRings(context, scale, opacity, useNativeBloom, legacy);
   }
 
@@ -5673,7 +5728,14 @@ export class BAClickFX
 
       for (const wave of this.waves)
       {
-        wave.drawBase(context, scale, this.config.opacity, false);
+        wave.drawBase(
+          context,
+          scale,
+          this.config.opacity,
+          false,
+          false,
+          this.config.outputCompositing,
+        );
       }
 
       for (const shard of this.shards)
@@ -6181,6 +6243,7 @@ export class BAClickFX
         this.config.opacity,
         useNativeBloom,
         legacy,
+        this.config.outputCompositing,
       );
     }
 
@@ -6404,6 +6467,7 @@ export class BAClickFX
           this.config.opacity,
           useNativeBloom,
           legacy,
+          this.config.outputCompositing,
         );
       }
     }
