@@ -1557,7 +1557,10 @@ function drawDisk(
   const size = evaluateUnityHermiteCurve(diskCfg.sizeKeys, progress);
   const radius = diskCfg.radius * size * scale;
   const color = evaluateColor(diskCfg.colorKeys, progress);
-  const alpha = evaluateNumber(diskCfg.alphaKeys, progress) * opacity;
+  const coverageAlpha = evaluateNumber(
+    diskCfg.alphaKeys,
+    progress,
+  ) * opacity;
   const gradient = context.createRadialGradient(
     wave.x,
     wave.y,
@@ -1575,18 +1578,18 @@ function drawDisk(
 
   for (const [position, energy] of diskCfg.textureRadialEnergyKeys)
   {
-    // Blend One OneMinusSrcAlpha 要求源 RGB 预乘粒子 Alpha；Circle_01
-    // 的 R 通道仍同时决定 RGB 能量和覆盖率，不能退回实心圆盘近似。
+    // Cross2 的生命周期 Alpha 只控制目标衰减；源 RGB 不乘该 Alpha。
+    // Circle_01 的 R 通道仍同时决定 RGB 能量和 Coverage。
     gradient.addColorStop(
       position,
       outputCompositing === 'transparent-overlay'
         ? linearEnergyToOverlayCss(
             materialEnergy,
-            alpha * energy,
+            opacity * energy,
             // Circle_01 的 RGB 能量是 R²，Coverage 使用原始 R。
-            alpha * Math.sqrt(Math.max(0, energy)),
+            coverageAlpha * Math.sqrt(Math.max(0, energy)),
           )
-        : linearEnergyToAdditiveCss(materialEnergy, alpha * energy),
+        : linearEnergyToAdditiveCss(materialEnergy, opacity * energy),
     );
   }
 
@@ -1597,9 +1600,9 @@ function drawDisk(
   context.shadowColor = colorToCss(
     color,
     legacy
-      ? alpha * 0.5
+      ? opacity * 0.5
       : scaleNativeGlowAlpha(
-        alpha * bloomCfg.diskAlpha,
+        opacity * bloomCfg.diskAlpha,
         bloomCfg.clickEmissionScale,
       ),
   );
@@ -1628,10 +1631,7 @@ function drawDiskEmission(
     progress,
     bloomCfg.diskEmission,
   );
-  const particleAlpha = evaluateNumber(
-    diskCfg.alphaKeys,
-    progress,
-  ) * opacity;
+  // Cross2 的生命周期 Alpha 不进入 RGB，Bloom 发射必须持续到粒子死亡。
   const gradient = context.createRadialGradient(
     wave.x,
     wave.y,
@@ -1647,7 +1647,7 @@ function drawDiskEmission(
       position,
       linearEnergyToEmissionCss(
         materialEnergy,
-        particleAlpha * bloomCfg.diskEmissionAlpha * energy,
+        opacity * bloomCfg.diskEmissionAlpha * energy,
         bloomCfg.emissionRange,
         bloomCfg.clickEmissionScale,
       ),
@@ -2227,11 +2227,7 @@ class ClickWave
         diskCfg.sizeKeys,
         diskProgress,
       ) * scale;
-      const particleAlpha = evaluateNumber(
-        diskCfg.alphaKeys,
-        diskProgress,
-      ) * opacity;
-      const alpha = particleAlpha * bloomCfg.diskEmissionAlpha *
+      const emissionOpacity = opacity * bloomCfg.diskEmissionAlpha *
         bloomCfg.clickEmissionScale;
       const materialEnergy = evaluateSrgbGradientEnergy(
         diskCfg.colorKeys,
@@ -2239,7 +2235,13 @@ class ClickWave
         bloomCfg.diskEmission,
       );
 
-      renderer.addDisk(this.x, this.y, radius, materialEnergy, alpha);
+      renderer.addDisk(
+        this.x,
+        this.y,
+        radius,
+        materialEnergy,
+        emissionOpacity,
+      );
     }
 
     const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;

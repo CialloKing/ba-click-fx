@@ -180,7 +180,7 @@ out vec4 outColor;
 
 void main()
 {
-  // RGB 已在 CPU 侧按粒子 Alpha 预乘；片元 Alpha 继续控制目标颜色衰减。
+  // Cross2 源 RGB 不乘生命周期 Alpha；Alpha 只控制目标颜色衰减。
   outColor = vec4(
     max(v_color, vec3(0.0)),
     clamp(v_alpha, 0.0, 1.0)
@@ -1677,12 +1677,11 @@ export class WebGL2EffectRenderer
     segmentCount = 64,
   )
   {
-    // Blend One OneMinusSrcAlpha 的源颜色必须按生命周期 Alpha 预乘，
-    // 否则粒子只会突然消失，且透明页面上会表现为不透明实心圆盘。
-    const sourceOpacity = opacity * particleAlpha;
-    const red = color[0] * sourceOpacity;
-    const green = color[1] * sourceOpacity;
-    const blue = color[2] * sourceOpacity;
+    const coverageOpacity = opacity * particleAlpha;
+    // 解包 Shader 的 vertex.a 只进入输出 Alpha，不能削弱 HDR RGB 或 Bloom。
+    const red = color[0] * opacity;
+    const green = color[1] * opacity;
+    const blue = color[2] * opacity;
 
     if (
       radius <= 0 ||
@@ -1692,8 +1691,7 @@ export class WebGL2EffectRenderer
       return;
     }
 
-    // Circle_01 的纹理 R 同时形成预乘 RGB 和覆盖率；生命周期 Alpha
-    // 已包含在 sourceOpacity 中，透明末帧无需再提交无贡献几何。
+    // Circle_01 的 RGB 还会再乘一次 R；Coverage 则只使用一次 R。
     this._appendRadialDisk(
       x,
       y,
@@ -1708,7 +1706,7 @@ export class WebGL2EffectRenderer
           red * energy,
           green * energy,
           blue * energy,
-          sourceOpacity * textureAlpha,
+          coverageOpacity * textureAlpha,
         );
       },
     );
