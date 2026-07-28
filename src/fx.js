@@ -1741,25 +1741,13 @@ function drawDiskNativeGlow(
       opacity * bloomCfg.diskAlpha,
       bloomCfg.clickEmissionScale,
     );
-  const padding = Math.ceil(blur * 3 + 2);
-  const extent = radius + padding;
 
   context.save();
   context.globalCompositeOperation = 'lighter';
-  // Unity Bloom 在 UI HDR 场景完成后加回。排除圆盘本体可让 Canvas 只提交
-  // 外侧光晕，避免 shadowBlur 跟随 source-over 再次衰减已有场景颜色。
-  context.beginPath();
-  context.rect(
-    wave.x - extent,
-    wave.y - extent,
-    extent * 2,
-    extent * 2,
-  );
-  context.arc(wave.x, wave.y, radius, 0, TAU);
-  context.clip('evenodd');
   context.beginPath();
   context.arc(wave.x, wave.y, radius, 0, TAU);
-  // 黑色源只生成阴影，lighter 下不增加 RGB；Final Pass 不读取其 Alpha。
+  // 黑色源在 lighter 下不增加 RGB；Final Pass 不读取其 Alpha，因此可以
+  // 保留零偏移阴影的完整内外卷积，而不会重新遮挡宿主背景。
   context.fillStyle = 'rgb(0, 0, 0)';
   context.shadowColor = colorToNativeGlowCss(color, shadowAlpha, true);
   context.shadowBlur = blur;
