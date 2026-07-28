@@ -248,7 +248,7 @@ void main()
   vec4 sampleColor = texture(u_texture, v_uv);
   float particleAlpha = clamp(v_particleAlpha, 0.0, 1.0);
   float coverage = sampleColor.a * particleAlpha;
-  // SRGB8_ALPHA8 采样会自动把纹理 RGB 解码到线性空间。
+  // sRGB 纹理采样会自动把 RGB 解码到线性空间。
   vec3 emission = sampleColor.rgb *
     max(v_materialColor, vec3(0.0)) * coverage;
   float outputAlpha = u_transparentOverlay ? coverage : 1.0;
@@ -799,8 +799,6 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
-    this.trailBuffer = null;
-    this.trailVao = null;
     this.trailTexture = null;
     this.circleTexture = null;
     this.fullscreenVao = null;
@@ -933,8 +931,6 @@ export class WebGL2EffectRenderer
       this.triangleBuffer = gl.createBuffer();
       this.triangleVao = gl.createVertexArray();
       this.triangleTexture = gl.createTexture();
-      this.trailBuffer = gl.createBuffer();
-      this.trailVao = gl.createVertexArray();
       this.trailTexture = gl.createTexture();
       this.circleTexture = gl.createTexture();
       this.fullscreenVao = gl.createVertexArray();
@@ -951,8 +947,6 @@ export class WebGL2EffectRenderer
         !this.triangleBuffer ||
         !this.triangleVao ||
         !this.triangleTexture ||
-        !this.trailBuffer ||
-        !this.trailVao ||
         !this.trailTexture ||
         !this.circleTexture
       )
@@ -1140,51 +1134,6 @@ export class WebGL2EffectRenderer
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-      gl.bindVertexArray(this.trailVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.trailBuffer);
-
-      const trailStride = COMPONENTS_PER_TRAIL_VERTEX *
-        Float32Array.BYTES_PER_ELEMENT;
-
-      gl.enableVertexAttribArray(0);
-      gl.vertexAttribPointer(
-        0,
-        2,
-        gl.FLOAT,
-        false,
-        trailStride,
-        0,
-      );
-      gl.enableVertexAttribArray(1);
-      gl.vertexAttribPointer(
-        1,
-        2,
-        gl.FLOAT,
-        false,
-        trailStride,
-        2 * Float32Array.BYTES_PER_ELEMENT,
-      );
-      gl.enableVertexAttribArray(2);
-      gl.vertexAttribPointer(
-        2,
-        3,
-        gl.FLOAT,
-        false,
-        trailStride,
-        4 * Float32Array.BYTES_PER_ELEMENT,
-      );
-      gl.enableVertexAttribArray(3);
-      gl.vertexAttribPointer(
-        3,
-        1,
-        gl.FLOAT,
-        false,
-        trailStride,
-        7 * Float32Array.BYTES_PER_ELEMENT,
-      );
-      gl.bindVertexArray(null);
-      gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
       // Ring3 的 Alpha 不参与 sRGB 解码；R8 保留 Unity Alpha 采样真值。
       gl.bindTexture(gl.TEXTURE_2D, this.ringTexture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -1321,8 +1270,6 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
-    this.trailBuffer = null;
-    this.trailVao = null;
     this.trailTexture = null;
     this.circleTexture = null;
     this.sceneBackgroundTexture = null;
@@ -1498,8 +1445,6 @@ export class WebGL2EffectRenderer
     gl.deleteBuffer(this.triangleBuffer);
     gl.deleteVertexArray(this.triangleVao);
     gl.deleteTexture(this.triangleTexture);
-    gl.deleteBuffer(this.trailBuffer);
-    gl.deleteVertexArray(this.trailVao);
     gl.deleteTexture(this.trailTexture);
     gl.deleteTexture(this.circleTexture);
     gl.deleteTexture(this.sceneBackgroundTexture);
@@ -1515,8 +1460,6 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
-    this.trailBuffer = null;
-    this.trailVao = null;
     this.trailTexture = null;
     this.circleTexture = null;
     this.sceneBackgroundTexture = null;
@@ -2174,8 +2117,9 @@ export class WebGL2EffectRenderer
         0,
         this.trailVertexCount * COMPONENTS_PER_TRAIL_VERTEX,
       ),
-      this.trailBuffer,
-      this.trailVao,
+      // 两种纹理几何共享 8-float 布局，顺序上传可复用同一 GPU 缓冲。
+      this.triangleBuffer,
+      this.triangleVao,
       this.trailTexture,
       transparentOverlay,
     );
