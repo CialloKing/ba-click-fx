@@ -17,12 +17,24 @@ const npmCli = process.env.npm_execpath;
 const typescriptCompiler = resolve(rootDir, 'node_modules', 'typescript', 'bin', 'tsc');
 const temporaryRoot = resolve(tmpdir());
 const temporaryDirectory = mkdtempSync(join(temporaryRoot, 'ba-click-fx-'));
-const hostControlMethods = [
+const requiredRuntimeMethods = [
+  'boom',
   'pointerDown',
   'pointerMove',
   'pointerUp',
   'pointerCancel',
   'setPaused',
+  'setSceneBackground',
+  'updateConfig',
+  'setThemeColor',
+  'setFxParam',
+  'setFxParams',
+  'getFxConfig',
+  'resetFxConfig',
+  'clearTrail',
+  'clear',
+  'getConfig',
+  'destroy',
 ];
 
 function verify(condition, message)
@@ -50,7 +62,7 @@ function verifyRuntimeApi(moduleExports, bundleName)
     `${bundleName} bundle does not expose BAClickFX`,
   );
 
-  for (const methodName of hostControlMethods)
+  for (const methodName of requiredRuntimeMethods)
   {
     verify(
       typeof moduleExports.BAClickFX.prototype[methodName] === 'function',
@@ -60,7 +72,9 @@ function verifyRuntimeApi(moduleExports, bundleName)
 
   verify(
     moduleExports.CONFIG?.effectBackend === 'webgl2' &&
-      moduleExports.CONFIG?.bloomBackend === 'webgl2',
+      moduleExports.CONFIG?.bloomBackend === 'webgl2' &&
+      moduleExports.CONFIG?.outputCompositing === 'scene' &&
+      moduleExports.CONFIG?.themeColor === '#4ca7ff',
     `${bundleName} bundle does not expose the Full WebGL2 defaults`,
   );
   verify(
@@ -79,6 +93,24 @@ function verifyRuntimeApi(moduleExports, bundleName)
   verify(
     moduleExports.CONFIG?.trailTimeScale === 1,
     `${bundleName} bundle does not expose the trail time-scale default`,
+  );
+  verify(
+    moduleExports.DEFAULT_THEME_COLOR === '#4ca7ff',
+    `${bundleName} bundle does not expose the default theme colour`,
+  );
+  verify(
+    moduleExports.BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange' &&
+      moduleExports.EFFECT_BACKEND_CHANGE_EVENT ===
+        'baclickfxeffectbackendchange',
+    `${bundleName} bundle does not expose both backend event names`,
+  );
+  verify(
+    moduleExports.FX_PARAM_SCHEMA_VERSION === 1 &&
+      Array.isArray(moduleExports.FX_PARAM_SCHEMA) &&
+      moduleExports.FX_PARAM_SCHEMA.length === 65 &&
+      Array.isArray(moduleExports.FX_PARAM_MIGRATIONS) &&
+      moduleExports.FX_PARAM_MIGRATIONS.length > 0,
+    `${bundleName} bundle does not expose the parameter schema contract`,
   );
 }
 
@@ -125,18 +157,26 @@ try
   const esmRuntimeSource = `
 import BAClickFXDefault, * as moduleExports from 'ba-click-fx';
 
-const hostControlMethods = ${JSON.stringify(hostControlMethods)};
+const requiredRuntimeMethods = ${JSON.stringify(requiredRuntimeMethods)};
 
 if (
   typeof moduleExports.BAClickFX !== 'function' ||
   BAClickFXDefault !== moduleExports.BAClickFX ||
-  moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange'
+  moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' ||
+  moduleExports.EFFECT_BACKEND_CHANGE_EVENT !==
+    'baclickfxeffectbackendchange' ||
+  moduleExports.DEFAULT_THEME_COLOR !== '#4ca7ff' ||
+  moduleExports.FX_PARAM_SCHEMA_VERSION !== 1 ||
+  !Array.isArray(moduleExports.FX_PARAM_SCHEMA) ||
+  moduleExports.FX_PARAM_SCHEMA.length !== 65 ||
+  !Array.isArray(moduleExports.FX_PARAM_MIGRATIONS) ||
+  moduleExports.FX_PARAM_MIGRATIONS.length < 1
 )
 {
   throw new Error('ESM exports are incomplete');
 }
 
-for (const methodName of hostControlMethods)
+for (const methodName of requiredRuntimeMethods)
 {
   if (typeof moduleExports.BAClickFX.prototype[methodName] !== 'function')
   {
@@ -147,6 +187,8 @@ for (const methodName of hostControlMethods)
 if (
   moduleExports.CONFIG?.effectBackend !== 'webgl2' ||
   moduleExports.CONFIG?.bloomBackend !== 'webgl2' ||
+  moduleExports.CONFIG?.outputCompositing !== 'scene' ||
+  moduleExports.CONFIG?.themeColor !== '#4ca7ff' ||
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
   moduleExports.CONFIG?.inputSource !== 'dom' ||
@@ -159,18 +201,26 @@ if (
 `;
   const commonJsRuntimeSource = `
 const moduleExports = require('ba-click-fx');
-const hostControlMethods = ${JSON.stringify(hostControlMethods)};
+const requiredRuntimeMethods = ${JSON.stringify(requiredRuntimeMethods)};
 
 if (
   typeof moduleExports.BAClickFX !== 'function' ||
   moduleExports.default !== moduleExports.BAClickFX ||
-  moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange'
+  moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' ||
+  moduleExports.EFFECT_BACKEND_CHANGE_EVENT !==
+    'baclickfxeffectbackendchange' ||
+  moduleExports.DEFAULT_THEME_COLOR !== '#4ca7ff' ||
+  moduleExports.FX_PARAM_SCHEMA_VERSION !== 1 ||
+  !Array.isArray(moduleExports.FX_PARAM_SCHEMA) ||
+  moduleExports.FX_PARAM_SCHEMA.length !== 65 ||
+  !Array.isArray(moduleExports.FX_PARAM_MIGRATIONS) ||
+  moduleExports.FX_PARAM_MIGRATIONS.length < 1
 )
 {
   throw new Error('CommonJS exports are incomplete');
 }
 
-for (const methodName of hostControlMethods)
+for (const methodName of requiredRuntimeMethods)
 {
   if (typeof moduleExports.BAClickFX.prototype[methodName] !== 'function')
   {
@@ -181,6 +231,8 @@ for (const methodName of hostControlMethods)
 if (
   moduleExports.CONFIG?.effectBackend !== 'webgl2' ||
   moduleExports.CONFIG?.bloomBackend !== 'webgl2' ||
+  moduleExports.CONFIG?.outputCompositing !== 'scene' ||
+  moduleExports.CONFIG?.themeColor !== '#4ca7ff' ||
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
   moduleExports.CONFIG?.inputSource !== 'dom' ||
@@ -225,10 +277,6 @@ if (
   vm.runInNewContext(iifeSource, iifeContext);
   verifyRuntimeApi(iifeContext.BAClickFX, 'IIFE');
   verify(
-    iifeContext.BAClickFX?.BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange',
-    'IIFE bundle does not expose the backend change event name',
-  );
-  verify(
     existsSync(join(installedRoot, 'dist', 'ba-click-fx.d.ts')),
     'installed package is missing its TypeScript declaration',
   );
@@ -243,6 +291,11 @@ if (
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
+  DEFAULT_THEME_COLOR,
+  EFFECT_BACKEND_CHANGE_EVENT,
+  FX_PARAM_MIGRATIONS,
+  FX_PARAM_SCHEMA,
+  FX_PARAM_SCHEMA_VERSION,
   UNITY_FX_TOUCH,
   createConfig,
   type BAClickFXBackendChangeEvent,
@@ -250,14 +303,22 @@ if (
   type BAClickFXConfig,
   type BAClickFXConfigSnapshot,
   type BAClickFXEffectBackend,
+  type BAClickFXEffectBackendChangeEvent,
   type BAClickFXInputFilter,
   type BAClickFXInputSource,
   type BAClickFXOptions,
+  type BAClickFXOutputCompositing,
+  type BAClickFXParamDescriptor,
+  type BAClickFXParamMigration,
+  type BAClickFXParamPatchOptions,
+  type BAClickFXParamPatchResult,
+  type BAClickFXParamValue,
   type BAClickFXPauseOptions,
   type BAClickFXPointerInput,
   type BAClickFXPointerType,
   type BAClickFXResolvedBloomBackend,
   type BAClickFXResolvedEffectBackend,
+  type BAClickFXSceneBackgroundOptions,
   type BAClickFXUpdateOptions,
   type UnityFxTouchConfig,
 } from 'ba-click-fx';
@@ -269,6 +330,8 @@ const options: BAClickFXOptions =
   target: '#fx',
   scale: 1,
   opacity: 1,
+  themeColor: '#4ca7ff',
+  outputCompositing: 'transparent-overlay',
   clickEnabled: true,
   trailEnabled: true,
   inputSource: 'manual',
@@ -297,6 +360,10 @@ const defaults: BAClickFXConfig = createConfig(
 );
 const unity: UnityFxTouchConfig = UNITY_FX_TOUCH;
 const defaultScale: number = CONFIG.scale;
+const defaultThemeColor: string = DEFAULT_THEME_COLOR;
+const schemaVersion: 1 = FX_PARAM_SCHEMA_VERSION;
+const firstDescriptor: BAClickFXParamDescriptor = FX_PARAM_SCHEMA[0]!;
+const firstMigration: BAClickFXParamMigration = FX_PARAM_MIGRATIONS[0]!;
 const defaultEffectBackend: BAClickFXEffectBackend = CONFIG.effectBackend;
 const defaultBloomBackend: BAClickFXBloomBackend = CONFIG.bloomBackend;
 const defaultIsolatedCompositing: boolean = CONFIG.isolatedCompositing;
@@ -311,6 +378,8 @@ const pendingBloomBackend: BAClickFXResolvedBloomBackend = 'pending';
 const softwareBloomEnabled: boolean = config.softwareBloomEnabled;
 const isolatedCompositing: boolean = config.isolatedCompositing;
 const renderingMode: BAClickFXConfig['renderingMode'] = config.renderingMode;
+const outputCompositing: BAClickFXOutputCompositing =
+  config.outputCompositing;
 const lightBackgroundContrastAlpha: number =
   config.lightBackgroundContrastAlpha;
 const inputSource: BAClickFXInputSource = config.inputSource;
@@ -328,6 +397,16 @@ const pauseOptions: BAClickFXPauseOptions =
 {
   clear: true,
 };
+const sceneBackgroundOptions: BAClickFXSceneBackgroundOptions =
+{
+  fit: 'cover',
+};
+const patchOptions: BAClickFXParamPatchOptions =
+{
+  schemaVersion: FX_PARAM_SCHEMA_VERSION,
+  strict: true,
+  reset: false,
+};
 
 namedInstance.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, event =>
 {
@@ -336,6 +415,16 @@ namedInstance.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, event =>
     backendEvent.detail.requestedBloomBackend;
   const resolved: BAClickFXResolvedBloomBackend =
     backendEvent.detail.resolvedBloomBackend;
+
+  void [requested, resolved];
+});
+namedInstance.canvas.addEventListener(EFFECT_BACKEND_CHANGE_EVENT, event =>
+{
+  const backendEvent = event as BAClickFXEffectBackendChangeEvent;
+  const requested: BAClickFXEffectBackend =
+    backendEvent.detail.requestedEffectBackend;
+  const resolved: BAClickFXResolvedEffectBackend =
+    backendEvent.detail.resolvedEffectBackend;
 
   void [requested, resolved];
 });
@@ -354,9 +443,27 @@ const pointerUpAccepted: boolean = namedInstance.pointerUp(7);
 const pointerCancelAccepted: boolean = namedInstance.pointerCancel();
 namedInstance.setPaused(true, pauseOptions);
 namedInstance.setPaused(false);
-namedInstance.setFxParam('hit.enabled', true);
+const sceneBackgroundAccepted: boolean = namedInstance.setSceneBackground(
+  null,
+  sceneBackgroundOptions,
+);
+namedInstance.setThemeColor(DEFAULT_THEME_COLOR);
+const paramValue: BAClickFXParamValue = true;
+const paramAccepted: boolean = namedInstance.setFxParam(
+  'hit.enabled',
+  paramValue,
+);
+const patchResult: BAClickFXParamPatchResult = namedInstance.setFxParams(
+  {
+    'hit.enabled': true,
+    'bloom.intensity': 1.7,
+  },
+  patchOptions,
+);
 const updateOptions: BAClickFXUpdateOptions =
 {
+  themeColor: '#4ca7ff',
+  outputCompositing: 'scene',
   effectBackend: 'auto',
   renderingMode: 'enhanced',
   bloomBackend: 'auto',
@@ -417,6 +524,10 @@ void [
   defaults,
   unity,
   defaultScale,
+  defaultThemeColor,
+  schemaVersion,
+  firstDescriptor,
+  firstMigration,
   defaultEffectBackend,
   defaultBloomBackend,
   defaultIsolatedCompositing,
@@ -429,6 +540,7 @@ void [
   softwareBloomEnabled,
   isolatedCompositing,
   renderingMode,
+  outputCompositing,
   lightBackgroundContrastAlpha,
   inputSource,
   clickTimeScale,
@@ -440,6 +552,12 @@ void [
   pointerMoveAccepted,
   pointerUpAccepted,
   pointerCancelAccepted,
+  sceneBackgroundOptions,
+  sceneBackgroundAccepted,
+  patchOptions,
+  paramValue,
+  paramAccepted,
+  patchResult,
   updateOptions,
   invalidOptions,
 ];
