@@ -731,6 +731,7 @@ export class WebGL2EffectRenderer
     this.sceneBackgroundSource = null;
     this.sceneBackgroundWidth = 0;
     this.sceneBackgroundHeight = 0;
+    this.sceneBackgroundUploadRetryPending = false;
     this.sceneBackgroundTexture = null;
     this.sceneBackgroundTarget = null;
     this.failedResizeSignature = null;
@@ -1114,7 +1115,8 @@ export class WebGL2EffectRenderer
 
       if (this.sceneBackgroundSource)
       {
-        this._replaceSceneBackgroundTexture(this.sceneBackgroundSource);
+        this.sceneBackgroundUploadRetryPending =
+          !this._replaceSceneBackgroundTexture(this.sceneBackgroundSource);
       }
 
       if (this.width > 0 && this.height > 0)
@@ -1137,6 +1139,8 @@ export class WebGL2EffectRenderer
     this.available = false;
     this.sceneFrameReady = false;
     this.sceneBackgroundFrameReady = false;
+    this.sceneBackgroundUploadRetryPending =
+      this.sceneBackgroundSource !== null;
   }
 
   _handleContextRestored()
@@ -1145,6 +1149,8 @@ export class WebGL2EffectRenderer
     // INVALID_OPERATION，并让首个恢复帧被误判为渲染失败。
     this._forgetResourceReferences();
     this._initialize();
+    // 恢复初始化中的瞬时分配失败允许在下一帧按原尺寸重试一次。
+    this.failedResizeSignature = null;
   }
 
   _forgetResourceReferences()
@@ -1461,6 +1467,9 @@ export class WebGL2EffectRenderer
     this.sceneBackgroundWidth = dimensions.width;
     this.sceneBackgroundHeight = dimensions.height;
     this.sceneBackgroundFrameReady = false;
+    this.sceneBackgroundUploadRetryPending = false;
+    // 背景目标属于尺寸资源的一部分；新背景可以让旧失败签名失效。
+    this.failedResizeSignature = null;
     this.gl.deleteTexture(previousTexture);
     deleteTarget(this.gl, previousTarget);
     return true;
@@ -1478,6 +1487,8 @@ export class WebGL2EffectRenderer
       this.sceneBackgroundTexture = null;
       this.sceneBackgroundTarget = null;
       this.sceneBackgroundFrameReady = false;
+      this.sceneBackgroundUploadRetryPending = false;
+      this.failedResizeSignature = null;
       return true;
     }
 
@@ -1500,6 +1511,7 @@ export class WebGL2EffectRenderer
       this.sceneBackgroundWidth = dimensions.width;
       this.sceneBackgroundHeight = dimensions.height;
       this.sceneBackgroundFrameReady = false;
+      this.sceneBackgroundUploadRetryPending = true;
       return true;
     }
 
@@ -1700,7 +1712,10 @@ export class WebGL2EffectRenderer
 
       if (this.sceneBackgroundTexture)
       {
-        this._rebuildSceneBackgroundTarget();
+        if (!this._rebuildSceneBackgroundTarget())
+        {
+          throw new Error('WebGL2 Scene 背景目标重建失败');
+        }
       }
 
       this.stats.levelCount = this.levels.length;
@@ -1788,6 +1803,18 @@ export class WebGL2EffectRenderer
       console.warn('[BAClickFX] WebGL2 Scene 尺寸超过设备上限');
       this._deleteTargets();
       return false;
+    }
+
+    if (this.sceneBackgroundUploadRetryPending)
+    {
+      // 恢复阶段额外重试一次背景上传；失败后由显式 setSceneBackground
+      // 或下一次 Context 恢复重新触发，避免每帧重复上传无效源。
+      this.sceneBackgroundUploadRetryPending = false;
+
+      if (!this._replaceSceneBackgroundTexture(this.sceneBackgroundSource))
+      {
+        return false;
+      }
     }
 
     const unchanged = sourceWidth === this.sourceWidth &&
@@ -3477,5 +3504,6 @@ export class WebGL2EffectRenderer
     this.sceneBackgroundSource = null;
     this.sceneBackgroundWidth = 0;
     this.sceneBackgroundHeight = 0;
+    this.sceneBackgroundUploadRetryPending = false;
   }
 }

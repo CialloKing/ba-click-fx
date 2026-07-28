@@ -4668,6 +4668,7 @@ export class BAClickFX
     this.lastTrailTimeSource = initialTimeSource;
     this.animationFrame = null;
     this.lastFrameTime = null;
+    this.renderingFrame = false;
     this.paused = false;
     this.destroyed = false;
     this.domPointerListenersAttached = false;
@@ -5469,7 +5470,14 @@ export class BAClickFX
 
     if (!useCanvasScene)
     {
+      const canvasSceneWasVisible = this.canvasSceneVisible;
+
       this._setCanvasSceneVisible(false);
+
+      if (canvasSceneWasVisible)
+      {
+        this._setCanvasOutputVisible(true);
+      }
     }
 
     this._setWebGLBloomVisible(!useWebGLClickEffects && useWebGL2Bloom);
@@ -5480,6 +5488,7 @@ export class BAClickFX
     themeHueShift = this._themeHueShift;
     this.context.save();
     this.context.globalCompositeOperation = 'lighter';
+    this.renderingFrame = true;
 
     try
     {
@@ -5611,6 +5620,7 @@ export class BAClickFX
     }
     finally
     {
+      this.renderingFrame = false;
       this.context.restore();
       themeHueShift = prevHueShift;
     }
@@ -5760,7 +5770,7 @@ export class BAClickFX
 
     this._setWebGLBloomVisible(false);
 
-    if (this.paused)
+    if (this.paused || !this.renderingFrame)
     {
       this._restoreCanvasOutputAfterContextLoss(fallbackBackend);
     }
@@ -5776,7 +5786,25 @@ export class BAClickFX
 
   _handleWebGLContextRestored()
   {
-    if (this.destroyed || this.config.renderingMode === 'legacy')
+    if (this.destroyed)
+    {
+      return;
+    }
+
+    if (!this.webglBloomRenderer?.available)
+    {
+      // 恢复初始化失败的实例无法自行再次初始化；丢弃后允许下一帧
+      // 用新 Canvas 进行一次正常的懒创建重试。
+      this._destroyWebGLBloomRenderer();
+      this.webglBloomUnavailable = false;
+    }
+
+    if (
+      this.paused ||
+      !this._hasVisibleEffects() ||
+      this.config.renderingMode === 'legacy' ||
+      normalizeEffectBackend(this.config.effectBackend) !== 'canvas2d'
+    )
     {
       return;
     }
@@ -5806,7 +5834,7 @@ export class BAClickFX
       ? 'software'
       : 'native';
 
-    if (this.paused)
+    if (this.paused || !this.renderingFrame)
     {
       this._restoreCanvasOutputAfterContextLoss(fallbackBackend);
     }
@@ -5822,6 +5850,19 @@ export class BAClickFX
   _handleWebGLEffectContextRestored()
   {
     if (this.destroyed)
+    {
+      return;
+    }
+
+    if (!this.webglEffectRenderer?.available)
+    {
+      // 失败实例留在 ensure 路径会永久阻断重建，因此只保留最新背景源，
+      // 下一次需要纯 WebGL2 时再创建完整 Renderer。
+      this._destroyWebGLEffectRenderer();
+      this.webglEffectUnavailable = false;
+    }
+
+    if (this.paused || !this._hasVisibleEffects())
     {
       return;
     }
@@ -6013,10 +6054,10 @@ export class BAClickFX
 
     const legacy = this._isLegacy;
 
-    // 仅当前输出所有者可以切换图层；暂停期间再同步重绘稳定 Canvas。
+    // 仅当前输出所有者可以切换图层；帧外事件同步重绘稳定 Canvas。
     this._setCanvasSceneVisible(false);
 
-    if (this.paused)
+    if (this.paused || !this.renderingFrame)
     {
       this._restoreCanvasOutputAfterContextLoss(
         legacy ? 'legacy' : 'native',
@@ -6034,8 +6075,33 @@ export class BAClickFX
       return;
     }
 
-    // Renderer 先重建 Program；下一帧再按当前尺寸验证全部目标。
-    this._requestRender();
+    if (!this.canvasSceneRenderer?.available)
+    {
+      // Canvas Final Pass 与主 Scene 使用相同的懒重建约定，避免一次
+      // Context 恢复分配失败永久关闭原生辉光和 Legacy 的场景合成。
+      this._destroyCanvasSceneRenderer();
+      this.canvasSceneUnavailable = false;
+    }
+
+    if (
+      this.sceneBackgroundSource === null ||
+      !this._hasVisibleEffects()
+    )
+    {
+      return;
+    }
+
+    const needsCanvasScene = this._isLegacy ||
+      (
+        this.resolvedEffectBackend === 'canvas2d' &&
+        this.resolvedBloomBackend === 'native'
+      );
+
+    if (needsCanvasScene)
+    {
+      // Renderer 先重建 Program；下一帧再按当前尺寸验证全部目标。
+      this._requestRender();
+    }
   }
 
   _ensureCanvasSceneRenderer()
@@ -6149,14 +6215,6 @@ export class BAClickFX
     {
       this.canvasSceneVisible = false;
       return;
-    }
-
-    const wasVisible = this.canvasSceneVisible;
-
-    if (!visible && wasVisible)
-    {
-      // Canvas Final Pass 退出后，普通 Canvas 重新成为稳定输出层。
-      this._setCanvasOutputVisible(true);
     }
 
     if (this.canvasSceneVisible === visible)

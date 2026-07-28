@@ -296,6 +296,7 @@ export class WebGL2CanvasSceneRenderer
     this.backgroundSource = null;
     this.backgroundWidth = 0;
     this.backgroundHeight = 0;
+    this.backgroundUploadRetryPending = false;
     this.coverageVertexCount = 0;
     this.coverageVertexData = new Float32Array(
       INITIAL_COVERAGE_VERTEX_CAPACITY * COVERAGE_VERTEX_COMPONENTS,
@@ -363,6 +364,8 @@ export class WebGL2CanvasSceneRenderer
       }
 
       this.gl = gl;
+      // 新 Context 的资源状态与丢失前无关，旧尺寸失败签名必须作废。
+      this.failedResizeSignature = null;
       this.maximumTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
       const maximumViewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
 
@@ -451,7 +454,9 @@ export class WebGL2CanvasSceneRenderer
 
       if (this.backgroundSource)
       {
-        this._replaceBackgroundTexture(this.backgroundSource);
+        this.backgroundUploadRetryPending = !this._replaceBackgroundTexture(
+          this.backgroundSource,
+        );
       }
     }
     catch (error)
@@ -632,6 +637,18 @@ export class WebGL2CanvasSceneRenderer
       return false;
     }
 
+    if (this.backgroundUploadRetryPending)
+    {
+      // Context 恢复时只在下一次尺寸准备阶段额外重试一次，避免无效
+      // VideoFrame 或 CORS 源在每个 RAF 重复上传并刷出警告。
+      this.backgroundUploadRetryPending = false;
+
+      if (!this._replaceBackgroundTexture(this.backgroundSource))
+      {
+        return false;
+      }
+    }
+
     if (
       width === this.width &&
       height === this.height &&
@@ -644,15 +661,15 @@ export class WebGL2CanvasSceneRenderer
       return true;
     }
 
-    this.canvas.width = width;
-    this.canvas.height = height;
-
     if (!this._allocateFrameResources(width, height))
     {
       this.failedResizeSignature = signature;
       return false;
     }
 
+    // 只有配套纹理和 FBO 已成功创建，才能提交默认帧缓冲尺寸。
+    this.canvas.width = width;
+    this.canvas.height = height;
     this.failedResizeSignature = null;
     return true;
   }
@@ -742,6 +759,8 @@ export class WebGL2CanvasSceneRenderer
     this.backgroundSource = source;
     this.backgroundWidth = dimensions.width;
     this.backgroundHeight = dimensions.height;
+    this.backgroundUploadRetryPending = false;
+    this.failedResizeSignature = null;
     return true;
   }
 
@@ -759,6 +778,8 @@ export class WebGL2CanvasSceneRenderer
       this.backgroundSource = null;
       this.backgroundWidth = 0;
       this.backgroundHeight = 0;
+      this.backgroundUploadRetryPending = false;
+      this.failedResizeSignature = null;
       return true;
     }
 
@@ -774,6 +795,7 @@ export class WebGL2CanvasSceneRenderer
       this.backgroundSource = source;
       this.backgroundWidth = dimensions.width;
       this.backgroundHeight = dimensions.height;
+      this.backgroundUploadRetryPending = true;
       return true;
     }
 
@@ -1060,12 +1082,16 @@ export class WebGL2CanvasSceneRenderer
     this.coverageFramebuffer = null;
     this.circleTexture = null;
     this.backgroundTexture = null;
+    this.failedResizeSignature = null;
+    this.backgroundUploadRetryPending = this.backgroundSource !== null;
   }
 
   _handleContextRestored()
   {
     this.contextLost = false;
     this._initialize();
+    // 初始化中的一次瞬时分配失败不能阻止下一帧按相同尺寸重试。
+    this.failedResizeSignature = null;
   }
 
   destroy()
@@ -1092,5 +1118,6 @@ export class WebGL2CanvasSceneRenderer
     this.backgroundSource = null;
     this.backgroundWidth = 0;
     this.backgroundHeight = 0;
+    this.backgroundUploadRetryPending = false;
   }
 }
