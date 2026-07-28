@@ -506,10 +506,10 @@ void main()
   }
 
   float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
-  // Scene Alpha 只保存 Cross2 Coverage。默认帧缓冲采用预乘合成后，
-  // RGB 仍可加到页面，而该 Alpha 会严格执行背景的 OneMinusSrcAlpha 衰减。
+  // Bloom 会扩散到 Cross2 Coverage 之外。无场景背景可用于精确反解时，
+  // Alpha 至少要覆盖发光 RGB，避免透明桌面合成出现非法的 RGB > Alpha。
   float alpha = u_hasScene
-    ? clamp(scene.a, 0.0, 1.0)
+    ? max(clamp(scene.a, 0.0, 1.0), maximumSrgb)
     : maximumSrgb;
 
   if (maximumSrgb <= 0.00001 && alpha <= 0.00001)
@@ -518,7 +518,7 @@ void main()
     return;
   }
 
-  // WebGL Canvas 以预乘 Alpha 交给页面合成器；RGB 直接保存加色贡献。
+  // WebGL Canvas 以预乘 Alpha 交给页面合成器。
   outColor = vec4(srgb, alpha);
 }
 `;
