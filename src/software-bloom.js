@@ -1,3 +1,9 @@
+import {
+  HALF_FLOAT_MAX,
+  gammaToLinear,
+  resolveUnityBloomClamp,
+} from './bloom-color-space.js';
+
 const RGB_CHANNELS = 3;
 const RGBA_CHANNELS = 4;
 const REGION_QUANTUM = 64;
@@ -12,18 +18,6 @@ function clamp(value, minimum, maximum)
 function clamp01(value)
 {
   return clamp(value, 0, 1);
-}
-
-function gammaToLinear(value)
-{
-  const gamma = Math.max(0, value);
-
-  if (gamma <= 0.04045)
-  {
-    return gamma / 12.92;
-  }
-
-  return Math.pow((gamma + 0.055) / 1.055, 2.4);
 }
 
 function calculatePyramidSettings(
@@ -222,6 +216,78 @@ export function decodeEmissionMask(
   };
 }
 
+/**
+ * 将独立 Coverage Canvas 的 Alpha 解码到单通道缓冲。
+ *
+ * HDR 发射颜色不能承担 Coverage，因为提高材质强度不应改变桌面遮挡率。
+ * 调用方应把几何纹理、生命周期和全局 opacity 全部写入源 Alpha。
+ */
+export function decodeCoverageMask(
+  source,
+  output,
+  width = 0,
+  height = 0,
+  destinationWidth = width,
+  destinationX = 0,
+  destinationY = 0,
+)
+{
+  const hasDimensions = width > 0 && height > 0;
+  const rowWidth = hasDimensions ? width : source.length / RGBA_CHANNELS;
+  const rowCount = hasDimensions ? height : 1;
+  const targetWidth = hasDimensions ? destinationWidth : rowWidth;
+  let minimumX = targetWidth;
+  let minimumY = hasDimensions ? destinationY + height : 1;
+  let maximumX = -1;
+  let maximumY = -1;
+  let sourceIndex = 0;
+
+  output.fill(0);
+
+  for (let y = 0; y < rowCount; y++)
+  {
+    let outputIndex = hasDimensions
+      ? (destinationY + y) * targetWidth + destinationX
+      : 0;
+
+    for (let x = 0; x < rowWidth; x++)
+    {
+      const coverage = source[sourceIndex + 3] / 255;
+
+      if (coverage > 0)
+      {
+        output[outputIndex] = coverage;
+
+        if (hasDimensions)
+        {
+          const targetX = destinationX + x;
+          const targetY = destinationY + y;
+
+          minimumX = Math.min(minimumX, targetX);
+          minimumY = Math.min(minimumY, targetY);
+          maximumX = Math.max(maximumX, targetX);
+          maximumY = Math.max(maximumY, targetY);
+        }
+      }
+
+      sourceIndex += RGBA_CHANNELS;
+      outputIndex++;
+    }
+  }
+
+  if (maximumX < minimumX || maximumY < minimumY)
+  {
+    return null;
+  }
+
+  return {
+    minimumX,
+    minimumY,
+    maximumX,
+    maximumY,
+  };
+}
+
 function addBilinearRgb(
   source,
   width,
@@ -260,6 +326,147 @@ function addBilinearRgb(
   }
 }
 
+function sampleBilinearScalar(source, width, height, x, y)
+{
+  const safeX = clamp(x, 0, width - 1);
+  const safeY = clamp(y, 0, height - 1);
+  const left = Math.floor(safeX);
+  const top = Math.floor(safeY);
+  const right = Math.min(left + 1, width - 1);
+  const bottom = Math.min(top + 1, height - 1);
+  const horizontal = safeX - left;
+  const vertical = safeY - top;
+
+  return source[top * width + left] * (1 - horizontal) * (1 - vertical) +
+    source[top * width + right] * horizontal * (1 - vertical) +
+    source[bottom * width + left] * (1 - horizontal) * vertical +
+    source[bottom * width + right] * horizontal * vertical;
+}
+
+function filterBoxCoverage(
+  source,
+  sourceWidth,
+  sourceHeight,
+  output,
+  outputWidth,
+  outputHeight,
+  sampleOffset,
+  sourceBounds = null,
+)
+{
+  const scaleX = sourceWidth / outputWidth;
+  const scaleY = sourceHeight / outputHeight;
+  let startX = 0;
+  let startY = 0;
+  let endX = outputWidth;
+  let endY = outputHeight;
+
+  output.fill(0);
+
+  if (sourceBounds)
+  {
+    startX = clamp(
+      Math.floor((sourceBounds.minimumX - 2) / scaleX) - 1,
+      0,
+      outputWidth,
+    );
+    startY = clamp(
+      Math.floor((sourceBounds.minimumY - 2) / scaleY) - 1,
+      0,
+      outputHeight,
+    );
+    endX = clamp(
+      Math.ceil((sourceBounds.maximumX + 3) / scaleX) + 1,
+      0,
+      outputWidth,
+    );
+    endY = clamp(
+      Math.ceil((sourceBounds.maximumY + 3) / scaleY) + 1,
+      0,
+      outputHeight,
+    );
+  }
+
+  for (let y = startY; y < endY; y++)
+  {
+    const sourceY = (y + 0.5) * scaleY - 0.5;
+
+    for (let x = startX; x < endX; x++)
+    {
+      const sourceX = (x + 0.5) * scaleX - 0.5;
+      let coverage = 0;
+
+      for (const offsetX of [-sampleOffset, sampleOffset])
+      {
+        for (const offsetY of [-sampleOffset, sampleOffset])
+        {
+          coverage += sampleBilinearScalar(
+            source,
+            sourceWidth,
+            sourceHeight,
+            sourceX + offsetX,
+            sourceY + offsetY,
+          ) * 0.25;
+        }
+      }
+
+      // Coverage 只经过空间滤波，不受 HDR 阈值、强度或色相影响。
+      output[y * outputWidth + x] = clamp01(coverage);
+    }
+  }
+}
+
+function upsampleBloomCoverage(
+  high,
+  highWidth,
+  highHeight,
+  low,
+  lowWidth,
+  lowHeight,
+  output,
+  sampleScale,
+)
+{
+  const scaleX = lowWidth / highWidth;
+  const scaleY = lowHeight / highHeight;
+  const offset = Math.max(0, sampleScale) * 0.5;
+
+  output.fill(0);
+
+  for (let y = 0; y < highHeight; y++)
+  {
+    const lowY = (y + 0.5) * scaleY - 0.5;
+
+    for (let x = 0; x < highWidth; x++)
+    {
+      const lowX = (x + 0.5) * scaleX - 0.5;
+      let lowCoverage = 0;
+
+      for (const offsetX of [-offset, offset])
+      {
+        for (const offsetY of [-offset, offset])
+        {
+          lowCoverage += sampleBilinearScalar(
+            low,
+            lowWidth,
+            lowHeight,
+            lowX + offsetX,
+            lowY + offsetY,
+          ) * 0.25;
+        }
+      }
+
+      const outputIndex = y * highWidth + x;
+
+      // 相邻 mip 属于同一几何，取最大值扩散而不重复累加 Coverage。
+      output[outputIndex] = Math.max(
+        clamp01(high[outputIndex]),
+        clamp01(lowCoverage),
+      );
+    }
+  }
+}
+
 /**
  * 从全分辨率发射遮罩生成半分辨率 mip0，并执行 MXFinalBloom Box4 预过滤。
  */
@@ -272,7 +479,8 @@ export function prefilterBloom(
   outputHeight,
   threshold,
   softKnee,
-  clampMax = 65472,
+  // 这里接收的是已换算的 Linear 值；Unity Shader 最终受 half 上限约束。
+  clampMax = HALF_FLOAT_MAX,
   highQualityFiltering = true,
   sourceTexelAspect = sourceHeight / sourceWidth,
   sourceBounds = null,
@@ -566,8 +774,10 @@ export function upsampleAndMixBloom(
 }
 
 /**
- * 将线性 HDR Bloom 转成可由透明 Canvas 保存的 sRGB 加色贡献。
- * Alpha 取最大 sRGB 通道，反预乘后写入 ImageData；零能量严格输出零 Alpha。
+ * 将线性 HDR Bloom 转成可由透明 Canvas 保存的 sRGB 贡献。
+ *
+ * scene 保留原有的加色编码。transparent-overlay 的目标 Alpha 只读取独立
+ * Coverage，并输出 source-over 所需的残余 Alpha；HDR RGB 不能反向抬高 Alpha。
  */
 export function encodeAdditiveBloom(
   source,
@@ -576,9 +786,16 @@ export function encodeAdditiveBloom(
   width = source.length / RGB_CHANNELS,
   bounds = null,
   edgeCorrection = null,
+  options = null,
 )
 {
   const safeIntensity = Math.pow(2, Math.max(0, intensity) / 10) - 1;
+  const transparentOverlay =
+    options?.outputCompositing === 'transparent-overlay';
+  const coverage = transparentOverlay ? options?.coverage : null;
+  const sceneCoverage = transparentOverlay
+    ? options?.sceneCoverage
+    : null;
   const safeWidth = Math.max(1, Math.floor(width));
   const sourceHeight = Math.ceil(
     source.length / (safeWidth * RGB_CHANNELS),
@@ -659,9 +876,25 @@ export function encodeAdditiveBloom(
         0,
         source[sourceIndex + 2] - blueFloor,
       ) * safeIntensity);
-      const alpha = Math.max(red, green, blue);
+      const maximumSrgb = Math.max(red, green, blue);
+      const pixelIndex = y * safeWidth + x;
+      let alpha = maximumSrgb;
 
-      if (alpha <= 0.00001)
+      if (transparentOverlay)
+      {
+        const sceneAlpha = clamp01(sceneCoverage?.[pixelIndex] ?? 0);
+        const bloomAlpha = clamp01(coverage?.[pixelIndex] ?? 0);
+        const targetAlpha = Math.max(sceneAlpha, bloomAlpha);
+
+        // 主清晰层已经在目标 Canvas。求 source-over 的残余源 Alpha，令
+        // residual + scene * (1 - residual) = max(scene, bloom)。
+        // scene 已覆盖目标时必须输出零，不能用 union 再抬高点击中心。
+        alpha = targetAlpha > sceneAlpha && sceneAlpha < 1
+          ? clamp01((targetAlpha - sceneAlpha) / (1 - sceneAlpha))
+          : 0;
+      }
+
+      if (maximumSrgb <= 0.00001 || alpha <= 0.00001)
       {
         output[outputIndex] = 0;
         output[outputIndex + 1] = 0;
@@ -670,9 +903,21 @@ export function encodeAdditiveBloom(
       }
       else
       {
-        output[outputIndex] = Math.round(clamp01(red / alpha) * 255);
-        output[outputIndex + 1] = Math.round(clamp01(green / alpha) * 255);
-        output[outputIndex + 2] = Math.round(clamp01(blue / alpha) * 255);
+        // ImageData 保存非预乘 RGB。以 max(alpha, maximumSrgb) 归一化后，
+        // Canvas 实际预乘结果严格不超过 Alpha，并保持 HDR 色相。
+        const normalization = transparentOverlay
+          ? Math.max(alpha, maximumSrgb)
+          : alpha;
+
+        output[outputIndex] = Math.round(
+          clamp01(red / normalization) * 255,
+        );
+        output[outputIndex + 1] = Math.round(
+          clamp01(green / normalization) * 255,
+        );
+        output[outputIndex + 2] = Math.round(
+          clamp01(blue / normalization) * 255,
+        );
         output[outputIndex + 3] = Math.round(alpha * 255);
       }
 
@@ -832,6 +1077,7 @@ export class SoftwareBloomRenderer
 {
   constructor(createCanvas)
   {
+    this.createCanvas = createCanvas;
     this.sourceCanvas = createCanvas();
     this.outputCanvas = createCanvas();
     this.sourceContext = this.sourceCanvas?.getContext?.(
@@ -858,6 +1104,13 @@ export class SoftwareBloomRenderer
     this.displayCssWidth = 0;
     this.displayCssHeight = 0;
     this.sourceLinear = new Float32Array(0);
+    // 透明覆盖层才需要 Coverage；scene 实例不会创建 Canvas 或分配金字塔。
+    this.coverageCanvas = null;
+    this.coverageContext = null;
+    this.sourceCoverage = new Float32Array(0);
+    this.coverageLevels = [];
+    this.coverageLevelStorage = [];
+    this.coverageFrameReady = false;
     this.levels = [];
     this.levelStorage = [];
     this.outputImageData = null;
@@ -904,6 +1157,62 @@ export class SoftwareBloomRenderer
     // Canvas backing store 只增长不收缩，避免量化区域尺寸来回变化时重复分配。
     canvas.width = Math.max(canvas.width, width);
     canvas.height = Math.max(canvas.height, height);
+  }
+
+  _ensureCoverageSurface()
+  {
+    if (this.coverageContext)
+    {
+      return true;
+    }
+
+    const canvas = this.createCanvas?.();
+    const context = canvas?.getContext?.(
+      '2d',
+      {
+        alpha: true,
+        willReadFrequently: true,
+      },
+    );
+
+    if (!canvas || !context || typeof context.getImageData !== 'function')
+    {
+      return false;
+    }
+
+    this.coverageCanvas = canvas;
+    this.coverageContext = context;
+    return true;
+  }
+
+  _ensureCoverageBuffers()
+  {
+    this.sourceCoverage = this._resizeFloatBuffer(
+      this.sourceCoverage,
+      this.sourceWidth * this.sourceHeight,
+    );
+    this.coverageLevels = this.levels.map((level, index) =>
+    {
+      const length = level.width * level.height;
+      const storage = this.coverageLevelStorage[index] ?? {
+        width: 0,
+        height: 0,
+        down: new Float32Array(0),
+        up: new Float32Array(0),
+        scratch: new Float32Array(0),
+      };
+
+      storage.width = level.width;
+      storage.height = level.height;
+      storage.down = this._resizeFloatBuffer(storage.down, length);
+      storage.up = this._resizeFloatBuffer(storage.up, length);
+      storage.scratch = this._resizeFloatBuffer(storage.scratch, length);
+      this.coverageLevelStorage[index] = storage;
+
+      return storage;
+    });
+
+    return this.coverageLevels.length === this.levels.length;
   }
 
   _resize(
@@ -1038,6 +1347,8 @@ export class SoftwareBloomRenderer
     emissionBounds = bounds,
   )
   {
+    this.coverageFrameReady = false;
+
     if (!this.available || !bounds)
     {
       return null;
@@ -1166,6 +1477,63 @@ export class SoftwareBloomRenderer
     return this.sourceContext;
   }
 
+  /**
+   * 为 transparent-overlay 准备独立 Coverage 源。
+   *
+   * 调用方应在 beginFrame() 之后调用，并使用白色几何把纹理 Coverage、
+   * 生命周期 Alpha 与全局 opacity 写入返回 Context 的 Alpha。
+   */
+  beginCoverageFrame(outputCompositing = 'scene')
+  {
+    this.coverageFrameReady = false;
+
+    if (outputCompositing !== 'transparent-overlay')
+    {
+      return null;
+    }
+
+    if (
+      !this.available ||
+      this.sourceWidth <= 0 ||
+      this.sourceHeight <= 0 ||
+      this.regionWidth <= 0 ||
+      this.regionHeight <= 0 ||
+      !this._ensureCoverageSurface()
+    )
+    {
+      return null;
+    }
+
+    this._ensureCanvasCapacity(
+      this.coverageCanvas,
+      this.sourceWidth,
+      this.sourceHeight,
+    );
+    const scaleX = this.sourceWidth / this.regionWidth;
+    const scaleY = this.sourceHeight / this.regionHeight;
+
+    this.coverageContext.setTransform(1, 0, 0, 1, 0, 0);
+    this.coverageContext.clearRect(
+      0,
+      0,
+      this.sourceWidth,
+      this.sourceHeight,
+    );
+    this.coverageContext.setTransform(
+      scaleX,
+      0,
+      0,
+      scaleY,
+      -this.originX * scaleX,
+      -this.originY * scaleY,
+    );
+    // source-over 保存多个粒子 Coverage 的并集，不能像 HDR RGB 一样相加。
+    this.coverageContext.globalCompositeOperation = 'source-over';
+    this.coverageFrameReady = true;
+
+    return this.coverageContext;
+  }
+
   composite(targetContext, settings)
   {
     if (
@@ -1177,6 +1545,18 @@ export class SoftwareBloomRenderer
       return false;
     }
 
+    const transparentOverlay =
+      settings.outputCompositing === 'transparent-overlay';
+
+    if (
+      transparentOverlay &&
+      (!this.coverageFrameReady || !this._ensureCoverageBuffers())
+    )
+    {
+      // 缺少 Coverage 时不能退回 maxRGB，否则会重新引入不透明中心。
+      return false;
+    }
+
     const readBounds = this.sourceReadBounds ?? {
       x: 0,
       y: 0,
@@ -1184,10 +1564,12 @@ export class SoftwareBloomRenderer
       height: this.sourceHeight,
     };
     let emissionBounds = null;
+    let coverageBounds = null;
 
     if (readBounds.width > 0 && readBounds.height > 0)
     {
       let sourceImageData;
+      let coverageImageData;
 
       try
       {
@@ -1197,6 +1579,16 @@ export class SoftwareBloomRenderer
           readBounds.width,
           readBounds.height,
         );
+
+        if (transparentOverlay)
+        {
+          coverageImageData = this.coverageContext.getImageData(
+            readBounds.x,
+            readBounds.y,
+            readBounds.width,
+            readBounds.height,
+          );
+        }
       }
       catch
       {
@@ -1215,14 +1607,37 @@ export class SoftwareBloomRenderer
         readBounds.x,
         readBounds.y,
       );
+
+      if (transparentOverlay)
+      {
+        coverageBounds = decodeCoverageMask(
+          coverageImageData.data,
+          this.sourceCoverage,
+          readBounds.width,
+          readBounds.height,
+          this.sourceWidth,
+          readBounds.x,
+          readBounds.y,
+        );
+      }
     }
     else
     {
       // 发射几何完全在屏幕外时不存在可回读像素，但这不是 Canvas 故障。
       this.sourceLinear.fill(0);
+
+      if (transparentOverlay)
+      {
+        this.sourceCoverage.fill(0);
+      }
     }
 
+    this.coverageFrameReady = false;
+
     const firstLevel = this.levels[0];
+    const firstCoverageLevel = transparentOverlay
+      ? this.coverageLevels[0]
+      : null;
 
     const activeBounds = [];
 
@@ -1235,11 +1650,25 @@ export class SoftwareBloomRenderer
       firstLevel.height,
       gammaToLinear(settings.threshold),
       settings.softKnee,
-      settings.clamp ?? 65472,
+      resolveUnityBloomClamp(settings.clamp),
       true,
       1,
       emissionBounds,
     );
+
+    if (transparentOverlay)
+    {
+      filterBoxCoverage(
+        this.sourceCoverage,
+        this.sourceWidth,
+        this.sourceHeight,
+        firstCoverageLevel.down,
+        firstCoverageLevel.width,
+        firstCoverageLevel.height,
+        1,
+        coverageBounds,
+      );
+    }
 
     if (!activeBounds[0])
     {
@@ -1262,10 +1691,29 @@ export class SoftwareBloomRenderer
         current.height,
         activeBounds[level - 1],
       );
+
+      if (transparentOverlay)
+      {
+        const previousCoverage = this.coverageLevels[level - 1];
+        const currentCoverage = this.coverageLevels[level];
+
+        filterBoxCoverage(
+          previousCoverage.down,
+          previousCoverage.width,
+          previousCoverage.height,
+          currentCoverage.down,
+          currentCoverage.width,
+          currentCoverage.height,
+          1,
+        );
+      }
     }
 
     let bloom = this.levels.at(-1).down;
     let bloomBounds = activeBounds.at(-1);
+    let bloomCoverage = transparentOverlay
+      ? this.coverageLevels.at(-1).down
+      : null;
 
     for (let level = this.levels.length - 2; level >= 0; level--)
     {
@@ -1286,6 +1734,24 @@ export class SoftwareBloomRenderer
         bloomBounds,
       );
       bloom = current.up;
+
+      if (transparentOverlay)
+      {
+        const currentCoverage = this.coverageLevels[level];
+        const lowerCoverage = this.coverageLevels[level + 1];
+
+        upsampleBloomCoverage(
+          currentCoverage.down,
+          currentCoverage.width,
+          currentCoverage.height,
+          bloomCoverage,
+          lowerCoverage.width,
+          lowerCoverage.height,
+          currentCoverage.up,
+          this.sampleScale,
+        );
+        bloomCoverage = currentCoverage.up;
+      }
     }
 
     this._clearOutputBounds();
@@ -1298,6 +1764,22 @@ export class SoftwareBloomRenderer
       compositeBloom,
       this.sampleScale,
     );
+    let compositeCoverage = null;
+
+    if (transparentOverlay)
+    {
+      compositeCoverage = this.coverageLevels[0].scratch;
+      filterBoxCoverage(
+        bloomCoverage,
+        this.width,
+        this.height,
+        compositeCoverage,
+        this.width,
+        this.height,
+        Math.max(0, this.sampleScale) * 0.5,
+      );
+    }
+
     const edgeCorrection = calculateBloomEdgeCorrection(
       compositeBloom,
       this.width,
@@ -1319,6 +1801,13 @@ export class SoftwareBloomRenderer
       this.width,
       bloomBounds,
       edgeCorrection,
+      {
+        outputCompositing: settings.outputCompositing,
+        coverage: compositeCoverage,
+        // mip0 的 down 缓冲与输出 ImageData 尺寸完全相同；读取源分辨率
+        // Coverage 会在 resolutionScale < 1 时造成索引和 DPR 错位。
+        sceneCoverage: firstCoverageLevel?.down,
+      },
     );
     this.outputBounds = bloomBounds;
     this.outputContext.putImageData(
@@ -1378,8 +1867,21 @@ export class SoftwareBloomRenderer
     this.sourceCanvas.height = 0;
     this.outputCanvas.width = 0;
     this.outputCanvas.height = 0;
+
+    if (this.coverageCanvas)
+    {
+      this.coverageCanvas.width = 0;
+      this.coverageCanvas.height = 0;
+    }
+
     this.available = false;
     this.sourceLinear = new Float32Array(0);
+    this.sourceCoverage = new Float32Array(0);
+    this.coverageCanvas = null;
+    this.coverageContext = null;
+    this.coverageLevels = [];
+    this.coverageLevelStorage = [];
+    this.coverageFrameReady = false;
     this.levels = [];
     this.levelStorage = [];
     this.outputImageData = null;

@@ -10,19 +10,34 @@ const modulePath = sourceMode
   : '../dist/ba-click-fx.js';
 const module = await import(modulePath);
 let ring3AlphaSource = null;
+let circleTextureSource = null;
+let trailTextureSource = null;
 let createHash = null;
+let webgl2EffectSourceText = null;
 
 if (sourceMode)
 {
   ring3AlphaSource = await import('../src/ring3-alpha.js');
+  circleTextureSource = await import('../src/circle-texture.js');
+  trailTextureSource = await import('../src/trail-texture.js');
   ({ createHash } = await import('node:crypto'));
+  const { readFileSync } = await import('node:fs');
+
+  webgl2EffectSourceText = readFileSync(
+    new URL('../src/webgl2-effect.js', import.meta.url),
+    'utf8',
+  );
 }
 
 const {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
+  DEFAULT_THEME_COLOR,
   EFFECT_BACKEND_CHANGE_EVENT,
+  FX_PARAM_MIGRATIONS,
+  FX_PARAM_SCHEMA,
+  FX_PARAM_SCHEMA_VERSION,
   UNITY_FX_TOUCH,
   createConfig,
   SIZE_CORRECTION,
@@ -70,6 +85,13 @@ function getCssPremultipliedSum(value)
   const alpha = channels[3] ?? 1;
 
   return channels.slice(0, 3).reduce((sum, channel) => sum + channel, 0) * alpha;
+}
+
+function getCanvasBrightness(value)
+{
+  const match = String(value).match(/^brightness\(([\d.e+-]+)\)$/i);
+
+  return match ? Number(match[1]) : 1;
 }
 
 function getHardClipOffsets(stops)
@@ -175,6 +197,7 @@ class ContextMock
     this.strokedPaths = [];
     this.fillShadowBlurs = [];
     this.fillShadowColors = [];
+    this.fillCompositeOperations = [];
     this.fillOrders = [];
     this.radialGradients = [];
     this.linearGradients = [];
@@ -187,6 +210,7 @@ class ContextMock
     this.clearRectCalls = [];
     this.hasVisiblePixels = false;
     this.globalCompositeOperation = 'source-over';
+    this.globalAlpha = 1;
     this.shadowBlur = 0;
     this.shadowColor = 'transparent';
     this.filter = 'none';
@@ -225,6 +249,7 @@ class ContextMock
     this.stateStack.push(
       {
         globalCompositeOperation: this.globalCompositeOperation,
+        globalAlpha: this.globalAlpha,
         shadowBlur: this.shadowBlur,
         shadowColor: this.shadowColor,
         filter: this.filter,
@@ -243,6 +268,7 @@ class ContextMock
     if (state)
     {
       this.globalCompositeOperation = state.globalCompositeOperation;
+      this.globalAlpha = state.globalAlpha;
       this.shadowBlur = state.shadowBlur;
       this.shadowColor = state.shadowColor;
       this.filter = state.filter;
@@ -338,6 +364,7 @@ class ContextMock
     this.filledStyles.push(this.fillStyle);
     this.fillShadowBlurs.push(this.shadowBlur);
     this.fillShadowColors.push(this.shadowColor);
+    this.fillCompositeOperations.push(this.globalCompositeOperation);
     this.fillOrders.push(++this.drawSequence);
     this.hasVisiblePixels = true;
   }
@@ -429,6 +456,7 @@ class ContextMock
         shadowBlur: this.shadowBlur,
         shadowColor: this.shadowColor,
         imageSmoothingEnabled: this.imageSmoothingEnabled,
+        globalAlpha: this.globalAlpha,
         transform: [...this.currentTransform],
         rotation: this.currentRotation,
         order: ++this.drawSequence,
@@ -654,8 +682,69 @@ function flushFrames(dom, startTime, count, frameMs = 1000 / 60)
 }
 
 console.log('\nUnity 参数');
+
+const fxSchemaPaths = new Set(FX_PARAM_SCHEMA.map((entry) => entry.path));
+const readUnityScalar = (path) => path.split('.').reduce(
+  (value, key) => value[key],
+  UNITY_FX_TOUCH,
+);
+
+assert(
+  FX_PARAM_SCHEMA.length > 0 &&
+    fxSchemaPaths.size === FX_PARAM_SCHEMA.length &&
+    FX_PARAM_SCHEMA.every((entry) =>
+      entry.default === readUnityScalar(entry.path)),
+  '公开参数 schema 路径唯一且默认值来自 Unity 参数源',
+);
+assert(
+  Object.isFrozen(FX_PARAM_SCHEMA) &&
+    FX_PARAM_SCHEMA.every((entry) => Object.isFrozen(entry)) &&
+    JSON.parse(JSON.stringify(FX_PARAM_SCHEMA)).length ===
+      FX_PARAM_SCHEMA.length,
+  '公开参数 schema 深只读且可直接 JSON 序列化',
+);
+assert(
+  !fxSchemaPaths.has('rootDurationMs') &&
+    !fxSchemaPaths.has('rings.colorKeys') &&
+    !fxSchemaPaths.has('rings.textureUvMin'),
+  '公开参数 schema 不暴露对象池元数据、曲线或纹理采样真值',
+);
 assert(UNITY_FX_TOUCH.rootDurationMs === 1000, '根粒子持续 1 秒');
 assert(UNITY_FX_TOUCH.disk.lifetimeMs === 200, '短圆盘持续 0.2 秒');
+// OriginalPrefab 直接序列化归一化 float；完整数组断言避免未来再次把
+// 启用粒子的 RGB 提前取整成 8-bit 近似值。
+const originalPrefabEnabledColorKeys =
+[
+  [
+    [0, [255, 255, 255]],
+    [0.1205921, [0.24056602 * 255, 0.39061815 * 255, 255]],
+  ],
+  [
+    [0.1117723, [255, 255, 255]],
+    [0.5000076, [0.2971698 * 255, 0.6532865 * 255, 255]],
+    [1, [0.2971698 * 255, 0.6532865 * 255, 255]],
+  ],
+  [
+    [0, [255, 255, 255]],
+    [0.1823606, [255, 255, 255]],
+    [0.282353, [0.3726415 * 255, 0.7731873 * 255, 255]],
+    [0.4617685, [0.37254903 * 255, 0.7725491 * 255, 255]],
+    [0.6617685, [0.3529412 * 255, 0.7294118 * 255, 0.9450981 * 255]],
+    [0.8264744, [0.37254903 * 255, 0.7725491 * 255, 255]],
+    [1, [0.37254903 * 255, 0.7725491 * 255, 255]],
+  ],
+];
+
+assert(
+  JSON.stringify(
+    [
+      UNITY_FX_TOUCH.disk.colorKeys,
+      UNITY_FX_TOUCH.rings.colorKeys,
+      UNITY_FX_TOUCH.shards.colorKeys,
+    ],
+  ) === JSON.stringify(originalPrefabEnabledColorKeys),
+  '启用粒子的 Gradient RGB 保留 OriginalPrefab 归一化 float 真值',
+);
 assert(
   JSON.stringify(UNITY_FX_TOUCH.disk.sizeKeys) === JSON.stringify(
     [
@@ -732,6 +821,18 @@ if (sourceMode)
       '6c1d74367a72a0ac830b0f5fdd8f0ee93bc9453c9b8c3cc4d470c2becca9d220',
     'Ring3 Alpha LUT 的完整字节 SHA256 与解包纹理一致',
   );
+  assert(
+    webgl2EffectSourceText.includes('gl.R8') &&
+      webgl2EffectSourceText.includes(
+        'float textureAlpha = texture(u_texture, v_uv).r;',
+      ) &&
+      webgl2EffectSourceText.includes(
+        'layout(location = 1) in vec2 a_uv;',
+      ) &&
+      !webgl2EffectSourceText.includes('a_textureAlpha') &&
+      !webgl2EffectSourceText.includes('sampleTextureAlpha'),
+    '完整 WebGL2 在 Fragment Shader 逐片元采样 Ring3 并执行溶解裁剪',
+  );
 
   const nonSeparableSamples = [
     [129, 80],
@@ -750,6 +851,56 @@ if (sourceMode)
       JSON.stringify([243, 239, 246, 226]) &&
       topLeft * bottomRight - topRight * bottomLeft === -3876,
     'Ring3 Alpha 保留无法由 U/V 一维曲线乘积表达的二维采样差异',
+  );
+
+  const {
+    CIRCLE_TEXTURE_RGBA,
+    CIRCLE_TEXTURE_SIZE,
+  } = circleTextureSource;
+  const firstCircleOffset = (24 * CIRCLE_TEXTURE_SIZE + 256) * 4;
+  const secondCircleOffset = (25 * CIRCLE_TEXTURE_SIZE + 234) * 4;
+
+  assert(
+    CIRCLE_TEXTURE_SIZE === 512 &&
+      CIRCLE_TEXTURE_RGBA.length === 512 * 512 * 4,
+    'Circle_01 解码为完整的 512x512 RGBA 纹理',
+  );
+  assert(
+    CIRCLE_TEXTURE_RGBA[firstCircleOffset] ===
+        CIRCLE_TEXTURE_RGBA[secondCircleOffset] &&
+      CIRCLE_TEXTURE_RGBA[firstCircleOffset + 1] !==
+        CIRCLE_TEXTURE_RGBA[secondCircleOffset + 1],
+    'Circle_01 保留同半径同 R 采样下无法由径向曲线表达的 G 通道差异',
+  );
+
+  const {
+    TRAIL_TEXTURE_HEIGHT,
+    TRAIL_TEXTURE_RGB,
+    TRAIL_TEXTURE_WIDTH,
+  } = trailTextureSource;
+  const trailTextureHash = createHash('sha256')
+    .update(TRAIL_TEXTURE_RGB)
+    .digest('hex');
+  const firstTrailPixel = [...TRAIL_TEXTURE_RGB.subarray(0, 3)];
+  const upperTrailOffset = (13 * TRAIL_TEXTURE_WIDTH + 20) * 3;
+  const lowerTrailOffset = (498 * TRAIL_TEXTURE_WIDTH + 20) * 3;
+
+  assert(
+    TRAIL_TEXTURE_WIDTH === 512 &&
+      TRAIL_TEXTURE_HEIGHT === 512 &&
+      TRAIL_TEXTURE_RGB.length === 512 * 512 * 3,
+    'Trail_03 解码为完整的 512x512 RGB 纹理',
+  );
+  assert(
+    trailTextureHash ===
+      '9ef29db2147501c40c1ff0f1cd0848cd6e017a46b0e8aa0af685eef568d4faa0',
+    'Trail_03 RGB 的完整字节 SHA256 与解包纹理一致',
+  );
+  assert(
+    JSON.stringify(firstTrailPixel) === JSON.stringify([5, 0, 0]) &&
+      TRAIL_TEXTURE_RGB[upperTrailOffset + 1] === 71 &&
+      TRAIL_TEXTURE_RGB[lowerTrailOffset + 1] === 131,
+    'Trail_03 保留逐通道差异和不可由对称横截面表达的纹理细节',
   );
 }
 assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');
@@ -783,6 +934,10 @@ assert(
   '碎片使用 Unity Hermite 尺寸曲线与 2×1 图集的实测轮廓',
 );
 assert(UNITY_FX_TOUCH.shards.trailSpacing === 108, '拖拽每 108px 生成一枚碎片');
+assert(
+  UNITY_FX_TOUCH.shards.maxCount === 50,
+  'Ring (4) 保留 Prefab 每个 FX_Touch 实例 50 枚粒子上限',
+);
 assert(UNITY_FX_TOUCH.trail.lifetimeMs === 300, 'TrailRenderer.time 为 0.3 秒');
 assert(UNITY_FX_TOUCH.trail.geometryWidth === 2.7, '1080p TrailRenderer 几何带宽为 2.7px');
 assert(UNITY_FX_TOUCH.trail.width === 2.7, '清晰拖尾本体使用 Unity 的 2.7px 带宽');
@@ -856,12 +1011,23 @@ assert(
   '点击与拖尾的默认时间倍率均为 1',
 );
 assert(
+  DEFAULT_THEME_COLOR === '#4ca7ff' &&
+    CONFIG.themeColor === DEFAULT_THEME_COLOR,
+  '正式入口导出默认游戏蓝并纳入基础配置',
+);
+assert(
   BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange',
   '导出 Bloom 后端解析状态事件名，调用方无需硬编码字符串',
 );
 assert(
   EFFECT_BACKEND_CHANGE_EVENT === 'baclickfxeffectbackendchange',
   '导出完整特效后端解析状态事件名，调用方无需硬编码字符串',
+);
+assert(
+  FX_PARAM_SCHEMA_VERSION === 1 &&
+    FX_PARAM_MIGRATIONS[0]?.changes[0]?.from === 'bloom.scatter' &&
+    FX_PARAM_MIGRATIONS[0]?.changes[0]?.to === 'bloom.diffusion',
+  '正式入口导出参数 Schema 版本与迁移合同',
 );
 
 console.log('\n配置隔离');
@@ -901,6 +1067,7 @@ const invalidHostControlConfig = createConfig(
     trailTimeScale: Infinity,
   },
 );
+const themedConfig = createConfig({ themeColor: '#FF6969' });
 
 assert(
   nativeAliasConfig.bloomBackend === 'native' &&
@@ -940,15 +1107,112 @@ assert(
     invalidHostControlConfig.trailTimeScale === CONFIG.trailTimeScale,
   'createConfig 忽略无效输入模式与非正有限时间倍率',
 );
+assert(
+  themedConfig.themeColor === '#ff6969' &&
+    createConfig({ themeColor: 'red' }).themeColor === DEFAULT_THEME_COLOR,
+  'createConfig 规范化主题色并让非法值恢复游戏蓝',
+);
 
 console.log('\n指针生命周期');
 const dom = installDom();
+const paramApiEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    inputSource: 'manual',
+    themeColor: '#FF6969',
+  },
+);
+assert(
+  paramApiEffect.getConfig().themeColor === '#ff6969',
+  '构造参数主题色进入可读取的实例配置快照',
+);
+const singleParamAccepted = paramApiEffect.setFxParam(
+  'rings.rotationDirection',
+  -1,
+);
+const singleParamRejected = paramApiEffect.setFxParam(
+  'bloom.intensity',
+  Number.NaN,
+);
+
+assert(
+  singleParamAccepted === true &&
+    singleParamRejected === false &&
+    paramApiEffect.getFxConfig().rings.rotationDirection === -1,
+  'setFxParam 返回可检测结果且非法值不改变配置',
+);
+
+const partialBatchResult = paramApiEffect.setFxParams(
+  {
+    'hit.enabled': 0,
+    'rings.count': 128,
+    'unknown.path': 1,
+  },
+);
+
+assert(
+  partialBatchResult.committed === true &&
+    !('nextConfig' in partialBatchResult) &&
+    partialBatchResult.applied.length === 2 &&
+    partialBatchResult.normalized.some((entry) =>
+      entry.path === 'hit.enabled' && entry.to === false) &&
+    partialBatchResult.normalized.some((entry) =>
+      entry.path === 'rings.count' && entry.to === 64) &&
+    partialBatchResult.rejected[0]?.reason === 'unknown-path' &&
+    paramApiEffect.getFxConfig().hit.enabled === false &&
+    paramApiEffect.getFxConfig().rings.count === 64,
+  'setFxParams 非严格模式原子提交有效项并报告规范化与拒绝项',
+);
+
+const migratedBatchResult = paramApiEffect.setFxParams(
+  {
+    'bloom.scatter': 6.25,
+  },
+  {
+    schemaVersion: 0,
+    strict: true,
+  },
+);
+
+assert(
+  migratedBatchResult.committed === true &&
+    migratedBatchResult.applied[0]?.path === 'bloom.diffusion' &&
+    migratedBatchResult.normalized[0]?.reason === 'renamed' &&
+    paramApiEffect.getFxConfig().bloom.diffusion === 6.25,
+  'setFxParams 按 Schema 版本迁移 bloom.scatter 旧路径',
+);
+
+const beforeStrictBatch = paramApiEffect.getFxConfig();
+const strictBatchResult = paramApiEffect.setFxParams(
+  {
+    'rings.count': 2,
+    'rings.notReal': 1,
+  },
+  { strict: true },
+);
+
+assert(
+  strictBatchResult.committed === false &&
+    strictBatchResult.applied.length === 0 &&
+    JSON.stringify(paramApiEffect.getFxConfig()) ===
+      JSON.stringify(beforeStrictBatch),
+  'setFxParams 严格模式在任一拒绝项出现时回滚整批',
+);
+paramApiEffect.destroy();
+assert(
+  paramApiEffect.setFxParams({ 'rings.count': 1 }).rejected[0]?.reason ===
+    'destroyed',
+  '销毁后的批量参数写入返回可检测拒绝原因',
+);
+
 const defaultBackendEffect = new BAClickFX();
 
 assert(
   defaultBackendEffect.getConfig().effectBackend === 'webgl2' &&
     defaultBackendEffect.getConfig().resolvedEffectBackend === 'pending' &&
-    defaultBackendEffect.getConfig().bloomBackend === 'webgl2',
+    defaultBackendEffect.getConfig().bloomBackend === 'webgl2' &&
+    defaultBackendEffect.getConfig().themeColor === DEFAULT_THEME_COLOR,
   '默认实例在延迟能力探测前请求纯 WebGL2 并公开 pending',
 );
 defaultBackendEffect.destroy();
@@ -1346,8 +1610,13 @@ assert(
 );
 assert(
   lastBloomCompositeSettings?.diffusion === UNITY_FX_TOUCH.bloom.diffusion &&
+    lastBloomCompositeSettings.outputCompositing === 'scene' &&
     !('iterations' in lastBloomCompositeSettings),
-  '软件 Bloom 合成使用 MXFinalBloom diffusion 且不再传旧迭代数',
+  '软件 Bloom 合成保留 Scene 输出、MXFinalBloom diffusion 且不再传旧迭代数',
+);
+assert(
+  effect.bloomRenderer.coverageCanvas === null,
+  'Scene 输出不分配透明 Coverage 画布，保持原软件 Bloom 资源路径',
 );
 assert(
   bloomCanvases.some((canvas) => canvas.context.putImageDataCount > 0),
@@ -1424,7 +1693,7 @@ function sampleClickEmission(scale)
   effect.setFxParam('bloom.clickEmissionScale', scale);
   probeWave.ageMs = 100;
   effect.bloomRenderer.sourceContext.conicGradients = [];
-  effect.bloomRenderer.sourceContext.radialGradients = [];
+  const diskDrawStart = effect.bloomRenderer.sourceContext.drawImageCalls.length;
   probeWave.drawBloom(effect.bloomRenderer.sourceContext, 1, 1);
 
   const ringPeak = effect.bloomRenderer.sourceContext.conicGradients
@@ -1433,12 +1702,14 @@ function sampleClickEmission(scale)
       (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
       0,
     );
-  const diskPeak = effect.bloomRenderer.sourceContext.radialGradients
-    .flatMap((entry) => entry.gradient.stops)
-    .reduce(
-      (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
-      0,
-    );
+  const diskDraw = effect.bloomRenderer.sourceContext.drawImageCalls
+    .slice(diskDrawStart)
+    .find((call) =>
+      call.args[0]?.width === 512 && call.args[0]?.height === 512);
+  const diskTextureCanvas = diskDraw?.args[0];
+  const brightnessDraw = diskTextureCanvas?.context.drawImageCalls
+    .findLast((call) => String(call.filter).startsWith('brightness('));
+  const diskPeak = getCanvasBrightness(brightnessDraw?.filter);
   const webglCalls = { disks: [], rings: [] };
 
   probeWave.appendWebGLBloom(
@@ -1456,12 +1727,29 @@ function sampleClickEmission(scale)
     1,
   );
 
-  return { ringPeak, diskPeak, webglCalls };
+  return {
+    brightnessDraw,
+    diskDraw,
+    diskPeak,
+    diskTextureCanvas,
+    ringPeak,
+    webglCalls,
+  };
 }
 
 const baseClickEmission = sampleClickEmission(1);
 probeWave.ageMs = 190;
 const lateDiskCalls = [];
+const lateCanvasDiskDrawStart =
+  effect.bloomRenderer.sourceContext.drawImageCalls.length;
+
+probeWave.drawBloom(effect.bloomRenderer.sourceContext, 1, 1);
+const lateCanvasDiskDraw = effect.bloomRenderer.sourceContext.drawImageCalls
+  .slice(lateCanvasDiskDrawStart)
+  .find((call) => call.args[0] === baseClickEmission.diskTextureCanvas);
+const lateCanvasBrightnessDraw = baseClickEmission.diskTextureCanvas.context
+  .drawImageCalls.findLast((call) =>
+    String(call.filter).startsWith('brightness('));
 
 probeWave.appendWebGLBloom(
   {
@@ -1477,14 +1765,28 @@ probeWave.appendWebGLBloom(
   1,
 );
 assert(
-  lateDiskCalls[0][4] === baseClickEmission.webglCalls.disks[0][4],
+  lateDiskCalls[0][4] === baseClickEmission.webglCalls.disks[0][4] &&
+    lateCanvasDiskDraw?.globalAlpha === baseClickEmission.diskDraw.globalAlpha &&
+    getCanvasBrightness(lateCanvasBrightnessDraw?.filter) ===
+      baseClickEmission.diskPeak,
   '光盘 RGB 发射不随 Particle Alpha 衰减，仅由 200ms 生命周期截断',
 );
+const circleTintCanvas = baseClickEmission.brightnessDraw?.args[0];
+const circleColorCanvas = circleTintCanvas?.context.drawImageCalls.at(-1)?.args[0];
+const circleCoverageDraw = baseClickEmission.diskTextureCanvas?.context
+  .drawImageCalls.findLast((call) =>
+    call.compositeOperation === 'destination-in');
+const circleCoverageCanvas = circleCoverageDraw?.args[0];
+
 assert(
-  effect.bloomRenderer.sourceContext.radialGradients.at(-1)
-    .gradient.stops.length ===
-      UNITY_FX_TOUCH.disk.textureRadialEnergyKeys.length,
-  '光盘发射完整使用 FX_TEX_Circle_01 的径向能量曲线',
+  baseClickEmission.diskTextureCanvas?.width === 512 &&
+    baseClickEmission.diskTextureCanvas?.height === 512 &&
+    circleTintCanvas?.width === 512 &&
+    circleColorCanvas?.context.putImageDataCount === 1 &&
+    circleCoverageCanvas?.context.putImageDataCount === 1 &&
+    circleTintCanvas.context.putImageDataCount === 0 &&
+    baseClickEmission.diskTextureCanvas.context.putImageDataCount === 0,
+  '光盘发射使用完整 Circle_01 二维 RGB/Coverage，动态帧不执行像素回写',
 );
 const boostedClickEmission = sampleClickEmission(2);
 
@@ -1492,6 +1794,11 @@ assert(
   boostedClickEmission.ringPeak >= baseClickEmission.ringPeak * 1.8 &&
     boostedClickEmission.diskPeak >= baseClickEmission.diskPeak * 1.8,
   '点击发射倍率在线性能量上同步增强软件 Bloom 的圆环与光盘',
+);
+assert(
+  boostedClickEmission.diskDraw.globalAlpha ===
+      baseClickEmission.diskDraw.globalAlpha,
+  '点击发射倍率只改变光盘 RGB，不改变纹理 Coverage',
 );
 assert(
   boostedClickEmission.webglCalls.disks[0][4] ===
@@ -1723,7 +2030,12 @@ effect.trailStrokes[0].points = [
   { x: 410, y: 310, bornAt: now },
 ];
 
-effect.updateConfig({ softwareBloomEnabled: false });
+effect.updateConfig(
+  {
+    softwareBloomEnabled: false,
+    outputCompositing: 'transparent-overlay',
+  },
+);
 now = flushFrames(dom, now, 1);
 assert(
   effect.context.drawImageCalls.filter((call) =>
@@ -1814,6 +2126,19 @@ assert(
     nativeHeadPeak > 20,
   '回环轨迹裁剪严格零尾段，并由 MXFinalBloom 阈值过滤首个低能段',
 );
+assert(
+  nativeSegmentGradients.every(({ gradient }) =>
+  {
+    const nonZeroAlphas = new Set(
+      gradient.stops
+        .map(([, color]) => getCssAlpha(color))
+        .filter((alpha) => alpha > 0),
+    );
+
+    return nonZeroAlphas.size <= 1;
+  }),
+  'Native 拖尾横截面强度只改变 Bloom RGB，不改变同一网格段 Coverage',
+);
 const expectedNativeTrailPaths = [
   ...clearTrailPaths.slice(
     nativeSkippedSegmentCount,
@@ -1859,6 +2184,186 @@ assert(
     dom.body.children.length === 0,
   'destroy() 移除监听、隔离合成根与自有 Canvas',
 );
+
+console.log('\n透明覆盖层 Canvas 合同');
+
+function captureTransparentSoftwareFrame(opacity)
+{
+  const transparentEffect = new BAClickFX(
+    {
+      effectBackend: 'canvas2d',
+      bloomBackend: 'software',
+      outputCompositing: 'transparent-overlay',
+      inputSource: 'manual',
+      opacity,
+      lightBackgroundContrastAlpha: 0.35,
+    },
+  );
+  const renderer = transparentEffect.bloomRenderer;
+  const originalBeginCoverageFrame = renderer.beginCoverageFrame.bind(
+    renderer,
+  );
+  const originalComposite = renderer.composite.bind(renderer);
+  const coverageModes = [];
+  let compositeSettings = null;
+
+  renderer.beginCoverageFrame = (outputCompositing) =>
+  {
+    coverageModes.push(outputCompositing);
+    return originalBeginCoverageFrame(outputCompositing);
+  };
+  renderer.composite = (context, settings) =>
+  {
+    compositeSettings = settings;
+    return originalComposite(context, settings);
+  };
+
+  transparentEffect.pointerDown({ x: 400, y: 300, pointerId: 71 });
+  transparentEffect.pointerMove({ x: 560, y: 300, pointerId: 71 });
+  flushFrames(dom, performance.now(), 1, 50);
+
+  const coverageContext = renderer.coverageContext;
+  const diskCoverageDraw = coverageContext?.drawImageCalls.find((call) =>
+    call.args[0]?.width === 512 && call.args[0]?.height === 512);
+  const shardCoverageDraw = coverageContext?.drawImageCalls.find((call) =>
+    call.args[0]?.width === 128 && call.args[0]?.height === 128);
+  const bloomOutputDraw = transparentEffect.context.drawImageCalls.find(
+    (call) => call.args[0] === renderer.outputCanvas,
+  );
+  const coverageDiskAlpha = diskCoverageDraw?.globalAlpha ?? 0;
+  const trailCoverageAlpha = coverageContext?.linearGradients
+    .flatMap(({ gradient }) => gradient.stops)
+    .reduce(
+      (maximum, [, color]) => Math.max(maximum, getCssAlpha(color)),
+      0,
+    ) ?? 0;
+
+  renderer.coverageContext.drawImageCalls = [];
+  renderer.coverageContext.linearGradients = [];
+  transparentEffect.setFxParam('bloom.clickEmissionScale', 2);
+  transparentEffect.setFxParam('bloom.trailEmission', 2);
+  transparentEffect._updateTrail(
+    transparentEffect.trailTimeMs,
+    transparentEffect._getScale(),
+    false,
+    false,
+    false,
+  );
+  transparentEffect._renderSoftwareBloom(transparentEffect._getScale());
+  const boostedDiskCoverage = renderer.coverageContext.drawImageCalls.find(
+    (call) => call.args[0]?.width === 512 && call.args[0]?.height === 512,
+  );
+  const boostedTrailCoverageAlpha = renderer.coverageContext.linearGradients
+    .flatMap(({ gradient }) => gradient.stops)
+    .reduce(
+      (maximum, [, color]) => Math.max(maximum, getCssAlpha(color)),
+      0,
+    );
+  const result = {
+    bloomOutputComposite: bloomOutputDraw?.compositeOperation,
+    compositeSettings,
+    coverageDiskAlpha,
+    coverageModes,
+    hasCircleCoverage: !!diskCoverageDraw,
+    hasRingCoverage: (coverageContext?.conicGradients.length ?? 0) > 0,
+    hasShardCoverage: !!shardCoverageDraw,
+    hasTrailCoverage: (coverageContext?.linearGradients.length ?? 0) > 0,
+    boostedDiskAlpha: boostedDiskCoverage?.globalAlpha ?? 0,
+    boostedTrailCoverageAlpha,
+    trailCoverageAlpha,
+    mainCompositeOperations: [
+      ...transparentEffect.context.fillCompositeOperations,
+    ],
+    diskCompositeOperations: transparentEffect.context.drawImageCalls
+      .filter((call) =>
+        call.args[0]?.width === 512 && call.args[0]?.height === 512)
+      .map((call) => call.compositeOperation),
+    contrastFillCount: transparentEffect.contrastContext.fillRects.length,
+  };
+
+  transparentEffect.destroy();
+  return result;
+}
+
+const zeroOverlayFrame = captureTransparentSoftwareFrame(0);
+const halfOverlayFrame = captureTransparentSoftwareFrame(0.5);
+const fullOverlayFrame = captureTransparentSoftwareFrame(1);
+
+assert(
+  halfOverlayFrame.coverageModes.every((mode) =>
+    mode === 'transparent-overlay') &&
+    halfOverlayFrame.compositeSettings?.outputCompositing ===
+      'transparent-overlay',
+  'Software Bloom 将透明输出模式同时传给 Coverage 与最终合成',
+);
+assert(
+  halfOverlayFrame.hasCircleCoverage &&
+    halfOverlayFrame.hasRingCoverage &&
+    halfOverlayFrame.hasShardCoverage &&
+    halfOverlayFrame.hasTrailCoverage,
+  'Software Coverage 重绘完整 Circle、Ring3、三角纹理与拖尾几何',
+);
+assert(
+  zeroOverlayFrame.coverageDiskAlpha === 0 &&
+    halfOverlayFrame.coverageDiskAlpha > 0 &&
+    fullOverlayFrame.coverageDiskAlpha > halfOverlayFrame.coverageDiskAlpha &&
+    Math.abs(
+      halfOverlayFrame.coverageDiskAlpha /
+        fullOverlayFrame.coverageDiskAlpha - 0.5,
+    ) < 0.000001,
+  '透明 Coverage 对 opacity=0/0.5/1 保持单调且线性',
+);
+assert(
+  halfOverlayFrame.boostedDiskAlpha ===
+      halfOverlayFrame.coverageDiskAlpha &&
+    halfOverlayFrame.boostedTrailCoverageAlpha ===
+      halfOverlayFrame.trailCoverageAlpha,
+  '点击与拖尾 HDR 发射倍率不会改变独立 Coverage',
+);
+assert(
+  halfOverlayFrame.bloomOutputComposite === 'source-over' &&
+    halfOverlayFrame.mainCompositeOperations.every((operation) =>
+      operation === 'source-over') &&
+    halfOverlayFrame.diskCompositeOperations.includes('source-over'),
+  '透明 Canvas 暂用 source-over 保存 Coverage，scene 模式仍保持 Additive RGB',
+);
+assert(
+  halfOverlayFrame.contrastFillCount === 0,
+  '透明覆盖层保留 Contrast 配置但不绘制额外桌面遮挡',
+);
+
+const hermiteBoundsEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'software',
+    inputSource: 'manual',
+  },
+);
+
+hermiteBoundsEffect.setFxParam('rings.count', 0);
+hermiteBoundsEffect.setFxParam('shards.clickCount', 0);
+hermiteBoundsEffect.boom(800, 500);
+hermiteBoundsEffect.waves[0].ageMs = 20;
+const hermiteDiskDrawStart = hermiteBoundsEffect.bloomRenderer.sourceContext
+  .drawImageCalls.length;
+hermiteBoundsEffect.waves[0].drawBloom(
+  hermiteBoundsEffect.bloomRenderer.sourceContext,
+  hermiteBoundsEffect._getScale(),
+  1,
+);
+const renderedDiskRadius = hermiteBoundsEffect.bloomRenderer.sourceContext
+  .drawImageCalls.slice(hermiteDiskDrawStart)
+  .find((call) => call.args[0]?.width === 512).args[7] * 0.5;
+const hermiteEmissionBounds = hermiteBoundsEffect
+  ._getSoftwareBloomRegions(hermiteBoundsEffect._getScale())[0]
+  .emissionBounds;
+
+assert(
+  Math.abs(hermiteEmissionBounds.width - renderedDiskRadius * 2) < 0.000001 &&
+    Math.abs(hermiteEmissionBounds.height - renderedDiskRadius * 2) < 0.000001,
+  'Software Bloom 发射边界与圆盘 Hermite 扩张曲线严格一致',
+);
+hermiteBoundsEffect.destroy();
 
 const ringlessEffect = new BAClickFX({ bloomBackend: 'native' });
 let ringlessNow = performance.now();
@@ -2105,6 +2610,98 @@ assert(
   '运行时恢复 manual 会完整解除 DOM 指针监听',
 );
 manualEffect.destroy();
+
+const shardOwnerEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    inputSource: 'manual',
+  },
+);
+
+shardOwnerEffect.setFxParam('shards.maxCount', 1);
+shardOwnerEffect.setFxParam('shards.trailSpacing', 20);
+shardOwnerEffect.pointerDown({ x: 100, y: 100, pointerId: 81 });
+const firstTrailOwnerId = shardOwnerEffect.activeTrailOwnerId;
+
+shardOwnerEffect.pointerMove({ x: 500, y: 100, pointerId: 81 });
+const firstOwnerTrailShards = shardOwnerEffect.shards.filter((shard) =>
+  shard.kind === 'trail' && shard.ownerId === firstTrailOwnerId);
+
+assert(
+  firstOwnerTrailShards.length === 1 &&
+    shardOwnerEffect.shards.filter((shard) => shard.kind === 'click').length ===
+      UNITY_FX_TOUCH.shards.clickCount,
+  '点击碎片不占用当前 FX_Touch 实例的拖尾粒子额度',
+);
+
+shardOwnerEffect.pointerUp(81);
+shardOwnerEffect.pointerDown({ x: 100, y: 200, pointerId: 82 });
+const secondTrailOwnerId = shardOwnerEffect.activeTrailOwnerId;
+
+shardOwnerEffect.pointerMove({ x: 500, y: 200, pointerId: 82 });
+const allOwnedTrailShards = shardOwnerEffect.shards.filter((shard) =>
+  shard.kind === 'trail');
+
+assert(
+  firstTrailOwnerId !== secondTrailOwnerId &&
+    allOwnedTrailShards.length === 2 &&
+    allOwnedTrailShards.some((shard) =>
+      shard.ownerId === firstTrailOwnerId) &&
+    allOwnedTrailShards.some((shard) =>
+      shard.ownerId === secondTrailOwnerId),
+  '旧按下实例的存活拖尾碎片不占用新 FX_Touch 实例额度',
+);
+
+firstOwnerTrailShards[0].ageMs = firstOwnerTrailShards[0].lifetimeMs;
+shardOwnerEffect._updateShards(
+  shardOwnerEffect.clickTimeMs,
+  shardOwnerEffect.trailTimeMs,
+  shardOwnerEffect._getScale(),
+  false,
+);
+assert(
+  !shardOwnerEffect.trailShardCounts.has(firstTrailOwnerId) &&
+    shardOwnerEffect.trailShardCounts.get(secondTrailOwnerId) === 1,
+  '拖尾碎片死亡后只归还所属 FX_Touch 实例的额度',
+);
+
+shardOwnerEffect.pointerCancel(82);
+const secondOwnerTrailShard = shardOwnerEffect.shards.find((shard) =>
+  shard.kind === 'trail' && shard.ownerId === secondTrailOwnerId);
+
+secondOwnerTrailShard.ageMs = secondOwnerTrailShard.lifetimeMs;
+shardOwnerEffect._updateShards(
+  shardOwnerEffect.clickTimeMs,
+  shardOwnerEffect.trailTimeMs,
+  shardOwnerEffect._getScale(),
+  false,
+);
+shardOwnerEffect.pointerDown({ x: 100, y: 300, pointerId: 83 });
+const emptyTrailOwnerId = shardOwnerEffect.activeTrailOwnerId;
+
+shardOwnerEffect.pointerUp(83);
+assert(
+  shardOwnerEffect.trailShardCounts.size === 0 &&
+    !shardOwnerEffect.trailShardCounts.has(emptyTrailOwnerId),
+  '松开时立即释放没有存活拖尾碎片的空 owner 计数',
+);
+
+shardOwnerEffect.setFxParam('shards.maxCount', 50);
+shardOwnerEffect.setFxParam('shards.trailSpacing', 1);
+shardOwnerEffect.pointerDown({ x: 100, y: 400, pointerId: 84 });
+const capacityTrailOwnerId = shardOwnerEffect.activeTrailOwnerId;
+
+shardOwnerEffect.pointerMove({ x: 200, y: 400, pointerId: 84 });
+const capacityTrailShards = shardOwnerEffect.shards.filter((shard) =>
+  shard.kind === 'trail' && shard.ownerId === capacityTrailOwnerId);
+
+assert(
+  capacityTrailShards.length === 50 &&
+    shardOwnerEffect.trailShardCounts.get(capacityTrailOwnerId) === 50,
+  '超长单段按 Unity maxNumParticles=50 发射，不再截断为 32 枚',
+);
+shardOwnerEffect.destroy();
 
 const coalescedEffect = new BAClickFX(
   {
@@ -2775,6 +3372,48 @@ assert(
 );
 clickGlowResetEffect.destroy();
 
+const legacyResetEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    renderingMode: 'legacy',
+  },
+);
+
+legacyResetEffect.setFxParam('trail.width', 20);
+legacyResetEffect.setFxParam('bloom.trailAlpha', 0.6);
+const legacyResetPatch = legacyResetEffect.setFxParams(
+  {
+    'rings.count': 3,
+  },
+  {
+    reset: true,
+    strict: true,
+  },
+);
+let legacyResetConfig = legacyResetEffect.getFxConfig();
+
+assert(
+  legacyResetPatch.committed === true &&
+    legacyResetConfig.rings.count === 3 &&
+    legacyResetConfig.trail.width === 4 &&
+    legacyResetConfig.bloom.trailAlpha === 0,
+  'setFxParams reset 先恢复当前 Legacy 基线再原子应用补丁',
+);
+legacyResetEffect.setFxParam('trail.width', 12);
+legacyResetEffect.setFxParam('rings.count', 0);
+legacyResetEffect.resetFxConfig();
+legacyResetConfig = legacyResetEffect.getFxConfig();
+assert(
+  legacyResetConfig.rings.count === UNITY_FX_TOUCH.rings.count &&
+    legacyResetConfig.trail.width === 4 &&
+    legacyResetConfig.trail.coreWidth === 1.7 &&
+    legacyResetConfig.bloom.trailAlpha === 0 &&
+    legacyResetConfig.bloom.ringBlur === 80 &&
+    legacyResetConfig.bloom.diskBlur === 65,
+  'resetFxConfig 恢复 Legacy 模式完整默认基线而不是裸 Unity 配置',
+);
+legacyResetEffect.destroy();
+
 const firstIsolatedEffect = new BAClickFX({ isolatedCompositing: true });
 const secondIsolatedEffect = new BAClickFX({ isolatedCompositing: true });
 const secondOverlayRoot = secondIsolatedEffect.overlayRoot;
@@ -2944,6 +3583,81 @@ externalFullWebGLEffect.destroy();
 legacyFullWebGLEffect.destroy();
 
 console.log('\nBloom 后端 API');
+const unifiedWebGLBloomEffect = new BAClickFX(
+  {
+    bloomBackend: 'webgl2',
+  },
+);
+const unifiedWebGLBloomCanvas = document.createElement('canvas');
+const unifiedWebGLBloomRenderer =
+{
+  available: true,
+  contextLost: false,
+  sourceTarget: true,
+  levels: [true],
+  clear()
+  {
+  },
+  releaseFrameResources()
+  {
+    this.sourceTarget = null;
+    this.levels = [];
+  },
+  destroy()
+  {
+    this.available = false;
+  },
+};
+let unifiedSceneRenderCount = 0;
+
+unifiedWebGLBloomEffect.overlayParent.appendChild(unifiedWebGLBloomCanvas);
+unifiedWebGLBloomEffect.webglBloomCanvas = unifiedWebGLBloomCanvas;
+unifiedWebGLBloomEffect.webglBloomRenderer = unifiedWebGLBloomRenderer;
+unifiedWebGLBloomEffect._ensureWebGLBloomRenderer = () => true;
+unifiedWebGLBloomEffect._resizeWebGLBloomRenderer = () => true;
+unifiedWebGLBloomEffect._renderWebGL2Scene = () =>
+{
+  unifiedSceneRenderCount++;
+  return true;
+};
+
+const unifiedCanvasCounts =
+{
+  fills: unifiedWebGLBloomEffect.context.fillCount,
+  strokes: unifiedWebGLBloomEffect.context.strokeCount,
+  images: unifiedWebGLBloomEffect.context.drawImageCalls.length,
+};
+
+unifiedWebGLBloomEffect.boom(960, 540);
+let unifiedWebGLNow = flushFrames(dom, performance.now(), 1);
+assert(
+  unifiedSceneRenderCount === 1 &&
+    unifiedWebGLBloomEffect.context.fillCount === unifiedCanvasCounts.fills &&
+    unifiedWebGLBloomEffect.context.strokeCount ===
+      unifiedCanvasCounts.strokes &&
+    unifiedWebGLBloomEffect.context.drawImageCalls.length ===
+      unifiedCanvasCounts.images &&
+    unifiedWebGLBloomEffect.canvas.style.visibility === 'hidden',
+  'WebGL2 Bloom 成功帧复用完整 Scene 且不重复栅格隐藏 Canvas',
+);
+
+const fallbackImageStart =
+  unifiedWebGLBloomEffect.context.drawImageCalls.length;
+
+unifiedWebGLBloomEffect._renderWebGL2Scene = () => false;
+unifiedWebGLBloomEffect._requestRender();
+unifiedWebGLNow = flushFrames(dom, unifiedWebGLNow, 1);
+assert(
+  unifiedWebGLBloomEffect.getConfig().resolvedBloomBackend === 'software' &&
+    unifiedWebGLBloomEffect.canvas.style.visibility === '' &&
+    unifiedWebGLBloomEffect.context.drawImageCalls
+      .slice(fallbackImageStart)
+      .some((call) =>
+        call.args[0] === unifiedWebGLBloomEffect.bloomRenderer.outputCanvas),
+  'WebGL2 Bloom 当帧失败后才补画 Canvas 并完成软件 Bloom 回退',
+);
+unifiedWebGLBloomEffect.destroy();
+
 const webglEffect = new BAClickFX(
   {
     bloomBackend: 'webgl2',
@@ -3422,6 +4136,7 @@ assert(
 
 const softwareFailureEffect = new BAClickFX({ bloomBackend: 'software' });
 const softwareFailureEvents = [];
+let softwareFailureBeginFrameCount = 0;
 
 flushFrames(dom, performance.now(), 1);
 softwareFailureEffect.canvas.addEventListener(
@@ -3433,15 +4148,24 @@ softwareFailureEffect.canvas.addEventListener(
 );
 softwareFailureEffect.bloomRenderer.beginFrame = () =>
 {
+  softwareFailureBeginFrameCount++;
   softwareFailureEffect.bloomRenderer.available = false;
   return null;
 };
 softwareFailureEffect.boom(960, 540);
-flushFrames(dom, performance.now(), 1);
+let softwareFailureNow = flushFrames(dom, performance.now(), 1);
 assert(
   softwareFailureEffect.getConfig().resolvedBloomBackend === 'native' &&
     softwareFailureEvents.join(',') === 'native',
   'Software Bloom 运行时回读失败会立即公开 Native 回退并派发事件',
+);
+softwareFailureNow = flushFrames(dom, softwareFailureNow, 2);
+assert(
+  softwareFailureEffect.getConfig().resolvedBloomBackend === 'native' &&
+    softwareFailureEvents.join(',') === 'native' &&
+    softwareFailureBeginFrameCount === 1 &&
+    Number.isFinite(softwareFailureNow),
+  'Software 失败后稳定使用 Native，不重复回读或形成回退死循环',
 );
 softwareFailureEffect.destroy();
 
@@ -3608,6 +4332,193 @@ assert(
 expiredTrailEffect.destroy();
 
 console.log('\nTrailRenderer 几何');
+
+function captureTexturedWebGLTrail(
+  points,
+  numCornerVertices = 0,
+  numCapVertices = 0,
+)
+{
+  const effect = new BAClickFX(
+    {
+      effectBackend: 'canvas2d',
+      bloomBackend: 'native',
+      inputSource: 'manual',
+    },
+  );
+  const triangles = [];
+  let legacyTriangleCount = 0;
+  const renderer =
+  {
+    available: true,
+    contextLost: false,
+    stats: {},
+    beginFrame(options = {})
+    {
+      if (options.preserveSceneStats !== true)
+      {
+        triangles.length = 0;
+      }
+    },
+    addTexturedTrailTriangle(...args)
+    {
+      triangles.push(args);
+    },
+    addTrailTriangle()
+    {
+      legacyTriangleCount++;
+    },
+    renderScene()
+    {
+      return true;
+    },
+    render()
+    {
+      return true;
+    },
+    clear()
+    {
+    },
+  };
+
+  effect.fxConfig.trail.numCornerVertices = numCornerVertices;
+  effect.fxConfig.trail.numCapVertices = numCapVertices;
+  effect.trailStrokes =
+  [
+    {
+      active: false,
+      points: points.map((point) =>
+      {
+        return {
+          ...point,
+          bornAt: 0,
+        };
+      }),
+      trailFrameData: null,
+    },
+  ];
+
+  const rendered = effect._renderWebGL2Scene(renderer, 1);
+  const trailEmission = effect.fxConfig.bloom.trailEmission;
+
+  effect.destroy();
+  return {
+    legacyTriangleCount,
+    rendered,
+    trailEmission,
+    triangles,
+  };
+}
+
+const straightWebGLTrail = captureTexturedWebGLTrail(
+  [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+);
+const straightVertices = straightWebGLTrail.triangles.flatMap((triangle) =>
+  triangle.slice(0, 3));
+const straightColors = straightWebGLTrail.triangles.flatMap((triangle) =>
+  Array.isArray(triangle[3][0]) ? triangle[3] : [triangle[3]]);
+
+assert(
+  straightWebGLTrail.rendered &&
+    straightWebGLTrail.triangles.length === 2 &&
+    straightVertices.length === 6 &&
+    straightWebGLTrail.legacyTriangleCount === 0,
+  '完整 WebGL2 直线拖尾只提交 2 个纹理三角，不再调用 LUT 顶点色路径',
+);
+assert(
+  straightVertices.map(({ u, v }) => `${u}:${v}`).join(',') ===
+    '1:1,0:1,0:0,1:1,0:0,1:0',
+  '完整 WebGL2 按 Unity Stretch 方向映射直段 U/V',
+);
+assert(
+  [straightColors[0], straightColors[3], straightColors[5]].every((color) =>
+    color.every((channel) => channel === 0)) &&
+    [straightColors[1], straightColors[2], straightColors[4]].every((color) =>
+      color[2] === straightWebGLTrail.trailEmission),
+  '拖尾 Gradient 使用旧点到新点进度，纹理 U 单独反向',
+);
+
+const leftInnerJoin = captureTexturedWebGLTrail(
+  [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
+  4,
+);
+const rightInnerJoin = captureTexturedWebGLTrail(
+  [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: -10 }],
+  4,
+);
+const leftJoinTriangles = leftInnerJoin.triangles.slice(4);
+const rightJoinTriangles = rightInnerJoin.triangles.slice(4);
+
+assert(
+  leftJoinTriangles.length === 5 &&
+    leftJoinTriangles.every((triangle) =>
+      triangle.slice(0, 3).every((vertex) => vertex.u === 0.5) &&
+      triangle.slice(0, 3).map((vertex) => vertex.v).join(',') === '1,0,0'),
+  '左内角按 4 个 Unity 插入点生成 5 个固定 U 的纹理 fan',
+);
+assert(
+  rightJoinTriangles.length === 5 &&
+    rightJoinTriangles.every((triangle) =>
+      triangle.slice(0, 3).every((vertex) => vertex.u === 0.5) &&
+      triangle.slice(0, 3).map((vertex) => vertex.v).join(',') === '0,1,1'),
+  '右内角保持与左内角相反的纹理 V 方向',
+);
+
+const cappedWebGLTrail = captureTexturedWebGLTrail(
+  [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+  0,
+  1,
+);
+const startCapVertices = cappedWebGLTrail.triangles[2].slice(0, 3);
+const endCapVertices = cappedWebGLTrail.triangles[3].slice(0, 3);
+
+assert(
+  startCapVertices.map(({ u, v }) => `${u}:${v}`).join(',') ===
+    '1:1,1:0,1:0.5' &&
+    endCapVertices.map(({ u, v }) => `${u}:${v}`).join(',') ===
+      '0:1,0:0.5,0:0',
+  'Unity 单三角端帽固定端点 U，并把尖端映射到横截面 V=0.5',
+);
+
+const deferredTrailDataEffect = new BAClickFX(
+  {
+    effectBackend: 'webgl2',
+    bloomBackend: 'webgl2',
+    inputSource: 'manual',
+  },
+);
+
+deferredTrailDataEffect.trailStrokes =
+[
+  {
+    active: true,
+    points:
+    [
+      { x: 10, y: 10, bornAt: 0 },
+      { x: 20, y: 10, bornAt: 0 },
+    ],
+    trailFrameData: null,
+  },
+];
+deferredTrailDataEffect._updateTrail(10, 1, false, false, false, true);
+const texturedFrameData = deferredTrailDataEffect.trailStrokes[0].trailFrameData;
+
+assert(
+  texturedFrameData.measurement.segmentLengths.length === 2 &&
+    texturedFrameData.pointEnergies === undefined &&
+    texturedFrameData.segmentTransverseProfiles === undefined,
+  '完整 WebGL2 正常帧只缓存网格测量，不再计算 Canvas 拖尾 LUT',
+);
+deferredTrailDataEffect._drawCanvasTrails(1, false, false);
+const fallbackFrameData = deferredTrailDataEffect.trailStrokes[0].trailFrameData;
+
+assert(
+  fallbackFrameData.pointEnergies.length === 2 &&
+    fallbackFrameData.segmentTransverseProfiles.length === 1,
+  'WebGL2 失败转入 Canvas 时按需恢复完整拖尾 LUT 数据',
+);
+deferredTrailDataEffect.destroy();
+
 const geometryEffect = new BAClickFX(
   {
     bloomBackend: 'native',
@@ -4175,6 +5086,29 @@ assert(
     straightBudgetGeometry.paths.length === budgetPointCount + 1,
   '64 点直线只测量 63 次段长，并让网格复用相同浮点结果',
 );
+const originalDevicePixelRatio = dom.windowMock.devicePixelRatio;
+
+dom.windowMock.devicePixelRatio = 2;
+geometryEffect.updateConfig({ maxDpr: 2 });
+const dprTwoTrailGeometry = renderCanvasTrailGeometry(
+  [
+    { x: 120, y: 240 },
+    { x: 220, y: 220 },
+    { x: 320, y: 240 },
+  ],
+);
+const expectedDprTwoTrailBlur =
+  UNITY_FX_TOUCH.trail.outerGlowWidth * geometryEffect._getScale() * 2;
+
+assert(
+  geometryEffect.dpr === 2 &&
+    dprTwoTrailGeometry.nativeBlurDraws.length === 1 &&
+    dprTwoTrailGeometry.nativeBlurDraws[0].filter ===
+      `blur(${expectedDprTwoTrailBlur}px)`,
+  'Native 拖尾模糊按 DPR 换算到物理像素并保持 CSS 光晕尺寸',
+);
+dom.windowMock.devicePixelRatio = originalDevicePixelRatio;
+geometryEffect.updateConfig({ maxDpr: 2 });
 geometryEffect.pointerCancel(91);
 geometryEffect.destroy();
 
@@ -4222,10 +5156,11 @@ legacyEffect.boom(960, 540);
 const legacyWave = legacyEffect.waves[0];
 
 legacyWave.ageMs = 100;
-legacyEffect.context.radialGradients = [];
+legacyEffect.context.drawImageCalls = [];
 legacyWave.drawBase(legacyEffect.context, 1, 1, true, true);
-const legacyDiskRadiusAt100Ms =
-  legacyEffect.context.radialGradients[0]?.args[5];
+const legacyDiskRadiusAt100Ms = legacyEffect.context.drawImageCalls
+  .find((call) => call.args[0]?.width === 512 && call.args.length === 9)
+  ?.args[7] * 0.5;
 
 assert(
   Math.abs(legacyDiskRadiusAt100Ms - 58.77068378895867) < 0.0000001,
@@ -4403,10 +5338,10 @@ legacyEffect.context.conicGradients = [];
 legacyEffect.context.drawImageCalls = [];
 const legacyFramePutStart = legacyRingRasterizer.context.putImageDataCount;
 let legacyNow = flushFrames(dom, performance.now(), 1);
-const legacyDiskGradient = legacyEffect.context.radialGradients[0]?.gradient;
-const legacyDiskFillIndex = legacyEffect.context.filledStyles.indexOf(
-  legacyDiskGradient,
-);
+const legacyDiskDraw = legacyEffect.context.drawImageCalls.find((call) =>
+  call.args[0]?.width === 512 &&
+    call.args[0]?.height === 512 &&
+    call.args.length === 9);
 const legacyRingDraws = legacyEffect.context.drawImageCalls.filter(
   (call) => call.args[0] === legacyRingRasterizer.canvas,
 );
@@ -4435,18 +5370,11 @@ assert(
   'Tri3 圆环按材质 queue 4499 在圆盘和碎片之后绘制',
 );
 assert(
-  legacyDiskFillIndex >= 0 &&
-    legacyDiskGradient?.stops.length ===
-      UNITY_FX_TOUCH.disk.textureRadialEnergyKeys.length &&
-    legacyDiskGradient.stops[0][1] === legacyDiskGradient.stops[1][1] &&
-    legacyDiskGradient.stops.some(([position, color]) =>
-      position === 0.92 && getCssAlpha(color) === 0) &&
-    legacyEffect.context.fillShadowBlurs[legacyDiskFillIndex] ===
-      legacyEffect.getFxConfig().bloom.diskBlur &&
-    getCssAlpha(
-      legacyEffect.context.fillShadowColors[legacyDiskFillIndex],
-    ) > 0,
-  'Legacy 圆盘采样 Circle_01 实测轮廓，并继续使用原生辉光近似',
+  legacyDiskDraw?.compositeOperation === 'source-over' &&
+    legacyDiskDraw.shadowBlur === legacyEffect.getFxConfig().bloom.diskBlur &&
+    getCssAlpha(legacyDiskDraw.shadowColor) > 0 &&
+    Math.abs(legacyDiskDraw.rotation - legacyWave.diskRotation) < 0.000001,
+  'Legacy 圆盘旋转完整 Circle_01 二维纹理，并继续使用原生辉光近似',
 );
 assert(
   legacyEffect.getFxConfig().rings.hdrIntensity === 4 &&
@@ -4525,7 +5453,7 @@ assert(
   'Legacy 正 Alpha 外层恢复描边，渐变段仍不重复写入圆角连接',
 );
 legacyEffect.setFxParam('bloom.trailAlpha', 0);
-legacyEffect.setThemeColor('#ff6969');
+legacyEffect.updateConfig({ themeColor: '#FF6969' });
 legacyEffect.context.strokeStyles = [];
 legacyNow = flushFrames(dom, legacyNow, 1);
 const themedLegacyGradientChannels = [0, 31, 62].map((index) =>
@@ -4541,8 +5469,9 @@ assert(
   JSON.stringify(themedLegacyGradientChannels) !==
       JSON.stringify(legacyGradientChannels) &&
     JSON.stringify(restoredLegacyGradientChannels) ===
-      JSON.stringify(legacyGradientChannels),
-  'Legacy 复用局部颜色缓冲时主题色切换不会污染默认渐变',
+      JSON.stringify(legacyGradientChannels) &&
+    legacyEffect.getConfig().themeColor === DEFAULT_THEME_COLOR,
+  'updateConfig 与 setThemeColor 共享状态且不会污染 Legacy 默认渐变',
 );
 assert(
   dom.appendedCanvases.includes(legacyEffect.contrastCanvas) &&
@@ -4582,6 +5511,41 @@ assert(
     restoredLegacyClickGeometry.rings.radiusMax ===
       legacyClickGeometry.rings.radiusMax,
   '切回 Legacy 时保持 Unity 尺度并隐藏增强模式对比层',
+);
+legacyWave.ageMs = 100;
+legacyEffect.context.drawImageCalls = [];
+legacyWave.drawBase(
+  legacyEffect.context,
+  1,
+  1,
+  true,
+  'transparent-overlay',
+  2,
+);
+const dprTwoDiskDraw = legacyEffect.context.drawImageCalls.find((call) =>
+  call.args[0]?.width === 512 && call.args.length === 9);
+
+legacyWave.ageMs = 300;
+legacyEffect.context.drawImageCalls = [];
+legacyWave.drawRings(
+  legacyEffect.context,
+  1,
+  1,
+  true,
+  true,
+  legacyRingRasterizer,
+  2,
+  'transparent-overlay',
+);
+const dprTwoRingDraws = legacyEffect.context.drawImageCalls.filter((call) =>
+  call.args[0] === legacyRingRasterizer.canvas);
+
+assert(
+  dprTwoDiskDraw?.shadowBlur === legacyClickGeometry.bloom.diskBlur * 2 &&
+    dprTwoRingDraws.length === UNITY_FX_TOUCH.rings.count &&
+    dprTwoRingDraws.every((call) =>
+      call.shadowBlur === legacyClickGeometry.bloom.ringBlur * 2),
+  'Native 与 Legacy 点击模糊按 DPR 保持相同 CSS 光晕范围',
 );
 legacyEffect.destroy();
 assert(legacyEffect.destroyed, 'Legacy 实例可正常结束完整生命周期并销毁');

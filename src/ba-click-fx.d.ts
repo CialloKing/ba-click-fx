@@ -11,6 +11,7 @@ declare module 'ba-click-fx'
   export type BAClickFXBloomBackend = 'auto' | 'software' | 'webgl2' | 'native';
   export type BAClickFXResolvedBloomBackend =
     Exclude<BAClickFXBloomBackend, 'auto'> | 'legacy' | 'pending';
+  export type BAClickFXRenderingMode = 'enhanced' | 'legacy';
 
   export interface BAClickFXBackendChangeDetail
   {
@@ -61,6 +62,8 @@ declare module 'ba-click-fx'
     scale?: number;
     /** 整体透明度，默认 1。 */
     opacity?: number;
+    /** 主题色，默认游戏蓝 '#4ca7ff'；仅接受六位十六进制颜色。 */
+    themeColor?: string;
     /** 输出合成：默认 'scene'；透明桌面覆盖层使用 'transparent-overlay'。 */
     outputCompositing?: BAClickFXOutputCompositing;
     clickEnabled?: boolean;
@@ -76,7 +79,7 @@ declare module 'ba-click-fx'
     /** 完整特效后端；默认 'webgl2'，未就绪或丢失时安全回退 Canvas2D。 */
     effectBackend?: BAClickFXEffectBackend;
     /** 渲染模式：'enhanced'（默认，完整 Bloom）或 'legacy'（Unity 材质主体 + Canvas shadowBlur）。 */
-    renderingMode?: 'enhanced' | 'legacy';
+    renderingMode?: BAClickFXRenderingMode;
     /** Bloom 后端。默认 'webgl2'；不可用时会自动回退软件 Bloom 与原生辉光。 */
     bloomBackend?: BAClickFXBloomBackend;
     /** 兼容旧 API：true 等价于 'software'，false 等价于 'native'。 */
@@ -101,6 +104,7 @@ declare module 'ba-click-fx'
   {
     scale: number;
     opacity: number;
+    themeColor: string;
     outputCompositing: BAClickFXOutputCompositing;
     clickEnabled: boolean;
     trailEnabled: boolean;
@@ -109,7 +113,7 @@ declare module 'ba-click-fx'
     clickTimeScale: number;
     trailTimeScale: number;
     effectBackend: BAClickFXEffectBackend;
-    renderingMode: 'enhanced' | 'legacy';
+    renderingMode: BAClickFXRenderingMode;
     bloomBackend: BAClickFXBloomBackend;
     /** 兼容旧 API；WebGL2 与软件 Bloom 后端均为 true。 */
     softwareBloomEnabled: boolean;
@@ -140,7 +144,145 @@ declare module 'ba-click-fx'
     readonly unity: UnityFxTouchConfig;
   }
 
+  export type BAClickFXParamType = 'number' | 'boolean';
+  export type BAClickFXParamUnit =
+    | 'boolean'
+    | 'count'
+    | 'direction'
+    | 'gamma-hdr'
+    | 'linear-hdr'
+    | 'ms'
+    | 'multiplier'
+    | 'px'
+    | 'px-per-second'
+    | 'ratio'
+    | 'samples'
+    | 'scalar';
+
+  export type BAClickFXParamGroup =
+    | 'hit'
+    | 'flare'
+    | 'disk'
+    | 'rings'
+    | 'shards'
+    | 'trail'
+    | 'bloom';
+
+  /** 参数的宿主控件推荐范围；不代替 min/max 硬校验边界。 */
+  export interface BAClickFXParamDisplay
+  {
+    readonly min: number;
+    readonly max: number;
+    readonly step: number;
+  }
+
+  /** 各渲染模式重置时应恢复的参数基线。 */
+  export interface BAClickFXParamModeDefaults
+  {
+    readonly enhanced: number | boolean;
+    readonly legacy: number | boolean;
+  }
+
+  /** 可安全交给宿主配置界面的只读标量参数描述。 */
+  export interface BAClickFXParamDescriptor
+  {
+    readonly path: string;
+    readonly type: BAClickFXParamType;
+    readonly default: number | boolean;
+    readonly min?: number;
+    readonly max?: number;
+    readonly step?: number;
+    readonly unit: BAClickFXParamUnit;
+    /** 跨版本稳定的全局展示顺序。 */
+    readonly order: number;
+    readonly group: BAClickFXParamGroup;
+    readonly groupOrder: number;
+    readonly labelKey: `baClickFx.params.${string}`;
+    readonly groupLabelKey: `baClickFx.paramGroups.${BAClickFXParamGroup}`;
+    readonly display?: Readonly<BAClickFXParamDisplay>;
+    /** 需要在同一界面中协同校验或展示的参数路径。 */
+    readonly linkedParams: readonly string[];
+    readonly modeDefaults: Readonly<BAClickFXParamModeDefaults>;
+  }
+
+  export interface BAClickFXParamRenameMigration
+  {
+    readonly kind: 'rename';
+    readonly from: string;
+    readonly to: string;
+  }
+
+  export interface BAClickFXParamMigration
+  {
+    readonly fromVersion: number;
+    readonly toVersion: number;
+    readonly changes: readonly BAClickFXParamRenameMigration[];
+  }
+
+  export type BAClickFXParamValue = number | boolean;
+
+  export interface BAClickFXParamPatchOptions
+  {
+    /** 传入持久化补丁所使用的 Schema 版本，默认当前版本。 */
+    schemaVersion?: number;
+    /** 有任一拒绝项时回滚整批，默认 false。 */
+    strict?: boolean;
+    /** 应用补丁前先恢复当前渲染模式的默认基线，默认 false。 */
+    reset?: boolean;
+  }
+
+  export interface BAClickFXParamAppliedEntry
+  {
+    readonly path: string;
+    readonly value: BAClickFXParamValue;
+  }
+
+  export type BAClickFXParamNormalizationReason =
+    | 'renamed'
+    | 'clamped'
+    | 'boolean-coercion';
+
+  export interface BAClickFXParamNormalizedEntry
+  {
+    readonly path: string;
+    readonly from: unknown;
+    readonly to: unknown;
+    readonly reason: BAClickFXParamNormalizationReason;
+  }
+
+  export type BAClickFXParamRejectionReason =
+    | 'destroyed'
+    | 'duplicate-path'
+    | 'invalid-patch'
+    | 'invalid-type'
+    | 'migration-conflict'
+    | 'missing-migration'
+    | 'non-finite-number'
+    | 'unknown-path'
+    | 'unsupported-schema-version';
+
+  export interface BAClickFXParamRejectedEntry
+  {
+    readonly path: string;
+    readonly value: unknown;
+    readonly reason: BAClickFXParamRejectionReason;
+    readonly targetPath?: string;
+  }
+
+  export interface BAClickFXParamPatchResult
+  {
+    readonly applied: readonly BAClickFXParamAppliedEntry[];
+    readonly normalized: readonly BAClickFXParamNormalizedEntry[];
+    readonly rejected: readonly BAClickFXParamRejectedEntry[];
+    readonly committed: boolean;
+    readonly schemaVersion: number;
+  }
+
   export const CONFIG: Readonly<BAClickFXConfig>;
+  export const DEFAULT_THEME_COLOR: '#4ca7ff';
+  export const FX_PARAM_SCHEMA_VERSION: 1;
+  export const FX_PARAM_SCHEMA: readonly BAClickFXParamDescriptor[];
+  export const FX_PARAM_MIGRATIONS: readonly BAClickFXParamMigration[];
   /** 主 Canvas 在 Bloom 后端解析状态变化时派发的事件名。 */
   export const BLOOM_BACKEND_CHANGE_EVENT: 'baclickfxbackendchange';
   /** 主 Canvas 在完整特效后端解析状态变化时派发的事件名。 */
@@ -191,16 +333,22 @@ declare module 'ba-click-fx'
     /** 运行时更新输入来源、时间倍率、特效后端、Bloom 后端、DPR 与触摸行为。 */
     updateConfig(overrides: BAClickFXUpdateOptions): void;
 
-    /** 设置主题色（CSS 十六进制），所有蓝色系特效的 hue 将以此偏移。传入空字符串恢复默认。 */
+    /** 设置并保存主题色；传入空字符串或非法值恢复默认游戏蓝。 */
     setThemeColor(hex: string): void;
 
-    /** 通过点号路径修改特效参数，如 'bloom.clickEmissionScale' 或 'hit.enabled'。 */
-    setFxParam(path: string, value: number | boolean): void;
+    /** 通过点号路径修改特效参数；未知路径或非法值返回 false 且保持配置不变。 */
+    setFxParam(path: string, value: BAClickFXParamValue): boolean;
+
+    /** 原子验证并批量应用扁平点号路径补丁。 */
+    setFxParams(
+      patch: Readonly<Record<string, BAClickFXParamValue>>,
+      options?: BAClickFXParamPatchOptions,
+    ): BAClickFXParamPatchResult;
 
     /** 返回当前完整特效配置的深拷贝（与 UNITY_FX_TOUCH 同结构）。 */
     getFxConfig(): Record<string, unknown>;
 
-    /** 重置所有特效参数为游戏默认值。 */
+    /** 重置所有特效参数为当前 Enhanced 或 Legacy 模式的默认基线。 */
     resetFxConfig(): void;
 
     clearTrail(): void;

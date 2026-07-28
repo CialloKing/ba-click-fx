@@ -36,7 +36,8 @@ body::before {
   z-index: 0;
 }
 
-body.scene-background-source::before {
+body.scene-background-source::before,
+body.theme-pure-white::before {
   display: none;
 }
 

@@ -7,9 +7,13 @@ import {
   TRIANGLE_TEXTURE_SIZE,
   resolveTriangleTextureFrame,
 } from './triangle-texture.js';
+import {
+  gammaToLinear,
+  resolveUnityBloomClamp,
+} from './bloom-color-space.js';
 
-const COMPONENTS_PER_VERTEX = 5;
-const DISK_COMPONENTS_PER_VERTEX = 7;
+const COMPONENTS_PER_VERTEX = 6;
+const DISK_COMPONENTS_PER_VERTEX = 8;
 const TRIANGLE_COMPONENTS_PER_VERTEX = 8;
 const INITIAL_VERTEX_CAPACITY = 4096;
 const MAX_PYRAMID_LEVELS = 16;
@@ -19,10 +23,12 @@ precision highp float;
 
 in vec2 a_position;
 in vec3 a_color;
+in float a_coverage;
 
 uniform vec2 u_displaySize;
 
 out vec3 v_color;
+out float v_coverage;
 
 void main()
 {
@@ -34,6 +40,7 @@ void main()
     1.0
   );
   v_color = a_color;
+  v_coverage = a_coverage;
 }
 `;
 
@@ -41,11 +48,17 @@ const EMISSION_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 in vec3 v_color;
+in float v_coverage;
+uniform bool u_transparentOverlay;
 out vec4 outColor;
 
 void main()
 {
-  outColor = vec4(max(v_color, vec3(0.0)), 1.0);
+  float coverage = u_transparentOverlay
+    ? clamp(v_coverage, 0.0, 1.0)
+    : 1.0;
+
+  outColor = vec4(max(v_color, vec3(0.0)), coverage);
 }
 `;
 
@@ -103,13 +116,18 @@ vec3 thresholdColor(vec3 color)
 
 void main()
 {
-  vec3 color =
-    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, -1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, -1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0)).rgb;
+  vec4 sampleSum =
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, -1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, -1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0));
+  vec4 filtered = sampleSum * 0.25;
 
-  outColor = vec4(thresholdColor(color * 0.25), 1.0);
+  // 与完整 WebGL2 共用合同：Coverage 不参与 HDR 阈值计算。
+  outColor = vec4(
+    thresholdColor(filtered.rgb),
+    clamp(filtered.a, 0.0, 1.0)
+  );
 }
 `;
 
@@ -124,13 +142,14 @@ out vec4 outColor;
 
 void main()
 {
-  vec3 color =
-    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, -1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, -1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0)).rgb;
+  vec4 sampleSum =
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, -1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, -1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0));
+  vec4 filtered = sampleSum * 0.25;
 
-  outColor = vec4(color * 0.25, 1.0);
+  outColor = vec4(filtered.rgb, clamp(filtered.a, 0.0, 1.0));
 }
 `;
 
@@ -145,23 +164,26 @@ uniform float u_sampleScale;
 in vec2 v_uv;
 out vec4 outColor;
 
-vec3 sampleBox(sampler2D source, vec2 uv, vec2 offset)
+vec4 sampleBox(sampler2D source, vec2 uv, vec2 offset)
 {
   return (
-    texture(source, uv + vec2(-offset.x, -offset.y)).rgb +
-    texture(source, uv + vec2(offset.x, -offset.y)).rgb +
-    texture(source, uv + vec2(-offset.x, offset.y)).rgb +
-    texture(source, uv + vec2(offset.x, offset.y)).rgb
+    texture(source, uv + vec2(-offset.x, -offset.y)) +
+    texture(source, uv + vec2(offset.x, -offset.y)) +
+    texture(source, uv + vec2(-offset.x, offset.y)) +
+    texture(source, uv + vec2(offset.x, offset.y))
   ) * 0.25;
 }
 
 void main()
 {
-  vec3 high = texture(u_high, v_uv).rgb;
+  vec4 high = texture(u_high, v_uv);
   vec2 offset = u_lowTexel * (u_sampleScale * 0.5);
-  vec3 low = sampleBox(u_low, v_uv, offset);
+  vec4 low = sampleBox(u_low, v_uv, offset);
 
-  outColor = vec4(high + low, 1.0);
+  outColor = vec4(
+    high.rgb + low.rgb,
+    max(clamp(high.a, 0.0, 1.0), clamp(low.a, 0.0, 1.0))
+  );
 }
 `;
 
@@ -172,6 +194,7 @@ uniform sampler2D u_bloom;
 uniform vec2 u_bloomTexel;
 uniform float u_sampleScale;
 uniform float u_intensity;
+uniform bool u_transparentOverlay;
 
 in vec2 v_uv;
 out vec4 outColor;
@@ -191,18 +214,35 @@ float linearToSrgb(float value)
 void main()
 {
   vec2 offset = u_bloomTexel * (u_sampleScale * 0.5);
-  vec3 bloom =
-    texture(u_bloom, v_uv + vec2(-offset.x, -offset.y)).rgb +
-    texture(u_bloom, v_uv + vec2(offset.x, -offset.y)).rgb +
-    texture(u_bloom, v_uv + vec2(-offset.x, offset.y)).rgb +
-    texture(u_bloom, v_uv + vec2(offset.x, offset.y)).rgb;
-  vec3 linear = bloom * 0.25 * max(0.0, u_intensity);
+  vec4 bloom =
+    texture(u_bloom, v_uv + vec2(-offset.x, -offset.y)) +
+    texture(u_bloom, v_uv + vec2(offset.x, -offset.y)) +
+    texture(u_bloom, v_uv + vec2(-offset.x, offset.y)) +
+    texture(u_bloom, v_uv + vec2(offset.x, offset.y));
+  vec4 filteredBloom = bloom * 0.25;
+  vec3 linear = filteredBloom.rgb * max(0.0, u_intensity);
   vec3 srgb = vec3(
     linearToSrgb(linear.r),
     linearToSrgb(linear.g),
     linearToSrgb(linear.b)
   );
   float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
+
+  if (u_transparentOverlay)
+  {
+    float alpha = clamp(filteredBloom.a, 0.0, 1.0);
+
+    if (maximumSrgb <= 0.00001 || alpha <= 0.00001)
+    {
+      outColor = vec4(0.0);
+      return;
+    }
+
+    float premultiplyScale = min(1.0, alpha / maximumSrgb);
+
+    outColor = vec4(srgb * premultiplyScale, alpha);
+    return;
+  }
 
   if (maximumSrgb <= 0.00001)
   {
@@ -221,11 +261,13 @@ precision highp float;
 in vec2 a_position;
 in vec2 a_uv;
 in vec3 a_materialColor;
+in float a_particleAlpha;
 
 uniform vec2 u_displaySize;
 
 out vec2 v_uv;
 out vec3 v_materialColor;
+out float v_particleAlpha;
 
 void main()
 {
@@ -238,6 +280,7 @@ void main()
   );
   v_uv = a_uv;
   v_materialColor = a_materialColor;
+  v_particleAlpha = a_particleAlpha;
 }
 `;
 
@@ -245,9 +288,11 @@ const DISK_EMISSION_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 uniform sampler2D u_circleTexture;
+uniform bool u_transparentOverlay;
 
 in vec2 v_uv;
 in vec3 v_materialColor;
+in float v_particleAlpha;
 out vec4 outColor;
 
 void main()
@@ -258,9 +303,11 @@ void main()
   vec3 emission = sampleColor.rgb *
     max(v_materialColor, vec3(0.0)) *
     textureAlpha;
+  float coverage = textureAlpha * clamp(v_particleAlpha, 0.0, 1.0);
+  float alpha = u_transparentOverlay ? coverage : 1.0;
 
-  // 独立 Bloom 只保存 HDR 发射能量；生命周期 Alpha 不参与源 RGB。
-  outColor = vec4(emission, 1.0);
+  // RGB 保持 Unity HDR 发射能量，Alpha 只保存几何 Coverage。
+  outColor = vec4(emission, alpha);
 }
 `;
 
@@ -297,6 +344,7 @@ const TRIANGLE_EMISSION_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 uniform sampler2D u_triangleTexture;
+uniform bool u_transparentOverlay;
 
 in vec2 v_uv;
 in vec3 v_materialColor;
@@ -310,27 +358,16 @@ void main()
     max(v_materialColor, vec3(0.0)) *
     sampleColor.a *
     max(v_particleAlpha, 0.0);
+  float coverage = sampleColor.a * clamp(v_particleAlpha, 0.0, 1.0);
+  float alpha = u_transparentOverlay ? coverage : 1.0;
 
-  // BaTouchAdditive 固定输出 A=1，并由 One/One 累加 RGB 能量。
-  outColor = vec4(emission, 1.0);
+  outColor = vec4(emission, alpha);
 }
 `;
 
 function clamp(value, minimum, maximum)
 {
   return Math.max(minimum, Math.min(maximum, value));
-}
-
-function gammaToLinear(value)
-{
-  const gamma = Math.max(0, value);
-
-  if (gamma <= 0.04045)
-  {
-    return gamma / 12.92;
-  }
-
-  return Math.pow((gamma + 0.055) / 1.055, 2.4);
 }
 
 function calculatePyramidSettings(
@@ -610,6 +647,10 @@ export class WebGL2BloomRenderer
         this.programs.emission,
         'a_color',
       );
+      const coverageLocation = gl.getAttribLocation(
+        this.programs.emission,
+        'a_coverage',
+      );
 
       gl.enableVertexAttribArray(positionLocation);
       gl.vertexAttribPointer(
@@ -629,6 +670,15 @@ export class WebGL2BloomRenderer
         stride,
         2 * Float32Array.BYTES_PER_ELEMENT,
       );
+      gl.enableVertexAttribArray(coverageLocation);
+      gl.vertexAttribPointer(
+        coverageLocation,
+        1,
+        gl.FLOAT,
+        false,
+        stride,
+        5 * Float32Array.BYTES_PER_ELEMENT,
+      );
 
       gl.bindVertexArray(this.diskEmissionVao);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.diskEmissionBuffer);
@@ -646,6 +696,10 @@ export class WebGL2BloomRenderer
       const diskMaterialColorLocation = gl.getAttribLocation(
         this.programs.diskEmission,
         'a_materialColor',
+      );
+      const diskParticleAlphaLocation = gl.getAttribLocation(
+        this.programs.diskEmission,
+        'a_particleAlpha',
       );
 
       gl.enableVertexAttribArray(diskPositionLocation);
@@ -674,6 +728,15 @@ export class WebGL2BloomRenderer
         false,
         diskStride,
         4 * Float32Array.BYTES_PER_ELEMENT,
+      );
+      gl.enableVertexAttribArray(diskParticleAlphaLocation);
+      gl.vertexAttribPointer(
+        diskParticleAlphaLocation,
+        1,
+        gl.FLOAT,
+        false,
+        diskStride,
+        7 * Float32Array.BYTES_PER_ELEMENT,
       );
 
       gl.bindVertexArray(this.triangleEmissionVao);
@@ -1184,7 +1247,7 @@ export class WebGL2BloomRenderer
     this.vertexData = next;
   }
 
-  _appendVertex(x, y, red, green, blue)
+  _appendVertex(x, y, red, green, blue, coverage)
   {
     const offset = this.vertexCount * COMPONENTS_PER_VERTEX;
 
@@ -1193,6 +1256,7 @@ export class WebGL2BloomRenderer
     this.vertexData[offset + 2] = Math.max(0, red);
     this.vertexData[offset + 3] = Math.max(0, green);
     this.vertexData[offset + 4] = Math.max(0, blue);
+    this.vertexData[offset + 5] = clamp(coverage, 0, 1);
     this.vertexCount++;
   }
 
@@ -1223,7 +1287,7 @@ export class WebGL2BloomRenderer
     this.diskVertexData = next;
   }
 
-  _appendDiskVertex(x, y, u, v, red, green, blue)
+  _appendDiskVertex(x, y, u, v, red, green, blue, particleAlpha)
   {
     const offset = this.diskVertexCount * DISK_COMPONENTS_PER_VERTEX;
 
@@ -1234,6 +1298,7 @@ export class WebGL2BloomRenderer
     this.diskVertexData[offset + 4] = Math.max(0, red);
     this.diskVertexData[offset + 5] = Math.max(0, green);
     this.diskVertexData[offset + 6] = Math.max(0, blue);
+    this.diskVertexData[offset + 7] = clamp(particleAlpha, 0, 1);
     this.diskVertexCount++;
   }
 
@@ -1321,6 +1386,7 @@ export class WebGL2BloomRenderer
         red,
         green,
         blue,
+        opacity,
       );
     };
 
@@ -1475,6 +1541,7 @@ export class WebGL2BloomRenderer
           startRed,
           startGreen,
           startBlue,
+          opacity * startLuminance,
         );
         this._appendVertex(
           innerEndX,
@@ -1482,6 +1549,7 @@ export class WebGL2BloomRenderer
           endRed,
           endGreen,
           endBlue,
+          opacity * endLuminance,
         );
         this._appendVertex(
           outerEndX,
@@ -1489,6 +1557,7 @@ export class WebGL2BloomRenderer
           endRed,
           endGreen,
           endBlue,
+          opacity * endLuminance,
         );
         this._appendVertex(
           innerStartX,
@@ -1496,6 +1565,7 @@ export class WebGL2BloomRenderer
           startRed,
           startGreen,
           startBlue,
+          opacity * startLuminance,
         );
         this._appendVertex(
           outerEndX,
@@ -1503,6 +1573,7 @@ export class WebGL2BloomRenderer
           endRed,
           endGreen,
           endBlue,
+          opacity * endLuminance,
         );
         this._appendVertex(
           outerStartX,
@@ -1510,6 +1581,7 @@ export class WebGL2BloomRenderer
           startRed,
           startGreen,
           startBlue,
+          opacity * startLuminance,
         );
         startCosine = endCosine;
         startSine = endSine;
@@ -1575,6 +1647,7 @@ export class WebGL2BloomRenderer
         previousRed,
         previousGreen,
         previousBlue,
+        opacity,
       );
       this._appendVertex(
         previousToX,
@@ -1582,6 +1655,7 @@ export class WebGL2BloomRenderer
         previousRed,
         previousGreen,
         previousBlue,
+        opacity,
       );
       this._appendVertex(
         currentToX,
@@ -1589,6 +1663,7 @@ export class WebGL2BloomRenderer
         currentRed,
         currentGreen,
         currentBlue,
+        opacity,
       );
       this._appendVertex(
         previousFromX,
@@ -1596,6 +1671,7 @@ export class WebGL2BloomRenderer
         previousRed,
         previousGreen,
         previousBlue,
+        opacity,
       );
       this._appendVertex(
         currentToX,
@@ -1603,6 +1679,7 @@ export class WebGL2BloomRenderer
         currentRed,
         currentGreen,
         currentBlue,
+        opacity,
       );
       this._appendVertex(
         currentFromX,
@@ -1610,6 +1687,7 @@ export class WebGL2BloomRenderer
         currentRed,
         currentGreen,
         currentBlue,
+        opacity,
       );
     }
   }
@@ -1634,9 +1712,11 @@ export class WebGL2BloomRenderer
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  _renderEmission()
+  _renderEmission(settings)
   {
     const gl = this.gl;
+    const transparentOverlay =
+      settings.outputCompositing === 'transparent-overlay';
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sourceTarget.framebuffer);
     gl.viewport(0, 0, this.sourceWidth, this.sourceHeight);
@@ -1644,13 +1724,23 @@ export class WebGL2BloomRenderer
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.enable(gl.BLEND);
     gl.blendEquation(gl.FUNC_ADD);
-    gl.blendFunc(gl.ONE, gl.ONE);
+    // RGB 继续加色；Alpha 保存多个几何 Coverage 的 source-over 并集。
+    gl.blendFuncSeparate(
+      gl.ONE,
+      gl.ONE,
+      gl.ONE,
+      gl.ONE_MINUS_SRC_ALPHA,
+    );
 
     if (this.vertexCount > 0)
     {
       const program = this.programs.emission;
 
       gl.useProgram(program);
+      gl.uniform1i(
+        gl.getUniformLocation(program, 'u_transparentOverlay'),
+        transparentOverlay ? 1 : 0,
+      );
       gl.uniform2f(
         gl.getUniformLocation(program, 'u_displaySize'),
         this.displayWidth,
@@ -1674,6 +1764,10 @@ export class WebGL2BloomRenderer
       const program = this.programs.diskEmission;
 
       gl.useProgram(program);
+      gl.uniform1i(
+        gl.getUniformLocation(program, 'u_transparentOverlay'),
+        transparentOverlay ? 1 : 0,
+      );
       gl.uniform2f(
         gl.getUniformLocation(program, 'u_displaySize'),
         this.displayWidth,
@@ -1703,6 +1797,10 @@ export class WebGL2BloomRenderer
       const program = this.programs.triangleEmission;
 
       gl.useProgram(program);
+      gl.uniform1i(
+        gl.getUniformLocation(program, 'u_transparentOverlay'),
+        transparentOverlay ? 1 : 0,
+      );
       gl.uniform2f(
         gl.getUniformLocation(program, 'u_displaySize'),
         this.displayWidth,
@@ -1753,7 +1851,7 @@ export class WebGL2BloomRenderer
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_clampMax'),
-      settings.clamp ?? 65472,
+      resolveUnityBloomClamp(settings.clamp),
     );
     this._drawFullscreen(program, level.down, level.width, level.height);
   }
@@ -1829,6 +1927,10 @@ export class WebGL2BloomRenderer
       gl.getUniformLocation(program, 'u_intensity'),
       Math.pow(2, Math.max(0, settings.intensity) / 10) - 1,
     );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_transparentOverlay'),
+      settings.outputCompositing === 'transparent-overlay' ? 1 : 0,
+    );
     gl.bindVertexArray(this.fullscreenVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
@@ -1859,7 +1961,7 @@ export class WebGL2BloomRenderer
         return true;
       }
 
-      this._renderEmission();
+      this._renderEmission(settings);
       this._renderPrefilter(settings);
 
       for (let level = 1; level < this.levels.length; level++)

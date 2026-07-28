@@ -11,6 +11,7 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const mainJs = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8');
+const styleCss = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 const engineJs = fs.readFileSync(path.join(root, 'src', 'fx.js'), 'utf8');
 const configJs = fs.readFileSync(path.join(root, 'src', 'config.js'), 'utf8');
 
@@ -212,6 +213,42 @@ verify(
       }),
   '展示页五档开关映射到对应的完整特效、渲染模式与 Bloom API',
 );
+const outputCompositingSelect = indexHtml.match(
+  /<select id="ctrlOutputCompositing"[\s\S]*?<\/select>/,
+)?.[0] ?? '';
+const outputCompositingValues = [
+  ...outputCompositingSelect.matchAll(/<option value="([^"]+)"/g),
+].map((match) => match[1]);
+
+verify(
+  JSON.stringify(outputCompositingValues) === JSON.stringify([
+    'scene',
+    'transparent-overlay',
+  ]) &&
+    /<option value="scene" selected>/.test(outputCompositingSelect),
+  '展示页提供默认使用 Scene 的透明覆盖层输出模式开关',
+);
+verify(
+  /labelOutputCompositing: '输出合成'/.test(mainJs) &&
+    /outputCompositingTransparentOverlay: '透明覆盖层'/.test(mainJs) &&
+    /labelOutputCompositing: 'Output Compositing'/.test(mainJs) &&
+    /outputCompositingTransparentOverlay: 'Transparent Overlay'/.test(mainJs) &&
+    /#ctrlOutputCompositing option/.test(mainJs),
+  '输出合成控件支持中英文选项',
+);
+verify(
+  /effect\.updateConfig\(\{ outputCompositing: resolved \}\)/.test(mainJs) &&
+    /localStorage\.setItem\('bafx-ctrlOutputCompositing', resolved\)/.test(mainJs) &&
+    /localStorage\.getItem\([\s\S]*?'bafx-ctrlOutputCompositing'[\s\S]*?\)/.test(mainJs) &&
+    /applyOutputCompositing\(savedOutputCompositing\)/.test(mainJs),
+  '输出合成选择通过公开配置生效并支持本地恢复',
+);
+verify(
+  /ctrlOutputCompositing'\)\.value =[\s\S]*?DEFAULT_OUTPUT_COMPOSITING/.test(mainJs) &&
+    /outputCompositing: DEFAULT_OUTPUT_COMPOSITING/.test(mainJs) &&
+    /const DEFAULT_OUTPUT_COMPOSITING = 'scene'/.test(mainJs),
+  '展示页重置操作恢复 Scene 输出合同',
+);
 verify(
   /BLOOM_BACKEND_CHANGE_EVENT/.test(mainJs) &&
     /renderBackendPending/.test(mainJs),
@@ -254,6 +291,14 @@ verify(
     /isolatedCompositing: false/.test(mainJs) &&
     /lightBackgroundContrastAlpha: 0/.test(mainJs),
   '展示页重置操作恢复游戏的直接加色默认值',
+);
+verify(
+  /body\.scene-background-source::before,[\s\S]*?body\.theme-pure-white::before[\s\S]*?display: none/.test(
+    styleCss,
+  ) &&
+    /classList\.toggle\('theme-pure-white', name === '纯白'\)/.test(mainJs) &&
+    /classList\.remove\('theme-pure-white'\)[\s\S]*?applySceneBackgroundImage/.test(mainJs),
+  '纯白主题关闭装饰网格，自定义栅格背景仍走原子 Scene 加载路径',
 );
 verify(
   /ctrlColor\.addEventListener\('input',[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)[\s\S]*?\}\);[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)/.test(mainJs),

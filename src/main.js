@@ -127,6 +127,7 @@ function applyTheme(name)
   }
 
   document.body.style.background = bg;
+  document.body.classList.toggle('theme-pure-white', name === '纯白');
   clearSceneBackground();
   selectTheme(name);
   return true;
@@ -207,6 +208,7 @@ function applyCustomBackground(value, persist = true)
   const rawValue = value.trim();
 
   document.body.style.background = resolved;
+  document.body.classList.remove('theme-pure-white');
   applySceneBackgroundImage(resolveSceneBackgroundUrl(rawValue));
 
   if (input)
@@ -603,6 +605,39 @@ if (ctrlRenderMode)
   });
 }
 
+// ── 输出合成 → outputCompositing ───────────────────────────────────────
+const ctrlOutputCompositing = document.getElementById('ctrlOutputCompositing');
+const DEFAULT_OUTPUT_COMPOSITING = 'scene';
+const OUTPUT_COMPOSITING_MODES = new Set([
+  'scene',
+  'transparent-overlay',
+]);
+
+function applyOutputCompositing(mode)
+{
+  const resolved = OUTPUT_COMPOSITING_MODES.has(mode)
+    ? mode
+    : DEFAULT_OUTPUT_COMPOSITING;
+
+  if (ctrlOutputCompositing)
+  {
+    ctrlOutputCompositing.value = resolved;
+  }
+
+  effect.updateConfig({ outputCompositing: resolved });
+  return resolved;
+}
+
+if (ctrlOutputCompositing)
+{
+  ctrlOutputCompositing.addEventListener('change', () =>
+  {
+    const resolved = applyOutputCompositing(ctrlOutputCompositing.value);
+
+    localStorage.setItem('bafx-ctrlOutputCompositing', resolved);
+  });
+}
+
 // ── 特效参数 → setFxParam ──────────────────────────────────────────────
 bindRange('ctrlRingHdr', 'outRingHdr', (v) => effect.setFxParam('rings.hdrIntensity', v));
 bindRange('ctrlRingRadMin', 'outRingRadMin', (v) => effect.setFxParam('rings.radiusMin', v));
@@ -700,6 +735,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlDpr').value = '2';
   document.getElementById('outDpr').textContent = '2.00';
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
+  document.getElementById('ctrlOutputCompositing').value =
+    DEFAULT_OUTPUT_COMPOSITING;
   document.getElementById('ctrlInputSource').value = 'dom';
   document.getElementById('ctrlClickTimeScale').value = '1';
   document.getElementById('outClickTimeScale').textContent = '1.00';
@@ -725,7 +762,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlRingWEnd', 'outRingWEnd', 1, false],
     ['ctrlRingLife', 'outRingLife', 600, true],
     ['ctrlClickShards', 'outClickShards', 4, true],
-    ['ctrlMaxShards', 'outMaxShards', 96, true],
+    ['ctrlMaxShards', 'outMaxShards', 50, true],
     ['ctrlBloomRing', 'outBloomRing', 80, false],
     ['ctrlBloomThreshold', 'outBloomThreshold', 1, false],
     ['ctrlBloomIntensity', 'outBloomIntensity', 1.7, false],
@@ -791,6 +828,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
       trailEnabled: true,
       trailAlways: false,
       ...RENDER_MODE_CONFIGS[DEFAULT_RENDER_MODE],
+      outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
       isolatedCompositing: false,
       lightBackgroundContrastAlpha: 0,
       maxDpr: 2,
@@ -932,6 +970,9 @@ const I18N = {
     labelOpacity: '不透明度',
     labelDpr: '最大 DPR',
     labelRenderMode: '渲染模式',
+    labelOutputCompositing: '输出合成',
+    outputCompositingScene: '场景合成',
+    outputCompositingTransparentOverlay: '透明覆盖层',
     labelIsolatedCompositing: '隔离合成',
     hostApiSummary: '宿主控制 API',
     labelInputSource: '输入来源',
@@ -997,7 +1038,7 @@ const I18N = {
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
     introP2: '从 Unity FX_Touch.prefab 逐参数移植，默认使用纯 WebGL2，并提供 WebGL2 Bloom、软件 Bloom、原生辉光和 Legacy 回退路径——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.14/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.15/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>自定义图片背景怎样参与游戏式合成？</strong> 展示页会把已解码图片通过 <code>setSceneBackground(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；CSS 渐变不是可上传的栅格源，只能作为普通 DOM 背景。</p><p><strong>纯白背景下特效颜色太浅？</strong> 只使用 DOM 背景时，纯白会让直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；它们是网页兼容选项，不代替 <code>setSceneBackground()</code> 的游戏式线性场景合成。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
     introHostApiSummary: '宿主控制 API / Host Control API',
@@ -1022,6 +1063,9 @@ const I18N = {
     labelOpacity: 'Opacity',
     labelDpr: 'Max DPR',
     labelRenderMode: 'Render Mode',
+    labelOutputCompositing: 'Output Compositing',
+    outputCompositingScene: 'Scene',
+    outputCompositingTransparentOverlay: 'Transparent Overlay',
     labelIsolatedCompositing: 'Isolated Compositing',
     hostApiSummary: 'Host Control API',
     labelInputSource: 'Input Source',
@@ -1087,7 +1131,7 @@ const I18N = {
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
     introP2: 'Ported from Unity FX_Touch.prefab with Full WebGL2 by default plus WebGL2 Bloom, Software Bloom, Native Glow, and Legacy fallback paths — dissolve rings, click shards, and drag trails. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.14/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.15/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How does a custom image join the game-style composite?</strong> The demo passes a decoded image to <code>setSceneBackground(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. A CSS gradient is not an uploadable raster source and remains a normal DOM background.</p><p><strong>Effects look washed out on a pure white background?</strong> With a DOM-only background, direct additive output loses cyan-blue colour and contrast on pure white. Enable Isolated Compositing (<code>isolatedCompositing: true</code>) and optionally <code>lightBackgroundContrastAlpha: 0.35</code> for a sharper outline. These are web compatibility options, not replacements for <code>setSceneBackground()</code> linear Scene compositing.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
     introHostApiSummary: 'Host Control API / 宿主控制 API',
@@ -1165,6 +1209,7 @@ function switchLanguage(lang)
     ctrlOpacity: d.labelOpacity,
     ctrlDpr: d.labelDpr,
     ctrlRenderMode: d.labelRenderMode,
+    ctrlOutputCompositing: d.labelOutputCompositing,
     ctrlIsolatedCompositing: d.labelIsolatedCompositing,
     ctrlInputSource: d.labelInputSource,
     ctrlClickTimeScale: d.labelClickTimeScale,
@@ -1258,6 +1303,19 @@ function switchLanguage(lang)
     if (renderModeOptions[opt.value])
     {
       opt.textContent = renderModeOptions[opt.value];
+    }
+  });
+
+  const outputCompositingOptions = {
+    scene: d.outputCompositingScene,
+    'transparent-overlay': d.outputCompositingTransparentOverlay,
+  };
+
+  document.querySelectorAll('#ctrlOutputCompositing option').forEach((option) =>
+  {
+    if (outputCompositingOptions[option.value])
+    {
+      option.textContent = outputCompositingOptions[option.value];
     }
   });
 
@@ -1379,6 +1437,13 @@ switchLanguage(currentLang);
 
   // 默认值也走同一条路径，确保首次打开即可显示能力探测后的实际后端。
   applyRenderMode(initialRenderMode);
+
+  const savedOutputCompositing = localStorage.getItem(
+    'bafx-ctrlOutputCompositing',
+  );
+
+  // 即使没有持久化值，也显式应用 Scene，避免展示控件与构造默认值分叉。
+  applyOutputCompositing(savedOutputCompositing);
 
   const isolatedCompositingEl = document.getElementById('ctrlIsolatedCompositing');
   const savedIsolatedCompositing = localStorage.getItem('bafx-ctrlIsolatedCompositing');

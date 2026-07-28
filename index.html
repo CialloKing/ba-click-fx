@@ -61,7 +61,7 @@
         <p><strong>npm</strong></p>
         <pre><code>npm install ba-click-fx</code></pre>
         <p><strong>CDN</strong></p>
-        <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.14/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>
+        <pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.15/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>
       </div>
     </details>
     <details>
@@ -139,6 +139,13 @@ fx.setPaused(true, { clear: true });</code></pre>
           <option value="software-bloom">软件 Bloom</option>
           <option value="native-bloom">原生辉光</option>
           <option value="legacy">Legacy</option>
+        </select>
+      </label>
+      <label class="ctrl">
+        <span>输出合成</span>
+        <select id="ctrlOutputCompositing" class="ctrl-select">
+          <option value="scene" selected>场景合成</option>
+          <option value="transparent-overlay">透明覆盖层</option>
         </select>
       </label>
       <label class="ctrl toggle">
@@ -239,7 +246,7 @@ fx.setPaused(true, { clear: true });</code></pre>
       </label>
       <label class="ctrl">
         <span>碎片上限 <output id="outMaxShards">96</output></span>
-        <input type="range" id="ctrlMaxShards" min="0" max="500" step="1" value="96" />
+        <input type="range" id="ctrlMaxShards" min="0" max="500" step="1" value="50" />
       </label>
       </details>
       <details><summary>Bloom</summary>

@@ -7,15 +7,23 @@
 
 import {
   calculateBloomContribution,
+  decodeCoverageMask,
   decodeEmissionMask,
   downsampleGaussian,
   encodeAdditiveBloom,
   linearToSrgb,
   prefilterBloom,
+  SoftwareBloomRenderer,
   upsampleAndMixBloom,
 } from '../src/software-bloom.js';
 import { UNITY_FX_TOUCH } from '../src/config.js';
 import { WebGL2BloomRenderer } from '../src/webgl2-bloom.js';
+import {
+  DEFAULT_BLOOM_CLAMP,
+  HALF_FLOAT_MAX,
+  gammaToLinear,
+  resolveUnityBloomClamp,
+} from '../src/bloom-color-space.js';
 
 let passed = 0;
 
@@ -54,6 +62,20 @@ function arraysApproximatelyEqual(left, right, epsilon = 0.000001)
 }
 
 console.log('\nSoftware Bloom 阈值与色彩空间');
+assert(
+  resolveUnityBloomClamp(DEFAULT_BLOOM_CLAMP) === HALF_FLOAT_MAX,
+  '游戏 Clamp 先转 Linear，再按 Shader half 上限限制为 65504',
+);
+assert(
+  resolveUnityBloomClamp(1) === 1 &&
+    approximatelyEqual(resolveUnityBloomClamp(0.5), gammaToLinear(0.5)) &&
+    approximatelyEqual(gammaToLinear(2), 2 ** 2.2),
+  '自定义 Clamp 与 Unity 一样在 Gamma 空间配置并在线性空间生效',
+);
+assert(
+  resolveUnityBloomClamp(Number.NaN) === HALF_FLOAT_MAX,
+  '非法 Clamp 安全恢复游戏默认值后再执行相同换算',
+);
 const belowKnee = calculateBloomContribution(0.4, 1, 0.5);
 const insideKnee = calculateBloomContribution(0.75, 1, 0.5);
 const atThreshold = calculateBloomContribution(1, 1, 0.5);
@@ -126,6 +148,35 @@ assert(
   '复用 HDR 缓冲时会清除上一帧的透明像素',
 );
 
+console.log('\nSoftware Bloom Coverage 解码');
+const encodedCoverage = new Uint8ClampedArray([
+  255, 255, 255, 0,
+  255, 255, 255, 64,
+  255, 255, 255, 128,
+  255, 255, 255, 255,
+]);
+const decodedCoverage = new Float32Array(4).fill(7);
+
+decodeCoverageMask(encodedCoverage, decodedCoverage);
+assert(
+  arraysApproximatelyEqual(
+    decodedCoverage,
+    [0, 64 / 255, 128 / 255, 1],
+  ),
+  'Coverage 只从独立遮罩 Alpha 解码，不读取 HDR RGB',
+);
+const reusedCoverage = new Float32Array(4).fill(1);
+const emptyCoverageBounds = decodeCoverageMask(
+  new Uint8ClampedArray(16),
+  reusedCoverage,
+);
+
+assert(
+  emptyCoverageBounds === null &&
+    reusedCoverage.every((value) => value === 0),
+  '空 Coverage 帧会清除复用缓冲中的上一帧数据',
+);
+
 console.log('\nSoftware Bloom MXFinalBloom 预过滤');
 const prefilterSource = new Float32Array(4 * 4 * 3);
 
@@ -166,6 +217,25 @@ assert(
 assert(
   prefilterSource[0] === 2 && prefilterSource[2] === 0.5,
   '预过滤不会修改输入缓冲',
+);
+
+const defaultClampSource = new Float32Array(4 * 4 * 3);
+const defaultClampOutput = new Float32Array(2 * 2 * 3);
+
+defaultClampSource.fill(HALF_FLOAT_MAX + 32);
+prefilterBloom(
+  defaultClampSource,
+  4,
+  4,
+  defaultClampOutput,
+  2,
+  2,
+  0,
+  0,
+);
+assert(
+  defaultClampOutput.every((value) => value === HALF_FLOAT_MAX),
+  '底层预过滤省略 Clamp 时仍遵守 Unity Shader half 上限',
 );
 
 console.log('\nSoftware Bloom Box4 降采样');
@@ -494,6 +564,294 @@ assert(
   '局部 Bloom 只在裁剪边界移除底色，并向内部平滑保留低频辉光',
 );
 
+console.log('\nSoftware Bloom 透明覆盖层编码');
+const overlayHdr = new Float32Array([
+  4, 2, 1,
+  4, 2, 1,
+  4, 2, 1,
+  4, 2, 1,
+]);
+const overlayCoverage = new Float32Array([0, 0.25, 0.5, 1]);
+const overlayRgba = new Uint8ClampedArray(16);
+
+encodeAdditiveBloom(
+  overlayHdr,
+  overlayRgba,
+  1.7,
+  4,
+  null,
+  null,
+  {
+    outputCompositing: 'transparent-overlay',
+    coverage: overlayCoverage,
+  },
+);
+
+assert(
+  overlayRgba.slice(0, 4).every((value) => value === 0),
+  'transparent-overlay 在 opacity 为零时不输出 HDR 颜色或 Alpha',
+);
+assert(
+  overlayRgba[7] === 64 &&
+    overlayRgba[11] === 128 &&
+    overlayRgba[15] === 255,
+  'transparent-overlay 的 Alpha 随 Coverage 单调且近似线性',
+);
+
+let validPremultipliedOverlay = true;
+
+for (let pixel = 0; pixel < overlayRgba.length / 4; pixel++)
+{
+  const offset = pixel * 4;
+  const alpha = overlayRgba[offset + 3] / 255;
+
+  for (let channel = 0; channel < 3; channel++)
+  {
+    const premultiplied = overlayRgba[offset + channel] / 255 * alpha;
+
+    if (premultiplied > alpha + 1 / 255)
+    {
+      validPremultipliedOverlay = false;
+    }
+  }
+}
+
+assert(
+  validPremultipliedOverlay,
+  'transparent-overlay 写入 Canvas 后的预乘 RGB 始终不超过 Alpha',
+);
+
+const dimOverlayRgba = new Uint8ClampedArray(4);
+const brightOverlayRgba = new Uint8ClampedArray(4);
+const fixedCoverage = new Float32Array([0.35]);
+
+encodeAdditiveBloom(
+  new Float32Array([0.5, 0.25, 0.125]),
+  dimOverlayRgba,
+  1.7,
+  1,
+  null,
+  null,
+  {
+    outputCompositing: 'transparent-overlay',
+    coverage: fixedCoverage,
+  },
+);
+encodeAdditiveBloom(
+  new Float32Array([8, 4, 2]),
+  brightOverlayRgba,
+  1.7,
+  1,
+  null,
+  null,
+  {
+    outputCompositing: 'transparent-overlay',
+    coverage: fixedCoverage,
+  },
+);
+assert(
+  dimOverlayRgba[3] === brightOverlayRgba[3] &&
+    dimOverlayRgba[3] === Math.round(0.35 * 255),
+  'transparent-overlay 的 Alpha 与 HDR 发射强度解耦',
+);
+
+const sceneCoverage = new Float32Array([0.45, 0.45, 0, 1]);
+const bloomCoverage = new Float32Array([0.45, 0.7, 0.2, 1]);
+const residualOverlayRgba = new Uint8ClampedArray(16);
+
+encodeAdditiveBloom(
+  new Float32Array([
+    4, 2, 1,
+    4, 2, 1,
+    4, 2, 1,
+    4, 2, 1,
+  ]),
+  residualOverlayRgba,
+  1.7,
+  4,
+  null,
+  null,
+  {
+    outputCompositing: 'transparent-overlay',
+    coverage: bloomCoverage,
+    sceneCoverage,
+  },
+);
+
+const compositeAlpha = (pixel) =>
+{
+  const sourceAlpha = residualOverlayRgba[pixel * 4 + 3] / 255;
+  const destinationAlpha = sceneCoverage[pixel];
+
+  return sourceAlpha + destinationAlpha * (1 - sourceAlpha);
+};
+
+assert(
+  residualOverlayRgba[3] === 0 &&
+    approximatelyEqual(compositeAlpha(0), 0.45),
+  'Bloom Coverage 未超过清晰 Coverage 时不再抬高中心 Alpha',
+);
+assert(
+  approximatelyEqual(compositeAlpha(1), 0.7, 1 / 255) &&
+    approximatelyEqual(compositeAlpha(2), 0.2, 1 / 255),
+  '残余 Alpha 经 source-over 后等于 max(sceneCoverage, bloomCoverage)',
+);
+assert(
+  residualOverlayRgba[15] === 0 && compositeAlpha(3) === 1,
+  '清晰层完全覆盖时不会产生无效或非有限的残余 Alpha',
+);
+
+const explicitSceneRgba = new Uint8ClampedArray(rgba.length);
+
+encodeAdditiveBloom(
+  hdrBloom,
+  explicitSceneRgba,
+  1.7,
+  4,
+  null,
+  null,
+  {
+    outputCompositing: 'scene',
+    coverage: overlayCoverage,
+  },
+);
+assert(
+  arraysApproximatelyEqual(explicitSceneRgba, rgba, 0),
+  'scene 显式设置仍保持原有 maxRGB 加色编码基线',
+);
+
+function createSoftwareCanvasFactory()
+{
+  let creationCount = 0;
+  const canvases = [];
+  const createCanvas = () =>
+  {
+    creationCount++;
+    const context =
+    {
+      clearRect()
+      {
+      },
+      createImageData(width, height)
+      {
+        return {
+          data: new Uint8ClampedArray(width * height * 4),
+        };
+      },
+      drawImage()
+      {
+      },
+      getImageData(x, y, width, height)
+      {
+        return {
+          data: new Uint8ClampedArray(width * height * 4),
+        };
+      },
+      putImageData()
+      {
+      },
+      setTransform()
+      {
+      },
+    };
+    const canvas =
+    {
+      width: 0,
+      height: 0,
+      getContext()
+      {
+        return context;
+      },
+    };
+
+    canvases.push(canvas);
+    return canvas;
+  };
+
+  return {
+    canvases,
+    createCanvas,
+    get creationCount()
+    {
+      return creationCount;
+    },
+  };
+}
+
+const coverageFactory = createSoftwareCanvasFactory();
+const coverageRenderer = new SoftwareBloomRenderer(
+  coverageFactory.createCanvas,
+);
+
+coverageRenderer.beginFrame(
+  64,
+  64,
+  0.5,
+  { x: 0, y: 0, width: 64, height: 64 },
+  7,
+  1,
+);
+assert(
+  coverageFactory.creationCount === 2 &&
+    coverageRenderer.beginCoverageFrame('scene') === null &&
+    coverageFactory.creationCount === 2 &&
+    coverageRenderer.sourceCoverage.length === 0,
+  'scene 模式不会创建 Coverage Canvas 或分配单通道金字塔',
+);
+assert(
+  coverageRenderer.beginCoverageFrame('transparent-overlay') !== null &&
+    coverageFactory.creationCount === 3 &&
+    coverageRenderer.sourceCoverage.length === 0,
+  'transparent-overlay 首次使用时才懒创建 Coverage Canvas',
+);
+coverageRenderer.outputBounds = {
+  minimumX: 0,
+  minimumY: 0,
+  maximumX: 1,
+  maximumY: 1,
+};
+const emptyCoverageComposite = coverageRenderer.composite(
+  {
+    drawImage()
+    {
+    },
+  },
+  {
+    outputCompositing: 'transparent-overlay',
+    encodingRange: 8,
+    threshold: 1,
+    softKnee: 0.5,
+    clamp: 65472,
+    intensity: 1.7,
+  },
+);
+assert(
+  emptyCoverageComposite &&
+    coverageRenderer.outputBounds === null &&
+    !coverageRenderer.coverageFrameReady &&
+    coverageRenderer.sourceCoverage.length > 0 &&
+    coverageRenderer.coverageLevels[0].width === coverageRenderer.width &&
+    coverageRenderer.coverageLevels[0].height === coverageRenderer.height &&
+    coverageRenderer.coverageLevels[0].down.length ===
+      coverageRenderer.outputImageData.data.length / 4 &&
+    coverageRenderer.coverageLevels.every((level) =>
+      level.down.every((value) => value === 0)),
+  '透明模式以输出分辨率保存清晰 Coverage 且空帧不保留旧值',
+);
+const allocatedCoverageCanvas = coverageRenderer.coverageCanvas;
+
+coverageRenderer.destroy();
+assert(
+  allocatedCoverageCanvas.width === 0 &&
+    allocatedCoverageCanvas.height === 0 &&
+    coverageRenderer.coverageCanvas === null &&
+    coverageRenderer.coverageContext === null &&
+    coverageRenderer.sourceCoverage.length === 0 &&
+    coverageRenderer.coverageLevels.length === 0 &&
+    coverageRenderer.coverageLevelStorage.length === 0,
+  'Software renderer 销毁时释放 Coverage Canvas 与单通道金字塔',
+);
+
 function createResizeTestRenderer(maximumSize = 64)
 {
   let nextTargetId = 1;
@@ -812,12 +1170,13 @@ const trailVertices = [];
 
 for (let index = 0; index < geometryRenderer.vertexCount; index++)
 {
-  const offset = index * 5;
+  const offset = index * 6;
 
   trailVertices.push(
     {
       y: geometryRenderer.vertexData[offset + 1],
       energy: geometryRenderer.vertexData[offset + 2],
+      coverage: geometryRenderer.vertexData[offset + 5],
     },
   );
 }
@@ -834,7 +1193,8 @@ assert(
     approximatelyEqual(
       Math.max(...trailVertices.map(({ energy }) => energy)),
       1,
-    ),
+    ) &&
+    trailVertices.every(({ coverage }) => approximatelyEqual(coverage, 1)),
   'WebGL2 拖尾把原纹理羽化横截面细分进真实 2.7px 三角带',
 );
 
