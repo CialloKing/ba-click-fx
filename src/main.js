@@ -82,7 +82,7 @@ function applySceneBackgroundImage(url)
   {
     if (requestId === sceneBackgroundRequestId)
     {
-      // CSS 背景仍可显示；无 CORS 时纯 WebGL2 自动保留透明回退。
+      // CSS 背景仍可显示；无 CORS 时所有需要栅格 Scene 的后端保持 DOM 回退。
       effect.setSceneBackground(null);
     }
   }, { once: true });
@@ -481,7 +481,7 @@ window.addEventListener('blur', () =>
   manualPointerId = null;
 });
 
-// ── 渲染模式 → renderingMode + bloomBackend ──────────────────────────
+// ── 渲染模式 → effectBackend + renderingMode + bloomBackend ─────────
 const ctrlRenderMode = document.getElementById('ctrlRenderMode');
 const DEFAULT_RENDER_MODE = 'webgl2-bloom';
 const RENDER_MODE_CONFIGS = Object.freeze(
@@ -995,11 +995,11 @@ const I18N = {
     btnApplyBg: '应用背景',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
-    introP2: '从 Unity FX_Touch.prefab 逐参数移植的 Canvas 2D 特效库，默认使用 WebGL2 Bloom——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
+    introP2: '从 Unity FX_Touch.prefab 逐参数移植，提供纯 WebGL2、WebGL2 Bloom、软件 Bloom、原生辉光和 Legacy 五种路径——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.13/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 不需要图片素材；默认使用 WebGL2 Bloom，能力不足时自动回退软件 Bloom，零运行时依赖。</p><p><strong>纯白背景下特效颜色太浅？</strong> 纯白背景会让默认的直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；这两项是网页兼容选项，不是游戏默认路径。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用 Canvas 2D + WebGL2 Bloom，也可选择纯 WebGL2；能力不足时会自动回退软件 Bloom 与原生辉光。</p><p><strong>自定义图片背景怎样参与游戏式合成？</strong> 展示页会把已解码图片通过 <code>setSceneBackground(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；CSS 渐变不是可上传的栅格源，只能作为普通 DOM 背景。</p><p><strong>纯白背景下特效颜色太浅？</strong> 只使用 DOM 背景时，纯白会让直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；它们是网页兼容选项，不代替 <code>setSceneBackground()</code> 的游戏式线性场景合成。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
     introHostApiSummary: '宿主控制 API / Host Control API',
   },
   en: {
@@ -1085,11 +1085,11 @@ const I18N = {
     btnApplyBg: 'Apply',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
-    introP2: 'Canvas 2D effect library ported from Unity FX_Touch.prefab, using WebGL2 Bloom by default — dissolve rings, click shards, drag trails. Zero runtime dependencies.',
+    introP2: 'Ported from Unity FX_Touch.prefab with five paths: Full WebGL2, WebGL2 Bloom, Software Bloom, Native Glow, and Legacy — dissolve rings, click shards, and drag trails. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.13/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> No image assets. WebGL2 Bloom is the default and falls back to Software Bloom when unavailable. Zero runtime dependencies.</p><p><strong>Effects look washed out on a pure white background?</strong> Direct additive compositing loses cyan-blue color and contrast on pure white. Enable Isolated Compositing (<code>isolatedCompositing: true</code>). For a sharper outline, you can also set <code>lightBackgroundContrastAlpha: 0.35</code>; both are web compatibility options, not the game-default path.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Canvas 2D + WebGL2 Bloom is the default and Full WebGL2 is optional; unsupported paths fall back to Software Bloom and Native Glow.</p><p><strong>How does a custom image join the game-style composite?</strong> The demo passes a decoded image to <code>setSceneBackground(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. A CSS gradient is not an uploadable raster source and remains a normal DOM background.</p><p><strong>Effects look washed out on a pure white background?</strong> With a DOM-only background, direct additive output loses cyan-blue colour and contrast on pure white. Enable Isolated Compositing (<code>isolatedCompositing: true</code>) and optionally <code>lightBackgroundContrastAlpha: 0.35</code> for a sharper outline. These are web compatibility options, not replacements for <code>setSceneBackground()</code> linear Scene compositing.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
     introHostApiSummary: 'Host Control API / 宿主控制 API',
   },
 };

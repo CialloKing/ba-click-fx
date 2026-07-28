@@ -73,7 +73,7 @@ declare module 'ba-click-fx'
     clickTimeScale?: number;
     /** 拖尾衰减和拖尾碎片的时间倍率，必须有限且大于 0。默认 1。 */
     trailTimeScale?: number;
-    /** 纯 WebGL2 特效后端；默认 'canvas2d'，未就绪时安全回退。 */
+    /** 完整特效后端；默认 'canvas2d'，WebGL2 未就绪或丢失时安全回退。 */
     effectBackend?: BAClickFXEffectBackend;
     /** 渲染模式：'enhanced'（默认，完整 Bloom）或 'legacy'（Unity 材质主体 + Canvas shadowBlur）。 */
     renderingMode?: 'enhanced' | 'legacy';
@@ -133,7 +133,7 @@ declare module 'ba-click-fx'
 
   export interface BAClickFXConfigSnapshot extends BAClickFXConfig
   {
-    /** 最近一次解析的完整特效后端；Scene 接管前为 'canvas2d'。 */
+    /** 最近一次解析的完整特效后端；首次 Scene 提交和恢复验证期间可为 'pending'。 */
     readonly resolvedEffectBackend: BAClickFXResolvedEffectBackend;
     /** 最近一次解析的实际后端；WebGL2/auto 首次延迟探测前为 'pending'。 */
     readonly resolvedBloomBackend: BAClickFXResolvedBloomBackend;
@@ -176,10 +176,12 @@ declare module 'ba-click-fx'
     setPaused(paused: boolean, options?: BAClickFXPauseOptions): void;
 
     /**
-     * 提供特效下方的已解码不透明栅格场景，使纯 WebGL2 在同一线性 HDR 缓冲内合成。
-     * 调用方负责图片 CORS，并须在替换或销毁前保持源可用以支持 Context 恢复。
-     * Canvas、Video 等动态源按调用时内容上传；传入 null 恢复透明 DOM 背景回退。
-     * 返回 true 表示资源已被接受；Renderer 延迟创建时上传仍可能回退。
+     * 提供特效下方的已解码不透明栅格场景。纯 WebGL2 与 WebGL2 Bloom
+     * 在同一线性 HDR Scene 合成；Native / Legacy 使用 Canvas Final Pass。
+     * 当前仅支持居中 cover。调用方负责图片 CORS，并须在替换或销毁前
+     * 保持可释放源有效以支持 Context 恢复。Canvas、Video 等动态源上传
+     * 调用时的当前帧；内容变化后需再次调用。传入 null 恢复透明 DOM 背景。
+     * 返回 false 时旧背景保持不变；延迟创建的 Renderer 仍可能安全回退。
      */
     setSceneBackground(
       source: TexImageSource | null,
