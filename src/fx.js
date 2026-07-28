@@ -6213,6 +6213,7 @@ export class BAClickFX
           clamp: bloomCfg.clamp,
           intensity: bloomCfg.intensity,
           diffusion: bloomCfg.diffusion,
+          outputCompositing: this.config.outputCompositing,
         },
         { preserveCanvas: true },
       );

@@ -293,6 +293,7 @@ uniform vec2 u_bloomTexel;
 uniform float u_sampleScale;
 uniform float u_intensity;
 uniform bool u_hasScene;
+uniform bool u_transparentOverlay;
 
 in vec2 v_uv;
 out vec4 outColor;
@@ -317,18 +318,22 @@ void main()
     texture(u_bloom, v_uv + vec2(offset.x, -offset.y)).rgb +
     texture(u_bloom, v_uv + vec2(-offset.x, offset.y)).rgb +
     texture(u_bloom, v_uv + vec2(offset.x, offset.y)).rgb;
-  vec3 scene = u_hasScene
-    ? texture(u_scene, v_uv).rgb
-    : vec3(0.0);
-  vec3 linear = scene + bloom * 0.25 * max(0.0, u_intensity);
+  vec4 scene = u_hasScene
+    ? texture(u_scene, v_uv)
+    : vec4(0.0);
+  vec3 linear = scene.rgb + bloom * 0.25 * max(0.0, u_intensity);
   vec3 srgb = vec3(
     linearToSrgb(linear.r),
     linearToSrgb(linear.g),
     linearToSrgb(linear.b)
   );
-  float alpha = max(max(srgb.r, srgb.g), srgb.b);
+  float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
+  // Unity 的最终 Bloom Pass 只累加 RGB；透明覆盖层也必须保留 Scene Coverage。
+  float alpha = u_transparentOverlay && u_hasScene
+    ? clamp(scene.a, 0.0, 1.0)
+    : maximumSrgb;
 
-  if (alpha <= 0.00001)
+  if (maximumSrgb <= 0.00001 && alpha <= 0.00001)
   {
     outColor = vec4(0.0);
     return;
@@ -2325,6 +2330,10 @@ export class WebGL2EffectRenderer
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_hasScene'),
       hasScene ? 1 : 0,
+    );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_transparentOverlay'),
+      settings.outputCompositing === 'transparent-overlay' ? 1 : 0,
     );
     gl.uniform2f(
       gl.getUniformLocation(program, 'u_bloomTexel'),
