@@ -1,5 +1,15 @@
 ﻿# Changelog
 
+## v1.2.15 — 参数契约与透明覆盖层收敛
+
+- 新增只读 `FX_PARAM_SCHEMA`、`FX_PARAM_SCHEMA_VERSION = 1` 与 `FX_PARAM_MIGRATIONS`，为公开标量参数提供类型、硬边界、默认值、单位、分组、稳定顺序、本地化键、推荐控件范围、关联路径和 Enhanced/Legacy 模式基线
+- 加入 `bloom.scatter` 到 `bloom.diffusion` 的 v0→v1 路径迁移；新增 Schema 驱动的 `setFxParams(patch, { schemaVersion, strict, reset })`，返回 `applied`、`normalized`、`rejected`、`committed` 与当前 Schema 版本，严格模式任一错误整批回滚
+- `setFxParam()` 改为返回是否提交成功；未知路径、非法类型与非有限数不再静默失败；`resetFxConfig()` 现在恢复当前 Enhanced 或 Legacy 模式基线
+- 将 `themeColor` 纳入构造参数、`updateConfig()` 与 `getConfig()` 的实例状态，并导出默认游戏蓝 `DEFAULT_THEME_COLOR = '#4ca7ff'`；非法颜色统一恢复默认值
+- 对照 Unity `Circle_01` 纹理和材质混合重新使用完整二维 RGB/R Coverage，修正 Canvas、Software、Native 与 Legacy 圆盘的边缘、中心能量和生命周期透明度；未改动嵌入纹理数据
+- 软件 Bloom 的透明覆盖层改用清晰 Scene 与 Bloom 的剩余 Coverage 合成，避免中心 Alpha 重复抬高；Canvas 路径保持 `scene` 的加色语义，并在 `transparent-overlay` 下采用受预乘 Alpha 限制的兼容输出
+- 文档明确合成配置契约与能力边界：透明桌面推荐完整 WebGL2、`transparent-overlay` 和零浅色轮廓；纯白网页建议开启隔离合成；只有纯 WebGL2 配合逐像素匹配的已知背景，才能严格复现 Unity 线性 HDR Scene，其他回退路径不承诺逐像素等价
+
 ## v1.2.14 — 完整 WebGL2 与统一线性场景输出
 
 - 将纯 WebGL2 从实验选项升级为正式第五种渲染模式，使用独立 `effectBackend`、`resolvedEffectBackend` 与 `baclickfxeffectbackendchange` 状态契约；不可用时安全回退 Canvas 2D 链
