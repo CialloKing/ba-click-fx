@@ -1646,7 +1646,7 @@ class LegacyRingRasterizer
       // mask 已按目标物理尺寸生成；关闭二次平滑才能保留 Shader clip 的硬边界。
       targetContext.imageSmoothingEnabled = false;
       targetContext.shadowBlur = useNativeBloom
-        ? bloomCfg.ringBlur * scale
+        ? bloomCfg.ringBlur * scale * dpr
         : 0;
       targetContext.shadowColor = shadowColor;
       targetContext.drawImage(
@@ -1710,6 +1710,7 @@ function drawDissolvedCircle(
   sharedMaterialEnergy = null,
   outputCompositing = 'scene',
   linearNativeGlow = false,
+  dpr = 1,
 )
 {
   const ringCfg = fxConfig.rings;
@@ -1752,7 +1753,8 @@ function drawDissolvedCircle(
     colorForLuminance,
     useNativeBloom
       ? {
-          blur: bloomCfg.ringBlur * scale,
+          // Canvas shadowBlur 不跟随当前变换矩阵，必须显式换算到物理像素。
+          blur: bloomCfg.ringBlur * scale * dpr,
           color: colorToCanvasOutputCss(
             particleColor,
             scaleNativeGlowAlpha(
@@ -1820,6 +1822,7 @@ function drawDisk(
   opacity,
   fxConfig = UNITY_FX_TOUCH,
   useNativeBloom = true,
+  dpr = 1,
 )
 {
   const diskCfg = fxConfig.disk;
@@ -1867,7 +1870,10 @@ function drawDisk(
       bloomCfg.clickEmissionScale,
     ),
   );
-  context.shadowBlur = useNativeBloom ? bloomCfg.diskBlur * scale : 0;
+  // Canvas shadowBlur 不受 DPR 变换影响；按物理像素缩放才能保持 CSS 尺寸。
+  context.shadowBlur = useNativeBloom
+    ? bloomCfg.diskBlur * scale * dpr
+    : 0;
   context.drawImage(
     textureCanvas,
     0,
@@ -1889,6 +1895,7 @@ function drawDiskNativeGlow(
   scale,
   opacity,
   fxConfig = UNITY_FX_TOUCH,
+  dpr = 1,
 )
 {
   const diskCfg = fxConfig.disk;
@@ -1897,7 +1904,7 @@ function drawDiskNativeGlow(
     diskCfg.sizeKeys,
     progress,
   ) * scale;
-  const blur = bloomCfg.diskBlur * scale;
+  const blur = bloomCfg.diskBlur * scale * dpr;
 
   if (radius <= 0 || blur <= 0)
   {
@@ -2523,6 +2530,7 @@ class ClickWave
     scale,
     opacity,
     useNativeBloom = true,
+    dpr = 1,
   )
   {
     const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
@@ -2537,11 +2545,12 @@ class ClickWave
         opacity,
         this.fx,
         useNativeBloom,
+        dpr,
       );
     }
   }
 
-  drawDiskGlow(context, scale, opacity)
+  drawDiskGlow(context, scale, opacity, dpr = 1)
   {
     const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
 
@@ -2554,6 +2563,7 @@ class ClickWave
         scale,
         opacity,
         this.fx,
+        dpr,
       );
     }
   }
@@ -2564,6 +2574,7 @@ class ClickWave
     opacity,
     useNativeBloom = true,
     outputCompositing = 'scene',
+    dpr = 1,
   )
   {
     // 旧 Canvas 回退保持既有绘制顺序；精确 Scene 路径按材质队列分层调用。
@@ -2573,6 +2584,7 @@ class ClickWave
       scale,
       opacity,
       useNativeBloom,
+      dpr,
     );
   }
 
@@ -2631,6 +2643,7 @@ class ClickWave
           ringMaterialEnergy,
           outputCompositing,
           linearNativeGlow,
+          dpr,
         );
       }
     }
@@ -2643,6 +2656,7 @@ class ClickWave
     useNativeBloom = true,
     legacy = false,
     outputCompositing = 'scene',
+    dpr = 1,
   )
   {
     this.drawBase(
@@ -2650,6 +2664,8 @@ class ClickWave
       scale,
       opacity,
       useNativeBloom,
+      outputCompositing,
+      dpr,
     );
     this.drawRings(
       context,
@@ -2658,8 +2674,9 @@ class ClickWave
       useNativeBloom,
       legacy,
       null,
-      1,
+      dpr,
       outputCompositing,
+      false,
     );
   }
 
@@ -4152,7 +4169,8 @@ function drawNativeTrailBloom(
   );
 
   context.save();
-  context.filter = `blur(${blurRadius}px)`;
+  // Canvas filter 的 px 位于输出位图空间，不会随主 Context 的 DPR 变换放大。
+  context.filter = `blur(${blurRadius * dpr}px)`;
   context.shadowBlur = 0;
   context.shadowColor = 'transparent';
   context.drawImage(
@@ -7114,7 +7132,8 @@ export class BAClickFX
           scale,
           this.config.opacity,
           false,
-          false,
+          this.config.outputCompositing,
+          this.dpr,
         );
       }
 
@@ -7743,6 +7762,7 @@ export class BAClickFX
           scale,
           this.config.opacity,
           false,
+          this.dpr,
         );
         wave.appendCanvasSceneCoverage(
           renderer,
@@ -7760,6 +7780,7 @@ export class BAClickFX
             this.context,
             scale,
             this.config.opacity,
+            this.dpr,
           );
         }
       }
@@ -7891,6 +7912,7 @@ export class BAClickFX
         this.config.opacity,
         useNativeBloom,
         this.config.outputCompositing,
+        this.dpr,
       );
     }
 
@@ -8077,6 +8099,7 @@ export class BAClickFX
           this.config.opacity,
           useNativeBloom,
           this.config.outputCompositing,
+          this.dpr,
         );
       }
     }

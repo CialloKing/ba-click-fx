@@ -4724,6 +4724,29 @@ assert(
     straightBudgetGeometry.paths.length === budgetPointCount + 1,
   '64 点直线只测量 63 次段长，并让网格复用相同浮点结果',
 );
+const originalDevicePixelRatio = dom.windowMock.devicePixelRatio;
+
+dom.windowMock.devicePixelRatio = 2;
+geometryEffect.updateConfig({ maxDpr: 2 });
+const dprTwoTrailGeometry = renderCanvasTrailGeometry(
+  [
+    { x: 120, y: 240 },
+    { x: 220, y: 220 },
+    { x: 320, y: 240 },
+  ],
+);
+const expectedDprTwoTrailBlur =
+  UNITY_FX_TOUCH.trail.outerGlowWidth * geometryEffect._getScale() * 2;
+
+assert(
+  geometryEffect.dpr === 2 &&
+    dprTwoTrailGeometry.nativeBlurDraws.length === 1 &&
+    dprTwoTrailGeometry.nativeBlurDraws[0].filter ===
+      `blur(${expectedDprTwoTrailBlur}px)`,
+  'Native 拖尾模糊按 DPR 换算到物理像素并保持 CSS 光晕尺寸',
+);
+dom.windowMock.devicePixelRatio = originalDevicePixelRatio;
+geometryEffect.updateConfig({ maxDpr: 2 });
 geometryEffect.pointerCancel(91);
 geometryEffect.destroy();
 
@@ -5126,6 +5149,41 @@ assert(
     restoredLegacyClickGeometry.rings.radiusMax ===
       legacyClickGeometry.rings.radiusMax,
   '切回 Legacy 时保持 Unity 尺度并隐藏增强模式对比层',
+);
+legacyWave.ageMs = 100;
+legacyEffect.context.drawImageCalls = [];
+legacyWave.drawBase(
+  legacyEffect.context,
+  1,
+  1,
+  true,
+  'transparent-overlay',
+  2,
+);
+const dprTwoDiskDraw = legacyEffect.context.drawImageCalls.find((call) =>
+  call.args[0]?.width === 512 && call.args.length === 9);
+
+legacyWave.ageMs = 300;
+legacyEffect.context.drawImageCalls = [];
+legacyWave.drawRings(
+  legacyEffect.context,
+  1,
+  1,
+  true,
+  true,
+  legacyRingRasterizer,
+  2,
+  'transparent-overlay',
+);
+const dprTwoRingDraws = legacyEffect.context.drawImageCalls.filter((call) =>
+  call.args[0] === legacyRingRasterizer.canvas);
+
+assert(
+  dprTwoDiskDraw?.shadowBlur === legacyClickGeometry.bloom.diskBlur * 2 &&
+    dprTwoRingDraws.length === UNITY_FX_TOUCH.rings.count &&
+    dprTwoRingDraws.every((call) =>
+      call.shadowBlur === legacyClickGeometry.bloom.ringBlur * 2),
+  'Native 与 Legacy 点击模糊按 DPR 保持相同 CSS 光晕范围',
 );
 legacyEffect.destroy();
 assert(legacyEffect.destroyed, 'Legacy 实例可正常结束完整生命周期并销毁');
