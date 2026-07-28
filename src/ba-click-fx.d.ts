@@ -3,6 +3,11 @@ declare module 'ba-click-fx'
   export type BAClickFXInputFilter = (event: PointerEvent) => boolean;
   export type BAClickFXInputSource = 'dom' | 'manual';
   export type BAClickFXPointerType = 'mouse' | 'touch' | 'pen';
+  export type BAClickFXOutputCompositing =
+    'scene' | 'transparent-overlay';
+  export type BAClickFXEffectBackend = 'canvas2d' | 'webgl2' | 'auto';
+  export type BAClickFXResolvedEffectBackend =
+    Exclude<BAClickFXEffectBackend, 'auto'> | 'pending';
   export type BAClickFXBloomBackend = 'auto' | 'software' | 'webgl2' | 'native';
   export type BAClickFXResolvedBloomBackend =
     Exclude<BAClickFXBloomBackend, 'auto'> | 'legacy' | 'pending';
@@ -15,6 +20,15 @@ declare module 'ba-click-fx'
 
   export type BAClickFXBackendChangeEvent =
     CustomEvent<BAClickFXBackendChangeDetail>;
+
+  export interface BAClickFXEffectBackendChangeDetail
+  {
+    readonly requestedEffectBackend: BAClickFXEffectBackend;
+    readonly resolvedEffectBackend: BAClickFXResolvedEffectBackend;
+  }
+
+  export type BAClickFXEffectBackendChangeEvent =
+    CustomEvent<BAClickFXEffectBackendChangeDetail>;
 
   export interface BAClickFXPointerInput
   {
@@ -33,6 +47,12 @@ declare module 'ba-click-fx'
     clear?: boolean;
   }
 
+  export interface BAClickFXSceneBackgroundOptions
+  {
+    /** 当前仅支持与 CSS background-size: cover 对齐的居中裁剪。 */
+    fit?: 'cover';
+  }
+
   export interface BAClickFXOptions
   {
     /** CSS 选择器、定位容器或已有 Canvas；普通容器建议设置 position: relative，省略时创建全屏覆盖层。 */
@@ -41,6 +61,8 @@ declare module 'ba-click-fx'
     scale?: number;
     /** 整体透明度，默认 1。 */
     opacity?: number;
+    /** 输出合成：默认 'scene'；透明桌面覆盖层使用 'transparent-overlay'。 */
+    outputCompositing?: BAClickFXOutputCompositing;
     clickEnabled?: boolean;
     trailEnabled?: boolean;
     /** 无需按下鼠标，移动即显示拖尾。默认 false。 */
@@ -51,7 +73,9 @@ declare module 'ba-click-fx'
     clickTimeScale?: number;
     /** 拖尾衰减和拖尾碎片的时间倍率，必须有限且大于 0。默认 1。 */
     trailTimeScale?: number;
-    /** 渲染模式：'enhanced'（默认，线性能量）或 'legacy'（sRGB + shadowBlur，main 分支风格）。 */
+    /** 完整特效后端；默认 'webgl2'，未就绪或丢失时安全回退 Canvas2D。 */
+    effectBackend?: BAClickFXEffectBackend;
+    /** 渲染模式：'enhanced'（默认，完整 Bloom）或 'legacy'（Unity 材质主体 + Canvas shadowBlur）。 */
     renderingMode?: 'enhanced' | 'legacy';
     /** Bloom 后端。默认 'webgl2'；不可用时会自动回退软件 Bloom 与原生辉光。 */
     bloomBackend?: BAClickFXBloomBackend;
@@ -77,12 +101,14 @@ declare module 'ba-click-fx'
   {
     scale: number;
     opacity: number;
+    outputCompositing: BAClickFXOutputCompositing;
     clickEnabled: boolean;
     trailEnabled: boolean;
     trailAlways: boolean;
     inputSource: BAClickFXInputSource;
     clickTimeScale: number;
     trailTimeScale: number;
+    effectBackend: BAClickFXEffectBackend;
     renderingMode: 'enhanced' | 'legacy';
     bloomBackend: BAClickFXBloomBackend;
     /** 兼容旧 API；WebGL2 与软件 Bloom 后端均为 true。 */
@@ -107,6 +133,8 @@ declare module 'ba-click-fx'
 
   export interface BAClickFXConfigSnapshot extends BAClickFXConfig
   {
+    /** 最近一次解析的完整特效后端；首次 Scene 提交和恢复验证期间可为 'pending'。 */
+    readonly resolvedEffectBackend: BAClickFXResolvedEffectBackend;
     /** 最近一次解析的实际后端；WebGL2/auto 首次延迟探测前为 'pending'。 */
     readonly resolvedBloomBackend: BAClickFXResolvedBloomBackend;
     readonly unity: UnityFxTouchConfig;
@@ -115,6 +143,8 @@ declare module 'ba-click-fx'
   export const CONFIG: Readonly<BAClickFXConfig>;
   /** 主 Canvas 在 Bloom 后端解析状态变化时派发的事件名。 */
   export const BLOOM_BACKEND_CHANGE_EVENT: 'baclickfxbackendchange';
+  /** 主 Canvas 在完整特效后端解析状态变化时派发的事件名。 */
+  export const EFFECT_BACKEND_CHANGE_EVENT: 'baclickfxeffectbackendchange';
   export const UNITY_FX_TOUCH: UnityFxTouchConfig;
   export const SIZE_CORRECTION: number;
   export function createConfig(overrides?: Partial<BAClickFXConfig>): BAClickFXConfig;
@@ -145,7 +175,20 @@ declare module 'ba-click-fx'
     /** 暂停或恢复输入与动画调度；clear 仅在 paused 为 true 时生效。 */
     setPaused(paused: boolean, options?: BAClickFXPauseOptions): void;
 
-    /** 运行时更新输入来源、时间倍率、基础开关、Bloom 后端、DPR 与触摸行为。 */
+    /**
+     * 提供特效下方的已解码不透明栅格场景。纯 WebGL2 与 WebGL2 Bloom
+     * 在同一线性 HDR Scene 合成；Native / Legacy 使用 Canvas Final Pass。
+     * 当前仅支持居中 cover。调用方负责图片 CORS，并须在替换或销毁前
+     * 保持可释放源有效以支持 Context 恢复。Canvas、Video 等动态源上传
+     * 调用时的当前帧；内容变化后需再次调用。传入 null 恢复透明 DOM 背景。
+     * 返回 false 时旧背景保持不变；延迟创建的 Renderer 仍可能安全回退。
+     */
+    setSceneBackground(
+      source: TexImageSource | null,
+      options?: BAClickFXSceneBackgroundOptions,
+    ): boolean;
+
+    /** 运行时更新输入来源、时间倍率、特效后端、Bloom 后端、DPR 与触摸行为。 */
     updateConfig(overrides: BAClickFXUpdateOptions): void;
 
     /** 设置主题色（CSS 十六进制），所有蓝色系特效的 hue 将以此偏移。传入空字符串恢复默认。 */

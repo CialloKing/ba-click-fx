@@ -1,5 +1,9 @@
 import './style.css';
-import { BAClickFX, BLOOM_BACKEND_CHANGE_EVENT } from './fx.js';
+import {
+  BAClickFX,
+  BLOOM_BACKEND_CHANGE_EVENT,
+  EFFECT_BACKEND_CHANGE_EVENT,
+} from './fx.js';
 
 function acceptDemoPointer(event)
 {
@@ -27,29 +31,202 @@ const THEMES = {
   '纯黑': '#000000',
   '纯白': '#ffffff',
 };
+let sceneBackgroundRequestId = 0;
+
+function clearSceneBackground()
+{
+  sceneBackgroundRequestId++;
+  effect.setSceneBackground(null);
+  document.body.classList.remove('scene-background-source');
+}
+
+function applySceneBackgroundImage(url)
+{
+  const requestId = ++sceneBackgroundRequestId;
+
+  // 背景切换时不能继续用旧纹理求差值，否则首个加载帧会使用不匹配的场景。
+  effect.setSceneBackground(null);
+  document.body.classList.remove('scene-background-source');
+
+  if (!url)
+  {
+    return;
+  }
+
+  const image = new Image();
+
+  if (url.protocol === 'http:' || url.protocol === 'https:')
+  {
+    image.crossOrigin = 'anonymous';
+  }
+
+  image.decoding = 'async';
+  image.addEventListener('load', () =>
+  {
+    if (
+      requestId !== sceneBackgroundRequestId ||
+      image.naturalWidth <= 0 ||
+      image.naturalHeight <= 0
+    )
+    {
+      return;
+    }
+
+    if (effect.setSceneBackground(image, { fit: 'cover' }))
+    {
+      // 装饰网格不属于宿主栅格源，严格 Scene 路径下必须移除。
+      document.body.classList.add('scene-background-source');
+    }
+  }, { once: true });
+  image.addEventListener('error', () =>
+  {
+    if (requestId === sceneBackgroundRequestId)
+    {
+      // CSS 背景仍可显示；无 CORS 时所有需要栅格 Scene 的后端保持 DOM 回退。
+      effect.setSceneBackground(null);
+    }
+  }, { once: true });
+  image.src = url.href;
+}
+
+function setCustomBackgroundControlsVisible(visible)
+{
+  for (const id of ['customBgCtrl', 'ctrlCustomBg', 'btnApplyBg'])
+  {
+    const element = document.getElementById(id);
+
+    if (element)
+    {
+      element.style.display = visible ? '' : 'none';
+    }
+  }
+}
+
+function selectTheme(name)
+{
+  document.querySelectorAll('.theme-btn').forEach((button) =>
+  {
+    button.classList.toggle('active', button.dataset.theme === name);
+  });
+  setCustomBackgroundControlsVisible(name === 'custom');
+}
 
 function applyTheme(name)
 {
   if (name === 'custom')
   {
-    return;
+    selectTheme(name);
+    return true;
   }
 
   const bg = THEMES[name];
 
-  if (bg)
+  if (!bg)
   {
-    document.body.style.background = bg;
+    return false;
   }
 
-  document.querySelectorAll('.theme-btn').forEach((btn) =>
+  document.body.style.background = bg;
+  clearSceneBackground();
+  selectTheme(name);
+  return true;
+}
+
+function escapeCssUrl(value)
+{
+  return value
+    .replaceAll('\\', '\\\\')
+    .replaceAll('"', '\\"')
+    .replace(/[\n\r\f]/g, '');
+}
+
+function resolveCustomBackground(value)
+{
+  const trimmed = value.trim();
+
+  if (!trimmed)
   {
-    btn.classList.toggle('active', btn.dataset.theme === name);
-  });
+    return null;
+  }
+
+  if (CSS.supports('background', trimmed))
+  {
+    return trimmed;
+  }
+
+  // 输入框同时接受完整 CSS 和裸图片 URL；后者需要显式包装成 background。
+  const imageBackground = `url("${escapeCssUrl(trimmed)}") center / cover no-repeat fixed`;
+
+  return CSS.supports('background', imageBackground)
+    ? imageBackground
+    : null;
+}
+
+function resolveSceneBackgroundUrl(value)
+{
+  const trimmed = value.trim();
+
+  if (!trimmed || CSS.supports('background', trimmed))
+  {
+    // 通用 CSS、渐变和多图层不能可靠还原为一张宿主场景纹理。
+    return null;
+  }
+
+  try
+  {
+    const url = new URL(trimmed, document.baseURI);
+
+    if (
+      url.protocol !== 'http:' &&
+      url.protocol !== 'https:' &&
+      url.protocol !== 'data:' &&
+      url.protocol !== 'blob:'
+    )
+    {
+      return null;
+    }
+
+    return url;
+  }
+  catch
+  {
+    return null;
+  }
+}
+
+function applyCustomBackground(value, persist = true)
+{
+  const resolved = resolveCustomBackground(value);
+
+  if (!resolved)
+  {
+    return false;
+  }
+
+  const input = document.getElementById('ctrlCustomBg');
+  const rawValue = value.trim();
+
+  document.body.style.background = resolved;
+  applySceneBackgroundImage(resolveSceneBackgroundUrl(rawValue));
+
+  if (input)
+  {
+    input.value = rawValue;
+  }
+
+  selectTheme('custom');
+
+  if (persist)
+  {
+    localStorage.setItem('bafx-theme', 'custom');
+    localStorage.setItem('bafx-custom-bg', rawValue);
+  }
+
+  return true;
 }
 
 // ── 控件绑定 ────────────────────────────────────────────────────────────
-function bindRange(id, outId, onChange, intOnly = false)
+function bindRange(id, outId, onChange, intOnly = false, applyEvent = 'input')
 {
   const el = document.getElementById(id);
   const out = document.getElementById(outId);
@@ -64,9 +241,22 @@ function bindRange(id, outId, onChange, intOnly = false)
     const value = parseFloat(el.value);
 
     out.textContent = intOnly ? String(Math.round(value)) : value.toFixed(2);
-    onChange(value);
+
+    if (applyEvent === 'input')
+    {
+      onChange(value);
+    }
+
     localStorage.setItem('bafx-' + id, el.value);
   });
+
+  if (applyEvent !== 'input')
+  {
+    el.addEventListener(applyEvent, () =>
+    {
+      onChange(parseFloat(el.value));
+    });
+  }
 }
 
 function bindToggle(id, onChange)
@@ -88,6 +278,7 @@ function bindToggle(id, onChange)
 // ── 基础控件 → updateConfig ─────────────────────────────────────────────
 bindRange('ctrlScale', 'outScale', (v) => effect.updateConfig({ scale: v }));
 bindRange('ctrlOpacity', 'outOpacity', (v) => effect.updateConfig({ opacity: v }));
+// DPR 会重建 Canvas 与 RenderTarget，拖动结束后再应用可避免连续抖动。
 bindRange('ctrlDpr', 'outDpr', (value) =>
 {
   effect.updateConfig(
@@ -95,7 +286,7 @@ bindRange('ctrlDpr', 'outDpr', (value) =>
       maxDpr: value,
     },
   );
-});
+}, false, 'change');
 
 bindToggle('ctrlIsolatedCompositing', (checked) =>
   effect.updateConfig({ isolatedCompositing: checked }));
@@ -290,15 +481,40 @@ window.addEventListener('blur', () =>
   manualPointerId = null;
 });
 
-// ── 渲染模式 → renderingMode + bloomBackend ──────────────────────────
+// ── 渲染模式 → effectBackend + renderingMode + bloomBackend ─────────
 const ctrlRenderMode = document.getElementById('ctrlRenderMode');
-const DEFAULT_RENDER_MODE = 'webgl2-bloom';
+const DEFAULT_RENDER_MODE = 'full-webgl2';
 const RENDER_MODE_CONFIGS = Object.freeze(
   {
-    'software-bloom': { renderingMode: 'enhanced', bloomBackend: 'software' },
-    'webgl2-bloom': { renderingMode: 'enhanced', bloomBackend: 'webgl2' },
-    'native-bloom': { renderingMode: 'enhanced', bloomBackend: 'native' },
-    legacy: { renderingMode: 'legacy' },
+    'full-webgl2':
+    {
+      effectBackend: 'webgl2',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    },
+    'software-bloom':
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'enhanced',
+      bloomBackend: 'software',
+    },
+    'webgl2-bloom':
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    },
+    'native-bloom':
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'enhanced',
+      bloomBackend: 'native',
+    },
+    legacy:
+    {
+      effectBackend: 'canvas2d',
+      renderingMode: 'legacy',
+    },
   },
 );
 
@@ -314,16 +530,28 @@ function updateRenderBackendStatus()
   const d = I18N[currentLang] || I18N.zh;
   const snapshot = effect.getConfig();
   const backendLabels = {
+    canvas2d: d.renderCanvas2D,
     auto: d.renderAutoBloom,
     software: d.renderSoftwareBloom,
     webgl2: d.renderWebGL2Bloom,
     native: d.renderNativeBloom,
     legacy: d.renderLegacy,
   };
-  const resolved = snapshot.resolvedBloomBackend;
-  const expected = snapshot.renderingMode === 'legacy'
-    ? 'legacy'
-    : snapshot.bloomBackend;
+  const useEffectBackend = snapshot.renderingMode !== 'legacy' &&
+    snapshot.effectBackend !== 'canvas2d';
+  const resolved = useEffectBackend
+    ? snapshot.resolvedEffectBackend
+    : snapshot.resolvedBloomBackend;
+  const expected = useEffectBackend
+    ? snapshot.effectBackend
+    : snapshot.renderingMode === 'legacy'
+      ? 'legacy'
+      : snapshot.bloomBackend;
+  const webGL2Label = useEffectBackend
+    ? d.renderFullWebGL2
+    : d.renderWebGL2Bloom;
+
+  backendLabels.webgl2 = webGL2Label;
   const resolvedLabel = backendLabels[resolved] || resolved;
   const requestedLabel = backendLabels[expected] || expected;
 
@@ -357,6 +585,10 @@ function applyRenderMode(mode)
 
 effect.canvas.addEventListener(
   BLOOM_BACKEND_CHANGE_EVENT,
+  updateRenderBackendStatus,
+);
+effect.canvas.addEventListener(
+  EFFECT_BACKEND_CHANGE_EVENT,
   updateRenderBackendStatus,
 );
 
@@ -587,15 +819,10 @@ document.querySelectorAll('.theme-btn').forEach((btn) =>
 
     if (theme === 'custom')
     {
-      document.getElementById('customBgCtrl').style.display = '';
-      document.getElementById('ctrlCustomBg').style.display = '';
-      document.getElementById('btnApplyBg').style.display = '';
+      selectTheme('custom');
     }
     else
     {
-      document.getElementById('customBgCtrl').style.display = 'none';
-      document.getElementById('ctrlCustomBg').style.display = 'none';
-      document.getElementById('btnApplyBg').style.display = 'none';
       applyTheme(theme);
       localStorage.setItem('bafx-theme', theme);
     }
@@ -606,11 +833,7 @@ document.getElementById('btnApplyBg').addEventListener('click', () =>
 {
   const value = document.getElementById('ctrlCustomBg').value.trim();
 
-  if (value)
-  {
-    document.body.style.background = value;
-    localStorage.setItem('bafx-custom-bg', value);
-  }
+  applyCustomBackground(value);
 });
 
 // ── 面板开关 ────────────────────────────────────────────────────────────
@@ -721,6 +944,8 @@ const I18N = {
     hostApiDom: 'DOM 模式：库自动监听 window 指针事件。',
     hostApiManual: '手动模式：展示页通过公开 pointer API 注入输入。',
     hostApiPaused: '已暂停：输入和 RAF 已停止。',
+    renderCanvas2D: 'Canvas 2D',
+    renderFullWebGL2: '纯 WebGL2',
     renderSoftwareBloom: '软件 Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: '原生辉光',
@@ -770,11 +995,11 @@ const I18N = {
     btnApplyBg: '应用背景',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
-    introP2: '从 Unity FX_Touch.prefab 逐参数移植的 Canvas 2D 特效库，默认使用 WebGL2 Bloom——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
+    introP2: '从 Unity FX_Touch.prefab 逐参数移植，默认使用纯 WebGL2，并提供 WebGL2 Bloom、软件 Bloom、原生辉光和 Legacy 回退路径——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.12/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.14/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 不需要图片素材；默认使用 WebGL2 Bloom，能力不足时自动回退软件 Bloom，零运行时依赖。</p><p><strong>纯白背景下特效颜色太浅？</strong> 纯白背景会让默认的直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；这两项是网页兼容选项，不是游戏默认路径。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>自定义图片背景怎样参与游戏式合成？</strong> 展示页会把已解码图片通过 <code>setSceneBackground(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；CSS 渐变不是可上传的栅格源，只能作为普通 DOM 背景。</p><p><strong>纯白背景下特效颜色太浅？</strong> 只使用 DOM 背景时，纯白会让直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；它们是网页兼容选项，不代替 <code>setSceneBackground()</code> 的游戏式线性场景合成。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
     introHostApiSummary: '宿主控制 API / Host Control API',
   },
   en: {
@@ -809,6 +1034,8 @@ const I18N = {
     hostApiDom: 'DOM mode: the library listens for window pointer events.',
     hostApiManual: 'Manual mode: the demo injects input through the public pointer API.',
     hostApiPaused: 'Paused: input and RAF scheduling are stopped.',
+    renderCanvas2D: 'Canvas 2D',
+    renderFullWebGL2: 'Full WebGL2',
     renderSoftwareBloom: 'Software Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: 'Native Glow',
@@ -858,11 +1085,11 @@ const I18N = {
     btnApplyBg: 'Apply',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
-    introP2: 'Canvas 2D effect library ported from Unity FX_Touch.prefab, using WebGL2 Bloom by default — dissolve rings, click shards, drag trails. Zero runtime dependencies.',
+    introP2: 'Ported from Unity FX_Touch.prefab with Full WebGL2 by default plus WebGL2 Bloom, Software Bloom, Native Glow, and Legacy fallback paths — dissolve rings, click shards, and drag trails. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.12/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.14/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> No image assets. WebGL2 Bloom is the default and falls back to Software Bloom when unavailable. Zero runtime dependencies.</p><p><strong>Effects look washed out on a pure white background?</strong> Direct additive compositing loses cyan-blue color and contrast on pure white. Enable Isolated Compositing (<code>isolatedCompositing: true</code>). For a sharper outline, you can also set <code>lightBackgroundContrastAlpha: 0.35</code>; both are web compatibility options, not the game-default path.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How does a custom image join the game-style composite?</strong> The demo passes a decoded image to <code>setSceneBackground(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. A CSS gradient is not an uploadable raster source and remains a normal DOM background.</p><p><strong>Effects look washed out on a pure white background?</strong> With a DOM-only background, direct additive output loses cyan-blue colour and contrast on pure white. Enable Isolated Compositing (<code>isolatedCompositing: true</code>) and optionally <code>lightBackgroundContrastAlpha: 0.35</code> for a sharper outline. These are web compatibility options, not replacements for <code>setSceneBackground()</code> linear Scene compositing.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
     introHostApiSummary: 'Host Control API / 宿主控制 API',
   },
 };
@@ -1019,6 +1246,7 @@ function switchLanguage(lang)
 
   // 渲染模式下拉选项文本
   const renderModeOptions = {
+    'full-webgl2': d.renderFullWebGL2,
     'software-bloom': d.renderSoftwareBloom,
     'webgl2-bloom': d.renderWebGL2Bloom,
     'native-bloom': d.renderNativeBloom,
@@ -1121,8 +1349,9 @@ switchLanguage(currentLang);
   if (dprEl && localStorage.getItem('bafx-ctrlDpr'))
   {
     dprEl.value = localStorage.getItem('bafx-ctrlDpr');
-    document.getElementById('outDpr').textContent = dprEl.value;
-    effect.updateConfig({ maxDpr: Math.round(parseFloat(dprEl.value)) });
+    // 复用即时输入路径，确保显示值、持久化值和实际配置保持同一精度。
+    dprEl.dispatchEvent(new Event('input'));
+    dprEl.dispatchEvent(new Event('change'));
   }
 
   if (localStorage.getItem('bafx-ctrlClick') === 'false')
@@ -1288,17 +1517,24 @@ switchLanguage(currentLang);
   }
 
   const theme = localStorage.getItem('bafx-theme');
+  const customBg = localStorage.getItem('bafx-custom-bg');
+  const customBgInput = document.getElementById('ctrlCustomBg');
 
-  if (theme && THEMES[theme])
+  if (customBg && customBgInput)
   {
-    applyTheme(theme);
+    customBgInput.value = customBg;
   }
 
-  const customBg = localStorage.getItem('bafx-custom-bg');
-
-  if (customBg)
+  if (theme === 'custom' || (!theme && customBg))
   {
-    document.body.style.background = customBg;
+    if (!customBg || !applyCustomBackground(customBg, false))
+    {
+      applyTheme('蔚蓝');
+    }
+  }
+  else if (theme && THEMES[theme])
+  {
+    applyTheme(theme);
   }
 })();
 

@@ -59,8 +59,9 @@ function verifyRuntimeApi(moduleExports, bundleName)
   }
 
   verify(
-    moduleExports.CONFIG?.bloomBackend === 'webgl2',
-    `${bundleName} bundle does not expose the WebGL2 Bloom default`,
+    moduleExports.CONFIG?.effectBackend === 'webgl2' &&
+      moduleExports.CONFIG?.bloomBackend === 'webgl2',
+    `${bundleName} bundle does not expose the Full WebGL2 defaults`,
   );
   verify(
     moduleExports.CONFIG?.isolatedCompositing === false &&
@@ -144,6 +145,7 @@ for (const methodName of hostControlMethods)
 }
 
 if (
+  moduleExports.CONFIG?.effectBackend !== 'webgl2' ||
   moduleExports.CONFIG?.bloomBackend !== 'webgl2' ||
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
@@ -177,6 +179,7 @@ for (const methodName of hostControlMethods)
 }
 
 if (
+  moduleExports.CONFIG?.effectBackend !== 'webgl2' ||
   moduleExports.CONFIG?.bloomBackend !== 'webgl2' ||
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
@@ -213,7 +216,11 @@ if (
     join(installedRoot, 'dist', 'ba-click-fx.iife.js'),
     'utf8',
   );
-  const iifeContext = {};
+  const iifeContext =
+  {
+    // IIFE 在浏览器中天然可用 atob；vm 隔离上下文不会继承宿主全局。
+    atob: globalThis.atob,
+  };
 
   vm.runInNewContext(iifeSource, iifeContext);
   verifyRuntimeApi(iifeContext.BAClickFX, 'IIFE');
@@ -242,6 +249,7 @@ if (
   type BAClickFXBloomBackend,
   type BAClickFXConfig,
   type BAClickFXConfigSnapshot,
+  type BAClickFXEffectBackend,
   type BAClickFXInputFilter,
   type BAClickFXInputSource,
   type BAClickFXOptions,
@@ -249,6 +257,7 @@ if (
   type BAClickFXPointerInput,
   type BAClickFXPointerType,
   type BAClickFXResolvedBloomBackend,
+  type BAClickFXResolvedEffectBackend,
   type BAClickFXUpdateOptions,
   type UnityFxTouchConfig,
 } from 'ba-click-fx';
@@ -265,6 +274,7 @@ const options: BAClickFXOptions =
   inputSource: 'manual',
   clickTimeScale: 1.5,
   trailTimeScale: 0.8,
+  effectBackend: 'webgl2',
   renderingMode: 'enhanced',
   bloomBackend: 'webgl2',
   softwareBloomEnabled: true,
@@ -280,15 +290,21 @@ const configSnapshot: BAClickFXConfigSnapshot = namedInstance.getConfig();
 const config: BAClickFXConfig = configSnapshot;
 const defaults: BAClickFXConfig = createConfig(
   {
+    effectBackend: 'auto',
     bloomBackend: 'auto',
     isolatedCompositing: false,
   },
 );
 const unity: UnityFxTouchConfig = UNITY_FX_TOUCH;
 const defaultScale: number = CONFIG.scale;
+const defaultEffectBackend: BAClickFXEffectBackend = CONFIG.effectBackend;
 const defaultBloomBackend: BAClickFXBloomBackend = CONFIG.bloomBackend;
 const defaultIsolatedCompositing: boolean = CONFIG.isolatedCompositing;
 const bloomBackend: BAClickFXBloomBackend = config.bloomBackend;
+const effectBackend: BAClickFXEffectBackend = config.effectBackend;
+const resolvedEffectBackend: BAClickFXResolvedEffectBackend =
+  configSnapshot.resolvedEffectBackend;
+const pendingEffectBackend: BAClickFXResolvedEffectBackend = 'pending';
 const resolvedBloomBackend: BAClickFXResolvedBloomBackend =
   configSnapshot.resolvedBloomBackend;
 const pendingBloomBackend: BAClickFXResolvedBloomBackend = 'pending';
@@ -341,6 +357,7 @@ namedInstance.setPaused(false);
 namedInstance.setFxParam('hit.enabled', true);
 const updateOptions: BAClickFXUpdateOptions =
 {
+  effectBackend: 'auto',
   renderingMode: 'enhanced',
   bloomBackend: 'auto',
   inputSource: 'dom',
@@ -386,6 +403,8 @@ const invalidOptions: BAClickFXOptions =
   isolatedCompositing: 'isolate',
   // @ts-expect-error Bloom 后端只接受公开的四种取值。
   bloomBackend: 'webgpu',
+  // @ts-expect-error 完整特效后端只接受 canvas2d、webgl2 或 auto。
+  effectBackend: 'webgpu',
   // @ts-expect-error renderingMode 只接受 enhanced 或 legacy。
   renderingMode: 'native-bloom',
   // @ts-expect-error inputSource 只接受 dom 或 manual。
@@ -398,9 +417,13 @@ void [
   defaults,
   unity,
   defaultScale,
+  defaultEffectBackend,
   defaultBloomBackend,
   defaultIsolatedCompositing,
   bloomBackend,
+  effectBackend,
+  resolvedEffectBackend,
+  pendingEffectBackend,
   resolvedBloomBackend,
   pendingBloomBackend,
   softwareBloomEnabled,

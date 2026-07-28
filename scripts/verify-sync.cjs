@@ -45,6 +45,61 @@ verify(
     /\['ctrlClickGlow', 'bloom\.clickEmissionScale'\]/.test(mainJs),
   '点击辉光滑块支持重置与本地设置恢复',
 );
+const preciseRangeSteps =
+{
+  ctrlScale: '0.01',
+  ctrlOpacity: '0.01',
+  ctrlDpr: '0.1',
+  ctrlClickTimeScale: '0.01',
+  ctrlTrailTimeScale: '0.01',
+  ctrlRingWStart: '0.01',
+  ctrlRingWEnd: '0.01',
+  ctrlRingLife: '1',
+  ctrlMaxShards: '1',
+  ctrlBloomRing: '0.1',
+  ctrlBloomThreshold: '0.01',
+  ctrlBloomIntensity: '0.01',
+  ctrlBloomDiffusion: '0.01',
+  ctrlClickGlow: '0.01',
+  ctrlDiskRadius: '0.01',
+  ctrlDiskLife: '1',
+  ctrlAngVelMul: '0.01',
+  ctrlArcSamples: '1',
+  ctrlClickShardLifeMin: '1',
+  ctrlClickShardLifeMax: '1',
+  ctrlHitRadius: '0.01',
+  ctrlHitLife: '1',
+  ctrlFlareRadius: '0.01',
+  ctrlFlareLife: '1',
+  ctrlTrailW: '0.01',
+  ctrlTrailGlowW: '0.1',
+  ctrlTrailLife: '1',
+  ctrlTrailOpacity: '0.01',
+  ctrlGeomWidth: '0.01',
+  ctrlMinVertDist: '0.01',
+  ctrlTrailShardLifeMin: '1',
+  ctrlTrailShardLifeMax: '1',
+  ctrlBloomDisk: '0.1',
+};
+
+for (const [controlId, expectedStep] of Object.entries(preciseRangeSteps))
+{
+  const control = indexHtml.match(
+    new RegExp(`<input\\s+[^>]*id="${controlId}"[^>]*>`),
+  )?.[0] ?? '';
+
+  verify(
+    control.includes(`step="${expectedStep}"`),
+    `${controlId} 使用精细步进 ${expectedStep}`,
+  );
+}
+
+verify(
+  /bindRange\('ctrlDpr', 'outDpr',[\s\S]*?\}, false, 'change'\);/.test(mainJs) &&
+    /dprEl\.dispatchEvent\(new Event\('input'\)\);[\s\S]*?dprEl\.dispatchEvent\(new Event\('change'\)\);/.test(mainJs) &&
+    !/maxDpr: Math\.round/.test(mainJs),
+  '小数 DPR 仅在提交时应用，并按原精度恢复',
+);
 const ringCountControl = indexHtml.match(
   /<input\s+[^>]*id="ctrlRingCount"[^>]*>/,
 )?.[0] ?? '';
@@ -95,26 +150,67 @@ const renderModeSelect = indexHtml.match(
 const renderModeValues = [...renderModeSelect.matchAll(/<option value="([^"]+)"/g)]
   .map((match) => match[1]);
 
+function hasRenderModeConfig(mode, expected)
+{
+  const escapedMode = mode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const keyPattern = mode === 'legacy'
+    ? "(?:'legacy'|legacy)"
+    : `'${escapedMode}'`;
+  // 展示页配置采用多行对象；先限制到单个模式块，避免跨块字段误匹配。
+  const configSource = mainJs.match(
+    new RegExp(`${keyPattern}:\\s*\\{([\\s\\S]*?)\\n\\s*\\},?`),
+  )?.[1] ?? '';
+
+  return Object.entries(expected).every(([key, value]) =>
+    new RegExp(`\\b${key}:\\s*'${value}'`).test(configSource));
+}
+
 verify(
   JSON.stringify(renderModeValues) === JSON.stringify([
-    'software-bloom',
+    'full-webgl2',
     'webgl2-bloom',
+    'software-bloom',
     'native-bloom',
     'legacy',
   ]),
-  '展示页提供 WebGL2、Software、Native 与 Legacy 四档渲染开关',
+  '展示页按纯 WebGL2、WebGL2 Bloom、Software、Native 与 Legacy 排列五档渲染开关',
 );
 verify(
-  /<option value="webgl2-bloom" selected>/.test(renderModeSelect) &&
-    /const DEFAULT_RENDER_MODE = 'webgl2-bloom'/.test(mainJs),
-  '展示页 HTML、恢复与重置路径统一默认使用 WebGL2 Bloom',
+  /<option value="full-webgl2" selected>/.test(renderModeSelect) &&
+    /const DEFAULT_RENDER_MODE = 'full-webgl2'/.test(mainJs),
+  '展示页 HTML、恢复与重置路径统一默认使用纯 WebGL2',
 );
 verify(
-  /'software-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'software' \}/.test(mainJs) &&
-    /'webgl2-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'webgl2' \}/.test(mainJs) &&
-    /'native-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'native' \}/.test(mainJs) &&
-    /legacy: \{ renderingMode: 'legacy' \}/.test(mainJs),
-  '展示页四档开关映射到对应的公开 renderingMode 与 bloomBackend API',
+  hasRenderModeConfig('full-webgl2',
+    {
+      effectBackend: 'webgl2',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    }) &&
+    hasRenderModeConfig('webgl2-bloom',
+      {
+        effectBackend: 'canvas2d',
+        renderingMode: 'enhanced',
+        bloomBackend: 'webgl2',
+      }) &&
+    hasRenderModeConfig('software-bloom',
+      {
+        effectBackend: 'canvas2d',
+        renderingMode: 'enhanced',
+        bloomBackend: 'software',
+      }) &&
+    hasRenderModeConfig('native-bloom',
+      {
+        effectBackend: 'canvas2d',
+        renderingMode: 'enhanced',
+        bloomBackend: 'native',
+      }) &&
+    hasRenderModeConfig('legacy',
+      {
+        effectBackend: 'canvas2d',
+        renderingMode: 'legacy',
+      }),
+  '展示页五档开关映射到对应的完整特效、渲染模式与 Bloom API',
 );
 verify(
   /BLOOM_BACKEND_CHANGE_EVENT/.test(mainJs) &&
@@ -175,8 +271,9 @@ verify(
   '严格默认关闭网页兼容合成，createConfig 仍接受布尔覆盖值',
 );
 verify(
-  /const DEFAULT_BLOOM_BACKEND = 'webgl2'/.test(configJs),
-  '库配置默认使用 WebGL2 Bloom',
+  /const DEFAULT_EFFECT_BACKEND = 'webgl2'/.test(configJs) &&
+    /const DEFAULT_BLOOM_BACKEND = 'webgl2'/.test(configJs),
+  '库配置默认使用纯 WebGL2，并保留 WebGL2 Bloom 回退请求',
 );
 verify(
   /function createOverlayRoot/.test(engineJs) &&
@@ -216,9 +313,11 @@ verify(
   '圆环使用 Unity Hermite 阈值和原 Shader 二值 clip',
 );
 verify(
-  /textureRadialAlphaKeys/.test(configJs) &&
-    /bandToOuterRadius/.test(configJs),
-  '圆环保留纹理径向亮度与 MeshTri 固定环宽比例',
+  /sampleRing3Alpha/.test(engineJs) &&
+    /textureUvMin: 0\.0005000000237487257/.test(configJs) &&
+    /textureUvMax: 0\.999500036239624/.test(configJs) &&
+    /bandToOuterRadius: 0\.0598573766034603/.test(configJs),
+  '圆环精确采样 Ring3，并保留 Cylinder002 UV 与固定环宽比例',
 );
 
 console.log('\n✅ Unity 参数同步检查通过\n');

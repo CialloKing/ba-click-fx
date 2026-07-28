@@ -6,9 +6,16 @@ const SHARD_LOCAL_SCALE = 0.3078824;
 const SHARD_UNIT_TO_REFERENCE_PIXELS =
   WORLD_TO_REFERENCE_PIXELS * SHARD_LOCAL_SCALE;
 const RING_MESH_OUTER_RADIUS = 1.0636684;
+const DEFAULT_EFFECT_BACKEND = 'webgl2';
+const EFFECT_BACKENDS = new Set(['canvas2d', 'webgl2', 'auto']);
 const DEFAULT_BLOOM_BACKEND = 'webgl2';
 const BLOOM_BACKENDS = new Set(['auto', 'software', 'webgl2', 'native']);
 const INPUT_SOURCES = new Set(['dom', 'manual']);
+const DEFAULT_OUTPUT_COMPOSITING = 'scene';
+const OUTPUT_COMPOSITING_MODES = new Set([
+  'scene',
+  'transparent-overlay',
+]);
 
 // FX_Touch 使用独立的 UI 正交投影（高度 2 世界单位），不跟随场景相机。
 export const SIZE_CORRECTION = 1;
@@ -78,23 +85,24 @@ export const UNITY_FX_TOUCH = Object.freeze(
       ],
       sizeKeys:
       [
-        [0, 0.3258358],
-        [0.2139282, 0.7159773],
-        [1, 1],
+        [0, 0.32583582, 2.4004734, 2.4004734],
+        [0.21392822, 0.7159773, 0.9115745, 0.9115745],
+        [1, 1, 0, 0],
       ],
-      // FX_TEX_Circle_01 的 RGB 会在 Shader 中再乘一次 R 通道。
+      // Circle_01 按 sRGB 导入；Shader 采样得到线性 R 后又乘一次 R，
+      // 因此这里保存 R_linear²，调用方开方即可恢复 Coverage 使用的 R_linear。
       textureRadialEnergyKeys:
       [
         [0, 1],
         [0.84, 1],
         [0.88, 1],
-        [0.885, 0.398631296],
-        [0.89, 0.203383314],
-        [0.895, 0.124567474],
-        [0.9, 0.077524029],
-        [0.905, 0.016747405],
-        [0.91, 0.003936947],
-        [0.915, 0.000384468],
+        [0.885, 0.127021063],
+        [0.89, 0.029392051],
+        [0.895, 0.010453372],
+        [0.9, 0.003970262],
+        [0.905, 0.000231299],
+        [0.91, 0.000026848],
+        [0.915, 0.000002303],
         [0.92, 0],
         [1, 0],
       ],
@@ -146,51 +154,11 @@ export const UNITY_FX_TOUCH = Object.freeze(
       ],
       arcSamples: 96,
       radialSamples: 8,
+      // Cylinder002 网格没有使用纹理边界，需保留导出的 float32 UV 范围。
+      textureUvMin: 0.0005000000237487257,
+      textureUvMax: 0.999500036239624,
       // 控制纹理 U 的朝向；可见区间不再重映射或人为固定端点。
       dissolveDirection: 1,
-      textureAlphaKeys:
-      [
-        // FX_TEX_Grad_Ring3 的 U 向中线 Alpha；原 Shader 对它执行二值 clip。
-        [0, 0.02745098],
-        [0.0625, 0.043137255],
-        [0.125, 0.117647059],
-        [0.1875, 0.223529412],
-        [0.25, 0.37254902],
-        [0.3125, 0.533333333],
-        [0.375, 0.721568627],
-        [0.4375, 0.890196078],
-        [0.5, 1],
-        [0.5625, 0.88627451],
-        [0.625, 0.717647059],
-        [0.6875, 0.537254902],
-        [0.75, 0.364705882],
-        [0.8125, 0.22745098],
-        [0.875, 0.109803922],
-        [0.9375, 0.035294118],
-        [1, 0.031372549],
-      ],
-      textureRadialAlphaKeys:
-      [
-        // 同一纹理 U=0.5 截面的 V 向 Alpha，除以中心 255 后归一化。
-        // 这组二维覆盖让环带中心比内外沿更亮，而不是一条均匀纯色描边。
-        [0, 0.890196078],
-        [0.0625, 0.898039216],
-        [0.125, 0.91372549],
-        [0.1875, 0.933333333],
-        [0.25, 0.952941176],
-        [0.3125, 0.964705882],
-        [0.375, 0.97254902],
-        [0.4375, 0.988235294],
-        [0.5, 1],
-        [0.5625, 0.988235294],
-        [0.625, 0.976470588],
-        [0.6875, 0.964705882],
-        [0.75, 0.952941176],
-        [0.8125, 0.933333333],
-        [0.875, 0.925490196],
-        [0.9375, 0.905882353],
-        [1, 0.882352941],
-      ],
     },
     shards:
     {
@@ -219,8 +187,9 @@ export const UNITY_FX_TOUCH = Object.freeze(
         [0.15445095, 1, 0, 0],
         [1, 0, -2.1621501, -2.1621501],
       ],
-      // FX_TEX_Triangle_02_1 是 2×1 图集；坐标来自两个 128×128 帧内
-      // 非透明三角形的边界，避免用偏大的等边三角形增加 Bloom 输入面积。
+      // FX_TEX_Triangle_02_1 是 2×1 图集；共享纹理保存左侧单帧，
+      // 右侧帧与左帧仅垂直翻转，由各后端在运行时还原。
+      // 这些实测边界仅供不支持纹理 Canvas 的兼容回退使用。
       textureFrames:
       [
         [
@@ -366,8 +335,12 @@ export const CONFIG = Object.freeze(
     inputSource: 'dom',
     clickTimeScale: 1,
     trailTimeScale: 1,
-    // 'enhanced' 使用线性能量编码，并由 bloomBackend 选择 Bloom 实现；
-    // 'legacy' 使用 sRGB 颜色 + shadowBlur（main 分支风格）。
+    // 默认保留 Unity Scene 合成；透明桌面宿主必须显式选择覆盖层输出。
+    outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
+    // 默认由纯 WebGL2 接管完整 Scene；能力不足时运行时安全回退 Canvas2D。
+    effectBackend: DEFAULT_EFFECT_BACKEND,
+    // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
+    // 替换为兼容性更高的 Canvas shadowBlur，并保留旧版拖尾合成风格。
     renderingMode: 'enhanced',
     // 默认使用 GPU Bloom；能力不足时依次回退软件 Bloom 与原生辉光。
     bloomBackend: DEFAULT_BLOOM_BACKEND,
@@ -380,6 +353,16 @@ export const CONFIG = Object.freeze(
     touchAction: 'auto',
   },
 );
+
+export function isEffectBackend(value)
+{
+  return EFFECT_BACKENDS.has(value);
+}
+
+export function normalizeEffectBackend(value, fallback = DEFAULT_EFFECT_BACKEND)
+{
+  return isEffectBackend(value) ? value : fallback;
+}
 
 export function isBloomBackend(value)
 {
@@ -394,6 +377,19 @@ export function normalizeBloomBackend(value, fallback = DEFAULT_BLOOM_BACKEND)
 export function isInputSource(value)
 {
   return INPUT_SOURCES.has(value);
+}
+
+export function isOutputCompositing(value)
+{
+  return OUTPUT_COMPOSITING_MODES.has(value);
+}
+
+export function normalizeOutputCompositing(
+  value,
+  fallback = DEFAULT_OUTPUT_COMPOSITING,
+)
+{
+  return isOutputCompositing(value) ? value : fallback;
 }
 
 export function normalizeTimeScale(value, fallback = 1)
@@ -422,6 +418,15 @@ export function createConfig(overrides = {})
   const inputSource = isInputSource(overrides.inputSource)
     ? overrides.inputSource
     : CONFIG.inputSource;
+  const compatibilityEffectBackend =
+    isBloomBackend(overrides.bloomBackend) ||
+    typeof overrides.softwareBloomEnabled === 'boolean'
+      ? 'canvas2d'
+      : CONFIG.effectBackend;
+  const effectBackend = normalizeEffectBackend(
+    overrides.effectBackend,
+    compatibilityEffectBackend,
+  );
   const clickTimeScale = normalizeTimeScale(
     overrides.clickTimeScale,
     CONFIG.clickTimeScale,
@@ -430,13 +435,19 @@ export function createConfig(overrides = {})
     overrides.trailTimeScale,
     CONFIG.trailTimeScale,
   );
+  const outputCompositing = normalizeOutputCompositing(
+    overrides.outputCompositing,
+    CONFIG.outputCompositing,
+  );
 
   return {
     ...CONFIG,
     ...overrides,
     inputSource,
+    effectBackend,
     clickTimeScale,
     trailTimeScale,
+    outputCompositing,
     bloomBackend,
     softwareBloomEnabled: bloomBackend !== 'native',
     isolatedCompositing: typeof overrides.isolatedCompositing === 'boolean'

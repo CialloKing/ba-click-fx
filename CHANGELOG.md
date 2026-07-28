@@ -1,12 +1,34 @@
 ﻿# Changelog
 
+## v1.2.14 — 完整 WebGL2 与统一线性场景输出
+
+- 将纯 WebGL2 从实验选项升级为正式第五种渲染模式，使用独立 `effectBackend`、`resolvedEffectBackend` 与 `baclickfxeffectbackendchange` 状态契约；不可用时安全回退 Canvas 2D 链
+- 默认完整特效后端与展示页模式改为纯 WebGL2；显式旧版 Bloom 参数继续选择 Canvas 2D 兼容路径，避免既有集成被默认值覆盖
+- 纯 WebGL2 接管圆盘、离散圆环、三角碎片、TrailRenderer 主体和 MXFinalBloom，并按 Unity 解包纹理、材质 Alpha、生命周期曲线及预乘输出校准透明覆盖率
+- 新增 `outputCompositing: 'scene' | 'transparent-overlay'`，分离 HDR 发光能量、几何 Coverage 与最终输出 Alpha，统一各后端的桌面透明叠加语义
+- WebGL2 Bloom 改为与纯 WebGL2 复用完整 Scene Renderer；原生辉光和 Legacy 接入 Canvas Final Pass，使清晰层、点击附加层、轨迹、辉光与背景使用一致的线性颜色及覆盖率规则
+- 新增 `setSceneBackground(source, { fit: 'cover' })`，支持将已解码栅格背景交给 WebGL2 Scene 和 Native / Legacy Final Pass；展示页同步自定义图片、CORS 回退与居中 cover 裁剪
+- 修复圆盘透明度饱和、Circle_01 边缘与生命周期衰减、圆环中心空洞、三角图集分段错位，以及多后端桌面过亮和颜色不一致
+- 最终合成或 WebGL Context 丢失时同步恢复稳定 Canvas 输出；Context 恢复后重新验证背景与全部目标，失败实例允许一次懒重建，不暴露空帧或残缺 Scene
+- 场景背景更新改为跨 Renderer 原子切换和逆序回滚；模式切换释放闲置全尺寸纹理与 FBO，同时保留 Program、静态纹理和背景源以降低恢复成本
+- 中英文 README、发布类型、展示页简介与 FAQ 同步五种模式、双后端状态事件、场景背景生命周期和纯白背景隔离合成说明
+
+## v1.2.13 — Unity 材质校准与多后端稳定性
+
+- 保持 v1.2.12 的稳定 Bloom 回退基线，不纳入已撤销的完整 WebGL2 与原生三尺度点击辉光实验
+- Legacy 点击按 Unity 解包资源校准光盘、圆环投影与绘制顺序，并使用原始 `Ring3` Alpha 精确栅格化完整环带及阴影
+- 原生辉光拖尾在单层局部模糊前执行 MXFinalBloom 高亮阈值提取，减少低能尾段的均匀光雾，同时保持点击光晕的中间视觉基线
+- TrailRenderer 保留 Unity 的圆角、端帽、弧长 Stretch 能量与横向纹理轮廓，并减少长轨迹的临时分配和无输出绘制
+- WebGL2 Bloom 完善尺寸分配失败后的状态清理、重试与资源释放，避免半分配资源和重复失败残留
+- 修复 IIFE 构建验证沙箱，并保留展示页快速人工检查入口与细粒度参数控制
+
 ## v1.2.12 — Bloom 回退与非 Bloom 优化
 
-- 软件 Bloom、WebGL2 Bloom、原生辉光和 Legacy 的 Bloom 参数与合成路径全部恢复到 v1.2.11 稳定实现，撤销实验性完整 WebGL2 后端及本轮共享 Bloom 管线改动
-- 保留 Unity `TrailRenderer` 的非 Bloom 几何优化：4 个圆角插入点、1 个端帽顶点、有限锐角 miter，以及沿弧长连续的 Stretch 能量与横向纹理采样
+- 软件 Bloom、WebGL2 Bloom、原生辉光和 Legacy 的 Bloom 参数及后端合成基线保持 v1.2.11 稳定实现，未纳入实验性完整 WebGL2 与共享 Bloom 管线改动
+- 保留 Unity `TrailRenderer` 的非 Bloom 几何：4 个圆角插入点、1 个端帽顶点、有限锐角 miter，以及按弧长在段中点采样的 Stretch 能量与横向纹理轮廓；每个 Canvas segment 和 cap 只提交一次路径与渐变，避免长轨迹卡顿，并约束短段 miter 防止自交
 - `pointerCancel()` 在多屏切换、暂停和异常恢复时立即移除当前轨迹；`pointerUp()` 继续让已有拖尾按 0.3 秒自然衰减
 - 圆环数量为 `0` 时按实际可见层生命周期停止 RAF，避免光盘结束后继续空转；数量和模糊参数允许显式设为 `0`
-- 展示页连续参数使用更细步进，寿命、数量和采样精度保留合理整数控制，并补齐 Hit/Flare 重置项
+- 展示页连续参数使用更细步进，小数 DPR 仅在提交时重建 Canvas 并按原精度恢复；寿命、数量和采样精度保留合理整数控制，并补齐 Hit/Flare 重置项
 - 常见问题继续提示纯白背景开启隔离合成；演示 GIF 改由 v1.2.12 Release 资产提供，并从全部可达 Git 历史中移除
 
 ## v1.2.11 — Unity 解包资源严格对齐

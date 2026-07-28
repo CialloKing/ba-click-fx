@@ -10,9 +10,9 @@
 
 **从 Blue Archive Unity UI/FX_Touch 逐参数移植的网页点击特效与光标拖尾动画库。**
 
-`ba-click-fx` 将游戏《蔚蓝档案》的 `FX_Touch.prefab` 中 ParticleSystem 和 TrailRenderer 的完整参数——颜色曲线、大小曲线、旋转速度、溶解阈值、HDR 强度、TrailRenderer 时间与宽度——逐项还原到 Web。清晰几何使用 **Canvas 2D**，Bloom 默认由 WebGL2 GPU 管线处理，能力不足时自动回退软件 Bloom 与原生辉光。零外部运行时依赖。
+`ba-click-fx` 将游戏《蔚蓝档案》的 `FX_Touch.prefab` 中 ParticleSystem 和 TrailRenderer 的完整参数——颜色曲线、大小曲线、旋转速度、溶解阈值、HDR 强度、TrailRenderer 时间与宽度——逐项还原到 Web。默认由 **纯 WebGL2** 接管完整 Scene、Coverage 与 MXFinalBloom；能力不足时自动回退 Canvas 2D、软件 Bloom 与原生辉光。零外部运行时依赖。
 
-A parameter-level port of the **Blue Archive** UI click effect and cursor trail from Unity to the web. **Canvas 2D** with WebGL2 Bloom by default and automatic fallbacks, zero external runtime dependencies.
+A parameter-level port of the **Blue Archive** UI click effect and cursor trail from Unity to the web. **Full WebGL2** by default, automatic Canvas 2D and Bloom fallbacks, and zero external runtime dependencies.
 
 **在线演示：** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
@@ -47,9 +47,9 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 - 从 Unity FX_Touch.prefab 逐参数移植，非"相似风格"模拟
 - 溶解圆环（MeshTri）、中心光盘（ring）、点击碎片（Ring 3/4）、拖尾轨迹（TrailRenderer）
 - 所有粒子参数锁定为游戏原始值：颜色渐变、大小曲线、旋转速度、溶解阈值、HDR 强度
-- Canvas 2D 清晰几何，无图片素材、无外部运行时依赖
-- 四种展示页渲染选择：WebGL2 Bloom（默认）、软件 Bloom、原生辉光、Legacy
-- 默认 WebGL2 GPU Bloom；不支持时自动回退软件 Bloom，再回退原生辉光
+- Canvas 2D 与纯 WebGL2 两套清晰几何路径，无外部运行时依赖
+- 五种展示页渲染选择：纯 WebGL2（默认）、WebGL2 Bloom、软件 Bloom、原生辉光、Legacy
+- 默认使用完整 WebGL2 Scene；不支持时自动回退 Canvas 2D、软件 Bloom，再回退原生辉光
 - 支持浏览器插件、npm、CDN、直接下载四种接入方式
 - 演示默认主题色 `#4ca7ff`，支持自定义 HSL hue 偏移
 - 可调参 API：运行时修改圆环 HDR、半径、宽度、寿命、碎片数量、拖尾宽度、Bloom 强度等
@@ -91,7 +91,7 @@ const fx = new BAClickFX();
 ### 3. CDN 引入
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.12/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.14/dist/ba-click-fx.iife.js"></script>
 <script>
   const fx = new BAClickFX.BAClickFX();
 </script>
@@ -144,12 +144,14 @@ new BAClickFX(options?: {
   target?: string | HTMLElement,   // 挂载目标，默认全屏
   scale?: number,                  // 全局缩放，默认 1
   opacity?: number,                // 不透明度 0~1，默认 1
+  outputCompositing?: 'scene' | 'transparent-overlay', // 输出合成，默认 scene
   clickEnabled?: boolean,         // 启用点击特效，默认 true
   trailEnabled?: boolean,         // 启用拖尾，默认 true
   trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
   inputSource?: 'dom' | 'manual', // 输入来源，默认 dom
   clickTimeScale?: number,        // 点击时间倍率，默认 1
   trailTimeScale?: number,        // 拖尾时间倍率，默认 1
+  effectBackend?: 'canvas2d' | 'webgl2' | 'auto', // 完整特效后端，默认 webgl2
   renderingMode?: 'enhanced' | 'legacy', // 渲染模式，默认 enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // Bloom 后端，默认 webgl2
   softwareBloomEnabled?: boolean, // 兼容旧 API：true 等同 software，false 等同 native
@@ -161,24 +163,27 @@ new BAClickFX(options?: {
 })
 ```
 
-增强模式下可通过 `bloomBackend` 选择 Bloom 后端；展示页将它与 Legacy 组合成四种直观选项：
+`effectBackend` 决定清晰几何与 Bloom 是否全部由 WebGL2 接管；Canvas 2D 路径再通过 `bloomBackend` 选择 Bloom 实现。展示页提供五种直观组合：
 
 | 展示页选项 | API 配置 | 说明 |
 |---|---|---|
-| WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 默认；GPU 执行游戏 MXFinalBloom，不可用时自动回退 |
-| 软件 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'software' }` | 参考/兼容实现，使用 Canvas 2D 像素回读和全视口 Float32 缓冲 |
-| 原生辉光 | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | 使用 Canvas 2D `shadowBlur`，开销较低但观感与后处理 Bloom 不同 |
-| Legacy | `{ renderingMode: 'legacy' }` | 保留旧版 sRGB、合成和辉光行为；此时忽略 Bloom 后端 |
+| 纯 WebGL2 | `{ effectBackend: 'webgl2', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 默认；完整 Scene、Coverage 与 MXFinalBloom 均在同一个 WebGL2 输出中完成；失败时回退 Canvas 2D 链 |
+| WebGL2 Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Canvas 生成清晰 Scene，GPU 执行游戏 MXFinalBloom 与最终输出 |
+| 软件 Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'software' }` | 参考/兼容实现，使用 Canvas 2D 像素回读和全视口 Float32 缓冲 |
+| 原生辉光 | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'native' }` | 使用 Canvas 2D `shadowBlur`，开销较低但观感与后处理 Bloom 不同 |
+| Legacy | `{ effectBackend: 'canvas2d', renderingMode: 'legacy' }` | 使用 Unity 材质能量和纹理轮廓，以 Canvas `shadowBlur` 提供兼容辉光；此时忽略 Bloom 后端 |
 
-展示页在四档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与 Software、WebGL2、Native 或 Legacy 渲染选择正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
+展示页在五档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与渲染后端正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
 
-`bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。默认值 `'webgl2'` 采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。若同时传入 `bloomBackend` 和旧字段 `softwareBloomEnabled`，以 `bloomBackend` 为准；旧字段仍保持 `true` 等价于 `'software'`、`false` 等价于 `'native'`。
+`bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。默认值 `'webgl2'` 采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。为兼容 1.2.13 及更早版本，构造参数或 `createConfig()` 只要显式提供 `bloomBackend` / `softwareBloomEnabled` 而未提供 `effectBackend`，就继续选择 Canvas 2D 完整特效路径；显式 `effectBackend` 始终优先。若同时传入 `bloomBackend` 和旧字段 `softwareBloomEnabled`，以 `bloomBackend` 为准；旧字段仍保持 `true` 等价于 `'software'`、`false` 等价于 `'native'`。
 
-`isolatedCompositing` 默认是 `false`，各 Canvas 直接挂载到目标容器或页面，与 Unity 的直接加色路径一致。设为 `true` 后，库拥有的主特效层、WebGL2 Bloom 层和浅色背景兼容层会先在透明隔离组内混合，再将整个组覆盖到页面上，避免 `plus-lighter` 直接与纯白背景相加后把蓝青色钳制成白色。隔离合成是非游戏的网页白底兼容选项，可通过 `updateConfig()` 在运行时切换。
+`outputCompositing: 'scene'` 保持面向普通网页和游戏场景的既有输出。`'transparent-overlay'` 面向 WebView2、Electron 等透明桌面窗口：HDR RGB 继续驱动 Bloom，最终 Alpha 则由几何 Coverage、生命周期 Alpha 与 `opacity` 决定，避免高 HDR 圆盘把桌面完全遮住。该选项不改变 Bloom 阈值或发射强度。
 
-WebGL2 Bloom 和隔离合成都需要库拥有 DOM 覆盖层。若 `target` 是一个已有的 `<canvas>`，库无法安全插入额外的 WebGL2、对比或隔离层，因此 `'webgl2'` / `'auto'` 会自动回退到软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回的是降级后的实际配置。默认全屏覆盖层不受此限制。普通容器也可以使用，但容器必须自行建立定位上下文（通常设置 `position: relative`），库不会静默修改宿主样式。
+`isolatedCompositing` 默认是 `false`，各 Canvas 直接挂载到目标容器或页面。设为 `true` 后，库拥有的主特效层、WebGL2 层和浅色背景兼容层会先在透明隔离组内解析，再将整个组覆盖到页面上，避免浏览器分别把兼容层与纯白页面合成后丢失蓝青色对比。各渲染器内部已经完成 Unity 加色并输出预乘 Alpha，外层不再使用会二次增亮的 CSS `plus-lighter`。隔离合成是非游戏的网页白底兼容选项，可通过 `updateConfig()` 在运行时切换。
 
-隔离根按 `BAClickFX` 实例独立创建和销毁。同一页面的多个隔离实例不会跨根执行 `plus-lighter`；一个实例切换模式或销毁也不会移动、删除其他实例的 Canvas。
+纯 WebGL2、WebGL2 Bloom、场景背景 Final Pass 和隔离合成都需要库拥有 DOM 覆盖层。若 `target` 是一个已有的 `<canvas>`，库无法安全插入额外的 WebGL2、对比或隔离层，因此完整特效的 `'webgl2'` / `'auto'` 会回退 `canvas2d`，Bloom 的 `'webgl2'` / `'auto'` 会回退软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回降级后的实际配置。默认全屏覆盖层不受此限制。普通容器也可以使用，但容器必须自行建立定位上下文（通常设置 `position: relative`），库不会静默修改宿主样式。
+
+隔离根按 `BAClickFX` 实例独立创建和销毁。同一页面的多个隔离实例不会跨根混合内部兼容层；一个实例切换模式或销毁也不会移动、删除其他实例的 Canvas。
 
 纯白背景需要额外对比度时，可显式启用两项网页兼容选项：
 
@@ -189,6 +194,25 @@ const fx = new BAClickFX(
   lightBackgroundContrastAlpha: 0.35,
 });
 ```
+
+### 场景背景与线性合成
+
+`setSceneBackground()` 可把特效下方的真实不透明栅格场景交给渲染器。纯 WebGL2 和 WebGL2 Bloom 会在同一线性 HDR Scene 中合成背景、Coverage、清晰特效与 Bloom；提供背景时，原生辉光和 Legacy 通过 Canvas Final Pass 使用同一背景和覆盖率语义，避免不同模式在桌面亮度与透明度上产生分歧。软件 Bloom 仍使用普通 DOM 背景路径。
+
+```js
+const image = new Image();
+image.crossOrigin = 'anonymous';
+image.src = 'https://example.com/background.jpg';
+await image.decode();
+
+fx.setSceneBackground(image, { fit: 'cover' });
+// 恢复普通透明 DOM 背景，并释放仅供 Canvas Final Pass 使用的全尺寸帧资源。
+fx.setSceneBackground(null);
+```
+
+当前只支持居中 `cover`，裁剪规则与 CSS `background-size: cover` 对齐。调用方负责图片解码和 CORS：跨域服务器必须允许匿名读取，否则 WebGL 无法上传纹理，方法会返回 `false` 或候选后端保持安全回退。Renderer 会保留源对象以支持 WebGL Context 恢复，因此在替换背景或销毁实例前不要关闭 `ImageBitmap`、`VideoFrame` 等可释放源。Canvas、Video 等动态源在调用时上传当前帧；内容变化后应再次调用。
+
+模式切换会释放闲置后端的全尺寸纹理和 FBO，但保留 WebGL Context、Program、静态纹理与已接受的背景源；重新启用时只重建当前尺寸需要的帧资源。背景切换是跨 Renderer 的原子操作：任一已创建后端拒绝新源时，库会回滚到旧背景，无法回滚的候选实例会被丢弃并在需要时懒重建。
 
 ### 宿主输入与指针生命周期
 
@@ -267,25 +291,36 @@ fx.setPaused(false);
 | `pointerUp(pointerId?)` | 正常结束指针，已有拖尾自然消失 |
 | `pointerCancel(pointerId?)` | 强制取消指针并立即移除当前轨迹 |
 | `setPaused(paused, options?)` | 暂停或恢复输入与动画调度，可选在暂停时清屏 |
+| `setSceneBackground(source, { fit: 'cover' })` | 设置各渲染后端共享的真实栅格场景；传入 `null` 恢复透明 DOM 背景 |
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 仅清除拖尾和碎片 |
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |
-| `updateConfig({...})` | 运行时更新基础配置、输入来源、时间倍率、Bloom 后端、DPR 与触摸行为 |
+| `updateConfig({...})` | 运行时更新基础配置、输入来源、时间倍率、完整特效/Bloom 后端、DPR 与触摸行为 |
 | `setThemeColor('#4ca7ff')` | 设置主题色；展示页默认使用该游戏蓝 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 点号路径修改任意特效参数 |
 | `getFxConfig()` | 返回当前完整特效配置深拷贝 |
 | `resetFxConfig()` | 重置所有特效参数为游戏默认值 |
-| `getConfig()` | 返回当前实例配置；`resolvedBloomBackend` 表示最近一次解析结果，WebGL2/auto 首次延迟探测前为 `pending` |
+| `getConfig()` | 返回当前实例配置；`resolvedEffectBackend` 与 `resolvedBloomBackend` 分别表示完整特效和 Bloom 的最近一次解析结果 |
 
-后端解析状态发生变化时，主 Canvas 会派发 `baclickfxbackendchange`。可使用导出的事件名持续同步延迟探测、运行时回退和 WebGL Context 恢复：
+后端解析状态发生变化时，主 Canvas 会分别派发 `baclickfxeffectbackendchange` 和 `baclickfxbackendchange`。可使用导出的事件名持续同步延迟探测、运行时回退和 WebGL Context 恢复：
 
 ```js
 import {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
+  EFFECT_BACKEND_CHANGE_EVENT,
 } from 'ba-click-fx';
 
-const fx = new BAClickFX({ bloomBackend: 'webgl2' });
+const fx = new BAClickFX(
+{
+  effectBackend: 'webgl2',
+  bloomBackend: 'webgl2',
+});
+
+fx.canvas.addEventListener(EFFECT_BACKEND_CHANGE_EVENT, (event) =>
+{
+  console.log(event.detail.resolvedEffectBackend);
+});
 
 fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 {
@@ -370,9 +405,9 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 
 ### Bloom 渲染后端
 
-WebGL2 与软件 Bloom 共用同一组 HDR 发射参数和 Bloom 配置。WebGL2 分支在透明 GPU 帧缓冲中绘制圆环、光盘、拖尾与碎片发射，再按游戏 `Hidden/MXFinalBloom` 的 4-tap 预过滤、Box4 mip、累积式上采样和强度换算输出；清晰几何与浅色背景兼容轮廓仍由 Canvas 2D 绘制。
+纯 WebGL2 与 WebGL2 Bloom 共用 `WebGL2EffectRenderer`、HDR 发射参数和 Bloom 配置。纯 WebGL2 直接在 GPU 中构建圆环、光盘、拖尾与碎片 Scene；WebGL2 Bloom 则上传 Canvas 生成的线性 Scene。两者随后都按游戏 `Hidden/MXFinalBloom` 的 4-tap 预过滤、Box4 mip、累积式上采样和强度换算，在一次 Final Pass 中输出清晰层、Coverage 与 Bloom。
 
-可用性由运行时实际创建 WebGL2 上下文、检查 `EXT_color_buffer_float` 并验证 `RGBA16F` 帧缓冲决定。请求后端与最近一次解析结果可分别通过 `getConfig().bloomBackend` 和 `getConfig().resolvedBloomBackend` 查看；WebGL2/auto 在首次延迟探测或 Context 恢复验证前会短暂返回 `pending`。
+可用性由运行时实际创建 WebGL2 上下文、检查 `EXT_color_buffer_float` 并验证 `RGBA16F` 帧缓冲决定。完整特效使用 `effectBackend` / `resolvedEffectBackend`，Bloom 使用 `bloomBackend` / `resolvedBloomBackend`；`auto` 在首次延迟探测或 Context 恢复验证前会短暂返回 `pending`。Context 丢失时当前可见输出立即回退 Canvas，恢复后只有完整资源链验证成功才重新接管。
 
 ### JavaScript 软件 Bloom
 
@@ -384,7 +419,7 @@ WebGL2 与软件 Bloom 共用同一组 HDR 发射参数和 Bloom 配置。WebGL2
 4. 从最低分辨率 mip 开始，以 SampleScale 四点采样累加回每个细层。
 5. 按游戏公式换算 `bloom.intensity`，再执行最终四点采样与 sRGB 加色合成。
 
-默认的 `isolatedCompositing: false` 让主层直接以 `plus-lighter` 与 DOM 背景混合，保持 Unity 的严格加色语义；在纯白背景上，加色结果必然失去颜色和对比度。设为 `true` 后，主层、WebGL2 Bloom 层和兼容层会先在透明组内合成，再将带颜色与 Alpha 的结果覆盖到页面。这不会改变 Bloom 算法，只是用于纯白网页背景的非游戏兼容路径。
+默认的 `isolatedCompositing: false` 让输出层直接与 DOM 背景合成；在纯白背景上，Unity 加色结果必然失去颜色和对比度。设为 `true` 后，各输出层会先在透明组内合成，再将带颜色与 Alpha 的结果覆盖到页面。这不会改变 Bloom 算法，只是用于纯白网页背景的非游戏兼容路径。需要按游戏方式让背景参与线性 Scene 计算时，应使用 `setSceneBackground()`，而不是把隔离合成当作背景采样替代品。
 
 `lightBackgroundContrastAlpha` 默认是 `0`，因此不会创建游戏资源之外的可见轮廓。设为 `0.35` 时，库拥有的覆盖层会在主特效层上方增加独立的 `darken` 淡青色遮罩；它不接收或产生 Bloom，只用于提升纯白背景上的清晰轮廓。该层与隔离合成都属于非游戏网页兼容选项。直接传入已有 Canvas 时既无法插入这层独立背景合成层，也会强制关闭隔离合成。
 
@@ -421,14 +456,15 @@ ba-click-fx/
 │   ├── main.js           # 演示页面入口 + 控制面板 UI
 │   ├── config.js         # Unity FX_Touch 粒子参数只读快照
 │   ├── software-bloom.js # MXFinalBloom Float32 mip 与加色合成
-│   ├── webgl2-bloom.js   # WebGL2 HDR 发射与 MXFinalBloom 合成
-│   ├── utils.js          # 纯数学工具
+│   ├── webgl2-effect.js  # 纯 WebGL2 / WebGL2 Bloom 共享 Scene 与 Final Pass
+│   ├── webgl2-canvas-scene.js # Native / Legacy 的 Canvas Scene Final Pass
+│   ├── webgl2-bloom.js   # WebGL2 Bloom 参考实现与回归基线
 │   └── style.css         # 演示页样式
 ├── scripts/
 │   ├── build.mjs         # 构建脚本
 │   └── verify-*.mjs/cjs  # 发布校验脚本
 ├── test/
-│   └── smoke.js          # 48 项移植验证测试
+│   └── smoke.js          # 移植、后端状态与生命周期验证
 ├── index.html            # 演示页面
 ├── dist/                 # 构建输出
 │   ├── ba-click-fx.js    # ESM 库
@@ -440,10 +476,13 @@ ba-click-fx/
 ### 架构特点
 
 - **隔离合成层**：默认关闭；可显式启用透明隔离组，改善非游戏纯白网页背景上的颜色保留
-- **主特效层**：内部特效通过 `lighter` 合成，主 Canvas 使用 `plus-lighter`；其混合背景由 `isolatedCompositing` 决定
+- **纯 WebGL2 Scene**：完整几何、Coverage、背景与 MXFinalBloom 在一个 HDR 管线中完成并一次输出
+- **Canvas Scene Final Pass**：WebGL2 Bloom、原生辉光和 Legacy 复用 Canvas 生成的线性 Scene；提供场景背景时统一执行背景衰减与颜色编码
+- **主特效层**：Canvas 路径内部以 `lighter` 累积发射能量，最终覆盖层使用预乘 Alpha 输出，避免 CSS 二次加亮
 - **浅色背景兼容层**：默认强度为 0；可显式设为 0.35，使用不参与 Bloom 的 `darken` Canvas 提升纯白背景可见性
 - **软件 Bloom**：全视口工作画布 + Float32 MXFinalBloom 金字塔；像素读回不可用时回退 `shadowBlur`
-- **WebGL2 Bloom**：默认透明 GPU 覆盖层执行游戏 MXFinalBloom；能力不足时沿回退链降级
+- **WebGL2 Bloom**：Canvas 兼容路径可用 GPU 执行游戏 MXFinalBloom，并与清晰 Scene 在同一 Final Pass 输出；能力不足时沿回退链降级
+- **资源生命周期**：Context 丢失立即回退，恢复后按需重建；模式切换释放全尺寸帧目标但保留可复用静态 GPU 资源
 - **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`
 - **零外部依赖**：仅使用浏览器原生 Canvas 2D / WebGL2 API，不引入第三方运行时
 

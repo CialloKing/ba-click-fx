@@ -10,7 +10,7 @@
 
 **A parameter-level port of the Blue Archive Unity UI/FX_Touch click effect and cursor trail for the web.**
 
-`ba-click-fx` faithfully reproduces the ParticleSystem and TrailRenderer from the game's `FX_Touch.prefab` — colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity, and TrailRenderer timing/width. Crisp geometry uses **Canvas 2D**; Bloom defaults to the WebGL2 GPU pipeline and automatically falls back to Software Bloom and Native Glow. Zero external runtime dependencies.
+`ba-click-fx` faithfully reproduces the ParticleSystem and TrailRenderer from the game's `FX_Touch.prefab` — colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity, and TrailRenderer timing/width. **Full WebGL2** owns the complete Scene, Coverage, and MXFinalBloom output by default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow. Zero external runtime dependencies.
 
 **Live Demo:** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
@@ -45,9 +45,9 @@
 - Parameter-level port from the Unity FX_Touch.prefab — not a "lookalike"
 - Dissolve rings (MeshTri), centre disk (ring), click shards (Ring 3/4), drag trail (TrailRenderer)
 - All particle parameters locked to the game's original values: colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity
-- Canvas 2D crisp geometry — no image assets and zero external runtime dependencies
-- Four demo rendering choices: WebGL2 Bloom (default), Software Bloom, Native Glow, and Legacy
-- WebGL2 GPU Bloom by default, with automatic fallback to Software Bloom and then Native Glow
+- Canvas 2D and Full WebGL2 crisp-geometry paths, with zero external runtime dependencies
+- Five demo rendering choices: Full WebGL2 (default), WebGL2 Bloom, Software Bloom, Native Glow, and Legacy
+- Full WebGL2 Scene by default, with automatic fallback to Canvas 2D, Software Bloom, and then Native Glow
 - Browser extension, npm, CDN, and direct download
 - Demo theme defaults to `#4ca7ff`, with custom HSL hue shifting
 - Runtime-tweakable FX parameters via `setFxParam()`
@@ -83,7 +83,7 @@ const fx = new BAClickFX();
 ### 3. CDN
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.12/dist/ba-click-fx.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.14/dist/ba-click-fx.iife.js"></script>
 <script>
   const fx = new BAClickFX.BAClickFX();
 </script>
@@ -124,12 +124,14 @@ new BAClickFX(options?: {
   target?: string | HTMLElement,
   scale?: number,                // default 1
   opacity?: number,              // default 1
+  outputCompositing?: 'scene' | 'transparent-overlay', // default scene
   clickEnabled?: boolean,        // default true
   trailEnabled?: boolean,        // default true
   trailAlways?: boolean,         // default false
   inputSource?: 'dom' | 'manual', // default dom
   clickTimeScale?: number,       // default 1
   trailTimeScale?: number,       // default 1
+  effectBackend?: 'canvas2d' | 'webgl2' | 'auto', // default webgl2
   renderingMode?: 'enhanced' | 'legacy', // default enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // default webgl2
   softwareBloomEnabled?: boolean, // compatibility alias: true = software, false = native
@@ -141,24 +143,27 @@ new BAClickFX(options?: {
 })
 ```
 
-In enhanced mode, `bloomBackend` selects the Bloom implementation. The demo combines these backends with Legacy into four direct choices:
+`effectBackend` decides whether WebGL2 owns the complete crisp scene and Bloom. The Canvas 2D path then uses `bloomBackend` to select its Bloom implementation. The demo exposes five direct combinations:
 
 | Demo choice | API configuration | Behaviour |
 |---|---|---|
-| WebGL2 Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Default; runs the game's MXFinalBloom passes on the GPU and falls back automatically when unavailable |
-| Software Bloom | `{ renderingMode: 'enhanced', bloomBackend: 'software' }` | Reference/compatibility implementation using Canvas 2D pixel readback and full-viewport Float32 buffers |
-| Native Glow | `{ renderingMode: 'enhanced', bloomBackend: 'native' }` | Uses Canvas 2D `shadowBlur`; cheaper, but visually different from post-process Bloom |
-| Legacy | `{ renderingMode: 'legacy' }` | Preserves the older sRGB, compositing, and glow behaviour; the Bloom backend is ignored |
+| Full WebGL2 | `{ effectBackend: 'webgl2', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Default; builds the complete Scene, Coverage, and MXFinalBloom output in WebGL2; falls back to the Canvas 2D chain on failure |
+| WebGL2 Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Canvas builds the crisp Scene and the GPU performs MXFinalBloom plus final output |
+| Software Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'software' }` | Reference/compatibility implementation using Canvas 2D pixel readback and full-viewport Float32 buffers |
+| Native Glow | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'native' }` | Uses Canvas 2D `shadowBlur`; cheaper, but visually different from post-process Bloom |
+| Legacy | `{ effectBackend: 'canvas2d', renderingMode: 'legacy' }` | Uses Unity material energy and texture profiles with Canvas `shadowBlur` compatibility glow; WebGL backend requests are ignored |
 
-The demo exposes Isolated Compositing as a separate switch beside the four rendering choices. It is disabled by default and is orthogonal to Software, WebGL2, Native, and Legacy rendering: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
+The demo exposes Isolated Compositing as a separate switch beside the five rendering choices. It is disabled by default and orthogonal to the rendering backend: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
 
-`bloomBackend: 'auto'` tries WebGL2 first, then Software Bloom, then Native Glow. The default `'webgl2'` uses the same fallback chain; explicit `'software'` falls back to Native Glow when pixel readback is unavailable. If both `bloomBackend` and the old `softwareBloomEnabled` field are provided, `bloomBackend` wins. The compatibility field still maps `true` to `'software'` and `false` to `'native'`.
+`bloomBackend: 'auto'` tries WebGL2 first, then Software Bloom, then Native Glow. The default `'webgl2'` uses the same fallback chain; explicit `'software'` falls back to Native Glow when pixel readback is unavailable. For compatibility with 1.2.13 and earlier, constructor options or `createConfig()` that explicitly provide `bloomBackend` / `softwareBloomEnabled` without `effectBackend` continue to select the Canvas 2D full-effect path; an explicit `effectBackend` always wins. If both `bloomBackend` and the old `softwareBloomEnabled` field are provided, `bloomBackend` wins. The compatibility field still maps `true` to `'software'` and `false` to `'native'`.
 
-`isolatedCompositing` defaults to `false`, so canvases mount directly into the target or page and follow Unity's direct additive path. With `true`, the library-owned main FX canvas, WebGL2 Bloom canvas, and light-background compatibility canvas blend inside one transparent isolated group before that group is composited over the page. This prevents `plus-lighter` from clipping cyan-blue output to white against a pure-white page. Isolated compositing is a non-game web compatibility option and can be changed at runtime through `updateConfig()`.
+`outputCompositing: 'scene'` preserves the existing output for regular web and game scenes. `'transparent-overlay'` targets transparent desktop windows such as WebView2 and Electron: HDR RGB still drives Bloom, while final alpha comes from geometry Coverage, lifetime alpha, and `opacity`, preventing a high-HDR centre disk from fully occluding the desktop. It does not alter Bloom thresholds or emission strength.
 
-WebGL2 Bloom and isolated compositing both require a library-owned DOM overlay. When `target` is an existing `<canvas>`, the library cannot safely insert the extra WebGL2, contrast, or isolation layers, so `'webgl2'` / `'auto'` falls back to Software Bloom and `isolatedCompositing` is forced to `false`; `getConfig()` reports this effective value. The default fullscreen overlay has no such limitation. A regular container is also supported, but it must establish its own positioning context, normally with `position: relative`; the library does not silently modify host styles.
+`isolatedCompositing` defaults to `false`, so canvases mount directly into the target or page. With `true`, the library-owned main FX canvas, WebGL2 canvases, and light-background compatibility canvas resolve inside one transparent isolated group before that group is composited over the page. This prevents the browser from resolving compatibility layers independently against pure white and losing cyan-blue contrast. Each renderer already performs Unity's additive work internally and emits premultiplied alpha, so the outer layer no longer uses CSS `plus-lighter`, which would brighten the result a second time. Isolated compositing is a non-game web compatibility option and can be changed at runtime through `updateConfig()`.
 
-Each `BAClickFX` instance owns a separate isolation group. Multiple isolated instances on the same page do not run `plus-lighter` across group boundaries, and switching or destroying one instance does not move or remove another instance's canvases.
+Full WebGL2, WebGL2 Bloom, scene-background Final Passes, and isolated compositing require a library-owned DOM overlay. When `target` is an existing `<canvas>`, the library cannot safely insert the extra WebGL2, contrast, or isolation layers: Full Effect `'webgl2'` / `'auto'` falls back to `canvas2d`, Bloom `'webgl2'` / `'auto'` falls back to Software Bloom, and `isolatedCompositing` is forced to `false`. `getConfig()` reports these effective values. The default fullscreen overlay has no such limitation. A regular container is also supported, but it must establish its own positioning context, normally with `position: relative`; the library does not silently modify host styles.
+
+Each `BAClickFX` instance owns a separate isolation group. Multiple isolated instances on the same page do not mix their internal compatibility layers across group boundaries, and switching or destroying one instance does not move or remove another instance's canvases.
 
 For extra contrast on a pure-white page, explicitly enable both web compatibility options:
 
@@ -169,6 +174,25 @@ const fx = new BAClickFX(
   lightBackgroundContrastAlpha: 0.35,
 });
 ```
+
+### Scene Background and Linear Compositing
+
+`setSceneBackground()` supplies the renderer with the real opaque raster scene underneath the effect. Full WebGL2 and WebGL2 Bloom composite the background, Coverage, crisp effect, and Bloom in one linear HDR Scene. When a background is supplied, Native Glow and Legacy use the same background and coverage semantics through a Canvas Final Pass, preventing desktop brightness and opacity from diverging between those modes. Software Bloom continues to use the normal DOM-background path.
+
+```js
+const image = new Image();
+image.crossOrigin = 'anonymous';
+image.src = 'https://example.com/background.jpg';
+await image.decode();
+
+fx.setSceneBackground(image, { fit: 'cover' });
+// Restore the transparent DOM background and release Canvas Final Pass targets.
+fx.setSceneBackground(null);
+```
+
+Only centred `cover` is currently supported, matching CSS `background-size: cover` cropping. The caller owns decoding and CORS: a cross-origin server must allow anonymous reads or WebGL cannot upload the texture, in which case the method returns `false` or a deferred backend remains on its safe fallback. The Renderer retains the source object for WebGL context recovery, so do not close releasable sources such as `ImageBitmap` or `VideoFrame` before replacing the background or destroying the instance. Canvas and video sources upload their current frame at call time; call the method again after their content changes.
+
+Backend and mode changes release idle viewport-sized textures and FBOs while retaining the WebGL context, programs, static textures, and accepted background source. Re-enabling a backend rebuilds only the frame resources needed at the current size. Background replacement is atomic across existing Renderers: if one rejects the new source, accepted Renderers roll back to the old background; a candidate that cannot roll back is discarded and rebuilt lazily when needed.
 
 ### Host Input and Pointer Lifecycle
 
@@ -247,25 +271,36 @@ Pausing cancels the active pointer, ignores `boom()` and every automatic or manu
 | `pointerUp(pointerId?)` | End the pointer normally and let its trail decay |
 | `pointerCancel(pointerId?)` | Force-cancel the pointer and remove its current trail immediately |
 | `setPaused(paused, options?)` | Pause or resume input and animation scheduling, optionally clearing on pause |
+| `setSceneBackground(source, { fit: 'cover' })` | Share a real raster scene across rendering backends; pass `null` to restore the transparent DOM background |
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
 | `destroy()` | Destroy instance, remove listeners and canvas |
-| `updateConfig({...})` | Update base config, input source, time scales, Bloom backend, DPR, and touch behaviour at runtime |
+| `updateConfig({...})` | Update base config, input source, time scales, Full Effect/Bloom backends, DPR, and touch behaviour at runtime |
 | `setThemeColor('#4ca7ff')` | Set the theme colour; this game blue is the demo default |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify any FX parameter by dot-path |
 | `getFxConfig()` | Deep copy of current FX configuration |
 | `resetFxConfig()` | Reset all FX parameters to game defaults |
-| `getConfig()` | Current config; `resolvedBloomBackend` reports the latest resolution result and is `pending` before the first deferred WebGL2/auto probe |
+| `getConfig()` | Current config; `resolvedEffectBackend` and `resolvedBloomBackend` report the latest Full Effect and Bloom resolution results |
 
-The main canvas dispatches `baclickfxbackendchange` whenever backend resolution state changes. Use the exported event name to track deferred probing, runtime fallback, and WebGL context recovery:
+The main canvas dispatches `baclickfxeffectbackendchange` and `baclickfxbackendchange` when the Full Effect and Bloom resolution states change. Use the exported event names to track deferred probing, runtime fallback, and WebGL context recovery:
 
 ```js
 import {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
+  EFFECT_BACKEND_CHANGE_EVENT,
 } from 'ba-click-fx';
 
-const fx = new BAClickFX({ bloomBackend: 'webgl2' });
+const fx = new BAClickFX(
+{
+  effectBackend: 'webgl2',
+  bloomBackend: 'webgl2',
+});
+
+fx.canvas.addEventListener(EFFECT_BACKEND_CHANGE_EVENT, (event) =>
+{
+  console.log(event.detail.resolvedEffectBackend);
+});
 
 fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 {
@@ -350,9 +385,9 @@ Shards scatter along the trail at distance intervals.
 
 ### Bloom Rendering Backends
 
-WebGL2 and Software Bloom share the same HDR emission parameters and Bloom settings. The WebGL2 branch draws ring, disk, trail, and shard emission into transparent GPU framebuffers, then follows the game's `Hidden/MXFinalBloom` path: four-tap prefiltering, Box4 mips, cumulative upsampling, and the original intensity conversion.
+Full WebGL2 and WebGL2 Bloom share `WebGL2EffectRenderer`, HDR emission parameters, and Bloom settings. Full WebGL2 builds ring, disk, trail, and shard geometry directly on the GPU; WebGL2 Bloom uploads the linear Scene built by Canvas. Both then follow the game's `Hidden/MXFinalBloom` path — four-tap prefiltering, Box4 mips, cumulative upsampling, and the original intensity conversion — and output the crisp Scene, Coverage, and Bloom in one Final Pass.
 
-Availability is determined by actually creating a WebGL2 context, checking `EXT_color_buffer_float`, and validating the `RGBA16F` framebuffer. Read the requested backend and latest resolution result through `getConfig().bloomBackend` and `getConfig().resolvedBloomBackend` respectively. WebGL2/auto briefly reports `pending` before the first deferred probe and while a restored context is being validated.
+Availability is determined by actually creating a WebGL2 context, checking `EXT_color_buffer_float`, and validating the `RGBA16F` framebuffer. Full Effect state uses `effectBackend` / `resolvedEffectBackend`, while Bloom uses `bloomBackend` / `resolvedBloomBackend`; `auto` briefly reports `pending` before the first deferred probe and while a restored context is being validated. A visible context loss falls back to Canvas immediately and WebGL takes ownership again only after the complete restored resource chain succeeds.
 
 ### JavaScript Software Bloom
 
@@ -364,7 +399,7 @@ When `bloomBackend: 'software'` is selected explicitly or WebGL2 is unavailable,
 4. Accumulate from the coarsest mip upward with SampleScale four-tap sampling.
 5. Apply the game's intensity conversion, final four-tap sampling, and additive sRGB composite.
 
-The default `isolatedCompositing: false` blends the main layer directly against the DOM background with `plus-lighter`, preserving Unity's strict additive semantics; additive output necessarily loses colour and contrast on pure white. With `true`, the main layer, WebGL2 Bloom layer, and compatibility layer first resolve inside a transparent group, then composite their coloured result and alpha over the page. This does not change the Bloom algorithm and exists only as a non-game compatibility path for pure-white web backgrounds.
+The default `isolatedCompositing: false` composites output layers directly against the DOM background; Unity's additive output necessarily loses colour and contrast on pure white. With `true`, the output layers first resolve inside a transparent group, then composite their coloured result and alpha over the page. This does not change the Bloom algorithm and exists only as a non-game compatibility path for pure-white web backgrounds. Use `setSceneBackground()` when the background must participate in the same linear Scene as it does in the game; isolation is not a substitute for background sampling.
 
 `lightBackgroundContrastAlpha` defaults to `0`, so no visible silhouette outside the game resource is added. Setting it to `0.35` gives a library-owned overlay an independent pale-cyan `darken` mask above the main FX layer. The mask neither receives nor generates Bloom and exists only to recover a crisp silhouette on pure white. It and isolated compositing are both non-game web compatibility options. An existing Canvas supplied as the target can receive neither this separate backdrop-compositing layer nor isolated compositing.
 
@@ -401,14 +436,15 @@ ba-click-fx/
 │   ├── main.js           # Demo page + control panel UI
 │   ├── config.js         # Unity FX_Touch parameter snapshot
 │   ├── software-bloom.js # MXFinalBloom Float32 mips and additive composite
-│   ├── webgl2-bloom.js   # WebGL2 HDR emission and MXFinalBloom composite
-│   ├── utils.js          # Pure math utilities
+│   ├── webgl2-effect.js  # Shared Full WebGL2 / WebGL2 Bloom Scene and Final Pass
+│   ├── webgl2-canvas-scene.js # Canvas Scene Final Pass for Native / Legacy
+│   ├── webgl2-bloom.js   # WebGL2 Bloom reference and regression baseline
 │   └── style.css         # Demo page styles
 ├── scripts/
 │   ├── build.mjs         # Build script
 │   └── verify-*.mjs/cjs  # Release verification
 ├── test/
-│   └── smoke.js          # 48 port-verification tests
+│   └── smoke.js          # Port, backend-state, and lifecycle verification
 ├── index.html            # Demo page
 ├── dist/                 # Build output (ESM / CJS / IIFE)
 └── package.json
@@ -417,10 +453,13 @@ ba-click-fx/
 ### Architecture
 
 - **Isolated compositing layer:** disabled by default; enable the transparent isolated group explicitly to preserve colour on non-game pure-white web backgrounds.
-- **Main FX layer:** effects use `lighter` internally and the main canvas uses `plus-lighter`; `isolatedCompositing` selects its backdrop.
+- **Full WebGL2 Scene:** complete geometry, Coverage, background, and MXFinalBloom resolve through one HDR pipeline and one output pass.
+- **Canvas Scene Final Pass:** WebGL2 Bloom, Native Glow, and Legacy reuse a Canvas-built linear Scene; with a supplied background they share background attenuation and colour encoding.
+- **Main FX layer:** Canvas paths accumulate emission with `lighter` internally and use premultiplied-alpha overlay output to avoid a second CSS brightness increase.
 - **Light-background compatibility layer:** defaults to zero strength; set it explicitly to 0.35 to add a non-Bloom `darken` canvas for visibility on pure white.
 - **Software Bloom:** full-viewport working canvases plus a Float32 MXFinalBloom pyramid, with a `shadowBlur` fallback when pixel readback is unavailable.
-- **WebGL2 Bloom:** the default transparent GPU overlay performs the game's MXFinalBloom passes and falls back when capabilities are insufficient.
+- **WebGL2 Bloom:** the Canvas compatibility path can run the game's MXFinalBloom on the GPU and output it with the crisp Scene in one Final Pass, falling back when capabilities are insufficient.
+- **Resource lifecycle:** context loss falls back immediately and restores lazily; mode changes release full-size frame targets while retaining reusable static GPU resources.
 - **On-demand rendering:** `requestAnimationFrame` stops when no effects are active.
 - **Zero external dependencies:** browser-native Canvas 2D / WebGL2 APIs only; no third-party runtime.
 
