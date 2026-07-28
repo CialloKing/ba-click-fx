@@ -4624,8 +4624,9 @@ export class BAClickFX
     // 内部 Canvas 仅承担发射遮罩和 ImageData 暂存，不会插入 DOM。
     this.bloomRenderer = new SoftwareBloomRenderer(() => createCanvas());
     this.bloomRenderers = [this.bloomRenderer];
-    // 第一阶段只恢复后端契约；Scene 接入前必须诚实报告 Canvas2D 回退。
-    this.resolvedEffectBackend = 'canvas2d';
+    // WebGL Scene 延迟到首帧创建；能力尚未探测时必须报告 pending，
+    // 避免宿主先收到一次并不存在的 Canvas2D 回退。
+    this.resolvedEffectBackend = this._getRequestedEffectBackendState();
     this.resolvedBloomBackend = this._getRequestedBloomBackendState();
     this.softwareBloomFrameStats = {
       regionCount: 0,
@@ -5635,6 +5636,44 @@ export class BAClickFX
     }
   }
 
+  _getRequestedEffectBackendState()
+  {
+    const requested = normalizeEffectBackend(this.config.effectBackend);
+
+    if (
+      this.config.renderingMode === 'legacy' ||
+      requested === 'canvas2d' ||
+      !this.ownsCanvas ||
+      !this.overlayParent ||
+      this.webglEffectUnavailable
+    )
+    {
+      return 'canvas2d';
+    }
+
+    if (
+      this.webglEffectVisible &&
+      this.webglEffectRenderer?.available
+    )
+    {
+      return 'webgl2';
+    }
+
+    if (
+      this.webglEffectRenderer &&
+      (
+        !this.webglEffectRenderer.available ||
+        this.webglEffectRenderer.contextLost
+      )
+    )
+    {
+      return 'canvas2d';
+    }
+
+    // Renderer 和完整浮点目标都在首个 Scene 提交时验证。
+    return 'pending';
+  }
+
   _getRequestedBloomBackendState()
   {
     if (this.config.renderingMode === 'legacy')
@@ -6456,6 +6495,21 @@ export class BAClickFX
     this.webglBloomRenderer?.releaseFrameResources();
     this.canvasSceneRenderer?.releaseFrameResources();
     this._setCanvasOutputVisible(true);
+  }
+
+  _releaseBloomBackendFrameResources()
+  {
+    // 纯 WebGL2 已接管完整 Scene 时，Bloom 配置只是回退策略，不能
+    // 为它释放当前 Effect 目标；这里只清理 Canvas 回退链的帧资源。
+    this._setWebGLBloomVisible(false);
+    this._setCanvasSceneVisible(false);
+    this.webglBloomRenderer?.releaseFrameResources();
+    this.canvasSceneRenderer?.releaseFrameResources();
+
+    if (!this.webglEffectVisible)
+    {
+      this._setCanvasOutputVisible(true);
+    }
   }
 
   _usesSoftwareBloom()
@@ -7793,15 +7847,21 @@ export class BAClickFX
         : 'native';
     }
 
-    if (
+    const effectRouteChanged =
       previousEffectBackend !== this.config.effectBackend ||
-      previousRenderingMode !== this.config.renderingMode ||
-      previousBloomBackend !== this.config.bloomBackend
-    )
+      previousRenderingMode !== this.config.renderingMode;
+    const bloomRouteChanged =
+      previousBloomBackend !== this.config.bloomBackend;
+
+    if (effectRouteChanged)
     {
       this._releaseBackendFrameResources();
-      // Scene 尚未接管渲染时，webgl2/auto 请求明确回退而不是永久 pending。
-      this._setResolvedEffectBackend('canvas2d');
+      this._setResolvedEffectBackend(this._getRequestedEffectBackendState());
+      this._setResolvedBloomBackend(this._getRequestedBloomBackendState());
+    }
+    else if (bloomRouteChanged && this.resolvedEffectBackend !== 'webgl2')
+    {
+      this._releaseBloomBackendFrameResources();
       this._setResolvedBloomBackend(this._getRequestedBloomBackendState());
     }
 

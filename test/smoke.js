@@ -22,6 +22,7 @@ const {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
+  EFFECT_BACKEND_CHANGE_EVENT,
   UNITY_FX_TOUCH,
   createConfig,
   SIZE_CORRECTION,
@@ -856,6 +857,10 @@ assert(
 assert(
   BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange',
   '导出 Bloom 后端解析状态事件名，调用方无需硬编码字符串',
+);
+assert(
+  EFFECT_BACKEND_CHANGE_EVENT === 'baclickfxeffectbackendchange',
+  '导出完整特效后端解析状态事件名，调用方无需硬编码字符串',
 );
 
 console.log('\n配置隔离');
@@ -2768,6 +2773,148 @@ assert(
 );
 secondIsolatedEffect.destroy();
 assert(dom.body.children.length === 0, '全部实例销毁后不残留隔离合成节点');
+
+console.log('\n完整特效后端 API');
+const fullWebGLEffect = new BAClickFX(
+  {
+    effectBackend: 'webgl2',
+    bloomBackend: 'webgl2',
+  },
+);
+const fullWebGLEvents = [];
+const fullWebGLCanvas = document.createElement('canvas');
+let fullWebGLReleaseCount = 0;
+const fullWebGLRenderer =
+{
+  available: true,
+  contextLost: false,
+  sourceTarget: true,
+  levels: [true],
+  clear()
+  {
+  },
+  releaseFrameResources()
+  {
+    fullWebGLReleaseCount++;
+    this.sourceTarget = null;
+    this.levels = [];
+  },
+  destroy()
+  {
+    this.available = false;
+  },
+};
+
+fullWebGLEffect.canvas.addEventListener(
+  EFFECT_BACKEND_CHANGE_EVENT,
+  (event) =>
+  {
+    fullWebGLEvents.push(event.detail);
+  },
+);
+assert(
+  fullWebGLEffect.getConfig().effectBackend === 'webgl2' &&
+    fullWebGLEffect.getConfig().resolvedEffectBackend === 'pending',
+  '纯 WebGL2 在延迟能力探测前公开 pending，不伪报 Canvas2D 回退',
+);
+fullWebGLEffect.overlayParent.appendChild(fullWebGLCanvas);
+fullWebGLEffect.webglEffectCanvas = fullWebGLCanvas;
+fullWebGLEffect.webglEffectRenderer = fullWebGLRenderer;
+fullWebGLEffect._ensureWebGLEffectRenderer = () => true;
+fullWebGLEffect._resizeWebGLEffectRenderer = () => true;
+fullWebGLEffect._renderWebGL2ClickEffects = () => true;
+fullWebGLEffect.boom(960, 540);
+let fullWebGLNow = flushFrames(dom, performance.now(), 1);
+assert(
+  fullWebGLEffect.getConfig().resolvedEffectBackend === 'webgl2' &&
+    fullWebGLEvents.length === 1 &&
+    fullWebGLEvents[0].requestedEffectBackend === 'webgl2' &&
+    fullWebGLEvents[0].resolvedEffectBackend === 'webgl2',
+  '纯 WebGL2 首帧成功后只派发一次实际后端，不产生虚假回退事件',
+);
+fullWebGLEffect.updateConfig({ bloomBackend: 'native' });
+assert(
+  fullWebGLEffect.getConfig().resolvedEffectBackend === 'webgl2' &&
+    fullWebGLEffect.getConfig().resolvedBloomBackend === 'webgl2' &&
+    fullWebGLEvents.length === 1 &&
+    fullWebGLReleaseCount === 0,
+  '纯 WebGL2 接管时修改备用 Bloom 不释放当前 Scene 或重置后端状态',
+);
+fullWebGLEffect.updateConfig({ effectBackend: 'canvas2d' });
+assert(
+  fullWebGLEffect.getConfig().resolvedEffectBackend === 'canvas2d' &&
+    fullWebGLEvents.at(-1).resolvedEffectBackend === 'canvas2d' &&
+    fullWebGLReleaseCount === 1,
+  '切出纯 WebGL2 时同步撤下并释放旧 Scene 帧资源',
+);
+fullWebGLEffect.updateConfig({ effectBackend: 'webgl2' });
+assert(
+  fullWebGLEffect.getConfig().resolvedEffectBackend === 'pending' &&
+    fullWebGLEvents.at(-1).resolvedEffectBackend === 'pending' &&
+    fullWebGLReleaseCount === 2,
+  '从 Canvas2D 切回纯 WebGL2 时直接进入 pending，不先伪报回退',
+);
+fullWebGLNow = flushFrames(dom, fullWebGLNow, 1);
+assert(
+  fullWebGLEffect.getConfig().resolvedEffectBackend === 'webgl2' &&
+    fullWebGLEvents.map((event) => event.resolvedEffectBackend).join(',') ===
+      'webgl2,canvas2d,pending,webgl2',
+  '完整特效后端按已提交 Scene 顺序派发稳定状态',
+);
+fullWebGLEffect.destroy();
+
+const unavailableFullWebGLEffect = new BAClickFX(
+  {
+    effectBackend: 'webgl2',
+    bloomBackend: 'software',
+  },
+);
+const unavailableFullWebGLEvents = [];
+
+unavailableFullWebGLEffect.canvas.addEventListener(
+  EFFECT_BACKEND_CHANGE_EVENT,
+  (event) =>
+  {
+    unavailableFullWebGLEvents.push(event.detail);
+  },
+);
+assert(
+  unavailableFullWebGLEffect.getConfig().resolvedEffectBackend === 'pending',
+  '纯 WebGL2 创建失败前保持待探测状态',
+);
+unavailableFullWebGLEffect.boom(960, 540);
+flushFrames(dom, performance.now(), 1);
+assert(
+  unavailableFullWebGLEffect.getConfig().resolvedEffectBackend ===
+      'canvas2d' &&
+    unavailableFullWebGLEvents.length === 1 &&
+    unavailableFullWebGLEvents[0].requestedEffectBackend === 'webgl2' &&
+    unavailableFullWebGLEvents[0].resolvedEffectBackend === 'canvas2d',
+  '纯 WebGL2 创建失败后只派发一次 Canvas2D 实际回退',
+);
+unavailableFullWebGLEffect.destroy();
+
+const externalFullWebGLCanvas = new CanvasMock();
+const externalFullWebGLEffect = new BAClickFX(
+  {
+    target: externalFullWebGLCanvas,
+    effectBackend: 'webgl2',
+  },
+);
+const legacyFullWebGLEffect = new BAClickFX(
+  {
+    effectBackend: 'webgl2',
+    renderingMode: 'legacy',
+  },
+);
+
+assert(
+  externalFullWebGLEffect.getConfig().resolvedEffectBackend === 'canvas2d' &&
+    legacyFullWebGLEffect.getConfig().resolvedEffectBackend === 'canvas2d',
+  '外部 Canvas 与 Legacy 对纯 WebGL2 请求同步公开实际 Canvas2D 路径',
+);
+externalFullWebGLEffect.destroy();
+legacyFullWebGLEffect.destroy();
 
 console.log('\nBloom 后端 API');
 const webglEffect = new BAClickFX(
