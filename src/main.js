@@ -32,24 +32,106 @@ const THEMES = {
   '纯白': '#ffffff',
 };
 
+function setCustomBackgroundControlsVisible(visible)
+{
+  for (const id of ['customBgCtrl', 'ctrlCustomBg', 'btnApplyBg'])
+  {
+    const element = document.getElementById(id);
+
+    if (element)
+    {
+      element.style.display = visible ? '' : 'none';
+    }
+  }
+}
+
+function selectTheme(name)
+{
+  document.querySelectorAll('.theme-btn').forEach((button) =>
+  {
+    button.classList.toggle('active', button.dataset.theme === name);
+  });
+  setCustomBackgroundControlsVisible(name === 'custom');
+}
+
 function applyTheme(name)
 {
   if (name === 'custom')
   {
-    return;
+    selectTheme(name);
+    return true;
   }
 
   const bg = THEMES[name];
 
-  if (bg)
+  if (!bg)
   {
-    document.body.style.background = bg;
+    return false;
   }
 
-  document.querySelectorAll('.theme-btn').forEach((btn) =>
+  document.body.style.background = bg;
+  selectTheme(name);
+  return true;
+}
+
+function escapeCssUrl(value)
+{
+  return value
+    .replaceAll('\\', '\\\\')
+    .replaceAll('"', '\\"')
+    .replace(/[\n\r\f]/g, '');
+}
+
+function resolveCustomBackground(value)
+{
+  const trimmed = value.trim();
+
+  if (!trimmed)
   {
-    btn.classList.toggle('active', btn.dataset.theme === name);
-  });
+    return null;
+  }
+
+  if (CSS.supports('background', trimmed))
+  {
+    return trimmed;
+  }
+
+  // 输入框同时接受完整 CSS 和裸图片 URL；后者需要显式包装成 background。
+  const imageBackground = `url("${escapeCssUrl(trimmed)}") center / cover no-repeat fixed`;
+
+  return CSS.supports('background', imageBackground)
+    ? imageBackground
+    : null;
+}
+
+function applyCustomBackground(value, persist = true)
+{
+  const resolved = resolveCustomBackground(value);
+
+  if (!resolved)
+  {
+    return false;
+  }
+
+  const input = document.getElementById('ctrlCustomBg');
+  const rawValue = value.trim();
+
+  document.body.style.background = resolved;
+
+  if (input)
+  {
+    input.value = rawValue;
+  }
+
+  selectTheme('custom');
+
+  if (persist)
+  {
+    localStorage.setItem('bafx-theme', 'custom');
+    localStorage.setItem('bafx-custom-bg', rawValue);
+  }
+
+  return true;
 }
 
 // ── 控件绑定 ────────────────────────────────────────────────────────────
@@ -646,15 +728,10 @@ document.querySelectorAll('.theme-btn').forEach((btn) =>
 
     if (theme === 'custom')
     {
-      document.getElementById('customBgCtrl').style.display = '';
-      document.getElementById('ctrlCustomBg').style.display = '';
-      document.getElementById('btnApplyBg').style.display = '';
+      selectTheme('custom');
     }
     else
     {
-      document.getElementById('customBgCtrl').style.display = 'none';
-      document.getElementById('ctrlCustomBg').style.display = 'none';
-      document.getElementById('btnApplyBg').style.display = 'none';
       applyTheme(theme);
       localStorage.setItem('bafx-theme', theme);
     }
@@ -665,11 +742,7 @@ document.getElementById('btnApplyBg').addEventListener('click', () =>
 {
   const value = document.getElementById('ctrlCustomBg').value.trim();
 
-  if (value)
-  {
-    document.body.style.background = value;
-    localStorage.setItem('bafx-custom-bg', value);
-  }
+  applyCustomBackground(value);
 });
 
 // ── 面板开关 ────────────────────────────────────────────────────────────
@@ -1353,17 +1426,24 @@ switchLanguage(currentLang);
   }
 
   const theme = localStorage.getItem('bafx-theme');
+  const customBg = localStorage.getItem('bafx-custom-bg');
+  const customBgInput = document.getElementById('ctrlCustomBg');
 
-  if (theme && THEMES[theme])
+  if (customBg && customBgInput)
   {
-    applyTheme(theme);
+    customBgInput.value = customBg;
   }
 
-  const customBg = localStorage.getItem('bafx-custom-bg');
-
-  if (customBg)
+  if (theme === 'custom' || (!theme && customBg))
   {
-    document.body.style.background = customBg;
+    if (!customBg || !applyCustomBackground(customBg, false))
+    {
+      applyTheme('蔚蓝');
+    }
+  }
+  else if (theme && THEMES[theme])
+  {
+    applyTheme(theme);
   }
 })();
 
