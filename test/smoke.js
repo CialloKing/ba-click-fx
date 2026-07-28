@@ -11,6 +11,7 @@ const modulePath = sourceMode
 const module = await import(modulePath);
 let ring3AlphaSource = null;
 let circleTextureSource = null;
+let trailTextureSource = null;
 let createHash = null;
 let webgl2EffectSourceText = null;
 
@@ -18,6 +19,7 @@ if (sourceMode)
 {
   ring3AlphaSource = await import('../src/ring3-alpha.js');
   circleTextureSource = await import('../src/circle-texture.js');
+  trailTextureSource = await import('../src/trail-texture.js');
   ({ createHash } = await import('node:crypto'));
   const { readFileSync } = await import('node:fs');
 
@@ -835,6 +837,36 @@ if (sourceMode)
       CIRCLE_TEXTURE_RGBA[firstCircleOffset + 1] !==
         CIRCLE_TEXTURE_RGBA[secondCircleOffset + 1],
     'Circle_01 保留同半径同 R 采样下无法由径向曲线表达的 G 通道差异',
+  );
+
+  const {
+    TRAIL_TEXTURE_HEIGHT,
+    TRAIL_TEXTURE_RGB,
+    TRAIL_TEXTURE_WIDTH,
+  } = trailTextureSource;
+  const trailTextureHash = createHash('sha256')
+    .update(TRAIL_TEXTURE_RGB)
+    .digest('hex');
+  const firstTrailPixel = [...TRAIL_TEXTURE_RGB.subarray(0, 3)];
+  const upperTrailOffset = (13 * TRAIL_TEXTURE_WIDTH + 20) * 3;
+  const lowerTrailOffset = (498 * TRAIL_TEXTURE_WIDTH + 20) * 3;
+
+  assert(
+    TRAIL_TEXTURE_WIDTH === 512 &&
+      TRAIL_TEXTURE_HEIGHT === 512 &&
+      TRAIL_TEXTURE_RGB.length === 512 * 512 * 3,
+    'Trail_03 解码为完整的 512x512 RGB 纹理',
+  );
+  assert(
+    trailTextureHash ===
+      '9ef29db2147501c40c1ff0f1cd0848cd6e017a46b0e8aa0af685eef568d4faa0',
+    'Trail_03 RGB 的完整字节 SHA256 与解包纹理一致',
+  );
+  assert(
+    JSON.stringify(firstTrailPixel) === JSON.stringify([5, 0, 0]) &&
+      TRAIL_TEXTURE_RGB[upperTrailOffset + 1] === 71 &&
+      TRAIL_TEXTURE_RGB[lowerTrailOffset + 1] === 131,
+    'Trail_03 保留逐通道差异和不可由对称横截面表达的纹理细节',
   );
 }
 assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');
