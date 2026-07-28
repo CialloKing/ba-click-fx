@@ -1626,7 +1626,6 @@ function drawDisk(
   fxConfig = UNITY_FX_TOUCH,
   useNativeBloom = true,
   legacy = false,
-  outputCompositing = 'scene',
 )
 {
   const diskCfg = fxConfig.disk;
@@ -1661,24 +1660,19 @@ function drawDisk(
     // Circle_01 的 R 通道仍同时决定 RGB 能量和 Coverage。
     gradient.addColorStop(
       position,
-      outputCompositing === 'transparent-overlay'
-        ? linearEnergyToOverlayCss(
-            materialEnergy,
-            opacity * energy,
-            // Circle_01 的 RGB 能量是 R²，Coverage 使用原始 R。
-            coverageAlpha * Math.sqrt(Math.max(0, energy)),
-          )
-        : linearEnergyToAdditiveCss(materialEnergy, opacity * energy),
+      linearEnergyToOverlayCss(
+        materialEnergy,
+        opacity * energy,
+        // Circle_01 的 RGB 能量是 R²，Coverage 使用原始 R。
+        coverageAlpha * Math.sqrt(Math.max(0, energy)),
+      ),
     );
   }
 
   context.save();
-  if (outputCompositing === 'transparent-overlay')
-  {
-    // 只有 Coverage 编码能安全执行 Cross2 的目标衰减；scene 的 HDR
-    // 加色编码仍需继承外层 lighter，避免把最大颜色通道误当成不透明度。
-    context.globalCompositeOperation = 'source-over';
-  }
+  // Cross2 的 Blend One / OneMinusSrcAlpha 与最终输出模式无关；清晰层
+  // 始终按 Coverage 衰减目标，超过 8 位范围的能量由独立 Bloom 保留。
+  context.globalCompositeOperation = 'source-over';
   context.beginPath();
   context.arc(wave.x, wave.y, radius, 0, TAU);
   context.fillStyle = gradient;
@@ -2123,7 +2117,6 @@ class ClickWave
     opacity,
     useNativeBloom = true,
     legacy = false,
-    outputCompositing = 'scene',
   )
   {
     // Hit：撞击爆发，极短极亮
@@ -2155,7 +2148,6 @@ class ClickWave
         this.fx,
         useNativeBloom,
         legacy,
-        outputCompositing,
       );
     }
   }
@@ -2233,7 +2225,6 @@ class ClickWave
       opacity,
       useNativeBloom,
       legacy,
-      outputCompositing,
     );
     this.drawRings(
       context,
@@ -5971,7 +5962,6 @@ export class BAClickFX
           this.config.opacity,
           false,
           false,
-          this.config.outputCompositing,
         );
       }
 
@@ -6494,7 +6484,6 @@ export class BAClickFX
         this.config.opacity,
         useNativeBloom,
         legacy,
-        this.config.outputCompositing,
       );
     }
 
@@ -6719,7 +6708,6 @@ export class BAClickFX
           this.config.opacity,
           useNativeBloom,
           legacy,
-          this.config.outputCompositing,
         );
       }
     }
