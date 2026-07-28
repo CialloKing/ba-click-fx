@@ -140,7 +140,34 @@ declare module 'ba-click-fx'
     readonly unity: UnityFxTouchConfig;
   }
 
+  export type BAClickFXParamType = 'number' | 'boolean';
+  export type BAClickFXParamUnit =
+    | 'boolean'
+    | 'count'
+    | 'direction'
+    | 'linear-hdr'
+    | 'ms'
+    | 'multiplier'
+    | 'px'
+    | 'px-per-second'
+    | 'ratio'
+    | 'samples'
+    | 'scalar';
+
+  /** 可安全交给宿主配置界面的只读标量参数描述。 */
+  export interface BAClickFXParamDescriptor
+  {
+    readonly path: string;
+    readonly type: BAClickFXParamType;
+    readonly default: number | boolean;
+    readonly min?: number;
+    readonly max?: number;
+    readonly step?: number;
+    readonly unit: BAClickFXParamUnit;
+  }
+
   export const CONFIG: Readonly<BAClickFXConfig>;
+  export const FX_PARAM_SCHEMA: readonly BAClickFXParamDescriptor[];
   /** 主 Canvas 在 Bloom 后端解析状态变化时派发的事件名。 */
   export const BLOOM_BACKEND_CHANGE_EVENT: 'baclickfxbackendchange';
   /** 主 Canvas 在完整特效后端解析状态变化时派发的事件名。 */

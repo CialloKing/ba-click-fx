@@ -23,6 +23,7 @@ const {
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
   EFFECT_BACKEND_CHANGE_EVENT,
+  FX_PARAM_SCHEMA,
   UNITY_FX_TOUCH,
   createConfig,
   SIZE_CORRECTION,
@@ -654,6 +655,33 @@ function flushFrames(dom, startTime, count, frameMs = 1000 / 60)
 }
 
 console.log('\nUnity 参数');
+
+const fxSchemaPaths = new Set(FX_PARAM_SCHEMA.map((entry) => entry.path));
+const readUnityScalar = (path) => path.split('.').reduce(
+  (value, key) => value[key],
+  UNITY_FX_TOUCH,
+);
+
+assert(
+  FX_PARAM_SCHEMA.length > 0 &&
+    fxSchemaPaths.size === FX_PARAM_SCHEMA.length &&
+    FX_PARAM_SCHEMA.every((entry) =>
+      entry.default === readUnityScalar(entry.path)),
+  '公开参数 schema 路径唯一且默认值来自 Unity 参数源',
+);
+assert(
+  Object.isFrozen(FX_PARAM_SCHEMA) &&
+    FX_PARAM_SCHEMA.every((entry) => Object.isFrozen(entry)) &&
+    JSON.parse(JSON.stringify(FX_PARAM_SCHEMA)).length ===
+      FX_PARAM_SCHEMA.length,
+  '公开参数 schema 深只读且可直接 JSON 序列化',
+);
+assert(
+  !fxSchemaPaths.has('rootDurationMs') &&
+    !fxSchemaPaths.has('rings.colorKeys') &&
+    !fxSchemaPaths.has('rings.textureUvMin'),
+  '公开参数 schema 不暴露对象池元数据、曲线或纹理采样真值',
+);
 assert(UNITY_FX_TOUCH.rootDurationMs === 1000, '根粒子持续 1 秒');
 assert(UNITY_FX_TOUCH.disk.lifetimeMs === 200, '短圆盘持续 0.2 秒');
 assert(

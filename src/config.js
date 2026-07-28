@@ -325,6 +325,353 @@ export const UNITY_FX_TOUCH = Object.freeze(
   },
 );
 
+function createFxParamDescriptor(path, type, options = {})
+{
+  const keys = path.split('.');
+  let defaultValue = UNITY_FX_TOUCH;
+
+  for (const key of keys)
+  {
+    defaultValue = defaultValue[key];
+  }
+
+  // Descriptor 只包含 JSON 标量，宿主可以安全缓存、序列化并据此生成控件。
+  return Object.freeze(
+    {
+      path,
+      type,
+      default: defaultValue,
+      ...options,
+    },
+  );
+}
+
+/**
+ * 可由宿主安全修改的公开标量参数。曲线、颜色键与纹理采样数据仍由
+ * Unity 资源真值独占，避免通用配置界面破坏渲染器之间的共同契约。
+ */
+export const FX_PARAM_SCHEMA = Object.freeze(
+  [
+    createFxParamDescriptor('hit.enabled', 'boolean', { unit: 'boolean' }),
+    createFxParamDescriptor(
+      'hit.lifetimeMs',
+      'number',
+      { min: 1, max: 10000, step: 1, unit: 'ms' },
+    ),
+    createFxParamDescriptor(
+      'hit.radius',
+      'number',
+      { min: 1, max: 2000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor('flare.enabled', 'boolean', { unit: 'boolean' }),
+    createFxParamDescriptor(
+      'flare.lifetimeMs',
+      'number',
+      { min: 1, max: 10000, step: 1, unit: 'ms' },
+    ),
+    createFxParamDescriptor(
+      'flare.radius',
+      'number',
+      { min: 1, max: 2000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'flare.rayCount',
+      'number',
+      { min: 1, max: 64, step: 1, unit: 'count' },
+    ),
+    createFxParamDescriptor(
+      'disk.lifetimeMs',
+      'number',
+      { min: 1, max: 10000, step: 1, unit: 'ms' },
+    ),
+    createFxParamDescriptor(
+      'disk.radius',
+      'number',
+      { min: 1, max: 2000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'rings.count',
+      'number',
+      { min: 0, max: 64, step: 1, unit: 'count' },
+    ),
+    createFxParamDescriptor(
+      'rings.lifetimeMs',
+      'number',
+      { min: 1, max: 10000, step: 1, unit: 'ms' },
+    ),
+    createFxParamDescriptor(
+      'rings.radiusMin',
+      'number',
+      { min: 0, max: 2000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'rings.radiusMax',
+      'number',
+      { min: 0, max: 2000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'rings.bandToOuterRadius',
+      'number',
+      { min: 0, max: 1, step: 0.0001, unit: 'ratio' },
+    ),
+    createFxParamDescriptor(
+      'rings.widthStart',
+      'number',
+      { min: 0, max: 8, step: 0.01, unit: 'multiplier' },
+    ),
+    createFxParamDescriptor(
+      'rings.widthEnd',
+      'number',
+      { min: 0, max: 8, step: 0.01, unit: 'multiplier' },
+    ),
+    createFxParamDescriptor(
+      'rings.angularVelocityMultiplier',
+      'number',
+      { min: 0, max: 100, step: 0.01, unit: 'multiplier' },
+    ),
+    createFxParamDescriptor(
+      'rings.rotationDirection',
+      'number',
+      { min: -1, max: 1, step: 2, unit: 'direction' },
+    ),
+    createFxParamDescriptor(
+      'rings.hdrIntensity',
+      'number',
+      { min: 0, max: 64, step: 0.01, unit: 'linear-hdr' },
+    ),
+    createFxParamDescriptor(
+      'rings.arcSamples',
+      'number',
+      { min: 3, max: 1024, step: 1, unit: 'samples' },
+    ),
+    createFxParamDescriptor(
+      'rings.radialSamples',
+      'number',
+      { min: 1, max: 32, step: 1, unit: 'samples' },
+    ),
+    createFxParamDescriptor(
+      'rings.dissolveDirection',
+      'number',
+      { min: -1, max: 1, step: 2, unit: 'direction' },
+    ),
+    createFxParamDescriptor(
+      'shards.hdrIntensity',
+      'number',
+      { min: 0, max: 64, step: 0.01, unit: 'linear-hdr' },
+    ),
+    createFxParamDescriptor(
+      'shards.clickCount',
+      'number',
+      { min: 0, max: 1000, step: 1, unit: 'count' },
+    ),
+    createFxParamDescriptor(
+      'shards.clickLifetimeMinMs',
+      'number',
+      { min: 1, max: 10000, step: 1, unit: 'ms' },
+    ),
+    createFxParamDescriptor(
+      'shards.clickLifetimeMaxMs',
+      'number',
+      { min: 1, max: 10000, step: 1, unit: 'ms' },
+    ),
+    createFxParamDescriptor(
+      'shards.clickRadius',
+      'number',
+      { min: 0, max: 5000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'shards.clickSpeedMin',
+      'number',
+      { min: 0, max: 5000, step: 0.01, unit: 'px-per-second' },
+    ),
+    createFxParamDescriptor(
+      'shards.clickSpeedMax',
+      'number',
+      { min: 0, max: 5000, step: 0.01, unit: 'px-per-second' },
+    ),
+    createFxParamDescriptor(
+      'shards.trailLifetimeMinMs',
+      'number',
+      { min: 1, max: 10000, step: 1, unit: 'ms' },
+    ),
+    createFxParamDescriptor(
+      'shards.trailLifetimeMaxMs',
+      'number',
+      { min: 1, max: 10000, step: 1, unit: 'ms' },
+    ),
+    createFxParamDescriptor(
+      'shards.trailRadius',
+      'number',
+      { min: 0, max: 5000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'shards.trailSpeedMin',
+      'number',
+      { min: 0, max: 5000, step: 0.01, unit: 'px-per-second' },
+    ),
+    createFxParamDescriptor(
+      'shards.trailSpeedMax',
+      'number',
+      { min: 0, max: 5000, step: 0.01, unit: 'px-per-second' },
+    ),
+    createFxParamDescriptor(
+      'shards.sizeMin',
+      'number',
+      { min: 0, max: 2000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'shards.sizeMax',
+      'number',
+      { min: 0, max: 2000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'shards.trailSpacing',
+      'number',
+      { min: 1, max: 5000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'shards.maxCount',
+      'number',
+      { min: 0, max: 10000, step: 1, unit: 'count' },
+    ),
+    createFxParamDescriptor(
+      'trail.lifetimeMs',
+      'number',
+      { min: 1, max: 10000, step: 1, unit: 'ms' },
+    ),
+    createFxParamDescriptor(
+      'trail.geometryWidth',
+      'number',
+      { min: 0, max: 1000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'trail.width',
+      'number',
+      { min: 0, max: 1000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'trail.minVertexDistance',
+      'number',
+      { min: 0, max: 5000, step: 0.01, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'trail.numCornerVertices',
+      'number',
+      { min: 0, max: 64, step: 1, unit: 'count' },
+    ),
+    createFxParamDescriptor(
+      'trail.numCapVertices',
+      'number',
+      { min: 0, max: 64, step: 1, unit: 'count' },
+    ),
+    createFxParamDescriptor(
+      'trail.outerGlowWidth',
+      'number',
+      { min: 0, max: 1000, step: 0.1, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'trail.trailOpacity',
+      'number',
+      { min: 0, max: 1, step: 0.01, unit: 'ratio' },
+    ),
+    createFxParamDescriptor(
+      'bloom.threshold',
+      'number',
+      { min: 0, max: 64, step: 0.01, unit: 'linear-hdr' },
+    ),
+    createFxParamDescriptor(
+      'bloom.softKnee',
+      'number',
+      { min: 0, max: 1, step: 0.01, unit: 'ratio' },
+    ),
+    createFxParamDescriptor(
+      'bloom.clamp',
+      'number',
+      { min: 0, max: 65504, step: 1, unit: 'linear-hdr' },
+    ),
+    createFxParamDescriptor(
+      'bloom.intensity',
+      'number',
+      { min: 0, max: 10, step: 0.01, unit: 'scalar' },
+    ),
+    createFxParamDescriptor(
+      'bloom.diffusion',
+      'number',
+      { min: 0, max: 10, step: 0.01, unit: 'scalar' },
+    ),
+    createFxParamDescriptor(
+      'bloom.resolutionScale',
+      'number',
+      { min: 0.1, max: 0.75, step: 0.01, unit: 'ratio' },
+    ),
+    createFxParamDescriptor(
+      'bloom.emissionRange',
+      'number',
+      { min: 1, max: 65504, step: 0.01, unit: 'linear-hdr' },
+    ),
+    createFxParamDescriptor(
+      'bloom.diskEmission',
+      'number',
+      { min: 0, max: 64, step: 0.01, unit: 'linear-hdr' },
+    ),
+    createFxParamDescriptor(
+      'bloom.trailEmission',
+      'number',
+      { min: 0, max: 65504, step: 0.01, unit: 'linear-hdr' },
+    ),
+    createFxParamDescriptor(
+      'bloom.trailCoverageScale',
+      'number',
+      { min: 0, max: 8, step: 0.01, unit: 'multiplier' },
+    ),
+    createFxParamDescriptor(
+      'bloom.trailEmissionAlpha',
+      'number',
+      { min: 0, max: 1, step: 0.01, unit: 'ratio' },
+    ),
+    createFxParamDescriptor(
+      'bloom.clickEmissionScale',
+      'number',
+      { min: 0, max: 4, step: 0.01, unit: 'multiplier' },
+    ),
+    createFxParamDescriptor(
+      'bloom.ringEmissionAlpha',
+      'number',
+      { min: 0, max: 1, step: 0.01, unit: 'ratio' },
+    ),
+    createFxParamDescriptor(
+      'bloom.diskEmissionAlpha',
+      'number',
+      { min: 0, max: 1, step: 0.01, unit: 'ratio' },
+    ),
+    createFxParamDescriptor(
+      'bloom.ringBlur',
+      'number',
+      { min: 0, max: 1000, step: 0.1, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'bloom.ringAlpha',
+      'number',
+      { min: 0, max: 1, step: 0.01, unit: 'ratio' },
+    ),
+    createFxParamDescriptor(
+      'bloom.diskBlur',
+      'number',
+      { min: 0, max: 1000, step: 0.1, unit: 'px' },
+    ),
+    createFxParamDescriptor(
+      'bloom.diskAlpha',
+      'number',
+      { min: 0, max: 1, step: 0.01, unit: 'ratio' },
+    ),
+    createFxParamDescriptor(
+      'bloom.trailAlpha',
+      'number',
+      { min: 0, max: 1, step: 0.01, unit: 'ratio' },
+    ),
+  ],
+);
+
 export const CONFIG = Object.freeze(
   {
     scale: 1,

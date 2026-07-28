@@ -7,6 +7,7 @@
 
 import {
   CONFIG,
+  FX_PARAM_SCHEMA,
   UNITY_FX_TOUCH,
   createConfig,
   isBloomBackend,
@@ -8224,6 +8225,7 @@ export {
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
   EFFECT_BACKEND_CHANGE_EVENT,
+  FX_PARAM_SCHEMA,
   UNITY_FX_TOUCH,
   createConfig,
   SIZE_CORRECTION,
