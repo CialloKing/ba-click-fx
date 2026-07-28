@@ -13,6 +13,11 @@ import {
   RING3_ALPHA_WIDTH,
 } from './ring3-alpha.js';
 import {
+  TRAIL_TEXTURE_HEIGHT,
+  TRAIL_TEXTURE_RGB,
+  TRAIL_TEXTURE_WIDTH,
+} from './trail-texture.js';
+import {
   gammaToLinear,
   resolveUnityBloomClamp,
 } from './bloom-color-space.js';
@@ -21,6 +26,7 @@ const COMPONENTS_PER_VERTEX = 6;
 const COMPONENTS_PER_DISK_VERTEX = 8;
 const COMPONENTS_PER_RING_VERTEX = 9;
 const COMPONENTS_PER_TRIANGLE_VERTEX = 8;
+const COMPONENTS_PER_TRAIL_VERTEX = 8;
 const INITIAL_VERTEX_CAPACITY = 4096;
 const MAX_PYRAMID_LEVELS = 16;
 const DISK_CENTER_RADIUS_EPSILON = 0.00001;
@@ -767,6 +773,10 @@ export class WebGL2EffectRenderer
     this.triangleVertexData = new Float32Array(
       INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRIANGLE_VERTEX,
     );
+    this.trailVertexCount = 0;
+    this.trailVertexData = new Float32Array(
+      INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRAIL_VERTEX,
+    );
     this.sourceTarget = null;
     this.levels = [];
     this.sceneFrameReady = false;
@@ -789,6 +799,9 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
+    this.trailBuffer = null;
+    this.trailVao = null;
+    this.trailTexture = null;
     this.circleTexture = null;
     this.fullscreenVao = null;
     this.stats =
@@ -798,9 +811,11 @@ export class WebGL2EffectRenderer
       sceneDiskVertexCount: 0,
       sceneRingVertexCount: 0,
       sceneTriangleVertexCount: 0,
+      sceneTrailVertexCount: 0,
       diskVertexCount: 0,
       ringVertexCount: 0,
       triangleVertexCount: 0,
+      trailVertexCount: 0,
       levelCount: 0,
       bloomPixels: 0,
     };
@@ -918,6 +933,9 @@ export class WebGL2EffectRenderer
       this.triangleBuffer = gl.createBuffer();
       this.triangleVao = gl.createVertexArray();
       this.triangleTexture = gl.createTexture();
+      this.trailBuffer = gl.createBuffer();
+      this.trailVao = gl.createVertexArray();
+      this.trailTexture = gl.createTexture();
       this.circleTexture = gl.createTexture();
       this.fullscreenVao = gl.createVertexArray();
 
@@ -933,6 +951,9 @@ export class WebGL2EffectRenderer
         !this.triangleBuffer ||
         !this.triangleVao ||
         !this.triangleTexture ||
+        !this.trailBuffer ||
+        !this.trailVao ||
+        !this.trailTexture ||
         !this.circleTexture
       )
       {
@@ -1119,6 +1140,51 @@ export class WebGL2EffectRenderer
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
+      gl.bindVertexArray(this.trailVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.trailBuffer);
+
+      const trailStride = COMPONENTS_PER_TRAIL_VERTEX *
+        Float32Array.BYTES_PER_ELEMENT;
+
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(
+        0,
+        2,
+        gl.FLOAT,
+        false,
+        trailStride,
+        0,
+      );
+      gl.enableVertexAttribArray(1);
+      gl.vertexAttribPointer(
+        1,
+        2,
+        gl.FLOAT,
+        false,
+        trailStride,
+        2 * Float32Array.BYTES_PER_ELEMENT,
+      );
+      gl.enableVertexAttribArray(2);
+      gl.vertexAttribPointer(
+        2,
+        3,
+        gl.FLOAT,
+        false,
+        trailStride,
+        4 * Float32Array.BYTES_PER_ELEMENT,
+      );
+      gl.enableVertexAttribArray(3);
+      gl.vertexAttribPointer(
+        3,
+        1,
+        gl.FLOAT,
+        false,
+        trailStride,
+        7 * Float32Array.BYTES_PER_ELEMENT,
+      );
+      gl.bindVertexArray(null);
+      gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
       // Ring3 的 Alpha 不参与 sRGB 解码；R8 保留 Unity Alpha 采样真值。
       gl.bindTexture(gl.TEXTURE_2D, this.ringTexture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -1153,6 +1219,25 @@ export class WebGL2EffectRenderer
         gl.RGBA,
         gl.UNSIGNED_BYTE,
         TRIANGLE_TEXTURE_RGBA,
+      );
+
+      // Trail_03 的 Importer 使用 sRGB、Bilinear、Repeat 且关闭 Mipmap。
+      // 上传完整 RGB，Fragment Shader 才能保留逐通道和非对称纹理细节。
+      gl.bindTexture(gl.TEXTURE_2D, this.trailTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.SRGB8,
+        TRAIL_TEXTURE_WIDTH,
+        TRAIL_TEXTURE_HEIGHT,
+        0,
+        gl.RGB,
+        gl.UNSIGNED_BYTE,
+        TRAIL_TEXTURE_RGB,
       );
 
       // Circle_01 使用 Repeat；完整 Quad 在片元阶段采样才能保留二维边缘。
@@ -1236,6 +1321,9 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
+    this.trailBuffer = null;
+    this.trailVao = null;
+    this.trailTexture = null;
     this.circleTexture = null;
     this.sceneBackgroundTexture = null;
     this.sceneBackgroundTarget = null;
@@ -1244,14 +1332,17 @@ export class WebGL2EffectRenderer
     this.sceneDiskVertexCount = 0;
     this.ringVertexCount = 0;
     this.triangleVertexCount = 0;
+    this.trailVertexCount = 0;
     this.stats.vertexCount = 0;
     this.stats.sceneVertexCount = 0;
     this.stats.sceneDiskVertexCount = 0;
     this.stats.sceneRingVertexCount = 0;
     this.stats.sceneTriangleVertexCount = 0;
+    this.stats.sceneTrailVertexCount = 0;
     this.stats.diskVertexCount = 0;
     this.stats.ringVertexCount = 0;
     this.stats.triangleVertexCount = 0;
+    this.stats.trailVertexCount = 0;
     this.stats.levelCount = 0;
     this.stats.bloomPixels = 0;
   }
@@ -1407,6 +1498,9 @@ export class WebGL2EffectRenderer
     gl.deleteBuffer(this.triangleBuffer);
     gl.deleteVertexArray(this.triangleVao);
     gl.deleteTexture(this.triangleTexture);
+    gl.deleteBuffer(this.trailBuffer);
+    gl.deleteVertexArray(this.trailVao);
+    gl.deleteTexture(this.trailTexture);
     gl.deleteTexture(this.circleTexture);
     gl.deleteTexture(this.sceneBackgroundTexture);
     gl.deleteVertexArray(this.fullscreenVao);
@@ -1421,6 +1515,9 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
+    this.trailBuffer = null;
+    this.trailVao = null;
+    this.trailTexture = null;
     this.circleTexture = null;
     this.sceneBackgroundTexture = null;
     this.sceneBackgroundTarget = null;
@@ -1431,9 +1528,11 @@ export class WebGL2EffectRenderer
     this.stats.sceneDiskVertexCount = 0;
     this.stats.sceneRingVertexCount = 0;
     this.stats.sceneTriangleVertexCount = 0;
+    this.stats.sceneTrailVertexCount = 0;
     this.stats.diskVertexCount = 0;
     this.stats.ringVertexCount = 0;
     this.stats.triangleVertexCount = 0;
+    this.stats.trailVertexCount = 0;
     this.stats.levelCount = 0;
     this.stats.bloomPixels = 0;
   }
@@ -1948,10 +2047,12 @@ export class WebGL2EffectRenderer
     this.sceneDiskVertexCount = 0;
     this.ringVertexCount = 0;
     this.triangleVertexCount = 0;
+    this.trailVertexCount = 0;
     this.stats.vertexCount = 0;
     this.stats.diskVertexCount = 0;
     this.stats.ringVertexCount = 0;
     this.stats.triangleVertexCount = 0;
+    this.stats.trailVertexCount = 0;
 
     if (options.preserveSceneStats !== true)
     {
@@ -1961,6 +2062,7 @@ export class WebGL2EffectRenderer
       this.stats.sceneDiskVertexCount = 0;
       this.stats.sceneRingVertexCount = 0;
       this.stats.sceneTriangleVertexCount = 0;
+      this.stats.sceneTrailVertexCount = 0;
     }
   }
 
@@ -1969,7 +2071,62 @@ export class WebGL2EffectRenderer
     return this.vertexCount > 0 ||
       this.sceneDiskVertexCount > 0 ||
       this.ringVertexCount > 0 ||
-      this.triangleVertexCount > 0;
+      this.triangleVertexCount > 0 ||
+      this.trailVertexCount > 0;
+  }
+
+  _drawTexturedAdditiveBatch(
+    vertexCount,
+    vertexData,
+    buffer,
+    vertexArray,
+    texture,
+    transparentOverlay,
+  )
+  {
+    if (vertexCount <= 0)
+    {
+      return;
+    }
+
+    const gl = this.gl;
+    const program = this.programs.triangle;
+
+    if (transparentOverlay)
+    {
+      // RGB 保持 Unity One/One 加色，Alpha 单独累积几何 Coverage 并集。
+      gl.blendFuncSeparate(
+        gl.ONE,
+        gl.ONE,
+        gl.ONE,
+        gl.ONE_MINUS_SRC_ALPHA,
+      );
+    }
+    else
+    {
+      gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE);
+    }
+
+    gl.useProgram(program);
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_transparentOverlay'),
+      transparentOverlay ? 1 : 0,
+    );
+    gl.uniform2f(
+      gl.getUniformLocation(program, 'u_displaySize'),
+      this.displayWidth,
+      this.displayHeight,
+    );
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_texture'),
+      0,
+    );
+    gl.bindVertexArray(vertexArray);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
   }
 
   _drawGeometryBatches(additiveProgram, transparentOverlay = false)
@@ -2008,6 +2165,20 @@ export class WebGL2EffectRenderer
       );
       gl.drawArrays(gl.TRIANGLES, 0, this.sceneDiskVertexCount);
     }
+
+    // Trail 与 Cross2 同属 Queue 3000；先画 Cross2，再提交 Trail 的
+    // One/One 材质，随后才是其余加色粒子和三角碎片。
+    this._drawTexturedAdditiveBatch(
+      this.trailVertexCount,
+      this.trailVertexData.subarray(
+        0,
+        this.trailVertexCount * COMPONENTS_PER_TRAIL_VERTEX,
+      ),
+      this.trailBuffer,
+      this.trailVao,
+      this.trailTexture,
+      transparentOverlay,
+    );
 
     if (this.vertexCount > 0)
     {
@@ -2058,52 +2229,17 @@ export class WebGL2EffectRenderer
 
     if (this.triangleVertexCount > 0)
     {
-      const triangleProgram = this.programs.triangle;
-
-      if (transparentOverlay)
-      {
-        // RGB 已乘纹理和粒子 Coverage；Alpha 独立累积 source-over 并集。
-        gl.blendFuncSeparate(
-          gl.ONE,
-          gl.ONE,
-          gl.ONE,
-          gl.ONE_MINUS_SRC_ALPHA,
-        );
-      }
-      else
-      {
-        // BaTouchAdditive.shader 的 RGB 是 One/One；网页输出 Alpha 单独保留
-        // Cross2 Coverage，才能在最终 DOM 合成时还原目标颜色衰减。
-        gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE);
-      }
-
-      gl.useProgram(triangleProgram);
-      gl.uniform1i(
-        gl.getUniformLocation(triangleProgram, 'u_transparentOverlay'),
-        transparentOverlay ? 1 : 0,
-      );
-      gl.uniform2f(
-        gl.getUniformLocation(triangleProgram, 'u_displaySize'),
-        this.displayWidth,
-        this.displayHeight,
-      );
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this.triangleTexture);
-      gl.uniform1i(
-        gl.getUniformLocation(triangleProgram, 'u_texture'),
-        0,
-      );
-      gl.bindVertexArray(this.triangleVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.triangleBuffer);
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
+      this._drawTexturedAdditiveBatch(
+        this.triangleVertexCount,
         this.triangleVertexData.subarray(
           0,
           this.triangleVertexCount * COMPONENTS_PER_TRIANGLE_VERTEX,
         ),
-        gl.DYNAMIC_DRAW,
+        this.triangleBuffer,
+        this.triangleVao,
+        this.triangleTexture,
+        transparentOverlay,
       );
-      gl.drawArrays(gl.TRIANGLES, 0, this.triangleVertexCount);
     }
 
     if (this.ringVertexCount > 0)
@@ -2186,10 +2322,11 @@ export class WebGL2EffectRenderer
       this.sceneFrameReady = false;
       this.sceneBackgroundFrameReady = this._copySceneBackgroundToSource();
       this.stats.sceneVertexCount = this.vertexCount +
-        this.triangleVertexCount;
+        this.triangleVertexCount + this.trailVertexCount;
       this.stats.sceneDiskVertexCount = this.sceneDiskVertexCount;
       this.stats.sceneRingVertexCount = this.ringVertexCount;
       this.stats.sceneTriangleVertexCount = this.triangleVertexCount;
+      this.stats.sceneTrailVertexCount = this.trailVertexCount;
 
       if (!this._hasGeometry())
       {
@@ -2417,6 +2554,48 @@ export class WebGL2EffectRenderer
     this.triangleVertexData[offset + 6] = Math.max(0, blue);
     this.triangleVertexData[offset + 7] = clamp(particleAlpha, 0, 1);
     this.triangleVertexCount++;
+  }
+
+  _ensureTrailVertexCapacity(additionalVertices)
+  {
+    const requiredComponents = (
+      this.trailVertexCount + additionalVertices
+    ) * COMPONENTS_PER_TRAIL_VERTEX;
+
+    if (requiredComponents <= this.trailVertexData.length)
+    {
+      return;
+    }
+
+    let nextLength = this.trailVertexData.length;
+
+    while (nextLength < requiredComponents)
+    {
+      nextLength = Math.ceil(nextLength * 1.5);
+    }
+
+    const next = new Float32Array(nextLength);
+
+    next.set(this.trailVertexData.subarray(
+      0,
+      this.trailVertexCount * COMPONENTS_PER_TRAIL_VERTEX,
+    ));
+    this.trailVertexData = next;
+  }
+
+  _appendTrailVertex(point, uv, color, particleAlpha)
+  {
+    const offset = this.trailVertexCount * COMPONENTS_PER_TRAIL_VERTEX;
+
+    this.trailVertexData[offset] = point.x;
+    this.trailVertexData[offset + 1] = point.y;
+    this.trailVertexData[offset + 2] = uv.u;
+    this.trailVertexData[offset + 3] = uv.v;
+    this.trailVertexData[offset + 4] = Math.max(0, color[0]);
+    this.trailVertexData[offset + 5] = Math.max(0, color[1]);
+    this.trailVertexData[offset + 6] = Math.max(0, color[2]);
+    this.trailVertexData[offset + 7] = clamp(particleAlpha, 0, 1);
+    this.trailVertexCount++;
   }
 
   _appendRadialDisk(
@@ -2756,6 +2935,34 @@ export class WebGL2EffectRenderer
       blue,
       particleAlpha,
     );
+  }
+
+  addTexturedTrailTriangle(first, second, third, color, opacity = 1)
+  {
+    const perVertexColor = Array.isArray(color?.[0]);
+    const firstColor = perVertexColor ? color[0] : color;
+    const secondColor = perVertexColor ? color[1] : color;
+    const thirdColor = perVertexColor ? color[2] : color;
+    const particleAlpha = Number.isFinite(opacity)
+      ? clamp(opacity, 0, 1)
+      : 0;
+
+    if (
+      particleAlpha <= 0 ||
+      Math.max(
+        ...firstColor,
+        ...secondColor,
+        ...thirdColor,
+      ) <= 0
+    )
+    {
+      return;
+    }
+
+    this._ensureTrailVertexCapacity(3);
+    this._appendTrailVertex(first, first, firstColor, particleAlpha);
+    this._appendTrailVertex(second, second, secondColor, particleAlpha);
+    this._appendTrailVertex(third, third, thirdColor, particleAlpha);
   }
 
   addTrailTriangle(first, second, third, color, opacity = 1)
@@ -3543,10 +3750,13 @@ export class WebGL2EffectRenderer
         hasScene,
         hasBackground,
       );
-      this.stats.vertexCount = this.vertexCount + this.triangleVertexCount;
+      this.stats.vertexCount = this.vertexCount +
+        this.triangleVertexCount +
+        this.trailVertexCount;
       this.stats.diskVertexCount = this.sceneDiskVertexCount;
       this.stats.ringVertexCount = this.ringVertexCount;
       this.stats.triangleVertexCount = this.triangleVertexCount;
+      this.stats.trailVertexCount = this.trailVertexCount;
 
       const error = gl.getError();
 
@@ -3575,10 +3785,12 @@ export class WebGL2EffectRenderer
     this.stats.diskVertexCount = 0;
     this.stats.ringVertexCount = 0;
     this.stats.triangleVertexCount = 0;
+    this.stats.trailVertexCount = 0;
     this.stats.sceneVertexCount = 0;
     this.stats.sceneDiskVertexCount = 0;
     this.stats.sceneRingVertexCount = 0;
     this.stats.sceneTriangleVertexCount = 0;
+    this.stats.sceneTrailVertexCount = 0;
 
     if (!this.gl || this.contextLost)
     {
@@ -3606,6 +3818,8 @@ export class WebGL2EffectRenderer
     this.ringVertexData = new Float32Array(0);
     this.triangleVertexCount = 0;
     this.triangleVertexData = new Float32Array(0);
+    this.trailVertexCount = 0;
+    this.trailVertexData = new Float32Array(0);
     this.maximumTextureSize = 0;
     this.maximumViewportWidth = 0;
     this.maximumViewportHeight = 0;
