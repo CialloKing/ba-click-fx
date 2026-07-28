@@ -4369,11 +4369,13 @@ export class BAClickFX
       }
       else
       {
+        // 粒子与 Bloom 已在各后端内部完成加色；最终覆盖层统一使用普通
+        // source-over，避免 CSS plus-lighter 再次抬高桌面亮度。
         setOverlayStyle(
           this.canvas,
           false,
           '2147483646',
-          'plus-lighter',
+          '',
         );
         setOverlayStyle(
           this.contrastCanvas,
@@ -5730,11 +5732,13 @@ export class BAClickFX
 
     const canvas = createCanvas();
 
+    // Bloom Shader 已输出合法预乘结果，外层继续用普通 source-over，
+    // 避免独立 GPU 图层在桌面上重复执行加色。
     setOverlayStyle(
       canvas,
       !this.host && !this.config.isolatedCompositing,
       '2147483646',
-      'plus-lighter',
+      '',
     );
     canvas.style.display = 'none';
     this.overlayParent.appendChild(canvas);
@@ -7001,7 +7005,7 @@ export class BAClickFX
         {
           if (this.ownsCanvas)
           {
-            this.canvas.style.mixBlendMode = 'plus-lighter';
+            this.canvas.style.mixBlendMode = '';
             this.canvas.style.zIndex = '2147483646';
 
             if (this.contrastCanvas)
