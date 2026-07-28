@@ -10,11 +10,13 @@ const modulePath = sourceMode
   : '../dist/ba-click-fx.js';
 const module = await import(modulePath);
 let ring3AlphaSource = null;
+let circleTextureSource = null;
 let createHash = null;
 
 if (sourceMode)
 {
   ring3AlphaSource = await import('../src/ring3-alpha.js');
+  circleTextureSource = await import('../src/circle-texture.js');
   ({ createHash } = await import('node:crypto'));
 }
 
@@ -71,6 +73,13 @@ function getCssPremultipliedSum(value)
   const alpha = channels[3] ?? 1;
 
   return channels.slice(0, 3).reduce((sum, channel) => sum + channel, 0) * alpha;
+}
+
+function getCanvasBrightness(value)
+{
+  const match = String(value).match(/^brightness\(([\d.e+-]+)\)$/i);
+
+  return match ? Number(match[1]) : 1;
 }
 
 function getHardClipOffsets(stops)
@@ -785,6 +794,26 @@ if (sourceMode)
       topLeft * bottomRight - topRight * bottomLeft === -3876,
     'Ring3 Alpha 保留无法由 U/V 一维曲线乘积表达的二维采样差异',
   );
+
+  const {
+    CIRCLE_TEXTURE_RGBA,
+    CIRCLE_TEXTURE_SIZE,
+  } = circleTextureSource;
+  const firstCircleOffset = (24 * CIRCLE_TEXTURE_SIZE + 256) * 4;
+  const secondCircleOffset = (25 * CIRCLE_TEXTURE_SIZE + 234) * 4;
+
+  assert(
+    CIRCLE_TEXTURE_SIZE === 512 &&
+      CIRCLE_TEXTURE_RGBA.length === 512 * 512 * 4,
+    'Circle_01 解码为完整的 512x512 RGBA 纹理',
+  );
+  assert(
+    CIRCLE_TEXTURE_RGBA[firstCircleOffset] ===
+        CIRCLE_TEXTURE_RGBA[secondCircleOffset] &&
+      CIRCLE_TEXTURE_RGBA[firstCircleOffset + 1] !==
+        CIRCLE_TEXTURE_RGBA[secondCircleOffset + 1],
+    'Circle_01 保留同半径同 R 采样下无法由径向曲线表达的 G 通道差异',
+  );
 }
 assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');
 assert(
@@ -1467,7 +1496,7 @@ function sampleClickEmission(scale)
   effect.setFxParam('bloom.clickEmissionScale', scale);
   probeWave.ageMs = 100;
   effect.bloomRenderer.sourceContext.conicGradients = [];
-  effect.bloomRenderer.sourceContext.radialGradients = [];
+  const diskDrawStart = effect.bloomRenderer.sourceContext.drawImageCalls.length;
   probeWave.drawBloom(effect.bloomRenderer.sourceContext, 1, 1);
 
   const ringPeak = effect.bloomRenderer.sourceContext.conicGradients
@@ -1476,12 +1505,14 @@ function sampleClickEmission(scale)
       (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
       0,
     );
-  const diskPeak = effect.bloomRenderer.sourceContext.radialGradients
-    .flatMap((entry) => entry.gradient.stops)
-    .reduce(
-      (maximum, [, color]) => Math.max(maximum, getCssColorEnergy(color)),
-      0,
-    );
+  const diskDraw = effect.bloomRenderer.sourceContext.drawImageCalls
+    .slice(diskDrawStart)
+    .find((call) =>
+      call.args[0]?.width === 512 && call.args[0]?.height === 512);
+  const diskTextureCanvas = diskDraw?.args[0];
+  const brightnessDraw = diskTextureCanvas?.context.drawImageCalls
+    .findLast((call) => String(call.filter).startsWith('brightness('));
+  const diskPeak = getCanvasBrightness(brightnessDraw?.filter);
   const webglCalls = { disks: [], rings: [] };
 
   probeWave.appendWebGLBloom(
@@ -1499,12 +1530,29 @@ function sampleClickEmission(scale)
     1,
   );
 
-  return { ringPeak, diskPeak, webglCalls };
+  return {
+    brightnessDraw,
+    diskDraw,
+    diskPeak,
+    diskTextureCanvas,
+    ringPeak,
+    webglCalls,
+  };
 }
 
 const baseClickEmission = sampleClickEmission(1);
 probeWave.ageMs = 190;
 const lateDiskCalls = [];
+const lateCanvasDiskDrawStart =
+  effect.bloomRenderer.sourceContext.drawImageCalls.length;
+
+probeWave.drawBloom(effect.bloomRenderer.sourceContext, 1, 1);
+const lateCanvasDiskDraw = effect.bloomRenderer.sourceContext.drawImageCalls
+  .slice(lateCanvasDiskDrawStart)
+  .find((call) => call.args[0] === baseClickEmission.diskTextureCanvas);
+const lateCanvasBrightnessDraw = baseClickEmission.diskTextureCanvas.context
+  .drawImageCalls.findLast((call) =>
+    String(call.filter).startsWith('brightness('));
 
 probeWave.appendWebGLBloom(
   {
@@ -1520,14 +1568,28 @@ probeWave.appendWebGLBloom(
   1,
 );
 assert(
-  lateDiskCalls[0][4] === baseClickEmission.webglCalls.disks[0][4],
+  lateDiskCalls[0][4] === baseClickEmission.webglCalls.disks[0][4] &&
+    lateCanvasDiskDraw?.globalAlpha === baseClickEmission.diskDraw.globalAlpha &&
+    getCanvasBrightness(lateCanvasBrightnessDraw?.filter) ===
+      baseClickEmission.diskPeak,
   '光盘 RGB 发射不随 Particle Alpha 衰减，仅由 200ms 生命周期截断',
 );
+const circleTintCanvas = baseClickEmission.brightnessDraw?.args[0];
+const circleColorCanvas = circleTintCanvas?.context.drawImageCalls.at(-1)?.args[0];
+const circleCoverageDraw = baseClickEmission.diskTextureCanvas?.context
+  .drawImageCalls.findLast((call) =>
+    call.compositeOperation === 'destination-in');
+const circleCoverageCanvas = circleCoverageDraw?.args[0];
+
 assert(
-  effect.bloomRenderer.sourceContext.radialGradients.at(-1)
-    .gradient.stops.length ===
-      UNITY_FX_TOUCH.disk.textureRadialEnergyKeys.length,
-  '光盘发射完整使用 FX_TEX_Circle_01 的径向能量曲线',
+  baseClickEmission.diskTextureCanvas?.width === 512 &&
+    baseClickEmission.diskTextureCanvas?.height === 512 &&
+    circleTintCanvas?.width === 512 &&
+    circleColorCanvas?.context.putImageDataCount === 1 &&
+    circleCoverageCanvas?.context.putImageDataCount === 1 &&
+    circleTintCanvas.context.putImageDataCount === 0 &&
+    baseClickEmission.diskTextureCanvas.context.putImageDataCount === 0,
+  '光盘发射使用完整 Circle_01 二维 RGB/Coverage，动态帧不执行像素回写',
 );
 const boostedClickEmission = sampleClickEmission(2);
 
@@ -1535,6 +1597,11 @@ assert(
   boostedClickEmission.ringPeak >= baseClickEmission.ringPeak * 1.8 &&
     boostedClickEmission.diskPeak >= baseClickEmission.diskPeak * 1.8,
   '点击发射倍率在线性能量上同步增强软件 Bloom 的圆环与光盘',
+);
+assert(
+  boostedClickEmission.diskDraw.globalAlpha ===
+      baseClickEmission.diskDraw.globalAlpha,
+  '点击发射倍率只改变光盘 RGB，不改变纹理 Coverage',
 );
 assert(
   boostedClickEmission.webglCalls.disks[0][4] ===
@@ -1766,7 +1833,12 @@ effect.trailStrokes[0].points = [
   { x: 410, y: 310, bornAt: now },
 ];
 
-effect.updateConfig({ softwareBloomEnabled: false });
+effect.updateConfig(
+  {
+    softwareBloomEnabled: false,
+    outputCompositing: 'transparent-overlay',
+  },
+);
 now = flushFrames(dom, now, 1);
 assert(
   effect.context.drawImageCalls.filter((call) =>
@@ -1856,6 +1928,19 @@ assert(
     secondNativePeak > 0 &&
     nativeHeadPeak > 20,
   '回环轨迹裁剪严格零尾段，并由 MXFinalBloom 阈值过滤首个低能段',
+);
+assert(
+  nativeSegmentGradients.every(({ gradient }) =>
+  {
+    const nonZeroAlphas = new Set(
+      gradient.stops
+        .map(([, color]) => getCssAlpha(color))
+        .filter((alpha) => alpha > 0),
+    );
+
+    return nonZeroAlphas.size <= 1;
+  }),
+  'Native 拖尾横截面强度只改变 Bloom RGB，不改变同一网格段 Coverage',
 );
 const expectedNativeTrailPaths = [
   ...clearTrailPaths.slice(
@@ -1992,6 +2077,10 @@ function captureTransparentSoftwareFrame(opacity)
     mainCompositeOperations: [
       ...transparentEffect.context.fillCompositeOperations,
     ],
+    diskCompositeOperations: transparentEffect.context.drawImageCalls
+      .filter((call) =>
+        call.args[0]?.width === 512 && call.args[0]?.height === 512)
+      .map((call) => call.compositeOperation),
     contrastFillCount: transparentEffect.contrastContext.fillRects.length,
   };
 
@@ -2037,8 +2126,9 @@ assert(
 assert(
   halfOverlayFrame.bloomOutputComposite === 'source-over' &&
     halfOverlayFrame.mainCompositeOperations.every((operation) =>
-      operation === 'source-over'),
-  '透明 Software、Native 主体共用 source-over Coverage 合同',
+      operation === 'source-over') &&
+    halfOverlayFrame.diskCompositeOperations.includes('source-over'),
+  '透明 Canvas 暂用 source-over 保存 Coverage，scene 模式仍保持 Additive RGB',
 );
 assert(
   halfOverlayFrame.contrastFillCount === 0,
@@ -2057,14 +2147,16 @@ hermiteBoundsEffect.setFxParam('rings.count', 0);
 hermiteBoundsEffect.setFxParam('shards.clickCount', 0);
 hermiteBoundsEffect.boom(800, 500);
 hermiteBoundsEffect.waves[0].ageMs = 20;
-hermiteBoundsEffect.bloomRenderer.sourceContext.radialGradients = [];
+const hermiteDiskDrawStart = hermiteBoundsEffect.bloomRenderer.sourceContext
+  .drawImageCalls.length;
 hermiteBoundsEffect.waves[0].drawBloom(
   hermiteBoundsEffect.bloomRenderer.sourceContext,
   hermiteBoundsEffect._getScale(),
   1,
 );
 const renderedDiskRadius = hermiteBoundsEffect.bloomRenderer.sourceContext
-  .radialGradients[0].args[5];
+  .drawImageCalls.slice(hermiteDiskDrawStart)
+  .find((call) => call.args[0]?.width === 512).args[7] * 0.5;
 const hermiteEmissionBounds = hermiteBoundsEffect
   ._getSoftwareBloomRegions(hermiteBoundsEffect._getScale())[0]
   .emissionBounds;
@@ -4525,10 +4617,11 @@ legacyEffect.boom(960, 540);
 const legacyWave = legacyEffect.waves[0];
 
 legacyWave.ageMs = 100;
-legacyEffect.context.radialGradients = [];
+legacyEffect.context.drawImageCalls = [];
 legacyWave.drawBase(legacyEffect.context, 1, 1, true, true);
-const legacyDiskRadiusAt100Ms =
-  legacyEffect.context.radialGradients[0]?.args[5];
+const legacyDiskRadiusAt100Ms = legacyEffect.context.drawImageCalls
+  .find((call) => call.args[0]?.width === 512 && call.args.length === 9)
+  ?.args[7] * 0.5;
 
 assert(
   Math.abs(legacyDiskRadiusAt100Ms - 58.77068378895867) < 0.0000001,
@@ -4706,10 +4799,10 @@ legacyEffect.context.conicGradients = [];
 legacyEffect.context.drawImageCalls = [];
 const legacyFramePutStart = legacyRingRasterizer.context.putImageDataCount;
 let legacyNow = flushFrames(dom, performance.now(), 1);
-const legacyDiskGradient = legacyEffect.context.radialGradients[0]?.gradient;
-const legacyDiskFillIndex = legacyEffect.context.filledStyles.indexOf(
-  legacyDiskGradient,
-);
+const legacyDiskDraw = legacyEffect.context.drawImageCalls.find((call) =>
+  call.args[0]?.width === 512 &&
+    call.args[0]?.height === 512 &&
+    call.args.length === 9);
 const legacyRingDraws = legacyEffect.context.drawImageCalls.filter(
   (call) => call.args[0] === legacyRingRasterizer.canvas,
 );
@@ -4738,18 +4831,11 @@ assert(
   'Tri3 圆环按材质 queue 4499 在圆盘和碎片之后绘制',
 );
 assert(
-  legacyDiskFillIndex >= 0 &&
-    legacyDiskGradient?.stops.length ===
-      UNITY_FX_TOUCH.disk.textureRadialEnergyKeys.length &&
-    legacyDiskGradient.stops[0][1] === legacyDiskGradient.stops[1][1] &&
-    legacyDiskGradient.stops.some(([position, color]) =>
-      position === 0.92 && getCssAlpha(color) === 0) &&
-    legacyEffect.context.fillShadowBlurs[legacyDiskFillIndex] ===
-      legacyEffect.getFxConfig().bloom.diskBlur &&
-    getCssAlpha(
-      legacyEffect.context.fillShadowColors[legacyDiskFillIndex],
-    ) > 0,
-  'Legacy 圆盘采样 Circle_01 实测轮廓，并继续使用原生辉光近似',
+  legacyDiskDraw?.compositeOperation === 'source-over' &&
+    legacyDiskDraw.shadowBlur === legacyEffect.getFxConfig().bloom.diskBlur &&
+    getCssAlpha(legacyDiskDraw.shadowColor) > 0 &&
+    Math.abs(legacyDiskDraw.rotation - legacyWave.diskRotation) < 0.000001,
+  'Legacy 圆盘旋转完整 Circle_01 二维纹理，并继续使用原生辉光近似',
 );
 assert(
   legacyEffect.getFxConfig().rings.hdrIntensity === 4 &&

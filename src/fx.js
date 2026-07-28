@@ -667,7 +667,7 @@ function linearEnergyToNativeTrailBloomCss(
   {
     // Native blur 的 Alpha 取自几何 Coverage，而不是 HDR 明度；发射倍率只
     // 改变 RGB，不能把透明桌面的轨迹变成实心遮挡。
-    const coverage = clamp01(opacity * intensity * bloomCfg.trailAlpha);
+    const coverage = clamp01(opacity * bloomCfg.trailAlpha);
 
     return linearEnergyToOverlayCss(
       brightPass,
@@ -830,8 +830,80 @@ function getCircleTextureResources()
     return null;
   }
 
-  circleTextureResources = sources;
+  const tintCanvas = createCanvas();
+  const outputCanvas = createCanvas();
+  const tintContext = tintCanvas.getContext('2d');
+  const outputContext = outputCanvas.getContext('2d');
+
+  if (!tintContext || !outputContext)
+  {
+    circleTextureUnavailable = true;
+    return null;
+  }
+
+  tintCanvas.width = CIRCLE_TEXTURE_SIZE;
+  tintCanvas.height = CIRCLE_TEXTURE_SIZE;
+  outputCanvas.width = CIRCLE_TEXTURE_SIZE;
+  outputCanvas.height = CIRCLE_TEXTURE_SIZE;
+  circleTextureResources = {
+    ...sources,
+    tintCanvas,
+    tintContext,
+    outputCanvas,
+    outputContext,
+  };
   return circleTextureResources;
+}
+
+/**
+ * 用固定大小的 Canvas 合成 Circle_01 二维 RGB 与 R Coverage。
+ *
+ * 动态材质只触发局部 GPU/Canvas 操作，不重新遍历 512x512 texel；这样既
+ * 保留 G 通道的非径向细节，也不会重新引入旧 Native/Legacy 的逐帧 CPU 卡顿。
+ */
+function prepareCircleTextureCanvas(channelScales)
+{
+  const resources = getCircleTextureResources();
+  const maximumScale = Math.max(0, ...channelScales);
+
+  if (!resources || maximumScale <= 0.00001)
+  {
+    return null;
+  }
+
+  const normalizedChannels = channelScales.map((channel) =>
+    Math.round(clamp01(channel / maximumScale) * 255));
+  const {
+    tintCanvas,
+    tintContext,
+    outputCanvas,
+    outputContext,
+  } = resources;
+
+  tintContext.setTransform(1, 0, 0, 1, 0, 0);
+  tintContext.globalAlpha = 1;
+  tintContext.globalCompositeOperation = 'source-over';
+  tintContext.filter = 'none';
+  tintContext.clearRect(0, 0, CIRCLE_TEXTURE_SIZE, CIRCLE_TEXTURE_SIZE);
+  tintContext.drawImage(resources.colorCanvas, 0, 0);
+  tintContext.globalCompositeOperation = 'multiply';
+  tintContext.fillStyle = `rgb(${normalizedChannels[0]}, ${
+    normalizedChannels[1]}, ${normalizedChannels[2]})`;
+  tintContext.fillRect(0, 0, CIRCLE_TEXTURE_SIZE, CIRCLE_TEXTURE_SIZE);
+
+  outputContext.setTransform(1, 0, 0, 1, 0, 0);
+  outputContext.globalAlpha = 1;
+  outputContext.globalCompositeOperation = 'source-over';
+  // brightness 在纹理采样后逐通道放大并钳制，等价于 Shader 的 RGBA8 清晰输出。
+  // 8 位纹理的最小非零通道在 255 倍时已经饱和，限制滤镜参数可避免
+  // 生命周期最后一帧把无意义的超大倍率交给浏览器滤镜实现。
+  outputContext.filter = `brightness(${Math.min(maximumScale, 255)})`;
+  outputContext.clearRect(0, 0, CIRCLE_TEXTURE_SIZE, CIRCLE_TEXTURE_SIZE);
+  outputContext.drawImage(tintCanvas, 0, 0);
+  outputContext.filter = 'none';
+  outputContext.globalCompositeOperation = 'destination-in';
+  outputContext.drawImage(resources.coverageCanvas, 0, 0);
+  return outputCanvas;
 }
 
 function createOverlayRoot(fixed)
@@ -1752,47 +1824,37 @@ function drawDisk(
   const size = evaluateUnityHermiteCurve(diskCfg.sizeKeys, progress);
   const radius = diskCfg.radius * size * scale;
   const color = evaluateColor(diskCfg.colorKeys, progress);
-  const coverageAlpha = evaluateNumber(
+  const particleAlpha = evaluateNumber(
     diskCfg.alphaKeys,
     progress,
-  ) * opacity;
-  const gradient = context.createRadialGradient(
-    wave.x,
-    wave.y,
-    0,
-    wave.x,
-    wave.y,
-    Math.max(radius, 0.01),
   );
+
+  if (radius <= 0 || particleAlpha <= 0)
+  {
+    return;
+  }
 
   const materialEnergy = evaluateSrgbGradientEnergy(
     diskCfg.colorKeys,
     progress,
     bloomCfg.diskEmission,
   );
+  const textureCanvas = prepareCircleTextureCanvas(
+    materialEnergy.map((channel) => channel / Math.max(particleAlpha, 0.00001)),
+  );
 
-  for (const [position, energy] of diskCfg.textureRadialEnergyKeys)
+  if (!textureCanvas)
   {
-    // Cross2 的生命周期 Alpha 只控制目标衰减；源 RGB 不乘该 Alpha。
-    // Circle_01 的 R 通道仍同时决定 RGB 能量和 Coverage。
-    gradient.addColorStop(
-      position,
-      linearEnergyToOverlayCss(
-        materialEnergy,
-        opacity * energy,
-        // Circle_01 的 RGB 能量是 R²，Coverage 使用原始 R。
-        coverageAlpha * Math.sqrt(Math.max(0, energy)),
-      ),
-    );
+    return;
   }
 
   context.save();
   // Cross2 的 Blend One / OneMinusSrcAlpha 与最终输出模式无关；清晰层
   // 始终按 Coverage 衰减目标，超过 8 位范围的能量由独立 Bloom 保留。
   context.globalCompositeOperation = 'source-over';
-  context.beginPath();
-  context.arc(wave.x, wave.y, radius, 0, TAU);
-  context.fillStyle = gradient;
+  context.translate(wave.x, wave.y);
+  context.rotate(wave.diskRotation);
+  context.globalAlpha = clamp01(particleAlpha * opacity);
   context.shadowColor = colorToCss(
     color,
     scaleNativeGlowAlpha(
@@ -1801,7 +1863,17 @@ function drawDisk(
     ),
   );
   context.shadowBlur = useNativeBloom ? bloomCfg.diskBlur * scale : 0;
-  context.fill();
+  context.drawImage(
+    textureCanvas,
+    0,
+    0,
+    CIRCLE_TEXTURE_SIZE,
+    CIRCLE_TEXTURE_SIZE,
+    -radius,
+    -radius,
+    radius * 2,
+    radius * 2,
+  );
   context.restore();
 }
 
@@ -1866,34 +1938,32 @@ function drawDiskEmission(
     progress,
     bloomCfg.diskEmission,
   );
-  // Cross2 的生命周期 Alpha 不进入 RGB，Bloom 发射必须持续到粒子死亡。
-  const gradient = context.createRadialGradient(
-    wave.x,
-    wave.y,
-    0,
-    wave.x,
-    wave.y,
-    Math.max(radius, 0.01),
+  const textureCanvas = prepareCircleTextureCanvas(
+    materialEnergy.map((channel) =>
+      channel * bloomCfg.clickEmissionScale / bloomCfg.emissionRange),
   );
 
-  for (const [position, energy] of diskCfg.textureRadialEnergyKeys)
+  if (radius <= 0 || !textureCanvas)
   {
-    gradient.addColorStop(
-      position,
-      linearEnergyToEmissionCss(
-        materialEnergy,
-        opacity * bloomCfg.diskEmissionAlpha * energy,
-        bloomCfg.emissionRange,
-        bloomCfg.clickEmissionScale,
-      ),
-    );
+    return;
   }
 
   context.save();
-  context.beginPath();
-  context.arc(wave.x, wave.y, radius, 0, TAU);
-  context.fillStyle = gradient;
-  context.fill();
+  context.translate(wave.x, wave.y);
+  context.rotate(wave.diskRotation);
+  // Cross2 生命周期 Alpha 不进入 RGB；Bloom 发射持续到粒子真正死亡。
+  context.globalAlpha = clamp01(opacity * bloomCfg.diskEmissionAlpha);
+  context.drawImage(
+    textureCanvas,
+    0,
+    0,
+    CIRCLE_TEXTURE_SIZE,
+    CIRCLE_TEXTURE_SIZE,
+    -radius,
+    -radius,
+    radius * 2,
+    radius * 2,
+  );
   context.restore();
 }
 
@@ -5850,6 +5920,8 @@ export class BAClickFX
     const prevHueShift = themeHueShift;
     themeHueShift = this._themeHueShift;
     this.context.save();
+    // 透明 Canvas 无法独立保存 Additive RGB 与 Coverage Alpha；在 residual
+    // Coverage Final Pass 完成前保留兼容 source-over，避免多个粒子把 Alpha 相加。
     this.context.globalCompositeOperation =
       this.config.outputCompositing === 'transparent-overlay'
         ? 'source-over'
@@ -7430,7 +7502,28 @@ export class BAClickFX
         coverageContext.restore();
       }
 
-      if (!renderer.composite(this.context, settings))
+      let compositeSucceeded = false;
+
+      this.context.save();
+
+      try
+      {
+        if (this.config.outputCompositing === 'transparent-overlay')
+        {
+          // Canvas 无法为 RGB 和 Alpha指定两套混合函数。Bloom 输出已包含
+          // 模糊 Coverage，使用 lighter 会与清晰 Coverage 相加并抬高桌面
+          // 遮挡；这里保留 source-over 的兼容近似，普通粒子仍严格 Additive。
+          this.context.globalCompositeOperation = 'source-over';
+        }
+
+        compositeSucceeded = renderer.composite(this.context, settings);
+      }
+      finally
+      {
+        this.context.restore();
+      }
+
+      if (!compositeSucceeded)
       {
         this.bloomRenderer.available = false;
         failed = true;
@@ -7676,6 +7769,7 @@ export class BAClickFX
   {
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
+    // Context 丢失回退必须沿用正常帧的透明 Coverage 兼容合同。
     this.context.globalCompositeOperation =
       this.config.outputCompositing === 'transparent-overlay'
         ? 'source-over'
