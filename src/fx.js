@@ -1673,6 +1673,9 @@ function drawDisk(
   }
 
   context.save();
+  // Cross2 使用 One / OneMinusSrcAlpha；局部切换可保留其背景衰减，
+  // 后续碎片和 Ring3 仍由外层 lighter 按 Unity 的加色队列绘制。
+  context.globalCompositeOperation = 'source-over';
   context.beginPath();
   context.arc(wave.x, wave.y, radius, 0, TAU);
   context.fillStyle = gradient;
