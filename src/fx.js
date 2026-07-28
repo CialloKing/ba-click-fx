@@ -3245,10 +3245,11 @@ function createTrailFrameData(
   points,
   trailCfg,
   materialIntensity = null,
+  cacheSegmentLengths = materialIntensity !== null,
 )
 {
-  // Legacy 只消费累计距离，不为未使用的 Canvas 网格分配段长缓存。
-  const measurement = measureTrail(points, materialIntensity !== null);
+  // Legacy 只消费累计距离；WebGL2 虽不需要 LUT，仍复用段长构建精确网格。
+  const measurement = measureTrail(points, cacheSegmentLengths);
 
   if (materialIntensity === null)
   {
@@ -5908,6 +5909,7 @@ export class BAClickFX
         useNativeBloom,
         legacy,
         drawCanvasOutput,
+        useWebGLClickEffects || useWebGL2Bloom,
       );
       this._updateWaves(
         this.clickTimeMs,
@@ -7880,6 +7882,20 @@ export class BAClickFX
         continue;
       }
 
+      if (
+        !legacy &&
+        !Array.isArray(stroke.trailFrameData?.segmentEnergies)
+      )
+      {
+        // WebGL2 正常帧只缓存网格测量；Context 或 GPU 当帧失败时，
+        // Canvas 回退在唯一入口按需恢复旧 LUT 数据，避免正常帧重复计算。
+        stroke.trailFrameData = createTrailFrameData(
+          stroke.points,
+          this.fxConfig.trail,
+          this.fxConfig.bloom.trailEmission,
+        );
+      }
+
       drawTrail(
         this.context,
         stroke.points,
@@ -7954,6 +7970,7 @@ export class BAClickFX
     useNativeBloom,
     legacy = false,
     drawCanvas = true,
+    useTexturedWebGL = false,
   )
   {
     const lifetime = this.fxConfig.trail.lifetimeMs;
@@ -7980,7 +7997,7 @@ export class BAClickFX
 
       if (stroke.points.length >= 2)
       {
-        const materialIntensity = legacy
+        const materialIntensity = legacy || useTexturedWebGL
           ? null
           : this.fxConfig.bloom.trailEmission;
 
@@ -7988,6 +8005,7 @@ export class BAClickFX
           stroke.points,
           this.fxConfig.trail,
           materialIntensity,
+          !legacy,
         );
       }
       else

@@ -4431,6 +4431,45 @@ assert(
   'Unity 单三角端帽固定端点 U，并把尖端映射到横截面 V=0.5',
 );
 
+const deferredTrailDataEffect = new BAClickFX(
+  {
+    effectBackend: 'webgl2',
+    bloomBackend: 'webgl2',
+    inputSource: 'manual',
+  },
+);
+
+deferredTrailDataEffect.trailStrokes =
+[
+  {
+    active: true,
+    points:
+    [
+      { x: 10, y: 10, bornAt: 0 },
+      { x: 20, y: 10, bornAt: 0 },
+    ],
+    trailFrameData: null,
+  },
+];
+deferredTrailDataEffect._updateTrail(10, 1, false, false, false, true);
+const texturedFrameData = deferredTrailDataEffect.trailStrokes[0].trailFrameData;
+
+assert(
+  texturedFrameData.measurement.segmentLengths.length === 2 &&
+    texturedFrameData.pointEnergies === undefined &&
+    texturedFrameData.segmentTransverseProfiles === undefined,
+  '完整 WebGL2 正常帧只缓存网格测量，不再计算 Canvas 拖尾 LUT',
+);
+deferredTrailDataEffect._drawCanvasTrails(1, false, false);
+const fallbackFrameData = deferredTrailDataEffect.trailStrokes[0].trailFrameData;
+
+assert(
+  fallbackFrameData.pointEnergies.length === 2 &&
+    fallbackFrameData.segmentTransverseProfiles.length === 1,
+  'WebGL2 失败转入 Canvas 时按需恢复完整拖尾 LUT 数据',
+);
+deferredTrailDataEffect.destroy();
+
 const geometryEffect = new BAClickFX(
   {
     bloomBackend: 'native',
