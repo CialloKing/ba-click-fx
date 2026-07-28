@@ -711,6 +711,40 @@ assert(
 );
 assert(UNITY_FX_TOUCH.rootDurationMs === 1000, '根粒子持续 1 秒');
 assert(UNITY_FX_TOUCH.disk.lifetimeMs === 200, '短圆盘持续 0.2 秒');
+// OriginalPrefab 直接序列化归一化 float；完整数组断言避免未来再次把
+// 启用粒子的 RGB 提前取整成 8-bit 近似值。
+const originalPrefabEnabledColorKeys =
+[
+  [
+    [0, [255, 255, 255]],
+    [0.1205921, [0.24056602 * 255, 0.39061815 * 255, 255]],
+  ],
+  [
+    [0.1117723, [255, 255, 255]],
+    [0.5000076, [0.2971698 * 255, 0.6532865 * 255, 255]],
+    [1, [0.2971698 * 255, 0.6532865 * 255, 255]],
+  ],
+  [
+    [0, [255, 255, 255]],
+    [0.1823606, [255, 255, 255]],
+    [0.282353, [0.3726415 * 255, 0.7731873 * 255, 255]],
+    [0.4617685, [0.37254903 * 255, 0.7725491 * 255, 255]],
+    [0.6617685, [0.3529412 * 255, 0.7294118 * 255, 0.9450981 * 255]],
+    [0.8264744, [0.37254903 * 255, 0.7725491 * 255, 255]],
+    [1, [0.37254903 * 255, 0.7725491 * 255, 255]],
+  ],
+];
+
+assert(
+  JSON.stringify(
+    [
+      UNITY_FX_TOUCH.disk.colorKeys,
+      UNITY_FX_TOUCH.rings.colorKeys,
+      UNITY_FX_TOUCH.shards.colorKeys,
+    ],
+  ) === JSON.stringify(originalPrefabEnabledColorKeys),
+  '启用粒子的 Gradient RGB 保留 OriginalPrefab 归一化 float 真值',
+);
 assert(
   JSON.stringify(UNITY_FX_TOUCH.disk.sizeKeys) === JSON.stringify(
     [
