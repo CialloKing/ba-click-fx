@@ -63,11 +63,17 @@ const EMISSION_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 in vec3 v_color;
+in float v_coverage;
+uniform bool u_transparentOverlay;
 out vec4 outColor;
 
 void main()
 {
-  outColor = vec4(max(v_color, vec3(0.0)), 1.0);
+  float coverage = u_transparentOverlay
+    ? clamp(v_coverage, 0.0, 1.0)
+    : 1.0;
+
+  outColor = vec4(max(v_color, vec3(0.0)), coverage);
 }
 `;
 
@@ -127,13 +133,18 @@ vec3 thresholdColor(vec3 color)
 
 void main()
 {
-  vec3 color =
-    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, -1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, -1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0)).rgb;
+  vec4 sampleSum =
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, -1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, -1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0));
+  vec4 filtered = sampleSum * 0.25;
 
-  outColor = vec4(thresholdColor(color * 0.25), 1.0);
+  // Coverage 只经过空间滤波，不受 HDR 阈值与强度影响。
+  outColor = vec4(
+    thresholdColor(filtered.rgb),
+    clamp(filtered.a, 0.0, 1.0)
+  );
 }
 `;
 
@@ -367,13 +378,14 @@ out vec4 outColor;
 
 void main()
 {
-  vec3 color =
-    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, -1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, -1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)).rgb +
-    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0)).rgb;
+  vec4 sampleSum =
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, -1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, -1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)) +
+    texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0));
+  vec4 filtered = sampleSum * 0.25;
 
-  outColor = vec4(color * 0.25, 1.0);
+  outColor = vec4(filtered.rgb, clamp(filtered.a, 0.0, 1.0));
 }
 `;
 
@@ -388,23 +400,27 @@ uniform float u_sampleScale;
 in vec2 v_uv;
 out vec4 outColor;
 
-vec3 sampleBox(sampler2D source, vec2 uv, vec2 offset)
+vec4 sampleBox(sampler2D source, vec2 uv, vec2 offset)
 {
   return (
-    texture(source, uv + vec2(-offset.x, -offset.y)).rgb +
-    texture(source, uv + vec2(offset.x, -offset.y)).rgb +
-    texture(source, uv + vec2(-offset.x, offset.y)).rgb +
-    texture(source, uv + vec2(offset.x, offset.y)).rgb
+    texture(source, uv + vec2(-offset.x, -offset.y)) +
+    texture(source, uv + vec2(offset.x, -offset.y)) +
+    texture(source, uv + vec2(-offset.x, offset.y)) +
+    texture(source, uv + vec2(offset.x, offset.y))
   ) * 0.25;
 }
 
 void main()
 {
-  vec3 high = texture(u_high, v_uv).rgb;
+  vec4 high = texture(u_high, v_uv);
   vec2 offset = u_lowTexel * (u_sampleScale * 0.5);
-  vec3 low = sampleBox(u_low, v_uv, offset);
+  vec4 low = sampleBox(u_low, v_uv, offset);
 
-  outColor = vec4(high + low, 1.0);
+  // 相邻 mip 来自同一份几何，Coverage 取最大值可扩散范围且不会重复累加。
+  outColor = vec4(
+    high.rgb + low.rgb,
+    max(clamp(high.a, 0.0, 1.0), clamp(low.a, 0.0, 1.0))
+  );
 }
 `;
 
@@ -419,6 +435,7 @@ uniform float u_sampleScale;
 uniform float u_intensity;
 uniform bool u_hasScene;
 uniform bool u_hasBackground;
+uniform bool u_transparentOverlay;
 
 in vec2 v_uv;
 out vec4 outColor;
@@ -453,15 +470,17 @@ float solveOverlayAlpha(float background, float target)
 void main()
 {
   vec2 offset = u_bloomTexel * (u_sampleScale * 0.5);
-  vec3 bloom =
-    texture(u_bloom, v_uv + vec2(-offset.x, -offset.y)).rgb +
-    texture(u_bloom, v_uv + vec2(offset.x, -offset.y)).rgb +
-    texture(u_bloom, v_uv + vec2(-offset.x, offset.y)).rgb +
-    texture(u_bloom, v_uv + vec2(offset.x, offset.y)).rgb;
+  vec4 bloom =
+    texture(u_bloom, v_uv + vec2(-offset.x, -offset.y)) +
+    texture(u_bloom, v_uv + vec2(offset.x, -offset.y)) +
+    texture(u_bloom, v_uv + vec2(-offset.x, offset.y)) +
+    texture(u_bloom, v_uv + vec2(offset.x, offset.y));
   vec4 scene = u_hasScene
     ? texture(u_scene, v_uv)
     : vec4(0.0);
-  vec3 linear = scene.rgb + bloom * 0.25 * max(0.0, u_intensity);
+  vec4 filteredBloom = bloom * 0.25;
+  vec3 linear = scene.rgb +
+    filteredBloom.rgb * max(0.0, u_intensity);
   vec3 srgb = vec3(
     linearToSrgb(linear.r),
     linearToSrgb(linear.g),
@@ -502,6 +521,29 @@ void main()
       clamp(premultiplied, vec3(0.0), vec3(overlayAlpha)),
       overlayAlpha
     );
+    return;
+  }
+
+  if (u_transparentOverlay)
+  {
+    float sceneCoverage = u_hasScene
+      ? clamp(scene.a, 0.0, 1.0)
+      : 0.0;
+    float bloomCoverage = clamp(filteredBloom.a, 0.0, 1.0);
+    float alpha = max(sceneCoverage, bloomCoverage);
+    float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
+
+    if (maximumSrgb <= 0.00001 || alpha <= 0.00001)
+    {
+      outColor = vec4(0.0);
+      return;
+    }
+
+    // 未知桌面背景无法精确承载 HDR 加色。只压缩超过 Alpha 的 RGB，
+    // 以保持色相并满足浏览器预乘合成所要求的 RGB <= Alpha。
+    float premultiplyScale = min(1.0, alpha / maximumSrgb);
+
+    outColor = vec4(srgb * premultiplyScale, alpha);
     return;
   }
 
@@ -3249,15 +3291,20 @@ export class WebGL2EffectRenderer
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  _renderEmission()
+  _renderEmission(settings)
   {
     const gl = this.gl;
+    const transparentOverlay =
+      settings.outputCompositing === 'transparent-overlay';
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sourceTarget.framebuffer);
     gl.viewport(0, 0, this.sourceWidth, this.sourceHeight);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    this._drawGeometryBatches(this.programs.emission);
+    this._drawGeometryBatches(
+      this.programs.emission,
+      transparentOverlay,
+    );
   }
 
   _renderPrefilter(settings)
@@ -3380,6 +3427,10 @@ export class WebGL2EffectRenderer
       gl.getUniformLocation(program, 'u_hasBackground'),
       hasBackground ? 1 : 0,
     );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_transparentOverlay'),
+      settings.outputCompositing === 'transparent-overlay' ? 1 : 0,
+    );
     gl.uniform2f(
       gl.getUniformLocation(program, 'u_bloomTexel'),
       1 / this.width,
@@ -3432,7 +3483,7 @@ export class WebGL2EffectRenderer
 
       if (!hasScene)
       {
-        this._renderEmission();
+        this._renderEmission(settings);
       }
 
       this._renderPrefilter(settings);
