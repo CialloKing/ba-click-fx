@@ -383,9 +383,9 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `shards.clickCount` | 4 | Click shard count |
 | `shards.maxCount` | 50 | Trail-shard limit per press; click shards and older instances do not consume it |
 | `shards.trailSpacing` | 108 | Trail shard spacing |
-| `bloom.threshold` | 1.0 | Bright-pass threshold |
+| `bloom.threshold` | 1.0 | Unity-serialized Gamma-space bright-pass threshold; converted to Linear before prefiltering |
 | `bloom.softKnee` | 0 | Soft transition around the threshold |
-| `bloom.clamp` | 65472 | MXFinalBloom prefilter HDR clamp |
+| `bloom.clamp` | 65472 | Unity-serialized Gamma-space prefilter limit; converted to Linear and capped to the shader half-float maximum of 65504 |
 | `bloom.intensity` | 1.7 | In-game MXFinalBloom intensity |
 | `bloom.diffusion` | 7 | Diffusion parameter used to derive mip count and SampleScale |
 | `bloom.resolutionScale` | 0.5 | Bloom buffer scale (internally clamped to 0.1–0.75) |
@@ -439,6 +439,8 @@ Shards scatter along the trail at distance intervals.
 ### Bloom Rendering Backends
 
 Full WebGL2 and WebGL2 Bloom share `WebGL2EffectRenderer`, HDR emission parameters, and Bloom settings, and both build ring, disk, trail, and shard geometry directly on the GPU. They then follow the game's `Hidden/MXFinalBloom` path — four-tap prefiltering, Box4 mips, cumulative upsampling, and the original intensity conversion — and output the crisp Scene, Coverage, and Bloom in one Final Pass. WebGL2 Bloom remains a compatibility selector with separate backend state and a Canvas fallback chain, but successful frames no longer build or upload an 8-bit Canvas Scene.
+
+`bloom.threshold` and `bloom.clamp` retain Unity's serialized Gamma-space semantics. Both are converted with Unity's `GammaToLinearSpace` before the linear-HDR prefilter, and Clamp is then limited to the shader `half` maximum of `65504`. The default configuration snapshot therefore still reports the serialized asset value `65472`, whose effective runtime limit is `65504`.
 
 Availability is determined by actually creating a WebGL2 context, checking `EXT_color_buffer_float`, and validating the `RGBA16F` framebuffer. Full Effect state uses `effectBackend` / `resolvedEffectBackend`, while Bloom uses `bloomBackend` / `resolvedBloomBackend`; `auto` briefly reports `pending` before the first deferred probe and while a restored context is being validated. A visible context loss falls back to Canvas immediately and WebGL takes ownership again only after the complete restored resource chain succeeds.
 

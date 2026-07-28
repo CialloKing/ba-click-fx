@@ -403,9 +403,9 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `shards.clickCount` | 4 | 点击碎片数量 |
 | `shards.maxCount` | 50 | 每次按下实例的拖尾碎片上限；点击碎片和旧实例不占用额度 |
 | `shards.trailSpacing` | 108 | 拖尾碎片间距 |
-| `bloom.threshold` | 1.0 | 高亮提取阈值 |
+| `bloom.threshold` | 1.0 | Unity 序列化的 Gamma 空间高亮阈值；预过滤前转换到 Linear |
 | `bloom.softKnee` | 0 | 阈值过渡柔和度 |
-| `bloom.clamp` | 65472 | MXFinalBloom 预过滤 HDR 上限 |
+| `bloom.clamp` | 65472 | Unity 序列化的 Gamma 空间预过滤上限；转 Linear 后受 Shader half 上限 65504 约束 |
 | `bloom.intensity` | 1.7 | 游戏 MXFinalBloom 强度 |
 | `bloom.diffusion` | 7 | 决定 mip 层数与 SampleScale 的扩散参数 |
 | `bloom.resolutionScale` | 0.5 | Bloom 缓冲区相对分辨率（内部限制为 0.1~0.75） |
@@ -459,6 +459,8 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 ### Bloom 渲染后端
 
 纯 WebGL2 与 WebGL2 Bloom 共用 `WebGL2EffectRenderer`、HDR 发射参数和 Bloom 配置，并都直接在 GPU 中构建圆环、光盘、拖尾与碎片 Scene。两者随后按游戏 `Hidden/MXFinalBloom` 的 4-tap 预过滤、Box4 mip、累积式上采样和强度换算，在一次 Final Pass 中输出清晰层、Coverage 与 Bloom。WebGL2 Bloom 作为兼容选择器保留独立的后端状态与 Canvas 回退链，但成功帧不再生成或上传 8 位 Canvas Scene。
+
+`bloom.threshold` 与 `bloom.clamp` 保留 Unity 序列化的 Gamma 空间语义；进入线性 HDR 预过滤前按 Unity `GammaToLinearSpace` 换算，其中 Clamp 再受 Shader `half` 的 `65504` 上限约束。因此默认配置快照仍返回资源值 `65472`，其运行时有效上限为 `65504`。
 
 可用性由运行时实际创建 WebGL2 上下文、检查 `EXT_color_buffer_float` 并验证 `RGBA16F` 帧缓冲决定。完整特效使用 `effectBackend` / `resolvedEffectBackend`，Bloom 使用 `bloomBackend` / `resolvedBloomBackend`；`auto` 在首次延迟探测或 Context 恢复验证前会短暂返回 `pending`。Context 丢失时当前可见输出立即回退 Canvas，恢复后只有完整资源链验证成功才重新接管。
 

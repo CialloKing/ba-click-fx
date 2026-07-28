@@ -134,6 +134,17 @@ for (const descriptor of FX_PARAM_SCHEMA)
 
 check(true, '所有描述符都匹配 Unity 默认值与展示边界');
 
+const bloomThresholdDescriptor = FX_PARAM_SCHEMA.find(
+  (descriptor) => descriptor.path === 'bloom.threshold',
+);
+const bloomClampDescriptor = FX_PARAM_SCHEMA.find(
+  (descriptor) => descriptor.path === 'bloom.clamp',
+);
+
+assert.equal(bloomThresholdDescriptor?.unit, 'gamma-hdr');
+assert.equal(bloomClampDescriptor?.unit, 'gamma-hdr');
+check(true, 'Bloom Threshold 与 Clamp 明确使用 Unity Gamma 空间配置语义');
+
 console.log('\nLegacy 基线与版本迁移');
 const legacyOverrides = FX_PARAM_SCHEMA.filter(
   (descriptor) =>

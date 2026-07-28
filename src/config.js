@@ -815,7 +815,7 @@ export const FX_PARAM_SCHEMA = freezeFxParamMetadata(
     createFxParamDescriptor(
       'bloom.threshold',
       'number',
-      { min: 0, max: 64, step: 0.01, unit: 'linear-hdr' },
+      { min: 0, max: 64, step: 0.01, unit: 'gamma-hdr' },
     ),
     createFxParamDescriptor(
       'bloom.softKnee',
@@ -825,7 +825,7 @@ export const FX_PARAM_SCHEMA = freezeFxParamMetadata(
     createFxParamDescriptor(
       'bloom.clamp',
       'number',
-      { min: 0, max: 65504, step: 1, unit: 'linear-hdr' },
+      { min: 0, max: 65504, step: 1, unit: 'gamma-hdr' },
     ),
     createFxParamDescriptor(
       'bloom.intensity',
