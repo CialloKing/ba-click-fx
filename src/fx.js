@@ -23,6 +23,7 @@ import {
   calculateBloomContribution,
 } from './software-bloom.js';
 import { WebGL2EffectRenderer } from './webgl2-effect.js';
+import { CanvasSceneCompositor } from './canvas-scene-compositor.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
 import {
   TRIANGLE_TEXTURE_SIZE,
@@ -4400,6 +4401,8 @@ export class BAClickFX
       throw new Error('BAClickFX 无法创建 Canvas 2D 上下文');
     }
 
+    this.canvasSceneCompositor = new CanvasSceneCompositor(createCanvas);
+
     // 内部 Canvas 仅承担发射遮罩和 ImageData 暂存，不会插入 DOM。
     this.bloomRenderer = new SoftwareBloomRenderer(() => createCanvas());
     this.bloomRenderers = [this.bloomRenderer];
@@ -4595,6 +4598,9 @@ export class BAClickFX
       this.contrastCanvas.height = this.canvas.height;
       this.contrastContext.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
+
+    // CPU Scene 缓存跟随主 Canvas 的物理像素，保证 cover 裁剪与 WebGL2 一致。
+    this.canvasSceneCompositor.resize(this.canvas.width, this.canvas.height);
 
     // WebGL RenderTarget 可能很大，只在真正进入 WebGL 渲染帧时调整，
     // 避免 Software、Native 或 Legacy 模式因窗口 resize 触发无用 GPU 分配。
@@ -5226,6 +5232,12 @@ export class BAClickFX
     let useWebGL2Bloom = bloomBackend === 'webgl2';
     // Legacy 本身就是 Canvas 阴影路径，不能因不属于增强后端而关闭圆盘辉光。
     let useNativeBloom = legacy || bloomBackend === 'native';
+    let useCanvasScene = this._shouldUseCanvasScene(
+      useWebGLClickEffects,
+      bloomBackend,
+      legacy,
+    );
+    let canvasSceneRendered = false;
 
     this.lastFrameTime = now;
     this._setResolvedBloomBackend(bloomBackend);
@@ -5246,25 +5258,27 @@ export class BAClickFX
 
     try
     {
+      const drawCanvasDuringUpdate = !useWebGLClickEffects && !useCanvasScene;
+
       this._updateTrail(
         this.trailTimeMs,
         scale,
         useNativeBloom,
         legacy,
-        !useWebGLClickEffects,
+        drawCanvasDuringUpdate,
       );
       this._updateWaves(
         this.clickTimeMs,
         scale,
         useNativeBloom,
         legacy,
-        !useWebGLClickEffects,
+        drawCanvasDuringUpdate,
       );
       this._updateShards(
         this.clickTimeMs,
         this.trailTimeMs,
         scale,
-        !useWebGLClickEffects,
+        drawCanvasDuringUpdate,
       );
 
       if (useWebGLClickEffects)
@@ -5278,10 +5292,29 @@ export class BAClickFX
           useSoftwareBloom = bloomBackend === 'software';
           useWebGL2Bloom = bloomBackend === 'webgl2';
           useNativeBloom = bloomBackend === 'native';
+          useCanvasScene = this._shouldUseCanvasScene(
+            useWebGLClickEffects,
+            bloomBackend,
+            legacy,
+          );
           this._setResolvedBloomBackend(bloomBackend);
           this._setWebGLBloomVisible(useWebGL2Bloom);
-          this._drawCanvasTrails(scale, useNativeBloom, legacy);
-          this._drawCanvasClickEffects(scale, useNativeBloom);
+
+          if (useCanvasScene)
+          {
+            canvasSceneRendered = this._renderCanvasSceneEffects(
+              scale,
+              useNativeBloom,
+              legacy,
+            );
+          }
+
+          if (!canvasSceneRendered)
+          {
+            // Scene 准备或回读失败时不能泄露不透明线性背景，使用已更新状态重绘。
+            this._clearCanvasOutput();
+            this._drawCanvasEffects(scale, useNativeBloom, legacy);
+          }
         }
         else
         {
@@ -5293,30 +5326,40 @@ export class BAClickFX
       }
       else
       {
-        // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
-        this._drawWaveRings(scale, useNativeBloom, legacy);
+        if (useCanvasScene)
+        {
+          canvasSceneRendered = this._renderCanvasSceneEffects(
+            scale,
+            useNativeBloom,
+            legacy,
+          );
+
+          if (!canvasSceneRendered)
+          {
+            // 同帧回退只重绘，不能再次推进粒子生命周期。
+            this._clearCanvasOutput();
+            this._drawCanvasEffects(scale, useNativeBloom, legacy);
+          }
+        }
+        else
+        {
+          // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
+          this._drawWaveRings(scale, useNativeBloom, legacy);
+        }
       }
 
-      if (!legacy && !useWebGLClickEffects)
+      if (canvasSceneRendered || useWebGLClickEffects)
+      {
+        // Scene 已含真实背景对比；叠加旧 darken 层会把同一遮挡计算两次。
+        this._clearLightBackgroundContrast();
+      }
+      else if (!legacy)
       {
         this._renderLightBackgroundContrast(
           scale,
           useSoftwareBloom || useWebGL2Bloom,
         );
       }
-      else if (useWebGLClickEffects && this.contrastContext)
-      {
-        this.contrastContext.setTransform(
-          this.dpr,
-          0,
-          0,
-          this.dpr,
-          0,
-          0,
-        );
-        this.contrastContext.clearRect(0, 0, this.width, this.height);
-      }
-
       if (
         !useWebGLClickEffects &&
         useSoftwareBloom &&
@@ -5935,6 +5978,248 @@ export class BAClickFX
   get _isLegacy()
   {
     return this.config.renderingMode === 'legacy';
+  }
+
+  _clearCanvasOutput()
+  {
+    this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.context.clearRect(0, 0, this.width, this.height);
+  }
+
+  _clearLightBackgroundContrast()
+  {
+    if (!this.contrastContext)
+    {
+      return;
+    }
+
+    this.contrastContext.setTransform(
+      this.dpr,
+      0,
+      0,
+      this.dpr,
+      0,
+      0,
+    );
+    this.contrastContext.clearRect(0, 0, this.width, this.height);
+  }
+
+  _shouldUseCanvasScene(useWebGLClickEffects, bloomBackend, legacy)
+  {
+    return !useWebGLClickEffects &&
+      (legacy || bloomBackend === 'native') &&
+      this.sceneBackgroundSource !== null &&
+      this.canvasSceneCompositor.ready;
+  }
+
+  _getCanvasSceneRegions(scale, useNativeBloom, legacy)
+  {
+    const regions = [];
+    const addRegion = (minimumX, minimumY, maximumX, maximumY) =>
+    {
+      if (
+        !Number.isFinite(minimumX) ||
+        !Number.isFinite(minimumY) ||
+        !Number.isFinite(maximumX) ||
+        !Number.isFinite(maximumY) ||
+        maximumX <= minimumX ||
+        maximumY <= minimumY
+      )
+      {
+        return;
+      }
+
+      regions.push(
+        {
+          x: minimumX,
+          y: minimumY,
+          width: maximumX - minimumX,
+          height: maximumY - minimumY,
+        },
+      );
+    };
+    const addCenteredRegion = (x, y, radius) =>
+    {
+      if (!Number.isFinite(radius) || radius <= 0)
+      {
+        return;
+      }
+
+      addRegion(x - radius, y - radius, x + radius, y + radius);
+    };
+
+    for (const wave of this.waves)
+    {
+      const fx = wave.fx;
+      const hitProgress = wave.ageMs / fx.hit.lifetimeMs;
+
+      if (fx.hit.enabled && hitProgress < 1)
+      {
+        addCenteredRegion(wave.x, wave.y, fx.hit.radius * scale + 2);
+      }
+
+      const flareProgress = wave.ageMs / fx.flare.lifetimeMs;
+
+      if (fx.flare.enabled && flareProgress < 1)
+      {
+        addCenteredRegion(
+          wave.x,
+          wave.y,
+          fx.flare.radius * scale + 0.75 * scale + 2,
+        );
+      }
+
+      const diskProgress = wave.ageMs / fx.disk.lifetimeMs;
+
+      if (diskProgress < 1)
+      {
+        const diskRadius = fx.disk.radius * evaluateUnityHermiteCurve(
+          fx.disk.sizeKeys,
+          diskProgress,
+        ) * scale;
+        const diskPadding = useNativeBloom
+          ? Math.ceil(3 * fx.bloom.diskBlur * scale + 2)
+          : 2;
+
+        addCenteredRegion(wave.x, wave.y, diskRadius + diskPadding);
+      }
+
+      const ringProgress = wave.ageMs / fx.rings.lifetimeMs;
+
+      if (ringProgress < 1)
+      {
+        const ringPadding = useNativeBloom
+          ? Math.ceil(3 * fx.bloom.ringBlur * scale + 2)
+          : 2;
+
+        for (const ring of wave.rings)
+        {
+          const geometry = resolveRingGeometry(
+            ring,
+            ringProgress,
+            scale,
+            fx.rings,
+          );
+          const outerRadius = geometry.radius + geometry.width * 0.5;
+
+          addCenteredRegion(
+            ring.x,
+            ring.y,
+            outerRadius + ringPadding,
+          );
+        }
+      }
+    }
+
+    const trailCfg = this.fxConfig.trail;
+    const bloomCfg = this.fxConfig.bloom;
+    let trailMargin;
+
+    if (legacy)
+    {
+      const outerWidth = bloomCfg.trailAlpha !== 0
+        ? trailCfg.outerGlowWidth
+        : 0;
+      const maximumWidth = Math.max(
+        LEGACY_TRAIL_WIDTH,
+        LEGACY_TRAIL_CORE_WIDTH,
+        outerWidth,
+      ) * scale;
+
+      trailMargin = Math.ceil(maximumWidth * 0.5 + 2);
+    }
+    else
+    {
+      const bloomMargin = useNativeBloom
+        ? trailCfg.outerGlowWidth * scale * 3 +
+          trailCfg.geometryWidth * scale * 0.5 + 2
+        : 0;
+      const meshMargin = trailCfg.width * scale * 0.5 *
+        MAX_TRAIL_INNER_MITER_RATIO + 2;
+
+      trailMargin = Math.ceil(Math.max(bloomMargin, meshMargin));
+    }
+
+    for (const stroke of this.trailStrokes)
+    {
+      if (stroke.points.length < 2)
+      {
+        continue;
+      }
+
+      let minimumX = Infinity;
+      let minimumY = Infinity;
+      let maximumX = -Infinity;
+      let maximumY = -Infinity;
+
+      for (const point of stroke.points)
+      {
+        minimumX = Math.min(minimumX, point.x);
+        minimumY = Math.min(minimumY, point.y);
+        maximumX = Math.max(maximumX, point.x);
+        maximumY = Math.max(maximumY, point.y);
+      }
+
+      addRegion(
+        minimumX - trailMargin,
+        minimumY - trailMargin,
+        maximumX + trailMargin,
+        maximumY + trailMargin,
+      );
+    }
+
+    const shardCfg = this.fxConfig.shards;
+
+    for (const shard of this.shards)
+    {
+      const progress = clamp01(shard.ageMs / shard.lifetimeMs);
+      const size = shard.size * evaluateUnityHermiteCurve(
+        shardCfg.sizeKeys,
+        progress,
+      ) * scale;
+
+      if (size <= 0)
+      {
+        continue;
+      }
+
+      // 纹理占满局部正方形；旋转后的保守 AABB 半径是半对角线。
+      addCenteredRegion(
+        shard.x,
+        shard.y,
+        size * Math.SQRT1_2 + 2,
+      );
+    }
+
+    return regions;
+  }
+
+  _drawCanvasEffects(scale, useNativeBloom, legacy)
+  {
+    this._drawCanvasTrails(scale, useNativeBloom, legacy);
+    this._drawCanvasClickEffects(scale, useNativeBloom, legacy);
+  }
+
+  _renderCanvasSceneEffects(scale, useNativeBloom, legacy)
+  {
+    const bounds = this._getCanvasSceneRegions(
+      scale,
+      useNativeBloom,
+      legacy,
+    );
+    const regions = this.canvasSceneCompositor.beginFrame(
+      this.context,
+      bounds,
+      this.dpr,
+    );
+
+    if (!regions)
+    {
+      return false;
+    }
+
+    this._drawCanvasEffects(scale, useNativeBloom, legacy);
+    return this.canvasSceneCompositor.finishFrame(this.context, regions);
   }
 
   _renderLightBackgroundContrast(scale, reuseMainCanvas = false)
@@ -7158,7 +7443,7 @@ export class BAClickFX
   }
 
   /**
-   * 为 WebGL2 Scene 提供特效下方的真实不透明栅格场景；调用方负责解码与 CORS。
+   * 为各 Scene 后端提供特效下方的真实不透明栅格场景；调用方负责解码与 CORS。
    * 资源对象不进入 getConfig()，避免配置快照持有宿主 DOM 生命周期。
    */
   setSceneBackground(source, options = {})
@@ -7179,6 +7464,7 @@ export class BAClickFX
     {
       this.webglEffectRenderer?.setSceneBackground(null);
       this.webglBloomRenderer?.setSceneBackground(null);
+      this.canvasSceneCompositor.setSceneBackground(null, { fit });
       this.sceneBackgroundSource = null;
       this.sceneBackgroundFit = fit;
       this._requestRender();
@@ -7200,6 +7486,9 @@ export class BAClickFX
     {
       return false;
     }
+
+    // Canvas 回读可能被 CORS 或资源状态拒绝；这不应阻止 WebGL 与旧透明路径使用来源。
+    this.canvasSceneCompositor.setSceneBackground(source, { fit });
 
     this.sceneBackgroundSource = source;
     this.sceneBackgroundFit = fit;
@@ -7237,6 +7526,7 @@ export class BAClickFX
     }
 
     this.clear();
+    this.canvasSceneCompositor.destroy();
     for (const renderer of this.bloomRenderers)
     {
       renderer.destroy();
