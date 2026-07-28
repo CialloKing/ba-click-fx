@@ -25,6 +25,10 @@ import {
 import { WebGL2BloomRenderer } from './webgl2-bloom.js';
 import { WebGL2EffectRenderer } from './webgl2-effect.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
+import {
+  TRIANGLE_TEXTURE_SIZE,
+  createTriangleTextureSources,
+} from './triangle-texture.js';
 
 const TAU = Math.PI * 2;
 const LIGHT_BACKGROUND_CONTRAST_COLOR = [76, 255, 255];
@@ -33,6 +37,9 @@ const EFFECT_BACKEND_CHANGE_EVENT = 'baclickfxeffectbackendchange';
 const MAX_SCALED_TIME_DELTA_MS = Number.MAX_SAFE_INTEGER;
 const MAX_TRAIL_INNER_MITER_RATIO = 4;
 const MIN_TRAIL_SEGMENT_LENGTH = 0.000001;
+
+let triangleTextureResources = null;
+let triangleTextureUnavailable = false;
 
 // ── 共享 HSL 转换 ──────────────────────────────────────────────────────
 function rgbToHsl(r, g, b)
@@ -689,6 +696,38 @@ function createCanvas()
 
   canvas.setAttribute('aria-hidden', 'true');
   return canvas;
+}
+
+function getTriangleTextureResources()
+{
+  if (triangleTextureResources)
+  {
+    return triangleTextureResources;
+  }
+
+  if (triangleTextureUnavailable)
+  {
+    return null;
+  }
+
+  const sources = createTriangleTextureSources(createCanvas);
+  const canvas = createCanvas();
+  const context = canvas.getContext('2d');
+
+  if (!sources || !context)
+  {
+    triangleTextureUnavailable = true;
+    return null;
+  }
+
+  canvas.width = TRIANGLE_TEXTURE_SIZE;
+  canvas.height = TRIANGLE_TEXTURE_SIZE;
+  triangleTextureResources = {
+    ...sources,
+    canvas,
+    context,
+  };
+  return triangleTextureResources;
 }
 
 function createOverlayRoot(fixed)
@@ -1662,6 +1701,19 @@ function drawDiskEmission(
   context.restore();
 }
 
+function resolveShardTextureFrameIndex(particle, shardCfg)
+{
+  const frames = shardCfg.textureFrames;
+  const frameCount = Array.isArray(frames) && frames.length > 0
+    ? frames.length
+    : 2;
+  const rawIndex = Number.isInteger(particle.textureFrame)
+    ? particle.textureFrame
+    : 0;
+
+  return ((rawIndex % frameCount) + frameCount) % frameCount;
+}
+
 function resolveShardTextureFrame(particle, shardCfg)
 {
   const frames = shardCfg.textureFrames;
@@ -1676,12 +1728,87 @@ function resolveShardTextureFrame(particle, shardCfg)
     ];
   }
 
-  const rawIndex = Number.isInteger(particle.textureFrame)
-    ? particle.textureFrame
-    : 0;
-  const frameIndex = ((rawIndex % frames.length) + frames.length) % frames.length;
+  return frames[resolveShardTextureFrameIndex(particle, shardCfg)];
+}
 
-  return frames[frameIndex];
+function drawTriangleTextureFrame(context, canvas, frameIndex)
+{
+  context.save();
+
+  if (frameIndex % 2 === 1)
+  {
+    // Unity 图集的第二帧与第一帧 RGBA 完全相同，仅 V 方向翻转。
+    context.translate(0, TRIANGLE_TEXTURE_SIZE);
+    context.scale(1, -1);
+  }
+
+  context.drawImage(canvas, 0, 0);
+  context.restore();
+}
+
+function drawTexturedTriangle(
+  context,
+  particle,
+  size,
+  materialEnergy,
+  particleAlpha,
+  frameIndex,
+  energyScale = 1,
+)
+{
+  const resources = getTriangleTextureResources();
+
+  if (!resources)
+  {
+    return false;
+  }
+
+  const textureContext = resources.context;
+  const scaledColor = materialEnergy.map((channel) =>
+    Math.round(clamp01(channel * Math.max(0, energyScale)) * 255));
+
+  textureContext.setTransform(1, 0, 0, 1, 0, 0);
+  textureContext.globalAlpha = 1;
+  textureContext.globalCompositeOperation = 'source-over';
+  textureContext.imageSmoothingEnabled = true;
+  textureContext.clearRect(
+    0,
+    0,
+    TRIANGLE_TEXTURE_SIZE,
+    TRIANGLE_TEXTURE_SIZE,
+  );
+  drawTriangleTextureFrame(
+    textureContext,
+    resources.colorCanvas,
+    frameIndex,
+  );
+
+  // 先给独立线性 RGB 着色，再应用 Alpha，保持 Unity 在双线性采样后相乘的顺序。
+  textureContext.globalCompositeOperation = 'multiply';
+  textureContext.fillStyle = `rgb(${scaledColor[0]}, ${scaledColor[1]}, ${
+    scaledColor[2]})`;
+  textureContext.fillRect(
+    0,
+    0,
+    TRIANGLE_TEXTURE_SIZE,
+    TRIANGLE_TEXTURE_SIZE,
+  );
+  textureContext.globalCompositeOperation = 'destination-in';
+  drawTriangleTextureFrame(
+    textureContext,
+    resources.alphaCanvas,
+    frameIndex,
+  );
+
+  context.save();
+  context.translate(particle.x, particle.y);
+  context.rotate(particle.rotation);
+  context.globalAlpha = clamp01(particleAlpha);
+  context.shadowColor = 'transparent';
+  context.shadowBlur = 0;
+  context.drawImage(resources.canvas, -size * 0.5, -size * 0.5, size, size);
+  context.restore();
+  return true;
 }
 
 function drawTriangle(
@@ -1705,9 +1832,22 @@ function drawTriangle(
     shardCfg.hdrIntensity,
     shardCfg.startColor,
   );
+  const textureFrameIndex = resolveShardTextureFrameIndex(particle, shardCfg);
   const textureFrame = resolveShardTextureFrame(particle, shardCfg);
 
   if (size <= 0 || alpha <= 0)
+  {
+    return;
+  }
+
+  if (drawTexturedTriangle(
+    context,
+    particle,
+    size,
+    materialEnergy,
+    alpha,
+    textureFrameIndex,
+  ))
   {
     return;
   }
@@ -1750,9 +1890,23 @@ function drawTriangleEmission(
     shardCfg.hdrIntensity,
     shardCfg.startColor,
   );
+  const textureFrameIndex = resolveShardTextureFrameIndex(particle, shardCfg);
   const textureFrame = resolveShardTextureFrame(particle, shardCfg);
 
   if (size <= 0 || alpha <= 0)
+  {
+    return;
+  }
+
+  if (drawTexturedTriangle(
+    context,
+    particle,
+    size,
+    materialEnergy,
+    alpha,
+    textureFrameIndex,
+    1 / Math.max(1, bloomCfg.emissionRange),
+  ))
   {
     return;
   }
@@ -2411,7 +2565,7 @@ class ShardParticle
       shardCfg.hdrIntensity,
       shardCfg.startColor,
     );
-    const textureFrame = resolveShardTextureFrame(this, shardCfg);
+    const textureFrameIndex = resolveShardTextureFrameIndex(this, shardCfg);
 
     renderer.addTriangle(
       this.x,
@@ -2420,7 +2574,7 @@ class ShardParticle
       this.rotation,
       materialEnergy,
       alpha,
-      textureFrame,
+      textureFrameIndex,
     );
   }
 

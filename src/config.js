@@ -187,8 +187,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
         [0.15445095, 1, 0, 0],
         [1, 0, -2.1621501, -2.1621501],
       ],
-      // FX_TEX_Triangle_02_1 是 2×1 图集；坐标来自两个 128×128 帧内
-      // 非透明三角形的边界，避免用偏大的等边三角形增加 Bloom 输入面积。
+      // FX_TEX_Triangle_02_1 是 2×1 图集；完整 RGBA 纹理由各后端共享。
+      // 这些实测边界仅供不支持纹理 Canvas 的兼容回退使用。
       textureFrames:
       [
         [
