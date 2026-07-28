@@ -4427,7 +4427,7 @@ assert(
 );
 assert(
   straightVertices.map(({ u, v }) => `${u}:${v}`).join(',') ===
-    '1:1,0:1,0:0,1:1,0:0,1:0',
+    '1:0,0:0,0:1,1:0,0:1,1:1',
   '完整 WebGL2 按 Unity Stretch 方向映射直段 U/V',
 );
 assert(
@@ -4453,14 +4453,14 @@ assert(
   leftJoinTriangles.length === 5 &&
     leftJoinTriangles.every((triangle) =>
       triangle.slice(0, 3).every((vertex) => vertex.u === 0.5) &&
-      triangle.slice(0, 3).map((vertex) => vertex.v).join(',') === '1,0,0'),
+      triangle.slice(0, 3).map((vertex) => vertex.v).join(',') === '0,1,1'),
   '左内角按 4 个 Unity 插入点生成 5 个固定 U 的纹理 fan',
 );
 assert(
   rightJoinTriangles.length === 5 &&
     rightJoinTriangles.every((triangle) =>
       triangle.slice(0, 3).every((vertex) => vertex.u === 0.5) &&
-      triangle.slice(0, 3).map((vertex) => vertex.v).join(',') === '0,1,1'),
+      triangle.slice(0, 3).map((vertex) => vertex.v).join(',') === '1,0,0'),
   '右内角保持与左内角相反的纹理 V 方向',
 );
 
@@ -4474,9 +4474,9 @@ const endCapVertices = cappedWebGLTrail.triangles[3].slice(0, 3);
 
 assert(
   startCapVertices.map(({ u, v }) => `${u}:${v}`).join(',') ===
-    '1:1,1:0,1:0.5' &&
+    '1:0,1:1,1:0.5' &&
     endCapVertices.map(({ u, v }) => `${u}:${v}`).join(',') ===
-      '0:1,0:0.5,0:0',
+      '0:0,0:0.5,0:1',
   'Unity 单三角端帽固定端点 U，并把尖端映射到横截面 V=0.5',
 );
 
