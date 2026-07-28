@@ -329,7 +329,7 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 
 ### Parameter Schema and Batch Updates
 
-The library exports the read-only `FX_PARAM_SCHEMA`, the current `FX_PARAM_SCHEMA_VERSION`, and `FX_PARAM_MIGRATIONS`. Each public scalar path describes its type, hard bounds, default, unit, group, stable display order, localisation keys, recommended control range, linked parameters, and Enhanced/Legacy mode baselines. Hosts can build settings UIs without copying an independent control list. A descriptor's `display` range is a UI recommendation, not a replacement for the `min` / `max` write constraints.
+The library exports the read-only `FX_PARAM_SCHEMA`, the current `FX_PARAM_SCHEMA_VERSION`, and `FX_PARAM_MIGRATIONS`. Each public scalar path describes its type, hard bounds, default, unit, group, stable display order, localisation keys, recommended control range, linked parameters, and Enhanced/Legacy mode baselines. Hosts can build settings UIs without copying an independent control list. `step` and `display.step` only guide host UI controls. `setFxParam()` / `setFxParams()` do not quantise or round to those steps; they validate type, finiteness, and the hard `min` / `max` bounds. Hosts that require integer controls should round before submission.
 
 The current `FX_PARAM_SCHEMA_VERSION` is `1`. Migrating from version `0` to `1` renames `bloom.scatter` to `bloom.diffusion`. Persisted patches should pass their original `schemaVersion`, allowing the library to apply `FX_PARAM_MIGRATIONS` in order. A future version, a missing migration chain, or a post-migration conflict is rejected explicitly rather than being dropped silently.
 
@@ -368,7 +368,7 @@ compatibility output:
 fx.setFxParam('bloom.clickEmissionScale', 1.25);
 ```
 
-### Tunable FX Parameters
+### Common Tunable FX Parameters (see FX_PARAM_SCHEMA for the complete list)
 
 | Path | Default | Description |
 |---|---|---|

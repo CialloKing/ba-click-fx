@@ -349,7 +349,7 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 
 ### 参数 Schema 与批量写入
 
-库导出只读的 `FX_PARAM_SCHEMA`、当前 `FX_PARAM_SCHEMA_VERSION` 和 `FX_PARAM_MIGRATIONS`。Schema 描述每个公开标量路径的类型、硬边界、默认值、单位、分组、稳定展示顺序、本地化键、推荐控件范围、关联参数和 Enhanced/Legacy 模式基线，宿主无需再手抄控件清单。`display` 只是 UI 推荐范围，不替代 `min` / `max` 的写入校验。
+库导出只读的 `FX_PARAM_SCHEMA`、当前 `FX_PARAM_SCHEMA_VERSION` 和 `FX_PARAM_MIGRATIONS`。Schema 描述每个公开标量路径的类型、硬边界、默认值、单位、分组、稳定展示顺序、本地化键、推荐控件范围、关联参数和 Enhanced/Legacy 模式基线，宿主无需再手抄控件清单。`step` 与 `display.step` 只指导宿主 UI；`setFxParam()` / `setFxParams()` 不按步进量化或取整，只校验类型、有限值和 `min` / `max` 硬边界。需要整数控件的宿主应在提交前自行取整。
 
 当前 `FX_PARAM_SCHEMA_VERSION` 为 `1`。从版本 `0` 迁移到 `1` 时，旧路径 `bloom.scatter` 会重命名为 `bloom.diffusion`；持久化补丁应把原始版本传给 `schemaVersion`，由库按 `FX_PARAM_MIGRATIONS` 顺序迁移。高于当前版本、缺失迁移链或迁移后冲突的补丁会被明确拒绝，而不是静默丢弃。
 
@@ -386,7 +386,7 @@ Bloom 发射；原生辉光使用保持单调的有界 Alpha 映射，Legacy 保
 fx.setFxParam('bloom.clickEmissionScale', 1.25);
 ```
 
-### 可调特效参数（setFxParam 路径）
+### 常用可调特效参数（完整清单以 FX_PARAM_SCHEMA 为准）
 
 | 路径 | 默认值 | 说明 |
 |---|---|---|
