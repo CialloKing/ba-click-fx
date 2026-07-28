@@ -5574,8 +5574,10 @@ export class BAClickFX
       canvas,
       !this.host && !this.config.isolatedCompositing,
       '2147483646',
-      'plus-lighter',
+      '',
     );
+    // 纯 WebGL2 已把加色 RGB 与 Cross2 Coverage 编码为预乘输出；普通
+    // DOM 合成才能执行 Unity 的 OneMinusSrcAlpha 背景衰减。
     // 独立 Canvas 在 Scene 后端接管前保持隐藏，避免与稳定 Bloom 层叠加。
     canvas.style.display = 'none';
     this.overlayParent.appendChild(canvas);

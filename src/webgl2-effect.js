@@ -397,7 +397,6 @@ uniform vec2 u_bloomTexel;
 uniform float u_sampleScale;
 uniform float u_intensity;
 uniform bool u_hasScene;
-uniform bool u_transparentOverlay;
 
 in vec2 v_uv;
 out vec4 outColor;
@@ -432,8 +431,9 @@ void main()
     linearToSrgb(linear.b)
   );
   float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
-  // Unity 的最终 Bloom Pass 只累加 RGB；透明覆盖层也必须保留 Scene Coverage。
-  float alpha = u_transparentOverlay && u_hasScene
+  // Scene Alpha 只保存 Cross2 Coverage。默认帧缓冲采用预乘合成后，
+  // RGB 仍可加到页面，而该 Alpha 会严格执行背景的 OneMinusSrcAlpha 衰减。
+  float alpha = u_hasScene
     ? clamp(scene.a, 0.0, 1.0)
     : maximumSrgb;
 
@@ -1463,7 +1463,8 @@ export class WebGL2EffectRenderer
       }
       else
       {
-        gl.blendFunc(gl.ONE, gl.ONE);
+        // 普通加色粒子不能覆盖 Cross2 留下的背景衰减 Coverage。
+        gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE);
       }
 
       gl.useProgram(additiveProgram);
@@ -1511,8 +1512,9 @@ export class WebGL2EffectRenderer
       }
       else
       {
-        // BaTouchAdditive.shader 使用 Blend One One，目标 Alpha 固定为 1。
-        gl.blendFunc(gl.ONE, gl.ONE);
+        // BaTouchAdditive.shader 的 RGB 是 One/One；网页输出 Alpha 单独保留
+        // Cross2 Coverage，才能在最终 DOM 合成时还原目标颜色衰减。
+        gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE);
       }
 
       gl.useProgram(triangleProgram);
@@ -1560,8 +1562,9 @@ export class WebGL2EffectRenderer
       }
       else
       {
-        // FX_MAT_Touch_Tri3: Blend SrcAlpha One, One One。
-        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ONE, gl.ONE);
+        // FX_MAT_Touch_Tri3 的 RGB 仍是 SrcAlpha/One；Alpha 不参与网页
+        // 背景覆盖，因此保持 Cross2 已写入的 Coverage。
+        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ZERO, gl.ONE);
       }
 
       gl.useProgram(ringProgram);
@@ -2867,10 +2870,6 @@ export class WebGL2EffectRenderer
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_hasScene'),
       hasScene ? 1 : 0,
-    );
-    gl.uniform1i(
-      gl.getUniformLocation(program, 'u_transparentOverlay'),
-      settings.outputCompositing === 'transparent-overlay' ? 1 : 0,
     );
     gl.uniform2f(
       gl.getUniformLocation(program, 'u_bloomTexel'),
