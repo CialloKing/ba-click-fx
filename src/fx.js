@@ -564,7 +564,7 @@ function linearEnergyToAdditiveCss(color, opacity = 1)
     Math.round(blue / alpha * 255)}, ${alpha})`;
 }
 
-function colorToNativeGlowCss(color, alpha, linearOutput = false)
+function colorToCanvasOutputCss(color, alpha, linearOutput = false)
 {
   if (!linearOutput)
   {
@@ -1445,7 +1445,7 @@ class LegacyRingRasterizer
 
     evaluateColor(ringCfg.colorKeys, progress, this.particleColor);
     const shadowColor = useNativeBloom
-      ? colorToNativeGlowCss(
+      ? colorToCanvasOutputCss(
         this.particleColor,
         scaleNativeGlowAlpha(
           opacity * bloomCfg.ringAlpha,
@@ -1579,7 +1579,7 @@ function drawDissolvedCircle(
     useNativeBloom
       ? {
           blur: bloomCfg.ringBlur * scale,
-          color: colorToNativeGlowCss(
+          color: colorToCanvasOutputCss(
             particleColor,
             scaleNativeGlowAlpha(
               opacity * bloomCfg.ringAlpha,
@@ -1743,7 +1743,7 @@ function drawDiskNativeGlow(
   // 黑色源在 lighter 下不增加 RGB；Final Pass 不读取其 Alpha，因此可以
   // 保留零偏移阴影的完整内外卷积，而不会重新遮挡宿主背景。
   context.fillStyle = 'rgb(0, 0, 0)';
-  context.shadowColor = colorToNativeGlowCss(color, shadowAlpha, true);
+  context.shadowColor = colorToCanvasOutputCss(color, shadowAlpha, true);
   context.shadowBlur = blur;
   context.fill();
   context.restore();
@@ -3772,11 +3772,20 @@ function drawNativeTrailBloom(
 }
 
 /**
- * main 分支风格的拖尾层：sRGB 颜色 + 标准 alpha，无 HDR 编码。
+ * main 分支风格的拖尾层：普通 Canvas 使用 sRGB，Final Pass 使用线性能量。
  * layer.color 为固定颜色时整条一次描边（round cap）；
  * 无 color 时按路径距离采样 gradient（butt cap 逐段）。
  */
-function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trailCfg, layer)
+function drawLegacyTrailLayer(
+  context,
+  points,
+  measurement,
+  scale,
+  opacity,
+  trailCfg,
+  layer,
+  linearOutput = false,
+)
 {
   const effectiveAlpha = layer.alpha * opacity;
 
@@ -3798,7 +3807,11 @@ function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trai
     // 渐变分支每次只画两点，不存在 join；仅多点整路径需要圆角连接。
     context.lineJoin = 'round';
     context.lineCap = 'round';
-    context.strokeStyle = colorToCss(layer.color, effectiveAlpha);
+    context.strokeStyle = colorToCanvasOutputCss(
+      layer.color,
+      effectiveAlpha,
+      linearOutput,
+    );
     context.beginPath();
     context.moveTo(points[0].x, points[0].y);
 
@@ -3830,7 +3843,11 @@ function drawLegacyTrailLayer(context, points, measurement, scale, opacity, trai
     context.beginPath();
     context.moveTo(points[index - 1].x, points[index - 1].y);
     context.lineTo(points[index].x, points[index].y);
-    context.strokeStyle = colorToCss(color, effectiveAlpha * fadeAlpha);
+    context.strokeStyle = colorToCanvasOutputCss(
+      color,
+      effectiveAlpha * fadeAlpha,
+      linearOutput,
+    );
     context.stroke();
   }
 
@@ -3847,6 +3864,7 @@ function drawTrail(
   legacy = false,
   nativeBloomSurface = null,
   sharedTrailData = null,
+  linearOutput = false,
 )
 {
   const trailCfg = fxConfig.trail;
@@ -3861,7 +3879,7 @@ function drawTrail(
 
   if (legacy)
   {
-    // main 分支风格：三层 sRGB 描边，使用 main 分支的宽度和渐变色
+    // Legacy 保留三层宽度和渐变；Final Pass 仅替换颜色空间编码。
     if (bloomCfg.trailAlpha !== 0)
     {
       drawLegacyTrailLayer(
@@ -3876,6 +3894,7 @@ function drawTrail(
           alpha: bloomCfg.trailAlpha,
           color: LEGACY_TRAIL_OUTER_COLOR,
         },
+        linearOutput,
       );
     }
 
@@ -3887,6 +3906,7 @@ function drawTrail(
       trailOpacity,
       trailCfg,
       LEGACY_TRAIL_MIDDLE_LAYER,
+      linearOutput,
     );
     drawLegacyTrailLayer(
       context,
@@ -3896,6 +3916,7 @@ function drawTrail(
       trailOpacity,
       trailCfg,
       LEGACY_TRAIL_CORE_LAYER,
+      linearOutput,
     );
     return;
   }
@@ -6869,7 +6890,7 @@ export class BAClickFX
     try
     {
       renderer.beginFrame();
-      this._drawCanvasTrails(scale, useNativeBloom, legacy);
+      this._drawCanvasTrails(scale, useNativeBloom, legacy, true);
 
       // Cross2 是唯一会衰减已有场景颜色的材质，必须在普通加色粒子之前
       // 按旧到新顺序完成本体与 Coverage 提交。
@@ -6957,7 +6978,12 @@ export class BAClickFX
     this._drawWaveRings(scale, useNativeBloom, legacy);
   }
 
-  _drawCanvasTrails(scale, useNativeBloom, legacy = false)
+  _drawCanvasTrails(
+    scale,
+    useNativeBloom,
+    legacy = false,
+    linearOutput = false,
+  )
   {
     const nativeBloomSurface = useNativeBloom && !legacy
       ? this._getNativeTrailBloomSurface()
@@ -6986,6 +7012,7 @@ export class BAClickFX
         legacy,
         nativeBloomSurface,
         stroke.trailFrameData,
+        linearOutput,
       );
     }
   }
