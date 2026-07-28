@@ -176,6 +176,7 @@ class ContextMock
     this.strokedPaths = [];
     this.fillShadowBlurs = [];
     this.fillShadowColors = [];
+    this.fillCompositeOperations = [];
     this.fillOrders = [];
     this.radialGradients = [];
     this.linearGradients = [];
@@ -188,6 +189,7 @@ class ContextMock
     this.clearRectCalls = [];
     this.hasVisiblePixels = false;
     this.globalCompositeOperation = 'source-over';
+    this.globalAlpha = 1;
     this.shadowBlur = 0;
     this.shadowColor = 'transparent';
     this.filter = 'none';
@@ -226,6 +228,7 @@ class ContextMock
     this.stateStack.push(
       {
         globalCompositeOperation: this.globalCompositeOperation,
+        globalAlpha: this.globalAlpha,
         shadowBlur: this.shadowBlur,
         shadowColor: this.shadowColor,
         filter: this.filter,
@@ -244,6 +247,7 @@ class ContextMock
     if (state)
     {
       this.globalCompositeOperation = state.globalCompositeOperation;
+      this.globalAlpha = state.globalAlpha;
       this.shadowBlur = state.shadowBlur;
       this.shadowColor = state.shadowColor;
       this.filter = state.filter;
@@ -339,6 +343,7 @@ class ContextMock
     this.filledStyles.push(this.fillStyle);
     this.fillShadowBlurs.push(this.shadowBlur);
     this.fillShadowColors.push(this.shadowColor);
+    this.fillCompositeOperations.push(this.globalCompositeOperation);
     this.fillOrders.push(++this.drawSequence);
     this.hasVisiblePixels = true;
   }
@@ -430,6 +435,7 @@ class ContextMock
         shadowBlur: this.shadowBlur,
         shadowColor: this.shadowColor,
         imageSmoothingEnabled: this.imageSmoothingEnabled,
+        globalAlpha: this.globalAlpha,
         transform: [...this.currentTransform],
         rotation: this.currentRotation,
         order: ++this.drawSequence,
@@ -1374,8 +1380,13 @@ assert(
 );
 assert(
   lastBloomCompositeSettings?.diffusion === UNITY_FX_TOUCH.bloom.diffusion &&
+    lastBloomCompositeSettings.outputCompositing === 'scene' &&
     !('iterations' in lastBloomCompositeSettings),
-  '软件 Bloom 合成使用 MXFinalBloom diffusion 且不再传旧迭代数',
+  '软件 Bloom 合成保留 Scene 输出、MXFinalBloom diffusion 且不再传旧迭代数',
+);
+assert(
+  effect.bloomRenderer.coverageCanvas === null,
+  'Scene 输出不分配透明 Coverage 画布，保持原软件 Bloom 资源路径',
 );
 assert(
   bloomCanvases.some((canvas) => canvas.context.putImageDataCount > 0),
@@ -1887,6 +1898,179 @@ assert(
     dom.body.children.length === 0,
   'destroy() 移除监听、隔离合成根与自有 Canvas',
 );
+
+console.log('\n透明覆盖层 Canvas 合同');
+
+function captureTransparentSoftwareFrame(opacity)
+{
+  const transparentEffect = new BAClickFX(
+    {
+      effectBackend: 'canvas2d',
+      bloomBackend: 'software',
+      outputCompositing: 'transparent-overlay',
+      inputSource: 'manual',
+      opacity,
+      lightBackgroundContrastAlpha: 0.35,
+    },
+  );
+  const renderer = transparentEffect.bloomRenderer;
+  const originalBeginCoverageFrame = renderer.beginCoverageFrame.bind(
+    renderer,
+  );
+  const originalComposite = renderer.composite.bind(renderer);
+  const coverageModes = [];
+  let compositeSettings = null;
+
+  renderer.beginCoverageFrame = (outputCompositing) =>
+  {
+    coverageModes.push(outputCompositing);
+    return originalBeginCoverageFrame(outputCompositing);
+  };
+  renderer.composite = (context, settings) =>
+  {
+    compositeSettings = settings;
+    return originalComposite(context, settings);
+  };
+
+  transparentEffect.pointerDown({ x: 400, y: 300, pointerId: 71 });
+  transparentEffect.pointerMove({ x: 560, y: 300, pointerId: 71 });
+  flushFrames(dom, performance.now(), 1, 50);
+
+  const coverageContext = renderer.coverageContext;
+  const diskCoverageDraw = coverageContext?.drawImageCalls.find((call) =>
+    call.args[0]?.width === 512 && call.args[0]?.height === 512);
+  const shardCoverageDraw = coverageContext?.drawImageCalls.find((call) =>
+    call.args[0]?.width === 128 && call.args[0]?.height === 128);
+  const bloomOutputDraw = transparentEffect.context.drawImageCalls.find(
+    (call) => call.args[0] === renderer.outputCanvas,
+  );
+  const coverageDiskAlpha = diskCoverageDraw?.globalAlpha ?? 0;
+  const trailCoverageAlpha = coverageContext?.linearGradients
+    .flatMap(({ gradient }) => gradient.stops)
+    .reduce(
+      (maximum, [, color]) => Math.max(maximum, getCssAlpha(color)),
+      0,
+    ) ?? 0;
+
+  renderer.coverageContext.drawImageCalls = [];
+  renderer.coverageContext.linearGradients = [];
+  transparentEffect.setFxParam('bloom.clickEmissionScale', 2);
+  transparentEffect.setFxParam('bloom.trailEmission', 2);
+  transparentEffect._updateTrail(
+    transparentEffect.trailTimeMs,
+    transparentEffect._getScale(),
+    false,
+    false,
+    false,
+  );
+  transparentEffect._renderSoftwareBloom(transparentEffect._getScale());
+  const boostedDiskCoverage = renderer.coverageContext.drawImageCalls.find(
+    (call) => call.args[0]?.width === 512 && call.args[0]?.height === 512,
+  );
+  const boostedTrailCoverageAlpha = renderer.coverageContext.linearGradients
+    .flatMap(({ gradient }) => gradient.stops)
+    .reduce(
+      (maximum, [, color]) => Math.max(maximum, getCssAlpha(color)),
+      0,
+    );
+  const result = {
+    bloomOutputComposite: bloomOutputDraw?.compositeOperation,
+    compositeSettings,
+    coverageDiskAlpha,
+    coverageModes,
+    hasCircleCoverage: !!diskCoverageDraw,
+    hasRingCoverage: (coverageContext?.conicGradients.length ?? 0) > 0,
+    hasShardCoverage: !!shardCoverageDraw,
+    hasTrailCoverage: (coverageContext?.linearGradients.length ?? 0) > 0,
+    boostedDiskAlpha: boostedDiskCoverage?.globalAlpha ?? 0,
+    boostedTrailCoverageAlpha,
+    trailCoverageAlpha,
+    mainCompositeOperations: [
+      ...transparentEffect.context.fillCompositeOperations,
+    ],
+    contrastFillCount: transparentEffect.contrastContext.fillRects.length,
+  };
+
+  transparentEffect.destroy();
+  return result;
+}
+
+const zeroOverlayFrame = captureTransparentSoftwareFrame(0);
+const halfOverlayFrame = captureTransparentSoftwareFrame(0.5);
+const fullOverlayFrame = captureTransparentSoftwareFrame(1);
+
+assert(
+  halfOverlayFrame.coverageModes.every((mode) =>
+    mode === 'transparent-overlay') &&
+    halfOverlayFrame.compositeSettings?.outputCompositing ===
+      'transparent-overlay',
+  'Software Bloom 将透明输出模式同时传给 Coverage 与最终合成',
+);
+assert(
+  halfOverlayFrame.hasCircleCoverage &&
+    halfOverlayFrame.hasRingCoverage &&
+    halfOverlayFrame.hasShardCoverage &&
+    halfOverlayFrame.hasTrailCoverage,
+  'Software Coverage 重绘完整 Circle、Ring3、三角纹理与拖尾几何',
+);
+assert(
+  zeroOverlayFrame.coverageDiskAlpha === 0 &&
+    halfOverlayFrame.coverageDiskAlpha > 0 &&
+    fullOverlayFrame.coverageDiskAlpha > halfOverlayFrame.coverageDiskAlpha &&
+    Math.abs(
+      halfOverlayFrame.coverageDiskAlpha /
+        fullOverlayFrame.coverageDiskAlpha - 0.5,
+    ) < 0.000001,
+  '透明 Coverage 对 opacity=0/0.5/1 保持单调且线性',
+);
+assert(
+  halfOverlayFrame.boostedDiskAlpha ===
+      halfOverlayFrame.coverageDiskAlpha &&
+    halfOverlayFrame.boostedTrailCoverageAlpha ===
+      halfOverlayFrame.trailCoverageAlpha,
+  '点击与拖尾 HDR 发射倍率不会改变独立 Coverage',
+);
+assert(
+  halfOverlayFrame.bloomOutputComposite === 'source-over' &&
+    halfOverlayFrame.mainCompositeOperations.every((operation) =>
+      operation === 'source-over'),
+  '透明 Software、Native 主体共用 source-over Coverage 合同',
+);
+assert(
+  halfOverlayFrame.contrastFillCount === 0,
+  '透明覆盖层保留 Contrast 配置但不绘制额外桌面遮挡',
+);
+
+const hermiteBoundsEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'software',
+    inputSource: 'manual',
+  },
+);
+
+hermiteBoundsEffect.setFxParam('rings.count', 0);
+hermiteBoundsEffect.setFxParam('shards.clickCount', 0);
+hermiteBoundsEffect.boom(800, 500);
+hermiteBoundsEffect.waves[0].ageMs = 20;
+hermiteBoundsEffect.bloomRenderer.sourceContext.radialGradients = [];
+hermiteBoundsEffect.waves[0].drawBloom(
+  hermiteBoundsEffect.bloomRenderer.sourceContext,
+  hermiteBoundsEffect._getScale(),
+  1,
+);
+const renderedDiskRadius = hermiteBoundsEffect.bloomRenderer.sourceContext
+  .radialGradients[0].args[5];
+const hermiteEmissionBounds = hermiteBoundsEffect
+  ._getSoftwareBloomRegions(hermiteBoundsEffect._getScale())[0]
+  .emissionBounds;
+
+assert(
+  Math.abs(hermiteEmissionBounds.width - renderedDiskRadius * 2) < 0.000001 &&
+    Math.abs(hermiteEmissionBounds.height - renderedDiskRadius * 2) < 0.000001,
+  'Software Bloom 发射边界与圆盘 Hermite 扩张曲线严格一致',
+);
+hermiteBoundsEffect.destroy();
 
 const ringlessEffect = new BAClickFX({ bloomBackend: 'native' });
 let ringlessNow = performance.now();
@@ -3450,6 +3634,7 @@ assert(
 
 const softwareFailureEffect = new BAClickFX({ bloomBackend: 'software' });
 const softwareFailureEvents = [];
+let softwareFailureBeginFrameCount = 0;
 
 flushFrames(dom, performance.now(), 1);
 softwareFailureEffect.canvas.addEventListener(
@@ -3461,15 +3646,24 @@ softwareFailureEffect.canvas.addEventListener(
 );
 softwareFailureEffect.bloomRenderer.beginFrame = () =>
 {
+  softwareFailureBeginFrameCount++;
   softwareFailureEffect.bloomRenderer.available = false;
   return null;
 };
 softwareFailureEffect.boom(960, 540);
-flushFrames(dom, performance.now(), 1);
+let softwareFailureNow = flushFrames(dom, performance.now(), 1);
 assert(
   softwareFailureEffect.getConfig().resolvedBloomBackend === 'native' &&
     softwareFailureEvents.join(',') === 'native',
   'Software Bloom 运行时回读失败会立即公开 Native 回退并派发事件',
+);
+softwareFailureNow = flushFrames(dom, softwareFailureNow, 2);
+assert(
+  softwareFailureEffect.getConfig().resolvedBloomBackend === 'native' &&
+    softwareFailureEvents.join(',') === 'native' &&
+    softwareFailureBeginFrameCount === 1 &&
+    Number.isFinite(softwareFailureNow),
+  'Software 失败后稳定使用 Native，不重复回读或形成回退死循环',
 );
 softwareFailureEffect.destroy();
 

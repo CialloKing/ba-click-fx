@@ -27,6 +27,10 @@ import { WebGL2EffectRenderer } from './webgl2-effect.js';
 import { WebGL2CanvasSceneRenderer } from './webgl2-canvas-scene.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
 import {
+  CIRCLE_TEXTURE_SIZE,
+  createCircleTextureSources,
+} from './circle-texture.js';
+import {
   TRIANGLE_TEXTURE_SIZE,
   createTriangleTextureSources,
 } from './triangle-texture.js';
@@ -41,6 +45,8 @@ const MIN_TRAIL_SEGMENT_LENGTH = 0.000001;
 
 let triangleTextureResources = null;
 let triangleTextureUnavailable = false;
+let circleTextureResources = null;
+let circleTextureUnavailable = false;
 
 // ── 共享 HSL 转换 ──────────────────────────────────────────────────────
 function rgbToHsl(r, g, b)
@@ -601,6 +607,12 @@ function linearEnergyToOverlayCss(
   const green = Math.round(clamp01(color[1] * scale) * 255);
   const blue = Math.round(clamp01(color[2] * scale) * 255);
 
+  if (red === 0 && green === 0 && blue === 0)
+  {
+    // 透明桌面不能让无颜色能量的几何留下黑色 Coverage。
+    return 'rgba(0, 0, 0, 0)';
+  }
+
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
@@ -625,6 +637,7 @@ function linearEnergyToNativeTrailBloomCss(
   opacity,
   intensity,
   bloomCfg,
+  outputCompositing = 'scene',
 )
 {
   const sourceScale = clamp01(opacity) * Math.max(0, intensity);
@@ -649,6 +662,19 @@ function linearEnergyToNativeTrailBloomCss(
 
   const contributionScale = contribution / brightness;
   const brightPass = source.map((channel) => channel * contributionScale);
+
+  if (outputCompositing === 'transparent-overlay')
+  {
+    // Native blur 的 Alpha 取自几何 Coverage，而不是 HDR 明度；发射倍率只
+    // 改变 RGB，不能把透明桌面的轨迹变成实心遮挡。
+    const coverage = clamp01(opacity * intensity * bloomCfg.trailAlpha);
+
+    return linearEnergyToOverlayCss(
+      brightPass,
+      bloomCfg.trailAlpha,
+      coverage,
+    );
+  }
 
   return linearEnergyToAdditiveCss(brightPass, bloomCfg.trailAlpha);
 }
@@ -782,6 +808,30 @@ function getTriangleTextureResources()
     context,
   };
   return triangleTextureResources;
+}
+
+function getCircleTextureResources()
+{
+  if (circleTextureResources)
+  {
+    return circleTextureResources;
+  }
+
+  if (circleTextureUnavailable)
+  {
+    return null;
+  }
+
+  const sources = createCircleTextureSources(createCanvas);
+
+  if (!sources)
+  {
+    circleTextureUnavailable = true;
+    return null;
+  }
+
+  circleTextureResources = sources;
+  return circleTextureResources;
 }
 
 function createOverlayRoot(fixed)
@@ -1340,6 +1390,13 @@ class LegacyRingRasterizer
 
     if (outputCompositing === 'transparent-overlay')
     {
+      if (materialEnergy.every((channel) => channel <= 0))
+      {
+        // 无 RGB 能量时 Coverage 也必须为零，避免透明窗口出现黑色遮挡。
+        this._clearPixel(data, offset);
+        return;
+      }
+
       // Unity 将 Ring3 的纹理 Alpha 写入 Coverage，同时以 SrcAlpha/One
       // 混合 HDR RGB；ImageData 交给 Canvas 预乘即可得到同一颜色贡献。
       data[offset] = Math.round(clamp01(materialEnergy[0]) * 255);
@@ -1840,6 +1897,58 @@ function drawDiskEmission(
   context.restore();
 }
 
+function drawDiskCoverage(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
+{
+  const diskCfg = fxConfig.disk;
+  const radius = diskCfg.radius * evaluateUnityHermiteCurve(
+    diskCfg.sizeKeys,
+    progress,
+  ) * scale;
+  const lifecycleAlpha = evaluateNumber(diskCfg.alphaKeys, progress) * opacity;
+
+  if (radius <= 0 || lifecycleAlpha <= 0)
+  {
+    return;
+  }
+
+  const resources = getCircleTextureResources();
+
+  if (!resources)
+  {
+    // Software Bloom 依赖同样的 ImageData 能力；资源不可用时由外层
+    // renderer 失败策略切换 Native，不能用径向近似掩盖纹理细节缺失。
+    return;
+  }
+
+  context.save();
+  context.globalCompositeOperation = 'source-over';
+  context.translate(wave.x, wave.y);
+  context.rotate(wave.diskRotation);
+  context.globalAlpha = clamp01(lifecycleAlpha);
+  context.shadowBlur = 0;
+  context.shadowColor = 'transparent';
+  // 直接采样完整 Circle_01，保留径向表无法表达的逐像素 Coverage 细节。
+  context.drawImage(
+    resources.coverageCanvas,
+    0,
+    0,
+    CIRCLE_TEXTURE_SIZE,
+    CIRCLE_TEXTURE_SIZE,
+    -radius,
+    -radius,
+    radius * 2,
+    radius * 2,
+  );
+  context.restore();
+}
+
 function resolveShardTextureFrameIndex(particle, shardCfg)
 {
   const frames = shardCfg.textureFrames;
@@ -1893,6 +2002,7 @@ function drawTexturedTriangle(
   particleAlpha,
   frameIndex,
   energyScale = 1,
+  outputCompositing = 'scene',
 )
 {
   const resources = getTriangleTextureResources();
@@ -1905,6 +2015,15 @@ function drawTexturedTriangle(
   const textureContext = resources.context;
   const scaledColor = materialEnergy.map((channel) =>
     Math.round(clamp01(channel * Math.max(0, energyScale)) * 255));
+
+  if (
+    outputCompositing === 'transparent-overlay' &&
+    scaledColor.every((channel) => channel === 0)
+  )
+  {
+    // source-over 下黑色纹理仍会遮挡宿主；零能量必须完全跳过。
+    return true;
+  }
 
   textureContext.setTransform(1, 0, 0, 1, 0, 0);
   textureContext.globalAlpha = 1;
@@ -1956,6 +2075,7 @@ function drawTriangle(
   scale,
   opacity,
   fxConfig = UNITY_FX_TOUCH,
+  outputCompositing = 'scene',
 )
 {
   const shardCfg = fxConfig.shards;
@@ -1986,6 +2106,8 @@ function drawTriangle(
     materialEnergy,
     alpha,
     textureFrameIndex,
+    1,
+    outputCompositing,
   ))
   {
     return;
@@ -1999,8 +2121,62 @@ function drawTriangle(
   context.lineTo(textureFrame[1][0] * size, textureFrame[1][1] * size);
   context.lineTo(textureFrame[2][0] * size, textureFrame[2][1] * size);
   context.closePath();
-  context.fillStyle = linearEnergyToAdditiveCss(materialEnergy, alpha);
+  context.fillStyle = outputCompositing === 'transparent-overlay'
+    ? linearEnergyToOverlayCss(materialEnergy, alpha, alpha)
+    : linearEnergyToAdditiveCss(materialEnergy, alpha);
   // 三角碎片在原图中是清晰本体；显式清空阴影，避免继承上一层发光状态。
+  context.shadowColor = 'transparent';
+  context.shadowBlur = 0;
+  context.fill();
+  context.restore();
+}
+
+function drawTriangleCoverage(
+  context,
+  particle,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
+{
+  const shardCfg = fxConfig.shards;
+  const progress = clamp01(particle.ageMs / particle.lifetimeMs);
+  const size = particle.size * evaluateUnityHermiteCurve(
+    shardCfg.sizeKeys,
+    progress,
+  ) * scale;
+  const alpha = evaluateNumber(shardCfg.alphaKeys, progress) * opacity;
+  const textureFrameIndex = resolveShardTextureFrameIndex(particle, shardCfg);
+  const textureFrame = resolveShardTextureFrame(particle, shardCfg);
+
+  if (size <= 0 || alpha <= 0)
+  {
+    return;
+  }
+
+  if (drawTexturedTriangle(
+    context,
+    particle,
+    size,
+    [1, 1, 1],
+    alpha,
+    textureFrameIndex,
+    1,
+    'transparent-overlay',
+  ))
+  {
+    return;
+  }
+
+  context.save();
+  context.translate(particle.x, particle.y);
+  context.rotate(particle.rotation);
+  context.beginPath();
+  context.moveTo(textureFrame[0][0] * size, textureFrame[0][1] * size);
+  context.lineTo(textureFrame[1][0] * size, textureFrame[1][1] * size);
+  context.lineTo(textureFrame[2][0] * size, textureFrame[2][1] * size);
+  context.closePath();
+  context.fillStyle = `rgba(255, 255, 255, ${clamp01(alpha)})`;
   context.shadowColor = 'transparent';
   context.shadowBlur = 0;
   context.fill();
@@ -2227,7 +2403,12 @@ class ClickWave
     this.update(deltaMs);
   }
 
-  drawAdditiveBase(context, scale, opacity, linearOutput = false)
+  drawAdditiveBase(
+    context,
+    scale,
+    opacity,
+    linearOutput = false,
+  )
   {
     // Hit：撞击爆发，极短极亮
     const hitProgress = this.ageMs / this.fx.hit.lifetimeMs;
@@ -2307,6 +2488,7 @@ class ClickWave
     scale,
     opacity,
     useNativeBloom = true,
+    outputCompositing = 'scene',
   )
   {
     // 旧 Canvas 回退保持既有绘制顺序；精确 Scene 路径按材质队列分层调用。
@@ -2443,6 +2625,47 @@ class ClickWave
           ringMaterialEnergy,
         );
       }
+    }
+  }
+
+  drawBloomCoverage(context, scale, opacity)
+  {
+    const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
+
+    if (diskProgress < 1)
+    {
+      drawDiskCoverage(
+        context,
+        this,
+        diskProgress,
+        scale,
+        opacity,
+        this.fx,
+      );
+    }
+
+    const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
+
+    if (ringProgress >= 1)
+    {
+      return;
+    }
+
+    for (const ring of this.rings)
+    {
+      // Ring3 的纹理 Alpha 与粒子 opacity 构成 Coverage；HDR 材质能量
+      // 只写 Bloom 发射源，不能反向抬高透明桌面的遮挡度。
+      drawDissolvedCircle(
+        context,
+        ring,
+        ringProgress,
+        scale,
+        opacity,
+        this.fx,
+        false,
+        [1, 1, 1],
+        'transparent-overlay',
+      );
     }
   }
 
@@ -2769,9 +2992,17 @@ class ShardParticle
     scale,
     opacity,
     fxConfig = UNITY_FX_TOUCH,
+    outputCompositing = 'scene',
   )
   {
-    drawTriangle(context, this, scale, opacity, fxConfig);
+    drawTriangle(
+      context,
+      this,
+      scale,
+      opacity,
+      fxConfig,
+      outputCompositing,
+    );
   }
 
   drawBloom(
@@ -2782,6 +3013,16 @@ class ShardParticle
   )
   {
     drawTriangleEmission(context, this, scale, opacity, fxConfig);
+  }
+
+  drawBloomCoverage(
+    context,
+    scale,
+    opacity,
+    fxConfig = UNITY_FX_TOUCH,
+  )
+  {
+    drawTriangleCoverage(context, this, scale, opacity, fxConfig);
   }
 
   appendWebGLScene(
@@ -3571,10 +3812,15 @@ function drawTrailLayer(
     points.length - 1,
   );
   const resolveCss = layer.colorAtIntensity ??
-    ((color, intensity) => linearEnergyToAdditiveCss(
-      color,
-      layer.alpha * opacity * intensity,
-    ));
+    ((color, intensity) =>
+    {
+      const contribution = layer.alpha * opacity * intensity;
+      const coverage = layer.alpha * opacity;
+
+      return layer.outputCompositing === 'transparent-overlay'
+        ? linearEnergyToOverlayCss(color, contribution, coverage)
+        : linearEnergyToAdditiveCss(color, contribution);
+    });
 
   for (let index = firstSegment; index <= lastSegment; index++)
   {
@@ -3721,6 +3967,7 @@ function drawNativeTrailBloom(
   trailCfg,
   bloomCfg,
   surface,
+  outputCompositing = 'scene',
 )
 {
   const measurement = trailData.measurement;
@@ -3821,6 +4068,7 @@ function drawNativeTrailBloom(
           opacity,
           intensity,
           bloomCfg,
+          outputCompositing,
         ),
     },
     firstVisibleSegment,
@@ -3938,6 +4186,7 @@ function drawTrail(
   nativeBloomSurface = null,
   sharedTrailData = null,
   linearOutput = false,
+  outputCompositing = 'scene',
 )
 {
   const trailCfg = fxConfig.trail;
@@ -4005,6 +4254,7 @@ function drawTrail(
       trailCfg,
       bloomCfg,
       nativeBloomSurface,
+      outputCompositing,
     );
   }
 
@@ -4014,7 +4264,51 @@ function drawTrail(
       width: trailCfg.width,
       alpha: 1,
       materialIntensity: bloomCfg.trailEmission,
+      outputCompositing,
     },
+  );
+}
+
+function drawTrailCoverage(
+  context,
+  points,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  sharedTrailData = null,
+  segmentStart = 1,
+  segmentEnd = points.length - 1,
+)
+{
+  const trailCfg = fxConfig.trail;
+  const trailOpacity = opacity * (trailCfg.trailOpacity ?? 1);
+  const trailData = sharedTrailData ?? createTrailFrameData(
+    points,
+    trailCfg,
+    1,
+  );
+
+  if (trailData.measurement.totalLength <= 0 || trailOpacity <= 0)
+  {
+    return;
+  }
+
+  drawTrailLayer(
+    context,
+    points,
+    trailData,
+    scale,
+    1,
+    trailCfg,
+    {
+      width: trailCfg.width,
+      // Additive Shader 的目标 Alpha 固定为 1；透明适配层只保留实际
+      // TrailRenderer 几何与全局透明度，不混入材质 HDR 发射倍率。
+      colorAtIntensity: () =>
+        `rgba(255, 255, 255, ${clamp01(trailOpacity)})`,
+    },
+    segmentStart,
+    segmentEnd,
   );
 }
 
@@ -5494,7 +5788,10 @@ export class BAClickFX
     const prevHueShift = themeHueShift;
     themeHueShift = this._themeHueShift;
     this.context.save();
-    this.context.globalCompositeOperation = 'lighter';
+    this.context.globalCompositeOperation =
+      this.config.outputCompositing === 'transparent-overlay'
+        ? 'source-over'
+        : 'lighter';
     this.renderingFrame = true;
 
     try
@@ -6603,8 +6900,12 @@ export class BAClickFX
     context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     context.clearRect(0, 0, this.width, this.height);
 
-    if (this.config.lightBackgroundContrastAlpha <= 0)
+    if (
+      this.config.outputCompositing === 'transparent-overlay' ||
+      this.config.lightBackgroundContrastAlpha <= 0
+    )
     {
+      // 桌面透明模式的 Alpha 合同已经提供可见度；额外 darken 层只会遮挡宿主。
       return;
     }
 
@@ -6732,7 +7033,7 @@ export class BAClickFX
       const diskProgress = wave.ageMs / this.fxConfig.disk.lifetimeMs;
       const ringProgress = wave.ageMs / this.fxConfig.rings.lifetimeMs;
       let sourceRadius = diskProgress < 1
-        ? this.fxConfig.disk.radius * evaluateNumber(
+        ? this.fxConfig.disk.radius * evaluateUnityHermiteCurve(
           this.fxConfig.disk.sizeKeys,
           diskProgress,
         ) * scale
@@ -6948,6 +7249,7 @@ export class BAClickFX
       clamp: bloomCfg.clamp,
       intensity: bloomCfg.intensity,
       diffusion,
+      outputCompositing: this.config.outputCompositing,
     };
     let processedSourcePixels = 0;
     let failed = false;
@@ -6977,6 +7279,10 @@ export class BAClickFX
 
         continue;
       }
+
+      const coverageContext = renderer.beginCoverageFrame(
+        this.config.outputCompositing,
+      );
 
       processedSourcePixels += renderer.sourceWidth * renderer.sourceHeight;
       bloomContext.save();
@@ -7016,6 +7322,51 @@ export class BAClickFX
       }
 
       bloomContext.restore();
+
+      if (coverageContext)
+      {
+        coverageContext.save();
+
+        for (const batch of region.trailBatches)
+        {
+          const stroke = batch.stroke;
+
+          if (stroke.points.length >= 2)
+          {
+            drawTrailCoverage(
+              coverageContext,
+              stroke.points,
+              scale,
+              this.config.opacity,
+              this.fxConfig,
+              stroke.trailFrameData,
+              batch.firstSegment,
+              batch.lastSegment,
+            );
+          }
+        }
+
+        for (const wave of region.waves)
+        {
+          wave.drawBloomCoverage(
+            coverageContext,
+            scale,
+            this.config.opacity,
+          );
+        }
+
+        for (const shard of region.shards)
+        {
+          shard.drawBloomCoverage(
+            coverageContext,
+            scale,
+            this.config.opacity,
+            this.fxConfig,
+          );
+        }
+
+        coverageContext.restore();
+      }
 
       if (!renderer.composite(this.context, settings))
       {
@@ -7263,7 +7614,10 @@ export class BAClickFX
   {
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
-    this.context.globalCompositeOperation = 'lighter';
+    this.context.globalCompositeOperation =
+      this.config.outputCompositing === 'transparent-overlay'
+        ? 'source-over'
+        : 'lighter';
     this._drawCanvasTrails(scale, useNativeBloom, legacy);
     this._drawCanvasClickEffects(scale, useNativeBloom, legacy);
   }
@@ -7349,6 +7703,7 @@ export class BAClickFX
         scale,
         this.config.opacity,
         useNativeBloom,
+        this.config.outputCompositing,
       );
     }
 
@@ -7359,6 +7714,7 @@ export class BAClickFX
         scale,
         this.config.opacity,
         this.fxConfig,
+        this.config.outputCompositing,
       );
     }
 
@@ -7375,6 +7731,9 @@ export class BAClickFX
     const nativeBloomSurface = useNativeBloom && !legacy
       ? this._getNativeTrailBloomSurface()
       : null;
+    const outputCompositing = linearOutput
+      ? 'scene'
+      : this.config.outputCompositing;
 
     for (
       let strokeIndex = this.trailStrokes.length - 1;
@@ -7400,6 +7759,7 @@ export class BAClickFX
         nativeBloomSurface,
         stroke.trailFrameData,
         linearOutput,
+        outputCompositing,
       );
     }
   }
@@ -7529,6 +7889,7 @@ export class BAClickFX
           scale,
           this.config.opacity,
           useNativeBloom,
+          this.config.outputCompositing,
         );
       }
     }
@@ -7592,6 +7953,7 @@ export class BAClickFX
           scale,
           this.config.opacity,
           this.fxConfig,
+          this.config.outputCompositing,
         );
       }
     }
