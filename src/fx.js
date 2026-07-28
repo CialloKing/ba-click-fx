@@ -1267,9 +1267,34 @@ class LegacyRingRasterizer
     data[offset + 3] = 0;
   }
 
-  _writeVisiblePixel(data, offset, materialEnergy, opacity, textureAlpha)
+  _writeVisiblePixel(
+    data,
+    offset,
+    materialEnergy,
+    opacity,
+    textureAlpha,
+    outputCompositing,
+  )
   {
     const energyScale = clamp01(opacity * textureAlpha);
+
+    if (energyScale <= 0.00001)
+    {
+      this._clearPixel(data, offset);
+      return;
+    }
+
+    if (outputCompositing === 'transparent-overlay')
+    {
+      // Unity 将 Ring3 的纹理 Alpha 写入 Coverage，同时以 SrcAlpha/One
+      // 混合 HDR RGB；ImageData 交给 Canvas 预乘即可得到同一颜色贡献。
+      data[offset] = Math.round(clamp01(materialEnergy[0]) * 255);
+      data[offset + 1] = Math.round(clamp01(materialEnergy[1]) * 255);
+      data[offset + 2] = Math.round(clamp01(materialEnergy[2]) * 255);
+      data[offset + 3] = Math.round(energyScale * 255);
+      return;
+    }
+
     const red = clamp01(materialEnergy[0] * energyScale);
     const green = clamp01(materialEnergy[1] * energyScale);
     const blue = clamp01(materialEnergy[2] * energyScale);
@@ -1288,7 +1313,14 @@ class LegacyRingRasterizer
     data[offset + 3] = Math.round(alpha * 255);
   }
 
-  _writeMask(progress, threshold, opacity, materialEnergy, ringCfg)
+  _writeMask(
+    progress,
+    threshold,
+    opacity,
+    materialEnergy,
+    ringCfg,
+    outputCompositing,
+  )
   {
     const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
     const widthMultiplier = lerp(
@@ -1343,6 +1375,7 @@ class LegacyRingRasterizer
         materialEnergy,
         opacity,
         textureAlpha,
+        outputCompositing,
       );
     }
 
@@ -1361,6 +1394,7 @@ class LegacyRingRasterizer
     fxConfig,
     useNativeBloom,
     materialEnergy,
+    outputCompositing,
   )
   {
     const ringCfg = fxConfig.rings;
@@ -1385,6 +1419,7 @@ class LegacyRingRasterizer
         opacity,
         materialEnergy,
         ringCfg,
+        outputCompositing,
       );
     }
     catch
@@ -1478,6 +1513,7 @@ function drawDissolvedCircle(
   useNativeBloom = true,
   legacy = false,
   sharedMaterialEnergy = null,
+  outputCompositing = 'scene',
 )
 {
   const ringCfg = fxConfig.rings;
@@ -1499,10 +1535,14 @@ function drawDissolvedCircle(
   );
   // Legacy 只替换 Bloom 为 Canvas shadow；Tri3 本体仍必须保留原材质的
   // Linear 色彩空间与 HDR 强度，否则清晰环带会比 Unity 明显偏蓝、偏暗。
-  const colorForLuminance = (luminance) => linearEnergyToAdditiveCss(
-    materialEnergy,
-    opacity * luminance,
-  );
+  const colorForLuminance = (luminance) =>
+  {
+    const coverage = opacity * luminance;
+
+    return outputCompositing === 'transparent-overlay'
+      ? linearEnergyToOverlayCss(materialEnergy, coverage, coverage)
+      : linearEnergyToAdditiveCss(materialEnergy, coverage);
+  };
 
   context.save();
   context.translate(ring.x, ring.y);
@@ -2119,6 +2159,7 @@ class ClickWave
     legacy = false,
     legacyRingRasterizer = null,
     dpr = 1,
+    outputCompositing = 'scene',
   )
   {
     const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
@@ -2143,6 +2184,7 @@ class ClickWave
           this.fx,
           useNativeBloom,
           ringMaterialEnergy,
+          outputCompositing,
         )
       )
       {
@@ -2161,6 +2203,7 @@ class ClickWave
           useNativeBloom,
           legacy,
           ringMaterialEnergy,
+          outputCompositing,
         );
       }
     }
@@ -2183,7 +2226,16 @@ class ClickWave
       legacy,
       outputCompositing,
     );
-    this.drawRings(context, scale, opacity, useNativeBloom, legacy);
+    this.drawRings(
+      context,
+      scale,
+      opacity,
+      useNativeBloom,
+      legacy,
+      null,
+      1,
+      outputCompositing,
+    );
   }
 
   drawBloom(context, scale, opacity)
@@ -5901,7 +5953,16 @@ export class BAClickFX
 
       for (const wave of this.waves)
       {
-        wave.drawRings(context, scale, this.config.opacity, false);
+        wave.drawRings(
+          context,
+          scale,
+          this.config.opacity,
+          false,
+          false,
+          null,
+          this.dpr,
+          this.config.outputCompositing,
+        );
       }
 
       context.restore();
@@ -6654,6 +6715,7 @@ export class BAClickFX
         legacy,
         legacyRingRasterizer,
         this.dpr,
+        this.config.outputCompositing,
       );
     }
   }
