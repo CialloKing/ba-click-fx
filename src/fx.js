@@ -1447,7 +1447,10 @@ class LegacyRingRasterizer
     const shadowColor = useNativeBloom
       ? colorToNativeGlowCss(
         this.particleColor,
-        opacity * bloomCfg.ringAlpha,
+        scaleNativeGlowAlpha(
+          opacity * bloomCfg.ringAlpha,
+          bloomCfg.clickEmissionScale,
+        ),
         linearNativeGlow,
       )
       : 'transparent';
@@ -1530,7 +1533,6 @@ function drawDissolvedCircle(
   opacity,
   fxConfig = UNITY_FX_TOUCH,
   useNativeBloom = true,
-  legacy = false,
   sharedMaterialEnergy = null,
   outputCompositing = 'scene',
   linearNativeGlow = false,
@@ -1579,12 +1581,10 @@ function drawDissolvedCircle(
           blur: bloomCfg.ringBlur * scale,
           color: colorToNativeGlowCss(
             particleColor,
-            legacy
-              ? opacity * bloomCfg.ringAlpha
-              : scaleNativeGlowAlpha(
-                opacity * bloomCfg.ringAlpha,
-                bloomCfg.clickEmissionScale,
-              ),
+            scaleNativeGlowAlpha(
+              opacity * bloomCfg.ringAlpha,
+              bloomCfg.clickEmissionScale,
+            ),
             linearNativeGlow,
           ),
         }
@@ -1646,7 +1646,6 @@ function drawDisk(
   opacity,
   fxConfig = UNITY_FX_TOUCH,
   useNativeBloom = true,
-  legacy = false,
 )
 {
   const diskCfg = fxConfig.disk;
@@ -1699,12 +1698,10 @@ function drawDisk(
   context.fillStyle = gradient;
   context.shadowColor = colorToCss(
     color,
-    legacy
-      ? opacity * 0.5
-      : scaleNativeGlowAlpha(
-        opacity * bloomCfg.diskAlpha,
-        bloomCfg.clickEmissionScale,
-      ),
+    scaleNativeGlowAlpha(
+      opacity * bloomCfg.diskAlpha,
+      bloomCfg.clickEmissionScale,
+    ),
   );
   context.shadowBlur = useNativeBloom ? bloomCfg.diskBlur * scale : 0;
   context.fill();
@@ -1718,7 +1715,6 @@ function drawDiskNativeGlow(
   scale,
   opacity,
   fxConfig = UNITY_FX_TOUCH,
-  legacy = false,
 )
 {
   const diskCfg = fxConfig.disk;
@@ -1735,12 +1731,10 @@ function drawDiskNativeGlow(
   }
 
   const color = evaluateColor(diskCfg.colorKeys, progress);
-  const shadowAlpha = legacy
-    ? opacity * 0.5
-    : scaleNativeGlowAlpha(
-      opacity * bloomCfg.diskAlpha,
-      bloomCfg.clickEmissionScale,
-    );
+  const shadowAlpha = scaleNativeGlowAlpha(
+    opacity * bloomCfg.diskAlpha,
+    bloomCfg.clickEmissionScale,
+  );
 
   context.save();
   context.globalCompositeOperation = 'lighter';
@@ -2200,7 +2194,6 @@ class ClickWave
     scale,
     opacity,
     useNativeBloom = true,
-    legacy = false,
   )
   {
     const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
@@ -2215,12 +2208,11 @@ class ClickWave
         opacity,
         this.fx,
         useNativeBloom,
-        legacy,
       );
     }
   }
 
-  drawDiskGlow(context, scale, opacity, legacy = false)
+  drawDiskGlow(context, scale, opacity)
   {
     const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
 
@@ -2233,7 +2225,6 @@ class ClickWave
         scale,
         opacity,
         this.fx,
-        legacy,
       );
     }
   }
@@ -2243,7 +2234,6 @@ class ClickWave
     scale,
     opacity,
     useNativeBloom = true,
-    legacy = false,
   )
   {
     // 旧 Canvas 回退保持既有绘制顺序；精确 Scene 路径按材质队列分层调用。
@@ -2253,7 +2243,6 @@ class ClickWave
       scale,
       opacity,
       useNativeBloom,
-      legacy,
     );
   }
 
@@ -2309,7 +2298,6 @@ class ClickWave
           opacity,
           this.fx,
           useNativeBloom,
-          legacy,
           ringMaterialEnergy,
           outputCompositing,
           linearNativeGlow,
@@ -2332,7 +2320,6 @@ class ClickWave
       scale,
       opacity,
       useNativeBloom,
-      legacy,
     );
     this.drawRings(
       context,
@@ -4710,7 +4697,7 @@ export class BAClickFX
     this.fxConfig.trail.coreWidth = LEGACY_TRAIL_CORE_WIDTH;
     this.fxConfig.trail.width = LEGACY_TRAIL_WIDTH;
     this.fxConfig.bloom.trailAlpha = 0.00;
-    this.fxConfig.bloom.ringAlpha = 0.9;
+    // 点击 Bloom 来自同一套 Unity 材质和后处理，Legacy 不再覆盖其强度。
     this.fxConfig.bloom.ringBlur = 80;
     this.fxConfig.bloom.diskBlur = 65;
     this.fxConfig.bloom.shardBlur = 0;
@@ -5414,7 +5401,6 @@ export class BAClickFX
         this.clickTimeMs,
         scale,
         useNativeBloom,
-        legacy,
         !useWebGLClickEffects && !useCanvasScene,
       );
       this._updateShards(
@@ -6894,7 +6880,6 @@ export class BAClickFX
           scale,
           this.config.opacity,
           false,
-          legacy,
         );
         wave.appendCanvasSceneCoverage(
           renderer,
@@ -6912,7 +6897,6 @@ export class BAClickFX
             this.context,
             scale,
             this.config.opacity,
-            legacy,
           );
         }
       }
@@ -6957,7 +6941,6 @@ export class BAClickFX
         scale,
         this.config.opacity,
         useNativeBloom,
-        legacy,
       );
     }
 
@@ -7110,7 +7093,6 @@ export class BAClickFX
     clickTimeMs,
     scale,
     useNativeBloom,
-    legacy = false,
     drawCanvas = true,
   )
   {
@@ -7133,7 +7115,6 @@ export class BAClickFX
           scale,
           this.config.opacity,
           useNativeBloom,
-          legacy,
         );
       }
     }
