@@ -31,6 +31,63 @@ const THEMES = {
   '纯黑': '#000000',
   '纯白': '#ffffff',
 };
+let sceneBackgroundRequestId = 0;
+
+function clearSceneBackground()
+{
+  sceneBackgroundRequestId++;
+  effect.setSceneBackground(null);
+  document.body.classList.remove('scene-background-source');
+}
+
+function applySceneBackgroundImage(url)
+{
+  const requestId = ++sceneBackgroundRequestId;
+
+  // 背景切换时不能继续用旧纹理求差值，否则首个加载帧会使用不匹配的场景。
+  effect.setSceneBackground(null);
+  document.body.classList.remove('scene-background-source');
+
+  if (!url)
+  {
+    return;
+  }
+
+  const image = new Image();
+
+  if (url.protocol === 'http:' || url.protocol === 'https:')
+  {
+    image.crossOrigin = 'anonymous';
+  }
+
+  image.decoding = 'async';
+  image.addEventListener('load', () =>
+  {
+    if (
+      requestId !== sceneBackgroundRequestId ||
+      image.naturalWidth <= 0 ||
+      image.naturalHeight <= 0
+    )
+    {
+      return;
+    }
+
+    if (effect.setSceneBackground(image, { fit: 'cover' }))
+    {
+      // 装饰网格不属于宿主栅格源，严格 Scene 路径下必须移除。
+      document.body.classList.add('scene-background-source');
+    }
+  }, { once: true });
+  image.addEventListener('error', () =>
+  {
+    if (requestId === sceneBackgroundRequestId)
+    {
+      // CSS 背景仍可显示；无 CORS 时纯 WebGL2 自动保留透明回退。
+      effect.setSceneBackground(null);
+    }
+  }, { once: true });
+  image.src = url.href;
+}
 
 function setCustomBackgroundControlsVisible(visible)
 {
@@ -70,6 +127,7 @@ function applyTheme(name)
   }
 
   document.body.style.background = bg;
+  clearSceneBackground();
   selectTheme(name);
   return true;
 }
@@ -104,6 +162,38 @@ function resolveCustomBackground(value)
     : null;
 }
 
+function resolveSceneBackgroundUrl(value)
+{
+  const trimmed = value.trim();
+
+  if (!trimmed || CSS.supports('background', trimmed))
+  {
+    // 通用 CSS、渐变和多图层不能可靠还原为一张宿主场景纹理。
+    return null;
+  }
+
+  try
+  {
+    const url = new URL(trimmed, document.baseURI);
+
+    if (
+      url.protocol !== 'http:' &&
+      url.protocol !== 'https:' &&
+      url.protocol !== 'data:' &&
+      url.protocol !== 'blob:'
+    )
+    {
+      return null;
+    }
+
+    return url;
+  }
+  catch
+  {
+    return null;
+  }
+}
+
 function applyCustomBackground(value, persist = true)
 {
   const resolved = resolveCustomBackground(value);
@@ -117,6 +207,7 @@ function applyCustomBackground(value, persist = true)
   const rawValue = value.trim();
 
   document.body.style.background = resolved;
+  applySceneBackgroundImage(resolveSceneBackgroundUrl(rawValue));
 
   if (input)
   {

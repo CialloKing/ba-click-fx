@@ -47,6 +47,12 @@ declare module 'ba-click-fx'
     clear?: boolean;
   }
 
+  export interface BAClickFXSceneBackgroundOptions
+  {
+    /** 当前仅支持与 CSS background-size: cover 对齐的居中裁剪。 */
+    fit?: 'cover';
+  }
+
   export interface BAClickFXOptions
   {
     /** CSS 选择器、定位容器或已有 Canvas；普通容器建议设置 position: relative，省略时创建全屏覆盖层。 */
@@ -168,6 +174,17 @@ declare module 'ba-click-fx'
 
     /** 暂停或恢复输入与动画调度；clear 仅在 paused 为 true 时生效。 */
     setPaused(paused: boolean, options?: BAClickFXPauseOptions): void;
+
+    /**
+     * 提供特效下方的已解码不透明栅格场景，使纯 WebGL2 在同一线性 HDR 缓冲内合成。
+     * 调用方负责图片 CORS，并须在替换或销毁前保持源可用以支持 Context 恢复。
+     * Canvas、Video 等动态源按调用时内容上传；传入 null 恢复透明 DOM 背景回退。
+     * 返回 true 表示资源已被接受；Renderer 延迟创建时上传仍可能回退。
+     */
+    setSceneBackground(
+      source: TexImageSource | null,
+      options?: BAClickFXSceneBackgroundOptions,
+    ): boolean;
 
     /** 运行时更新输入来源、时间倍率、特效后端、Bloom 后端、DPR 与触摸行为。 */
     updateConfig(overrides: BAClickFXUpdateOptions): void;

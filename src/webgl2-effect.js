@@ -156,6 +156,26 @@ void main()
 }
 `;
 
+const SCENE_BACKGROUND_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+uniform sampler2D u_background;
+uniform vec2 u_uvScale;
+
+in vec2 v_uv;
+out vec4 outColor;
+
+void main()
+{
+  vec2 uv = (v_uv - 0.5) * u_uvScale + 0.5;
+
+  // DOM 栅格源统一按左上原点上传；Shader 翻转也覆盖忽略 UNPACK 的 ImageBitmap。
+  uv.y = 1.0 - uv.y;
+  // SRGB8_ALPHA8 采样会自动解码到线性空间，和 Unity 相机颜色 RT 一致。
+  outColor = vec4(texture(u_background, uv).rgb, 1.0);
+}
+`;
+
 const TRIANGLE_VERTEX_SHADER = `#version 300 es
 precision highp float;
 
@@ -393,10 +413,12 @@ precision highp float;
 
 uniform sampler2D u_scene;
 uniform sampler2D u_bloom;
+uniform sampler2D u_background;
 uniform vec2 u_bloomTexel;
 uniform float u_sampleScale;
 uniform float u_intensity;
 uniform bool u_hasScene;
+uniform bool u_hasBackground;
 
 in vec2 v_uv;
 out vec4 outColor;
@@ -411,6 +433,21 @@ float linearToSrgb(float value)
   }
 
   return 1.055 * pow(linear, 1.0 / 2.4) - 0.055;
+}
+
+float solveOverlayAlpha(float background, float target)
+{
+  if (target > background)
+  {
+    return (target - background) / max(1.0 - background, 0.000001);
+  }
+
+  if (target < background)
+  {
+    return (background - target) / max(background, 0.000001);
+  }
+
+  return 0.0;
 }
 
 void main()
@@ -430,6 +467,44 @@ void main()
     linearToSrgb(linear.g),
     linearToSrgb(linear.b)
   );
+
+  if (u_hasBackground)
+  {
+    vec3 backgroundLinear = texture(u_background, v_uv).rgb;
+    vec3 backgroundSrgb = vec3(
+      linearToSrgb(backgroundLinear.r),
+      linearToSrgb(backgroundLinear.g),
+      linearToSrgb(backgroundLinear.b)
+    );
+    vec3 difference = abs(srgb - backgroundSrgb);
+
+    if (max(max(difference.r, difference.g), difference.b) <= 0.00001)
+    {
+      outColor = vec4(0.0);
+      return;
+    }
+
+    // 求满足 target = premultiplied + background * (1 - alpha) 的最小
+    // source-over Alpha；这样 DOM 背景保持可交互，同时逐像素等于 Unity 输出。
+    vec3 channelAlpha = vec3(
+      solveOverlayAlpha(backgroundSrgb.r, srgb.r),
+      solveOverlayAlpha(backgroundSrgb.g, srgb.g),
+      solveOverlayAlpha(backgroundSrgb.b, srgb.b)
+    );
+    float overlayAlpha = clamp(
+      max(max(channelAlpha.r, channelAlpha.g), channelAlpha.b),
+      0.0,
+      1.0
+    );
+    vec3 premultiplied = srgb - backgroundSrgb * (1.0 - overlayAlpha);
+
+    outColor = vec4(
+      clamp(premultiplied, vec3(0.0), vec3(overlayAlpha)),
+      overlayAlpha
+    );
+    return;
+  }
+
   float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
   // Scene Alpha 只保存 Cross2 Coverage。默认帧缓冲采用预乘合成后，
   // RGB 仍可加到页面，而该 Alpha 会严格执行背景的 OneMinusSrcAlpha 衰减。
@@ -451,6 +526,49 @@ void main()
 function clamp(value, minimum, maximum)
 {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function getTexImageSourceDimensions(source)
+{
+  if (!source)
+  {
+    return null;
+  }
+
+  let width;
+  let height;
+
+  try
+  {
+    width = source.naturalWidth ??
+      source.videoWidth ??
+      source.displayWidth ??
+      source.width;
+    height = source.naturalHeight ??
+      source.videoHeight ??
+      source.displayHeight ??
+      source.height;
+  }
+  catch
+  {
+    // 已关闭的 VideoFrame 等宿主资源会在尺寸读取时抛错。
+    return null;
+  }
+
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  )
+  {
+    return null;
+  }
+
+  return {
+    width,
+    height,
+  };
 }
 
 function gammaToLinear(value)
@@ -609,6 +727,12 @@ export class WebGL2EffectRenderer
     this.sourceTarget = null;
     this.levels = [];
     this.sceneFrameReady = false;
+    this.sceneBackgroundFrameReady = false;
+    this.sceneBackgroundSource = null;
+    this.sceneBackgroundWidth = 0;
+    this.sceneBackgroundHeight = 0;
+    this.sceneBackgroundTexture = null;
+    this.sceneBackgroundTarget = null;
     this.failedResizeSignature = null;
     this.programs = null;
     this.emissionBuffer = null;
@@ -713,6 +837,11 @@ export class WebGL2EffectRenderer
         gl,
         TRIANGLE_VERTEX_SHADER,
         TRIANGLE_FRAGMENT_SHADER,
+      );
+      this.programs.sceneBackground = createProgram(
+        gl,
+        FULLSCREEN_VERTEX_SHADER,
+        SCENE_BACKGROUND_FRAGMENT_SHADER,
       );
       this.programs.prefilter = createProgram(
         gl,
@@ -983,6 +1112,11 @@ export class WebGL2EffectRenderer
       this.contextLost = false;
       this.available = true;
 
+      if (this.sceneBackgroundSource)
+      {
+        this._replaceSceneBackgroundTexture(this.sceneBackgroundSource);
+      }
+
       if (this.width > 0 && this.height > 0)
       {
         this._allocateTargets();
@@ -1002,6 +1136,7 @@ export class WebGL2EffectRenderer
     this.contextLost = true;
     this.available = false;
     this.sceneFrameReady = false;
+    this.sceneBackgroundFrameReady = false;
   }
 
   _handleContextRestored()
@@ -1017,6 +1152,7 @@ export class WebGL2EffectRenderer
     this.sourceTarget = null;
     this.levels = [];
     this.sceneFrameReady = false;
+    this.sceneBackgroundFrameReady = false;
     // Context 恢复代表一套新资源，旧尺寸的失败结论不能继续复用。
     this.failedResizeSignature = null;
     this.programs = null;
@@ -1030,6 +1166,8 @@ export class WebGL2EffectRenderer
     this.triangleVao = null;
     this.triangleTexture = null;
     this.circleTexture = null;
+    this.sceneBackgroundTexture = null;
+    this.sceneBackgroundTarget = null;
     this.fullscreenVao = null;
     this.vertexCount = 0;
     this.sceneDiskVertexCount = 0;
@@ -1120,8 +1258,11 @@ export class WebGL2EffectRenderer
     }
 
     deleteTarget(this.gl, this.sourceTarget);
+    deleteTarget(this.gl, this.sceneBackgroundTarget);
     this.sourceTarget = null;
+    this.sceneBackgroundTarget = null;
     this.sceneFrameReady = false;
+    this.sceneBackgroundFrameReady = false;
 
     for (const level of this.levels)
     {
@@ -1167,6 +1308,7 @@ export class WebGL2EffectRenderer
     gl.deleteVertexArray(this.triangleVao);
     gl.deleteTexture(this.triangleTexture);
     gl.deleteTexture(this.circleTexture);
+    gl.deleteTexture(this.sceneBackgroundTexture);
     gl.deleteVertexArray(this.fullscreenVao);
     this.programs = null;
     this.emissionBuffer = null;
@@ -1179,6 +1321,9 @@ export class WebGL2EffectRenderer
     this.triangleVao = null;
     this.triangleTexture = null;
     this.circleTexture = null;
+    this.sceneBackgroundTexture = null;
+    this.sceneBackgroundTarget = null;
+    this.sceneBackgroundFrameReady = false;
     this.fullscreenVao = null;
     this.stats.vertexCount = 0;
     this.stats.sceneVertexCount = 0;
@@ -1209,6 +1354,249 @@ export class WebGL2EffectRenderer
         return;
       }
     }
+  }
+
+  _createSceneBackgroundTexture(source)
+  {
+    const gl = this.gl;
+    const texture = gl?.createTexture();
+
+    if (!gl || !texture)
+    {
+      return null;
+    }
+
+    const previousTexture = gl.getParameter(gl.TEXTURE_BINDING_2D);
+    const previousFlipY = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL);
+    const previousPremultiply = gl.getParameter(
+      gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,
+    );
+
+    try
+    {
+      this._discardPendingErrors();
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      // ImageBitmap 会忽略 UNPACK_FLIP_Y_WEBGL，方向统一交给背景 Shader。
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.SRGB8_ALPHA8,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        source,
+      );
+
+      const error = gl.getError();
+
+      if (error !== gl.NO_ERROR)
+      {
+        throw new Error(`WebGL2 背景纹理上传错误码 ${error}`);
+      }
+
+      return texture;
+    }
+    catch (error)
+    {
+      console.warn('[BAClickFX] Scene 背景无法上传，保留透明回退:', error);
+      gl.deleteTexture(texture);
+      return null;
+    }
+    finally
+    {
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlipY);
+      gl.pixelStorei(
+        gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,
+        previousPremultiply,
+      );
+      gl.bindTexture(gl.TEXTURE_2D, previousTexture);
+    }
+  }
+
+  _replaceSceneBackgroundTexture(source)
+  {
+    const dimensions = getTexImageSourceDimensions(source);
+
+    if (!dimensions || !this.gl || this.contextLost)
+    {
+      return false;
+    }
+
+    const texture = this._createSceneBackgroundTexture(source);
+
+    if (!texture)
+    {
+      return false;
+    }
+
+    const previousTexture = this.sceneBackgroundTexture;
+
+    this.sceneBackgroundTexture = texture;
+    this.sceneBackgroundSource = source;
+    this.sceneBackgroundWidth = dimensions.width;
+    this.sceneBackgroundHeight = dimensions.height;
+    this._rebuildSceneBackgroundTarget();
+    this.gl.deleteTexture(previousTexture);
+    return true;
+  }
+
+  setSceneBackground(source, options = {})
+  {
+    if (source === null)
+    {
+      this.gl?.deleteTexture(this.sceneBackgroundTexture);
+      deleteTarget(this.gl, this.sceneBackgroundTarget);
+      this.sceneBackgroundSource = null;
+      this.sceneBackgroundWidth = 0;
+      this.sceneBackgroundHeight = 0;
+      this.sceneBackgroundTexture = null;
+      this.sceneBackgroundTarget = null;
+      this.sceneBackgroundFrameReady = false;
+      return true;
+    }
+
+    if (options.fit !== undefined && options.fit !== 'cover')
+    {
+      return false;
+    }
+
+    if (this.contextLost || !this.gl)
+    {
+      const dimensions = getTexImageSourceDimensions(source);
+
+      if (!dimensions)
+      {
+        return false;
+      }
+
+      // Context 恢复时再上传最新宿主源，不能重新使用丢失前的旧背景。
+      this.sceneBackgroundSource = source;
+      this.sceneBackgroundWidth = dimensions.width;
+      this.sceneBackgroundHeight = dimensions.height;
+      this.sceneBackgroundFrameReady = false;
+      return true;
+    }
+
+    return this._replaceSceneBackgroundTexture(source);
+  }
+
+  _getSceneBackgroundUvScale()
+  {
+    const sourceAspect = this.sceneBackgroundWidth /
+      this.sceneBackgroundHeight;
+    const displayAspect = this.displayWidth / this.displayHeight;
+
+    if (sourceAspect > displayAspect)
+    {
+      return [displayAspect / sourceAspect, 1];
+    }
+
+    return [1, sourceAspect / displayAspect];
+  }
+
+  _rebuildSceneBackgroundTarget()
+  {
+    if (
+      !this.sceneBackgroundTexture ||
+      !this.programs?.sceneBackground ||
+      !this.sourceTarget ||
+      this.sourceWidth <= 0 ||
+      this.sourceHeight <= 0
+    )
+    {
+      deleteTarget(this.gl, this.sceneBackgroundTarget);
+      this.sceneBackgroundTarget = null;
+      return false;
+    }
+
+    const gl = this.gl;
+    const program = this.programs.sceneBackground;
+    const uvScale = this._getSceneBackgroundUvScale();
+    let target = null;
+
+    try
+    {
+      target = this._createTarget(this.sourceWidth, this.sourceHeight);
+      gl.disable(gl.BLEND);
+      gl.useProgram(program);
+      this._bindTexture(
+        program,
+        'u_background',
+        this.sceneBackgroundTexture,
+        0,
+      );
+      gl.uniform2f(
+        gl.getUniformLocation(program, 'u_uvScale'),
+        uvScale[0],
+        uvScale[1],
+      );
+      this._drawFullscreen(
+        program,
+        target,
+        this.sourceWidth,
+        this.sourceHeight,
+      );
+
+      const error = gl.getError();
+
+      if (error !== gl.NO_ERROR)
+      {
+        throw new Error(`WebGL2 Scene 背景解析错误码 ${error}`);
+      }
+
+      deleteTarget(gl, this.sceneBackgroundTarget);
+      this.sceneBackgroundTarget = target;
+      return true;
+    }
+    catch (error)
+    {
+      console.warn('[BAClickFX] Scene 背景缓冲创建失败，保留透明回退:', error);
+      deleteTarget(gl, target);
+      deleteTarget(gl, this.sceneBackgroundTarget);
+      this.sceneBackgroundTarget = null;
+      // 背景额外缓冲分配失败不能污染下一帧并禁用整个纯 WebGL2 后端。
+      this._discardPendingErrors();
+      return false;
+    }
+  }
+
+  _copySceneBackgroundToSource()
+  {
+    if (!this.sceneBackgroundTarget || !this.sourceTarget)
+    {
+      return false;
+    }
+
+    const gl = this.gl;
+
+    // Scene 与 Final 复用同一份半浮点背景，避免二次纹理采样产生全屏残差。
+    gl.bindFramebuffer(
+      gl.READ_FRAMEBUFFER,
+      this.sceneBackgroundTarget.framebuffer,
+    );
+    gl.bindFramebuffer(
+      gl.DRAW_FRAMEBUFFER,
+      this.sourceTarget.framebuffer,
+    );
+    gl.blitFramebuffer(
+      0,
+      0,
+      this.sourceWidth,
+      this.sourceHeight,
+      0,
+      0,
+      this.sourceWidth,
+      this.sourceHeight,
+      gl.COLOR_BUFFER_BIT,
+      gl.NEAREST,
+    );
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sourceTarget.framebuffer);
+    return true;
   }
 
   _allocateTargets()
@@ -1264,6 +1652,11 @@ export class WebGL2EffectRenderer
 
         width = Math.max(1, width >> 1);
         height = Math.max(1, height >> 1);
+      }
+
+      if (this.sceneBackgroundTexture)
+      {
+        this._rebuildSceneBackgroundTarget();
       }
 
       this.stats.levelCount = this.levels.length;
@@ -1397,6 +1790,7 @@ export class WebGL2EffectRenderer
     if (options.preserveSceneStats !== true)
     {
       this.sceneFrameReady = false;
+      this.sceneBackgroundFrameReady = false;
       this.stats.sceneVertexCount = 0;
       this.stats.sceneDiskVertexCount = 0;
       this.stats.sceneRingVertexCount = 0;
@@ -1618,6 +2012,7 @@ export class WebGL2EffectRenderer
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       this.sceneFrameReady = false;
+      this.sceneBackgroundFrameReady = this._copySceneBackgroundToSource();
       this.stats.sceneVertexCount = this.vertexCount +
         this.triangleVertexCount;
       this.stats.sceneDiskVertexCount = this.sceneDiskVertexCount;
@@ -2847,7 +3242,12 @@ export class WebGL2EffectRenderer
     return highLevel.up.texture;
   }
 
-  _renderFinal(texture, settings, hasScene = false)
+  _renderFinal(
+    texture,
+    settings,
+    hasScene = false,
+    hasBackground = false,
+  )
   {
     const gl = this.gl;
     const program = this.programs.final;
@@ -2867,9 +3267,19 @@ export class WebGL2EffectRenderer
       hasScene ? this.sourceTarget.texture : texture,
       1,
     );
+    this._bindTexture(
+      program,
+      'u_background',
+      hasBackground ? this.sceneBackgroundTarget.texture : texture,
+      2,
+    );
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_hasScene'),
       hasScene ? 1 : 0,
+    );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_hasBackground'),
+      hasBackground ? 1 : 0,
     );
     gl.uniform2f(
       gl.getUniformLocation(program, 'u_bloomTexel'),
@@ -2907,6 +3317,7 @@ export class WebGL2EffectRenderer
     const hasScene = preserveCanvas &&
       this.sceneEnabled &&
       this.sceneFrameReady;
+    const hasBackground = hasScene && this.sceneBackgroundFrameReady;
 
     try
     {
@@ -2946,7 +3357,12 @@ export class WebGL2EffectRenderer
         );
       }
 
-      this._renderFinal(bloomTexture, settings, hasScene);
+      this._renderFinal(
+        bloomTexture,
+        settings,
+        hasScene,
+        hasBackground,
+      );
       this.stats.vertexCount = this.vertexCount + this.triangleVertexCount;
       this.stats.diskVertexCount = this.sceneDiskVertexCount;
       this.stats.ringVertexCount = this.ringVertexCount;
@@ -2974,6 +3390,7 @@ export class WebGL2EffectRenderer
   clear()
   {
     this.sceneFrameReady = false;
+    this.sceneBackgroundFrameReady = false;
     this.stats.vertexCount = 0;
     this.stats.diskVertexCount = 0;
     this.stats.ringVertexCount = 0;
@@ -3013,5 +3430,8 @@ export class WebGL2EffectRenderer
     this.maximumViewportWidth = 0;
     this.maximumViewportHeight = 0;
     this.failedResizeSignature = null;
+    this.sceneBackgroundSource = null;
+    this.sceneBackgroundWidth = 0;
+    this.sceneBackgroundHeight = 0;
   }
 }

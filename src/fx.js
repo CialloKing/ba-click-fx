@@ -4339,6 +4339,8 @@ export class BAClickFX
     this.webglEffectRenderer = null;
     this.webglEffectUnavailable = false;
     this.webglEffectVisible = false;
+    this.sceneBackgroundSource = null;
+    this.sceneBackgroundFit = 'cover';
 
     if (!this.canvas)
     {
@@ -5594,6 +5596,16 @@ export class BAClickFX
         renderer.destroy();
         canvas.remove();
         return false;
+      }
+
+      if (this.sceneBackgroundSource)
+      {
+        renderer.setSceneBackground(
+          this.sceneBackgroundSource,
+          {
+            fit: this.sceneBackgroundFit,
+          },
+        );
       }
     }
     catch (error)
@@ -7158,6 +7170,47 @@ export class BAClickFX
     this.webglEffectRenderer?.clear();
   }
 
+  /**
+   * 为纯 WebGL2 提供特效下方的真实不透明栅格场景；调用方负责解码与 CORS。
+   * 资源对象不进入 getConfig()，避免配置快照持有宿主 DOM 生命周期。
+   */
+  setSceneBackground(source, options = {})
+  {
+    if (this.destroyed)
+    {
+      return false;
+    }
+
+    const fit = options.fit ?? 'cover';
+
+    if (fit !== 'cover')
+    {
+      return false;
+    }
+
+    if (source === null)
+    {
+      this.webglEffectRenderer?.setSceneBackground(null);
+      this.sceneBackgroundSource = null;
+      this.sceneBackgroundFit = fit;
+      this._requestRender();
+      return true;
+    }
+
+    if (
+      this.webglEffectRenderer &&
+      !this.webglEffectRenderer.setSceneBackground(source, { fit })
+    )
+    {
+      return false;
+    }
+
+    this.sceneBackgroundSource = source;
+    this.sceneBackgroundFit = fit;
+    this._requestRender();
+    return true;
+  }
+
   getConfig()
   {
     return {
@@ -7228,6 +7281,7 @@ export class BAClickFX
 
     this.webglBloomCanvas = null;
     this.webglBloomVisible = false;
+    this.sceneBackgroundSource = null;
     this.overlayParent = null;
     this.overlayMountParent = null;
     this.overlayRoot = null;

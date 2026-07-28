@@ -36,6 +36,10 @@ body::before {
   z-index: 0;
 }
 
+body.scene-background-source::before {
+  display: none;
+}
+
 /* ── Floating Hero ──────────────────────────────────────────────────────── */
 
 .hero-float {
