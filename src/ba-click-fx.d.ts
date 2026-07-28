@@ -73,7 +73,7 @@ declare module 'ba-click-fx'
     clickTimeScale?: number;
     /** 拖尾衰减和拖尾碎片的时间倍率，必须有限且大于 0。默认 1。 */
     trailTimeScale?: number;
-    /** 完整特效后端；默认 'canvas2d'，WebGL2 未就绪或丢失时安全回退。 */
+    /** 完整特效后端；默认 'webgl2'，未就绪或丢失时安全回退 Canvas2D。 */
     effectBackend?: BAClickFXEffectBackend;
     /** 渲染模式：'enhanced'（默认，完整 Bloom）或 'legacy'（Unity 材质主体 + Canvas shadowBlur）。 */
     renderingMode?: 'enhanced' | 'legacy';

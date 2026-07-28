@@ -4490,6 +4490,11 @@ export class BAClickFX
       options.bloomBackend,
       compatibilityBloomBackend,
     );
+    const compatibilityEffectBackend =
+      isBloomBackend(options.bloomBackend) ||
+      typeof options.softwareBloomEnabled === 'boolean'
+        ? 'canvas2d'
+        : CONFIG.effectBackend;
 
     this.config = createConfig(
       {
@@ -4514,7 +4519,7 @@ export class BAClickFX
           : CONFIG.outputCompositing,
         effectBackend: normalizeEffectBackend(
           options.effectBackend,
-          CONFIG.effectBackend,
+          compatibilityEffectBackend,
         ),
         renderingMode: options.renderingMode === 'legacy' ? 'legacy' : CONFIG.renderingMode,
         bloomBackend,

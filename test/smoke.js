@@ -847,6 +847,7 @@ assert(
   CONFIG.lightBackgroundContrastAlpha === 0,
   '严格默认不加入游戏管线之外的浅色背景对比层',
 );
+assert(CONFIG.effectBackend === 'webgl2', '默认由纯 WebGL2 接管完整特效');
 assert(CONFIG.bloomBackend === 'webgl2', '默认使用 WebGL2 Bloom 后端');
 assert(CONFIG.isolatedCompositing === false, '默认直接与页面加色，保持游戏合成顺序');
 assert(CONFIG.inputSource === 'dom', '默认由 DOM 指针事件驱动输入');
@@ -877,6 +878,13 @@ const explicitBackendConfig = createConfig(
   },
 );
 const invalidBackendConfig = createConfig({ bloomBackend: 'webgpu' });
+const explicitEffectBackendConfig = createConfig(
+  {
+    effectBackend: 'webgl2',
+    bloomBackend: 'native',
+  },
+);
+const invalidEffectBackendConfig = createConfig({ effectBackend: 'webgpu' });
 const directCompositingConfig = createConfig({ isolatedCompositing: false });
 const invalidCompositingConfig = createConfig({ isolatedCompositing: 'yes' });
 const manualInputConfig = createConfig(
@@ -896,17 +904,24 @@ const invalidHostControlConfig = createConfig(
 
 assert(
   nativeAliasConfig.bloomBackend === 'native' &&
-    nativeAliasConfig.softwareBloomEnabled === false,
-  'createConfig 同步旧布尔别名与新 Bloom 后端',
+    nativeAliasConfig.softwareBloomEnabled === false &&
+    nativeAliasConfig.effectBackend === 'canvas2d',
+  'createConfig 同步旧布尔别名并保留 Canvas2D 兼容路径',
 );
 assert(
   explicitBackendConfig.bloomBackend === 'webgl2' &&
-    explicitBackendConfig.softwareBloomEnabled === true,
-  'createConfig 中显式 Bloom 后端优先于旧布尔别名',
+    explicitBackendConfig.softwareBloomEnabled === true &&
+    explicitBackendConfig.effectBackend === 'canvas2d',
+  'createConfig 中显式 Bloom 后端优先于旧别名并保留原路径',
 );
 assert(
   invalidBackendConfig.bloomBackend === CONFIG.bloomBackend,
   'createConfig 忽略无效 Bloom 后端并恢复默认值',
+);
+assert(
+  explicitEffectBackendConfig.effectBackend === 'webgl2' &&
+    invalidEffectBackendConfig.effectBackend === CONFIG.effectBackend,
+  'createConfig 保留显式纯 WebGL2 并忽略无效完整特效后端',
 );
 assert(
   directCompositingConfig.isolatedCompositing === false &&
@@ -928,17 +943,29 @@ assert(
 
 console.log('\n指针生命周期');
 const dom = installDom();
+const defaultBackendEffect = new BAClickFX();
+
+assert(
+  defaultBackendEffect.getConfig().effectBackend === 'webgl2' &&
+    defaultBackendEffect.getConfig().resolvedEffectBackend === 'pending' &&
+    defaultBackendEffect.getConfig().bloomBackend === 'webgl2',
+  '默认实例在延迟能力探测前请求纯 WebGL2 并公开 pending',
+);
+defaultBackendEffect.destroy();
+
 const effect = new BAClickFX(
   {
     // 该实例同时覆盖网页白底兼容层的显式启用和运行时切换。
+    effectBackend: 'canvas2d',
     isolatedCompositing: true,
     lightBackgroundContrastAlpha: 0.35,
   },
 );
 assert(
+  effect.getConfig().effectBackend === 'canvas2d' &&
   effect.getConfig().bloomBackend === 'webgl2' &&
     effect.getConfig().resolvedBloomBackend === 'pending',
-  '默认实例在延迟能力探测前请求 WebGL2 Bloom 并公开 pending',
+  'Canvas2D 实例在延迟能力探测前请求 WebGL2 Bloom 并公开 pending',
 );
 effect.updateConfig({ bloomBackend: 'software' });
 const originalBloomBeginFrame = effect.bloomRenderer.beginFrame.bind(

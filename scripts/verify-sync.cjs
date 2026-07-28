@@ -150,26 +150,67 @@ const renderModeSelect = indexHtml.match(
 const renderModeValues = [...renderModeSelect.matchAll(/<option value="([^"]+)"/g)]
   .map((match) => match[1]);
 
+function hasRenderModeConfig(mode, expected)
+{
+  const escapedMode = mode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const keyPattern = mode === 'legacy'
+    ? "(?:'legacy'|legacy)"
+    : `'${escapedMode}'`;
+  // 展示页配置采用多行对象；先限制到单个模式块，避免跨块字段误匹配。
+  const configSource = mainJs.match(
+    new RegExp(`${keyPattern}:\\s*\\{([\\s\\S]*?)\\n\\s*\\},?`),
+  )?.[1] ?? '';
+
+  return Object.entries(expected).every(([key, value]) =>
+    new RegExp(`\\b${key}:\\s*'${value}'`).test(configSource));
+}
+
 verify(
   JSON.stringify(renderModeValues) === JSON.stringify([
-    'software-bloom',
+    'full-webgl2',
     'webgl2-bloom',
+    'software-bloom',
     'native-bloom',
     'legacy',
   ]),
-  '展示页提供 WebGL2、Software、Native 与 Legacy 四档渲染开关',
+  '展示页按纯 WebGL2、WebGL2 Bloom、Software、Native 与 Legacy 排列五档渲染开关',
 );
 verify(
-  /<option value="webgl2-bloom" selected>/.test(renderModeSelect) &&
-    /const DEFAULT_RENDER_MODE = 'webgl2-bloom'/.test(mainJs),
-  '展示页 HTML、恢复与重置路径统一默认使用 WebGL2 Bloom',
+  /<option value="full-webgl2" selected>/.test(renderModeSelect) &&
+    /const DEFAULT_RENDER_MODE = 'full-webgl2'/.test(mainJs),
+  '展示页 HTML、恢复与重置路径统一默认使用纯 WebGL2',
 );
 verify(
-  /'software-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'software' \}/.test(mainJs) &&
-    /'webgl2-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'webgl2' \}/.test(mainJs) &&
-    /'native-bloom': \{ renderingMode: 'enhanced', bloomBackend: 'native' \}/.test(mainJs) &&
-    /legacy: \{ renderingMode: 'legacy' \}/.test(mainJs),
-  '展示页四档开关映射到对应的公开 renderingMode 与 bloomBackend API',
+  hasRenderModeConfig('full-webgl2',
+    {
+      effectBackend: 'webgl2',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    }) &&
+    hasRenderModeConfig('webgl2-bloom',
+      {
+        effectBackend: 'canvas2d',
+        renderingMode: 'enhanced',
+        bloomBackend: 'webgl2',
+      }) &&
+    hasRenderModeConfig('software-bloom',
+      {
+        effectBackend: 'canvas2d',
+        renderingMode: 'enhanced',
+        bloomBackend: 'software',
+      }) &&
+    hasRenderModeConfig('native-bloom',
+      {
+        effectBackend: 'canvas2d',
+        renderingMode: 'enhanced',
+        bloomBackend: 'native',
+      }) &&
+    hasRenderModeConfig('legacy',
+      {
+        effectBackend: 'canvas2d',
+        renderingMode: 'legacy',
+      }),
+  '展示页五档开关映射到对应的完整特效、渲染模式与 Bloom API',
 );
 verify(
   /BLOOM_BACKEND_CHANGE_EVENT/.test(mainJs) &&
@@ -230,8 +271,9 @@ verify(
   '严格默认关闭网页兼容合成，createConfig 仍接受布尔覆盖值',
 );
 verify(
-  /const DEFAULT_BLOOM_BACKEND = 'webgl2'/.test(configJs),
-  '库配置默认使用 WebGL2 Bloom',
+  /const DEFAULT_EFFECT_BACKEND = 'webgl2'/.test(configJs) &&
+    /const DEFAULT_BLOOM_BACKEND = 'webgl2'/.test(configJs),
+  '库配置默认使用纯 WebGL2，并保留 WebGL2 Bloom 回退请求',
 );
 verify(
   /function createOverlayRoot/.test(engineJs) &&

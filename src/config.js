@@ -6,7 +6,7 @@ const SHARD_LOCAL_SCALE = 0.3078824;
 const SHARD_UNIT_TO_REFERENCE_PIXELS =
   WORLD_TO_REFERENCE_PIXELS * SHARD_LOCAL_SCALE;
 const RING_MESH_OUTER_RADIUS = 1.0636684;
-const DEFAULT_EFFECT_BACKEND = 'canvas2d';
+const DEFAULT_EFFECT_BACKEND = 'webgl2';
 const EFFECT_BACKENDS = new Set(['canvas2d', 'webgl2', 'auto']);
 const DEFAULT_BLOOM_BACKEND = 'webgl2';
 const BLOOM_BACKENDS = new Set(['auto', 'software', 'webgl2', 'native']);
@@ -337,7 +337,7 @@ export const CONFIG = Object.freeze(
     trailTimeScale: 1,
     // 默认保留 Unity Scene 合成；透明桌面宿主必须显式选择覆盖层输出。
     outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
-    // 纯 WebGL2 是可选完整特效后端；默认继续使用兼容性更广的 Canvas2D。
+    // 默认由纯 WebGL2 接管完整 Scene；能力不足时运行时安全回退 Canvas2D。
     effectBackend: DEFAULT_EFFECT_BACKEND,
     // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
     // 替换为兼容性更高的 Canvas shadowBlur，并保留旧版拖尾合成风格。
@@ -418,9 +418,14 @@ export function createConfig(overrides = {})
   const inputSource = isInputSource(overrides.inputSource)
     ? overrides.inputSource
     : CONFIG.inputSource;
+  const compatibilityEffectBackend =
+    isBloomBackend(overrides.bloomBackend) ||
+    typeof overrides.softwareBloomEnabled === 'boolean'
+      ? 'canvas2d'
+      : CONFIG.effectBackend;
   const effectBackend = normalizeEffectBackend(
     overrides.effectBackend,
-    CONFIG.effectBackend,
+    compatibilityEffectBackend,
   );
   const clickTimeScale = normalizeTimeScale(
     overrides.clickTimeScale,

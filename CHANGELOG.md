@@ -3,6 +3,7 @@
 ## v1.2.14 — 完整 WebGL2 与统一线性场景输出
 
 - 将纯 WebGL2 从实验选项升级为正式第五种渲染模式，使用独立 `effectBackend`、`resolvedEffectBackend` 与 `baclickfxeffectbackendchange` 状态契约；不可用时安全回退 Canvas 2D 链
+- 默认完整特效后端与展示页模式改为纯 WebGL2；显式旧版 Bloom 参数继续选择 Canvas 2D 兼容路径，避免既有集成被默认值覆盖
 - 纯 WebGL2 接管圆盘、离散圆环、三角碎片、TrailRenderer 主体和 MXFinalBloom，并按 Unity 解包纹理、材质 Alpha、生命周期曲线及预乘输出校准透明覆盖率
 - 新增 `outputCompositing: 'scene' | 'transparent-overlay'`，分离 HDR 发光能量、几何 Coverage 与最终输出 Alpha，统一各后端的桌面透明叠加语义
 - WebGL2 Bloom 改为与纯 WebGL2 复用完整 Scene Renderer；原生辉光和 Legacy 接入 Canvas Final Pass，使清晰层、点击附加层、轨迹、辉光与背景使用一致的线性颜色及覆盖率规则

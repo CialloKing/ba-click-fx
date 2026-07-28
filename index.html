@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>蔚蓝档案网页点击特效与鼠标拖尾 | Blue Archive Click Effect | ba-click-fx</title>
-  <meta name="description" content="ba-click-fx 是一个使用 Canvas 2D 与 WebGL2 Bloom 的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持自动回退、鼠标、触摸、npm 和 CDN，零运行时依赖。" />
+  <meta name="description" content="ba-click-fx 是一个默认使用纯 WebGL2、可自动回退 Canvas 2D 的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持鼠标、触摸、npm 和 CDN，零运行时依赖。" />
   <meta name="keywords" content="ba-click-fx, Blue Archive, 蔚蓝档案, click effect, mouse click effect, cursor effect, cursor trail, touch effect, Canvas 2D, web animation" />
   <link rel="canonical" href="https://ba-click-fx.cialloking.top/" />
   <meta property="og:title" content="蔚蓝档案网页点击特效与鼠标拖尾 | ba-click-fx" />
-  <meta property="og:description" content="默认使用 WebGL2 Bloom、支持软件回退的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持 npm/CDN，零依赖。" />
+  <meta property="og:description" content="默认使用纯 WebGL2、支持 Canvas 2D 与软件回退的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持 npm/CDN，零依赖。" />
   <meta property="og:image" content="https://github.com/CialloKing/ba-click-fx/releases/download/v1.2.12/ba-click-fx-demo.gif" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://ba-click-fx.cialloking.top/" />
@@ -47,8 +47,8 @@
       Click, drag, or move your mouse to preview the effect.
     </p>
     <p id="introP2">
-      ba-click-fx is a Canvas 2D JavaScript library with WebGL2 Bloom by default
-      for mouse click effects, cursor trails, glowing rings, and particle sparks.
+      ba-click-fx uses Full WebGL2 by default for mouse click effects, cursor
+      trails, glowing rings, and particle sparks, with safe Canvas 2D fallbacks.
       Zero external dependencies.
     </p>
     <nav aria-label="Project links">
@@ -68,7 +68,7 @@
       <summary id="introFAQSummary">常见问题 / FAQ</summary>
       <div id="introFAQContent">
         <p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p>
-        <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要图片素材；默认使用 WebGL2 Bloom，能力不足时自动回退软件 Bloom，零外部运行时依赖。</p>
+        <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要图片素材；默认使用纯 WebGL2，能力不足时自动回退 Canvas 2D、软件 Bloom 与原生辉光，零外部运行时依赖。</p>
         <p><strong>纯白背景下特效颜色太浅？</strong> 纯白背景会让默认的直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；这两项是网页兼容选项，不是游戏默认路径。</p>
         <p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和直接 script 引入三种方式。</p>
       </div>
@@ -134,8 +134,8 @@ fx.setPaused(true, { clear: true });</code></pre>
       <label class="ctrl">
         <span>渲染模式</span>
         <select id="ctrlRenderMode" class="ctrl-select">
-          <option value="full-webgl2">纯 WebGL2</option>
-          <option value="webgl2-bloom" selected>WebGL2 Bloom</option>
+          <option value="full-webgl2" selected>纯 WebGL2</option>
+          <option value="webgl2-bloom">WebGL2 Bloom</option>
           <option value="software-bloom">软件 Bloom</option>
           <option value="native-bloom">原生辉光</option>
           <option value="legacy">Legacy</option>
@@ -146,7 +146,7 @@ fx.setPaused(true, { clear: true });</code></pre>
         <input type="checkbox" id="ctrlIsolatedCompositing" />
         <span class="toggle-track"></span>
       </label>
-      <p id="renderBackendStatus" class="render-backend-status" aria-live="polite">正在检测 WebGL2 Bloom…</p>
+      <p id="renderBackendStatus" class="render-backend-status" aria-live="polite">正在检测纯 WebGL2…</p>
       </details>
       <details open>
       <summary id="hostApiSummary">宿主控制 API</summary>
