@@ -195,7 +195,7 @@ These controls have separate responsibilities. `isolatedCompositing` only decide
 
 ### Scene Background and Linear Compositing
 
-`setSceneBackground()` supplies the renderer with a real opaque raster scene underneath the effect. Full WebGL2, and WebGL2 Bloom when it resolves successfully to the GPU, can both evaluate the background, Coverage, crisp effect, and MXFinalBloom inside the same linear HDR Scene when the supplied background matches the displayed pixels. Native Glow and Legacy use a Canvas Final Pass; Software Bloom continues to use the normal DOM-background path. Those capability-limited fallback paths must not be treated as pixel-equivalent to the complete WebGL2 Scene or Unity.
+`setSceneBackground()` supplies the renderer with a real opaque raster scene underneath the effect. Strict final-RGB Scene equivalence may only be claimed when Full WebGL2, or WebGL2 Bloom successfully resolved to the GPU, receives a known background whose pixels match the displayed content. Native Glow and Legacy use a Canvas Final Pass; Software Bloom continues to use the normal DOM-background path. Those capability-limited fallback paths must not be treated as pixel-equivalent to the complete WebGL2 Scene or Unity.
 
 The real desktop is normally invisible to a transparent overlay. With `setSceneBackground(null)`, or when no background has been supplied, the renderer can only emit an alpha-bearing overlay for the host or operating system to composite later. An unknown background cannot mathematically reproduce Unity's result over a known opaque HDR Scene. `transparent-overlay` keeps Coverage, lifetime, and brightness relationships stable; it does not remove that information boundary.
 
@@ -430,9 +430,12 @@ The trail follows the same rendering chain as the Unity source asset:
 | Layer | Description |
 |---|---|
 | Geometry and core | Draw the original 2.7px HDR strip directly, then let Bloom expand it into a soft core |
-| Longitudinal envelope | The original TrailRenderer gradient is reversed into Canvas point order, then multiplied by the stretched `FX_TEX_Trail_03` brightness converted from sRGB to linear energy |
-| 2D texture envelope | The transverse feather changes along the stretched length; each segment bilinearly interpolates the source samples so the middle is not widened by a fixed bright core |
+| Gradient and Stretch UV | The gradient is reversed into the web's oldest-to-newest point order; texture U is mapped separately as `1 - progress`, keeping Unity's `U=0` at the newest point |
+| Full WebGL2 texture | Upload the complete `512×512 RGB` `FX_TEX_Trail_03` and sample it per fragment with the source sRGB, Bilinear, Repeat, and no-mipmap settings; decode sRGB to Linear before multiplying by the Gradient and material intensity `23.968628` |
+| Canvas compatibility texture | Software Bloom, Native Glow, and Legacy use a compact 2D LUT approximation of longitudinal brightness, transverse feathering, and non-zero edges to avoid costly software triangle texture rasterisation |
 | Bloom | Ring, disk, trail, and triangle-shard HDR emission is processed by the selected Bloom backend |
+
+Full WebGL2 and a WebGL2 Bloom frame that resolves successfully to the GPU use the same complete texture batch: a regular segment submits only two textured triangles, corner inserts retain the corner U, and the single-triangle cap tip stays at `V=0.5`. The complete RGB texture preserves per-channel and top/bottom-asymmetric detail that cannot be represented by a symmetric scalar profile. Capability-limited Canvas paths preserve parameters, geometry, lifetime, and overall energy relationships, but do not claim per-texture-pixel equivalence.
 
 Shards scatter along the trail at distance intervals.
 
@@ -518,6 +521,7 @@ ba-click-fx/
 │   ├── fx.js            # Engine: ParticleSystem + TrailRenderer lifecycle
 │   ├── main.js           # Demo page + control panel UI
 │   ├── config.js         # Unity FX_Touch parameter snapshot
+│   ├── trail-texture.js  # Lossless Trail_03 RGB data for WebGL2
 │   ├── software-bloom.js # MXFinalBloom Float32 mips and additive composite
 │   ├── webgl2-effect.js  # Shared Full WebGL2 / WebGL2 Bloom Scene and Final Pass
 │   ├── webgl2-canvas-scene.js # Canvas Scene Final Pass for Native / Legacy

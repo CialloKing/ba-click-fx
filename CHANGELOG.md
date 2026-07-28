@@ -8,6 +8,7 @@
 - 将 `themeColor` 纳入构造参数、`updateConfig()` 与 `getConfig()` 的实例状态，并导出默认游戏蓝 `DEFAULT_THEME_COLOR = '#4ca7ff'`；非法颜色统一恢复默认值
 - 对照 Unity `Circle_01` 纹理和材质混合重新使用完整二维 RGB/R Coverage，修正 Canvas、Software、Native 与 Legacy 圆盘的边缘、中心能量和生命周期透明度；未改动嵌入纹理数据
 - 完整 WebGL2 圆环改为上传只读 Ring3 Alpha 并在 Fragment Shader 中执行 Bilinear + Clamp 采样和硬 `clip`，消除 96×8 顶点 Alpha 插值造成的细小溶解边界偏差；拓扑和嵌入纹理数据保持不变
+- 完整 WebGL2 与 WebGL2 Bloom 改为无损上传 Unity `FX_TEX_Trail_03` 的完整 `512×512 RGB`，按 sRGB、Bilinear、Repeat、无 Mipmap 在 Fragment Shader 逐片元采样，并保留 Gradient × `23.968628` 材质能量；严格复现 Stretch U、非对称 V、4 个圆角插入点与单三角端帽，将普通段从 96 顶点降至 6 顶点；Canvas、Software、Native 与 Legacy 继续使用能力受限近似
 - 软件 Bloom 的透明覆盖层改用清晰 Scene 与 Bloom 的剩余 Coverage 合成，避免中心 Alpha 重复抬高；Canvas 路径保持 `scene` 的加色语义，并在 `transparent-overlay` 下采用受预乘 Alpha 限制的兼容输出
 - WebGL2 Bloom 成功路径继续复用已验收的完整 WebGL2 Scene，同时移除每帧不可见的 Canvas 重复栅格化；GPU 当帧失败时才补画 Canvas 并进入 Software / Native 回退
 - 统一完整 WebGL2、独立 WebGL2 Bloom、软件 Bloom 与原生回退的 Unity `GammaToLinearSpace` 阈值换算；Clamp 在换算后按 Shader half 上限 `65504` 截断，默认序列值仍为 `65472`

@@ -215,7 +215,7 @@ const fx = new BAClickFX(
 
 ### 场景背景与线性合成
 
-`setSceneBackground()` 可把特效下方的真实不透明栅格场景交给渲染器。纯 WebGL2，以及成功解析到 GPU 的 WebGL2 Bloom，在所提供背景与实际显示背景逐像素匹配时，都能让背景、Coverage、清晰特效与 MXFinalBloom 在同一线性 HDR Scene 中按游戏管线求值。原生辉光和 Legacy 使用 Canvas Final Pass；软件 Bloom 仍使用普通 DOM 背景路径，这些能力受限的回退实现不能宣称与完整 WebGL2 Scene 或 Unity 逐像素等价。
+`setSceneBackground()` 可把特效下方的真实不透明栅格场景交给渲染器。只有纯 WebGL2，或成功解析到 GPU 的 WebGL2 Bloom，收到与实际显示内容逐像素匹配的已知背景时，才能在渲染合同内声明最终 RGB Scene 按 Unity 线性 HDR 管线严格求值。原生辉光和 Legacy 使用 Canvas Final Pass；软件 Bloom 仍使用普通 DOM 背景路径，这些能力受限的回退实现不能宣称与完整 WebGL2 Scene 或 Unity 逐像素等价。
 
 透明桌面下的真实桌面通常对库不可见。调用 `setSceneBackground(null)` 或从未提供背景时，渲染器只能输出带 Alpha 的覆盖层，再由操作系统或宿主合成；未知背景无法在数学上复现 Unity 对已知不透明 HDR Scene 的逐像素结果。`transparent-overlay` 的目标是保持 Coverage、生命周期与亮度关系稳定，而不是绕过这一信息边界。
 
@@ -450,9 +450,12 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 | 层 | 说明 |
 |---|---|
 | 几何带与亮芯 | 直接绘制原始 2.7px HDR 几何带，再由 Bloom 自然扩张为柔和亮芯 |
-| 纵向包络 | 将原 TrailRenderer Gradient 反向到 Canvas 点序，再乘 `FX_TEX_Trail_03` 经 sRGB→Linear 换算的 Stretch 纹理亮度 |
-| 二维纹理包络 | 横向羽化会随 Stretch 纵向位置变化；逐段双线性插值原纹理采样，避免中段被固定亮芯拓宽 |
+| Gradient 与 Stretch UV | Gradient 按网页的旧点→新点顺序反转；纹理 U 单独按 `1 - progress` 映射，使 Unity 的 `U=0` 仍位于最新点 |
+| 完整 WebGL2 纹理 | 上传完整 `512×512 RGB` 的 `FX_TEX_Trail_03`，按原 sRGB、Bilinear、Repeat、无 Mipmap 设置在 Fragment Shader 逐片元采样；sRGB 解码到 Linear 后再乘 Gradient 与材质强度 `23.968628` |
+| Canvas 兼容纹理 | 软件 Bloom、原生辉光和 Legacy 使用紧凑二维 LUT 近似纵向亮度、横向羽化与非零边缘，避免逐三角软件纹理栅格化造成卡顿 |
 | Bloom | 对圆环、圆盘、拖尾和三角碎片的 HDR 发射缓冲使用所选 Bloom 后端 |
+
+纯 WebGL2 与成功解析到 GPU 的 WebGL2 Bloom 使用同一完整纹理批次：普通段只提交两个纹理三角，圆角插入点保持折点 U，单三角端帽的尖端固定为 `V=0.5`。完整 RGB 纹理保留原资源无法由对称单通道轮廓表达的逐通道与上下非对称细节；Canvas 能力受限路径只保证参数、几何、生命周期和总体能量关系，不宣称逐纹理像素等价。
 
 碎片沿轨迹按距离散布。
 
@@ -538,6 +541,7 @@ ba-click-fx/
 │   ├── fx.js            # 主引擎：ParticleSystem + TrailRenderer 生命周期
 │   ├── main.js           # 演示页面入口 + 控制面板 UI
 │   ├── config.js         # Unity FX_Touch 粒子参数只读快照
+│   ├── trail-texture.js  # WebGL2 无损 Trail_03 RGB 纹理数据
 │   ├── software-bloom.js # MXFinalBloom Float32 mip 与加色合成
 │   ├── webgl2-effect.js  # 纯 WebGL2 / WebGL2 Bloom 共享 Scene 与 Final Pass
 │   ├── webgl2-canvas-scene.js # Native / Legacy 的 Canvas Scene Final Pass
