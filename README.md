@@ -179,11 +179,11 @@ new BAClickFX(options?: {
 
 `outputCompositing: 'scene'` 保持面向普通网页和游戏场景的既有输出。`'transparent-overlay'` 面向 WebView2、Electron 等透明桌面窗口：HDR RGB 继续驱动 Bloom，最终 Alpha 则由几何 Coverage、生命周期 Alpha 与 `opacity` 决定，避免高 HDR 圆盘把桌面完全遮住。该选项不改变 Bloom 阈值或发射强度。
 
-`isolatedCompositing` 默认是 `false`，各 Canvas 直接挂载到目标容器或页面，与 Unity 的直接加色路径一致。设为 `true` 后，库拥有的主特效层、WebGL2 Bloom 层和浅色背景兼容层会先在透明隔离组内混合，再将整个组覆盖到页面上，避免 `plus-lighter` 直接与纯白背景相加后把蓝青色钳制成白色。隔离合成是非游戏的网页白底兼容选项，可通过 `updateConfig()` 在运行时切换。
+`isolatedCompositing` 默认是 `false`，各 Canvas 直接挂载到目标容器或页面。设为 `true` 后，库拥有的主特效层、WebGL2 层和浅色背景兼容层会先在透明隔离组内解析，再将整个组覆盖到页面上，避免浏览器分别把兼容层与纯白页面合成后丢失蓝青色对比。各渲染器内部已经完成 Unity 加色并输出预乘 Alpha，外层不再使用会二次增亮的 CSS `plus-lighter`。隔离合成是非游戏的网页白底兼容选项，可通过 `updateConfig()` 在运行时切换。
 
 纯 WebGL2、WebGL2 Bloom、场景背景 Final Pass 和隔离合成都需要库拥有 DOM 覆盖层。若 `target` 是一个已有的 `<canvas>`，库无法安全插入额外的 WebGL2、对比或隔离层，因此完整特效的 `'webgl2'` / `'auto'` 会回退 `canvas2d`，Bloom 的 `'webgl2'` / `'auto'` 会回退软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回降级后的实际配置。默认全屏覆盖层不受此限制。普通容器也可以使用，但容器必须自行建立定位上下文（通常设置 `position: relative`），库不会静默修改宿主样式。
 
-隔离根按 `BAClickFX` 实例独立创建和销毁。同一页面的多个隔离实例不会跨根执行 `plus-lighter`；一个实例切换模式或销毁也不会移动、删除其他实例的 Canvas。
+隔离根按 `BAClickFX` 实例独立创建和销毁。同一页面的多个隔离实例不会跨根混合内部兼容层；一个实例切换模式或销毁也不会移动、删除其他实例的 Canvas。
 
 纯白背景需要额外对比度时，可显式启用两项网页兼容选项：
 

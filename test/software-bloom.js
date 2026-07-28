@@ -753,17 +753,24 @@ geometryRenderer.beginFrame();
 geometryRenderer.addTriangle(10, 20, 20, 0, [1, 2, 3], 1, upwardFrame);
 
 assert(
-  geometryRenderer.vertexCount === 3 &&
-    approximatelyEqual(geometryRenderer.vertexData[0], 10) &&
+  geometryRenderer.vertexCount === 0 &&
+    geometryRenderer.triangleVertexCount === 6 &&
+    approximatelyEqual(geometryRenderer.triangleVertexData[0], 0) &&
     approximatelyEqual(
-      geometryRenderer.vertexData[1],
-      20 + upwardFrame[0][1] * 20,
+      geometryRenderer.triangleVertexData[1],
+      10,
     ) &&
     approximatelyEqual(
-      geometryRenderer.vertexData[5],
-      10 + upwardFrame[1][0] * 20,
-    ),
-  'WebGL2 碎片顶点使用 Unity 2×1 图集的实测轮廓',
+      geometryRenderer.triangleVertexData[8],
+      20,
+    ) &&
+    approximatelyEqual(geometryRenderer.triangleVertexData[2], 0) &&
+    approximatelyEqual(geometryRenderer.triangleVertexData[3], 1) &&
+    approximatelyEqual(geometryRenderer.triangleVertexData[10], 1) &&
+    approximatelyEqual(geometryRenderer.triangleVertexData[11], 1) &&
+    approximatelyEqual(geometryRenderer.triangleVertexData[18], 1) &&
+    approximatelyEqual(geometryRenderer.triangleVertexData[19], 0),
+  'WebGL2 碎片以完整 Quad 采样 Unity 2×1 图集的实测透明轮廓',
 );
 
 geometryRenderer.beginFrame();

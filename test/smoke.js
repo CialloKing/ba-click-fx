@@ -266,6 +266,20 @@ class ContextMock
     ];
   }
 
+  scale(x, y)
+  {
+    const [a, b, c, d, e, f] = this.currentTransform;
+
+    this.currentTransform = [
+      a * x,
+      b * x,
+      c * y,
+      d * y,
+      e,
+      f,
+    ];
+  }
+
   rotate(angle)
   {
     const [a, b, c, d, e, f] = this.currentTransform;
@@ -982,8 +996,8 @@ assert(
 effect.width = referenceViewportWidth;
 effect.height = referenceViewportHeight;
 assert(
-  effect.canvas.style.mixBlendMode === 'plus-lighter',
-  '自有叠加 Canvas 使用元素级加色混合，不会在浅色 DOM 背景上压黑',
+  effect.canvas.style.mixBlendMode === '',
+  '自有叠加 Canvas 使用预乘 source-over，避免 CSS 再次抬高桌面亮度',
 );
 assert(
   effect.contrastCanvas.style.mixBlendMode === 'darken' &&
@@ -1591,27 +1605,17 @@ assert(
   lastBloomPeak > firstBloomPeak + 20,
   'Bloom 发射仍只在拖尾头部保持高亮',
 );
-const trianglePathIndices = effect.context.filledPaths.reduce(
-  (indices, path, index) =>
-  {
-    if (
-      path.length === 3 &&
-      typeof effect.context.filledStyles[index] === 'string'
-    )
-    {
-      indices.push(index);
-    }
+const triangleTextureDraws = effect.context.drawImageCalls.filter((call) =>
+  call.args.length === 5 &&
+    call.args[1] < 0 &&
+    call.args[2] < 0 &&
+    call.args[3] > 0 &&
+    call.args[3] === call.args[4]);
 
-    return indices;
-  },
-  [],
-);
-
-assert(trianglePathIndices.length > 0, '运行帧实际绘制了三点碎片路径');
+assert(triangleTextureDraws.length > 0, '运行帧实际绘制了图集碎片');
 assert(
-  trianglePathIndices.every((index) =>
-    effect.context.fillShadowBlurs[index] === 0 &&
-      effect.context.fillShadowColors[index] === 'transparent'),
+  triangleTextureDraws.every((call) =>
+    call.shadowBlur === 0 && call.shadowColor === 'transparent'),
   '三角形碎片在主 Canvas 也不设置阴影',
 );
 const shardProbe = effect.shards[0];
@@ -1628,19 +1632,23 @@ shardProbe.size = 20;
 shardProbe.textureFrame = 1;
 shardProbe.drawBloom(shardProbeContext, 1, 1, effect.fxConfig);
 
-const shardBloomEnergy = getCssColorEnergy(shardProbeContext.filledStyles[0]);
-const expectedShardPath = UNITY_FX_TOUCH.shards.textureFrames[1].map(
-  ([x, y]) => [x * 20, y * 20],
+const shardTextureDraw = shardProbeContext.drawImageCalls.at(-1);
+const shardTextureContext = shardTextureDraw.args[0].context;
+const shardBloomEnergy = getCssColorEnergy(
+  shardTextureContext.fillRects.at(-1).fillStyle,
 );
+const shardAtlasDraws = shardTextureContext.drawImageCalls.slice(-2);
 
 assert(
   shardBloomEnergy >= 15 && shardBloomEnergy <= 17,
   '碎片 Bloom 在线性空间乘入 0.5377358 起始色，峰值不再按白色粒子放大',
 );
 assert(
-  JSON.stringify(shardProbeContext.filledPaths[0]) ===
-    JSON.stringify(expectedShardPath),
-  'Canvas 碎片按 Unity 图集等能量轮廓与 Hermite 峰值尺寸绘制',
+  JSON.stringify(shardTextureDraw.args.slice(1)) ===
+      JSON.stringify([-10, -10, 20, 20]) &&
+    shardAtlasDraws.length === 2 &&
+    shardAtlasDraws.every((call) => call.transform[3] === -1),
+  'Canvas 碎片按 Unity 图集翻转帧与 Hermite 峰值尺寸绘制完整 Quad',
 );
 
 const shardWebGLCalls = [];
@@ -1660,9 +1668,8 @@ shardProbe.appendWebGLBloom(
 assert(
   Math.max(...shardWebGLCalls[0][4]) > 1.49 &&
     Math.max(...shardWebGLCalls[0][4]) < 1.51 &&
-    JSON.stringify(shardWebGLCalls[0][6]) ===
-      JSON.stringify(UNITY_FX_TOUCH.shards.textureFrames[1]),
-  'WebGL2 碎片与 Canvas 使用相同的起始色能量和图集轮廓',
+    shardWebGLCalls[0][6] === 1,
+  'WebGL2 碎片与 Canvas 使用相同的起始色能量和图集帧',
 );
 
 Object.assign(shardProbe, savedShardProbe);
@@ -1693,8 +1700,10 @@ assert(
   '关闭软件 Bloom 后不再绘制 ImageData 辉光层',
 );
 assert(
-  effect.contrastContext.drawImageCalls.length === nativeContrastCopyStart,
-  '原生辉光模式不复制带光晕的主 Canvas，继续独立绘制对比遮罩',
+  effect.contrastContext.drawImageCalls
+    .slice(nativeContrastCopyStart)
+    .every((call) => call.args[0] !== effect.canvas),
+  '原生辉光模式不复制带光晕的主 Canvas，继续用独立图集绘制对比遮罩',
 );
 assert(
   effect.context.fillShadowBlurs
@@ -1757,14 +1766,21 @@ const firstNativePeak = nativeSegmentGradients[0].gradient.stops.reduce(
   (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
   0,
 );
+const secondNativePeak = nativeSegmentGradients[1].gradient.stops.reduce(
+  (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
+  0,
+);
 const nativeHeadPeak = nativeSegmentGradients.at(-1).gradient.stops.reduce(
   (maximum, [, color]) => Math.max(maximum, getCssPremultipliedEnergy(color)),
   0,
 );
 
 assert(
-  clearTailPeak === 0 && firstNativePeak > 0 && nativeHeadPeak > 20,
-  '回环轨迹只裁剪零能量尾段，首个可见段与高亮头部保持原生模糊能量',
+  clearTailPeak === 0 &&
+    firstNativePeak === 0 &&
+    secondNativePeak > 0 &&
+    nativeHeadPeak > 20,
+  '回环轨迹裁剪严格零尾段，并由 MXFinalBloom 阈值过滤首个低能段',
 );
 const expectedNativeTrailPaths = [
   ...clearTrailPaths.slice(
@@ -2834,6 +2850,11 @@ const retainedWebGLRenderer =
   clear()
   {
   },
+  releaseFrameResources()
+  {
+    this.sourceTarget = null;
+    this.levels = [];
+  },
   destroy()
   {
     this.available = false;
@@ -3037,6 +3058,7 @@ contextLifecycleEffect.canvas.addEventListener(
 );
 contextLifecycleEffect._ensureWebGLBloomRenderer = () => true;
 contextLifecycleEffect._resizeWebGLBloomRenderer = () => true;
+contextLifecycleEffect.boom(120, 80);
 flushFrames(dom, performance.now(), 1);
 contextLifecycleEffect._handleWebGLContextLost();
 contextLifecycleEffect._handleWebGLContextRestored();
@@ -3124,6 +3146,11 @@ const resizeRecoveryRenderer =
   },
   clear()
   {
+  },
+  releaseFrameResources()
+  {
+    this.sourceTarget = null;
+    this.levels = [];
   },
   destroy()
   {
@@ -4190,6 +4217,7 @@ assert(
     legacyRingRasterizer.cacheRevision === stableLegacyCacheRevision,
   'Legacy 在 0.7/0.8 生命周期完整裁剪 Ring3，并跨帧复用像素缓冲',
 );
+legacyEffect.setFxParam('bloom.clickEmissionScale', 1);
 legacyWave.ageMs = 0;
 legacyEffect.context.filledPaths = [];
 legacyEffect.context.filledStyles = [];
@@ -4201,18 +4229,6 @@ legacyEffect.context.conicGradients = [];
 legacyEffect.context.drawImageCalls = [];
 const legacyFramePutStart = legacyRingRasterizer.context.putImageDataCount;
 let legacyNow = flushFrames(dom, performance.now(), 1);
-const legacyTriangleFillIndices = legacyEffect.context.filledPaths.reduce(
-  (indices, path, index) =>
-  {
-    if (path.length === 3)
-    {
-      indices.push(index);
-    }
-
-    return indices;
-  },
-  [],
-);
 const legacyDiskGradient = legacyEffect.context.radialGradients[0]?.gradient;
 const legacyDiskFillIndex = legacyEffect.context.filledStyles.indexOf(
   legacyDiskGradient,
@@ -4220,6 +4236,12 @@ const legacyDiskFillIndex = legacyEffect.context.filledStyles.indexOf(
 const legacyRingDraws = legacyEffect.context.drawImageCalls.filter(
   (call) => call.args[0] === legacyRingRasterizer.canvas,
 );
+const legacyTriangleDraws = legacyEffect.context.drawImageCalls.filter((call) =>
+  call.args[0] !== legacyRingRasterizer.canvas &&
+    call.args.length === 5 &&
+    call.args[1] < 0 &&
+    call.args[2] < 0 &&
+    call.args[3] === call.args[4]);
 const legacyScale = legacyEffect._getScale();
 
 assert(
@@ -4230,14 +4252,12 @@ assert(
   'Legacy 运行帧不再构建 96x8 conic band，并让两枚圆环共用一次纹理更新',
 );
 assert(
-  legacyTriangleFillIndices.length === UNITY_FX_TOUCH.shards.clickCount,
+  legacyTriangleDraws.length === UNITY_FX_TOUCH.shards.clickCount,
   'Legacy 点击后的第一帧同时绘制三角碎片',
 );
 assert(
   Math.min(...legacyRingDraws.map((call) => call.order)) >
-    Math.max(...legacyTriangleFillIndices.map(
-      (index) => legacyEffect.context.fillOrders[index],
-    )),
+    Math.max(...legacyTriangleDraws.map((call) => call.order)),
   'Tri3 圆环按材质 queue 4499 在圆盘和碎片之后绘制',
 );
 assert(
@@ -4362,7 +4382,7 @@ const restoredEnhancedTrailData = legacyEffect.currentTrailStroke
 const enhancedClickGeometry = legacyEffect.getFxConfig();
 
 assert(
-  legacyEffect.canvas.style.mixBlendMode === 'plus-lighter' &&
+  legacyEffect.canvas.style.mixBlendMode === '' &&
     legacyEffect.contrastCanvas.style.display === '' &&
     legacyEffect.getConfig().resolvedBloomBackend === 'software' &&
     enhancedClickGeometry.disk.radius === UNITY_FX_TOUCH.disk.radius &&
@@ -4372,7 +4392,7 @@ assert(
       UNITY_FX_TOUCH.rings.radiusMax &&
     restoredEnhancedTrailData.pointEnergies.length === 64 &&
     restoredEnhancedTrailData.segmentEnergies.length === 63,
-  'Legacy 实例运行时切回增强模式会恢复加色层、对比层与 Unity 尺度',
+  'Legacy 实例运行时切回增强模式会恢复预乘输出、对比层与 Unity 尺度',
 );
 legacyEffect.pointerCancel(92);
 legacyEffect.updateConfig({ renderingMode: 'legacy' });
