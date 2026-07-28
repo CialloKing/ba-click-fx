@@ -1,4 +1,5 @@
 import {
+  HALF_FLOAT_MAX,
   gammaToLinear,
   resolveUnityBloomClamp,
 } from './bloom-color-space.js';
@@ -478,7 +479,8 @@ export function prefilterBloom(
   outputHeight,
   threshold,
   softKnee,
-  clampMax = 65472,
+  // 这里接收的是已换算的 Linear 值；Unity Shader 最终受 half 上限约束。
+  clampMax = HALF_FLOAT_MAX,
   highQualityFiltering = true,
   sourceTexelAspect = sourceHeight / sourceWidth,
   sourceBounds = null,

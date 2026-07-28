@@ -219,6 +219,25 @@ assert(
   '预过滤不会修改输入缓冲',
 );
 
+const defaultClampSource = new Float32Array(4 * 4 * 3);
+const defaultClampOutput = new Float32Array(2 * 2 * 3);
+
+defaultClampSource.fill(HALF_FLOAT_MAX + 32);
+prefilterBloom(
+  defaultClampSource,
+  4,
+  4,
+  defaultClampOutput,
+  2,
+  2,
+  0,
+  0,
+);
+assert(
+  defaultClampOutput.every((value) => value === HALF_FLOAT_MAX),
+  '底层预过滤省略 Clamp 时仍遵守 Unity Shader half 上限',
+);
+
 console.log('\nSoftware Bloom Box4 降采样');
 const downsampleWidth = 16;
 const downsampleHeight = 16;
