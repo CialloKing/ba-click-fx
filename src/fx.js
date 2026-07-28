@@ -4482,27 +4482,27 @@ function appendTexturedTrailMeshSegment(
   opacity,
 )
 {
-  // BakeMesh 证明向右轨迹的屏幕下侧为 V=0、上侧为 V=1。
-  // 网页坐标 Y 向下，因此这里的 left 几何边正是屏幕下侧。
+  // Unity BakeMesh 的屏幕下侧为语义 V=0；嵌入字节保持 PNG 顶行优先，
+  // WebGL typed-array 上传不会代替图片源翻行，因此下侧需补偿到采样 v=1。
   const fromLeft = createTexturedTrailVertex(
     segment.fromLeft,
     fromSample.u,
-    0,
+    1,
   );
   const fromRight = createTexturedTrailVertex(
     segment.fromRight,
     fromSample.u,
-    1,
+    0,
   );
   const toLeft = createTexturedTrailVertex(
     segment.toLeft,
     toSample.u,
-    0,
+    1,
   );
   const toRight = createTexturedTrailVertex(
     segment.toRight,
     toSample.u,
-    1,
+    0,
   );
 
   renderer.addTexturedTrailTriangle(
@@ -4528,7 +4528,7 @@ function appendTexturedTrailMeshJoin(
   opacity,
 )
 {
-  const innerV = join.innerSide === 'left' ? 0 : 1;
+  const innerV = join.innerSide === 'left' ? 1 : 0;
   const outerV = 1 - innerV;
   const inner = createTexturedTrailVertex(join.inner, sample.u, innerV);
 
@@ -4573,8 +4573,8 @@ function appendTexturedTrailMeshCaps(
 
     const sample = pointSamples[cap.pointIndex];
     const vCoordinates = cap.position === 'start'
-      ? [0, 1, 0.5]
-      : [0, 0.5, 1];
+      ? [1, 0, 0.5]
+      : [1, 0.5, 0];
     const vertices = cap.points.map((point, index) =>
       createTexturedTrailVertex(point, sample.u, vCoordinates[index]));
 
