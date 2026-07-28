@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 1,
+  "source": "Microsoft Edge/Chromium fixed-time implementation regression; inputs follow the audited Unity FX_Touch contract; no source assets",
+  "fixture": {
+    "width": 320,
+    "height": 240,
+    "sampleTimeMs": 120,
+    "randomSeed": "0x04ba5f17"
+  },
+  "tolerances": {
+    "default": 0.015,
+    "meanAlpha": 0.004,
+    "meanEnergy": 0.006,
+    "visibleRatio": 0.012,
+    "maximumAlpha": 0.03,
+    "centerAlpha": 0.03,
+    "centerChannel": 0.05,
+    "radialAlpha": 0.05,
+    "boundsCssPixels": 3
+  },
+  "modes": {
+    "full-webgl2": {
+      "meanRed": 0.027196,
+      "meanGreen": 0.035587,
+      "meanBlue": 0.095104,
+      "meanAlpha": 0.0069,
+      "meanEnergy": 0.095104,
+      "visibleRatio": 0.095104,
+      "maximumAlpha": 1,
+      "boundsWidth": 96,
+      "boundsHeight": 95,
+      "centerAlpha": 0.45098,
+      "centerRgb": [
+        0.407843,
+        0.607843,
+        1
+      ],
+      "radialAlpha": [
+        0.45098,
+        0.45098,
+        0.466667,
+        0.258824,
+        0.12549,
+        0.047059,
+        0.019608,
+        0,
+        0
+      ]
+    },
+    "webgl2-bloom": {
+      "meanRed": 0.027196,
+      "meanGreen": 0.035587,
+      "meanBlue": 0.095104,
+      "meanAlpha": 0.0069,
+      "meanEnergy": 0.095104,
+      "visibleRatio": 0.095104,
+      "maximumAlpha": 1,
+      "boundsWidth": 96,
+      "boundsHeight": 95,
+      "centerAlpha": 0.45098,
+      "centerRgb": [
+        0.407843,
+        0.607843,
+        1
+      ],
+      "radialAlpha": [
+        0.45098,
+        0.45098,
+        0.466667,
+        0.258824,
+        0.12549,
+        0.047059,
+        0.019608,
+        0,
+        0
+      ]
+    },
+    "software-bloom": {
+      "meanRed": 0.025958,
+      "meanGreen": 0.033218,
+      "meanBlue": 0.095222,
+      "meanAlpha": 0.006503,
+      "meanEnergy": 0.095222,
+      "visibleRatio": 0.095247,
+      "maximumAlpha": 1,
+      "boundsWidth": 94,
+      "boundsHeight": 96,
+      "centerAlpha": 0.45098,
+      "centerRgb": [
+        0.215686,
+        0.54902,
+        1
+      ],
+      "radialAlpha": [
+        0.45098,
+        0.447059,
+        0.45098,
+        0.094118,
+        0.129412,
+        0.05098,
+        0.019608,
+        0,
+        0
+      ]
+    },
+    "native": {
+      "meanRed": 0.006904,
+      "meanGreen": 0.012889,
+      "meanBlue": 0.033688,
+      "meanAlpha": 0.004608,
+      "meanEnergy": 0.033688,
+      "visibleRatio": 0.033711,
+      "maximumAlpha": 1,
+      "boundsWidth": 56,
+      "boundsHeight": 56,
+      "centerAlpha": 0.564706,
+      "centerRgb": [
+        0.215686,
+        0.521569,
+        1
+      ],
+      "radialAlpha": [
+        0.564706,
+        0.556863,
+        0.533333,
+        0.105882,
+        0.054902,
+        0.007843,
+        0,
+        0,
+        0
+      ]
+    },
+    "legacy": {
+      "meanRed": 0.00756,
+      "meanGreen": 0.013483,
+      "meanBlue": 0.033689,
+      "meanAlpha": 0.004655,
+      "meanEnergy": 0.033689,
+      "visibleRatio": 0.033711,
+      "maximumAlpha": 1,
+      "boundsWidth": 56,
+      "boundsHeight": 56,
+      "centerAlpha": 0.564706,
+      "centerRgb": [
+        0.227451,
+        0.533333,
+        1
+      ],
+      "radialAlpha": [
+        0.564706,
+        0.560784,
+        0.537255,
+        0.109804,
+        0.058824,
+        0.007843,
+        0,
+        0,
+        0
+      ]
+    }
+  }
+}

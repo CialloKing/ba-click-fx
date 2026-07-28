@@ -69,16 +69,20 @@
     "test": "node test/smoke.js",
     "test:source": "node test/smoke.js --source",
     "test:bloom": "node test/software-bloom.js",
+    "test:browser": "node test/browser/run.mjs",
+    "test:browser:optional": "node test/browser/run.mjs --optional",
     "verify:sync": "node scripts/verify-sync.cjs",
     "verify:package": "node scripts/verify-package.mjs",
     "verify:pack": "node scripts/verify-pack.mjs",
     "verify:tarball": "node scripts/verify-tarball.mjs",
     "check:fast": "node test/smoke.js --source && node scripts/verify-sync.cjs",
     "check": "npm run build && npm run test:bloom && npm run test:source && npm test && npm run verify:sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
+    "check:release": "npm run check && npm run test:browser",
     "prepack": "npm run build",
-    "prepublishOnly": "npm run check"
+    "prepublishOnly": "npm run check:release"
   },
   "devDependencies": {
+    "playwright-core": "^1.62.0",
     "typescript": "^7.0.2",
     "vite": "^8.1.1"
   }

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
+  <title>BA Click FX Chromium Pixel Fixture</title>
+  <style>
+    *
+    {
+      box-sizing: border-box;
+    }
+
+    html,
+    body
+    {
+      width: 100%;
+      min-height: 100%;
+      margin: 0;
+      background: #202226;
+      color: #f5f7fa;
+      font-family: Arial, sans-serif;
+    }
+
+    #stage
+    {
+      position: relative;
+      width: 352px;
+      height: 272px;
+      padding: 16px;
+      overflow: hidden;
+      background: #15171a;
+    }
+
+    .fixture-shell
+    {
+      position: relative;
+      width: 320px;
+      height: 240px;
+    }
+
+    .fixture-target
+    {
+      position: relative;
+      width: 320px;
+      height: 240px;
+      overflow: hidden;
+    }
+
+    .strict-container
+    {
+      contain: strict;
+    }
+
+    .background-black
+    {
+      background: #000;
+    }
+
+    .background-white
+    {
+      background: #fff;
+    }
+
+    .background-checker
+    {
+      background-color: #fff;
+      background-image:
+        linear-gradient(45deg, #000 25%, transparent 25%),
+        linear-gradient(-45deg, #000 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #000 75%),
+        linear-gradient(-45deg, transparent 75%, #000 75%);
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+      background-size: 16px 16px;
+    }
+  </style>
+</head>
+<body>
+  <main id="stage"></main>
+  <script type="module" src="./suite.js"></script>
+</body>
+</html>
