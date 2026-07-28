@@ -564,6 +564,20 @@ function linearEnergyToAdditiveCss(color, opacity = 1)
     Math.round(blue / alpha * 255)}, ${alpha})`;
 }
 
+function colorToNativeGlowCss(color, alpha, linearOutput = false)
+{
+  if (!linearOutput)
+  {
+    return colorToCss(color, alpha);
+  }
+
+  // Final Pass 把 Canvas 数值直接解释为线性能量，阴影颜色也必须先解码。
+  return linearEnergyToAdditiveCss(
+    colorToLinearEnergy(color, 1, true),
+    alpha,
+  );
+}
+
 /**
  * 将线性能量编码为指定 Coverage 的预乘颜色。超出 Coverage 可承载范围的
  * HDR 能量在清晰层钳制，完整能量仍由独立 Bloom 发射路径保留。
@@ -1395,6 +1409,7 @@ class LegacyRingRasterizer
     useNativeBloom,
     materialEnergy,
     outputCompositing,
+    linearNativeGlow = false,
   )
   {
     const ringCfg = fxConfig.rings;
@@ -1430,7 +1445,11 @@ class LegacyRingRasterizer
 
     evaluateColor(ringCfg.colorKeys, progress, this.particleColor);
     const shadowColor = useNativeBloom
-      ? colorToCss(this.particleColor, opacity * bloomCfg.ringAlpha)
+      ? colorToNativeGlowCss(
+        this.particleColor,
+        opacity * bloomCfg.ringAlpha,
+        linearNativeGlow,
+      )
       : 'transparent';
 
     for (const ring of rings)
@@ -1514,6 +1533,7 @@ function drawDissolvedCircle(
   legacy = false,
   sharedMaterialEnergy = null,
   outputCompositing = 'scene',
+  linearNativeGlow = false,
 )
 {
   const ringCfg = fxConfig.rings;
@@ -1557,7 +1577,7 @@ function drawDissolvedCircle(
     useNativeBloom
       ? {
           blur: bloomCfg.ringBlur * scale,
-          color: colorToCss(
+          color: colorToNativeGlowCss(
             particleColor,
             legacy
               ? opacity * bloomCfg.ringAlpha
@@ -1565,6 +1585,7 @@ function drawDissolvedCircle(
                 opacity * bloomCfg.ringAlpha,
                 bloomCfg.clickEmissionScale,
               ),
+            linearNativeGlow,
           ),
         }
       : null,
@@ -1686,6 +1707,62 @@ function drawDisk(
       ),
   );
   context.shadowBlur = useNativeBloom ? bloomCfg.diskBlur * scale : 0;
+  context.fill();
+  context.restore();
+}
+
+function drawDiskNativeGlow(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  legacy = false,
+)
+{
+  const diskCfg = fxConfig.disk;
+  const bloomCfg = fxConfig.bloom;
+  const radius = diskCfg.radius * evaluateUnityHermiteCurve(
+    diskCfg.sizeKeys,
+    progress,
+  ) * scale;
+  const blur = bloomCfg.diskBlur * scale;
+
+  if (radius <= 0 || blur <= 0)
+  {
+    return;
+  }
+
+  const color = evaluateColor(diskCfg.colorKeys, progress);
+  const shadowAlpha = legacy
+    ? opacity * 0.5
+    : scaleNativeGlowAlpha(
+      opacity * bloomCfg.diskAlpha,
+      bloomCfg.clickEmissionScale,
+    );
+  const padding = Math.ceil(blur * 3 + 2);
+  const extent = radius + padding;
+
+  context.save();
+  context.globalCompositeOperation = 'lighter';
+  // Unity Bloom 在 UI HDR 场景完成后加回。排除圆盘本体可让 Canvas 只提交
+  // 外侧光晕，避免 shadowBlur 跟随 source-over 再次衰减已有场景颜色。
+  context.beginPath();
+  context.rect(
+    wave.x - extent,
+    wave.y - extent,
+    extent * 2,
+    extent * 2,
+  );
+  context.arc(wave.x, wave.y, radius, 0, TAU);
+  context.clip('evenodd');
+  context.beginPath();
+  context.arc(wave.x, wave.y, radius, 0, TAU);
+  // 黑色源只生成阴影，lighter 下不增加 RGB；Final Pass 不读取其 Alpha。
+  context.fillStyle = 'rgb(0, 0, 0)';
+  context.shadowColor = colorToNativeGlowCss(color, shadowAlpha, true);
+  context.shadowBlur = blur;
   context.fill();
   context.restore();
 }
@@ -2111,13 +2188,7 @@ class ClickWave
     this.update(deltaMs);
   }
 
-  drawBase(
-    context,
-    scale,
-    opacity,
-    useNativeBloom = true,
-    legacy = false,
-  )
+  drawAdditiveBase(context, scale, opacity)
   {
     // Hit：撞击爆发，极短极亮
     const hitProgress = this.ageMs / this.fx.hit.lifetimeMs;
@@ -2134,7 +2205,16 @@ class ClickWave
     {
       drawFlare(context, this, flareProgress, scale, opacity, this.fx);
     }
+  }
 
+  drawDiskLayer(
+    context,
+    scale,
+    opacity,
+    useNativeBloom = true,
+    legacy = false,
+  )
+  {
     const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
 
     if (diskProgress < 1)
@@ -2152,6 +2232,43 @@ class ClickWave
     }
   }
 
+  drawDiskGlow(context, scale, opacity, legacy = false)
+  {
+    const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
+
+    if (diskProgress < 1)
+    {
+      drawDiskNativeGlow(
+        context,
+        this,
+        diskProgress,
+        scale,
+        opacity,
+        this.fx,
+        legacy,
+      );
+    }
+  }
+
+  drawBase(
+    context,
+    scale,
+    opacity,
+    useNativeBloom = true,
+    legacy = false,
+  )
+  {
+    // 旧 Canvas 回退保持既有绘制顺序；精确 Scene 路径按材质队列分层调用。
+    this.drawAdditiveBase(context, scale, opacity);
+    this.drawDiskLayer(
+      context,
+      scale,
+      opacity,
+      useNativeBloom,
+      legacy,
+    );
+  }
+
   drawRings(
     context,
     scale,
@@ -2161,6 +2278,7 @@ class ClickWave
     legacyRingRasterizer = null,
     dpr = 1,
     outputCompositing = 'scene',
+    linearNativeGlow = false,
   )
   {
     const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
@@ -2186,6 +2304,7 @@ class ClickWave
           useNativeBloom,
           ringMaterialEnergy,
           outputCompositing,
+          linearNativeGlow,
         )
       )
       {
@@ -2205,6 +2324,7 @@ class ClickWave
           legacy,
           ringMaterialEnergy,
           outputCompositing,
+          linearNativeGlow,
         );
       }
     }
@@ -2276,6 +2396,34 @@ class ClickWave
         );
       }
     }
+  }
+
+  appendCanvasSceneCoverage(renderer, scale, opacity)
+  {
+    const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
+
+    if (diskProgress >= 1)
+    {
+      return;
+    }
+
+    const diskCfg = this.fx.disk;
+    const radius = diskCfg.radius * evaluateUnityHermiteCurve(
+      diskCfg.sizeKeys,
+      diskProgress,
+    ) * scale;
+    const particleAlpha = evaluateNumber(
+      diskCfg.alphaKeys,
+      diskProgress,
+    ) * opacity;
+
+    renderer.addCoverageDisk(
+      this.x,
+      this.y,
+      radius,
+      particleAlpha,
+      this.diskRotation,
+    );
   }
 
   appendWebGLSceneDiskLayer(renderer, scale, opacity)
@@ -5236,6 +5384,12 @@ export class BAClickFX
     let useWebGL2Bloom = bloomBackend === 'webgl2';
     // Legacy 本身就是 Canvas 阴影路径，不能因不属于增强后端而关闭圆盘辉光。
     let useNativeBloom = legacy || bloomBackend === 'native';
+    const useCanvasScene = this._prepareCanvasSceneBackend(
+      useWebGLClickEffects,
+      bloomBackend,
+      legacy,
+    );
+    let canvasSceneRendered = false;
 
     this.lastFrameTime = now;
     this._setResolvedBloomBackend(bloomBackend);
@@ -5243,6 +5397,11 @@ export class BAClickFX
     if (!useWebGLClickEffects)
     {
       this._setWebGLEffectVisible(false);
+    }
+
+    if (!useCanvasScene)
+    {
+      this._setCanvasSceneVisible(false);
     }
 
     this._setWebGLBloomVisible(!useWebGLClickEffects && useWebGL2Bloom);
@@ -5261,20 +5420,20 @@ export class BAClickFX
         scale,
         useNativeBloom,
         legacy,
-        !useWebGLClickEffects,
+        !useWebGLClickEffects && !useCanvasScene,
       );
       this._updateWaves(
         this.clickTimeMs,
         scale,
         useNativeBloom,
         legacy,
-        !useWebGLClickEffects,
+        !useWebGLClickEffects && !useCanvasScene,
       );
       this._updateShards(
         this.clickTimeMs,
         this.trailTimeMs,
         scale,
-        !useWebGLClickEffects,
+        !useWebGLClickEffects && !useCanvasScene,
       );
 
       if (useWebGLClickEffects)
@@ -5303,11 +5462,28 @@ export class BAClickFX
       }
       else
       {
-        // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
-        this._drawWaveRings(scale, useNativeBloom, legacy);
+        if (useCanvasScene)
+        {
+          canvasSceneRendered = this._renderCanvasSceneEffects(
+            scale,
+            useNativeBloom,
+            legacy,
+          );
+          this._setCanvasSceneVisible(canvasSceneRendered);
+          this._setCanvasOutputVisible(!canvasSceneRendered);
+        }
+        else
+        {
+          // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
+          this._drawWaveRings(scale, useNativeBloom, legacy);
+        }
       }
 
-      if (!legacy && !useWebGLClickEffects)
+      if (canvasSceneRendered)
+      {
+        this._clearLightBackgroundContrast();
+      }
+      else if (!legacy && !useWebGLClickEffects)
       {
         this._renderLightBackgroundContrast(
           scale,
@@ -5351,6 +5527,12 @@ export class BAClickFX
     catch (error)
     {
       console.error('[BAClickFX] render error:', error);
+
+      if (useCanvasScene)
+      {
+        this._setCanvasSceneVisible(false);
+        this._setCanvasOutputVisible(true);
+      }
     }
     finally
     {
@@ -5825,6 +6007,22 @@ export class BAClickFX
       this.height,
       this.dpr,
     );
+  }
+
+  _prepareCanvasSceneBackend(useWebGLClickEffects, bloomBackend, legacy)
+  {
+    if (
+      useWebGLClickEffects ||
+      (!legacy && bloomBackend !== 'native') ||
+      this.sceneBackgroundSource === null
+    )
+    {
+      return false;
+    }
+
+    return this._ensureCanvasSceneRenderer() &&
+      this._resizeCanvasSceneRenderer() &&
+      this.canvasSceneRenderer.hasSceneBackground;
   }
 
   _setCanvasSceneVisible(visible)
@@ -6667,6 +6865,101 @@ export class BAClickFX
     return this._renderWebGL2Scene(this.webglEffectRenderer, scale);
   }
 
+  _clearLightBackgroundContrast()
+  {
+    if (!this.contrastContext)
+    {
+      return;
+    }
+
+    this.contrastContext.setTransform(
+      this.dpr,
+      0,
+      0,
+      this.dpr,
+      0,
+      0,
+    );
+    this.contrastContext.clearRect(0, 0, this.width, this.height);
+  }
+
+  _renderCanvasSceneEffects(scale, useNativeBloom, legacy)
+  {
+    const renderer = this.canvasSceneRenderer;
+
+    if (!renderer?.available || renderer.contextLost)
+    {
+      return false;
+    }
+
+    try
+    {
+      renderer.beginFrame();
+      this._drawCanvasTrails(scale, useNativeBloom, legacy);
+
+      // Cross2 是唯一会衰减已有场景颜色的材质，必须在普通加色粒子之前
+      // 按旧到新顺序完成本体与 Coverage 提交。
+      for (const wave of this.waves)
+      {
+        wave.drawDiskLayer(
+          this.context,
+          scale,
+          this.config.opacity,
+          false,
+          legacy,
+        );
+        wave.appendCanvasSceneCoverage(
+          renderer,
+          scale,
+          this.config.opacity,
+        );
+      }
+
+      if (useNativeBloom)
+      {
+        // 原生阴影模拟最终 Bloom，必须位于所有 source-over 圆盘之后。
+        for (const wave of this.waves)
+        {
+          wave.drawDiskGlow(
+            this.context,
+            scale,
+            this.config.opacity,
+            legacy,
+          );
+        }
+      }
+
+      for (const shard of this.shards)
+      {
+        shard.draw(
+          this.context,
+          scale,
+          this.config.opacity,
+          this.fxConfig,
+        );
+      }
+
+      for (const wave of this.waves)
+      {
+        wave.drawAdditiveBase(
+          this.context,
+          scale,
+          this.config.opacity,
+        );
+      }
+
+      // Tri3 材质队列为 4499，始终覆盖 queue 3000 的圆盘和碎片。
+      this._drawWaveRings(scale, useNativeBloom, legacy, true);
+      return renderer.render(this.canvas);
+    }
+    catch (error)
+    {
+      console.warn('[BAClickFX] Canvas Scene Final Pass 渲染失败:', error);
+      renderer.clear();
+      return false;
+    }
+  }
+
   _drawCanvasClickEffects(scale, useNativeBloom, legacy = false)
   {
     for (const wave of this.waves)
@@ -6858,7 +7151,12 @@ export class BAClickFX
     }
   }
 
-  _drawWaveRings(scale, useNativeBloom, legacy = false)
+  _drawWaveRings(
+    scale,
+    useNativeBloom,
+    legacy = false,
+    linearNativeGlow = false,
+  )
   {
     const hasLegacyRings = legacy && this.waves.some(
       (wave) => wave.rings.length > 0,
@@ -6878,6 +7176,7 @@ export class BAClickFX
         legacyRingRasterizer,
         this.dpr,
         this.config.outputCompositing,
+        linearNativeGlow,
       );
     }
   }
