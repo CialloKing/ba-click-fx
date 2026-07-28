@@ -1,6 +1,6 @@
-const COMPONENTS_PER_VERTEX = 5;
+const COMPONENTS_PER_VERTEX = 6;
 const COMPONENTS_PER_DISK_VERTEX = 6;
-const COMPONENTS_PER_RING_VERTEX = 7;
+const COMPONENTS_PER_RING_VERTEX = 8;
 const INITIAL_VERTEX_CAPACITY = 4096;
 const MAX_PYRAMID_LEVELS = 16;
 const DISK_CENTER_RADIUS_EPSILON = 0.00001;
@@ -27,10 +27,12 @@ precision highp float;
 
 layout(location = 0) in vec2 a_position;
 layout(location = 1) in vec3 a_color;
+layout(location = 2) in float a_coverage;
 
 uniform vec2 u_displaySize;
 
 out vec3 v_color;
+out float v_coverage;
 
 void main()
 {
@@ -42,6 +44,7 @@ void main()
     1.0
   );
   v_color = a_color;
+  v_coverage = a_coverage;
 }
 `;
 
@@ -127,12 +130,18 @@ const SCENE_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 in vec3 v_color;
+in float v_coverage;
+uniform bool u_transparentOverlay;
 out vec4 outColor;
 
 void main()
 {
-  // Unity 在 HDR RenderTarget 中先完成线性材质混合，最终合成时才编码。
-  outColor = vec4(max(v_color, vec3(0.0)), 1.0);
+  // Scene 模式保留 Unity 固定 A=1；透明覆盖层单独保存粒子 Coverage。
+  float alpha = u_transparentOverlay
+    ? clamp(v_coverage, 0.0, 1.0)
+    : 1.0;
+
+  outColor = vec4(max(v_color, vec3(0.0)), alpha);
 }
 `;
 
@@ -186,12 +195,14 @@ layout(location = 0) in vec2 a_position;
 layout(location = 1) in float a_textureAlpha;
 layout(location = 2) in vec3 a_materialColor;
 layout(location = 3) in float a_dissolveThreshold;
+layout(location = 4) in float a_coverage;
 
 uniform vec2 u_displaySize;
 
 out float v_textureAlpha;
 out vec3 v_materialColor;
 out float v_dissolveThreshold;
+out float v_coverage;
 
 void main()
 {
@@ -205,6 +216,7 @@ void main()
   v_textureAlpha = a_textureAlpha;
   v_materialColor = a_materialColor;
   v_dissolveThreshold = a_dissolveThreshold;
+  v_coverage = a_coverage;
 }
 `;
 
@@ -214,6 +226,9 @@ precision highp float;
 in float v_textureAlpha;
 in vec3 v_materialColor;
 in float v_dissolveThreshold;
+in float v_coverage;
+
+uniform bool u_transparentOverlay;
 
 out vec4 outColor;
 
@@ -225,10 +240,20 @@ void main()
     discard;
   }
 
-  outColor = vec4(
-    max(v_materialColor, vec3(0.0)),
-    clamp(v_textureAlpha, 0.0, 1.0)
-  );
+  float textureAlpha = clamp(v_textureAlpha, 0.0, 1.0);
+  vec3 materialColor = max(v_materialColor, vec3(0.0));
+
+  if (u_transparentOverlay)
+  {
+    // RGB 预乘纹理 Alpha 后改用 One/One，结果与 Unity SrcAlpha/One 相同。
+    outColor = vec4(
+      materialColor * textureAlpha,
+      clamp(v_coverage, 0.0, 1.0)
+    );
+    return;
+  }
+
+  outColor = vec4(materialColor, textureAlpha);
 }
 `;
 
@@ -642,6 +667,7 @@ export class WebGL2EffectRenderer
       const stride = COMPONENTS_PER_VERTEX * Float32Array.BYTES_PER_ELEMENT;
       const positionLocation = 0;
       const colorLocation = 1;
+      const coverageLocation = 2;
 
       gl.enableVertexAttribArray(positionLocation);
       gl.vertexAttribPointer(
@@ -660,6 +686,15 @@ export class WebGL2EffectRenderer
         false,
         stride,
         2 * Float32Array.BYTES_PER_ELEMENT,
+      );
+      gl.enableVertexAttribArray(coverageLocation);
+      gl.vertexAttribPointer(
+        coverageLocation,
+        1,
+        gl.FLOAT,
+        false,
+        stride,
+        5 * Float32Array.BYTES_PER_ELEMENT,
       );
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
@@ -739,6 +774,15 @@ export class WebGL2EffectRenderer
         false,
         ringStride,
         6 * Float32Array.BYTES_PER_ELEMENT,
+      );
+      gl.enableVertexAttribArray(4);
+      gl.vertexAttribPointer(
+        4,
+        1,
+        gl.FLOAT,
+        false,
+        ringStride,
+        7 * Float32Array.BYTES_PER_ELEMENT,
       );
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
@@ -1154,7 +1198,7 @@ export class WebGL2EffectRenderer
       this.ringVertexCount > 0;
   }
 
-  _drawGeometryBatches(additiveProgram)
+  _drawGeometryBatches(additiveProgram, transparentOverlay = false)
   {
     const gl = this.gl;
 
@@ -1187,8 +1231,32 @@ export class WebGL2EffectRenderer
 
     if (this.vertexCount > 0)
     {
-      gl.blendFunc(gl.ONE, gl.ONE);
+      if (transparentOverlay)
+      {
+        // RGB 仍严格加色；Alpha 独立保存多个粒子 Coverage 的 source-over 并集。
+        gl.blendFuncSeparate(
+          gl.ONE,
+          gl.ONE,
+          gl.ONE,
+          gl.ONE_MINUS_SRC_ALPHA,
+        );
+      }
+      else
+      {
+        gl.blendFunc(gl.ONE, gl.ONE);
+      }
+
       gl.useProgram(additiveProgram);
+      const compositingLocation = gl.getUniformLocation(
+        additiveProgram,
+        'u_transparentOverlay',
+      );
+
+      if (compositingLocation !== null)
+      {
+        gl.uniform1i(compositingLocation, transparentOverlay ? 1 : 0);
+      }
+
       gl.uniform2f(
         gl.getUniformLocation(additiveProgram, 'u_displaySize'),
         this.displayWidth,
@@ -1211,9 +1279,27 @@ export class WebGL2EffectRenderer
     {
       const ringProgram = this.programs.dissolveRing;
 
-      // FX_MAT_Touch_Tri3: Blend SrcAlpha One, One One。
-      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ONE, gl.ONE);
+      if (transparentOverlay)
+      {
+        // Shader 已预乘纹理 Alpha，RGB 数值等价于 Unity SrcAlpha/One。
+        gl.blendFuncSeparate(
+          gl.ONE,
+          gl.ONE,
+          gl.ONE,
+          gl.ONE_MINUS_SRC_ALPHA,
+        );
+      }
+      else
+      {
+        // FX_MAT_Touch_Tri3: Blend SrcAlpha One, One One。
+        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ONE, gl.ONE);
+      }
+
       gl.useProgram(ringProgram);
+      gl.uniform1i(
+        gl.getUniformLocation(ringProgram, 'u_transparentOverlay'),
+        transparentOverlay ? 1 : 0,
+      );
       gl.uniform2f(
         gl.getUniformLocation(ringProgram, 'u_displaySize'),
         this.displayWidth,
@@ -1235,7 +1321,7 @@ export class WebGL2EffectRenderer
     gl.disable(gl.BLEND);
   }
 
-  renderScene()
+  renderScene(settings = {})
   {
     if (
       !this.sceneEnabled ||
@@ -1270,7 +1356,10 @@ export class WebGL2EffectRenderer
         return true;
       }
 
-      this._drawGeometryBatches(this.programs.scene);
+      this._drawGeometryBatches(
+        this.programs.scene,
+        settings.outputCompositing === 'transparent-overlay',
+      );
 
       const error = gl.getError();
 
@@ -1319,7 +1408,7 @@ export class WebGL2EffectRenderer
     this.vertexData = next;
   }
 
-  _appendVertex(x, y, red, green, blue)
+  _appendVertex(x, y, red, green, blue, coverage)
   {
     const offset = this.vertexCount * COMPONENTS_PER_VERTEX;
 
@@ -1328,6 +1417,7 @@ export class WebGL2EffectRenderer
     this.vertexData[offset + 2] = Math.max(0, red);
     this.vertexData[offset + 3] = Math.max(0, green);
     this.vertexData[offset + 4] = Math.max(0, blue);
+    this.vertexData[offset + 5] = clamp(coverage, 0, 1);
     this.vertexCount++;
   }
 
@@ -1407,6 +1497,7 @@ export class WebGL2EffectRenderer
     green,
     blue,
     dissolveThreshold,
+    coverage,
   )
   {
     const offset = this.ringVertexCount * COMPONENTS_PER_RING_VERTEX;
@@ -1418,6 +1509,7 @@ export class WebGL2EffectRenderer
     this.ringVertexData[offset + 4] = Math.max(0, green);
     this.ringVertexData[offset + 5] = Math.max(0, blue);
     this.ringVertexData[offset + 6] = clamp(dissolveThreshold, 0, 1);
+    this.ringVertexData[offset + 7] = clamp(coverage, 0, 1);
     this.ringVertexCount++;
   }
 
@@ -1523,13 +1615,14 @@ export class WebGL2EffectRenderer
       const startAngle = segment * angleStep;
       const endAngle = (segment + 1) * angleStep;
 
-      this._appendVertex(x, y, red, green, blue);
+      this._appendVertex(x, y, red, green, blue, opacity);
       this._appendVertex(
         x + Math.cos(endAngle) * radius,
         y + Math.sin(endAngle) * radius,
         red,
         green,
         blue,
+        opacity,
       );
       this._appendVertex(
         x + Math.cos(startAngle) * radius,
@@ -1537,6 +1630,7 @@ export class WebGL2EffectRenderer
         red,
         green,
         blue,
+        opacity,
       );
     }
   }
@@ -1567,6 +1661,7 @@ export class WebGL2EffectRenderer
           red * energy,
           green * energy,
           blue * energy,
+          opacity * textureAlpha,
         );
       },
     );
@@ -1718,6 +1813,7 @@ export class WebGL2EffectRenderer
       firstRed,
       firstGreen,
       firstBlue,
+      opacity,
     );
     this._appendVertex(
       second.x,
@@ -1725,6 +1821,7 @@ export class WebGL2EffectRenderer
       secondRed,
       secondGreen,
       secondBlue,
+      opacity,
     );
     this._appendVertex(
       third.x,
@@ -1732,6 +1829,7 @@ export class WebGL2EffectRenderer
       thirdRed,
       thirdGreen,
       thirdBlue,
+      opacity,
     );
   }
 
@@ -1773,6 +1871,7 @@ export class WebGL2EffectRenderer
     const textureAlpha = new Float32Array(
       (bands + 1) * (segments + 1),
     );
+    const coverageOpacity = clamp(opacity, 0, 1);
     const safeThreshold = Number.isFinite(dissolveThreshold)
       ? clamp(dissolveThreshold, 0, 1)
       : 1;
@@ -1838,6 +1937,7 @@ export class WebGL2EffectRenderer
           green,
           blue,
           safeThreshold,
+          innerStartAlpha * coverageOpacity,
         );
         this._appendRingVertex(
           innerEndX,
@@ -1847,6 +1947,7 @@ export class WebGL2EffectRenderer
           green,
           blue,
           safeThreshold,
+          innerEndAlpha * coverageOpacity,
         );
         this._appendRingVertex(
           outerEndX,
@@ -1856,6 +1957,7 @@ export class WebGL2EffectRenderer
           green,
           blue,
           safeThreshold,
+          outerEndAlpha * coverageOpacity,
         );
         this._appendRingVertex(
           innerStartX,
@@ -1865,6 +1967,7 @@ export class WebGL2EffectRenderer
           green,
           blue,
           safeThreshold,
+          innerStartAlpha * coverageOpacity,
         );
         this._appendRingVertex(
           outerEndX,
@@ -1874,6 +1977,7 @@ export class WebGL2EffectRenderer
           green,
           blue,
           safeThreshold,
+          outerEndAlpha * coverageOpacity,
         );
         this._appendRingVertex(
           outerStartX,
@@ -1883,6 +1987,7 @@ export class WebGL2EffectRenderer
           green,
           blue,
           safeThreshold,
+          outerStartAlpha * coverageOpacity,
         );
       }
     }
@@ -1975,6 +2080,7 @@ export class WebGL2EffectRenderer
           startRed,
           startGreen,
           startBlue,
+          opacity * startLuminance,
         );
         this._appendVertex(
           innerEndX,
@@ -1982,6 +2088,7 @@ export class WebGL2EffectRenderer
           endRed,
           endGreen,
           endBlue,
+          opacity * endLuminance,
         );
         this._appendVertex(
           outerEndX,
@@ -1989,6 +2096,7 @@ export class WebGL2EffectRenderer
           endRed,
           endGreen,
           endBlue,
+          opacity * endLuminance,
         );
         this._appendVertex(
           innerStartX,
@@ -1996,6 +2104,7 @@ export class WebGL2EffectRenderer
           startRed,
           startGreen,
           startBlue,
+          opacity * startLuminance,
         );
         this._appendVertex(
           outerEndX,
@@ -2003,6 +2112,7 @@ export class WebGL2EffectRenderer
           endRed,
           endGreen,
           endBlue,
+          opacity * endLuminance,
         );
         this._appendVertex(
           outerStartX,
@@ -2010,6 +2120,7 @@ export class WebGL2EffectRenderer
           startRed,
           startGreen,
           startBlue,
+          opacity * startLuminance,
         );
         startCosine = endCosine;
         startSine = endSine;
@@ -2091,6 +2202,7 @@ export class WebGL2EffectRenderer
         previousRed,
         previousGreen,
         previousBlue,
+        opacity,
       );
       this._appendVertex(
         previousToX,
@@ -2098,6 +2210,7 @@ export class WebGL2EffectRenderer
         previousRed,
         previousGreen,
         previousBlue,
+        opacity,
       );
       this._appendVertex(
         currentToX,
@@ -2105,6 +2218,7 @@ export class WebGL2EffectRenderer
         currentRed,
         currentGreen,
         currentBlue,
+        opacity,
       );
       this._appendVertex(
         previousFromX,
@@ -2112,6 +2226,7 @@ export class WebGL2EffectRenderer
         previousRed,
         previousGreen,
         previousBlue,
+        opacity,
       );
       this._appendVertex(
         currentToX,
@@ -2119,6 +2234,7 @@ export class WebGL2EffectRenderer
         currentRed,
         currentGreen,
         currentBlue,
+        opacity,
       );
       this._appendVertex(
         currentFromX,
@@ -2126,6 +2242,7 @@ export class WebGL2EffectRenderer
         currentRed,
         currentGreen,
         currentBlue,
+        opacity,
       );
     }
 
@@ -2152,6 +2269,7 @@ export class WebGL2EffectRenderer
         centerRed,
         centerGreen,
         centerBlue,
+        opacity,
       );
       this._appendVertex(
         from.x - startOffset.x,
@@ -2159,6 +2277,7 @@ export class WebGL2EffectRenderer
         centerRed,
         centerGreen,
         centerBlue,
+        opacity,
       );
       this._appendVertex(
         from.x - tangentX * halfWidth,
@@ -2166,6 +2285,7 @@ export class WebGL2EffectRenderer
         centerRed,
         centerGreen,
         centerBlue,
+        opacity,
       );
     }
 
@@ -2177,6 +2297,7 @@ export class WebGL2EffectRenderer
         centerRed,
         centerGreen,
         centerBlue,
+        opacity,
       );
       this._appendVertex(
         to.x + tangentX * halfWidth,
@@ -2184,6 +2305,7 @@ export class WebGL2EffectRenderer
         centerRed,
         centerGreen,
         centerBlue,
+        opacity,
       );
       this._appendVertex(
         to.x - endOffset.x,
@@ -2191,6 +2313,7 @@ export class WebGL2EffectRenderer
         centerRed,
         centerGreen,
         centerBlue,
+        opacity,
       );
     }
   }

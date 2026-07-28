@@ -6195,7 +6195,11 @@ export class BAClickFX
         );
       }
 
-      if (!renderer.renderScene())
+      if (!renderer.renderScene(
+        {
+          outputCompositing: this.config.outputCompositing,
+        },
+      ))
       {
         return false;
       }
