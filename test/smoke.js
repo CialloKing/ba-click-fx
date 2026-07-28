@@ -4283,6 +4283,154 @@ assert(
 expiredTrailEffect.destroy();
 
 console.log('\nTrailRenderer 几何');
+
+function captureTexturedWebGLTrail(
+  points,
+  numCornerVertices = 0,
+  numCapVertices = 0,
+)
+{
+  const effect = new BAClickFX(
+    {
+      effectBackend: 'canvas2d',
+      bloomBackend: 'native',
+      inputSource: 'manual',
+    },
+  );
+  const triangles = [];
+  let legacyTriangleCount = 0;
+  const renderer =
+  {
+    available: true,
+    contextLost: false,
+    stats: {},
+    beginFrame(options = {})
+    {
+      if (options.preserveSceneStats !== true)
+      {
+        triangles.length = 0;
+      }
+    },
+    addTexturedTrailTriangle(...args)
+    {
+      triangles.push(args);
+    },
+    addTrailTriangle()
+    {
+      legacyTriangleCount++;
+    },
+    renderScene()
+    {
+      return true;
+    },
+    render()
+    {
+      return true;
+    },
+    clear()
+    {
+    },
+  };
+
+  effect.fxConfig.trail.numCornerVertices = numCornerVertices;
+  effect.fxConfig.trail.numCapVertices = numCapVertices;
+  effect.trailStrokes =
+  [
+    {
+      active: false,
+      points: points.map((point) =>
+      {
+        return {
+          ...point,
+          bornAt: 0,
+        };
+      }),
+      trailFrameData: null,
+    },
+  ];
+
+  const rendered = effect._renderWebGL2Scene(renderer, 1);
+  const trailEmission = effect.fxConfig.bloom.trailEmission;
+
+  effect.destroy();
+  return {
+    legacyTriangleCount,
+    rendered,
+    trailEmission,
+    triangles,
+  };
+}
+
+const straightWebGLTrail = captureTexturedWebGLTrail(
+  [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+);
+const straightVertices = straightWebGLTrail.triangles.flatMap((triangle) =>
+  triangle.slice(0, 3));
+const straightColors = straightWebGLTrail.triangles.flatMap((triangle) =>
+  Array.isArray(triangle[3][0]) ? triangle[3] : [triangle[3]]);
+
+assert(
+  straightWebGLTrail.rendered &&
+    straightWebGLTrail.triangles.length === 2 &&
+    straightVertices.length === 6 &&
+    straightWebGLTrail.legacyTriangleCount === 0,
+  '完整 WebGL2 直线拖尾只提交 2 个纹理三角，不再调用 LUT 顶点色路径',
+);
+assert(
+  straightVertices.map(({ u, v }) => `${u}:${v}`).join(',') ===
+    '1:1,0:1,0:0,1:1,0:0,1:0',
+  '完整 WebGL2 按 Unity Stretch 方向映射直段 U/V',
+);
+assert(
+  [straightColors[0], straightColors[3], straightColors[5]].every((color) =>
+    color.every((channel) => channel === 0)) &&
+    [straightColors[1], straightColors[2], straightColors[4]].every((color) =>
+      color[2] === straightWebGLTrail.trailEmission),
+  '拖尾 Gradient 使用旧点到新点进度，纹理 U 单独反向',
+);
+
+const leftInnerJoin = captureTexturedWebGLTrail(
+  [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
+  4,
+);
+const rightInnerJoin = captureTexturedWebGLTrail(
+  [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: -10 }],
+  4,
+);
+const leftJoinTriangles = leftInnerJoin.triangles.slice(4);
+const rightJoinTriangles = rightInnerJoin.triangles.slice(4);
+
+assert(
+  leftJoinTriangles.length === 5 &&
+    leftJoinTriangles.every((triangle) =>
+      triangle.slice(0, 3).every((vertex) => vertex.u === 0.5) &&
+      triangle.slice(0, 3).map((vertex) => vertex.v).join(',') === '1,0,0'),
+  '左内角按 4 个 Unity 插入点生成 5 个固定 U 的纹理 fan',
+);
+assert(
+  rightJoinTriangles.length === 5 &&
+    rightJoinTriangles.every((triangle) =>
+      triangle.slice(0, 3).every((vertex) => vertex.u === 0.5) &&
+      triangle.slice(0, 3).map((vertex) => vertex.v).join(',') === '0,1,1'),
+  '右内角保持与左内角相反的纹理 V 方向',
+);
+
+const cappedWebGLTrail = captureTexturedWebGLTrail(
+  [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+  0,
+  1,
+);
+const startCapVertices = cappedWebGLTrail.triangles[2].slice(0, 3);
+const endCapVertices = cappedWebGLTrail.triangles[3].slice(0, 3);
+
+assert(
+  startCapVertices.map(({ u, v }) => `${u}:${v}`).join(',') ===
+    '1:1,1:0,1:0.5' &&
+    endCapVertices.map(({ u, v }) => `${u}:${v}`).join(',') ===
+      '0:1,0:0.5,0:0',
+  'Unity 单三角端帽固定端点 U，并把尖端映射到横截面 V=0.5',
+);
+
 const geometryEffect = new BAClickFX(
   {
     bloomBackend: 'native',

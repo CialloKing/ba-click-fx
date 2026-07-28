@@ -335,6 +335,16 @@ function validateDprPair(dprOne, dprTwo, label)
 {
   const first = dprOne.pixels.transparent;
   const second = dprTwo.pixels.transparent;
+  // Bloom 边缘以 2/255 的离散可见阈值统计；完整纹理会让不同 DPR 的
+  // 亚像素采样在大范围低能边缘产生少量差异，但真正的缩放错误仍远超 8%。
+  const widthTolerance = Math.max(
+    16,
+    Math.max(first.bounds.width, second.bounds.width) * 0.08,
+  );
+  const heightTolerance = Math.max(
+    16,
+    Math.max(first.bounds.height, second.bounds.height) * 0.08,
+  );
 
   assert(
     relativeDifference(first.meanAlpha, second.meanAlpha) <= 0.25,
@@ -353,8 +363,8 @@ function validateDprPair(dprOne, dprTwo, label)
     },
   );
   assert(
-    Math.abs(first.bounds.width - second.bounds.width) <= 16 &&
-      Math.abs(first.bounds.height - second.bounds.height) <= 16,
+    Math.abs(first.bounds.width - second.bounds.width) <= widthTolerance &&
+      Math.abs(first.bounds.height - second.bounds.height) <= heightTolerance,
     `${label}: DPR 改变了 CSS 像素包围盒`,
     {
       dpr1: first.bounds,

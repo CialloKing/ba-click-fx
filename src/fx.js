@@ -3337,17 +3337,27 @@ function evaluateTrailLinearEnergy(
   textureLongitudinalKeys = trailCfg.textureLongitudinalKeys,
 )
 {
-  const gradientColor = interpolateTrailColor(progress, trailCfg);
   const textureIntensity = evaluateNumber(
     textureLongitudinalKeys,
     progress,
   );
-
-  const gradientEnergy = colorToLinearEnergy(gradientColor);
+  const materialColor = evaluateTrailMaterialColor(
+    progress,
+    trailCfg,
+    materialIntensity,
+  );
 
   // 原 Shader 先将线性顶点色与已解码的 Stretch 纹理相乘，再施加 _Intensity。
-  return gradientEnergy.map((channel) =>
-    channel * textureIntensity * materialIntensity);
+  return materialColor.map((channel) => channel * textureIntensity);
+}
+
+function evaluateTrailMaterialColor(progress, trailCfg, materialIntensity)
+{
+  // Gradient 已按网页的旧点到新点顺序反转；纹理 U 的反向由 WebGL 顶点处理。
+  return colorToLinearEnergy(
+    interpolateTrailColor(progress, trailCfg),
+    materialIntensity,
+  );
 }
 
 function evaluateTrailTransverseProfile(
@@ -4453,170 +4463,103 @@ function drawTrailEmission(
   );
 }
 
-function interpolateTrailMeshEdge(left, right, progress)
+function createTexturedTrailVertex(point, u, v)
 {
   return {
-    x: lerp(left.x, right.x, progress),
-    y: lerp(left.y, right.y, progress),
+    x: point.x,
+    y: point.y,
+    u,
+    v,
   };
 }
 
-function scaleTrailEnergy(color, intensity)
-{
-  return color.map((channel) => channel * intensity);
-}
-
-function appendTrailMeshSegment(
+function appendTexturedTrailMeshSegment(
   renderer,
   segment,
-  fromColor,
-  toColor,
+  fromSample,
+  toSample,
   opacity,
-  fromTransverseProfile,
-  toTransverseProfile,
 )
 {
-  const fromProfile = resolveTrailTransverseProfile(fromTransverseProfile);
-  const toProfile = resolveTrailTransverseProfile(toTransverseProfile);
-  const profileLength = Math.min(fromProfile.length, toProfile.length);
+  // PNG 数据保持顶行优先，而 WebGL typed-array 的 v=0 对应首行；
+  // Unity 的屏幕下侧是 V=0，因此网页的 left 边必须映射到 v=1。
+  const fromLeft = createTexturedTrailVertex(
+    segment.fromLeft,
+    fromSample.u,
+    1,
+  );
+  const fromRight = createTexturedTrailVertex(
+    segment.fromRight,
+    fromSample.u,
+    0,
+  );
+  const toLeft = createTexturedTrailVertex(
+    segment.toLeft,
+    toSample.u,
+    1,
+  );
+  const toRight = createTexturedTrailVertex(
+    segment.toRight,
+    toSample.u,
+    0,
+  );
 
-  for (let index = 1; index < profileLength; index++)
-  {
-    const previousFromSample = fromProfile[index - 1];
-    const previousToSample = toProfile[index - 1];
-    const currentFromSample = fromProfile[index];
-    const currentToSample = toProfile[index];
-    const previousFrom = interpolateTrailMeshEdge(
-      segment.fromLeft,
-      segment.fromRight,
-      previousFromSample[0],
-    );
-    const previousTo = interpolateTrailMeshEdge(
-      segment.toLeft,
-      segment.toRight,
-      previousToSample[0],
-    );
-    const currentFrom = interpolateTrailMeshEdge(
-      segment.fromLeft,
-      segment.fromRight,
-      currentFromSample[0],
-    );
-    const currentTo = interpolateTrailMeshEdge(
-      segment.toLeft,
-      segment.toRight,
-      currentToSample[0],
-    );
-    const previousFromColor = scaleTrailEnergy(
-      fromColor,
-      previousFromSample[1],
-    );
-    const previousToColor = scaleTrailEnergy(
-      toColor,
-      previousToSample[1],
-    );
-    const currentFromColor = scaleTrailEnergy(
-      fromColor,
-      currentFromSample[1],
-    );
-    const currentToColor = scaleTrailEnergy(
-      toColor,
-      currentToSample[1],
-    );
-
-    renderer.addTrailTriangle(
-      previousFrom,
-      previousTo,
-      currentTo,
-      [previousFromColor, previousToColor, currentToColor],
-      opacity,
-    );
-    renderer.addTrailTriangle(
-      previousFrom,
-      currentTo,
-      currentFrom,
-      [previousFromColor, currentToColor, currentFromColor],
-      opacity,
-    );
-  }
+  renderer.addTexturedTrailTriangle(
+    fromLeft,
+    toLeft,
+    toRight,
+    [fromSample.color, toSample.color, toSample.color],
+    opacity,
+  );
+  renderer.addTexturedTrailTriangle(
+    fromLeft,
+    toRight,
+    fromRight,
+    [fromSample.color, toSample.color, fromSample.color],
+    opacity,
+  );
 }
 
-function appendTrailMeshJoin(
+function appendTexturedTrailMeshJoin(
   renderer,
   join,
-  color,
+  sample,
   opacity,
-  transverseProfile,
 )
 {
-  const sourceProfile = resolveTrailTransverseProfile(transverseProfile);
-  const profile = join.innerSide === 'left'
-    ? sourceProfile
-    : sourceProfile.slice().reverse().map(([position, intensity]) =>
-      [1 - position, intensity]);
+  const innerV = join.innerSide === 'left' ? 1 : 0;
+  const outerV = 1 - innerV;
+  const inner = createTexturedTrailVertex(join.inner, sample.u, innerV);
 
   for (let arcIndex = 1; arcIndex < join.outerArc.length; arcIndex++)
   {
-    const previousOuter = join.outerArc[arcIndex - 1];
-    const nextOuter = join.outerArc[arcIndex];
+    const previousOuter = createTexturedTrailVertex(
+      join.outerArc[arcIndex - 1],
+      sample.u,
+      outerV,
+    );
+    const nextOuter = createTexturedTrailVertex(
+      join.outerArc[arcIndex],
+      sample.u,
+      outerV,
+    );
 
-    for (let profileIndex = 1; profileIndex < profile.length; profileIndex++)
-    {
-      const previous = profile[profileIndex - 1];
-      const current = profile[profileIndex];
-      const previousStart = interpolateTrailMeshEdge(
-        join.inner,
-        previousOuter,
-        previous[0],
-      );
-      const previousEnd = interpolateTrailMeshEdge(
-        join.inner,
-        nextOuter,
-        previous[0],
-      );
-      const currentStart = interpolateTrailMeshEdge(
-        join.inner,
-        previousOuter,
-        current[0],
-      );
-      const currentEnd = interpolateTrailMeshEdge(
-        join.inner,
-        nextOuter,
-        current[0],
-      );
-      const previousColor = scaleTrailEnergy(color, previous[1]);
-      const currentColor = scaleTrailEnergy(color, current[1]);
-
-      renderer.addTrailTriangle(
-        previousStart,
-        currentStart,
-        currentEnd,
-        [previousColor, currentColor, currentColor],
-        opacity,
-      );
-
-      if (
-        previousStart.x !== previousEnd.x ||
-        previousStart.y !== previousEnd.y
-      )
-      {
-        renderer.addTrailTriangle(
-          previousStart,
-          currentEnd,
-          previousEnd,
-          [previousColor, currentColor, previousColor],
-          opacity,
-        );
-      }
-    }
+    // Unity 的圆角插入点只细分几何；同一折点的 Stretch U 必须保持不变。
+    renderer.addTexturedTrailTriangle(
+      inner,
+      previousOuter,
+      nextOuter,
+      sample.color,
+      opacity,
+    );
   }
 }
 
-function appendTrailMeshCaps(
+function appendTexturedTrailMeshCaps(
   renderer,
   mesh,
   visibleSegments,
-  trailData,
-  trailCfg,
+  pointSamples,
   opacity,
 )
 {
@@ -4627,39 +4570,29 @@ function appendTrailMeshCaps(
       continue;
     }
 
-    const color = trailData.pointEnergies[cap.pointIndex];
-    const profile = resolveTrailPointTransverseProfile(
-      trailData,
-      cap.pointIndex,
-      trailCfg,
-    );
-    const leftColor = scaleTrailEnergy(color, profile[0][1]);
-    const rightColor = scaleTrailEnergy(color, profile.at(-1)[1]);
-    const centerIntensity = profile.reduce(
-      (maximum, [, intensity]) => Math.max(maximum, intensity),
-      0,
-    );
-    const centerColor = scaleTrailEnergy(color, centerIntensity);
-    const colors = cap.position === 'start'
-      ? [leftColor, rightColor, centerColor]
-      : [leftColor, centerColor, rightColor];
+    const sample = pointSamples[cap.pointIndex];
+    const vCoordinates = cap.position === 'start'
+      ? [1, 0, 0.5]
+      : [1, 0.5, 0];
+    const vertices = cap.points.map((point, index) =>
+      createTexturedTrailVertex(point, sample.u, vCoordinates[index]));
 
-    renderer.addTrailTriangle(
-      cap.points[0],
-      cap.points[1],
-      cap.points[2],
-      colors,
+    // numCapVertices=1 形成一个三角端帽；尖端位于纹理横截面中心。
+    renderer.addTexturedTrailTriangle(
+      vertices[0],
+      vertices[1],
+      vertices[2],
+      sample.color,
       opacity,
     );
   }
 }
 
-function appendTrailMeshJoins(
+function appendTexturedTrailMeshJoins(
   renderer,
   mesh,
   visibleSegments,
-  trailData,
-  trailCfg,
+  pointSamples,
   opacity,
 )
 {
@@ -4676,19 +4609,11 @@ function appendTrailMeshJoins(
       continue;
     }
 
-    const color = trailData.pointEnergies[segmentIndex];
-    const transverseProfile = resolveTrailPointTransverseProfile(
-      trailData,
-      segmentIndex,
-      trailCfg,
-    );
-
-    appendTrailMeshJoin(
+    appendTexturedTrailMeshJoin(
       renderer,
       join,
-      color,
+      pointSamples[segmentIndex],
       opacity,
-      transverseProfile,
     );
   }
 }
@@ -4723,6 +4648,24 @@ function appendTrailWebGLScene(
 
   const mesh = getTrailMesh(trailData, points, width, trailCfg);
   const visibleSegments = new Set();
+  const pointSamples = new Array(points.length);
+
+  for (let index = 0; index < points.length; index++)
+  {
+    const progress = trailData.measurement.distances[index] /
+      trailData.measurement.totalLength;
+
+    pointSamples[index] =
+    {
+      // Unity TrailRenderer 的 U=0 位于最新点，而项目点序是旧点到新点。
+      u: 1 - progress,
+      color: evaluateTrailMaterialColor(
+        progress,
+        trailCfg,
+        bloomCfg.trailEmission,
+      ),
+    };
+  }
 
   for (let index = 1; index < points.length; index++)
   {
@@ -4734,31 +4677,27 @@ function appendTrailWebGLScene(
     }
 
     visibleSegments.add(index);
-    appendTrailMeshSegment(
+    appendTexturedTrailMeshSegment(
       renderer,
       segment,
-      trailData.pointEnergies[index - 1],
-      trailData.pointEnergies[index],
+      pointSamples[index - 1],
+      pointSamples[index],
       trailOpacity,
-      resolveTrailPointTransverseProfile(trailData, index - 1, trailCfg),
-      resolveTrailPointTransverseProfile(trailData, index, trailCfg),
     );
   }
 
-  appendTrailMeshJoins(
+  appendTexturedTrailMeshJoins(
     renderer,
     mesh,
     visibleSegments,
-    trailData,
-    trailCfg,
+    pointSamples,
     trailOpacity,
   );
-  appendTrailMeshCaps(
+  appendTexturedTrailMeshCaps(
     renderer,
     mesh,
     visibleSegments,
-    trailData,
-    trailCfg,
+    pointSamples,
     trailOpacity,
   );
 }
