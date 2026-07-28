@@ -5502,11 +5502,7 @@ export class BAClickFX
           {
             // Final Pass 候选帧使用线性能量编码，失败后不能直接作为普通
             // Canvas 显示；对象已在本帧更新，只需用 sRGB 路径重新绘制。
-            this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-            this.context.clearRect(0, 0, this.width, this.height);
-            this.context.globalCompositeOperation = 'lighter';
-            this._drawCanvasTrails(scale, useNativeBloom, legacy);
-            this._drawCanvasClickEffects(scale, useNativeBloom, legacy);
+            this._drawCanvasFallbackFrame(scale, useNativeBloom, legacy);
           }
 
           this._setCanvasSceneVisible(canvasSceneRendered);
@@ -5714,22 +5710,28 @@ export class BAClickFX
 
   _handleWebGLContextLost()
   {
-    if (this.destroyed || this.config.renderingMode === 'legacy')
+    if (this.destroyed || !this.webglBloomVisible)
     {
       return;
     }
 
-    const requested = normalizeBloomBackend(this.config.bloomBackend);
-
-    if (requested !== 'webgl2' && requested !== 'auto')
-    {
-      return;
-    }
+    const fallbackBackend = this.bloomRenderer.available
+      ? 'software'
+      : 'native';
 
     this._setWebGLBloomVisible(false);
-    this._setResolvedBloomBackend(
-      this.bloomRenderer.available ? 'software' : 'native',
-    );
+
+    if (this.paused)
+    {
+      this._restoreCanvasOutputAfterContextLoss(fallbackBackend);
+    }
+    else
+    {
+      // 活跃帧会在当前或下一次 RAF 走原有回退，避免事件回调与帧渲染
+      // 同时向 Canvas 叠加一次 Software Bloom。
+      this._setResolvedBloomBackend(fallbackBackend);
+    }
+
     this._requestRender();
   }
 
@@ -5754,13 +5756,27 @@ export class BAClickFX
 
   _handleWebGLEffectContextLost()
   {
-    if (this.destroyed)
+    if (this.destroyed || !this.webglEffectVisible)
     {
       return;
     }
 
     this._setWebGLEffectVisible(false);
     this._setResolvedEffectBackend('canvas2d');
+    const fallbackBackend = this.bloomRenderer.available
+      ? 'software'
+      : 'native';
+
+    if (this.paused)
+    {
+      this._restoreCanvasOutputAfterContextLoss(fallbackBackend);
+    }
+    else
+    {
+      this._setResolvedBloomBackend(fallbackBackend);
+      this._setCanvasOutputVisible(true);
+    }
+
     this._requestRender();
   }
 
@@ -5944,14 +5960,24 @@ export class BAClickFX
 
   _handleCanvasSceneContextLost()
   {
-    if (this.destroyed)
+    if (this.destroyed || !this.canvasSceneVisible)
     {
       return;
     }
 
-    // Final Pass 丢失时立即恢复稳定 Canvas，不能把空白 WebGL 层留给宿主。
+    const legacy = this._isLegacy;
+
+    // 仅当前输出所有者可以切换图层；暂停期间再同步重绘稳定 Canvas。
     this._setCanvasSceneVisible(false);
-    this._setCanvasOutputVisible(true);
+
+    if (this.paused)
+    {
+      this._restoreCanvasOutputAfterContextLoss(
+        legacy ? 'legacy' : 'native',
+        legacy,
+      );
+    }
+
     this._requestRender();
   }
 
@@ -6071,6 +6097,14 @@ export class BAClickFX
     {
       this.canvasSceneVisible = false;
       return;
+    }
+
+    const wasVisible = this.canvasSceneVisible;
+
+    if (!visible && wasVisible)
+    {
+      // Canvas Final Pass 退出后，普通 Canvas 重新成为稳定输出层。
+      this._setCanvasOutputVisible(true);
     }
 
     if (this.canvasSceneVisible === visible)
@@ -6214,16 +6248,19 @@ export class BAClickFX
 
   _setWebGLBloomVisible(visible)
   {
-    if (!visible)
-    {
-      // Bloom Scene 失败或退出后，Canvas 必须立即恢复，供同帧软件回退使用。
-      this._setCanvasOutputVisible(true);
-    }
-
     if (!this.webglBloomCanvas)
     {
       this.webglBloomVisible = false;
       return;
+    }
+
+    const wasVisible = this.webglBloomVisible;
+
+    if (!visible && wasVisible)
+    {
+      // 只有当前输出所有者退出时才能恢复 Canvas；隐藏后端丢失上下文
+      // 不应干扰纯 WebGL2 或 Canvas Final Pass 的可见层。
+      this._setCanvasOutputVisible(true);
     }
 
     if (this.webglBloomVisible === visible)
@@ -6997,6 +7034,87 @@ export class BAClickFX
       renderer.clear();
       return false;
     }
+  }
+
+  _drawCanvasFallbackFrame(scale, useNativeBloom, legacy = false)
+  {
+    this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.context.clearRect(0, 0, this.width, this.height);
+    this.context.globalCompositeOperation = 'lighter';
+    this._drawCanvasTrails(scale, useNativeBloom, legacy);
+    this._drawCanvasClickEffects(scale, useNativeBloom, legacy);
+  }
+
+  _restoreCanvasOutputAfterContextLoss(bloomBackend, legacy = false)
+  {
+    const scale = this._getScale();
+    const previousHueShift = themeHueShift;
+    let resolvedBloomBackend = bloomBackend;
+
+    themeHueShift = this._themeHueShift;
+    this.context.save();
+
+    try
+    {
+      this._drawCanvasFallbackFrame(
+        scale,
+        legacy || resolvedBloomBackend === 'native',
+        legacy,
+      );
+
+      if (!legacy)
+      {
+        this._renderLightBackgroundContrast(
+          scale,
+          resolvedBloomBackend === 'software',
+        );
+      }
+
+      if (
+        resolvedBloomBackend === 'software' &&
+        this._hasVisibleEffects()
+      )
+      {
+        this._renderSoftwareBloom(scale);
+
+        if (!this.bloomRenderer.available)
+        {
+          // Software Bloom 自身失败时必须重新绘制原生阴影；仅切换状态会
+          // 让暂停画面永久缺少光晕。
+          resolvedBloomBackend = 'native';
+          this._drawCanvasFallbackFrame(scale, true, false);
+          this._renderLightBackgroundContrast(scale, false);
+        }
+      }
+    }
+    catch (error)
+    {
+      console.warn('[BAClickFX] WebGL Context 丢失回退失败:', error);
+      resolvedBloomBackend = legacy ? 'legacy' : 'native';
+
+      try
+      {
+        this._drawCanvasFallbackFrame(scale, true, legacy);
+
+        if (!legacy)
+        {
+          this._renderLightBackgroundContrast(scale, false);
+        }
+      }
+      catch (fallbackError)
+      {
+        // Canvas 自身不可用时保留透明输出，不能让异常逃出浏览器事件回调。
+        console.warn('[BAClickFX] 原生 Canvas 回退失败:', fallbackError);
+      }
+    }
+    finally
+    {
+      this.context.restore();
+      themeHueShift = previousHueShift;
+    }
+
+    this._setResolvedBloomBackend(resolvedBloomBackend);
+    this._setCanvasOutputVisible(true);
   }
 
   _drawCanvasClickEffects(scale, useNativeBloom, legacy = false)
