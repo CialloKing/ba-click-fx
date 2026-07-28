@@ -1434,14 +1434,35 @@ export class WebGL2EffectRenderer
       return false;
     }
 
+    const requiresTarget = !!this.sourceTarget &&
+      this.sourceWidth > 0 &&
+      this.sourceHeight > 0;
+    const target = requiresTarget
+      ? this._createSceneBackgroundTarget(
+          texture,
+          dimensions.width,
+          dimensions.height,
+        )
+      : null;
+
+    if (requiresTarget && !target)
+    {
+      // 新背景必须连同其线性场景目标一起成功，旧纹理才能被替换。
+      this.gl.deleteTexture(texture);
+      return false;
+    }
+
     const previousTexture = this.sceneBackgroundTexture;
+    const previousTarget = this.sceneBackgroundTarget;
 
     this.sceneBackgroundTexture = texture;
+    this.sceneBackgroundTarget = target;
     this.sceneBackgroundSource = source;
     this.sceneBackgroundWidth = dimensions.width;
     this.sceneBackgroundHeight = dimensions.height;
-    this._rebuildSceneBackgroundTarget();
+    this.sceneBackgroundFrameReady = false;
     this.gl.deleteTexture(previousTexture);
+    deleteTarget(this.gl, previousTarget);
     return true;
   }
 
@@ -1485,10 +1506,12 @@ export class WebGL2EffectRenderer
     return this._replaceSceneBackgroundTexture(source);
   }
 
-  _getSceneBackgroundUvScale()
+  _getSceneBackgroundUvScale(
+    backgroundWidth = this.sceneBackgroundWidth,
+    backgroundHeight = this.sceneBackgroundHeight,
+  )
   {
-    const sourceAspect = this.sceneBackgroundWidth /
-      this.sceneBackgroundHeight;
+    const sourceAspect = backgroundWidth / backgroundHeight;
     const displayAspect = this.displayWidth / this.displayHeight;
 
     if (sourceAspect > displayAspect)
@@ -1499,24 +1522,29 @@ export class WebGL2EffectRenderer
     return [1, sourceAspect / displayAspect];
   }
 
-  _rebuildSceneBackgroundTarget()
+  _createSceneBackgroundTarget(
+    texture,
+    backgroundWidth,
+    backgroundHeight,
+  )
   {
     if (
-      !this.sceneBackgroundTexture ||
+      !texture ||
       !this.programs?.sceneBackground ||
       !this.sourceTarget ||
       this.sourceWidth <= 0 ||
       this.sourceHeight <= 0
     )
     {
-      deleteTarget(this.gl, this.sceneBackgroundTarget);
-      this.sceneBackgroundTarget = null;
-      return false;
+      return null;
     }
 
     const gl = this.gl;
     const program = this.programs.sceneBackground;
-    const uvScale = this._getSceneBackgroundUvScale();
+    const uvScale = this._getSceneBackgroundUvScale(
+      backgroundWidth,
+      backgroundHeight,
+    );
     let target = null;
 
     try
@@ -1527,7 +1555,7 @@ export class WebGL2EffectRenderer
       this._bindTexture(
         program,
         'u_background',
-        this.sceneBackgroundTexture,
+        texture,
         0,
       );
       gl.uniform2f(
@@ -1549,20 +1577,36 @@ export class WebGL2EffectRenderer
         throw new Error(`WebGL2 Scene 背景解析错误码 ${error}`);
       }
 
-      deleteTarget(gl, this.sceneBackgroundTarget);
-      this.sceneBackgroundTarget = target;
-      return true;
+      return target;
     }
     catch (error)
     {
-      console.warn('[BAClickFX] Scene 背景缓冲创建失败，保留透明回退:', error);
+      console.warn('[BAClickFX] Scene 背景缓冲创建失败，保留现有背景:', error);
       deleteTarget(gl, target);
-      deleteTarget(gl, this.sceneBackgroundTarget);
-      this.sceneBackgroundTarget = null;
       // 背景额外缓冲分配失败不能污染下一帧并禁用整个 Scene 后端。
       this._discardPendingErrors();
+      return null;
+    }
+  }
+
+  _rebuildSceneBackgroundTarget()
+  {
+    const target = this._createSceneBackgroundTarget(
+      this.sceneBackgroundTexture,
+      this.sceneBackgroundWidth,
+      this.sceneBackgroundHeight,
+    );
+
+    if (!target)
+    {
+      deleteTarget(this.gl, this.sceneBackgroundTarget);
+      this.sceneBackgroundTarget = null;
       return false;
     }
+
+    deleteTarget(this.gl, this.sceneBackgroundTarget);
+    this.sceneBackgroundTarget = target;
+    return true;
   }
 
   _copySceneBackgroundToSource()

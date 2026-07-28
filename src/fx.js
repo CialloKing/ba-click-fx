@@ -694,6 +694,45 @@ function isCanvas(value)
   return value?.tagName?.toLowerCase?.() === 'canvas';
 }
 
+function getSceneBackgroundDimensions(source)
+{
+  if (!source)
+  {
+    return null;
+  }
+
+  let width;
+  let height;
+
+  try
+  {
+    width = source.naturalWidth ??
+      source.videoWidth ??
+      source.displayWidth ??
+      source.width;
+    height = source.naturalHeight ??
+      source.videoHeight ??
+      source.displayHeight ??
+      source.height;
+  }
+  catch
+  {
+    return null;
+  }
+
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  )
+  {
+    return null;
+  }
+
+  return { width, height };
+}
+
 function resolveTarget(target)
 {
   if (typeof target === 'string')
@@ -5846,12 +5885,19 @@ export class BAClickFX
 
       if (this.sceneBackgroundSource)
       {
-        renderer.setSceneBackground(
+        const backgroundReady = renderer.setSceneBackground(
           this.sceneBackgroundSource,
-          {
-            fit: this.sceneBackgroundFit,
-          },
+          { fit: this.sceneBackgroundFit },
         );
+
+        if (!backgroundReady)
+        {
+          // 候选 Renderer 未接入规范背景时不能宣称 Scene 已就绪。
+          this.webglEffectUnavailable = true;
+          renderer.destroy();
+          canvas.remove();
+          return false;
+        }
       }
     }
     catch (error)
@@ -6036,12 +6082,18 @@ export class BAClickFX
 
       if (this.sceneBackgroundSource)
       {
-        renderer.setSceneBackground(
+        const backgroundReady = renderer.setSceneBackground(
           this.sceneBackgroundSource,
-          {
-            fit: this.sceneBackgroundFit,
-          },
+          { fit: this.sceneBackgroundFit },
         );
+
+        if (!backgroundReady)
+        {
+          this.canvasSceneUnavailable = true;
+          renderer.destroy();
+          canvas.remove();
+          return false;
+        }
       }
     }
     catch (error)
@@ -6138,6 +6190,23 @@ export class BAClickFX
     this.canvasSceneVisible = false;
   }
 
+  _destroyWebGLBloomRenderer()
+  {
+    this.webglBloomCanvas?.removeEventListener(
+      'webglcontextlost',
+      this._onWebGLContextLost,
+    );
+    this.webglBloomCanvas?.removeEventListener(
+      'webglcontextrestored',
+      this._onWebGLContextRestored,
+    );
+    this.webglBloomRenderer?.destroy();
+    this.webglBloomCanvas?.remove();
+    this.webglBloomRenderer = null;
+    this.webglBloomCanvas = null;
+    this.webglBloomVisible = false;
+  }
+
   _ensureWebGLBloomRenderer()
   {
     if (this.webglBloomRenderer)
@@ -6184,12 +6253,18 @@ export class BAClickFX
 
       if (this.sceneBackgroundSource)
       {
-        renderer.setSceneBackground(
+        const backgroundReady = renderer.setSceneBackground(
           this.sceneBackgroundSource,
-          {
-            fit: this.sceneBackgroundFit,
-          },
+          { fit: this.sceneBackgroundFit },
         );
+
+        if (!backgroundReady)
+        {
+          this.webglBloomUnavailable = true;
+          renderer.destroy();
+          canvas.remove();
+          return false;
+        }
       }
     }
     catch (error)
@@ -6293,6 +6368,24 @@ export class BAClickFX
     {
       this.contrastCanvas.style.visibility = visibility;
     }
+  }
+
+  _invalidateSceneBackgroundOutputs()
+  {
+    this._setWebGLEffectVisible(false);
+    this._setWebGLBloomVisible(false);
+    this._setCanvasSceneVisible(false);
+    this.webglEffectRenderer?.clear();
+    this.webglBloomRenderer?.clear();
+    this.canvasSceneRenderer?.clear();
+
+    this.context.save();
+    this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.context.clearRect(0, 0, this.width, this.height);
+    this.context.restore();
+    this._clearLightBackgroundContrast();
+    // 暂停时不会申请 RAF；同步清空后再恢复 Canvas，避免旧背景残差常驻。
+    this._setCanvasOutputVisible(true);
   }
 
   _usesSoftwareBloom()
@@ -7791,43 +7884,124 @@ export class BAClickFX
       return false;
     }
 
-    if (source === null)
-    {
-      this.webglEffectRenderer?.setSceneBackground(null);
-      this.webglBloomRenderer?.setSceneBackground(null);
-      this.canvasSceneRenderer?.setSceneBackground(null);
-      this.sceneBackgroundSource = null;
-      this.sceneBackgroundFit = fit;
-      this._requestRender();
-      return true;
-    }
-
-    if (
-      this.webglEffectRenderer &&
-      !this.webglEffectRenderer.setSceneBackground(source, { fit })
-    )
+    if (source !== null && !getSceneBackgroundDimensions(source))
     {
       return false;
     }
 
-    if (
-      this.webglBloomRenderer &&
-      !this.webglBloomRenderer.setSceneBackground(source, { fit })
-    )
+    const previousSource = this.sceneBackgroundSource;
+    const previousFit = this.sceneBackgroundFit;
+    const invalidatesVisibleOutput = this.webglEffectVisible ||
+      this.webglBloomVisible ||
+      this.canvasSceneVisible;
+    const entries = [
+      {
+        name: '纯 WebGL2',
+        renderer: this.webglEffectRenderer,
+        discard: () =>
+        {
+          this._setWebGLEffectVisible(false);
+          this._destroyWebGLEffectRenderer();
+        },
+      },
+      {
+        name: 'WebGL2 Bloom',
+        renderer: this.webglBloomRenderer,
+        discard: () =>
+        {
+          this._setWebGLBloomVisible(false);
+          this._destroyWebGLBloomRenderer();
+        },
+      },
+      {
+        name: 'Canvas Final Pass',
+        renderer: this.canvasSceneRenderer,
+        discard: () =>
+        {
+          this._setCanvasSceneVisible(false);
+          this._destroyCanvasSceneRenderer();
+        },
+      },
+    ].filter((entry) => entry.renderer);
+    const appliedEntries = [];
+    let failedEntry = null;
+
+    for (const entry of entries)
     {
-      return false;
+      let accepted = false;
+
+      try
+      {
+        accepted = entry.renderer.setSceneBackground(source, { fit });
+      }
+      catch (error)
+      {
+        console.warn(`[BAClickFX] ${entry.name} 背景更新失败:`, error);
+      }
+
+      if (!accepted)
+      {
+        failedEntry = entry;
+        break;
+      }
+
+      appliedEntries.push(entry);
     }
 
-    if (
-      this.canvasSceneRenderer &&
-      !this.canvasSceneRenderer.setSceneBackground(source, { fit })
-    )
+    if (failedEntry)
     {
+      let rollbackFailed = false;
+
+      for (let index = appliedEntries.length - 1; index >= 0; index--)
+      {
+        const entry = appliedEntries[index];
+        let restored = false;
+
+        try
+        {
+          restored = entry.renderer.setSceneBackground(
+            previousSource,
+            { fit: previousFit },
+          );
+        }
+        catch (error)
+        {
+          console.warn(`[BAClickFX] ${entry.name} 背景回滚失败:`, error);
+        }
+
+        if (!restored)
+        {
+          // 无法回滚的 Renderer 不得继续持有与主状态不一致的背景。
+          entry.discard();
+          rollbackFailed = true;
+        }
+      }
+
+      if (rollbackFailed)
+      {
+        if (invalidatesVisibleOutput)
+        {
+          this._invalidateSceneBackgroundOutputs();
+        }
+
+        this._requestRender();
+      }
+
       return false;
     }
 
     this.sceneBackgroundSource = source;
     this.sceneBackgroundFit = fit;
+    // 显式提供新背景后，允许此前单次上传失败的候选后端重新尝试。
+    this.webglEffectUnavailable = false;
+    this.webglBloomUnavailable = false;
+    this.canvasSceneUnavailable = false;
+
+    if (invalidatesVisibleOutput)
+    {
+      this._invalidateSceneBackgroundOutputs();
+    }
+
     this._requestRender();
     return true;
   }
@@ -7867,16 +8041,7 @@ export class BAClickFX
       renderer.destroy();
     }
 
-    this.webglBloomCanvas?.removeEventListener(
-      'webglcontextlost',
-      this._onWebGLContextLost,
-    );
-    this.webglBloomCanvas?.removeEventListener(
-      'webglcontextrestored',
-      this._onWebGLContextRestored,
-    );
-    this.webglBloomRenderer?.destroy();
-    this.webglBloomRenderer = null;
+    this._destroyWebGLBloomRenderer();
     this._destroyWebGLEffectRenderer();
     this._destroyCanvasSceneRenderer();
 
