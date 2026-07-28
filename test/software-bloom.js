@@ -18,6 +18,12 @@ import {
 } from '../src/software-bloom.js';
 import { UNITY_FX_TOUCH } from '../src/config.js';
 import { WebGL2BloomRenderer } from '../src/webgl2-bloom.js';
+import {
+  DEFAULT_BLOOM_CLAMP,
+  HALF_FLOAT_MAX,
+  gammaToLinear,
+  resolveUnityBloomClamp,
+} from '../src/bloom-color-space.js';
 
 let passed = 0;
 
@@ -56,6 +62,20 @@ function arraysApproximatelyEqual(left, right, epsilon = 0.000001)
 }
 
 console.log('\nSoftware Bloom 阈值与色彩空间');
+assert(
+  resolveUnityBloomClamp(DEFAULT_BLOOM_CLAMP) === HALF_FLOAT_MAX,
+  '游戏 Clamp 先转 Linear，再按 Shader half 上限限制为 65504',
+);
+assert(
+  resolveUnityBloomClamp(1) === 1 &&
+    approximatelyEqual(resolveUnityBloomClamp(0.5), gammaToLinear(0.5)) &&
+    approximatelyEqual(gammaToLinear(2), 2 ** 2.2),
+  '自定义 Clamp 与 Unity 一样在 Gamma 空间配置并在线性空间生效',
+);
+assert(
+  resolveUnityBloomClamp(Number.NaN) === HALF_FLOAT_MAX,
+  '非法 Clamp 安全恢复游戏默认值后再执行相同换算',
+);
 const belowKnee = calculateBloomContribution(0.4, 1, 0.5);
 const insideKnee = calculateBloomContribution(0.75, 1, 0.5);
 const atThreshold = calculateBloomContribution(1, 1, 0.5);

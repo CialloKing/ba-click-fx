@@ -7,6 +7,10 @@ import {
   TRIANGLE_TEXTURE_SIZE,
   resolveTriangleTextureFrame,
 } from './triangle-texture.js';
+import {
+  gammaToLinear,
+  resolveUnityBloomClamp,
+} from './bloom-color-space.js';
 
 const COMPONENTS_PER_VERTEX = 6;
 const DISK_COMPONENTS_PER_VERTEX = 8;
@@ -364,18 +368,6 @@ void main()
 function clamp(value, minimum, maximum)
 {
   return Math.max(minimum, Math.min(maximum, value));
-}
-
-function gammaToLinear(value)
-{
-  const gamma = Math.max(0, value);
-
-  if (gamma <= 0.04045)
-  {
-    return gamma / 12.92;
-  }
-
-  return Math.pow((gamma + 0.055) / 1.055, 2.4);
 }
 
 function calculatePyramidSettings(
@@ -1859,7 +1851,7 @@ export class WebGL2BloomRenderer
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_clampMax'),
-      settings.clamp ?? 65472,
+      resolveUnityBloomClamp(settings.clamp),
     );
     this._drawFullscreen(program, level.down, level.width, level.height);
   }

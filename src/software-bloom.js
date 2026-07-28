@@ -1,3 +1,8 @@
+import {
+  gammaToLinear,
+  resolveUnityBloomClamp,
+} from './bloom-color-space.js';
+
 const RGB_CHANNELS = 3;
 const RGBA_CHANNELS = 4;
 const REGION_QUANTUM = 64;
@@ -12,18 +17,6 @@ function clamp(value, minimum, maximum)
 function clamp01(value)
 {
   return clamp(value, 0, 1);
-}
-
-function gammaToLinear(value)
-{
-  const gamma = Math.max(0, value);
-
-  if (gamma <= 0.04045)
-  {
-    return gamma / 12.92;
-  }
-
-  return Math.pow((gamma + 0.055) / 1.055, 2.4);
 }
 
 function calculatePyramidSettings(
@@ -1655,7 +1648,7 @@ export class SoftwareBloomRenderer
       firstLevel.height,
       gammaToLinear(settings.threshold),
       settings.softKnee,
-      settings.clamp ?? 65472,
+      resolveUnityBloomClamp(settings.clamp),
       true,
       1,
       emissionBounds,

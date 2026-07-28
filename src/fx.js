@@ -24,6 +24,7 @@ import {
   SIZE_CORRECTION,
 } from './config.js';
 import { applyFxParamPatch } from './fx-param-patch.js';
+import { gammaToLinear } from './bloom-color-space.js';
 import {
   SoftwareBloomRenderer,
   calculateBloomContribution,
@@ -621,18 +622,6 @@ function linearEnergyToOverlayCss(
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-function gammaToLinearEnergy(value)
-{
-  const gamma = Math.max(0, value);
-
-  if (gamma <= 0.04045)
-  {
-    return gamma / 12.92;
-  }
-
-  return ((gamma + 0.055) / 1.055) ** 2.4;
-}
-
 /**
  * 原生 Canvas 无法保留 HDR，因此先按 Unity MXFinalBloom 提取高亮，
  * 再用回退强度映射到可模糊的加色源，避免低能尾段也产生均匀光雾。
@@ -656,7 +645,7 @@ function linearEnergyToNativeTrailBloomCss(
 
   const contribution = calculateBloomContribution(
     brightness,
-    gammaToLinearEnergy(bloomCfg.threshold),
+    gammaToLinear(bloomCfg.threshold),
     bloomCfg.softKnee,
   );
 

@@ -7,6 +7,10 @@ import {
   CIRCLE_TEXTURE_RGBA,
   CIRCLE_TEXTURE_SIZE,
 } from './circle-texture.js';
+import {
+  gammaToLinear,
+  resolveUnityBloomClamp,
+} from './bloom-color-space.js';
 
 const COMPONENTS_PER_VERTEX = 6;
 const COMPONENTS_PER_DISK_VERTEX = 8;
@@ -611,18 +615,6 @@ function getTexImageSourceDimensions(source)
     width,
     height,
   };
-}
-
-function gammaToLinear(value)
-{
-  const gamma = Math.max(0, value);
-
-  if (gamma <= 0.04045)
-  {
-    return gamma / 12.92;
-  }
-
-  return Math.pow((gamma + 0.055) / 1.055, 2.4);
 }
 
 function calculatePyramidSettings(
@@ -3315,9 +3307,7 @@ export class WebGL2EffectRenderer
     const softKnee = Number.isFinite(settings.softKnee)
       ? clamp(settings.softKnee, 0, 1)
       : 0;
-    const clampMax = Number.isFinite(settings.clamp)
-      ? clamp(settings.clamp, 0, 65504)
-      : 65472;
+    const clampMax = resolveUnityBloomClamp(settings.clamp);
 
     gl.useProgram(program);
     this._bindTexture(program, 'u_source', this.sourceTarget.texture, 0);
