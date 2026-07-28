@@ -5497,6 +5497,18 @@ export class BAClickFX
             useNativeBloom,
             legacy,
           );
+
+          if (!canvasSceneRendered)
+          {
+            // Final Pass 候选帧使用线性能量编码，失败后不能直接作为普通
+            // Canvas 显示；对象已在本帧更新，只需用 sRGB 路径重新绘制。
+            this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+            this.context.clearRect(0, 0, this.width, this.height);
+            this.context.globalCompositeOperation = 'lighter';
+            this._drawCanvasTrails(scale, useNativeBloom, legacy);
+            this._drawCanvasClickEffects(scale, useNativeBloom, legacy);
+          }
+
           this._setCanvasSceneVisible(canvasSceneRendered);
           this._setCanvasOutputVisible(!canvasSceneRendered);
         }
