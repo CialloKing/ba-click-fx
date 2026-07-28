@@ -8,9 +8,10 @@
 - 将 `themeColor` 纳入构造参数、`updateConfig()` 与 `getConfig()` 的实例状态，并导出默认游戏蓝 `DEFAULT_THEME_COLOR = '#4ca7ff'`；非法颜色统一恢复默认值
 - 对照 Unity `Circle_01` 纹理和材质混合重新使用完整二维 RGB/R Coverage，修正 Canvas、Software、Native 与 Legacy 圆盘的边缘、中心能量和生命周期透明度；未改动嵌入纹理数据
 - 软件 Bloom 的透明覆盖层改用清晰 Scene 与 Bloom 的剩余 Coverage 合成，避免中心 Alpha 重复抬高；Canvas 路径保持 `scene` 的加色语义，并在 `transparent-overlay` 下采用受预乘 Alpha 限制的兼容输出
+- WebGL2 Bloom 成功路径继续复用已验收的完整 WebGL2 Scene，同时移除每帧不可见的 Canvas 重复栅格化；GPU 当帧失败时才补画 Canvas 并进入 Software / Native 回退
 - 修复原生辉光与 Legacy 在高 DPR 下仍按 CSS 像素计算模糊半径的问题，使点击光晕和原生拖尾的物理像素扩散范围不再随设备像素比缩小
 - 增加基于系统 Edge / Chromium 的真实浏览器像素回归门禁，覆盖五种模式、透明度梯度、黑白与棋盘背景、隔离合成、DPR、Shadow DOM、场景背景及 WebGL Context 恢复；固定基线仅用于浏览器实现回归，不替代 Unity HDR 工程真值
-- 文档明确合成配置契约与能力边界：透明桌面推荐完整 WebGL2、`transparent-overlay` 和零浅色轮廓；纯白网页建议开启隔离合成；只有纯 WebGL2 配合逐像素匹配的已知背景，才能严格复现 Unity 线性 HDR Scene，其他回退路径不承诺逐像素等价
+- 文档明确合成配置契约与能力边界：透明桌面推荐完整 WebGL2、`transparent-overlay` 和零浅色轮廓；纯白网页建议开启隔离合成；完整 WebGL2 Scene 配合逐像素匹配的已知背景才能严格复现 Unity 线性 HDR Scene，其他回退路径不承诺逐像素等价
 
 ## v1.2.14 — 完整 WebGL2 与统一线性场景输出
 

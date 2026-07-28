@@ -170,14 +170,16 @@ new BAClickFX(options?: {
 | 展示页选项 | API 配置 | 说明 |
 |---|---|---|
 | 纯 WebGL2 | `{ effectBackend: 'webgl2', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 默认；完整 Scene、Coverage 与 MXFinalBloom 均在一个 WebGL2 HDR 管线中完成；失败时回退 Canvas 2D 链 |
-| WebGL2 Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Canvas 生成清晰几何，GPU 执行 MXFinalBloom 与最终输出；Canvas 栅格精度不等同纯 WebGL2 Scene |
+| WebGL2 Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 兼容选择器；GPU 可用时复用与纯 WebGL2 相同的完整 HDR Scene，失败时沿 Canvas 2D 的 Software / Native 链回退 |
 | 软件 Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'software' }` | 兼容实现，使用 8 位 Canvas 遮罩、像素回读和全视口 Float32 Bloom 缓冲 |
 | 原生辉光 | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'native' }` | 使用 Canvas 2D `shadowBlur`，开销较低但观感与后处理 Bloom 不同 |
 | Legacy | `{ effectBackend: 'canvas2d', renderingMode: 'legacy' }` | 使用 Unity 材质能量和纹理轮廓，以 Canvas `shadowBlur` 提供兼容辉光；此时忽略 Bloom 后端 |
 
 展示页在五档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与渲染后端正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
 
-`bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。默认值 `'webgl2'` 采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。为兼容 1.2.13 及更早版本，构造参数或 `createConfig()` 只要显式提供 `bloomBackend` / `softwareBloomEnabled` 而未提供 `effectBackend`，就继续选择 Canvas 2D 完整特效路径；显式 `effectBackend` 始终优先。若同时传入 `bloomBackend` 和旧字段 `softwareBloomEnabled`，以 `bloomBackend` 为准；旧字段仍保持 `true` 等价于 `'software'`、`false` 等价于 `'native'`。
+`bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。默认值 `'webgl2'` 采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。为兼容 1.2.13 及更早版本，构造参数或 `createConfig()` 只要显式提供 `bloomBackend` / `softwareBloomEnabled` 而未提供 `effectBackend`，就继续保留 `effectBackend: 'canvas2d'` 的配置和回退状态合同；显式 `effectBackend` 始终优先。若同时传入 `bloomBackend` 和旧字段 `softwareBloomEnabled`，以 `bloomBackend` 为准；旧字段仍保持 `true` 等价于 `'software'`、`false` 等价于 `'native'`。
+
+为保持已经验收的颜色、透明度和边缘采样，WebGL2 Bloom 在 GPU 成功时会有意复用 `WebGL2EffectRenderer` 的完整 Scene，而不是上传一份 8 位 Canvas Scene。因此它与纯 WebGL2 的成功帧使用相同 Shader 和像素管线，也不会预先栅格随后被隐藏的 Canvas。两者的区别是兼容合同：WebGL2 Bloom 仍保留 `effectBackend: 'canvas2d'` 请求及其 Software / Native 回退链，纯 WebGL2 则由完整特效后端直接接管。
 
 `outputCompositing: 'scene'` 保持 Unity 面向已知 Scene Render Target 的直接加色语义。`'transparent-overlay'` 面向 WebView2、Electron 等透明桌面窗口：HDR RGB 继续驱动 Bloom，最终 Alpha 则由几何 Coverage、生命周期 Alpha 与 `opacity` 决定，避免高 HDR 圆盘把桌面完全遮住。该选项不改变 Bloom 阈值或发射强度。
 
@@ -213,7 +215,7 @@ const fx = new BAClickFX(
 
 ### 场景背景与线性合成
 
-`setSceneBackground()` 可把特效下方的真实不透明栅格场景交给渲染器。只有纯 WebGL2 且所提供背景与实际显示背景逐像素匹配时，背景、Coverage、清晰特效与 MXFinalBloom 才能在同一线性 HDR Scene 中按游戏管线严格求值。WebGL2 Bloom 会复用 GPU Final Pass，但清晰 Scene 来自 Canvas 栅格；原生辉光和 Legacy 使用 Canvas Final Pass；软件 Bloom 仍使用普通 DOM 背景路径，这些都是能力受限的兼容实现，不能宣称与纯 WebGL2 或 Unity 逐像素等价。
+`setSceneBackground()` 可把特效下方的真实不透明栅格场景交给渲染器。纯 WebGL2，以及成功解析到 GPU 的 WebGL2 Bloom，在所提供背景与实际显示背景逐像素匹配时，都能让背景、Coverage、清晰特效与 MXFinalBloom 在同一线性 HDR Scene 中按游戏管线求值。原生辉光和 Legacy 使用 Canvas Final Pass；软件 Bloom 仍使用普通 DOM 背景路径，这些能力受限的回退实现不能宣称与完整 WebGL2 Scene 或 Unity 逐像素等价。
 
 透明桌面下的真实桌面通常对库不可见。调用 `setSceneBackground(null)` 或从未提供背景时，渲染器只能输出带 Alpha 的覆盖层，再由操作系统或宿主合成；未知背景无法在数学上复现 Unity 对已知不透明 HDR Scene 的逐像素结果。`transparent-overlay` 的目标是保持 Coverage、生命周期与亮度关系稳定，而不是绕过这一信息边界。
 
@@ -456,7 +458,7 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 
 ### Bloom 渲染后端
 
-纯 WebGL2 与 WebGL2 Bloom 共用 `WebGL2EffectRenderer`、HDR 发射参数和 Bloom 配置。纯 WebGL2 直接在 GPU 中构建圆环、光盘、拖尾与碎片 Scene；WebGL2 Bloom 则上传 Canvas 生成的线性 Scene。两者随后都按游戏 `Hidden/MXFinalBloom` 的 4-tap 预过滤、Box4 mip、累积式上采样和强度换算，在一次 Final Pass 中输出清晰层、Coverage 与 Bloom。
+纯 WebGL2 与 WebGL2 Bloom 共用 `WebGL2EffectRenderer`、HDR 发射参数和 Bloom 配置，并都直接在 GPU 中构建圆环、光盘、拖尾与碎片 Scene。两者随后按游戏 `Hidden/MXFinalBloom` 的 4-tap 预过滤、Box4 mip、累积式上采样和强度换算，在一次 Final Pass 中输出清晰层、Coverage 与 Bloom。WebGL2 Bloom 作为兼容选择器保留独立的后端状态与 Canvas 回退链，但成功帧不再生成或上传 8 位 Canvas Scene。
 
 可用性由运行时实际创建 WebGL2 上下文、检查 `EXT_color_buffer_float` 并验证 `RGBA16F` 帧缓冲决定。完整特效使用 `effectBackend` / `resolvedEffectBackend`，Bloom 使用 `bloomBackend` / `resolvedBloomBackend`；`auto` 在首次延迟探测或 Context 恢复验证前会短暂返回 `pending`。Context 丢失时当前可见输出立即回退 Canvas，恢复后只有完整资源链验证成功才重新接管。
 
@@ -480,8 +482,8 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 
 | 路径 | 能力边界 |
 |---|---|
-| 纯 WebGL2 | 唯一可在提供匹配背景时，把几何、Coverage、HDR Scene 与 MXFinalBloom 全部保留在同一浮点管线中的路径 |
-| WebGL2 Bloom | Final Pass 和 Bloom 使用 GPU，但清晰几何先由 Canvas 栅格化并上传，精度和边缘采样不保证与纯 WebGL2 相同 |
+| 纯 WebGL2 | 默认选择器；在提供匹配背景时，把几何、Coverage、HDR Scene 与 MXFinalBloom 全部保留在同一浮点管线中 |
+| WebGL2 Bloom | GPU 成功时复用与纯 WebGL2 相同的完整浮点 Scene；区别是保留 Canvas 2D 请求状态和 Software / Native 失败回退合同 |
 | 软件 Bloom | Bloom 金字塔使用 Float32 缓冲，但输入来自 8 位 Canvas；透明覆盖层只能用剩余 Coverage 近似承载 Bloom，不能独立保存任意 HDR RGB |
 | 原生辉光 | 使用 Canvas `shadowBlur` 的有界近似，不具备 `RGBA16F`、阈值预过滤和多级累积上采样，观感不会等同 MXFinalBloom |
 | Legacy | 保留兼容参数映射和旧 Canvas 合成风格；重置恢复 Legacy 基线，但辉光仍受 `shadowBlur` 与 Canvas 混合限制 |
@@ -498,7 +500,7 @@ Unity 的点击特效使用加色混合；接近白色的目标已经没有足�
 
 ### 隔离合成能否替代场景背景？
 
-不能。隔离合成只改变多 Canvas 的 CSS 合成边界，不读取页面或桌面像素，也不改变 Bloom 算法。需要让背景参与和游戏相同的线性 HDR Scene 计算时，必须向纯 WebGL2 提供与实际显示内容匹配的 `setSceneBackground()`；未知或动态桌面背景无法逐像素复现该结果。
+不能。隔离合成只改变多 Canvas 的 CSS 合成边界，不读取页面或桌面像素，也不改变 Bloom 算法。需要让背景参与和游戏相同的线性 HDR Scene 计算时，必须向完整 WebGL2 Scene（纯 WebGL2 或成功解析到 GPU 的 WebGL2 Bloom）提供与实际显示内容匹配的 `setSceneBackground()`；未知或动态桌面背景无法逐像素复现该结果。
 
 ### 透明桌面宿主应该使用什么配置？
 
@@ -556,11 +558,11 @@ ba-click-fx/
 
 - **隔离合成层**：默认关闭；可显式启用透明隔离组，改善非游戏纯白网页背景上的颜色保留
 - **纯 WebGL2 Scene**：完整几何、Coverage、背景与 MXFinalBloom 在一个 HDR 管线中完成并一次输出
-- **Canvas Scene Final Pass**：WebGL2 Bloom、原生辉光和 Legacy 复用 Canvas 生成的 Scene 近似；提供场景背景时统一执行背景衰减与颜色编码，但不宣称具备纯 WebGL2 的浮点精度
+- **Canvas Scene Final Pass**：原生辉光和 Legacy 复用 Canvas 生成的 Scene 近似；提供场景背景时统一执行背景衰减与颜色编码，但不宣称具备完整 WebGL2 的浮点精度
 - **主特效层**：Canvas 路径内部以 `lighter` 累积发射能量，最终覆盖层使用预乘 Alpha 输出，避免 CSS 二次加亮
 - **浅色背景兼容层**：默认强度为 0；可显式设为 0.35，使用不参与 Bloom 的 `darken` Canvas 提升纯白背景可见性
 - **软件 Bloom**：全视口工作画布 + Float32 MXFinalBloom 金字塔；像素读回不可用时回退 `shadowBlur`
-- **WebGL2 Bloom**：Canvas 兼容路径可用 GPU 执行游戏 MXFinalBloom，并与清晰 Scene 在同一 Final Pass 输出；能力不足时沿回退链降级
+- **WebGL2 Bloom**：兼容选择器在 GPU 成功时复用完整 WebGL2 Scene，不重复栅格隐藏 Canvas；能力不足时沿 Software / Native 链降级
 - **资源生命周期**：Context 丢失立即回退，恢复后按需重建；模式切换释放全尺寸帧目标但保留可复用静态 GPU 资源
 - **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`
 - **零外部依赖**：仅使用浏览器原生 Canvas 2D / WebGL2 API，不引入第三方运行时
