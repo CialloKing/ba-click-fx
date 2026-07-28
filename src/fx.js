@@ -7,6 +7,7 @@
 
 import {
   CONFIG,
+  DEFAULT_THEME_COLOR,
   FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
@@ -18,6 +19,7 @@ import {
   isOutputCompositing,
   normalizeBloomBackend,
   normalizeEffectBackend,
+  normalizeThemeColor,
   normalizeTimeScale,
   SIZE_CORRECTION,
 } from './config.js';
@@ -4826,6 +4828,7 @@ export class BAClickFX
    * @param {string|HTMLElement} [options.target]
    * @param {number} [options.scale]
    * @param {number} [options.opacity]
+   * @param {string} [options.themeColor]
    * @param {boolean} [options.clickEnabled]
    * @param {boolean} [options.trailEnabled]
    * @param {boolean} [options.trailAlways]
@@ -4870,6 +4873,7 @@ export class BAClickFX
       {
         scale: Number.isFinite(options.scale) ? Math.max(0.01, options.scale) : CONFIG.scale,
         opacity: Number.isFinite(options.opacity) ? clamp01(options.opacity) : CONFIG.opacity,
+        themeColor: normalizeThemeColor(options.themeColor, CONFIG.themeColor),
         clickEnabled: options.clickEnabled ?? CONFIG.clickEnabled,
         trailEnabled: options.trailEnabled ?? CONFIG.trailEnabled,
         trailAlways: options.trailAlways ?? CONFIG.trailAlways,
@@ -5022,7 +5026,7 @@ export class BAClickFX
     this.height = 0;
     this.dpr = 1;
     this.fxConfig = structuredClone(UNITY_FX_TOUCH);
-    this._themeHueShift = 0;
+    this._themeHueShift = computeThemeHueShift(this.config.themeColor);
     if (this.config.renderingMode === 'legacy')
     {
       this._applyLegacyParams();
@@ -8239,8 +8243,21 @@ export class BAClickFX
    */
   setThemeColor(hex)
   {
-    this._themeHueShift = computeThemeHueShift(hex);
+    if (this.destroyed)
+    {
+      return;
+    }
+
+    this._applyThemeColor(hex);
     this._requestRender();
+  }
+
+  _applyThemeColor(hex)
+  {
+    const themeColor = normalizeThemeColor(hex, DEFAULT_THEME_COLOR);
+
+    this.config.themeColor = themeColor;
+    this._themeHueShift = computeThemeHueShift(themeColor);
   }
 
   /**
@@ -8300,6 +8317,11 @@ export class BAClickFX
     if (Number.isFinite(overrides.opacity))
     {
       this.config.opacity = clamp01(overrides.opacity);
+    }
+
+    if (overrides.themeColor !== undefined)
+    {
+      this._applyThemeColor(overrides.themeColor);
     }
 
     if (isOutputCompositing(overrides.outputCompositing))
@@ -8779,6 +8801,7 @@ export class BAClickFX
 export {
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
+  DEFAULT_THEME_COLOR,
   EFFECT_BACKEND_CHANGE_EVENT,
   FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,

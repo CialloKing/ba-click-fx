@@ -62,6 +62,8 @@ declare module 'ba-click-fx'
     scale?: number;
     /** 整体透明度，默认 1。 */
     opacity?: number;
+    /** 主题色，默认游戏蓝 '#4ca7ff'；仅接受六位十六进制颜色。 */
+    themeColor?: string;
     /** 输出合成：默认 'scene'；透明桌面覆盖层使用 'transparent-overlay'。 */
     outputCompositing?: BAClickFXOutputCompositing;
     clickEnabled?: boolean;
@@ -102,6 +104,7 @@ declare module 'ba-click-fx'
   {
     scale: number;
     opacity: number;
+    themeColor: string;
     outputCompositing: BAClickFXOutputCompositing;
     clickEnabled: boolean;
     trailEnabled: boolean;
@@ -275,6 +278,7 @@ declare module 'ba-click-fx'
   }
 
   export const CONFIG: Readonly<BAClickFXConfig>;
+  export const DEFAULT_THEME_COLOR: '#4ca7ff';
   export const FX_PARAM_SCHEMA_VERSION: 1;
   export const FX_PARAM_SCHEMA: readonly BAClickFXParamDescriptor[];
   export const FX_PARAM_MIGRATIONS: readonly BAClickFXParamMigration[];
@@ -328,7 +332,7 @@ declare module 'ba-click-fx'
     /** 运行时更新输入来源、时间倍率、特效后端、Bloom 后端、DPR 与触摸行为。 */
     updateConfig(overrides: BAClickFXUpdateOptions): void;
 
-    /** 设置主题色（CSS 十六进制），所有蓝色系特效的 hue 将以此偏移。传入空字符串恢复默认。 */
+    /** 设置并保存主题色；传入空字符串或非法值恢复默认游戏蓝。 */
     setThemeColor(hex: string): void;
 
     /** 通过点号路径修改特效参数；未知路径或非法值返回 false 且保持配置不变。 */

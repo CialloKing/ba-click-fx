@@ -24,6 +24,7 @@ const {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
+  DEFAULT_THEME_COLOR,
   EFFECT_BACKEND_CHANGE_EVENT,
   FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
@@ -925,6 +926,11 @@ assert(
   '点击与拖尾的默认时间倍率均为 1',
 );
 assert(
+  DEFAULT_THEME_COLOR === '#4ca7ff' &&
+    CONFIG.themeColor === DEFAULT_THEME_COLOR,
+  '正式入口导出默认游戏蓝并纳入基础配置',
+);
+assert(
   BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange',
   '导出 Bloom 后端解析状态事件名，调用方无需硬编码字符串',
 );
@@ -976,6 +982,7 @@ const invalidHostControlConfig = createConfig(
     trailTimeScale: Infinity,
   },
 );
+const themedConfig = createConfig({ themeColor: '#FF6969' });
 
 assert(
   nativeAliasConfig.bloomBackend === 'native' &&
@@ -1015,6 +1022,11 @@ assert(
     invalidHostControlConfig.trailTimeScale === CONFIG.trailTimeScale,
   'createConfig 忽略无效输入模式与非正有限时间倍率',
 );
+assert(
+  themedConfig.themeColor === '#ff6969' &&
+    createConfig({ themeColor: 'red' }).themeColor === DEFAULT_THEME_COLOR,
+  'createConfig 规范化主题色并让非法值恢复游戏蓝',
+);
 
 console.log('\n指针生命周期');
 const dom = installDom();
@@ -1023,7 +1035,12 @@ const paramApiEffect = new BAClickFX(
     effectBackend: 'canvas2d',
     bloomBackend: 'native',
     inputSource: 'manual',
+    themeColor: '#FF6969',
   },
+);
+assert(
+  paramApiEffect.getConfig().themeColor === '#ff6969',
+  '构造参数主题色进入可读取的实例配置快照',
 );
 const singleParamAccepted = paramApiEffect.setFxParam(
   'rings.rotationDirection',
@@ -1109,7 +1126,8 @@ const defaultBackendEffect = new BAClickFX();
 assert(
   defaultBackendEffect.getConfig().effectBackend === 'webgl2' &&
     defaultBackendEffect.getConfig().resolvedEffectBackend === 'pending' &&
-    defaultBackendEffect.getConfig().bloomBackend === 'webgl2',
+    defaultBackendEffect.getConfig().bloomBackend === 'webgl2' &&
+    defaultBackendEffect.getConfig().themeColor === DEFAULT_THEME_COLOR,
   '默认实例在延迟能力探测前请求纯 WebGL2 并公开 pending',
 );
 defaultBackendEffect.destroy();
@@ -5050,7 +5068,7 @@ assert(
   'Legacy 正 Alpha 外层恢复描边，渐变段仍不重复写入圆角连接',
 );
 legacyEffect.setFxParam('bloom.trailAlpha', 0);
-legacyEffect.setThemeColor('#ff6969');
+legacyEffect.updateConfig({ themeColor: '#FF6969' });
 legacyEffect.context.strokeStyles = [];
 legacyNow = flushFrames(dom, legacyNow, 1);
 const themedLegacyGradientChannels = [0, 31, 62].map((index) =>
@@ -5066,8 +5084,9 @@ assert(
   JSON.stringify(themedLegacyGradientChannels) !==
       JSON.stringify(legacyGradientChannels) &&
     JSON.stringify(restoredLegacyGradientChannels) ===
-      JSON.stringify(legacyGradientChannels),
-  'Legacy 复用局部颜色缓冲时主题色切换不会污染默认渐变',
+      JSON.stringify(legacyGradientChannels) &&
+    legacyEffect.getConfig().themeColor === DEFAULT_THEME_COLOR,
+  'updateConfig 与 setThemeColor 共享状态且不会污染 Legacy 默认渐变',
 );
 assert(
   dom.appendedCanvases.includes(legacyEffect.contrastCanvas) &&
