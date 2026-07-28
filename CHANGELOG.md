@@ -9,12 +9,15 @@
 - 对照 Unity `Circle_01` 纹理和材质混合重新使用完整二维 RGB/R Coverage，修正 Canvas、Software、Native 与 Legacy 圆盘的边缘、中心能量和生命周期透明度；未改动嵌入纹理数据
 - 完整 WebGL2 圆环改为上传只读 Ring3 Alpha 并在 Fragment Shader 中执行 Bilinear + Clamp 采样和硬 `clip`，消除 96×8 顶点 Alpha 插值造成的细小溶解边界偏差；拓扑和嵌入纹理数据保持不变
 - 完整 WebGL2 与 WebGL2 Bloom 改为无损上传 Unity `FX_TEX_Trail_03` 的完整 `512×512 RGB`，按 sRGB、Bilinear、Repeat、无 Mipmap 在 Fragment Shader 逐片元采样，并保留 Gradient × `23.968628` 材质能量；严格复现 Stretch U、非对称 V、4 个圆角插入点与单三角端帽，将普通段从 96 顶点降至 6 顶点；Canvas、Software、Native 与 Legacy 继续使用能力受限近似
+- Disk、MeshTri 与 Ring (3)/(4) 的启用 Gradient RGB 改为保留 OriginalPrefab 归一化浮点真值，不再提前量化为整数 8-bit；拖尾距离粒子只受 Unity 每实例 `maxNumParticles=50` 限制，移除单次输入额外的 32 枚截断
+- 增加真实 Chromium 的 Trail_03 独立像素探针，验证完整 WebGL2 与 WebGL2 Bloom 的头尾能量、非对称横截面方向和逐项一致性；明确区分 Unity 语义 UV 与 PNG 顶行优先字节上传所需的 WebGL V 补偿
 - 软件 Bloom 的透明覆盖层改用清晰 Scene 与 Bloom 的剩余 Coverage 合成，避免中心 Alpha 重复抬高；Canvas 路径保持 `scene` 的加色语义，并在 `transparent-overlay` 下采用受预乘 Alpha 限制的兼容输出
 - WebGL2 Bloom 成功路径继续复用已验收的完整 WebGL2 Scene，同时移除每帧不可见的 Canvas 重复栅格化；GPU 当帧失败时才补画 Canvas 并进入 Software / Native 回退
 - 统一完整 WebGL2、独立 WebGL2 Bloom、软件 Bloom 与原生回退的 Unity `GammaToLinearSpace` 阈值换算；Clamp 在换算后按 Shader half 上限 `65504` 截断，默认序列值仍为 `65472`
 - 修复原生辉光与 Legacy 在高 DPR 下仍按 CSS 像素计算模糊半径的问题，使点击光晕和原生拖尾的物理像素扩散范围不再随设备像素比缩小
 - 增加基于系统 Edge / Chromium 的真实浏览器像素回归门禁，覆盖五种模式、透明度梯度、黑白与棋盘背景、隔离合成、DPR、Shadow DOM、场景背景及 WebGL Context 恢复；固定基线仅用于浏览器实现回归，不替代 Unity HDR 工程真值
 - 文档明确合成配置契约与能力边界：透明桌面推荐完整 WebGL2、`transparent-overlay` 和零浅色轮廓；纯白网页建议开启隔离合成；完整 WebGL2 Scene 配合逐像素匹配的已知背景才能严格复现 Unity 线性 HDR Scene，其他回退路径不承诺逐像素等价
+- 明确 Unity Additive 固定目标 Alpha 属于不透明相机缓冲合同；无匹配背景的透明 Canvas 必须使用传输 Alpha 或 Coverage Alpha，严格一致声明仅覆盖已知背景下的最终 RGB
 
 ## v1.2.14 — 完整 WebGL2 与统一线性场景输出
 
