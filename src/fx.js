@@ -6350,6 +6350,7 @@ export class BAClickFX
         clamp: bloomCfg.clamp,
         intensity: bloomCfg.intensity,
         diffusion,
+        outputCompositing: this.config.outputCompositing,
       },
     );
 

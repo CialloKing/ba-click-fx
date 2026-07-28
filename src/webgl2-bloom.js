@@ -176,6 +176,7 @@ uniform sampler2D u_bloom;
 uniform vec2 u_bloomTexel;
 uniform float u_sampleScale;
 uniform float u_intensity;
+uniform bool u_transparentOverlay;
 
 in vec2 v_uv;
 out vec4 outColor;
@@ -206,15 +207,17 @@ void main()
     linearToSrgb(linear.g),
     linearToSrgb(linear.b)
   );
-  float alpha = max(max(srgb.r, srgb.g), srgb.b);
+  float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
 
-  if (alpha <= 0.00001)
+  if (maximumSrgb <= 0.00001)
   {
     outColor = vec4(0.0);
     return;
   }
 
-  // WebGL Canvas 以预乘 Alpha 交给页面合成器；RGB 直接保存加色贡献。
+  // Unity Composite 只增加 RGB；独立覆盖层用零 Alpha 避免改变清晰层 Coverage。
+  float alpha = u_transparentOverlay ? 0.0 : maximumSrgb;
+
   outColor = vec4(srgb, alpha);
 }
 `;
@@ -1439,6 +1442,10 @@ export class WebGL2BloomRenderer
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_intensity'),
       Math.pow(2, Math.max(0, settings.intensity) / 10) - 1,
+    );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_transparentOverlay'),
+      settings.outputCompositing === 'transparent-overlay' ? 1 : 0,
     );
     gl.bindVertexArray(this.fullscreenVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
