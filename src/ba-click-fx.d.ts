@@ -11,6 +11,7 @@ declare module 'ba-click-fx'
   export type BAClickFXBloomBackend = 'auto' | 'software' | 'webgl2' | 'native';
   export type BAClickFXResolvedBloomBackend =
     Exclude<BAClickFXBloomBackend, 'auto'> | 'legacy' | 'pending';
+  export type BAClickFXRenderingMode = 'enhanced' | 'legacy';
 
   export interface BAClickFXBackendChangeDetail
   {
@@ -76,7 +77,7 @@ declare module 'ba-click-fx'
     /** 完整特效后端；默认 'webgl2'，未就绪或丢失时安全回退 Canvas2D。 */
     effectBackend?: BAClickFXEffectBackend;
     /** 渲染模式：'enhanced'（默认，完整 Bloom）或 'legacy'（Unity 材质主体 + Canvas shadowBlur）。 */
-    renderingMode?: 'enhanced' | 'legacy';
+    renderingMode?: BAClickFXRenderingMode;
     /** Bloom 后端。默认 'webgl2'；不可用时会自动回退软件 Bloom 与原生辉光。 */
     bloomBackend?: BAClickFXBloomBackend;
     /** 兼容旧 API：true 等价于 'software'，false 等价于 'native'。 */
@@ -109,7 +110,7 @@ declare module 'ba-click-fx'
     clickTimeScale: number;
     trailTimeScale: number;
     effectBackend: BAClickFXEffectBackend;
-    renderingMode: 'enhanced' | 'legacy';
+    renderingMode: BAClickFXRenderingMode;
     bloomBackend: BAClickFXBloomBackend;
     /** 兼容旧 API；WebGL2 与软件 Bloom 后端均为 true。 */
     softwareBloomEnabled: boolean;
@@ -154,6 +155,30 @@ declare module 'ba-click-fx'
     | 'samples'
     | 'scalar';
 
+  export type BAClickFXParamGroup =
+    | 'hit'
+    | 'flare'
+    | 'disk'
+    | 'rings'
+    | 'shards'
+    | 'trail'
+    | 'bloom';
+
+  /** 参数的宿主控件推荐范围；不代替 min/max 硬校验边界。 */
+  export interface BAClickFXParamDisplay
+  {
+    readonly min: number;
+    readonly max: number;
+    readonly step: number;
+  }
+
+  /** 各渲染模式重置时应恢复的参数基线。 */
+  export interface BAClickFXParamModeDefaults
+  {
+    readonly enhanced: number | boolean;
+    readonly legacy: number | boolean;
+  }
+
   /** 可安全交给宿主配置界面的只读标量参数描述。 */
   export interface BAClickFXParamDescriptor
   {
@@ -164,10 +189,36 @@ declare module 'ba-click-fx'
     readonly max?: number;
     readonly step?: number;
     readonly unit: BAClickFXParamUnit;
+    /** 跨版本稳定的全局展示顺序。 */
+    readonly order: number;
+    readonly group: BAClickFXParamGroup;
+    readonly groupOrder: number;
+    readonly labelKey: `baClickFx.params.${string}`;
+    readonly groupLabelKey: `baClickFx.paramGroups.${BAClickFXParamGroup}`;
+    readonly display?: Readonly<BAClickFXParamDisplay>;
+    /** 需要在同一界面中协同校验或展示的参数路径。 */
+    readonly linkedParams: readonly string[];
+    readonly modeDefaults: Readonly<BAClickFXParamModeDefaults>;
+  }
+
+  export interface BAClickFXParamRenameMigration
+  {
+    readonly kind: 'rename';
+    readonly from: string;
+    readonly to: string;
+  }
+
+  export interface BAClickFXParamMigration
+  {
+    readonly fromVersion: number;
+    readonly toVersion: number;
+    readonly changes: readonly BAClickFXParamRenameMigration[];
   }
 
   export const CONFIG: Readonly<BAClickFXConfig>;
+  export const FX_PARAM_SCHEMA_VERSION: 1;
   export const FX_PARAM_SCHEMA: readonly BAClickFXParamDescriptor[];
+  export const FX_PARAM_MIGRATIONS: readonly BAClickFXParamMigration[];
   /** 主 Canvas 在 Bloom 后端解析状态变化时派发的事件名。 */
   export const BLOOM_BACKEND_CHANGE_EVENT: 'baclickfxbackendchange';
   /** 主 Canvas 在完整特效后端解析状态变化时派发的事件名。 */

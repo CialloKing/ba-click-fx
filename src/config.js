@@ -325,6 +325,200 @@ export const UNITY_FX_TOUCH = Object.freeze(
   },
 );
 
+export const FX_PARAM_SCHEMA_VERSION = 1;
+
+const FX_PARAM_GROUP_ORDERS = Object.freeze(
+  {
+    hit: 10,
+    flare: 20,
+    disk: 30,
+    rings: 40,
+    shards: 50,
+    trail: 60,
+    bloom: 70,
+  },
+);
+
+const FX_PARAM_ORDERS = Object.freeze(
+  {
+    'hit.enabled': 10,
+    'hit.lifetimeMs': 20,
+    'hit.radius': 30,
+    'flare.enabled': 40,
+    'flare.lifetimeMs': 50,
+    'flare.radius': 60,
+    'flare.rayCount': 70,
+    'disk.lifetimeMs': 80,
+    'disk.radius': 90,
+    'rings.count': 100,
+    'rings.lifetimeMs': 110,
+    'rings.radiusMin': 120,
+    'rings.radiusMax': 130,
+    'rings.bandToOuterRadius': 140,
+    'rings.widthStart': 150,
+    'rings.widthEnd': 160,
+    'rings.angularVelocityMultiplier': 170,
+    'rings.rotationDirection': 180,
+    'rings.hdrIntensity': 190,
+    'rings.arcSamples': 200,
+    'rings.radialSamples': 210,
+    'rings.dissolveDirection': 220,
+    'shards.hdrIntensity': 230,
+    'shards.clickCount': 240,
+    'shards.clickLifetimeMinMs': 250,
+    'shards.clickLifetimeMaxMs': 260,
+    'shards.clickRadius': 270,
+    'shards.clickSpeedMin': 280,
+    'shards.clickSpeedMax': 290,
+    'shards.trailLifetimeMinMs': 300,
+    'shards.trailLifetimeMaxMs': 310,
+    'shards.trailRadius': 320,
+    'shards.trailSpeedMin': 330,
+    'shards.trailSpeedMax': 340,
+    'shards.sizeMin': 350,
+    'shards.sizeMax': 360,
+    'shards.trailSpacing': 370,
+    'shards.maxCount': 380,
+    'trail.lifetimeMs': 390,
+    'trail.geometryWidth': 400,
+    'trail.width': 410,
+    'trail.minVertexDistance': 420,
+    'trail.numCornerVertices': 430,
+    'trail.numCapVertices': 440,
+    'trail.outerGlowWidth': 450,
+    'trail.trailOpacity': 460,
+    'bloom.threshold': 470,
+    'bloom.softKnee': 480,
+    'bloom.clamp': 490,
+    'bloom.intensity': 500,
+    'bloom.diffusion': 510,
+    'bloom.resolutionScale': 520,
+    'bloom.emissionRange': 530,
+    'bloom.diskEmission': 540,
+    'bloom.trailEmission': 550,
+    'bloom.trailCoverageScale': 560,
+    'bloom.trailEmissionAlpha': 570,
+    'bloom.clickEmissionScale': 580,
+    'bloom.ringEmissionAlpha': 590,
+    'bloom.diskEmissionAlpha': 600,
+    'bloom.ringBlur': 610,
+    'bloom.ringAlpha': 620,
+    'bloom.diskBlur': 630,
+    'bloom.diskAlpha': 640,
+    'bloom.trailAlpha': 650,
+  },
+);
+
+const LEGACY_FX_PARAM_DEFAULTS = Object.freeze(
+  {
+    // Legacy 只替换 Canvas 拖尾主体宽度与外层辉光，其他公开参数沿用 Unity 真值。
+    'trail.width': 4,
+    'bloom.trailAlpha': 0,
+  },
+);
+
+const FX_PARAM_DISPLAY_RANGES = Object.freeze(
+  {
+    'hit.lifetimeMs': [20, 200, 1],
+    'hit.radius': [10, 60, 0.01],
+    'flare.lifetimeMs': [50, 300, 1],
+    'flare.radius': [10, 80, 0.01],
+    'flare.rayCount': [3, 12, 1],
+    'disk.lifetimeMs': [50, 500, 1],
+    'disk.radius': [20, 120, 0.01],
+    'rings.count': [0, 6, 1],
+    'rings.lifetimeMs': [50, 2000, 1],
+    'rings.radiusMin': [20, 120, 0.01],
+    'rings.radiusMax': [20, 120, 0.01],
+    'rings.bandToOuterRadius': [0.01, 0.2, 0.0001],
+    'rings.widthStart': [0.25, 2, 0.01],
+    'rings.widthEnd': [0.25, 2, 0.01],
+    'rings.angularVelocityMultiplier': [1, 30, 0.01],
+    'rings.rotationDirection': [-1, 1, 2],
+    'rings.hdrIntensity': [0, 8, 0.01],
+    'rings.arcSamples': [24, 192, 1],
+    'rings.radialSamples': [2, 16, 1],
+    'rings.dissolveDirection': [-1, 1, 2],
+    'shards.hdrIntensity': [0, 8, 0.01],
+    'shards.clickCount': [0, 12, 1],
+    'shards.clickLifetimeMinMs': [100, 1000, 1],
+    'shards.clickLifetimeMaxMs': [100, 1000, 1],
+    'shards.clickRadius': [0, 200, 0.01],
+    'shards.clickSpeedMin': [0, 200, 0.01],
+    'shards.clickSpeedMax': [0, 200, 0.01],
+    'shards.trailLifetimeMinMs': [50, 500, 1],
+    'shards.trailLifetimeMaxMs': [50, 500, 1],
+    'shards.trailRadius': [0, 100, 0.01],
+    'shards.trailSpeedMin': [0, 150, 0.01],
+    'shards.trailSpeedMax': [0, 150, 0.01],
+    'shards.sizeMin': [0, 100, 0.01],
+    'shards.sizeMax': [0, 100, 0.01],
+    'shards.trailSpacing': [10, 500, 0.01],
+    'shards.maxCount': [0, 500, 1],
+    'trail.lifetimeMs': [50, 2000, 1],
+    'trail.geometryWidth': [1, 8, 0.01],
+    'trail.width': [1, 25, 0.01],
+    'trail.minVertexDistance': [1, 20, 0.01],
+    'trail.numCornerVertices': [0, 12, 1],
+    'trail.numCapVertices': [0, 6, 1],
+    'trail.outerGlowWidth': [1, 40, 0.1],
+    'trail.trailOpacity': [0, 1, 0.01],
+    'bloom.threshold': [0, 5, 0.01],
+    'bloom.softKnee': [0, 1, 0.01],
+    'bloom.clamp': [1, 65504, 1],
+    'bloom.intensity': [0, 2, 0.01],
+    'bloom.diffusion': [0, 10, 0.01],
+    'bloom.resolutionScale': [0.1, 0.75, 0.01],
+    'bloom.emissionRange': [1, 64, 0.01],
+    'bloom.diskEmission': [0, 8, 0.01],
+    'bloom.trailEmission': [0, 64, 0.01],
+    'bloom.trailCoverageScale': [0, 4, 0.01],
+    'bloom.trailEmissionAlpha': [0, 1, 0.01],
+    'bloom.clickEmissionScale': [0, 4, 0.01],
+    'bloom.ringEmissionAlpha': [0, 1, 0.01],
+    'bloom.diskEmissionAlpha': [0, 1, 0.01],
+    'bloom.ringBlur': [0, 200, 0.1],
+    'bloom.ringAlpha': [0, 1, 0.01],
+    'bloom.diskBlur': [0, 200, 0.1],
+    'bloom.diskAlpha': [0, 1, 0.01],
+    'bloom.trailAlpha': [0, 1, 0.01],
+  },
+);
+
+const FX_PARAM_LINKS = Object.freeze(
+  {
+    'rings.radiusMin': ['rings.radiusMax'],
+    'rings.radiusMax': ['rings.radiusMin'],
+    'rings.widthStart': ['rings.widthEnd'],
+    'rings.widthEnd': ['rings.widthStart'],
+    'shards.clickLifetimeMinMs': ['shards.clickLifetimeMaxMs'],
+    'shards.clickLifetimeMaxMs': ['shards.clickLifetimeMinMs'],
+    'shards.clickSpeedMin': ['shards.clickSpeedMax'],
+    'shards.clickSpeedMax': ['shards.clickSpeedMin'],
+    'shards.trailLifetimeMinMs': ['shards.trailLifetimeMaxMs'],
+    'shards.trailLifetimeMaxMs': ['shards.trailLifetimeMinMs'],
+    'shards.trailSpeedMin': ['shards.trailSpeedMax'],
+    'shards.trailSpeedMax': ['shards.trailSpeedMin'],
+    'shards.sizeMin': ['shards.sizeMax'],
+    'shards.sizeMax': ['shards.sizeMin'],
+  },
+);
+
+function freezeFxParamMetadata(value)
+{
+  if (value === null || typeof value !== 'object' || Object.isFrozen(value))
+  {
+    return value;
+  }
+
+  for (const child of Object.values(value))
+  {
+    freezeFxParamMetadata(child);
+  }
+
+  return Object.freeze(value);
+}
+
 function createFxParamDescriptor(path, type, options = {})
 {
   const keys = path.split('.');
@@ -335,22 +529,62 @@ function createFxParamDescriptor(path, type, options = {})
     defaultValue = defaultValue[key];
   }
 
-  // Descriptor 只包含 JSON 标量，宿主可以安全缓存、序列化并据此生成控件。
-  return Object.freeze(
+  return (
     {
       path,
       type,
       default: defaultValue,
       ...options,
-    },
+    }
   );
+}
+
+function finalizeFxParamDescriptor(descriptor)
+{
+  const group = descriptor.path.split('.')[0];
+  const displayRange = FX_PARAM_DISPLAY_RANGES[descriptor.path];
+  const legacyDefault = Object.hasOwn(
+    LEGACY_FX_PARAM_DEFAULTS,
+    descriptor.path,
+  )
+    ? LEGACY_FX_PARAM_DEFAULTS[descriptor.path]
+    : descriptor.default;
+
+  const result =
+  {
+    ...descriptor,
+    // 显式序号是持久化契约，新参数可使用预留空档而不重排旧控件。
+    order: FX_PARAM_ORDERS[descriptor.path],
+    group,
+    groupOrder: FX_PARAM_GROUP_ORDERS[group],
+    labelKey: `baClickFx.params.${descriptor.path}`,
+    groupLabelKey: `baClickFx.paramGroups.${group}`,
+    linkedParams: FX_PARAM_LINKS[descriptor.path] ?? [],
+    modeDefaults:
+    {
+      enhanced: descriptor.default,
+      legacy: legacyDefault,
+    },
+  };
+
+  if (displayRange)
+  {
+    result.display =
+    {
+      min: displayRange[0],
+      max: displayRange[1],
+      step: displayRange[2],
+    };
+  }
+
+  return result;
 }
 
 /**
  * 可由宿主安全修改的公开标量参数。曲线、颜色键与纹理采样数据仍由
  * Unity 资源真值独占，避免通用配置界面破坏渲染器之间的共同契约。
  */
-export const FX_PARAM_SCHEMA = Object.freeze(
+export const FX_PARAM_SCHEMA = freezeFxParamMetadata(
   [
     createFxParamDescriptor('hit.enabled', 'boolean', { unit: 'boolean' }),
     createFxParamDescriptor(
@@ -669,6 +903,27 @@ export const FX_PARAM_SCHEMA = Object.freeze(
       'number',
       { min: 0, max: 1, step: 0.01, unit: 'ratio' },
     ),
+  ].map(finalizeFxParamDescriptor),
+);
+
+/**
+ * Schema 版本间的纯数据迁移规则。宿主按版本顺序执行 changes，
+ * 不需要加载渲染引擎就能升级持久化配置。
+ */
+export const FX_PARAM_MIGRATIONS = freezeFxParamMetadata(
+  [
+    {
+      fromVersion: 0,
+      toVersion: 1,
+      changes:
+      [
+        {
+          kind: 'rename',
+          from: 'bloom.scatter',
+          to: 'bloom.diffusion',
+        },
+      ],
+    },
   ],
 );
 
