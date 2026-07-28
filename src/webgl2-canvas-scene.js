@@ -483,6 +483,29 @@ export class WebGL2CanvasSceneRenderer
     this.coverageFramebuffer = null;
   }
 
+  releaseFrameResources()
+  {
+    this._deleteFrameResources();
+    this.beginFrame();
+    this.displayWidth = 1;
+    this.displayHeight = 1;
+    this.dpr = 1;
+    this.width = 0;
+    this.height = 0;
+    this.failedResizeSignature = null;
+
+    if (
+      this.canvas &&
+      (this.canvas.width !== 1 || this.canvas.height !== 1)
+    )
+    {
+      // Final Pass 闲置时无需保留全屏上传纹理和 Coverage FBO，
+      // 但背景纹理仍归 Renderer 所有，重新启用可直接复用。
+      this.canvas.width = 1;
+      this.canvas.height = 1;
+    }
+  }
+
   _deleteResources()
   {
     const gl = this.gl;

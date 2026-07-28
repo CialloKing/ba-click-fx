@@ -1258,28 +1258,56 @@ export class WebGL2EffectRenderer
 
   _deleteTargets()
   {
-    if (!this.gl)
+    const gl = this.gl;
+
+    if (gl && !this.contextLost)
     {
-      return;
+      deleteTarget(gl, this.sourceTarget);
+      deleteTarget(gl, this.sceneBackgroundTarget);
+
+      for (const level of this.levels)
+      {
+        deleteTarget(gl, level.down);
+        deleteTarget(gl, level.scratch);
+        deleteTarget(gl, level.up);
+      }
     }
 
-    deleteTarget(this.gl, this.sourceTarget);
-    deleteTarget(this.gl, this.sceneBackgroundTarget);
     this.sourceTarget = null;
     this.sceneBackgroundTarget = null;
     this.sceneFrameReady = false;
     this.sceneBackgroundFrameReady = false;
-
-    for (const level of this.levels)
-    {
-      deleteTarget(this.gl, level.down);
-      deleteTarget(this.gl, level.scratch);
-      deleteTarget(this.gl, level.up);
-    }
-
     this.levels = [];
     this.stats.levelCount = 0;
     this.stats.bloomPixels = 0;
+  }
+
+  releaseFrameResources()
+  {
+    this._deleteTargets();
+    this.beginFrame();
+    this.displayWidth = 1;
+    this.displayHeight = 1;
+    this.sourceWidth = 0;
+    this.sourceHeight = 0;
+    this.width = 0;
+    this.height = 0;
+    this.dpr = 1;
+    this.resolutionScale = 0;
+    this.diffusion = 0;
+    this.sampleScale = 1;
+    this.failedResizeSignature = null;
+
+    if (
+      this.canvas &&
+      (this.canvas.width !== 1 || this.canvas.height !== 1)
+    )
+    {
+      // 闲置后端只保留最小默认帧缓冲；Program、静态纹理和背景源纹理
+      // 留在 Context 中，重新启用时无需完成昂贵的完整初始化。
+      this.canvas.width = 1;
+      this.canvas.height = 1;
+    }
   }
 
   _deleteResources()

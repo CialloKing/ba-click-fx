@@ -5985,7 +5985,6 @@ export class BAClickFX
       requested === 'canvas2d'
     )
     {
-      this._destroyWebGLEffectRenderer();
       this._setResolvedEffectBackend('canvas2d');
       return false;
     }
@@ -6443,6 +6442,19 @@ export class BAClickFX
     this.context.restore();
     this._clearLightBackgroundContrast();
     // 暂停时不会申请 RAF；同步清空后再恢复 Canvas，避免旧背景残差常驻。
+    this._setCanvasOutputVisible(true);
+  }
+
+  _releaseBackendFrameResources()
+  {
+    // 配置事务已经选择了新的渲染链；先撤下所有旧输出，再释放仅与
+    // 画布尺寸绑定的目标。下一帧只会为实际接管输出的后端重新分配。
+    this._setWebGLEffectVisible(false);
+    this._setWebGLBloomVisible(false);
+    this._setCanvasSceneVisible(false);
+    this.webglEffectRenderer?.releaseFrameResources();
+    this.webglBloomRenderer?.releaseFrameResources();
+    this.canvasSceneRenderer?.releaseFrameResources();
     this._setCanvasOutputVisible(true);
   }
 
@@ -7787,6 +7799,7 @@ export class BAClickFX
       previousBloomBackend !== this.config.bloomBackend
     )
     {
+      this._releaseBackendFrameResources();
       // Scene 尚未接管渲染时，webgl2/auto 请求明确回退而不是永久 pending。
       this._setResolvedEffectBackend('canvas2d');
       this._setResolvedBloomBackend(this._getRequestedBloomBackendState());
@@ -8058,6 +8071,13 @@ export class BAClickFX
     if (invalidatesVisibleOutput)
     {
       this._invalidateSceneBackgroundOutputs();
+    }
+
+    if (source === null)
+    {
+      // 没有真实场景背景时 Canvas Final Pass 不会参与任何渲染链，
+      // 立即归还其全尺寸上传纹理，保留静态 Program 供下次背景复用。
+      this.canvasSceneRenderer?.releaseFrameResources();
     }
 
     this._requestRender();
