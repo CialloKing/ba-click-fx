@@ -127,6 +127,7 @@ function applyTheme(name)
   }
 
   document.body.style.background = bg;
+  document.body.classList.toggle('theme-pure-white', name === '纯白');
   clearSceneBackground();
   selectTheme(name);
   return true;
@@ -207,6 +208,7 @@ function applyCustomBackground(value, persist = true)
   const rawValue = value.trim();
 
   document.body.style.background = resolved;
+  document.body.classList.remove('theme-pure-white');
   applySceneBackgroundImage(resolveSceneBackgroundUrl(rawValue));
 
   if (input)
@@ -603,6 +605,39 @@ if (ctrlRenderMode)
   });
 }
 
+// ── 输出合成 → outputCompositing ───────────────────────────────────────
+const ctrlOutputCompositing = document.getElementById('ctrlOutputCompositing');
+const DEFAULT_OUTPUT_COMPOSITING = 'scene';
+const OUTPUT_COMPOSITING_MODES = new Set([
+  'scene',
+  'transparent-overlay',
+]);
+
+function applyOutputCompositing(mode)
+{
+  const resolved = OUTPUT_COMPOSITING_MODES.has(mode)
+    ? mode
+    : DEFAULT_OUTPUT_COMPOSITING;
+
+  if (ctrlOutputCompositing)
+  {
+    ctrlOutputCompositing.value = resolved;
+  }
+
+  effect.updateConfig({ outputCompositing: resolved });
+  return resolved;
+}
+
+if (ctrlOutputCompositing)
+{
+  ctrlOutputCompositing.addEventListener('change', () =>
+  {
+    const resolved = applyOutputCompositing(ctrlOutputCompositing.value);
+
+    localStorage.setItem('bafx-ctrlOutputCompositing', resolved);
+  });
+}
+
 // ── 特效参数 → setFxParam ──────────────────────────────────────────────
 bindRange('ctrlRingHdr', 'outRingHdr', (v) => effect.setFxParam('rings.hdrIntensity', v));
 bindRange('ctrlRingRadMin', 'outRingRadMin', (v) => effect.setFxParam('rings.radiusMin', v));
@@ -700,6 +735,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlDpr').value = '2';
   document.getElementById('outDpr').textContent = '2.00';
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
+  document.getElementById('ctrlOutputCompositing').value =
+    DEFAULT_OUTPUT_COMPOSITING;
   document.getElementById('ctrlInputSource').value = 'dom';
   document.getElementById('ctrlClickTimeScale').value = '1';
   document.getElementById('outClickTimeScale').textContent = '1.00';
@@ -791,6 +828,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
       trailEnabled: true,
       trailAlways: false,
       ...RENDER_MODE_CONFIGS[DEFAULT_RENDER_MODE],
+      outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
       isolatedCompositing: false,
       lightBackgroundContrastAlpha: 0,
       maxDpr: 2,
@@ -932,6 +970,9 @@ const I18N = {
     labelOpacity: '不透明度',
     labelDpr: '最大 DPR',
     labelRenderMode: '渲染模式',
+    labelOutputCompositing: '输出合成',
+    outputCompositingScene: '场景合成',
+    outputCompositingTransparentOverlay: '透明覆盖层',
     labelIsolatedCompositing: '隔离合成',
     hostApiSummary: '宿主控制 API',
     labelInputSource: '输入来源',
@@ -1022,6 +1063,9 @@ const I18N = {
     labelOpacity: 'Opacity',
     labelDpr: 'Max DPR',
     labelRenderMode: 'Render Mode',
+    labelOutputCompositing: 'Output Compositing',
+    outputCompositingScene: 'Scene',
+    outputCompositingTransparentOverlay: 'Transparent Overlay',
     labelIsolatedCompositing: 'Isolated Compositing',
     hostApiSummary: 'Host Control API',
     labelInputSource: 'Input Source',
@@ -1165,6 +1209,7 @@ function switchLanguage(lang)
     ctrlOpacity: d.labelOpacity,
     ctrlDpr: d.labelDpr,
     ctrlRenderMode: d.labelRenderMode,
+    ctrlOutputCompositing: d.labelOutputCompositing,
     ctrlIsolatedCompositing: d.labelIsolatedCompositing,
     ctrlInputSource: d.labelInputSource,
     ctrlClickTimeScale: d.labelClickTimeScale,
@@ -1258,6 +1303,19 @@ function switchLanguage(lang)
     if (renderModeOptions[opt.value])
     {
       opt.textContent = renderModeOptions[opt.value];
+    }
+  });
+
+  const outputCompositingOptions = {
+    scene: d.outputCompositingScene,
+    'transparent-overlay': d.outputCompositingTransparentOverlay,
+  };
+
+  document.querySelectorAll('#ctrlOutputCompositing option').forEach((option) =>
+  {
+    if (outputCompositingOptions[option.value])
+    {
+      option.textContent = outputCompositingOptions[option.value];
     }
   });
 
@@ -1379,6 +1437,13 @@ switchLanguage(currentLang);
 
   // 默认值也走同一条路径，确保首次打开即可显示能力探测后的实际后端。
   applyRenderMode(initialRenderMode);
+
+  const savedOutputCompositing = localStorage.getItem(
+    'bafx-ctrlOutputCompositing',
+  );
+
+  // 即使没有持久化值，也显式应用 Scene，避免展示控件与构造默认值分叉。
+  applyOutputCompositing(savedOutputCompositing);
 
   const isolatedCompositingEl = document.getElementById('ctrlIsolatedCompositing');
   const savedIsolatedCompositing = localStorage.getItem('bafx-ctrlIsolatedCompositing');
