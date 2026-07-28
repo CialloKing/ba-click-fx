@@ -4,6 +4,12 @@ const CLICK_X = 160;
 const CLICK_Y = 96;
 const SAMPLE_TIME_MS = 120;
 const RADIAL_SAMPLE_RADII = [0, 4, 8, 12, 16, 24, 32, 48, 64];
+const STRAIGHT_TRAIL_START_X = 48;
+const STRAIGHT_TRAIL_END_X = 272;
+const STRAIGHT_TRAIL_Y = 120;
+const STRAIGHT_TRAIL_HEAD_U = 0.08;
+const STRAIGHT_TRAIL_ASYMMETRY_U = 0.15;
+const STRAIGHT_TRAIL_EDGE_V = 0.05;
 
 window.__BACLICKFX_PIXEL_PROGRESS__ = 'suite-started';
 
@@ -324,6 +330,68 @@ function getPixel(imageData, x, y, dpr)
   return Array.from(imageData.data.slice(offset, offset + 4));
 }
 
+function sampleHorizontalEnergy(imageData, x, y, dpr, radius = 2)
+{
+  let energy = 0;
+  let count = 0;
+
+  for (let offset = -radius; offset <= radius; offset++)
+  {
+    const pixel = getPixel(imageData, x + offset, y, dpr);
+
+    // getImageData 返回解预乘 RGB；乘回 Alpha 才是桌面合成器收到的能量。
+    energy += Math.max(pixel[0], pixel[1], pixel[2]) / 255 *
+      (pixel[3] / 255);
+    count++;
+  }
+
+  return energy / Math.max(1, count);
+}
+
+function summarizeStraightTrail(imageData, effect)
+{
+  const dpr = effect.dpr;
+  const width = effect.fxConfig.trail.width * effect._getScale();
+  const halfWidth = width * 0.5;
+  const headProgress = 1 - STRAIGHT_TRAIL_HEAD_U;
+  const headX = STRAIGHT_TRAIL_START_X +
+    (STRAIGHT_TRAIL_END_X - STRAIGHT_TRAIL_START_X) * headProgress;
+  const asymmetryProgress = 1 - STRAIGHT_TRAIL_ASYMMETRY_U;
+  const asymmetryX = STRAIGHT_TRAIL_START_X +
+    (STRAIGHT_TRAIL_END_X - STRAIGHT_TRAIL_START_X) * asymmetryProgress;
+  const tailX = STRAIGHT_TRAIL_START_X +
+    (STRAIGHT_TRAIL_END_X - STRAIGHT_TRAIL_START_X) * 0.2;
+  const edgeOffset = halfWidth * (1 - STRAIGHT_TRAIL_EDGE_V * 2);
+
+  return {
+    width,
+    headEnergy: sampleHorizontalEnergy(
+      imageData,
+      headX,
+      STRAIGHT_TRAIL_Y,
+      dpr,
+    ),
+    tailEnergy: sampleHorizontalEnergy(
+      imageData,
+      tailX,
+      STRAIGHT_TRAIL_Y,
+      dpr,
+    ),
+    upperEdgeEnergy: sampleHorizontalEnergy(
+      imageData,
+      asymmetryX,
+      STRAIGHT_TRAIL_Y - edgeOffset,
+      dpr,
+    ),
+    lowerEdgeEnergy: sampleHorizontalEnergy(
+      imageData,
+      asymmetryX,
+      STRAIGHT_TRAIL_Y + edgeOffset,
+      dpr,
+    ),
+  };
+}
+
 function summarizePixels(imageData, dpr)
 {
   const data = imageData.data;
@@ -429,6 +497,24 @@ async function prepareEffect(specification)
     },
   );
 
+  if (specification.includeTrailShards === false)
+  {
+    // 方向探针只测 TrailRenderer 纹理，距离粒子会污染边缘采样。
+    effect.setFxParam('shards.maxCount', 0);
+  }
+
+  if (specification.inspectTrailTexture === true)
+  {
+    // Unity 的默认 23.97x HDR 会把两侧边缘同时钳到白色。诊断帧只降低
+    // 发射倍率并关闭 Bloom，保留相同 GPU 纹理、UV、Gradient 和网格路径。
+    effect.setFxParams(
+      {
+        'bloom.trailEmission': 1,
+        'bloom.intensity': 0,
+      },
+    );
+  }
+
   activeFixture = {
     ...fixture,
     effect,
@@ -443,43 +529,38 @@ async function prepareEffect(specification)
 
   if (specification.includeTrail !== false)
   {
-    virtualNow = 20;
-    effect.pointerMove(
+    const trailSamples = specification.straightTrailProbe
+      ? [
+          [20, STRAIGHT_TRAIL_START_X, STRAIGHT_TRAIL_Y],
+          [40, 112, STRAIGHT_TRAIL_Y],
+          [60, 184, STRAIGHT_TRAIL_Y],
+          [80, STRAIGHT_TRAIL_END_X, STRAIGHT_TRAIL_Y],
+        ]
+      : [
+          [20, 48, 204],
+          [40, 112, 184],
+          [60, 184, 202],
+          [80, 272, 176],
+        ];
+
+    for (const [timeMs, x, y] of trailSamples)
+    {
+      virtualNow = timeMs;
+      effect.pointerMove(
+        {
+          x,
+          y,
+          pointerId: 17,
+          pointerType: 'mouse',
+        },
+      );
+
+      if (timeMs === 60)
       {
-        x: 48,
-        y: 204,
-        pointerId: 17,
-        pointerType: 'mouse',
-      },
-    );
-    virtualNow = 40;
-    effect.pointerMove(
-      {
-        x: 112,
-        y: 184,
-        pointerId: 17,
-        pointerType: 'mouse',
-      },
-    );
-    virtualNow = 60;
-    effect.pointerMove(
-      {
-        x: 184,
-        y: 202,
-        pointerId: 17,
-        pointerType: 'mouse',
-      },
-    );
-    await runAnimationFrame(60);
-    virtualNow = 80;
-    effect.pointerMove(
-      {
-        x: 272,
-        y: 176,
-        pointerId: 17,
-        pointerType: 'mouse',
-      },
-    );
+        // 保留原夹具的中间提交，覆盖跨帧追加 TrailRenderer 顶点的路径。
+        await runAnimationFrame(timeMs);
+      }
+    }
   }
 
   await runAnimationFrame(SAMPLE_TIME_MS);
@@ -547,6 +628,9 @@ async function runCase(specification)
       white: summarizePixels(white, fixture.effect.dpr),
       checker: summarizePixels(checker, fixture.effect.dpr),
     },
+    trailProfile: specification.straightTrailProbe
+      ? summarizeStraightTrail(transparent, fixture.effect)
+      : null,
   };
 }
 

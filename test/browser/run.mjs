@@ -389,6 +389,66 @@ function validateIsolationPair(direct, isolated, label)
   );
 }
 
+function validateWebGLTrailProbe(result, label)
+{
+  const profile = result.trailProfile;
+
+  assert(
+    result.route.resolvedEffectBackend ===
+        result.expectedRoute.effectBackend &&
+      result.route.resolvedBloomBackend ===
+        result.expectedRoute.bloomBackend,
+    `${label}: 直线拖尾没有使用请求的 WebGL2 路径`,
+    result.route,
+  );
+  assert(
+    profile &&
+      profile.width >= 16 &&
+      profile.headEnergy > profile.tailEnergy + 0.1,
+    `${label}: Trail_03 的最新头部没有显著亮于最旧尾部`,
+    profile,
+  );
+}
+
+function validateWebGLTrailPair(fullWebGL2, webGL2Bloom)
+{
+  const first = fullWebGL2.trailProfile;
+  const second = webGL2Bloom.trailProfile;
+
+  for (const key of [
+    'headEnergy',
+    'tailEnergy',
+    'upperEdgeEnergy',
+    'lowerEdgeEnergy',
+  ])
+  {
+    assert(
+      Math.abs(first[key] - second[key]) <= 2 / 255,
+      `两种 WebGL2 模式的拖尾探针 ${key} 不一致`,
+      {
+        fullWebGL2: first,
+        webGL2Bloom: second,
+      },
+    );
+  }
+}
+
+function validateWebGLTrailDirections(fullWebGL2, webGL2Bloom)
+{
+  const profiles =
+  {
+    fullWebGL2: fullWebGL2.trailProfile,
+    webGL2Bloom: webGL2Bloom.trailProfile,
+  };
+
+  assert(
+    Object.values(profiles).every((profile) =>
+      profile.upperEdgeEnergy > profile.lowerEdgeEnergy + 0.02),
+    '两种 WebGL2 模式的 Trail_03 可见横截面方向偏离 Unity 诊断帧',
+    profiles,
+  );
+}
+
 function selectBaselineFeatures(result)
 {
   const pixels = result.pixels.transparent;
@@ -960,6 +1020,59 @@ async function runMatrix(browserInstance, baseUrl, baseline)
         metrics.cases[shadowLabel] = shadowResult;
         metrics.compositor[shadowLabel] = await captureCompositorMetrics(page);
       }
+
+      const webGLTrailResults = new Map();
+
+      for (const mode of ['full-webgl2', 'webgl2-bloom'])
+      {
+        const specification =
+        {
+          mode,
+          opacity: 1,
+          isolatedCompositing: true,
+          background: 'transparent',
+          shadow: false,
+          containStrict: false,
+          includeClick: false,
+          includeTrail: true,
+          includeTrailShards: false,
+          straightTrailProbe: true,
+          inspectTrailTexture: true,
+          outputCompositing: 'scene',
+          // 240px 高夹具需放大到约 38.4 CSS px，才能成对采样非对称边缘。
+          scale: 64,
+        };
+        const label = `${mode}__straight-trail-probe__dpr-1`;
+
+        currentLabel = label;
+        const result = await page.evaluate(
+          (input) => window.browserPixelSuite.runCase(input),
+          specification,
+        );
+
+        webGLTrailResults.set(mode, result);
+        metrics.cases[label] = result;
+      }
+
+      validateWebGLTrailPair(
+        webGLTrailResults.get('full-webgl2'),
+        webGLTrailResults.get('webgl2-bloom'),
+      );
+
+      for (const mode of ['full-webgl2', 'webgl2-bloom'])
+      {
+        currentLabel = `${mode}__straight-trail-probe__dpr-1`;
+        validateWebGLTrailProbe(
+          webGLTrailResults.get(mode),
+          currentLabel,
+        );
+      }
+
+      currentLabel = 'webgl2__straight-trail-v-direction__dpr-1';
+      validateWebGLTrailDirections(
+        webGLTrailResults.get('full-webgl2'),
+        webGLTrailResults.get('webgl2-bloom'),
+      );
 
       currentLabel = 'scene-background-null';
       const sceneReset = await page.evaluate(
