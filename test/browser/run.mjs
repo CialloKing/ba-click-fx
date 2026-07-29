@@ -1971,10 +1971,25 @@ async function runIifeSmoke(browserInstance, baseUrl)
     );
 
     validateTrailBackendFailureChain('full-webgl2', failureChain);
+    const reentrantNative = {};
+
+    for (const mode of ['full-webgl2', 'webgl2-bloom'])
+    {
+      currentLabel = `iife-${mode}-backend-reentrant-native`;
+      const result = await page.evaluate(
+        (input) => window.browserPixelSuite.runBackendReentrantNative(input),
+        mode,
+      );
+
+      validateBackendReentrantNative(mode, result);
+      reentrantNative[mode] = result;
+    }
+
     metrics.iifeSmoke =
     {
       basic,
       failureChain,
+      reentrantNative,
       runtimeContract,
     };
     assert(
