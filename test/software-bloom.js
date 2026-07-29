@@ -594,8 +594,8 @@ assert(
 assert(
   overlayRgba[7] === 64 &&
     overlayRgba[11] === 128 &&
-    overlayRgba[15] === 255,
-  'transparent-overlay 的 Alpha 随 Coverage 单调且近似线性',
+    overlayRgba[15] === 188,
+  'transparent-overlay 的 Alpha 随 Coverage 增长并受可见能量封顶',
 );
 
 let validPremultipliedOverlay = true;
@@ -650,9 +650,10 @@ encodeAdditiveBloom(
   },
 );
 assert(
-  dimOverlayRgba[3] === brightOverlayRgba[3] &&
-    dimOverlayRgba[3] === Math.round(0.35 * 255),
-  'transparent-overlay 的 Alpha 与 HDR 发射强度解耦',
+  dimOverlayRgba[3] === 71 &&
+    brightOverlayRgba[3] === Math.round(0.35 * 255) &&
+    dimOverlayRgba[3] < brightOverlayRgba[3],
+  'transparent-overlay 的 Coverage 仅作为可见能量 Alpha 上限',
 );
 
 const sceneCoverage = new Float32Array([0.45, 0.45, 0, 1]);

@@ -10,6 +10,8 @@ const STRAIGHT_TRAIL_Y = 120;
 const STRAIGHT_TRAIL_HEAD_U = 0.08;
 const STRAIGHT_TRAIL_ASYMMETRY_U = 0.15;
 const STRAIGHT_TRAIL_EDGE_V = 0.05;
+const STRAIGHT_TRAIL_FAINT_TAIL_X = 136;
+const STRAIGHT_TRAIL_HEAD_PROBE_X = 254;
 
 window.__BACLICKFX_PIXEL_PROGRESS__ = 'suite-started';
 
@@ -445,6 +447,37 @@ function summarizeStraightTrail(imageData, effect)
   };
 }
 
+function summarizeStraightTrailOverlay(images, dpr)
+{
+  const sample = (x) =>
+  {
+    const black = getPixel(images.black, x, STRAIGHT_TRAIL_Y, dpr);
+    const transparent = getPixel(
+      images.transparent,
+      x,
+      STRAIGHT_TRAIL_Y,
+      dpr,
+    );
+    const white = getPixel(images.white, x, STRAIGHT_TRAIL_Y, dpr);
+
+    return {
+      black,
+      channelTransmission: white.slice(0, 3).map(
+        (channel, index) => channel - black[index],
+      ),
+      transparent,
+      white,
+      x,
+      y: STRAIGHT_TRAIL_Y,
+    };
+  };
+
+  return {
+    faintTail: sample(STRAIGHT_TRAIL_FAINT_TAIL_X),
+    head: sample(STRAIGHT_TRAIL_HEAD_PROBE_X),
+  };
+}
+
 function summarizePixels(imageData, dpr)
 {
   const data = imageData.data;
@@ -453,6 +486,7 @@ function summarizePixels(imageData, dpr)
   let blueSum = 0;
   let alphaSum = 0;
   let energySum = 0;
+  let premultipliedEnergySum = 0;
   let maximumAlpha = 0;
   let visiblePixels = 0;
   let minimumX = imageData.width;
@@ -470,6 +504,8 @@ function summarizePixels(imageData, dpr)
     blueSum += data[offset + 2];
     alphaSum += alpha;
     energySum += energy;
+    // getImageData 返回解预乘 RGB；实际交给页面合成器的能量还需乘 Alpha。
+    premultipliedEnergySum += energy * alpha / 255;
     maximumAlpha = Math.max(maximumAlpha, alpha);
 
     if (alpha > 1 || energy > 1)
@@ -497,6 +533,7 @@ function summarizePixels(imageData, dpr)
     meanBlue: blueSum / pixelCount / 255,
     meanAlpha: alphaSum / pixelCount / 255,
     meanEnergy: energySum / pixelCount / 255,
+    meanPremultipliedEnergy: premultipliedEnergySum / pixelCount / 255,
     maximumAlpha: maximumAlpha / 255,
     visibleRatio: visiblePixels / pixelCount,
     bounds:
@@ -734,6 +771,16 @@ async function runCase(specification)
       : null,
     trailProfile: specification.straightTrailProbe
       ? summarizeStraightTrail(transparent, fixture.effect)
+      : null,
+    trailOverlay: specification.inspectTrailOverlay
+      ? summarizeStraightTrailOverlay(
+          {
+            black,
+            transparent,
+            white,
+          },
+          fixture.effect.dpr,
+        )
       : null,
   };
 }

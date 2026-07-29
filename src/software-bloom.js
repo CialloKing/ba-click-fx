@@ -889,9 +889,13 @@ export function encodeAdditiveBloom(
         // 主清晰层已经在目标 Canvas。求 source-over 的残余源 Alpha，令
         // residual + scene * (1 - residual) = max(scene, bloom)。
         // scene 已覆盖目标时必须输出零，不能用 union 再抬高点击中心。
-        alpha = targetAlpha > sceneAlpha && sceneAlpha < 1
+        const residualCoverage = targetAlpha > sceneAlpha && sceneAlpha < 1
           ? clamp01((targetAlpha - sceneAlpha) / (1 - sceneAlpha))
           : 0;
+
+        // Coverage 只限定模糊范围；低能量 Bloom 不得用更高 Alpha 遮黑
+        // 未知的浅色宿主背景。
+        alpha = Math.min(residualCoverage, maximumSrgb);
       }
 
       if (maximumSrgb <= 0.00001 || alpha <= 0.00001)

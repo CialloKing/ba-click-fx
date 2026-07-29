@@ -601,23 +601,25 @@ function linearEnergyToOverlayCss(
   coverageAlpha,
 )
 {
-  const alpha = clamp01(coverageAlpha);
+  const contribution = Math.max(0, contributionOpacity);
+  const redContribution = clamp01(color[0] * contribution);
+  const greenContribution = clamp01(color[1] * contribution);
+  const blueContribution = clamp01(color[2] * contribution);
+  // 未知背景上的加色层不能用高于可见能量的 Alpha，否则低能量拖尾会
+  // 把浅色宿主遮成黑色；几何 Coverage 在这里仅作为 Alpha 上限。
+  const alpha = Math.min(
+    clamp01(coverageAlpha),
+    Math.max(redContribution, greenContribution, blueContribution),
+  );
 
   if (alpha <= 0.00001)
   {
     return 'rgba(0, 0, 0, 0)';
   }
 
-  const scale = Math.max(0, contributionOpacity) / alpha;
-  const red = Math.round(clamp01(color[0] * scale) * 255);
-  const green = Math.round(clamp01(color[1] * scale) * 255);
-  const blue = Math.round(clamp01(color[2] * scale) * 255);
-
-  if (red === 0 && green === 0 && blue === 0)
-  {
-    // 透明桌面不能让无颜色能量的几何留下黑色 Coverage。
-    return 'rgba(0, 0, 0, 0)';
-  }
+  const red = Math.round(clamp01(redContribution / alpha) * 255);
+  const green = Math.round(clamp01(greenContribution / alpha) * 255);
+  const blue = Math.round(clamp01(blueContribution / alpha) * 255);
 
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
