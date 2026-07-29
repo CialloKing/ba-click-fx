@@ -753,29 +753,132 @@ function waitForCanvasEvent(canvas, eventName, timeoutMs = 5000)
   });
 }
 
-async function runContextLifecycle(mode)
+function summarizeBackgroundTransmission(images, dpr)
 {
-  const withSceneBackground = mode === 'full-webgl2';
+  const samples = RADIAL_SAMPLE_RADII.map((radius) =>
+  {
+    const x = CLICK_X + radius;
+    const y = CLICK_Y;
+    const transparent = getPixel(images.transparent, x, y, dpr);
+    const black = getPixel(images.black, x, y, dpr);
+    const white = getPixel(images.white, x, y, dpr);
+    const checker = getPixel(images.checker, x, y, dpr);
+    const expectedTransmission = 255 - transparent[3];
+    const transmissionError = Math.max(
+      ...black.slice(0, 3).map((channel, index) =>
+        Math.abs(white[index] - channel - expectedTransmission)),
+    );
+    const checkerUsesBlack = (
+      Math.floor(x / 8) + Math.floor(y / 8)
+    ) % 2 === 0;
+    const expectedChecker = checkerUsesBlack ? black : white;
+    const checkerError = Math.max(
+      ...checker.slice(0, 3).map((channel, index) =>
+        Math.abs(channel - expectedChecker[index])),
+    );
+
+    return {
+      radius,
+      alpha: transparent[3],
+      checkerError,
+      checkerUsesBlack,
+      transmissionError,
+    };
+  });
+
+  return {
+    maximumCheckerError: Math.max(...samples.map((sample) =>
+      sample.checkerError)),
+    maximumTransmissionError: Math.max(...samples.map((sample) =>
+      sample.transmissionError)),
+    samples,
+  };
+}
+
+function compareAlphaImages(reference, current)
+{
+  let absoluteDeltaSum = 0;
+  let visibleAbsoluteDeltaSum = 0;
+  let visiblePixelCount = 0;
+  let maximumAbsoluteDelta = 0;
+
+  for (let offset = 3; offset < reference.data.length; offset += 4)
+  {
+    const delta = Math.abs(reference.data[offset] - current.data[offset]) / 255;
+
+    absoluteDeltaSum += delta;
+    maximumAbsoluteDelta = Math.max(maximumAbsoluteDelta, delta);
+
+    if (reference.data[offset] > 0 || current.data[offset] > 0)
+    {
+      visibleAbsoluteDeltaSum += delta;
+      visiblePixelCount++;
+    }
+  }
+
+  const pixelCount = reference.width * reference.height;
+
+  return {
+    meanAbsoluteDelta: absoluteDeltaSum / pixelCount,
+    maximumAbsoluteDelta,
+    visibleMeanAbsoluteDelta: visibleAbsoluteDeltaSum /
+      Math.max(1, visiblePixelCount),
+    visiblePixelCount,
+  };
+}
+
+function captureCompositingPhases(effect, target)
+{
+  const images = {};
+  const pixels = {};
+
+  for (const background of ['transparent', 'black', 'white', 'checker'])
+  {
+    images[background] = captureLayers(effect, target, background);
+    pixels[background] = summarizePixels(images[background], effect.dpr);
+  }
+
+  pixels.backgroundTransmission = summarizeBackgroundTransmission(
+    images,
+    effect.dpr,
+  );
+  return {
+    images,
+    pixels,
+  };
+}
+
+async function runContextLifecycle(specification)
+{
+  const mode = typeof specification === 'string'
+    ? specification
+    : specification.mode;
+  const opacity = typeof specification === 'string'
+    ? 1
+    : specification.opacity;
   const fixture = await prepareEffect(
     {
       mode,
-      opacity: 1,
+      opacity,
       isolatedCompositing: true,
-      background: withSceneBackground ? 'transparent' : 'checker',
-      outputCompositing: withSceneBackground
-        ? 'scene'
-        : 'transparent-overlay',
+      background: 'transparent',
+      outputCompositing: 'transparent-overlay',
       shadow: false,
       containStrict: false,
+      includeTrail: false,
+      fxParams:
+      {
+        'shards.clickCount': 0,
+        'shards.maxCount': 0,
+      },
     },
   );
   const effect = fixture.effect;
-  const sceneBackgroundAccepted = withSceneBackground
-    ? effect.setSceneBackground(createSceneBackground())
-    : null;
 
-  if (withSceneBackground)
+  if (mode === 'full-webgl2')
   {
+    // 完整 GPU 丢失后固定走 Software，避免独立 Bloom Context 掩盖回退帧。
+    effect.updateConfig({ bloomBackend: 'software' });
     await runAnimationFrame(SAMPLE_TIME_MS);
   }
 
@@ -790,44 +893,65 @@ async function runContextLifecycle(mode)
     throw new Error(`${mode} 不支持 WEBGL_lose_context`);
   }
 
-  const before = summarizePixels(
-    captureLayers(effect, fixture.target, 'transparent'),
-    effect.dpr,
-  );
+  const beforeRoute = effect.getConfig();
+  const before = captureCompositingPhases(effect, fixture.target);
   const lostEvent = waitForCanvasEvent(canvas, 'webglcontextlost');
 
   extension.loseContext();
   await lostEvent;
-  await runAnimationFrame(SAMPLE_TIME_MS + 1);
   const fallbackRoute = effect.getConfig();
-  const fallback = summarizePixels(
-    captureLayers(effect, fixture.target, 'transparent'),
-    effect.dpr,
-  );
+  const fallback = captureCompositingPhases(effect, fixture.target);
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  const fallbackSteadyRoute = effect.getConfig();
+  const fallbackSteady = captureCompositingPhases(effect, fixture.target);
   const restoredEvent = waitForCanvasEvent(canvas, 'webglcontextrestored');
 
   // Chromium 需要先完成一次丢失后的 GPU 任务清理，立即 restore 会被忽略。
   await new Promise((resolve) => setTimeout(resolve, 100));
   extension.restoreContext();
   await restoredEvent;
-  await runAnimationFrame(SAMPLE_TIME_MS + 2);
-  await runAnimationFrame(SAMPLE_TIME_MS + 3);
+  // 同一虚拟时间重建两帧，后端切换不能借生命周期推进掩盖 Alpha 跳变。
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  await runAnimationFrame(SAMPLE_TIME_MS);
   const restoredRoute = effect.getConfig();
-  const restored = summarizePixels(
-    captureLayers(effect, fixture.target, 'transparent'),
-    effect.dpr,
-  );
+  const restored = captureCompositingPhases(effect, fixture.target);
 
   return {
     mode,
-    sceneBackgroundAccepted,
-    before,
-    fallback,
-    restored,
+    opacity,
+    before: before.pixels,
+    fallback: fallback.pixels,
+    fallbackSteady: fallbackSteady.pixels,
+    restored: restored.pixels,
+    alphaContinuity:
+    {
+      fallback: compareAlphaImages(
+        before.images.transparent,
+        fallback.images.transparent,
+      ),
+      fallbackSteady: compareAlphaImages(
+        before.images.transparent,
+        fallbackSteady.images.transparent,
+      ),
+      restored: compareAlphaImages(
+        before.images.transparent,
+        restored.images.transparent,
+      ),
+    },
+    beforeRoute:
+    {
+      effect: beforeRoute.resolvedEffectBackend,
+      bloom: beforeRoute.resolvedBloomBackend,
+    },
     fallbackRoute:
     {
       effect: fallbackRoute.resolvedEffectBackend,
       bloom: fallbackRoute.resolvedBloomBackend,
+    },
+    fallbackSteadyRoute:
+    {
+      effect: fallbackSteadyRoute.resolvedEffectBackend,
+      bloom: fallbackSteadyRoute.resolvedBloomBackend,
     },
     restoredRoute:
     {

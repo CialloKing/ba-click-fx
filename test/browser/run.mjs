@@ -569,6 +569,161 @@ function validateEffectLifecycle(mode, timelines)
   );
 }
 
+function validateContextOpacityGroup(mode, results, phase)
+{
+  const zero = results.get(0)[phase].transparent;
+  const half = results.get(0.5)[phase].transparent;
+  const full = results.get(1)[phase].transparent;
+  const meanAlphaRatio = half.meanAlpha / Math.max(full.meanAlpha, 1e-9);
+  const centerAlphaRatio = half.center[3] / Math.max(full.center[3], 1);
+
+  validateEmptyPixels(zero, `${mode} Context ${phase} opacity=0`);
+  assert(
+    meanAlphaRatio >= 0.35 && meanAlphaRatio <= 0.65,
+    `${mode}: Context ${phase} 的平均 Alpha 不接近线性`,
+    {
+      half,
+      full,
+      meanAlphaRatio,
+    },
+  );
+  assert(
+    centerAlphaRatio >= 0.35 && centerAlphaRatio <= 0.65,
+    `${mode}: Context ${phase} 的中心 Alpha 不接近线性`,
+    {
+      centerAlphaRatio,
+      half: half.center,
+      full: full.center,
+    },
+  );
+  assert(
+    half.maximumAlpha <= full.maximumAlpha + 0.01,
+    `${mode}: Context ${phase} 的 opacity=0.5 最大 Alpha 超过 opacity=1`,
+    {
+      half: half.maximumAlpha,
+      full: full.maximumAlpha,
+    },
+  );
+}
+
+function validateContextLifecycleGroup(mode, results)
+{
+  for (const [opacity, lifecycle] of results)
+  {
+    for (const phase of [
+      'before',
+      'fallback',
+      'fallbackSteady',
+      'restored',
+    ])
+    {
+      const pixels = lifecycle[phase].transparent;
+      const black = lifecycle[phase].black;
+      const checker = lifecycle[phase].checker;
+      const white = lifecycle[phase].white;
+      const transmission = lifecycle[phase].backgroundTransmission;
+
+      if (opacity === 0)
+      {
+        validateEmptyPixels(pixels, `${mode} Context ${phase} opacity=0`);
+      }
+      else
+      {
+        assert(
+          hasPixelOutput(pixels),
+          `${mode}: Context ${phase} opacity=${opacity} 产生空白帧`,
+          pixels,
+        );
+        const centerBackgroundDifference = black.center.slice(0, 3)
+          .reduce((sum, channel, index) =>
+            sum + Math.abs(channel - white.center[index]), 0);
+
+        assert(
+          centerBackgroundDifference > 8,
+          `${mode}: Context ${phase} 的点击中心遮挡了宿主背景`,
+          {
+            black: black.center,
+            centerBackgroundDifference,
+            white: white.center,
+          },
+        );
+      }
+
+      assert(
+        black.meanEnergy < checker.meanEnergy &&
+          checker.meanEnergy < white.meanEnergy,
+        `${mode}: Context ${phase} 没有保留黑/棋盘/白背景透出顺序`,
+        {
+          black: black.meanEnergy,
+          checker: checker.meanEnergy,
+          white: white.meanEnergy,
+        },
+      );
+      assert(
+        transmission.maximumTransmissionError <= 2 &&
+          transmission.maximumCheckerError <= 1,
+        `${mode}: Context ${phase} 的局部背景透出不符合 Coverage Alpha`,
+        transmission,
+      );
+    }
+
+    if (opacity > 0)
+    {
+      const before = lifecycle.before.transparent;
+
+      for (const phase of ['fallback', 'fallbackSteady', 'restored'])
+      {
+        const current = lifecycle[phase].transparent;
+        const spatial = lifecycle.alphaContinuity[phase];
+        const radialDelta = before.radialAlpha.map((value, index) =>
+          Math.abs(value - current.radialAlpha[index]));
+
+        assert(
+          relativeDifference(before.meanAlpha, current.meanAlpha) <= 0.15 &&
+            Math.abs(before.maximumAlpha - current.maximumAlpha) <= 0.2 &&
+            Math.abs(before.center[3] - current.center[3]) <= 24,
+          `${mode}: Context ${phase} 出现 Alpha 突跳`,
+          {
+            before,
+            current,
+            opacity,
+          },
+        );
+        assert(
+          spatial.meanAbsoluteDelta <= 0.003 &&
+            spatial.visibleMeanAbsoluteDelta <= 0.08 &&
+            spatial.maximumAbsoluteDelta <= 0.35 &&
+            Math.max(...radialDelta) <= 0.2 &&
+            Math.abs(before.bounds.width - current.bounds.width) <= 4 &&
+            Math.abs(before.bounds.height - current.bounds.height) <= 4 &&
+            relativeDifference(
+              before.visibleRatio,
+              current.visibleRatio,
+            ) <= 0.15,
+          `${mode}: Context ${phase} 的 Alpha 空间分布不连续`,
+          {
+            before,
+            current,
+            opacity,
+            radialDelta,
+            spatial,
+          },
+        );
+      }
+    }
+  }
+
+  for (const phase of [
+    'before',
+    'fallback',
+    'fallbackSteady',
+    'restored',
+  ])
+  {
+    validateContextOpacityGroup(mode, results, phase);
+  }
+}
+
 function validateWebGLTrailProbe(result, label)
 {
   const profile = result.trailProfile;
@@ -1491,59 +1646,42 @@ async function runMatrix(browserInstance, baseUrl, baseline)
   {
     currentLabel = `${mode}__context-fixture-startup`;
     const contextSession = await openFixture(browserInstance, baseUrl, 1);
+    const contextResults = new Map();
 
     currentPage = contextSession.page;
-    currentLabel = `${mode}__context-lifecycle`;
-    const lifecycle = await contextSession.page.evaluate(
-      (input) => window.browserPixelSuite.runContextLifecycle(input),
-      mode,
-    );
-
-    assert(
-      lifecycle.before.visibleRatio > 0 &&
-        lifecycle.fallback.visibleRatio > 0 &&
-        lifecycle.restored.visibleRatio > 0,
-      `${mode}: Context 丢失或恢复产生空白帧`,
-      lifecycle,
-    );
-
-    if (mode === 'full-webgl2')
+    for (const opacity of opacities)
     {
-      assert(
-        lifecycle.sceneBackgroundAccepted === true,
-        `${mode}: Context 生命周期场景背景上传失败`,
-        lifecycle,
+      currentLabel = `${mode}__context-lifecycle-opacity-${opacity}`;
+      const lifecycle = await contextSession.page.evaluate(
+        (input) => window.browserPixelSuite.runContextLifecycle(input),
+        {
+          mode,
+          opacity,
+        },
       );
+
+      const expectedEffect = mode === 'full-webgl2'
+        ? 'webgl2'
+        : 'canvas2d';
+
       assert(
-        lifecycle.fallbackRoute.effect === 'canvas2d' &&
-          lifecycle.restoredRoute.effect === 'webgl2',
+        lifecycle.beforeRoute.effect === expectedEffect &&
+          lifecycle.beforeRoute.bloom === 'webgl2' &&
+          lifecycle.fallbackRoute.effect === 'canvas2d' &&
+          lifecycle.fallbackRoute.bloom === 'software' &&
+          lifecycle.fallbackSteadyRoute.effect === 'canvas2d' &&
+          lifecycle.fallbackSteadyRoute.bloom === 'software' &&
+          lifecycle.restoredRoute.effect === expectedEffect &&
+          lifecycle.restoredRoute.bloom === 'webgl2',
         `${mode}: Context 生命周期后端路由错误`,
         lifecycle,
       );
-      assert(
-        relativeDifference(
-          lifecycle.before.meanEnergy,
-          lifecycle.fallback.meanEnergy,
-        ) <= 0.15 &&
-          relativeDifference(
-            lifecycle.before.meanEnergy,
-            lifecycle.restored.meanEnergy,
-          ) <= 0.15,
-        `${mode}: Context 丢失或恢复没有保持 Scene 背景能量`,
-        lifecycle,
-      );
-    }
-    else
-    {
-      assert(
-        ['software', 'native'].includes(lifecycle.fallbackRoute.bloom) &&
-          lifecycle.restoredRoute.bloom === 'webgl2',
-        `${mode}: Context 生命周期 Bloom 路由错误`,
-        lifecycle,
-      );
+      contextResults.set(opacity, lifecycle);
     }
 
-    metrics.contextLifecycle[mode] = lifecycle;
+    currentLabel = `${mode}__context-lifecycle`;
+    validateContextLifecycleGroup(mode, contextResults);
+    metrics.contextLifecycle[mode] = Object.fromEntries(contextResults);
 
     currentLabel = `${mode}__trail-context-lifecycle`;
     const trailLifecycle = await contextSession.page.evaluate(
