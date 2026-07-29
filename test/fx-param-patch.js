@@ -98,6 +98,68 @@ for (const scatter of [0, 0.35, 1])
 }
 check(true, 'Schema 0 的 scatter 合法值都会恢复 diffusion 默认值');
 
+const invalidScatterValues =
+[
+  ['0.35', 'invalid-type'],
+  [Number.NaN, 'non-finite-number'],
+  [Number.POSITIVE_INFINITY, 'non-finite-number'],
+  [-0.01, 'out-of-range'],
+  [1.01, 'out-of-range'],
+  [7, 'out-of-range'],
+];
+
+for (const [scatter, expectedReason] of invalidScatterValues)
+{
+  const invalidMigrationResult = applyFxParamPatch(
+    {
+      'bloom.scatter': scatter,
+      'rings.count': 2,
+    },
+    {
+      baseline,
+      schemaVersion: 0,
+    },
+  );
+
+  assert.deepEqual(
+    invalidMigrationResult.applied,
+    [{ path: 'rings.count', value: 2 }],
+  );
+  assert.deepEqual(invalidMigrationResult.normalized, []);
+  assert.equal(invalidMigrationResult.rejected.length, 1);
+  assert.equal(invalidMigrationResult.rejected[0].path, 'bloom.scatter');
+  assert.ok(Object.is(invalidMigrationResult.rejected[0].value, scatter));
+  assert.equal(invalidMigrationResult.rejected[0].reason, expectedReason);
+  assert.equal(invalidMigrationResult.nextConfig.rings.count, 2);
+  assert.equal(invalidMigrationResult.nextConfig.bloom.diffusion, 7);
+}
+check(true, '非严格模式拒绝非法 scatter 源值并继续应用合法项');
+
+for (const [scatter, expectedReason] of invalidScatterValues)
+{
+  const strictInvalidMigrationResult = applyFxParamPatch(
+    {
+      'bloom.scatter': scatter,
+      'rings.count': 2,
+    },
+    {
+      baseline,
+      schemaVersion: 0,
+      strict: true,
+    },
+  );
+
+  assert.equal(strictInvalidMigrationResult.committed, false);
+  assert.deepEqual(strictInvalidMigrationResult.applied, []);
+  assert.deepEqual(strictInvalidMigrationResult.normalized, []);
+  assert.deepEqual(strictInvalidMigrationResult.nextConfig, baseline);
+  assert.equal(strictInvalidMigrationResult.rejected.length, 1);
+  assert.equal(strictInvalidMigrationResult.rejected[0].path, 'bloom.scatter');
+  assert.ok(Object.is(strictInvalidMigrationResult.rejected[0].value, scatter));
+  assert.equal(strictInvalidMigrationResult.rejected[0].reason, expectedReason);
+}
+check(true, 'strict 模式遇到任一非法 scatter 源值时整批回滚');
+
 const migrationConflictResult = applyFxParamPatch(
   {
     'bloom.scatter': 0.35,

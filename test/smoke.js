@@ -1028,6 +1028,9 @@ assert(
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.kind === 'replace' &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.from === 'bloom.scatter' &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.to === 'bloom.diffusion' &&
+    FX_PARAM_MIGRATIONS[0]?.changes[0]?.source?.type === 'number' &&
+    FX_PARAM_MIGRATIONS[0]?.changes[0]?.source?.min === 0 &&
+    FX_PARAM_MIGRATIONS[0]?.changes[0]?.source?.max === 1 &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.value === 7,
   '正式入口导出参数 Schema 版本与迁移合同',
 );
@@ -1187,6 +1190,30 @@ assert(
       entry.reason === 'defaulted' && entry.from === 0.35 && entry.to === 7) &&
     paramApiEffect.getFxConfig().bloom.diffusion === 7,
   'setFxParams 将 bloom.scatter 迁移为 diffusion 默认值',
+);
+
+const beforeStrictInvalidMigration = paramApiEffect.getFxConfig();
+const strictInvalidMigrationResult = paramApiEffect.setFxParams(
+  {
+    'bloom.scatter': 7,
+    'rings.count': 2,
+  },
+  {
+    schemaVersion: 0,
+    strict: true,
+  },
+);
+
+assert(
+  strictInvalidMigrationResult.committed === false &&
+    strictInvalidMigrationResult.applied.length === 0 &&
+    strictInvalidMigrationResult.normalized.length === 0 &&
+    strictInvalidMigrationResult.rejected[0]?.path === 'bloom.scatter' &&
+    strictInvalidMigrationResult.rejected[0]?.value === 7 &&
+    strictInvalidMigrationResult.rejected[0]?.reason === 'out-of-range' &&
+    JSON.stringify(paramApiEffect.getFxConfig()) ===
+      JSON.stringify(beforeStrictInvalidMigration),
+  'setFxParams strict 模式拒绝越界 scatter 并整批回滚',
 );
 
 const migrationConflictResult = paramApiEffect.setFxParams(

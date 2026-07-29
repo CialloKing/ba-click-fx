@@ -51,6 +51,37 @@ function createRejected(path, value, reason, details = {})
   );
 }
 
+function validateMigrationSource(source, value)
+{
+  if (!source)
+  {
+    return null;
+  }
+
+  if (source.type === 'number')
+  {
+    if (typeof value !== 'number')
+    {
+      return 'invalid-type';
+    }
+
+    if (!Number.isFinite(value))
+    {
+      return 'non-finite-number';
+    }
+
+    // Replace 会丢弃旧值；越界时若先钳制，会把损坏的持久化数据伪装成成功迁移。
+    if (value < source.min || value > source.max)
+    {
+      return 'out-of-range';
+    }
+
+    return null;
+  }
+
+  return typeof value === 'boolean' ? null : 'invalid-type';
+}
+
 function resolveMigration(path, value, schemaVersion)
 {
   let currentVersion = schemaVersion;
@@ -92,6 +123,22 @@ function resolveMigration(path, value, schemaVersion)
 
       if (change.kind === 'replace' && resolvedPath === change.from)
       {
+        const sourceError = validateMigrationSource(
+          change.source,
+          resolvedValue,
+        );
+
+        if (sourceError)
+        {
+          return (
+            {
+              error: sourceError,
+              path: resolvedPath,
+              normalized,
+            }
+          );
+        }
+
         normalized.push(
           {
             path: resolvedPath,
@@ -102,17 +149,15 @@ function resolveMigration(path, value, schemaVersion)
         );
         resolvedPath = change.to;
 
-        if (!Object.is(resolvedValue, change.value))
-        {
-          normalized.push(
-            {
-              path: resolvedPath,
-              from: resolvedValue,
-              to: change.value,
-              reason: 'defaulted',
-            },
-          );
-        }
+        // Replace 表示语义不等价；即使数值相同，也必须保留默认化审计记录。
+        normalized.push(
+          {
+            path: resolvedPath,
+            from: resolvedValue,
+            to: change.value,
+            reason: 'defaulted',
+          },
+        );
 
         resolvedValue = change.value;
       }

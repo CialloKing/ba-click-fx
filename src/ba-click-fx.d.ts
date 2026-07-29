@@ -212,11 +212,20 @@ declare module 'ba-click-fx'
     readonly to: string;
   }
 
+  export interface BAClickFXParamMigrationSource
+  {
+    readonly type: BAClickFXParamType;
+    readonly min?: number;
+    readonly max?: number;
+  }
+
   export interface BAClickFXParamReplaceMigration
   {
     readonly kind: 'replace';
     readonly from: string;
     readonly to: string;
+    /** 替换前先验证的旧 Schema 数值契约。 */
+    readonly source: Readonly<BAClickFXParamMigrationSource>;
     /** 无可靠等价换算时写入的新 Schema 默认值。 */
     readonly value: BAClickFXParamValue;
   }
@@ -270,6 +279,7 @@ declare module 'ba-click-fx'
     | 'migration-conflict'
     | 'missing-migration'
     | 'non-finite-number'
+    | 'out-of-range'
     | 'unknown-path'
     | 'unsupported-schema-version';
 
