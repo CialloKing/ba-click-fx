@@ -29,12 +29,14 @@ const modeNames = [
 const opacities = [0, 0.5, 1];
 const isolationModes = [false, true];
 const devicePixelRatios = [1, 2];
+const lifecycleSampleTimes = [0, 40, 79, 120, 199, 300, 599, 601];
 const metrics =
 {
   environment: {},
   cases: {},
   compositor: {},
   contextLifecycle: {},
+  effectLifecycle: {},
   trailContextLifecycle: {},
   trailTextureResourceLifecycle: {},
 };
@@ -388,6 +390,182 @@ function validateIsolationPair(direct, isolated, label)
       direct: first,
       isolated: second,
     },
+  );
+}
+
+function hasPixelOutput(pixels)
+{
+  return pixels.meanAlpha > 0 ||
+    pixels.meanEnergy > 0 ||
+    pixels.maximumAlpha > 0;
+}
+
+function validateEmptyPixels(pixels, label)
+{
+  assert(
+    pixels.meanAlpha < 0.00001 &&
+      pixels.meanEnergy < 0.00001 &&
+      pixels.maximumAlpha === 0 &&
+      pixels.visibleRatio === 0,
+    `${label}: 生命周期结束后仍有残影`,
+    pixels,
+  );
+}
+
+function validateEffectLifecycle(mode, timelines)
+{
+  const click = timelines.click;
+  const disk = timelines.disk;
+  const trail = timelines.trail;
+  const hit = timelines.hit;
+  const noHit = timelines.noHit;
+
+  for (const timeMs of lifecycleSampleTimes)
+  {
+    assert(
+      click.get(timeMs).sampleTimeMs === timeMs &&
+        trail.get(timeMs).sampleTimeMs === timeMs,
+      `${mode}: 浏览器夹具没有使用请求的采样时间 ${timeMs}ms`,
+      {
+        click: click.get(timeMs).sampleTimeMs,
+        trail: trail.get(timeMs).sampleTimeMs,
+      },
+    );
+  }
+
+  for (const timeMs of [0, 40, 79, 120, 199, 300])
+  {
+    assert(
+      hasPixelOutput(click.get(timeMs).pixels.transparent),
+      `${mode}: 点击在 ${timeMs}ms 过早消失`,
+      click.get(timeMs).pixels.transparent,
+    );
+  }
+  assert(
+    click.get(599).pixels.transparent.meanAlpha <
+      click.get(300).pixels.transparent.meanAlpha,
+    `${mode}: Ring 末段没有按 Unity 溶解曲线衰减`,
+    {
+      at300: click.get(300).pixels.transparent,
+      at599: click.get(599).pixels.transparent,
+    },
+  );
+  assert(
+    click.get(599).runtime.waveCount === 1 &&
+      click.get(599).runtime.ringCount > 0 &&
+      click.get(599).runtime.hasVisibleEffects,
+    `${mode}: Ring 在 Unity 600ms 生命周期前被提前回收`,
+    click.get(599).runtime,
+  );
+  validateEmptyPixels(
+    click.get(601).pixels.transparent,
+    `${mode} 点击 601ms`,
+  );
+  assert(
+    click.get(601).runtime.waveCount === 0 &&
+      click.get(601).runtime.ringCount === 0 &&
+      !click.get(601).runtime.hasVisibleEffects,
+    `${mode}: Ring 超过 600ms 后仍占用运行时状态`,
+    click.get(601).runtime,
+  );
+
+  for (const timeMs of [0, 40, 79, 120])
+  {
+    assert(
+      hasPixelOutput(disk.get(timeMs).pixels.transparent),
+      `${mode}: Disk 在 ${timeMs}ms 过早消失`,
+      disk.get(timeMs).pixels.transparent,
+    );
+  }
+  assert(
+    disk.get(199).runtime.waveCount === 1 &&
+      disk.get(199).runtime.ringCount === 0,
+    `${mode}: Disk 在 Unity 200ms 生命周期前被提前回收`,
+    disk.get(199).runtime,
+  );
+  validateEmptyPixels(
+    disk.get(300).pixels.transparent,
+    `${mode} Disk 300ms`,
+  );
+  assert(
+    disk.get(300).runtime.waveCount === 0 &&
+      !disk.get(300).runtime.hasVisibleEffects,
+    `${mode}: Disk 超过 200ms 后仍占用运行时状态`,
+    disk.get(300).runtime,
+  );
+  assert(
+    disk.get(199).pixels.transparent.meanAlpha <
+      disk.get(120).pixels.transparent.meanAlpha,
+    `${mode}: Disk 末段没有按 Unity Alpha 曲线衰减`,
+    {
+      at120: disk.get(120).pixels.transparent,
+      at199: disk.get(199).pixels.transparent,
+    },
+  );
+
+  validateEmptyPixels(
+    trail.get(0).pixels.transparent,
+    `${mode} Trail 0ms`,
+  );
+  for (const timeMs of [40, 79, 120, 199, 300])
+  {
+    assert(
+      hasPixelOutput(trail.get(timeMs).pixels.transparent),
+      `${mode}: Trail 在 ${timeMs}ms 没有可见采样`,
+      trail.get(timeMs).pixels.transparent,
+    );
+  }
+  validateEmptyPixels(
+    trail.get(599).pixels.transparent,
+    `${mode} Trail 599ms`,
+  );
+  assert(
+    trail.get(300).runtime.trailPointCount >= 2 &&
+      trail.get(300).runtime.hasVisibleEffects &&
+      trail.get(599).runtime.trailPointCount === 0 &&
+      !trail.get(599).runtime.hasVisibleEffects,
+    `${mode}: Trail 没有按 300ms 顶点寿命进入空闲`,
+    {
+      at300: trail.get(300).runtime,
+      at599: trail.get(599).runtime,
+    },
+  );
+  validateEmptyPixels(
+    trail.get(601).pixels.transparent,
+    `${mode} Trail 601ms`,
+  );
+
+  const hitDifferences = new Map();
+
+  for (const timeMs of [0, 40, 79, 120])
+  {
+    hitDifferences.set(
+      timeMs,
+      Math.abs(
+        hit.get(timeMs).pixels.transparent.meanAlpha -
+          noHit.get(timeMs).pixels.transparent.meanAlpha,
+      ),
+    );
+  }
+  for (const timeMs of [0, 40, 79])
+  {
+    assert(
+      hitDifferences.get(timeMs) > 0.000001,
+      `${mode}: Hit 在 ${timeMs}ms 没有产生可检测像素`,
+      Object.fromEntries(hitDifferences),
+    );
+  }
+  assert(
+    hitDifferences.get(0) > hitDifferences.get(40) &&
+      hitDifferences.get(40) > hitDifferences.get(79) &&
+      hitDifferences.get(79) > 0,
+    `${mode}: Hit 没有按 80ms Alpha 曲线衰减`,
+    Object.fromEntries(hitDifferences),
+  );
+  assert(
+    hitDifferences.get(120) < 0.000001,
+    `${mode}: Hit 超过 80ms 后仍残留可见像素`,
+    Object.fromEntries(hitDifferences),
   );
 }
 
@@ -764,6 +942,107 @@ async function openFixture(browserInstance, baseUrl, dpr)
   };
 }
 
+async function collectLifecycleTimeline(page, mode, variant, sampleTimes)
+{
+  const timelines = new Map();
+  const commonSpecification =
+  {
+    mode,
+    opacity: 1,
+    isolatedCompositing: true,
+    background: 'transparent',
+    outputCompositing: 'transparent-overlay',
+    shadow: false,
+    containStrict: false,
+  };
+  const variants =
+  {
+    click:
+    {
+      includeClick: true,
+      includeTrail: false,
+      fxParams:
+      {
+        'hit.enabled': false,
+        'shards.clickCount': 0,
+        'shards.maxCount': 0,
+      },
+    },
+    disk:
+    {
+      includeClick: true,
+      includeTrail: false,
+      fxParams:
+      {
+        'hit.enabled': false,
+        'rings.count': 0,
+        'shards.clickCount': 0,
+        'shards.maxCount': 0,
+      },
+    },
+    trail:
+    {
+      includeClick: false,
+      includeTrail: true,
+      includeTrailShards: false,
+      fxParams:
+      {
+        'shards.maxCount': 0,
+      },
+    },
+    hit:
+    {
+      includeClick: true,
+      includeTrail: false,
+      fxParams:
+      {
+        'hit.enabled': true,
+        'disk.radius': 20,
+        'rings.count': 0,
+        'shards.clickCount': 0,
+        'shards.maxCount': 0,
+        'bloom.diskEmission': 0,
+      },
+    },
+    noHit:
+    {
+      includeClick: true,
+      includeTrail: false,
+      fxParams:
+      {
+        'hit.enabled': false,
+        'disk.radius': 20,
+        'rings.count': 0,
+        'shards.clickCount': 0,
+        'shards.maxCount': 0,
+        'bloom.diskEmission': 0,
+      },
+    },
+  };
+
+  for (const sampleTimeMs of sampleTimes)
+  {
+    const label = `${mode}__lifecycle-${variant}-${sampleTimeMs}ms`;
+    const specification =
+    {
+      ...commonSpecification,
+      ...variants[variant],
+      sampleTimeMs,
+    };
+
+    currentLabel = label;
+    const result = await page.evaluate(
+      (input) => window.browserPixelSuite.runCase(input),
+      specification,
+    );
+
+    timelines.set(sampleTimeMs, result);
+    metrics.cases[label] = result;
+  }
+
+  return timelines;
+}
+
 async function runMatrix(browserInstance, baseUrl, baseline)
 {
   const caseResults = new Map();
@@ -1118,6 +1397,50 @@ async function runMatrix(browserInstance, baseUrl, baseline)
         sceneReset,
       );
       metrics.sceneBackgroundReset = sceneReset;
+
+      for (const mode of modeNames)
+      {
+        const timelines =
+        {
+          click: await collectLifecycleTimeline(
+            page,
+            mode,
+            'click',
+            lifecycleSampleTimes,
+          ),
+          disk: await collectLifecycleTimeline(
+            page,
+            mode,
+            'disk',
+            [0, 40, 79, 120, 199, 300],
+          ),
+          trail: await collectLifecycleTimeline(
+            page,
+            mode,
+            'trail',
+            lifecycleSampleTimes,
+          ),
+          hit: await collectLifecycleTimeline(
+            page,
+            mode,
+            'hit',
+            [0, 40, 79, 120],
+          ),
+          noHit: await collectLifecycleTimeline(
+            page,
+            mode,
+            'noHit',
+            [0, 40, 79, 120],
+          ),
+        };
+
+        currentLabel = `${mode}__effect-lifecycle`;
+        validateEffectLifecycle(mode, timelines);
+        metrics.effectLifecycle[mode] = Object.fromEntries(
+          Object.entries(timelines).map(([variant, timeline]) =>
+            [variant, Object.fromEntries(timeline)]),
+        );
+      }
 
     }
 

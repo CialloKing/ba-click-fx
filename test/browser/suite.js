@@ -472,10 +472,16 @@ async function prepareEffect(specification)
   disposeActiveFixture();
   resetVirtualRuntime();
   const mode = MODE_CONFIGS[specification.mode];
+  const sampleTimeMs = specification.sampleTimeMs ?? SAMPLE_TIME_MS;
 
   if (!mode)
   {
     throw new Error(`未知渲染模式: ${specification.mode}`);
+  }
+
+  if (!Number.isFinite(sampleTimeMs) || sampleTimeMs < 0)
+  {
+    throw new Error(`无效像素采样时间: ${sampleTimeMs}`);
   }
 
   const fixture = createFixture(specification);
@@ -489,7 +495,8 @@ async function prepareEffect(specification)
       opacity: specification.opacity,
       scale: specification.scale ?? 1,
       isolatedCompositing: specification.isolatedCompositing,
-      lightBackgroundContrastAlpha: 0,
+      lightBackgroundContrastAlpha:
+        specification.lightBackgroundContrastAlpha ?? 0,
       maxDpr: 2,
       effectBackend: mode.effectBackend,
       renderingMode: mode.renderingMode,
@@ -515,10 +522,28 @@ async function prepareEffect(specification)
     );
   }
 
+  if (specification.fxParams)
+  {
+    const patchResult = effect.setFxParams(
+      specification.fxParams,
+      {
+        strict: true,
+      },
+    );
+
+    if (!patchResult.committed)
+    {
+      throw new Error(
+        `浏览器夹具参数补丁被拒绝: ${JSON.stringify(patchResult.rejected)}`,
+      );
+    }
+  }
+
   activeFixture = {
     ...fixture,
     effect,
     specification,
+    sampleTimeMs,
   };
 
   if (specification.includeClick !== false)
@@ -545,6 +570,11 @@ async function prepareEffect(specification)
 
     for (const [timeMs, x, y] of trailSamples)
     {
+      if (timeMs > sampleTimeMs)
+      {
+        continue;
+      }
+
       virtualNow = timeMs;
       effect.pointerMove(
         {
@@ -563,7 +593,10 @@ async function prepareEffect(specification)
     }
   }
 
-  await runAnimationFrame(SAMPLE_TIME_MS);
+  if (sampleTimeMs > 0)
+  {
+    await runAnimationFrame(sampleTimeMs);
+  }
 
   return activeFixture;
 }
@@ -597,6 +630,7 @@ async function runCase(specification)
 
   return {
     specification,
+    sampleTimeMs: fixture.sampleTimeMs,
     outputCompositing: snapshot.outputCompositing,
     route:
     {
@@ -610,6 +644,20 @@ async function runCase(specification)
     {
       effectBackend: MODE_CONFIGS[specification.mode].expectedEffectBackend,
       bloomBackend: MODE_CONFIGS[specification.mode].expectedBloomBackend,
+    },
+    runtime:
+    {
+      waveCount: fixture.effect.waves.length,
+      ringCount: fixture.effect.waves.reduce(
+        (count, wave) => count + wave.rings.length,
+        0,
+      ),
+      shardCount: fixture.effect.shards.length,
+      trailPointCount: fixture.effect.trailStrokes.reduce(
+        (count, stroke) => count + stroke.points.length,
+        0,
+      ),
+      hasVisibleEffects: fixture.effect._hasVisibleEffects(),
     },
     dpr: fixture.effect.dpr,
     layout:
