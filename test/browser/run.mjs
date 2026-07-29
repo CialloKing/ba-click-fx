@@ -1029,6 +1029,13 @@ function validateBackendFailureAlphaContract(mode, chain, opacity, label)
     assert(
       black.meanEnergy < checker.meanEnergy &&
         checker.meanEnergy < white.meanEnergy &&
+        (
+          opacity === 0 ||
+          (
+            transmission.maximumSampleAlpha >= 8 &&
+            transmission.visibleSampleCount >= 1
+          )
+        ) &&
         transmission.maximumTransmissionError <= 2 &&
         transmission.maximumCheckerError <= 1,
       `${mode}: ${label} ${phase} 没有保留 Coverage 背景透出`,
@@ -1293,6 +1300,218 @@ function validateWebGLTrailDirection(profile, label)
     `${label}: Trail_03 可见横截面方向偏离 Unity 诊断帧`,
     profile,
   );
+}
+
+function validateTrailContextRoutes(mode, lifecycle)
+{
+  const expectedEffect = mode === 'full-webgl2'
+    ? 'webgl2'
+    : 'canvas2d';
+  const expectedFallbackSteadyBloom = mode === 'full-webgl2'
+    ? 'webgl2'
+    : 'software';
+  const routes = lifecycle.routes;
+
+  assert(
+    routes.before.effect === expectedEffect &&
+      routes.before.bloom === 'webgl2' &&
+      routes.fallback.effect === 'canvas2d' &&
+      routes.fallback.bloom === 'software' &&
+      routes.fallbackSteady.effect === 'canvas2d' &&
+      routes.fallbackSteady.bloom === expectedFallbackSteadyBloom &&
+      routes.restoring.effect === expectedEffect &&
+      routes.restoring.bloom === 'webgl2' &&
+      routes.restored.effect === expectedEffect &&
+      routes.restored.bloom === 'webgl2',
+    `${mode}: Trail Context 生命周期后端路由错误`,
+    routes,
+  );
+}
+
+function validateTrailContextCoverage(mode, lifecycle)
+{
+  const phases = [
+    'before',
+    'fallback',
+    'fallbackSteady',
+    'restoring',
+    'restored',
+  ];
+  const before = lifecycle.before.transparent;
+
+  for (const phase of phases)
+  {
+    const pixels = lifecycle[phase];
+    const transmission = pixels.backgroundTransmission;
+
+    assert(
+      pixels.black.meanEnergy < pixels.checker.meanEnergy &&
+        pixels.checker.meanEnergy < pixels.white.meanEnergy &&
+        transmission.maximumSampleAlpha >= 8 &&
+        transmission.visibleSampleCount >= 1 &&
+        transmission.maximumTransmissionError <= 2 &&
+        transmission.maximumCheckerError <= 1,
+      `${mode}: 透明 Trail Context ${phase} 破坏 Coverage 背景透出`,
+      {
+        black: pixels.black.meanEnergy,
+        checker: pixels.checker.meanEnergy,
+        transmission,
+        white: pixels.white.meanEnergy,
+      },
+    );
+  }
+
+  for (const phase of ['restoring', 'restored'])
+  {
+    const current = lifecycle[phase].transparent;
+    const spatial = lifecycle.alphaContinuity[phase];
+
+    assert(
+      relativeDifference(before.meanAlpha, current.meanAlpha) <= 0.15 &&
+        Math.abs(before.maximumAlpha - current.maximumAlpha) <= 0.2 &&
+        Math.abs(
+          before.trailProbeAlpha - current.trailProbeAlpha,
+        ) <= 0.2,
+      `${mode}: 透明 Trail Context ${phase} 出现 Coverage Alpha 突跳`,
+      {
+        before,
+        current,
+      },
+    );
+    assert(
+      spatial.meanAbsoluteDelta <= 0.003 &&
+        spatial.visibleMeanAbsoluteDelta <= 0.08 &&
+        spatial.maximumAbsoluteDelta <= 0.35 &&
+        Math.abs(before.bounds.width - current.bounds.width) <= 4 &&
+        Math.abs(before.bounds.height - current.bounds.height) <= 4 &&
+        relativeDifference(before.visibleRatio, current.visibleRatio) <= 0.15,
+      `${mode}: 透明 Trail Context ${phase} 的 Alpha 空间分布不连续`,
+      {
+        before,
+        current,
+        spatial,
+      },
+    );
+  }
+
+  const restoringToRestored =
+    lifecycle.alphaContinuity.restoringToRestored;
+
+  assert(
+    restoringToRestored.meanAbsoluteDelta <= 0.003 &&
+      restoringToRestored.visibleMeanAbsoluteDelta <= 0.08 &&
+      restoringToRestored.maximumAbsoluteDelta <= 0.35,
+    `${mode}: 透明 Trail Context 恢复首帧与稳定帧出现 Alpha 跳变`,
+    restoringToRestored,
+  );
+}
+
+function validateTrailContextCompositing(mode, lifecycle)
+{
+  const gpuLayer = mode === 'full-webgl2'
+    ? 'webglEffect'
+    : 'webglBloom';
+  const fallbackSteadyLayer = mode === 'full-webgl2'
+    ? 'webglBloom'
+    : 'main';
+
+  for (const phase of [
+    'before',
+    'fallback',
+    'fallbackSteady',
+    'restoring',
+    'restored',
+  ])
+  {
+    const state = lifecycle.compositing[phase];
+
+    assert(
+      state.isolatedCompositing &&
+        state.overlayRootConnected &&
+        state.visibleLayersCoverTarget &&
+        state.allCanvasLayersAbsolute,
+      `${mode}: Trail Context ${phase} 的隔离合成层失效`,
+      state,
+    );
+  }
+
+  assert(
+    lifecycle.compositing.before.layers[gpuLayer].visible &&
+      !lifecycle.compositing.fallback.layers[gpuLayer].visible &&
+      lifecycle.compositing.fallback.layers.main.visible &&
+      !lifecycle.compositing.fallbackSteady.layers[gpuLayer].visible &&
+      lifecycle.compositing.fallbackSteady
+        .layers[fallbackSteadyLayer].visible &&
+      lifecycle.compositing.restoring.layers[gpuLayer].visible &&
+      lifecycle.compositing.restored.layers[gpuLayer].visible,
+    `${mode}: Trail Context 丢失或恢复时暴露了错误的 GPU 输出层`,
+    lifecycle.compositing,
+  );
+}
+
+function validateTrailContextLifecycle(
+  mode,
+  outputCompositing,
+  lifecycle,
+)
+{
+  const label = `${mode} ${lifecycle.outputCompositing} Trail Context`;
+
+  assert(
+    lifecycle.outputCompositing === outputCompositing,
+    `${label}: 夹具没有应用请求的输出合成模式`,
+    lifecycle.outputCompositing,
+  );
+  validateTrailContextRoutes(mode, lifecycle);
+  validateTrailContextCompositing(mode, lifecycle);
+  assert(
+    Object.values(lifecycle.texture).every(Boolean),
+    `${label}: 恢复没有替换失效纹理并重建有效 Trail_03`,
+    lifecycle.texture,
+  );
+
+  for (const phase of [
+    'before',
+    'fallback',
+    'fallbackSteady',
+    'restoring',
+    'restored',
+  ])
+  {
+    assert(
+      hasPixelOutput(lifecycle[phase].transparent),
+      `${label}: ${phase} 产生空白帧`,
+      lifecycle[phase].transparent,
+    );
+  }
+
+  validateWebGLTrailProfiles(
+    lifecycle.profiles.before,
+    lifecycle.profiles.restoring,
+    `${label} 恢复首帧`,
+  );
+  validateWebGLTrailProfiles(
+    lifecycle.profiles.before,
+    lifecycle.profiles.restored,
+    `${label} 恢复稳定帧`,
+  );
+  validateWebGLTrailDirection(
+    lifecycle.profiles.before,
+    `${label} 恢复前`,
+  );
+  validateWebGLTrailDirection(
+    lifecycle.profiles.restoring,
+    `${label} 恢复首帧`,
+  );
+  validateWebGLTrailDirection(
+    lifecycle.profiles.restored,
+    `${label} 恢复稳定帧`,
+  );
+
+  if (lifecycle.outputCompositing === 'transparent-overlay')
+  {
+    validateTrailContextCoverage(mode, lifecycle);
+  }
 }
 
 function validateWebGLTrailDirections(fullWebGL2, webGL2Bloom)
@@ -2641,35 +2860,29 @@ async function runMatrix(browserInstance, baseUrl, baseline)
       trailFailureChainResults,
     );
 
-    currentLabel = `${mode}__trail-context-lifecycle`;
-    const trailLifecycle = await contextSession.page.evaluate(
-      (input) => window.browserPixelSuite.runTrailContextLifecycle(input),
-      mode,
-    );
-    const expectedTrailRoute = mode === 'full-webgl2'
-      ? trailLifecycle.restoredRoute.effect === 'webgl2'
-      : trailLifecycle.restoredRoute.bloom === 'webgl2';
+    const trailLifecycles = {};
 
-    assert(
-      expectedTrailRoute &&
-        Object.values(trailLifecycle.texture).every(Boolean),
-      `${mode}: Context 恢复没有重建有效的 Trail 静态纹理`,
-      trailLifecycle,
-    );
-    validateWebGLTrailProfiles(
-      trailLifecycle.beforeProfile,
-      trailLifecycle.restoredProfile,
-      `${mode} Context 恢复`,
-    );
-    validateWebGLTrailDirection(
-      trailLifecycle.beforeProfile,
-      `${mode} Context 恢复前`,
-    );
-    validateWebGLTrailDirection(
-      trailLifecycle.restoredProfile,
-      `${mode} Context 恢复后`,
-    );
-    metrics.trailContextLifecycle[mode] = trailLifecycle;
+    for (const outputCompositing of ['scene', 'transparent-overlay'])
+    {
+      currentLabel =
+        `${mode}__${outputCompositing}__trail-context-lifecycle`;
+      const trailLifecycle = await contextSession.page.evaluate(
+        (input) => window.browserPixelSuite.runTrailContextLifecycle(input),
+        {
+          mode,
+          outputCompositing,
+        },
+      );
+
+      validateTrailContextLifecycle(
+        mode,
+        outputCompositing,
+        trailLifecycle,
+      );
+      trailLifecycles[outputCompositing] = trailLifecycle;
+    }
+
+    metrics.trailContextLifecycle[mode] = trailLifecycles;
 
     const directSpecification =
     {

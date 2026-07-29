@@ -7,6 +7,7 @@ const RADIAL_SAMPLE_RADII = [0, 4, 8, 12, 16, 24, 32, 48, 64];
 const STRAIGHT_TRAIL_START_X = 48;
 const STRAIGHT_TRAIL_END_X = 272;
 const STRAIGHT_TRAIL_Y = 120;
+const STRAIGHT_TRAIL_TRANSMISSION_X = 200;
 const STRAIGHT_TRAIL_HEAD_U = 0.08;
 const STRAIGHT_TRAIL_ASYMMETRY_U = 0.15;
 const STRAIGHT_TRAIL_EDGE_V = 0.05;
@@ -823,12 +824,17 @@ function waitForCanvasEvent(canvas, eventName, timeoutMs = 5000)
   });
 }
 
-function summarizeBackgroundTransmission(images, dpr)
+function summarizeBackgroundTransmission(
+  images,
+  dpr,
+  centerX = CLICK_X,
+  centerY = CLICK_Y,
+)
 {
   const samples = RADIAL_SAMPLE_RADII.map((radius) =>
   {
-    const x = CLICK_X + radius;
-    const y = CLICK_Y;
+    const x = centerX + radius;
+    const y = centerY;
     const transparent = getPixel(images.transparent, x, y, dpr);
     const black = getPixel(images.black, x, y, dpr);
     const white = getPixel(images.white, x, y, dpr);
@@ -864,7 +870,9 @@ function summarizeBackgroundTransmission(images, dpr)
         sample.checkerError)),
       maximumTransmissionError: Math.max(...samples.map((sample) =>
         sample.transmissionError)),
+      maximumSampleAlpha: Math.max(...samples.map((sample) => sample.alpha)),
       samples,
+      visibleSampleCount: samples.filter((sample) => sample.alpha > 0).length,
     }
   );
 }
@@ -978,7 +986,7 @@ function captureCompositingState(effect, target)
   };
 }
 
-function captureCompositingPhases(effect, target)
+function captureCompositingPhases(effect, target, transmissionCenter = null)
 {
   const images =
   {
@@ -996,6 +1004,8 @@ function captureCompositingPhases(effect, target)
   pixels.backgroundTransmission = summarizeBackgroundTransmission(
     images,
     effect.dpr,
+    transmissionCenter?.x,
+    transmissionCenter?.y,
   );
   pixels.transparent.trailProbeAlpha = sampleHorizontalAlpha(
     images.transparent,
@@ -1387,6 +1397,16 @@ async function runBackendFailureChain(specification)
     },
   );
   const effect = fixture.effect;
+  const capturePhase = () => captureCompositingPhases(
+    effect,
+    fixture.target,
+    trailOnly
+      ? {
+          x: STRAIGHT_TRAIL_TRANSMISSION_X,
+          y: STRAIGHT_TRAIL_Y,
+        }
+      : null,
+  );
   const originalDrawCanvasFallbackFrame =
     effect._drawCanvasFallbackFrame.bind(effect);
   let nativeFallbackDrawCount = 0;
@@ -1427,14 +1447,14 @@ async function runBackendFailureChain(specification)
   const poolIdentityBeforeFailure =
     effect.bloomRenderers[0] === softwareRenderer;
   const beforeRoute = effect.getConfig();
-  const before = captureCompositingPhases(effect, fixture.target);
+  const before = capturePhase();
   const backendEvents = recordBackendEvents(effect);
   const lostEvent = waitForCanvasEvent(canvas, 'webglcontextlost');
 
   extension.loseContext();
   await lostEvent;
   const softwareRoute = effect.getConfig();
-  const software = captureCompositingPhases(effect, fixture.target);
+  const software = capturePhase();
   let sourceContext = softwareRenderer.sourceContext;
   let coverageContext = softwareRenderer.coverageContext;
 
@@ -1475,10 +1495,10 @@ async function runBackendFailureChain(specification)
   }
 
   const faultRoute = effect.getConfig();
-  const fault = captureCompositingPhases(effect, fixture.target);
+  const fault = capturePhase();
   await runAnimationFrame(SAMPLE_TIME_MS);
   const nativeRoute = effect.getConfig();
-  const native = captureCompositingPhases(effect, fixture.target);
+  const native = capturePhase();
   const sourceCalls = sourceProbe.calls;
   const coverageCalls = coverageProbe.calls;
 
@@ -1493,10 +1513,10 @@ async function runBackendFailureChain(specification)
   await restoredEvent;
   await runAnimationFrame(SAMPLE_TIME_MS);
   const restoringRoute = effect.getConfig();
-  const restoring = captureCompositingPhases(effect, fixture.target);
+  const restoring = capturePhase();
   await runAnimationFrame(SAMPLE_TIME_MS);
   const restoredRoute = effect.getConfig();
-  const restored = captureCompositingPhases(effect, fixture.target);
+  const restored = capturePhase();
   const events = backendEvents.events.slice();
 
   backendEvents.stop();
@@ -1803,15 +1823,38 @@ async function runTrailTextureResourceLifecycle()
   };
 }
 
-async function runTrailContextLifecycle(mode)
+function captureTrailContextPhase(effect, target)
 {
+  const capture = captureCompositingPhases(
+    effect,
+    target,
+    {
+      x: STRAIGHT_TRAIL_TRANSMISSION_X,
+      y: STRAIGHT_TRAIL_Y,
+    },
+  );
+
+  return {
+    ...capture,
+    profile: summarizeStraightTrail(capture.images.transparent, effect),
+  };
+}
+
+async function runTrailContextLifecycle(specification)
+{
+  const mode = typeof specification === 'string'
+    ? specification
+    : specification.mode;
+  const outputCompositing = typeof specification === 'string'
+    ? 'scene'
+    : specification.outputCompositing ?? 'scene';
   const fixture = await prepareEffect(
     {
       mode,
       opacity: 1,
       isolatedCompositing: true,
       background: 'transparent',
-      outputCompositing: 'scene',
+      outputCompositing,
       shadow: false,
       containStrict: false,
       includeClick: false,
@@ -1823,6 +1866,7 @@ async function runTrailContextLifecycle(mode)
     },
   );
   const effect = fixture.effect;
+  const resolvedOutputCompositing = effect.getConfig().outputCompositing;
   const resources = getWebGLModeResources(effect, mode);
   const canvas = resources.canvas;
   const renderer = resources.renderer;
@@ -1835,18 +1879,18 @@ async function runTrailContextLifecycle(mode)
     throw new Error(`${mode} 无法建立 Trail Context 生命周期夹具`);
   }
 
-  const beforeImage = captureLayers(
-    effect,
-    fixture.target,
-    'transparent',
-  );
-  const beforeProfile = summarizeStraightTrail(beforeImage, effect);
+  const beforeRoute = effect.getConfig();
+  const before = captureTrailContextPhase(effect, fixture.target);
   const originalTextureValid = context.isTexture(originalTexture);
   const lostEvent = waitForCanvasEvent(canvas, 'webglcontextlost');
 
   extension.loseContext();
   await lostEvent;
-  await runAnimationFrame(SAMPLE_TIME_MS + 1);
+  const fallbackRoute = effect.getConfig();
+  const fallback = captureTrailContextPhase(effect, fixture.target);
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  const fallbackSteadyRoute = effect.getConfig();
+  const fallbackSteady = captureTrailContextPhase(effect, fixture.target);
 
   const restoredEvent = waitForCanvasEvent(canvas, 'webglcontextrestored');
 
@@ -1854,36 +1898,101 @@ async function runTrailContextLifecycle(mode)
   await new Promise((resolve) => setTimeout(resolve, 100));
   extension.restoreContext();
   await restoredEvent;
-  await runAnimationFrame(SAMPLE_TIME_MS + 2);
-  await runAnimationFrame(SAMPLE_TIME_MS + 3);
+  // 同一虚拟时间采集恢复首帧和稳定帧，避免 Trail 生命周期推进掩盖跳变。
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  const restoringRoute = effect.getConfig();
+  const restoring = captureTrailContextPhase(effect, fixture.target);
+  await runAnimationFrame(SAMPLE_TIME_MS);
 
   const restoredResources = getWebGLModeResources(effect, mode);
   const restoredTexture = restoredResources.renderer?.trailTexture;
-  const restoredImage = captureLayers(
-    effect,
-    fixture.target,
-    'transparent',
-  );
-  const restoredProfile = summarizeStraightTrail(restoredImage, effect);
   const restoredRoute = effect.getConfig();
+  const restored = captureTrailContextPhase(effect, fixture.target);
 
   return {
     mode,
-    beforeProfile,
-    restoredProfile,
+    outputCompositing: resolvedOutputCompositing,
+    before: before.pixels,
+    fallback: fallback.pixels,
+    fallbackSteady: fallbackSteady.pixels,
+    restoring: restoring.pixels,
+    restored: restored.pixels,
+    profiles:
+    {
+      before: before.profile,
+      fallback: fallback.profile,
+      fallbackSteady: fallbackSteady.profile,
+      restoring: restoring.profile,
+      restored: restored.profile,
+    },
+    alphaContinuity:
+    {
+      fallback: compareAlphaImages(
+        before.images.transparent,
+        fallback.images.transparent,
+      ),
+      fallbackSteady: compareAlphaImages(
+        before.images.transparent,
+        fallbackSteady.images.transparent,
+      ),
+      restoring: compareAlphaImages(
+        before.images.transparent,
+        restoring.images.transparent,
+      ),
+      restoringToRestored: compareAlphaImages(
+        restoring.images.transparent,
+        restored.images.transparent,
+      ),
+      restored: compareAlphaImages(
+        before.images.transparent,
+        restored.images.transparent,
+      ),
+    },
+    compositing:
+    {
+      before: before.compositing,
+      fallback: fallback.compositing,
+      fallbackSteady: fallbackSteady.compositing,
+      restoring: restoring.compositing,
+      restored: restored.compositing,
+    },
     texture:
     {
       originalValid: originalTextureValid,
+      originalInvalidAfterRestore: !context.isTexture(originalTexture),
       rendererReused: restoredResources.renderer === renderer,
       replaced: restoredTexture !== originalTexture,
       restoredValid: Boolean(
         restoredTexture && context.isTexture(restoredTexture),
       ),
     },
-    restoredRoute:
+    routes:
     {
-      effect: restoredRoute.resolvedEffectBackend,
-      bloom: restoredRoute.resolvedBloomBackend,
+      before:
+      {
+        effect: beforeRoute.resolvedEffectBackend,
+        bloom: beforeRoute.resolvedBloomBackend,
+      },
+      fallback:
+      {
+        effect: fallbackRoute.resolvedEffectBackend,
+        bloom: fallbackRoute.resolvedBloomBackend,
+      },
+      fallbackSteady:
+      {
+        effect: fallbackSteadyRoute.resolvedEffectBackend,
+        bloom: fallbackSteadyRoute.resolvedBloomBackend,
+      },
+      restoring:
+      {
+        effect: restoringRoute.resolvedEffectBackend,
+        bloom: restoringRoute.resolvedBloomBackend,
+      },
+      restored:
+      {
+        effect: restoredRoute.resolvedEffectBackend,
+        bloom: restoredRoute.resolvedBloomBackend,
+      },
     },
   };
 }
