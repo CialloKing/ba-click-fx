@@ -112,6 +112,26 @@ function verifyRuntimeApi(moduleExports, bundleName)
       moduleExports.FX_PARAM_MIGRATIONS.length > 0,
     `${bundleName} bundle does not expose the parameter schema contract`,
   );
+  verify(
+    typeof moduleExports.applyFxParamPatch === 'function',
+    `${bundleName} bundle does not expose applyFxParamPatch()`,
+  );
+
+  const patchResult = moduleExports.applyFxParamPatch(
+    { 'bloom.scatter': 7 },
+    {
+      schemaVersion: 0,
+      strict: true,
+    },
+  );
+
+  verify(
+    patchResult.committed === true &&
+      patchResult.applied[0]?.path === 'bloom.diffusion' &&
+      patchResult.applied[0]?.value === 7 &&
+      !('nextConfig' in patchResult),
+    `${bundleName} applyFxParamPatch() does not preserve the public contract`,
+  );
 }
 
 try
@@ -170,7 +190,8 @@ if (
   !Array.isArray(moduleExports.FX_PARAM_SCHEMA) ||
   moduleExports.FX_PARAM_SCHEMA.length !== 65 ||
   !Array.isArray(moduleExports.FX_PARAM_MIGRATIONS) ||
-  moduleExports.FX_PARAM_MIGRATIONS.length < 1
+  moduleExports.FX_PARAM_MIGRATIONS.length < 1 ||
+  typeof moduleExports.applyFxParamPatch !== 'function'
 )
 {
   throw new Error('ESM exports are incomplete');
@@ -198,6 +219,21 @@ if (
 {
   throw new Error('ESM CONFIG defaults are incomplete');
 }
+
+const patchResult = moduleExports.applyFxParamPatch(
+  { 'bloom.scatter': 7 },
+  { schemaVersion: 0, strict: true },
+);
+
+if (
+  patchResult.committed !== true ||
+  patchResult.applied[0]?.path !== 'bloom.diffusion' ||
+  patchResult.applied[0]?.value !== 7 ||
+  'nextConfig' in patchResult
+)
+{
+  throw new Error('ESM applyFxParamPatch() contract is invalid');
+}
 `;
   const commonJsRuntimeSource = `
 const moduleExports = require('ba-click-fx');
@@ -214,7 +250,8 @@ if (
   !Array.isArray(moduleExports.FX_PARAM_SCHEMA) ||
   moduleExports.FX_PARAM_SCHEMA.length !== 65 ||
   !Array.isArray(moduleExports.FX_PARAM_MIGRATIONS) ||
-  moduleExports.FX_PARAM_MIGRATIONS.length < 1
+  moduleExports.FX_PARAM_MIGRATIONS.length < 1 ||
+  typeof moduleExports.applyFxParamPatch !== 'function'
 )
 {
   throw new Error('CommonJS exports are incomplete');
@@ -241,6 +278,21 @@ if (
 )
 {
   throw new Error('CommonJS CONFIG defaults are incomplete');
+}
+
+const patchResult = moduleExports.applyFxParamPatch(
+  { 'bloom.scatter': 7 },
+  { schemaVersion: 0, strict: true },
+);
+
+if (
+  patchResult.committed !== true ||
+  patchResult.applied[0]?.path !== 'bloom.diffusion' ||
+  patchResult.applied[0]?.value !== 7 ||
+  'nextConfig' in patchResult
+)
+{
+  throw new Error('CommonJS applyFxParamPatch() contract is invalid');
 }
 `;
 
@@ -270,8 +322,9 @@ if (
   );
   const iifeContext =
   {
-    // IIFE 在浏览器中天然可用 atob；vm 隔离上下文不会继承宿主全局。
+    // IIFE 在浏览器中天然可用这些能力；vm 隔离上下文不会继承宿主全局。
     atob: globalThis.atob,
+    structuredClone: globalThis.structuredClone,
   };
 
   vm.runInNewContext(iifeSource, iifeContext);
@@ -297,6 +350,7 @@ if (
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
   UNITY_FX_TOUCH,
+  applyFxParamPatch,
   createConfig,
   type BAClickFXBackendChangeEvent,
   type BAClickFXBloomBackend,
@@ -319,6 +373,7 @@ if (
   type BAClickFXResolvedBloomBackend,
   type BAClickFXResolvedEffectBackend,
   type BAClickFXSceneBackgroundOptions,
+  type BAClickFXStandalonePatchOptions,
   type BAClickFXUpdateOptions,
   type UnityFxTouchConfig,
 } from 'ba-click-fx';
@@ -407,6 +462,43 @@ const patchOptions: BAClickFXParamPatchOptions =
   strict: true,
   reset: false,
 };
+const standalonePatchOptions: BAClickFXStandalonePatchOptions =
+{
+  schemaVersion: 0,
+  strict: true,
+};
+const standalonePatchResult: BAClickFXParamPatchResult = applyFxParamPatch(
+  {
+    'bloom.scatter': 7,
+  },
+  standalonePatchOptions,
+);
+const untrustedPatch: Readonly<Record<string, unknown>> =
+{
+  'hit.enabled': 'invalid',
+  'rings.count': null,
+};
+applyFxParamPatch(untrustedPatch);
+applyFxParamPatch(
+  {
+    'hit.enabled': true,
+  },
+  {
+    // @ts-expect-error standalone API 不允许请求实例模式重置。
+    reset: true,
+  },
+);
+applyFxParamPatch(
+  {
+    'hit.enabled': true,
+  },
+  {
+    // @ts-expect-error standalone API 不允许注入内部配置基线。
+    baseline: UNITY_FX_TOUCH,
+  },
+);
+// @ts-expect-error standalone 结果不公开内部候选配置树。
+const internalPatchCandidate = standalonePatchResult.nextConfig;
 
 namedInstance.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, event =>
 {
@@ -555,6 +647,9 @@ void [
   sceneBackgroundOptions,
   sceneBackgroundAccepted,
   patchOptions,
+  standalonePatchOptions,
+  standalonePatchResult,
+  internalPatchCandidate,
   paramValue,
   paramAccepted,
   patchResult,
