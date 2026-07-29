@@ -342,6 +342,7 @@ import {
   BAClickFX,
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
+  applyFxParamPatch,
 } from 'ba-click-fx';
 
 const fx = new BAClickFX();
@@ -358,6 +359,33 @@ const result = fx.setFxParams(
 
 console.log(FX_PARAM_SCHEMA.length, FX_PARAM_SCHEMA_VERSION, result);
 ```
+
+A settings page can also migrate and validate persisted patches without creating DOM state or a renderer instance:
+
+```js
+const storedPatch =
+{
+  'bloom.scatter': 0.35,
+};
+const migrated = applyFxParamPatch(
+  storedPatch,
+  {
+    schemaVersion: 0,
+    strict: true,
+  },
+);
+
+if (migrated.committed)
+{
+  const normalizedPatch = Object.fromEntries(
+    migrated.applied.map(({ path, value }) => [path, value]),
+  );
+
+  localStorage.setItem('ba-click-fx', JSON.stringify(normalizedPatch));
+}
+```
+
+The package-level `applyFxParamPatch()` uses the game defaults as its private validation baseline and accepts only `schemaVersion` and `strict`. It neither mutates an instance nor exposes the complete Unity configuration tree. Here, `committed` means that the candidate patch is safe to persist; only instance-level `setFxParams()` installs configuration into the current renderer. Mode resets remain an instance-level operation through `reset: true`.
 
 The result contains `applied`, `normalized`, `rejected`, `committed`, and `schemaVersion`. `applied` contains the accepted final paths and values; `normalized` records renames, default restoration, numeric clamping, and Boolean coercion; `rejected` gives the path, original value, and reason; `committed` says whether the candidate configuration was actually installed. The default `strict: false` commits valid entries and reports rejected ones. With `strict: true`, one rejected entry rolls back the entire batch and `applied` is empty. `reset: true` first restores the current Enhanced or Legacy mode baseline and then applies the same patch; even an empty patch commits the reset. `setFxParam()` reuses this validation with strict single-entry semantics.
 

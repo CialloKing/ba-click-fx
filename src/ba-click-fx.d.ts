@@ -86,7 +86,10 @@ declare module 'ba-click-fx'
     softwareBloomEnabled?: boolean;
     /** 在透明组内合成多 Canvas 后再覆盖页面，默认 false；已有 Canvas target 不支持。 */
     isolatedCompositing?: boolean;
-    /** 浅色背景的非 Bloom 淡青轮廓强度，默认 0；建议与隔离合成一起显式开启。 */
+    /**
+     * 浅色背景的非 Bloom 淡青轮廓强度，默认 0；建议与隔离合成一起显式开启。
+     * outputCompositing 为 'transparent-overlay' 时忽略此项。
+     */
     lightBackgroundContrastAlpha?: number;
     /** Canvas backing store 的设备像素比上限，默认 2。 */
     maxDpr?: number;
@@ -241,12 +244,17 @@ declare module 'ba-click-fx'
 
   export type BAClickFXParamValue = number | boolean;
 
-  export interface BAClickFXParamPatchOptions
+  export interface BAClickFXStandalonePatchOptions
   {
     /** 传入持久化补丁所使用的 Schema 版本，默认当前版本。 */
     schemaVersion?: number;
     /** 有任一拒绝项时回滚整批，默认 false。 */
     strict?: boolean;
+  }
+
+  export interface BAClickFXParamPatchOptions extends
+    BAClickFXStandalonePatchOptions
+  {
     /** 应用补丁前先恢复当前渲染模式的默认基线，默认 false。 */
     reset?: boolean;
   }
@@ -312,6 +320,14 @@ declare module 'ba-click-fx'
   export const UNITY_FX_TOUCH: UnityFxTouchConfig;
   export const SIZE_CORRECTION: number;
   export function createConfig(overrides?: Partial<BAClickFXConfig>): BAClickFXConfig;
+  /**
+   * 无需 DOM 或渲染实例即可迁移并校验持久化参数补丁。
+   * 返回值不会暴露或修改内部 Unity 配置树。
+   */
+  export function applyFxParamPatch(
+    patch: Readonly<Record<string, unknown>>,
+    options?: BAClickFXStandalonePatchOptions,
+  ): BAClickFXParamPatchResult;
 
   export class BAClickFX
   {

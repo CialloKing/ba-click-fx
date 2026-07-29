@@ -931,9 +931,8 @@ export const FX_PARAM_MIGRATIONS = freezeFxParamMetadata(
           {
             type: 'number',
             min: 0,
-            max: 1,
           },
-          // 两个参数没有可证明的视觉等价换算，旧值必须恢复 Unity 默认值。
+          // 旧 API 接受任意非负有限值；新旧参数无等价换算，统一恢复默认值。
           value: UNITY_FX_TOUCH.bloom.diffusion,
         },
       ],

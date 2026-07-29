@@ -70,8 +70,13 @@ function validateMigrationSource(source, value)
       return 'non-finite-number';
     }
 
-    // Replace 会丢弃旧值；越界时若先钳制，会把损坏的持久化数据伪装成成功迁移。
-    if (value < source.min || value > source.max)
+    // Replace 会丢弃旧值；只检查旧 Schema 明确声明的边界，避免收窄历史契约。
+    const belowMinimum =
+      Number.isFinite(source.min) && value < source.min;
+    const aboveMaximum =
+      Number.isFinite(source.max) && value > source.max;
+
+    if (belowMinimum || aboveMaximum)
     {
       return 'out-of-range';
     }

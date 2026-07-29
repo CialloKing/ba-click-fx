@@ -23,7 +23,7 @@ import {
   normalizeTimeScale,
   SIZE_CORRECTION,
 } from './config.js';
-import { applyFxParamPatch } from './fx-param-patch.js';
+import { applyFxParamPatch as prepareFxParamPatch } from './fx-param-patch.js';
 import { gammaToLinear } from './bloom-color-space.js';
 import {
   SoftwareBloomRenderer,
@@ -8466,7 +8466,7 @@ export class BAClickFX
       };
     }
 
-    const prepared = applyFxParamPatch(
+    const prepared = prepareFxParamPatch(
       patch,
       {
         baseline: this.fxConfig,
@@ -8772,7 +8772,27 @@ export class BAClickFX
   }
 }
 
+/**
+ * 在不创建渲染实例的情况下迁移并校验持久化参数补丁。
+ * 内部候选配置树不属于公共契约；宿主只需持久化返回的 applied 项。
+ */
+function applyFxParamPatch(patch, options = {})
+{
+  const prepared = prepareFxParamPatch(
+    patch,
+    {
+      baseline: UNITY_FX_TOUCH,
+      schemaVersion: options.schemaVersion ?? FX_PARAM_SCHEMA_VERSION,
+      strict: options.strict === true,
+    },
+  );
+  const { nextConfig, ...result } = prepared;
+
+  return result;
+}
+
 export {
+  applyFxParamPatch,
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
   DEFAULT_THEME_COLOR,

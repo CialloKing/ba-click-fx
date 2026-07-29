@@ -177,7 +177,6 @@ assert.deepEqual(
           {
             type: 'number',
             min: 0,
-            max: 1,
           },
           value: 7,
         },
@@ -185,7 +184,7 @@ assert.deepEqual(
     },
   ],
 );
-check(true, '0 -> 1 迁移先验证旧 scatter 契约再恢复 diffusion 默认值');
+check(true, '0 -> 1 迁移接受旧 scatter 非负有限值并恢复 diffusion 默认值');
 
 console.log('\n主题色配置契约');
 check(

@@ -3,7 +3,8 @@
 ## v1.2.15 — 参数契约与透明覆盖层收敛
 
 - 新增只读 `FX_PARAM_SCHEMA`、`FX_PARAM_SCHEMA_VERSION = 1` 与 `FX_PARAM_MIGRATIONS`，为公开标量参数提供类型、硬边界、默认值、单位、分组、稳定顺序、本地化键、推荐控件范围、关联路径和 Enhanced/Legacy 模式基线
-- 加入 `bloom.scatter` 到 `bloom.diffusion` 的 v0→v1 路径和值迁移；两者无可靠视觉等价换算，旧值会明确恢复 Unity 默认 `7` 并报告 `defaulted`；新增 Schema 驱动的 `setFxParams(patch, { schemaVersion, strict, reset })`，返回 `applied`、`normalized`、`rejected`、`committed` 与当前 Schema 版本，严格模式任一错误整批回滚
+- 加入 `bloom.scatter` 到 `bloom.diffusion` 的 v0→v1 路径和值迁移；兼容旧 API 曾接受的任意非负有限值，因两者无可靠视觉等价换算而统一恢复 Unity 默认 `7` 并报告 `defaulted`；新增 Schema 驱动的 `setFxParams(patch, { schemaVersion, strict, reset })`，返回 `applied`、`normalized`、`rejected`、`committed` 与当前 Schema 版本，严格模式任一错误整批回滚
+- 新增包根 `applyFxParamPatch(patch, { schemaVersion, strict })`，允许设置页在不创建 DOM 或渲染实例时迁移并校验不可信持久化补丁，且不会公开内部候选配置树
 - `setFxParam()` 改为返回是否提交成功；未知路径、非法类型与非有限数不再静默失败；`resetFxConfig()` 现在恢复当前 Enhanced 或 Legacy 模式基线
 - 将 `themeColor` 纳入构造参数、`updateConfig()` 与 `getConfig()` 的实例状态，并导出默认游戏蓝 `DEFAULT_THEME_COLOR = '#4ca7ff'`；非法颜色统一恢复默认值
 - 对照 Unity `Circle_01` 纹理和材质混合重新使用完整二维 RGB/R Coverage，修正 Canvas、Software、Native 与 Legacy 圆盘的边缘、中心能量和生命周期透明度；未改动嵌入纹理数据

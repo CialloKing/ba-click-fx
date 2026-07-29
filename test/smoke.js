@@ -39,6 +39,7 @@ const {
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
   UNITY_FX_TOUCH,
+  applyFxParamPatch,
   createConfig,
   SIZE_CORRECTION,
 } = module;
@@ -1030,9 +1031,55 @@ assert(
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.to === 'bloom.diffusion' &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.source?.type === 'number' &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.source?.min === 0 &&
-    FX_PARAM_MIGRATIONS[0]?.changes[0]?.source?.max === 1 &&
+    !('max' in FX_PARAM_MIGRATIONS[0].changes[0].source) &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.value === 7,
   '正式入口导出参数 Schema 版本与迁移合同',
+);
+
+const standalonePatch =
+{
+  'bloom.scatter': 7,
+  'rings.hdrIntensity': 6.2,
+};
+const standalonePatchSnapshot = JSON.stringify(standalonePatch);
+const standalonePatchResult = applyFxParamPatch(
+  standalonePatch,
+  {
+    schemaVersion: 0,
+    strict: true,
+  },
+);
+
+assert(
+  standalonePatchResult.committed === true &&
+    !('nextConfig' in standalonePatchResult) &&
+    standalonePatchResult.applied.some((entry) =>
+      entry.path === 'bloom.diffusion' && entry.value === 7) &&
+    standalonePatchResult.applied.some((entry) =>
+      entry.path === 'rings.hdrIntensity' && entry.value === 6.2) &&
+    standalonePatchResult.normalized.some((entry) =>
+      entry.reason === 'renamed') &&
+    standalonePatchResult.normalized.some((entry) =>
+      entry.reason === 'defaulted' && entry.from === 7 && entry.to === 7) &&
+    JSON.stringify(standalonePatch) === standalonePatchSnapshot,
+  '包根 applyFxParamPatch 无实例迁移补丁且不暴露候选配置树',
+);
+
+const standaloneStrictResult = applyFxParamPatch(
+  {
+    'rings.count': 4,
+    'unknown.path': 1,
+  },
+  { strict: true },
+);
+
+assert(
+  standaloneStrictResult.committed === false &&
+    standaloneStrictResult.applied.length === 0 &&
+    standaloneStrictResult.rejected[0]?.path === 'unknown.path' &&
+    standaloneStrictResult.rejected[0]?.reason === 'unknown-path' &&
+    !('nextConfig' in standaloneStrictResult),
+  '包根 applyFxParamPatch 严格模式原子拒绝非法补丁',
 );
 
 console.log('\n配置隔离');
@@ -1172,7 +1219,7 @@ assert(
 
 const migratedBatchResult = paramApiEffect.setFxParams(
   {
-    'bloom.scatter': 0.35,
+    'bloom.scatter': 7,
   },
   {
     schemaVersion: 0,
@@ -1187,7 +1234,7 @@ assert(
     migratedBatchResult.normalized.some((entry) =>
       entry.reason === 'renamed') &&
     migratedBatchResult.normalized.some((entry) =>
-      entry.reason === 'defaulted' && entry.from === 0.35 && entry.to === 7) &&
+      entry.reason === 'defaulted' && entry.from === 7 && entry.to === 7) &&
     paramApiEffect.getFxConfig().bloom.diffusion === 7,
   'setFxParams 将 bloom.scatter 迁移为 diffusion 默认值',
 );
@@ -1195,7 +1242,7 @@ assert(
 const beforeStrictInvalidMigration = paramApiEffect.getFxConfig();
 const strictInvalidMigrationResult = paramApiEffect.setFxParams(
   {
-    'bloom.scatter': 7,
+    'bloom.scatter': -0.01,
     'rings.count': 2,
   },
   {
@@ -1209,11 +1256,11 @@ assert(
     strictInvalidMigrationResult.applied.length === 0 &&
     strictInvalidMigrationResult.normalized.length === 0 &&
     strictInvalidMigrationResult.rejected[0]?.path === 'bloom.scatter' &&
-    strictInvalidMigrationResult.rejected[0]?.value === 7 &&
+    strictInvalidMigrationResult.rejected[0]?.value === -0.01 &&
     strictInvalidMigrationResult.rejected[0]?.reason === 'out-of-range' &&
     JSON.stringify(paramApiEffect.getFxConfig()) ===
       JSON.stringify(beforeStrictInvalidMigration),
-  'setFxParams strict 模式拒绝越界 scatter 并整批回滚',
+  'setFxParams strict 模式拒绝负数 scatter 并整批回滚',
 );
 
 const migrationConflictResult = paramApiEffect.setFxParams(

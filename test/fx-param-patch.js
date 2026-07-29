@@ -61,7 +61,7 @@ check(true, '候选配置不会原地修改 baseline');
 
 console.log('\n旧版本迁移与路径冲突');
 
-for (const scatter of [0, 0.35, 1])
+for (const scatter of [0, 0.35, 1, 1.01, 7, Number.MAX_VALUE])
 {
   const migrationResult = applyFxParamPatch(
     {
@@ -103,9 +103,8 @@ const invalidScatterValues =
   ['0.35', 'invalid-type'],
   [Number.NaN, 'non-finite-number'],
   [Number.POSITIVE_INFINITY, 'non-finite-number'],
+  [Number.NEGATIVE_INFINITY, 'non-finite-number'],
   [-0.01, 'out-of-range'],
-  [1.01, 'out-of-range'],
-  [7, 'out-of-range'],
 ];
 
 for (const [scatter, expectedReason] of invalidScatterValues)

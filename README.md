@@ -362,6 +362,7 @@ import {
   BAClickFX,
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
+  applyFxParamPatch,
 } from 'ba-click-fx';
 
 const fx = new BAClickFX();
@@ -378,6 +379,33 @@ const result = fx.setFxParams(
 
 console.log(FX_PARAM_SCHEMA.length, FX_PARAM_SCHEMA_VERSION, result);
 ```
+
+设置页也可以在不创建 DOM 或渲染实例时迁移并校验持久化补丁：
+
+```js
+const storedPatch =
+{
+  'bloom.scatter': 0.35,
+};
+const migrated = applyFxParamPatch(
+  storedPatch,
+  {
+    schemaVersion: 0,
+    strict: true,
+  },
+);
+
+if (migrated.committed)
+{
+  const normalizedPatch = Object.fromEntries(
+    migrated.applied.map(({ path, value }) => [path, value]),
+  );
+
+  localStorage.setItem('ba-click-fx', JSON.stringify(normalizedPatch));
+}
+```
+
+包根 `applyFxParamPatch()` 固定以游戏默认参数作为内部校验基线，只接受 `schemaVersion` 与 `strict`，不会修改实例，也不会公开完整 Unity 配置树。此处 `committed` 表示候选补丁可以安全写回存储；实例级 `setFxParams()` 的 `committed` 才表示配置已提交到当前渲染实例。模式重置仍由实例级 `reset: true` 负责。
 
 返回对象包含 `applied`、`normalized`、`rejected`、`committed` 和 `schemaVersion`：`applied` 是最终接受的路径和值；`normalized` 记录路径重命名、旧值恢复默认、数值钳制或布尔转换；`rejected` 给出路径、原值和原因；`committed` 表示候选配置是否真正提交。默认 `strict: false` 会提交合法项并报告拒绝项；`strict: true` 只要出现一个拒绝项就回滚整批，且 `applied` 为空。`reset: true` 会先恢复当前 Enhanced 或 Legacy 模式的默认基线，再应用同一批补丁；即使补丁为空，也会提交该重置。`setFxParam()` 复用相同校验并采用严格单项语义。
 
