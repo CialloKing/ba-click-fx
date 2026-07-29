@@ -170,15 +170,16 @@ assert.deepEqual(
       changes:
       [
         {
-          kind: 'rename',
+          kind: 'replace',
           from: 'bloom.scatter',
           to: 'bloom.diffusion',
+          value: 7,
         },
       ],
     },
   ],
 );
-check(true, '0 -> 1 迁移将 bloom.scatter 重命名为 bloom.diffusion');
+check(true, '0 -> 1 迁移将 bloom.scatter 恢复为 diffusion 默认值');
 
 console.log('\n主题色配置契约');
 check(

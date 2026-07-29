@@ -924,9 +924,11 @@ export const FX_PARAM_MIGRATIONS = freezeFxParamMetadata(
       changes:
       [
         {
-          kind: 'rename',
+          kind: 'replace',
           from: 'bloom.scatter',
           to: 'bloom.diffusion',
+          // 两个参数没有可证明的视觉等价换算，旧值必须恢复 Unity 默认值。
+          value: UNITY_FX_TOUCH.bloom.diffusion,
         },
       ],
     },

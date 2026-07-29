@@ -51,10 +51,11 @@ function createRejected(path, value, reason, details = {})
   );
 }
 
-function resolveMigration(path, schemaVersion)
+function resolveMigration(path, value, schemaVersion)
 {
   let currentVersion = schemaVersion;
   let resolvedPath = path;
+  let resolvedValue = value;
   const normalized = [];
 
   while (currentVersion < FX_PARAM_SCHEMA_VERSION)
@@ -88,6 +89,33 @@ function resolveMigration(path, schemaVersion)
         );
         resolvedPath = change.to;
       }
+
+      if (change.kind === 'replace' && resolvedPath === change.from)
+      {
+        normalized.push(
+          {
+            path: resolvedPath,
+            from: resolvedPath,
+            to: change.to,
+            reason: 'renamed',
+          },
+        );
+        resolvedPath = change.to;
+
+        if (!Object.is(resolvedValue, change.value))
+        {
+          normalized.push(
+            {
+              path: resolvedPath,
+              from: resolvedValue,
+              to: change.value,
+              reason: 'defaulted',
+            },
+          );
+        }
+
+        resolvedValue = change.value;
+      }
     }
 
     currentVersion = migration.toVersion;
@@ -97,6 +125,7 @@ function resolveMigration(path, schemaVersion)
     {
       error: null,
       path: resolvedPath,
+      value: resolvedValue,
       normalized,
     }
   );
@@ -294,7 +323,7 @@ export function applyFxParamPatch(
 
   for (const [sourcePath, value] of Object.entries(patch))
   {
-    const migration = resolveMigration(sourcePath, schemaVersion);
+    const migration = resolveMigration(sourcePath, value, schemaVersion);
 
     if (migration.error)
     {
@@ -307,8 +336,9 @@ export function applyFxParamPatch(
     entries.push(
       {
         sourcePath,
+        sourceValue: value,
         path: migration.path,
-        value,
+        value: migration.value,
         migrations: migration.normalized,
       },
     );
@@ -339,7 +369,7 @@ export function applyFxParamPatch(
         rejected.push(
           createRejected(
             entry.sourcePath,
-            entry.value,
+            entry.sourceValue,
             entry.migrations.length > 0
               ? 'migration-conflict'
               : 'duplicate-path',
@@ -364,7 +394,7 @@ export function applyFxParamPatch(
     if (!descriptor)
     {
       rejected.push(
-        createRejected(entry.sourcePath, entry.value, 'unknown-path'),
+        createRejected(entry.sourcePath, entry.sourceValue, 'unknown-path'),
       );
       continue;
     }
@@ -378,7 +408,7 @@ export function applyFxParamPatch(
     if (!valueResult.accepted)
     {
       rejected.push(
-        createRejected(entry.sourcePath, entry.value, valueResult.reason),
+        createRejected(entry.sourcePath, entry.sourceValue, valueResult.reason),
       );
       continue;
     }

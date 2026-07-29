@@ -61,37 +61,46 @@ check(true, '候选配置不会原地修改 baseline');
 
 console.log('\n旧版本迁移与路径冲突');
 
-const migrationResult = applyFxParamPatch(
-  {
-    'bloom.scatter': 6.25,
-  },
-  {
-    baseline,
-    schemaVersion: 0,
-  },
-);
-
-assert.deepEqual(
-  migrationResult.applied,
-  [{ path: 'bloom.diffusion', value: 6.25 }],
-);
-assert.deepEqual(
-  migrationResult.normalized,
-  [
+for (const scatter of [0, 0.35, 1])
+{
+  const migrationResult = applyFxParamPatch(
     {
-      path: 'bloom.scatter',
-      from: 'bloom.scatter',
-      to: 'bloom.diffusion',
-      reason: 'renamed',
+      'bloom.scatter': scatter,
     },
-  ],
-);
-assert.equal(migrationResult.nextConfig.bloom.diffusion, 6.25);
-check(true, 'Schema 0 的 bloom.scatter 会迁移到 bloom.diffusion');
+    {
+      baseline,
+      schemaVersion: 0,
+    },
+  );
+
+  assert.deepEqual(
+    migrationResult.applied,
+    [{ path: 'bloom.diffusion', value: 7 }],
+  );
+  assert.deepEqual(
+    migrationResult.normalized,
+    [
+      {
+        path: 'bloom.scatter',
+        from: 'bloom.scatter',
+        to: 'bloom.diffusion',
+        reason: 'renamed',
+      },
+      {
+        path: 'bloom.diffusion',
+        from: scatter,
+        to: 7,
+        reason: 'defaulted',
+      },
+    ],
+  );
+  assert.equal(migrationResult.nextConfig.bloom.diffusion, 7);
+}
+check(true, 'Schema 0 的 scatter 合法值都会恢复 diffusion 默认值');
 
 const migrationConflictResult = applyFxParamPatch(
   {
-    'bloom.scatter': 3,
+    'bloom.scatter': 0.35,
     'bloom.diffusion': 7,
   },
   {
@@ -106,12 +115,17 @@ assert.deepEqual(
 );
 assert.equal(migrationConflictResult.rejected.length, 1);
 assert.equal(migrationConflictResult.rejected[0].path, 'bloom.scatter');
+assert.equal(migrationConflictResult.rejected[0].value, 0.35);
 assert.equal(migrationConflictResult.rejected[0].reason, 'migration-conflict');
+assert.equal(
+  migrationConflictResult.rejected[0].targetPath,
+  'bloom.diffusion',
+);
 check(true, '新旧路径同时存在时显式新路径优先');
 
 const strictMigrationConflictResult = applyFxParamPatch(
   {
-    'bloom.scatter': 3,
+    'bloom.scatter': 0.35,
     'bloom.diffusion': 7,
   },
   {

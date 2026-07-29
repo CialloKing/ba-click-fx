@@ -212,11 +212,22 @@ declare module 'ba-click-fx'
     readonly to: string;
   }
 
+  export interface BAClickFXParamReplaceMigration
+  {
+    readonly kind: 'replace';
+    readonly from: string;
+    readonly to: string;
+    /** 无可靠等价换算时写入的新 Schema 默认值。 */
+    readonly value: BAClickFXParamValue;
+  }
+
   export interface BAClickFXParamMigration
   {
     readonly fromVersion: number;
     readonly toVersion: number;
-    readonly changes: readonly BAClickFXParamRenameMigration[];
+    readonly changes: readonly (
+      BAClickFXParamRenameMigration | BAClickFXParamReplaceMigration
+    )[];
   }
 
   export type BAClickFXParamValue = number | boolean;
@@ -239,6 +250,7 @@ declare module 'ba-click-fx'
 
   export type BAClickFXParamNormalizationReason =
     | 'renamed'
+    | 'defaulted'
     | 'clamped'
     | 'boolean-coercion';
 

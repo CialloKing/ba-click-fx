@@ -1025,8 +1025,10 @@ assert(
 );
 assert(
   FX_PARAM_SCHEMA_VERSION === 1 &&
+    FX_PARAM_MIGRATIONS[0]?.changes[0]?.kind === 'replace' &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.from === 'bloom.scatter' &&
-    FX_PARAM_MIGRATIONS[0]?.changes[0]?.to === 'bloom.diffusion',
+    FX_PARAM_MIGRATIONS[0]?.changes[0]?.to === 'bloom.diffusion' &&
+    FX_PARAM_MIGRATIONS[0]?.changes[0]?.value === 7,
   '正式入口导出参数 Schema 版本与迁移合同',
 );
 
@@ -1167,7 +1169,7 @@ assert(
 
 const migratedBatchResult = paramApiEffect.setFxParams(
   {
-    'bloom.scatter': 6.25,
+    'bloom.scatter': 0.35,
   },
   {
     schemaVersion: 0,
@@ -1178,9 +1180,58 @@ const migratedBatchResult = paramApiEffect.setFxParams(
 assert(
   migratedBatchResult.committed === true &&
     migratedBatchResult.applied[0]?.path === 'bloom.diffusion' &&
-    migratedBatchResult.normalized[0]?.reason === 'renamed' &&
-    paramApiEffect.getFxConfig().bloom.diffusion === 6.25,
-  'setFxParams 按 Schema 版本迁移 bloom.scatter 旧路径',
+    migratedBatchResult.applied[0]?.value === 7 &&
+    migratedBatchResult.normalized.some((entry) =>
+      entry.reason === 'renamed') &&
+    migratedBatchResult.normalized.some((entry) =>
+      entry.reason === 'defaulted' && entry.from === 0.35 && entry.to === 7) &&
+    paramApiEffect.getFxConfig().bloom.diffusion === 7,
+  'setFxParams 将 bloom.scatter 迁移为 diffusion 默认值',
+);
+
+const migrationConflictResult = paramApiEffect.setFxParams(
+  {
+    'bloom.scatter': 0.35,
+    'bloom.diffusion': 6,
+  },
+  {
+    schemaVersion: 0,
+  },
+);
+
+assert(
+  migrationConflictResult.committed === true &&
+    migrationConflictResult.applied.length === 1 &&
+    migrationConflictResult.applied[0]?.path === 'bloom.diffusion' &&
+    migrationConflictResult.applied[0]?.value === 6 &&
+    migrationConflictResult.rejected[0]?.path === 'bloom.scatter' &&
+    migrationConflictResult.rejected[0]?.value === 0.35 &&
+    migrationConflictResult.rejected[0]?.reason === 'migration-conflict' &&
+    migrationConflictResult.rejected[0]?.targetPath === 'bloom.diffusion' &&
+    paramApiEffect.getFxConfig().bloom.diffusion === 6,
+  '实例迁移冲突始终由显式 diffusion 新路径获胜',
+);
+
+const beforeStrictMigrationConflict = paramApiEffect.getFxConfig();
+const strictMigrationConflictResult = paramApiEffect.setFxParams(
+  {
+    'bloom.scatter': 1,
+    'bloom.diffusion': 8,
+  },
+  {
+    schemaVersion: 0,
+    strict: true,
+  },
+);
+
+assert(
+  strictMigrationConflictResult.committed === false &&
+    strictMigrationConflictResult.applied.length === 0 &&
+    strictMigrationConflictResult.rejected[0]?.reason ===
+      'migration-conflict' &&
+    JSON.stringify(paramApiEffect.getFxConfig()) ===
+      JSON.stringify(beforeStrictMigrationConflict),
+  '实例 strict 迁移冲突整批回滚且不改变当前配置',
 );
 
 const beforeStrictBatch = paramApiEffect.getFxConfig();
