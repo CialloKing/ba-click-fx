@@ -181,7 +181,7 @@ new BAClickFX(options?: {
 
 为保持已经验收的颜色、透明度和边缘采样，WebGL2 Bloom 在 GPU 成功时会有意复用 `WebGL2EffectRenderer` 的完整 Scene，而不是上传一份 8 位 Canvas Scene。因此它与纯 WebGL2 的成功帧使用相同 Shader 和像素管线，也不会预先栅格随后被隐藏的 Canvas。两者的区别是兼容合同：WebGL2 Bloom 仍保留 `effectBackend: 'canvas2d'` 请求及其 Software / Native 回退链，纯 WebGL2 则由完整特效后端直接接管。
 
-`outputCompositing: 'scene'` 保持 Unity 面向已知 Scene Render Target 的直接加色 RGB 语义。`'transparent-overlay'` 面向 WebView2、Electron 等透明桌面窗口：HDR RGB 继续驱动 Bloom，最终 Alpha 则由几何 Coverage、生命周期 Alpha 与 `opacity` 决定，避免高 HDR 圆盘把桌面完全遮住。该选项不改变 Bloom 阈值或发射强度。
+`outputCompositing: 'scene'` 是默认值，保持 Unity 面向已知 Scene Render Target 的直接加色 RGB 语义；展示页和要求严格游戏还原的集成都应使用该模式。`'transparent-overlay'` 必须由 BASpark、WebView2、Electron 等透明桌面宿主显式选择：HDR RGB 继续驱动 Bloom，最终 Alpha 则由几何 Coverage、生命周期 Alpha 与 `opacity` 决定，避免高 HDR 圆盘把桌面完全遮住。该选项不改变 Bloom 阈值或发射强度。
 
 `isolatedCompositing` 默认是 `false`，各 Canvas 直接挂载到目标容器或页面。设为 `true` 后，库拥有的主特效层、WebGL2 层和浅色背景兼容层会先在透明隔离组内解析，再将整个组覆盖到页面上，避免浏览器分别把兼容层与纯白页面合成后丢失蓝青色对比。各渲染器内部已经完成 Unity 加色并输出预乘 Alpha，外层不再使用会二次增亮的 CSS `plus-lighter`。隔离合成是非游戏的网页白底兼容选项，可通过 `updateConfig()` 在运行时切换。
 
@@ -218,6 +218,10 @@ const fx = new BAClickFX(
 `setSceneBackground()` 可把特效下方的真实不透明栅格场景交给渲染器。只有纯 WebGL2，或成功解析到 GPU 的 WebGL2 Bloom，收到与实际显示内容逐像素匹配的已知背景时，才能在渲染合同内声明最终 RGB Scene 按 Unity 线性 HDR 管线严格求值。原生辉光和 Legacy 使用 Canvas Final Pass；软件 Bloom 仍使用普通 DOM 背景路径，这些能力受限的回退实现不能宣称与完整 WebGL2 Scene 或 Unity 逐像素等价。
 
 透明桌面下的真实桌面通常对库不可见。调用 `setSceneBackground(null)` 或从未提供背景时，渲染器只能输出带 Alpha 的覆盖层，再由操作系统或宿主合成；未知背景无法在数学上复现 Unity 对已知不透明 HDR Scene 的逐像素结果。`transparent-overlay` 的目标是保持 Coverage、生命周期与亮度关系稳定，而不是绕过这一信息边界。
+
+标准预乘 `source-over` 满足 `Cout = Coverlay + Cbackground × (1 - A)`；严格 Unity 加色的目标则是 `Cbackground + E`。因此所需的 `Coverlay = E + A × Cbackground` 依赖库无法读取的背景。对未知背景，单张透明覆盖层不可能同时保证严格 Unity 加色、最终 Alpha 只表示 Coverage、以及在纯白背景上绝不变暗。`transparent-overlay` 明确优先保持 Coverage Alpha 与跨后端连续性；需要严格 Scene RGB 时，应使用默认 `scene` 并通过 `setSceneBackground()` 提供逐像素匹配的已知背景。
+
+实现不会用 `min(coverage, maxRGB)` 把最终 Alpha 限制到当前 RGB 亮度。该近似虽然能减少部分白底压暗，却会把发射亮度重新解释为遮挡率，使黑色或低能拖尾丢失 Coverage，并破坏 `opacity` 线性和后端切换连续性。
 
 解包 Shader 中 Additive 的目标 Alpha 固定为 `1`，Dissolve 也有独立的 Alpha 混合因子；这些值描述的是粒子写入游戏不透明相机目标时的缓冲合同，不是透明桌面窗口的遮挡率。未提供匹配背景时若机械复制这些 Alpha，粒子 Quad 会变成不透明矩形。因此无背景的 `scene` Final Pass 使用能承载预乘 RGB 的传输 Alpha，`transparent-overlay` 使用 Coverage Alpha；两者都不宣称复现 Unity 相机目标中对最终画面无可见影响的 Alpha。严格一致声明只针对上一段限定条件下的最终 RGB。
 
@@ -536,6 +540,10 @@ Unity 的点击特效使用加色混合；接近白色的目标已经没有足�
 ### 隔离合成能否替代场景背景？
 
 不能。隔离合成只改变多 Canvas 的 CSS 合成边界，不读取页面或桌面像素，也不改变 Bloom 算法。需要让背景参与和游戏相同的线性 HDR Scene 计算时，必须向完整 WebGL2 Scene（纯 WebGL2 或成功解析到 GPU 的 WebGL2 Bloom）提供与实际显示内容匹配的 `setSceneBackground()`；未知或动态桌面背景无法逐像素复现该结果。
+
+### 未知背景上能否同时得到严格 Unity 加色、纯 Coverage Alpha，并保证白底绝不变暗？
+
+不能。`source-over` 只有覆盖层 RGB 与 Alpha，严格加色所需的输出 RGB 又依赖底层背景颜色；库无法从透明桌面读取该颜色。展示与严格还原应保留默认 `scene`，已知背景交给 `setSceneBackground()`；透明桌面宿主显式使用 `transparent-overlay`，接受它优先保证 Coverage 和透明度连续性，而不宣称对任意背景逐像素等同 Unity。
 
 ### 透明桌面宿主应该使用什么配置？
 
