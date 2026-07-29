@@ -14,7 +14,7 @@ import {
 } from './ring3-alpha.js';
 import {
   TRAIL_TEXTURE_HEIGHT,
-  TRAIL_TEXTURE_RGB,
+  TRAIL_TEXTURE_RGBA,
   TRAIL_TEXTURE_WIDTH,
 } from './trail-texture.js';
 import {
@@ -236,6 +236,8 @@ precision highp float;
 
 uniform sampler2D u_texture;
 uniform bool u_transparentOverlay;
+uniform bool u_alphaModulatesEmission;
+uniform bool u_antialiasGeometryCoverage;
 
 in vec2 v_uv;
 in vec3 v_materialColor;
@@ -247,10 +249,21 @@ void main()
 {
   vec4 sampleColor = texture(u_texture, v_uv);
   float particleAlpha = clamp(v_particleAlpha, 0.0, 1.0);
-  float coverage = sampleColor.a * particleAlpha;
+  float geometryCoverage = 1.0;
+
+  if (u_transparentOverlay && u_antialiasGeometryCoverage)
+  {
+    float edgeDistance = min(v_uv.y, 1.0 - v_uv.y);
+    float halfPixelFootprint = max(fwidth(v_uv.y) * 0.5, 0.000001);
+
+    geometryCoverage = smoothstep(0.0, halfPixelFootprint, edgeDistance);
+  }
+
+  float coverage = sampleColor.a * particleAlpha * geometryCoverage;
   // sRGB 纹理采样会自动把 RGB 解码到线性空间。
   vec3 emission = sampleColor.rgb *
-    max(v_materialColor, vec3(0.0)) * coverage;
+    max(v_materialColor, vec3(0.0)) *
+    (u_alphaModulatesEmission ? coverage : particleAlpha);
   float outputAlpha = u_transparentOverlay ? coverage : 1.0;
 
   outColor = vec4(emission, outputAlpha);
@@ -1171,7 +1184,7 @@ export class WebGL2EffectRenderer
       );
 
       // Trail_03 的 Importer 使用 sRGB、Bilinear、Repeat 且关闭 Mipmap。
-      // 上传完整 RGB，Fragment Shader 才能保留逐通道和非对称纹理细节。
+      // RGB 保留原逐通道纹理；派生 Alpha 只描述非零 texel 的 Coverage 支持面。
       gl.bindTexture(gl.TEXTURE_2D, this.trailTexture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -1180,13 +1193,13 @@ export class WebGL2EffectRenderer
       gl.texImage2D(
         gl.TEXTURE_2D,
         0,
-        gl.SRGB8,
+        gl.SRGB8_ALPHA8,
         TRAIL_TEXTURE_WIDTH,
         TRAIL_TEXTURE_HEIGHT,
         0,
-        gl.RGB,
+        gl.RGBA,
         gl.UNSIGNED_BYTE,
-        TRAIL_TEXTURE_RGB,
+        TRAIL_TEXTURE_RGBA,
       );
 
       // Circle_01 使用 Repeat；完整 Quad 在片元阶段采样才能保留二维边缘。
@@ -2025,6 +2038,8 @@ export class WebGL2EffectRenderer
     vertexArray,
     texture,
     transparentOverlay,
+    alphaModulatesEmission = true,
+    antialiasGeometryCoverage = false,
   )
   {
     if (vertexCount <= 0)
@@ -2054,6 +2069,14 @@ export class WebGL2EffectRenderer
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_transparentOverlay'),
       transparentOverlay ? 1 : 0,
+    );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_alphaModulatesEmission'),
+      alphaModulatesEmission ? 1 : 0,
+    );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_antialiasGeometryCoverage'),
+      antialiasGeometryCoverage ? 1 : 0,
     );
     gl.uniform2f(
       gl.getUniformLocation(program, 'u_displaySize'),
@@ -2122,6 +2145,8 @@ export class WebGL2EffectRenderer
       this.triangleVao,
       this.trailTexture,
       transparentOverlay,
+      false,
+      true,
     );
 
     if (this.vertexCount > 0)

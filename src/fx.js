@@ -661,7 +661,7 @@ function linearEnergyToNativeTrailBloomCss(
   {
     // Native blur 的 Alpha 取自几何 Coverage，而不是 HDR 明度；发射倍率只
     // 改变 RGB，不能把透明桌面的轨迹变成实心遮挡。
-    const coverage = clamp01(opacity * bloomCfg.trailAlpha);
+    const coverage = clamp01(opacity);
 
     return linearEnergyToOverlayCss(
       brightPass,
@@ -7536,6 +7536,10 @@ export class BAClickFX
 
     if (failed)
     {
+      // Software 已在清晰层绘制后失败；必须同帧重画 Native 光晕，不能让
+      // 透明拖尾在状态切换当帧只剩几何细线。
+      this._drawCanvasFallbackFrame(scale, true, false);
+      this._renderLightBackgroundContrast(scale, false);
       this._setResolvedBloomBackend('native');
     }
   }
@@ -7815,11 +7819,9 @@ export class BAClickFX
 
         if (!this.bloomRenderer.available)
         {
-          // Software Bloom 自身失败时必须重新绘制原生阴影；仅切换状态会
-          // 让暂停画面永久缺少光晕。
+          // _renderSoftwareBloom 已完成同帧 Native 重画；这里只同步本方法
+          // 最终提交的后端，避免 Context 恢复路径重复绘制整帧。
           resolvedBloomBackend = 'native';
-          this._drawCanvasFallbackFrame(scale, true, false);
-          this._renderLightBackgroundContrast(scale, false);
         }
       }
     }
@@ -7982,14 +7984,6 @@ export class BAClickFX
       }
 
       this._renderSoftwareBloom(scale);
-
-      if (!this.bloomRenderer.available)
-      {
-        // 像素回读也失败时重画一次原生阴影，避免当前帧只有清晰几何。
-        this._drawCanvasFallbackFrame(scale, true, false);
-        this._renderLightBackgroundContrast(scale, false);
-        this._setResolvedBloomBackend('native');
-      }
 
       return;
     }

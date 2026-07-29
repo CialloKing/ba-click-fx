@@ -877,11 +877,40 @@ if (sourceMode)
   const {
     TRAIL_TEXTURE_HEIGHT,
     TRAIL_TEXTURE_RGB,
+    TRAIL_TEXTURE_RGBA,
     TRAIL_TEXTURE_WIDTH,
   } = trailTextureSource;
   const trailTextureHash = createHash('sha256')
     .update(TRAIL_TEXTURE_RGB)
     .digest('hex');
+  const trailPixelCount = TRAIL_TEXTURE_WIDTH * TRAIL_TEXTURE_HEIGHT;
+  let trailCoverageMatchesRgb = true;
+
+  for (let pixel = 0; pixel < trailPixelCount; pixel++)
+  {
+    const rgbOffset = pixel * 3;
+    const rgbaOffset = pixel * 4;
+    const expectedAlpha =
+      TRAIL_TEXTURE_RGB[rgbOffset] ||
+      TRAIL_TEXTURE_RGB[rgbOffset + 1] ||
+      TRAIL_TEXTURE_RGB[rgbOffset + 2]
+        ? 255
+        : 0;
+
+    if (
+      TRAIL_TEXTURE_RGBA[rgbaOffset] !== TRAIL_TEXTURE_RGB[rgbOffset] ||
+      TRAIL_TEXTURE_RGBA[rgbaOffset + 1] !==
+        TRAIL_TEXTURE_RGB[rgbOffset + 1] ||
+      TRAIL_TEXTURE_RGBA[rgbaOffset + 2] !==
+        TRAIL_TEXTURE_RGB[rgbOffset + 2] ||
+      TRAIL_TEXTURE_RGBA[rgbaOffset + 3] !== expectedAlpha
+    )
+    {
+      trailCoverageMatchesRgb = false;
+      break;
+    }
+  }
+
   const firstTrailPixel = [...TRAIL_TEXTURE_RGB.subarray(0, 3)];
   const upperTrailOffset = (13 * TRAIL_TEXTURE_WIDTH + 20) * 3;
   const lowerTrailOffset = (498 * TRAIL_TEXTURE_WIDTH + 20) * 3;
@@ -889,13 +918,18 @@ if (sourceMode)
   assert(
     TRAIL_TEXTURE_WIDTH === 512 &&
       TRAIL_TEXTURE_HEIGHT === 512 &&
-      TRAIL_TEXTURE_RGB.length === 512 * 512 * 3,
-    'Trail_03 解码为完整的 512x512 RGB 纹理',
+      TRAIL_TEXTURE_RGB.length === 512 * 512 * 3 &&
+      TRAIL_TEXTURE_RGBA.length === 512 * 512 * 4,
+    'Trail_03 解码为完整的 512x512 RGB 与 Coverage RGBA 纹理',
   );
   assert(
     trailTextureHash ===
       '9ef29db2147501c40c1ff0f1cd0848cd6e017a46b0e8aa0af685eef568d4faa0',
     'Trail_03 RGB 的完整字节 SHA256 与解包纹理一致',
+  );
+  assert(
+    trailCoverageMatchesRgb,
+    'Trail_03 RGBA 保留全部 RGB，并只把非零纹素支持面编码为 Coverage',
   );
   assert(
     JSON.stringify(firstTrailPixel) === JSON.stringify([5, 0, 0]) &&
@@ -2260,9 +2294,11 @@ assert(
         .filter((alpha) => alpha > 0),
     );
 
-    return nonZeroAlphas.size <= 1;
+    return nonZeroAlphas.size <= 1 &&
+      [...nonZeroAlphas].every((alpha) =>
+        Math.abs(alpha - effect.config.opacity) < 0.000001);
   }),
-  'Native 拖尾横截面强度只改变 Bloom RGB，不改变同一网格段 Coverage',
+  'Native 拖尾 Bloom 强度只改变 RGB，Coverage 仅跟随全局透明度',
 );
 const expectedNativeTrailPaths = [
   ...clearTrailPaths.slice(
@@ -4481,6 +4517,9 @@ assert(
 const softwareFailureEffect = new BAClickFX({ bloomBackend: 'software' });
 const softwareFailureEvents = [];
 let softwareFailureBeginFrameCount = 0;
+let softwareFailureNativeRedrawCount = 0;
+const softwareFailureFallbackDraw =
+  softwareFailureEffect._drawCanvasFallbackFrame.bind(softwareFailureEffect);
 
 flushFrames(dom, performance.now(), 1);
 softwareFailureEffect.canvas.addEventListener(
@@ -4496,12 +4535,23 @@ softwareFailureEffect.bloomRenderer.beginFrame = () =>
   softwareFailureEffect.bloomRenderer.available = false;
   return null;
 };
+softwareFailureEffect._drawCanvasFallbackFrame =
+  (scale, useNativeBloom, legacy) =>
+  {
+    if (useNativeBloom)
+    {
+      softwareFailureNativeRedrawCount++;
+    }
+
+    softwareFailureFallbackDraw(scale, useNativeBloom, legacy);
+  };
 softwareFailureEffect.boom(960, 540);
 let softwareFailureNow = flushFrames(dom, performance.now(), 1);
 assert(
   softwareFailureEffect.getConfig().resolvedBloomBackend === 'native' &&
-    softwareFailureEvents.join(',') === 'native',
-  'Software Bloom 运行时回读失败会立即公开 Native 回退并派发事件',
+    softwareFailureEvents.join(',') === 'native' &&
+    softwareFailureNativeRedrawCount === 1,
+  'Software Bloom 运行时回读失败会同帧重画并公开 Native 回退',
 );
 softwareFailureNow = flushFrames(dom, softwareFailureNow, 2);
 assert(

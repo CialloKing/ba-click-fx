@@ -515,6 +515,32 @@ function decodeTrailTextureRgb()
 }
 
 export const TRAIL_TEXTURE_RGB = decodeTrailTextureRgb();
+
+function createTrailTextureRgba(rgb)
+{
+  const pixelCount = TRAIL_TEXTURE_WIDTH * TRAIL_TEXTURE_HEIGHT;
+  const rgba = new Uint8Array(pixelCount * 4);
+
+  for (let pixel = 0; pixel < pixelCount; pixel++)
+  {
+    const sourceOffset = pixel * TRAIL_TEXTURE_CHANNELS;
+    const outputOffset = pixel * 4;
+    const red = rgb[sourceOffset];
+    const green = rgb[sourceOffset + 1];
+    const blue = rgb[sourceOffset + 2];
+
+    rgba[outputOffset] = red;
+    rgba[outputOffset + 1] = green;
+    rgba[outputOffset + 2] = blue;
+    // 原纹理 Alpha 恒为 1，透明宿主改用二值 RGB 支持面。Bilinear 只在
+    // 纹理边界插值 Coverage，不会把 HDR 明度重新解释为 Alpha。
+    rgba[outputOffset + 3] = red || green || blue ? 255 : 0;
+  }
+
+  return rgba;
+}
+
+export const TRAIL_TEXTURE_RGBA = createTrailTextureRgba(TRAIL_TEXTURE_RGB);
 `;
 }
 
