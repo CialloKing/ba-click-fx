@@ -934,6 +934,8 @@ async function runContextLifecycle(specification)
   await restoredEvent;
   // 同一虚拟时间重建两帧，后端切换不能借生命周期推进掩盖 Alpha 跳变。
   await runAnimationFrame(SAMPLE_TIME_MS);
+  const restoringRoute = effect.getConfig();
+  const restoring = captureCompositingPhases(effect, fixture.target);
   await runAnimationFrame(SAMPLE_TIME_MS);
   const restoredRoute = effect.getConfig();
   const restored = captureCompositingPhases(effect, fixture.target);
@@ -944,6 +946,7 @@ async function runContextLifecycle(specification)
     before: before.pixels,
     fallback: fallback.pixels,
     fallbackSteady: fallbackSteady.pixels,
+    restoring: restoring.pixels,
     restored: restored.pixels,
     alphaContinuity:
     {
@@ -954,6 +957,14 @@ async function runContextLifecycle(specification)
       fallbackSteady: compareAlphaImages(
         before.images.transparent,
         fallbackSteady.images.transparent,
+      ),
+      restoring: compareAlphaImages(
+        before.images.transparent,
+        restoring.images.transparent,
+      ),
+      restoringToRestored: compareAlphaImages(
+        restoring.images.transparent,
+        restored.images.transparent,
       ),
       restored: compareAlphaImages(
         before.images.transparent,
@@ -974,6 +985,11 @@ async function runContextLifecycle(specification)
     {
       effect: fallbackSteadyRoute.resolvedEffectBackend,
       bloom: fallbackSteadyRoute.resolvedBloomBackend,
+    },
+    restoringRoute:
+    {
+      effect: restoringRoute.resolvedEffectBackend,
+      bloom: restoringRoute.resolvedBloomBackend,
     },
     restoredRoute:
     {
@@ -1168,6 +1184,8 @@ async function runBackendFailureChain(specification)
   extension.restoreContext();
   await restoredEvent;
   await runAnimationFrame(SAMPLE_TIME_MS);
+  const restoringRoute = effect.getConfig();
+  const restoring = captureCompositingPhases(effect, fixture.target);
   await runAnimationFrame(SAMPLE_TIME_MS);
   const restoredRoute = effect.getConfig();
   const restored = captureCompositingPhases(effect, fixture.target);
@@ -1183,6 +1201,7 @@ async function runBackendFailureChain(specification)
       software: software.pixels,
       fault: fault.pixels,
       native: native.pixels,
+      restoring: restoring.pixels,
       restored: restored.pixels,
       alphaContinuity:
       {
@@ -1201,6 +1220,14 @@ async function runBackendFailureChain(specification)
         native: compareAlphaImages(
           before.images.transparent,
           native.images.transparent,
+        ),
+        restoring: compareAlphaImages(
+          before.images.transparent,
+          restoring.images.transparent,
+        ),
+        restoringToRestored: compareAlphaImages(
+          restoring.images.transparent,
+          restored.images.transparent,
         ),
         restored: compareAlphaImages(
           before.images.transparent,
@@ -1228,6 +1255,11 @@ async function runBackendFailureChain(specification)
         {
           effect: nativeRoute.resolvedEffectBackend,
           bloom: nativeRoute.resolvedBloomBackend,
+        },
+        restoring:
+        {
+          effect: restoringRoute.resolvedEffectBackend,
+          bloom: restoringRoute.resolvedBloomBackend,
         },
         restored:
         {

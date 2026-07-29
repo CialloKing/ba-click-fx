@@ -616,6 +616,7 @@ function validateContextLifecycleGroup(mode, results)
       'before',
       'fallback',
       'fallbackSteady',
+      'restoring',
       'restored',
     ])
     {
@@ -673,7 +674,12 @@ function validateContextLifecycleGroup(mode, results)
     {
       const before = lifecycle.before.transparent;
 
-      for (const phase of ['fallback', 'fallbackSteady', 'restored'])
+      for (const phase of [
+        'fallback',
+        'fallbackSteady',
+        'restoring',
+        'restored',
+      ])
       {
         const current = lifecycle[phase].transparent;
         const spatial = lifecycle.alphaContinuity[phase];
@@ -712,6 +718,22 @@ function validateContextLifecycleGroup(mode, results)
           },
         );
       }
+
+      const restoringToRestored =
+        lifecycle.alphaContinuity.restoringToRestored;
+
+      assert(
+        restoringToRestored.meanAbsoluteDelta <= 0.003 &&
+          restoringToRestored.visibleMeanAbsoluteDelta <= 0.08 &&
+          restoringToRestored.maximumAbsoluteDelta <= 0.35,
+        `${mode}: Context 恢复首帧与稳定帧出现 Alpha 跳变`,
+        {
+          opacity,
+          restored: lifecycle.restored.transparent,
+          restoring: lifecycle.restoring.transparent,
+          restoringToRestored,
+        },
+      );
     }
   }
 
@@ -719,6 +741,7 @@ function validateContextLifecycleGroup(mode, results)
     'before',
     'fallback',
     'fallbackSteady',
+    'restoring',
     'restored',
   ])
   {
@@ -758,6 +781,8 @@ function validateBackendFailureChain(mode, results)
         chain.routes.fault.bloom === 'native' &&
         chain.routes.native.effect === 'canvas2d' &&
         chain.routes.native.bloom === 'native' &&
+        chain.routes.restoring.effect === expectedEffect &&
+        chain.routes.restoring.bloom === 'webgl2' &&
         chain.routes.restored.effect === expectedEffect &&
         chain.routes.restored.bloom === 'webgl2',
       `${mode}: 完整后端失败链路由错误`,
@@ -797,7 +822,14 @@ function validateBackendFailureChain(mode, results)
       },
     );
 
-    for (const phase of ['before', 'software', 'fault', 'native', 'restored'])
+    for (const phase of [
+      'before',
+      'software',
+      'fault',
+      'native',
+      'restoring',
+      'restored',
+    ])
     {
       const pixels = chain[phase].transparent;
       const transmission = chain[phase].backgroundTransmission;
@@ -830,7 +862,13 @@ function validateBackendFailureChain(mode, results)
     {
       const before = chain.before.transparent;
 
-      for (const phase of ['software', 'fault', 'native', 'restored'])
+      for (const phase of [
+        'software',
+        'fault',
+        'native',
+        'restoring',
+        'restored',
+      ])
       {
         const current = chain[phase].transparent;
         const spatial = chain.alphaContinuity[phase];
@@ -874,10 +912,32 @@ function validateBackendFailureChain(mode, results)
           opacity,
         },
       );
+      const restoringToRestored =
+        chain.alphaContinuity.restoringToRestored;
+
+      assert(
+        restoringToRestored.meanAbsoluteDelta <= 0.003 &&
+          restoringToRestored.visibleMeanAbsoluteDelta <= 0.08 &&
+          restoringToRestored.maximumAbsoluteDelta <= 0.35,
+        `${mode}: 失败链恢复首帧与稳定帧出现 Alpha 跳变`,
+        {
+          opacity,
+          restored: chain.restored.transparent,
+          restoring: chain.restoring.transparent,
+          restoringToRestored,
+        },
+      );
     }
   }
 
-  for (const phase of ['before', 'software', 'fault', 'native', 'restored'])
+  for (const phase of [
+    'before',
+    'software',
+    'fault',
+    'native',
+    'restoring',
+    'restored',
+  ])
   {
     validateContextOpacityGroup(mode, results, phase);
   }
@@ -2080,6 +2140,8 @@ async function runMatrix(browserInstance, baseUrl, baseline)
           lifecycle.fallbackRoute.bloom === 'software' &&
           lifecycle.fallbackSteadyRoute.effect === 'canvas2d' &&
           lifecycle.fallbackSteadyRoute.bloom === 'software' &&
+          lifecycle.restoringRoute.effect === expectedEffect &&
+          lifecycle.restoringRoute.bloom === 'webgl2' &&
           lifecycle.restoredRoute.effect === expectedEffect &&
           lifecycle.restoredRoute.bloom === 'webgl2',
         `${mode}: Context 生命周期后端路由错误`,
