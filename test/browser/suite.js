@@ -889,6 +889,66 @@ function compareAlphaImages(reference, current)
   );
 }
 
+function captureCanvasLayerState(canvas, target)
+{
+  if (!canvas)
+  {
+    return {
+      coversTarget: false,
+      directChild: false,
+      exists: false,
+      position: '',
+      visible: false,
+    };
+  }
+
+  const style = getComputedStyle(canvas);
+  const bounds = canvas.getBoundingClientRect();
+  const targetBounds = target.getBoundingClientRect();
+  const visible = style.display !== 'none' &&
+    style.visibility !== 'hidden' &&
+    Number.parseFloat(style.opacity || '1') > 0;
+
+  return {
+    coversTarget: visible &&
+      Math.abs(bounds.left - targetBounds.left) <= 0.5 &&
+      Math.abs(bounds.top - targetBounds.top) <= 0.5 &&
+      Math.abs(bounds.width - targetBounds.width) <= 0.5 &&
+      Math.abs(bounds.height - targetBounds.height) <= 0.5,
+    directChild: canvas.parentElement === target,
+    exists: true,
+    position: style.position,
+    visible,
+  };
+}
+
+function captureCompositingState(effect, target)
+{
+  const canvases = [...target.querySelectorAll('canvas')];
+  const layerStates =
+  {
+    contrast: captureCanvasLayerState(effect.contrastCanvas, target),
+    main: captureCanvasLayerState(effect.canvas, target),
+    webglBloom: captureCanvasLayerState(effect.webglBloomCanvas, target),
+    webglEffect: captureCanvasLayerState(effect.webglEffectCanvas, target),
+  };
+  const visibleLayers = Object.values(layerStates)
+    .filter((layer) => layer.exists && layer.visible);
+
+  return {
+    isolatedCompositing: effect.getConfig().isolatedCompositing,
+    overlayParentIsTarget: effect.overlayParent === target,
+    overlayRootConnected: effect.overlayRoot?.isConnected === true,
+    allCanvasLayersAbsolute: canvases.every((canvas) =>
+      getComputedStyle(canvas).position === 'absolute'),
+    allCanvasLayersDirectChildren: canvases.every((canvas) =>
+      canvas.parentElement === target),
+    visibleLayersCoverTarget: visibleLayers.length > 0 &&
+      visibleLayers.every((layer) => layer.coversTarget),
+    layers: layerStates,
+  };
+}
+
 function captureCompositingPhases(effect, target)
 {
   const images =
@@ -910,6 +970,7 @@ function captureCompositingPhases(effect, target)
   );
   return (
     {
+      compositing: captureCompositingState(effect, target),
       images,
       pixels,
     }
@@ -924,11 +985,14 @@ async function runContextLifecycle(specification)
   const opacity = typeof specification === 'string'
     ? 1
     : specification.opacity;
+  const isolatedCompositing = typeof specification === 'string'
+    ? true
+    : specification.isolatedCompositing !== false;
   const fixture = await prepareEffect(
     {
       mode,
       opacity,
-      isolatedCompositing: true,
+      isolatedCompositing,
       background: 'transparent',
       outputCompositing: 'transparent-overlay',
       shadow: false,
@@ -993,6 +1057,7 @@ async function runContextLifecycle(specification)
   return {
     mode,
     opacity,
+    isolatedCompositing,
     before: before.pixels,
     fallback: fallback.pixels,
     fallbackSteady: fallbackSteady.pixels,
@@ -1020,6 +1085,14 @@ async function runContextLifecycle(specification)
         before.images.transparent,
         restored.images.transparent,
       ),
+    },
+    compositing:
+    {
+      before: before.compositing,
+      fallback: fallback.compositing,
+      fallbackSteady: fallbackSteady.compositing,
+      restoring: restoring.compositing,
+      restored: restored.compositing,
     },
     beforeRoute:
     {
@@ -1257,11 +1330,12 @@ async function runBackendFailureChain(specification)
   const mode = specification.mode;
   const opacity = specification.opacity;
   const trailOnly = specification.trailOnly === true;
+  const isolatedCompositing = specification.isolatedCompositing !== false;
   const fixture = await prepareEffect(
     {
       mode,
       opacity,
-      isolatedCompositing: true,
+      isolatedCompositing,
       background: 'transparent',
       outputCompositing: 'transparent-overlay',
       shadow: false,
@@ -1364,6 +1438,7 @@ async function runBackendFailureChain(specification)
     {
       mode,
       opacity,
+      isolatedCompositing,
       variant: trailOnly ? 'trail-only' : 'click-only',
       before: before.pixels,
       software: software.pixels,
@@ -1401,6 +1476,15 @@ async function runBackendFailureChain(specification)
           before.images.transparent,
           restored.images.transparent,
         ),
+      },
+      compositing:
+      {
+        before: before.compositing,
+        software: software.compositing,
+        fault: fault.compositing,
+        native: native.compositing,
+        restoring: restoring.compositing,
+        restored: restored.compositing,
       },
       routes:
       {
@@ -1457,13 +1541,19 @@ async function runBackendFailureChain(specification)
   );
 }
 
-async function runBackendReentrantNative(mode)
+async function runBackendReentrantNative(specification)
 {
+  const mode = typeof specification === 'string'
+    ? specification
+    : specification.mode;
+  const isolatedCompositing = typeof specification === 'string'
+    ? true
+    : specification.isolatedCompositing !== false;
   const fixture = await prepareEffect(
     {
       mode,
       opacity: 1,
-      isolatedCompositing: true,
+      isolatedCompositing,
       background: 'transparent',
       outputCompositing: 'transparent-overlay',
       shadow: false,
@@ -1537,10 +1627,16 @@ async function runBackendReentrantNative(mode)
   return (
     {
       mode,
+      isolatedCompositing,
       softwareRenderCalls,
       events,
       fallback: fallback.pixels,
       steady: steady.pixels,
+      compositing:
+      {
+        fallback: fallback.compositing,
+        steady: steady.compositing,
+      },
       routes:
       {
         fallback:

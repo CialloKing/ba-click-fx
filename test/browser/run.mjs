@@ -623,7 +623,11 @@ function validateContextOpacityGroup(mode, results, phase)
   );
 }
 
-function validateContextLifecycleGroup(mode, results)
+function validateContextLifecycleGroup(
+  mode,
+  results,
+  validateOpacitySeries = true,
+)
 {
   for (const [opacity, lifecycle] of results)
   {
@@ -752,15 +756,86 @@ function validateContextLifecycleGroup(mode, results)
     }
   }
 
-  for (const phase of [
-    'before',
-    'fallback',
-    'fallbackSteady',
-    'restoring',
-    'restored',
-  ])
+  if (validateOpacitySeries)
   {
-    validateContextOpacityGroup(mode, results, phase);
+    for (const phase of [
+      'before',
+      'fallback',
+      'fallbackSteady',
+      'restoring',
+      'restored',
+    ])
+    {
+      validateContextOpacityGroup(mode, results, phase);
+    }
+  }
+}
+
+function validateContextLifecycleRoute(mode, lifecycle)
+{
+  const expectedEffect = mode === 'full-webgl2'
+    ? 'webgl2'
+    : 'canvas2d';
+
+  assert(
+    lifecycle.beforeRoute.effect === expectedEffect &&
+      lifecycle.beforeRoute.bloom === 'webgl2' &&
+      lifecycle.fallbackRoute.effect === 'canvas2d' &&
+      lifecycle.fallbackRoute.bloom === 'software' &&
+      lifecycle.fallbackSteadyRoute.effect === 'canvas2d' &&
+      lifecycle.fallbackSteadyRoute.bloom === 'software' &&
+      lifecycle.restoringRoute.effect === expectedEffect &&
+      lifecycle.restoringRoute.bloom === 'webgl2' &&
+      lifecycle.restoredRoute.effect === expectedEffect &&
+      lifecycle.restoredRoute.bloom === 'webgl2',
+    `${mode}: Context 生命周期后端路由错误`,
+    lifecycle,
+  );
+}
+
+function validateDirectCompositingContract(
+  mode,
+  result,
+  gpuPhases,
+  canvasPhases,
+)
+{
+  const gpuLayer = mode === 'full-webgl2'
+    ? 'webglEffect'
+    : 'webglBloom';
+  const otherGpuLayer = mode === 'full-webgl2'
+    ? 'webglBloom'
+    : 'webglEffect';
+
+  assert(
+    result.isolatedCompositing === false,
+    `${mode}: 默认 Context 夹具没有使用直接合成`,
+    result.isolatedCompositing,
+  );
+
+  for (const phase of [...gpuPhases, ...canvasPhases])
+  {
+    const state = result.compositing[phase];
+    const gpuVisible = gpuPhases.includes(phase);
+    // 纯 WebGL2 会保留已清空的兼容 Canvas，WebGL2 Bloom 则显式隐藏它。
+    const canvasVisible = mode === 'full-webgl2' || !gpuVisible;
+
+    assert(
+      state.isolatedCompositing === false &&
+        state.overlayParentIsTarget &&
+        !state.overlayRootConnected &&
+        state.allCanvasLayersAbsolute &&
+        state.allCanvasLayersDirectChildren &&
+        state.visibleLayersCoverTarget &&
+        state.layers.main.visible === canvasVisible &&
+        state.layers.contrast.visible === canvasVisible &&
+        state.layers[gpuLayer].exists &&
+        state.layers[gpuLayer].visible === gpuVisible &&
+        (!state.layers[otherGpuLayer].exists ||
+          !state.layers[otherGpuLayer].visible),
+      `${mode}: 直接合成 ${phase} 的 Canvas 挂载或输出所有权错误`,
+      state,
+    );
   }
 }
 
@@ -897,7 +972,11 @@ function validateBackendFailureContract(mode, chain, label)
   );
 }
 
-function validateBackendFailureChain(mode, results)
+function validateBackendFailureChain(
+  mode,
+  results,
+  validateOpacitySeries = true,
+)
 {
   for (const [opacity, chain] of results)
   {
@@ -1011,16 +1090,19 @@ function validateBackendFailureChain(mode, results)
     }
   }
 
-  for (const phase of [
-    'before',
-    'software',
-    'fault',
-    'native',
-    'restoring',
-    'restored',
-  ])
+  if (validateOpacitySeries)
   {
-    validateContextOpacityGroup(mode, results, phase);
+    for (const phase of [
+      'before',
+      'software',
+      'fault',
+      'native',
+      'restoring',
+      'restored',
+    ])
+    {
+      validateContextOpacityGroup(mode, results, phase);
+    }
   }
 }
 
@@ -2435,24 +2517,7 @@ async function runMatrix(browserInstance, baseUrl, baseline)
         },
       );
 
-      const expectedEffect = mode === 'full-webgl2'
-        ? 'webgl2'
-        : 'canvas2d';
-
-      assert(
-        lifecycle.beforeRoute.effect === expectedEffect &&
-          lifecycle.beforeRoute.bloom === 'webgl2' &&
-          lifecycle.fallbackRoute.effect === 'canvas2d' &&
-          lifecycle.fallbackRoute.bloom === 'software' &&
-          lifecycle.fallbackSteadyRoute.effect === 'canvas2d' &&
-          lifecycle.fallbackSteadyRoute.bloom === 'software' &&
-          lifecycle.restoringRoute.effect === expectedEffect &&
-          lifecycle.restoringRoute.bloom === 'webgl2' &&
-          lifecycle.restoredRoute.effect === expectedEffect &&
-          lifecycle.restoredRoute.bloom === 'webgl2',
-        `${mode}: Context 生命周期后端路由错误`,
-        lifecycle,
-      );
+      validateContextLifecycleRoute(mode, lifecycle);
       contextResults.set(opacity, lifecycle);
     }
 
@@ -2548,6 +2613,68 @@ async function runMatrix(browserInstance, baseUrl, baseline)
       `${mode} Context 恢复后`,
     );
     metrics.trailContextLifecycle[mode] = trailLifecycle;
+
+    const directSpecification =
+    {
+      mode,
+      opacity: 1,
+      isolatedCompositing: false,
+    };
+
+    currentLabel = `${mode}__direct-context-lifecycle`;
+    const directContextLifecycle = await contextSession.page.evaluate(
+      (input) => window.browserPixelSuite.runContextLifecycle(input),
+      directSpecification,
+    );
+
+    validateContextLifecycleRoute(mode, directContextLifecycle);
+    validateContextLifecycleGroup(
+      mode,
+      new Map([[1, directContextLifecycle]]),
+      false,
+    );
+    validateDirectCompositingContract(
+      mode,
+      directContextLifecycle,
+      ['before', 'restoring', 'restored'],
+      ['fallback', 'fallbackSteady'],
+    );
+    metrics.contextLifecycle[`${mode}-direct`] = directContextLifecycle;
+
+    currentLabel = `${mode}__direct-backend-failure-chain`;
+    const directFailureChain = await contextSession.page.evaluate(
+      (input) => window.browserPixelSuite.runBackendFailureChain(input),
+      directSpecification,
+    );
+
+    validateBackendFailureChain(
+      mode,
+      new Map([[1, directFailureChain]]),
+      false,
+    );
+    validateDirectCompositingContract(
+      mode,
+      directFailureChain,
+      ['before', 'restoring', 'restored'],
+      ['software', 'fault', 'native'],
+    );
+    metrics.backendFailureChains[`${mode}-direct`] = directFailureChain;
+
+    currentLabel = `${mode}__direct-backend-reentrant-native`;
+    const directReentrantNative = await contextSession.page.evaluate(
+      (input) => window.browserPixelSuite.runBackendReentrantNative(input),
+      directSpecification,
+    );
+
+    validateBackendReentrantNative(mode, directReentrantNative);
+    validateDirectCompositingContract(
+      mode,
+      directReentrantNative,
+      [],
+      ['fallback', 'steady'],
+    );
+    metrics.backendReentrantNative[`${mode}-direct`] =
+      directReentrantNative;
 
     assert(
       contextSession.pageErrors.length === 0 &&
