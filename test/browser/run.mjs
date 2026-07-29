@@ -35,6 +35,7 @@ const metrics =
   environment: {},
   cases: {},
   compositor: {},
+  backendFailureChains: {},
   contextLifecycle: {},
   effectLifecycle: {},
   trailContextLifecycle: {},
@@ -719,6 +720,143 @@ function validateContextLifecycleGroup(mode, results)
     'fallbackSteady',
     'restored',
   ])
+  {
+    validateContextOpacityGroup(mode, results, phase);
+  }
+}
+
+function validateBackendFailureChain(mode, results)
+{
+  const expectedEffect = mode === 'full-webgl2'
+    ? 'webgl2'
+    : 'canvas2d';
+  const expectedEvents = mode === 'full-webgl2'
+    ? [
+        ['effect', 'webgl2', 'canvas2d'],
+        ['bloom', 'software', 'software'],
+        ['bloom', 'software', 'native'],
+        ['effect', 'webgl2', 'pending'],
+        ['bloom', 'software', 'webgl2'],
+        ['effect', 'webgl2', 'webgl2'],
+      ]
+    : [
+        ['bloom', 'webgl2', 'software'],
+        ['bloom', 'webgl2', 'native'],
+        ['bloom', 'webgl2', 'pending'],
+        ['bloom', 'webgl2', 'webgl2'],
+      ];
+
+  for (const [opacity, chain] of results)
+  {
+    assert(
+      chain.routes.before.effect === expectedEffect &&
+        chain.routes.before.bloom === 'webgl2' &&
+        chain.routes.software.effect === 'canvas2d' &&
+        chain.routes.software.bloom === 'software' &&
+        chain.routes.fault.effect === 'canvas2d' &&
+        chain.routes.fault.bloom === 'native' &&
+        chain.routes.native.effect === 'canvas2d' &&
+        chain.routes.native.bloom === 'native' &&
+        chain.routes.restored.effect === expectedEffect &&
+        chain.routes.restored.bloom === 'webgl2',
+      `${mode}: 完整后端失败链路由错误`,
+      chain.routes,
+    );
+    assert(
+      chain.readback.sourceCalls === 1 &&
+        chain.readback.coverageCalls ===
+          (mode === 'webgl2-bloom' ? 1 : 0),
+      `${mode}: Software getImageData 故障没有命中预期回读阶段`,
+      chain.readback,
+    );
+    assert(
+      chain.renderer.poolIdentityBeforeFailure &&
+        chain.renderer.poolIdentityAfterRestore &&
+        chain.renderer.sourceContextPreserved &&
+        chain.renderer.coverageContextPreserved &&
+        chain.renderer.unavailableAfterFailure &&
+        chain.renderer.availableAfterRestore === false,
+      `${mode}: Software Renderer 故障后的永久回退合同失效`,
+      chain.renderer,
+    );
+    assert(
+      chain.events.length === expectedEvents.length &&
+        chain.events.every((event, index) =>
+        {
+          const expected = expectedEvents[index];
+
+          return event.kind === expected[0] &&
+            event.requested === expected[1] &&
+            event.resolved === expected[2];
+        }),
+      `${mode}: 完整后端失败链事件顺序错误`,
+      {
+        actual: chain.events,
+        expected: expectedEvents,
+      },
+    );
+
+    for (const phase of ['before', 'software', 'native', 'restored'])
+    {
+      const pixels = chain[phase].transparent;
+      const transmission = chain[phase].backgroundTransmission;
+
+      if (opacity === 0)
+      {
+        validateEmptyPixels(
+          pixels,
+          `${mode} 完整失败链 ${phase} opacity=0`,
+        );
+      }
+      else
+      {
+        assert(
+          hasPixelOutput(pixels),
+          `${mode}: 完整失败链 ${phase} opacity=${opacity} 输出为空`,
+          pixels,
+        );
+      }
+
+      assert(
+        transmission.maximumTransmissionError <= 2 &&
+          transmission.maximumCheckerError <= 1,
+        `${mode}: 完整失败链 ${phase} 破坏透明背景透出`,
+        transmission,
+      );
+    }
+
+    if (opacity > 0)
+    {
+      const before = chain.before.transparent;
+
+      for (const phase of ['software', 'native', 'restored'])
+      {
+        const current = chain[phase].transparent;
+        const spatial = chain.alphaContinuity[phase];
+        const radialDelta = before.radialAlpha.map((value, index) =>
+          Math.abs(value - current.radialAlpha[index]));
+
+        assert(
+          relativeDifference(before.meanAlpha, current.meanAlpha) <= 0.5 &&
+            Math.abs(before.center[3] - current.center[3]) <= 40 &&
+            spatial.meanAbsoluteDelta <= 0.006 &&
+            spatial.visibleMeanAbsoluteDelta <= 0.12 &&
+            spatial.maximumAbsoluteDelta <= 0.5 &&
+            Math.max(...radialDelta) <= 0.3,
+          `${mode}: 完整失败链 ${phase} 破坏透明 Alpha 合同`,
+          {
+            before,
+            current,
+            opacity,
+            radialDelta,
+            spatial,
+          },
+        );
+      }
+    }
+  }
+
+  for (const phase of ['before', 'software', 'native', 'restored'])
   {
     validateContextOpacityGroup(mode, results, phase);
   }
@@ -1682,6 +1820,28 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     currentLabel = `${mode}__context-lifecycle`;
     validateContextLifecycleGroup(mode, contextResults);
     metrics.contextLifecycle[mode] = Object.fromEntries(contextResults);
+
+    const failureChainResults = new Map();
+
+    for (const opacity of opacities)
+    {
+      currentLabel = `${mode}__backend-failure-chain-opacity-${opacity}`;
+      const chain = await contextSession.page.evaluate(
+        (input) => window.browserPixelSuite.runBackendFailureChain(input),
+        {
+          mode,
+          opacity,
+        },
+      );
+
+      failureChainResults.set(opacity, chain);
+    }
+
+    currentLabel = `${mode}__backend-failure-chain`;
+    validateBackendFailureChain(mode, failureChainResults);
+    metrics.backendFailureChains[mode] = Object.fromEntries(
+      failureChainResults,
+    );
 
     currentLabel = `${mode}__trail-context-lifecycle`;
     const trailLifecycle = await contextSession.page.evaluate(

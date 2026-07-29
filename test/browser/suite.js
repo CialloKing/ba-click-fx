@@ -101,6 +101,8 @@ window.cancelAnimationFrame = (id) =>
 window.__BACLICKFX_PIXEL_PROGRESS__ = 'importing-runtime';
 const {
   BAClickFX,
+  BLOOM_BACKEND_CHANGE_EVENT,
+  EFFECT_BACKEND_CHANGE_EVENT,
 } = await import('../../src/fx.js');
 window.__BACLICKFX_PIXEL_PROGRESS__ = 'runtime-imported';
 
@@ -961,6 +963,268 @@ async function runContextLifecycle(specification)
   };
 }
 
+function instrumentImageReadback(context, shouldFail)
+{
+  const ownDescriptor = Object.getOwnPropertyDescriptor(
+    context,
+    'getImageData',
+  );
+  const original = context.getImageData;
+  let calls = 0;
+
+  Object.defineProperty(
+    context,
+    'getImageData',
+    {
+      configurable: true,
+      value(...args)
+      {
+        calls++;
+
+        if (shouldFail)
+        {
+          throw new Error('BAClickFX browser readback fault injection');
+        }
+
+        return original.apply(context, args);
+      },
+    },
+  );
+
+  return {
+    get calls()
+    {
+      return calls;
+    },
+    restore()
+    {
+      if (ownDescriptor)
+      {
+        Object.defineProperty(context, 'getImageData', ownDescriptor);
+        return;
+      }
+
+      delete context.getImageData;
+    },
+  };
+}
+
+function recordBackendEvents(effect)
+{
+  const events = [];
+  const onEffectBackendChange = (event) =>
+  {
+    events.push(
+      {
+        kind: 'effect',
+        requested: event.detail.requestedEffectBackend,
+        resolved: event.detail.resolvedEffectBackend,
+      },
+    );
+  };
+  const onBloomBackendChange = (event) =>
+  {
+    events.push(
+      {
+        kind: 'bloom',
+        requested: event.detail.requestedBloomBackend,
+        resolved: event.detail.resolvedBloomBackend,
+      },
+    );
+  };
+
+  effect.canvas.addEventListener(
+    EFFECT_BACKEND_CHANGE_EVENT,
+    onEffectBackendChange,
+  );
+  effect.canvas.addEventListener(
+    BLOOM_BACKEND_CHANGE_EVENT,
+    onBloomBackendChange,
+  );
+
+  return {
+    events,
+    stop()
+    {
+      effect.canvas.removeEventListener(
+        EFFECT_BACKEND_CHANGE_EVENT,
+        onEffectBackendChange,
+      );
+      effect.canvas.removeEventListener(
+        BLOOM_BACKEND_CHANGE_EVENT,
+        onBloomBackendChange,
+      );
+    },
+  };
+}
+
+async function runBackendFailureChain(specification)
+{
+  const mode = specification.mode;
+  const opacity = specification.opacity;
+  const fixture = await prepareEffect(
+    {
+      mode,
+      opacity,
+      isolatedCompositing: true,
+      background: 'transparent',
+      outputCompositing: 'transparent-overlay',
+      shadow: false,
+      containStrict: false,
+      includeTrail: false,
+      fxParams:
+      {
+        'shards.clickCount': 0,
+        'shards.maxCount': 0,
+      },
+    },
+  );
+  const effect = fixture.effect;
+
+  if (mode === 'full-webgl2')
+  {
+    // 完整特效 Context 丢失后必须固定经过 Software，再注入回读故障。
+    effect.updateConfig({ bloomBackend: 'software' });
+    await runAnimationFrame(SAMPLE_TIME_MS);
+  }
+
+  const canvas = mode === 'full-webgl2'
+    ? effect.webglEffectCanvas
+    : effect.webglBloomCanvas;
+  const context = canvas?.getContext('webgl2');
+  const extension = context?.getExtension('WEBGL_lose_context');
+  const softwareRenderer = effect.bloomRenderer;
+
+  if (!canvas || !context || !extension || !softwareRenderer)
+  {
+    throw new Error(`${mode} 无法建立完整后端失败链`);
+  }
+
+  const poolIdentityBeforeFailure =
+    effect.bloomRenderers[0] === softwareRenderer;
+  const beforeRoute = effect.getConfig();
+  const before = captureCompositingPhases(effect, fixture.target);
+  const backendEvents = recordBackendEvents(effect);
+  const lostEvent = waitForCanvasEvent(canvas, 'webglcontextlost');
+
+  extension.loseContext();
+  await lostEvent;
+  const softwareRoute = effect.getConfig();
+  const software = captureCompositingPhases(effect, fixture.target);
+  const sourceContext = softwareRenderer.sourceContext;
+  const coverageContext = softwareRenderer.coverageContext;
+
+  if (!sourceContext || !coverageContext)
+  {
+    backendEvents.stop();
+    throw new Error(`${mode} Software 回退没有建立透明 Coverage 回读面`);
+  }
+
+  const sourceProbe = instrumentImageReadback(
+    sourceContext,
+    mode === 'full-webgl2',
+  );
+  const coverageProbe = instrumentImageReadback(
+    coverageContext,
+    mode === 'webgl2-bloom',
+  );
+
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  const faultRoute = effect.getConfig();
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  const nativeRoute = effect.getConfig();
+  const native = captureCompositingPhases(effect, fixture.target);
+  const sourceCalls = sourceProbe.calls;
+  const coverageCalls = coverageProbe.calls;
+
+  sourceProbe.restore();
+  coverageProbe.restore();
+  const unavailableAfterFailure = softwareRenderer.available === false;
+  const restoredEvent = waitForCanvasEvent(canvas, 'webglcontextrestored');
+
+  // Chromium 会忽略紧跟 loseContext() 的同步恢复请求。
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  extension.restoreContext();
+  await restoredEvent;
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  const restoredRoute = effect.getConfig();
+  const restored = captureCompositingPhases(effect, fixture.target);
+  const events = backendEvents.events.slice();
+
+  backendEvents.stop();
+
+  return {
+    mode,
+    opacity,
+    before: before.pixels,
+    software: software.pixels,
+    native: native.pixels,
+    restored: restored.pixels,
+    alphaContinuity:
+    {
+      software: compareAlphaImages(
+        before.images.transparent,
+        software.images.transparent,
+      ),
+      native: compareAlphaImages(
+        before.images.transparent,
+        native.images.transparent,
+      ),
+      restored: compareAlphaImages(
+        before.images.transparent,
+        restored.images.transparent,
+      ),
+    },
+    routes:
+    {
+      before:
+      {
+        effect: beforeRoute.resolvedEffectBackend,
+        bloom: beforeRoute.resolvedBloomBackend,
+      },
+      software:
+      {
+        effect: softwareRoute.resolvedEffectBackend,
+        bloom: softwareRoute.resolvedBloomBackend,
+      },
+      fault:
+      {
+        effect: faultRoute.resolvedEffectBackend,
+        bloom: faultRoute.resolvedBloomBackend,
+      },
+      native:
+      {
+        effect: nativeRoute.resolvedEffectBackend,
+        bloom: nativeRoute.resolvedBloomBackend,
+      },
+      restored:
+      {
+        effect: restoredRoute.resolvedEffectBackend,
+        bloom: restoredRoute.resolvedBloomBackend,
+      },
+    },
+    readback:
+    {
+      coverageCalls,
+      faultTarget: mode === 'full-webgl2' ? 'source' : 'coverage',
+      sourceCalls,
+    },
+    renderer:
+    {
+      availableAfterRestore: softwareRenderer.available,
+      poolIdentityAfterRestore: effect.bloomRenderer === softwareRenderer &&
+        effect.bloomRenderers[0] === softwareRenderer,
+      poolIdentityBeforeFailure,
+      sourceContextPreserved: softwareRenderer.sourceContext === sourceContext,
+      coverageContextPreserved:
+        softwareRenderer.coverageContext === coverageContext,
+      unavailableAfterFailure,
+    },
+    events,
+  };
+}
+
 function getWebGLModeResources(effect, mode)
 {
   if (mode === 'full-webgl2')
@@ -1148,6 +1412,7 @@ window.browserPixelSuite = Object.freeze(
     runCase,
     runSceneBackgroundReset,
     runContextLifecycle,
+    runBackendFailureChain,
     runTrailTextureResourceLifecycle,
     runTrailContextLifecycle,
     waitForCompositorFrame,
