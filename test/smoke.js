@@ -3783,6 +3783,162 @@ assert(
 );
 unifiedWebGLBloomEffect.destroy();
 
+const reentrantWebGLBloomEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'webgl2',
+    outputCompositing: 'transparent-overlay',
+  },
+);
+const reentrantWebGLBloomCanvas = document.createElement('canvas');
+const reentrantWebGLBloomRenderer =
+{
+  available: true,
+  contextLost: false,
+  sourceTarget: true,
+  levels: [true],
+  clear()
+  {
+  },
+  releaseFrameResources()
+  {
+    this.sourceTarget = null;
+    this.levels = [];
+  },
+  destroy()
+  {
+    this.available = false;
+  },
+};
+const reentrantWebGLBloomEvents = [];
+const reentrantWebGLBloomDraw =
+  reentrantWebGLBloomEffect._drawCanvasFallbackFrame.bind(
+    reentrantWebGLBloomEffect,
+  );
+let reentrantWebGLBloomSoftwareCount = 0;
+let reentrantWebGLBloomNativeCount = 0;
+
+reentrantWebGLBloomEffect.overlayParent.appendChild(
+  reentrantWebGLBloomCanvas,
+);
+reentrantWebGLBloomEffect.webglBloomCanvas = reentrantWebGLBloomCanvas;
+reentrantWebGLBloomEffect.webglBloomRenderer =
+  reentrantWebGLBloomRenderer;
+reentrantWebGLBloomEffect._ensureWebGLBloomRenderer = () => true;
+reentrantWebGLBloomEffect._resizeWebGLBloomRenderer = () => true;
+reentrantWebGLBloomEffect._renderWebGL2Scene = () => false;
+reentrantWebGLBloomEffect._renderSoftwareBloom = () =>
+{
+  reentrantWebGLBloomSoftwareCount++;
+};
+reentrantWebGLBloomEffect._drawCanvasFallbackFrame =
+  (scale, useNativeBloom, legacy) =>
+  {
+    if (useNativeBloom)
+    {
+      reentrantWebGLBloomNativeCount++;
+    }
+
+    reentrantWebGLBloomDraw(scale, useNativeBloom, legacy);
+  };
+reentrantWebGLBloomEffect.canvas.addEventListener(
+  BLOOM_BACKEND_CHANGE_EVENT,
+  (event) =>
+  {
+    reentrantWebGLBloomEvents.push(event.detail);
+
+    if (event.detail.resolvedBloomBackend === 'software')
+    {
+      reentrantWebGLBloomEffect.updateConfig({ bloomBackend: 'native' });
+    }
+  },
+);
+
+reentrantWebGLBloomEffect.boom(960, 540);
+let reentrantWebGLBloomNow = flushFrames(dom, performance.now(), 1);
+const reentrantWebGLBloomEventCount = reentrantWebGLBloomEvents.length;
+
+reentrantWebGLBloomNow = flushFrames(dom, reentrantWebGLBloomNow, 1);
+assert(
+  reentrantWebGLBloomEffect.getConfig().bloomBackend === 'native' &&
+    reentrantWebGLBloomEffect.getConfig().resolvedBloomBackend === 'native' &&
+    reentrantWebGLBloomEvents.slice(-2)
+      .map((event) =>
+        `${event.requestedBloomBackend}/${event.resolvedBloomBackend}`)
+      .join(',') === 'webgl2/software,native/native' &&
+    reentrantWebGLBloomSoftwareCount === 0 &&
+    reentrantWebGLBloomNativeCount >= 1 &&
+    reentrantWebGLBloomEvents.length === reentrantWebGLBloomEventCount,
+  'WebGL2 Bloom 失败事件内切换 Native 会跳过同帧 Software 回读',
+);
+reentrantWebGLBloomEffect.destroy();
+
+const reentrantFullWebGLEffect = new BAClickFX(
+  {
+    effectBackend: 'webgl2',
+    bloomBackend: 'webgl2',
+    outputCompositing: 'transparent-overlay',
+  },
+);
+const reentrantFullWebGLEvents = [];
+const reentrantFullWebGLDraw =
+  reentrantFullWebGLEffect._drawCanvasClickEffects.bind(
+    reentrantFullWebGLEffect,
+  );
+let reentrantFullWebGLSoftwareCount = 0;
+let reentrantFullWebGLNativeCount = 0;
+
+reentrantFullWebGLEffect.webglBloomUnavailable = true;
+reentrantFullWebGLEffect._prepareWebGLEffectBackend = () => true;
+reentrantFullWebGLEffect._renderWebGL2ClickEffects = () => false;
+reentrantFullWebGLEffect._renderSoftwareBloom = () =>
+{
+  reentrantFullWebGLSoftwareCount++;
+};
+reentrantFullWebGLEffect._drawCanvasClickEffects =
+  (scale, useNativeBloom, legacy) =>
+  {
+    if (useNativeBloom)
+    {
+      reentrantFullWebGLNativeCount++;
+    }
+
+    reentrantFullWebGLDraw(scale, useNativeBloom, legacy);
+  };
+reentrantFullWebGLEffect.canvas.addEventListener(
+  BLOOM_BACKEND_CHANGE_EVENT,
+  (event) =>
+  {
+    reentrantFullWebGLEvents.push(event.detail);
+
+    if (event.detail.resolvedBloomBackend === 'software')
+    {
+      reentrantFullWebGLEffect.updateConfig({ bloomBackend: 'native' });
+    }
+  },
+);
+
+reentrantFullWebGLEffect.boom(960, 540);
+let reentrantFullWebGLNow = flushFrames(dom, performance.now(), 1);
+const reentrantFullWebGLFirstRoute = reentrantFullWebGLEvents.slice(-2)
+  .map((event) =>
+    `${event.requestedBloomBackend}/${event.resolvedBloomBackend}`)
+  .join(',');
+
+reentrantFullWebGLNow = flushFrames(dom, reentrantFullWebGLNow, 1);
+assert(
+  reentrantFullWebGLEffect.getConfig().bloomBackend === 'native' &&
+    reentrantFullWebGLEffect.getConfig().resolvedBloomBackend === 'native' &&
+    reentrantFullWebGLFirstRoute ===
+      'webgl2/software,native/native' &&
+    reentrantFullWebGLSoftwareCount === 0 &&
+    reentrantFullWebGLNativeCount >= 1 &&
+    reentrantFullWebGLEvents.filter((event) =>
+      event.resolvedBloomBackend === 'software').length === 1,
+  '完整 WebGL2 失败事件内切换 Native 会按新路由重画当前帧',
+);
+reentrantFullWebGLEffect.destroy();
+
 const webglEffect = new BAClickFX(
   {
     bloomBackend: 'webgl2',
@@ -4119,6 +4275,69 @@ assert(
   '一次更新渲染模式与 Bloom 后端只派发最终 pending 状态',
 );
 contextLifecycleEffect.destroy();
+
+const reentrantContextLossEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'webgl2',
+    outputCompositing: 'transparent-overlay',
+  },
+);
+const reentrantContextLossEvents = [];
+const reentrantContextLossDraw =
+  reentrantContextLossEffect._drawCanvasFallbackFrame.bind(
+    reentrantContextLossEffect,
+  );
+let reentrantContextLossSoftwareCount = 0;
+let reentrantContextLossNativeCount = 0;
+
+reentrantContextLossEffect.resolvedBloomBackend = 'webgl2';
+reentrantContextLossEffect.webglBloomVisible = true;
+reentrantContextLossEffect._renderSoftwareBloom = () =>
+{
+  reentrantContextLossSoftwareCount++;
+};
+reentrantContextLossEffect._drawCanvasFallbackFrame =
+  (scale, useNativeBloom, legacy) =>
+  {
+    if (useNativeBloom)
+    {
+      reentrantContextLossNativeCount++;
+    }
+
+    reentrantContextLossDraw(scale, useNativeBloom, legacy);
+  };
+reentrantContextLossEffect.canvas.addEventListener(
+  BLOOM_BACKEND_CHANGE_EVENT,
+  (event) =>
+  {
+    reentrantContextLossEvents.push(event.detail);
+
+    if (event.detail.resolvedBloomBackend === 'software')
+    {
+      reentrantContextLossEffect.updateConfig({ bloomBackend: 'native' });
+    }
+  },
+);
+
+reentrantContextLossEffect.boom(120, 80);
+reentrantContextLossEffect._handleWebGLContextLost();
+const reentrantContextLossEventCount = reentrantContextLossEvents.length;
+
+flushFrames(dom, performance.now(), 1);
+assert(
+  reentrantContextLossEffect.getConfig().bloomBackend === 'native' &&
+    reentrantContextLossEffect.getConfig().resolvedBloomBackend === 'native' &&
+    reentrantContextLossEvents
+      .map((event) =>
+        `${event.requestedBloomBackend}/${event.resolvedBloomBackend}`)
+      .join(',') === 'webgl2/software,native/native' &&
+    reentrantContextLossSoftwareCount === 0 &&
+    reentrantContextLossNativeCount >= 1 &&
+    reentrantContextLossEvents.length === reentrantContextLossEventCount,
+  'Context 丢失事件内切换 Native 会跳过同步 Software 回读',
+);
+reentrantContextLossEffect.destroy();
 
 const resizeRecoveryEffect = new BAClickFX(
   {
