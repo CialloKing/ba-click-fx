@@ -1423,6 +1423,109 @@ async function runBackendFailureChain(specification)
   );
 }
 
+async function runBackendReentrantNative(mode)
+{
+  const fixture = await prepareEffect(
+    {
+      mode,
+      opacity: 1,
+      isolatedCompositing: true,
+      background: 'transparent',
+      outputCompositing: 'transparent-overlay',
+      shadow: false,
+      containStrict: false,
+      includeTrail: false,
+      fxParams:
+      {
+        'shards.clickCount': 0,
+        'shards.maxCount': 0,
+      },
+    },
+  );
+  const effect = fixture.effect;
+  const canvas = mode === 'full-webgl2'
+    ? effect.webglEffectCanvas
+    : effect.webglBloomCanvas;
+  const context = canvas?.getContext('webgl2');
+  const extension = context?.getExtension('WEBGL_lose_context');
+
+  if (!canvas || !context || !extension)
+  {
+    throw new Error(`${mode} 无法建立后端事件重入夹具`);
+  }
+
+  const backendEvents = recordBackendEvents(effect);
+  const originalRenderSoftwareBloom =
+    effect._renderSoftwareBloom.bind(effect);
+  let softwareRenderCalls = 0;
+  const switchToNative = (event) =>
+  {
+    if (event.detail.resolvedBloomBackend === 'software')
+    {
+      effect.updateConfig({ bloomBackend: 'native' });
+    }
+  };
+
+  effect._renderSoftwareBloom = (...args) =>
+  {
+    softwareRenderCalls++;
+    return originalRenderSoftwareBloom(...args);
+  };
+  effect.canvas.addEventListener(
+    BLOOM_BACKEND_CHANGE_EVENT,
+    switchToNative,
+  );
+
+  const lostEvent = waitForCanvasEvent(canvas, 'webglcontextlost');
+
+  extension.loseContext();
+  await lostEvent;
+  const fallbackRoute = effect.getConfig();
+  const fallback = captureCompositingPhases(effect, fixture.target);
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  const steadyRoute = effect.getConfig();
+  const steady = captureCompositingPhases(effect, fixture.target);
+  const events = backendEvents.events.slice();
+
+  effect.canvas.removeEventListener(
+    BLOOM_BACKEND_CHANGE_EVENT,
+    switchToNative,
+  );
+  backendEvents.stop();
+
+  const restoredEvent = waitForCanvasEvent(canvas, 'webglcontextrestored');
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  extension.restoreContext();
+  await restoredEvent;
+  await runAnimationFrame(SAMPLE_TIME_MS);
+
+  return (
+    {
+      mode,
+      softwareRenderCalls,
+      events,
+      fallback: fallback.pixels,
+      steady: steady.pixels,
+      routes:
+      {
+        fallback:
+        {
+          requested: fallbackRoute.bloomBackend,
+          effect: fallbackRoute.resolvedEffectBackend,
+          bloom: fallbackRoute.resolvedBloomBackend,
+        },
+        steady:
+        {
+          requested: steadyRoute.bloomBackend,
+          effect: steadyRoute.resolvedEffectBackend,
+          bloom: steadyRoute.resolvedBloomBackend,
+        },
+      },
+    }
+  );
+}
+
 function getWebGLModeResources(effect, mode)
 {
   if (mode === 'full-webgl2')
@@ -1620,6 +1723,7 @@ window.browserPixelSuite = Object.freeze(
     runContextLifecycle,
     runSceneBackgroundContextLifecycle,
     runBackendFailureChain,
+    runBackendReentrantNative,
     runTrailTextureResourceLifecycle,
     runTrailContextLifecycle,
     waitForCompositorFrame,

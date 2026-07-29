@@ -38,6 +38,9 @@ const metrics =
   backendFailureChains:
   {
   },
+  backendReentrantNative:
+  {
+  },
   trailBackendFailureChains:
   {
   },
@@ -1064,6 +1067,70 @@ function validateTrailBackendFailureChain(mode, chain)
         transmission,
         white: white.meanEnergy,
       },
+    );
+  }
+}
+
+function validateBackendReentrantNative(mode, result)
+{
+  const expectedEvents = mode === 'full-webgl2'
+    ? [
+        ['effect', 'webgl2', 'canvas2d'],
+        ['bloom', 'webgl2', 'software'],
+        ['bloom', 'native', 'native'],
+      ]
+    : [
+        ['bloom', 'webgl2', 'software'],
+        ['bloom', 'native', 'native'],
+      ];
+
+  assert(
+    result.routes.fallback.requested === 'native' &&
+      result.routes.fallback.effect === 'canvas2d' &&
+      result.routes.fallback.bloom === 'native' &&
+      result.routes.steady.requested === 'native' &&
+      result.routes.steady.effect === 'canvas2d' &&
+      result.routes.steady.bloom === 'native',
+    `${mode}: 后端事件重入没有稳定切换到 Native`,
+    result.routes,
+  );
+  assert(
+    result.softwareRenderCalls === 0,
+    `${mode}: 后端事件重入后仍执行了 Software Bloom`,
+    result.softwareRenderCalls,
+  );
+  assert(
+    result.events.length === expectedEvents.length &&
+      result.events.every((event, index) =>
+      {
+        const expected = expectedEvents[index];
+
+        return event.kind === expected[0] &&
+          event.requested === expected[1] &&
+          event.resolved === expected[2];
+      }),
+    `${mode}: 后端事件重入顺序错误`,
+    {
+      actual: result.events,
+      expected: expectedEvents,
+    },
+  );
+
+  for (const phase of ['fallback', 'steady'])
+  {
+    const pixels = result[phase].transparent;
+    const transmission = result[phase].backgroundTransmission;
+
+    assert(
+      hasPixelOutput(pixels),
+      `${mode}: 后端事件重入 ${phase} Native 输出为空`,
+      pixels,
+    );
+    assert(
+      transmission.maximumTransmissionError <= 2 &&
+        transmission.maximumCheckerError <= 1,
+      `${mode}: 后端事件重入 ${phase} 破坏 Coverage 背景透出`,
+      transmission,
     );
   }
 }
@@ -2318,6 +2385,15 @@ async function runMatrix(browserInstance, baseUrl, baseline)
       metrics.sceneBackgroundContextLifecycle =
         sceneBackgroundContextLifecycle;
     }
+
+    currentLabel = `${mode}__backend-reentrant-native`;
+    const reentrantNative = await contextSession.page.evaluate(
+      (input) => window.browserPixelSuite.runBackendReentrantNative(input),
+      mode,
+    );
+
+    validateBackendReentrantNative(mode, reentrantNative);
+    metrics.backendReentrantNative[mode] = reentrantNative;
 
     const failureChainResults = new Map();
 
