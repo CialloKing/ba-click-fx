@@ -1222,6 +1222,7 @@ async function runBackendFailureChain(specification)
 {
   const mode = specification.mode;
   const opacity = specification.opacity;
+  const trailOnly = specification.trailOnly === true;
   const fixture = await prepareEffect(
     {
       mode,
@@ -1231,7 +1232,11 @@ async function runBackendFailureChain(specification)
       outputCompositing: 'transparent-overlay',
       shadow: false,
       containStrict: false,
-      includeTrail: false,
+      includeClick: !trailOnly,
+      includeTrail: trailOnly,
+      includeTrailShards: false,
+      straightTrailProbe: trailOnly,
+      scale: trailOnly ? 3 : 1,
       fxParams:
       {
         'shards.clickCount': 0,
@@ -1325,6 +1330,7 @@ async function runBackendFailureChain(specification)
     {
       mode,
       opacity,
+      variant: trailOnly ? 'trail-only' : 'click-only',
       before: before.pixels,
       software: software.pixels,
       fault: fault.pixels,

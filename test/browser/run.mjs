@@ -38,6 +38,9 @@ const metrics =
   backendFailureChains:
   {
   },
+  trailBackendFailureChains:
+  {
+  },
   contrastCompositing:
   {
   },
@@ -817,7 +820,7 @@ function validateSceneBackgroundContextLifecycle(lifecycle)
   }
 }
 
-function validateBackendFailureChain(mode, results)
+function validateBackendFailureContract(mode, chain, label)
 {
   const expectedEffect = mode === 'full-webgl2'
     ? 'webgl2'
@@ -838,57 +841,62 @@ function validateBackendFailureChain(mode, results)
         ['bloom', 'webgl2', 'webgl2'],
       ];
 
+  assert(
+    chain.routes.before.effect === expectedEffect &&
+      chain.routes.before.bloom === 'webgl2' &&
+      chain.routes.software.effect === 'canvas2d' &&
+      chain.routes.software.bloom === 'software' &&
+      chain.routes.fault.effect === 'canvas2d' &&
+      chain.routes.fault.bloom === 'native' &&
+      chain.routes.native.effect === 'canvas2d' &&
+      chain.routes.native.bloom === 'native' &&
+      chain.routes.restoring.effect === expectedEffect &&
+      chain.routes.restoring.bloom === 'webgl2' &&
+      chain.routes.restored.effect === expectedEffect &&
+      chain.routes.restored.bloom === 'webgl2',
+    `${mode}: ${label}路由错误`,
+    chain.routes,
+  );
+  assert(
+    chain.readback.sourceCalls === 1 &&
+      chain.readback.coverageCalls ===
+        (mode === 'webgl2-bloom' ? 1 : 0),
+    `${mode}: ${label}未命中预期 Software 回读故障`,
+    chain.readback,
+  );
+  assert(
+    chain.renderer.poolIdentityBeforeFailure &&
+      chain.renderer.poolIdentityAfterRestore &&
+      chain.renderer.sourceContextPreserved &&
+      chain.renderer.coverageContextPreserved &&
+      chain.renderer.unavailableAfterFailure &&
+      chain.renderer.availableAfterRestore === false,
+    `${mode}: ${label}的 Software Renderer 永久回退合同失效`,
+    chain.renderer,
+  );
+  assert(
+    chain.events.length === expectedEvents.length &&
+      chain.events.every((event, index) =>
+      {
+        const expected = expectedEvents[index];
+
+        return event.kind === expected[0] &&
+          event.requested === expected[1] &&
+          event.resolved === expected[2];
+      }),
+    `${mode}: ${label}事件顺序错误`,
+    {
+      actual: chain.events,
+      expected: expectedEvents,
+    },
+  );
+}
+
+function validateBackendFailureChain(mode, results)
+{
   for (const [opacity, chain] of results)
   {
-    assert(
-      chain.routes.before.effect === expectedEffect &&
-        chain.routes.before.bloom === 'webgl2' &&
-        chain.routes.software.effect === 'canvas2d' &&
-        chain.routes.software.bloom === 'software' &&
-        chain.routes.fault.effect === 'canvas2d' &&
-        chain.routes.fault.bloom === 'native' &&
-        chain.routes.native.effect === 'canvas2d' &&
-        chain.routes.native.bloom === 'native' &&
-        chain.routes.restoring.effect === expectedEffect &&
-        chain.routes.restoring.bloom === 'webgl2' &&
-        chain.routes.restored.effect === expectedEffect &&
-        chain.routes.restored.bloom === 'webgl2',
-      `${mode}: 完整后端失败链路由错误`,
-      chain.routes,
-    );
-    assert(
-      chain.readback.sourceCalls === 1 &&
-        chain.readback.coverageCalls ===
-          (mode === 'webgl2-bloom' ? 1 : 0),
-      `${mode}: Software getImageData 故障没有命中预期回读阶段`,
-      chain.readback,
-    );
-    assert(
-      chain.renderer.poolIdentityBeforeFailure &&
-        chain.renderer.poolIdentityAfterRestore &&
-        chain.renderer.sourceContextPreserved &&
-        chain.renderer.coverageContextPreserved &&
-        chain.renderer.unavailableAfterFailure &&
-        chain.renderer.availableAfterRestore === false,
-      `${mode}: Software Renderer 故障后的永久回退合同失效`,
-      chain.renderer,
-    );
-    assert(
-      chain.events.length === expectedEvents.length &&
-        chain.events.every((event, index) =>
-        {
-          const expected = expectedEvents[index];
-
-          return event.kind === expected[0] &&
-            event.requested === expected[1] &&
-            event.resolved === expected[2];
-        }),
-      `${mode}: 完整后端失败链事件顺序错误`,
-      {
-        actual: chain.events,
-        expected: expectedEvents,
-      },
-    );
+    validateBackendFailureContract(mode, chain, '完整后端失败链');
 
     for (const phase of [
       'before',
@@ -1008,6 +1016,55 @@ function validateBackendFailureChain(mode, results)
   ])
   {
     validateContextOpacityGroup(mode, results, phase);
+  }
+}
+
+function validateTrailBackendFailureChain(mode, chain)
+{
+  validateBackendFailureContract(
+    mode,
+    chain,
+    '透明拖尾后端失败链',
+  );
+  assert(
+    chain.variant === 'trail-only',
+    `${mode}: 透明拖尾失败链夹具混入点击特效`,
+    chain.variant,
+  );
+
+  for (const phase of [
+    'before',
+    'software',
+    'fault',
+    'native',
+    'restoring',
+    'restored',
+  ])
+  {
+    const transparent = chain[phase].transparent;
+    const black = chain[phase].black;
+    const checker = chain[phase].checker;
+    const white = chain[phase].white;
+    const transmission = chain[phase].backgroundTransmission;
+
+    assert(
+      hasPixelOutput(transparent),
+      `${mode}: 透明拖尾失败链 ${phase} 输出为空`,
+      transparent,
+    );
+    assert(
+      black.meanEnergy < checker.meanEnergy &&
+        checker.meanEnergy < white.meanEnergy &&
+        transmission.maximumTransmissionError <= 2 &&
+        transmission.maximumCheckerError <= 1,
+      `${mode}: 透明拖尾失败链 ${phase} 没有保留 Coverage 背景透出`,
+      {
+        black: black.meanEnergy,
+        checker: checker.meanEnergy,
+        transmission,
+        white: white.meanEnergy,
+      },
+    );
   }
 }
 
@@ -2283,6 +2340,19 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     metrics.backendFailureChains[mode] = Object.fromEntries(
       failureChainResults,
     );
+
+    currentLabel = `${mode}__trail-backend-failure-chain`;
+    const trailFailureChain = await contextSession.page.evaluate(
+      (input) => window.browserPixelSuite.runBackendFailureChain(input),
+      {
+        mode,
+        opacity: 1,
+        trailOnly: true,
+      },
+    );
+
+    validateTrailBackendFailureChain(mode, trailFailureChain);
+    metrics.trailBackendFailureChains[mode] = trailFailureChain;
 
     currentLabel = `${mode}__trail-context-lifecycle`;
     const trailLifecycle = await contextSession.page.evaluate(

@@ -18,6 +18,7 @@
 - 统一完整 WebGL2、独立 WebGL2 Bloom、软件 Bloom 与原生回退的 Unity `GammaToLinearSpace` 阈值换算；Clamp 在换算后按 Shader half 上限 `65504` 截断，默认序列值仍为 `65472`
 - 修复原生辉光与 Legacy 在高 DPR 下仍按 CSS 像素计算模糊半径的问题，使点击光晕和原生拖尾的物理像素扩散范围不再随设备像素比缩小
 - 增加基于系统 Edge / Chromium 的真实浏览器像素回归门禁，覆盖五种模式、透明度梯度、黑白与棋盘背景、隔离合成、DPR、Shadow DOM、场景背景及 WebGL Context 恢复；固定基线仅用于浏览器实现回归，不替代 Unity HDR 工程真值
+- 为完整 WebGL2 与独立 WebGL2 Bloom 增加 `transparent-overlay + trail-only` 完整失败链，验证 Context 丢失后经过 Software、Native 并恢复 WebGL2 时始终保留非空拖尾与 Coverage 背景透出
 - 文档明确合成配置契约与能力边界：透明桌面推荐完整 WebGL2、`transparent-overlay` 和零浅色轮廓；纯白网页建议开启隔离合成；完整 WebGL2 Scene 配合逐像素匹配的已知背景才能严格复现 Unity 线性 HDR Scene，其他回退路径不承诺逐像素等价
 - 明确 Unity Additive 固定目标 Alpha 属于不透明相机缓冲合同；无匹配背景的透明 Canvas 必须使用传输 Alpha 或 Coverage Alpha，严格一致声明仅覆盖已知背景下的最终 RGB
 
