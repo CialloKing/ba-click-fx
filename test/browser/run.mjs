@@ -1391,6 +1391,81 @@ async function compareScreenshotBuffers(page, left, right)
   );
 }
 
+async function validateContrastCompositing(
+  page,
+  contrastCases,
+  isolationLabel,
+)
+{
+  const transparentZero = contrastCases.get('transparent-overlay__0');
+  const transparentContrast = contrastCases.get(
+    'transparent-overlay__0.35',
+  );
+  const sceneZero = contrastCases.get('scene__0');
+  const sceneContrast = contrastCases.get('scene__0.35');
+  const transparentDifference = await compareScreenshotBuffers(
+    page,
+    transparentZero.screenshot,
+    transparentContrast.screenshot,
+  );
+  const sceneDifference = await compareScreenshotBuffers(
+    page,
+    sceneZero.screenshot,
+    sceneContrast.screenshot,
+  );
+  const prefix = `${isolationLabel} Contrast`;
+
+  validateEmptyPixels(
+    transparentZero.result.contrastLayer,
+    `${prefix} transparent-overlay=0`,
+  );
+  validateEmptyPixels(
+    transparentContrast.result.contrastLayer,
+    `${prefix} transparent-overlay=0.35`,
+  );
+  validateEmptyPixels(
+    sceneZero.result.contrastLayer,
+    `${prefix} scene=0`,
+  );
+  assert(
+    hasPixelOutput(sceneContrast.result.contrastLayer),
+    `${prefix} scene=0.35 没有生成有效对比遮罩`,
+    sceneContrast.result.contrastLayer,
+  );
+  assert(
+    transparentDifference.changedPixels === 0 &&
+      transparentDifference.maximumChannelDelta === 0,
+    `${prefix} 改变了 transparent-overlay 的 Chromium 输出`,
+    transparentDifference,
+  );
+  assert(
+    sceneDifference.changedPixels >= 8 &&
+      sceneDifference.redDropSum > 0 &&
+      sceneDifference.maximumRedDrop >= 4 &&
+      sceneDifference.maximumChannelIncrease <= 1,
+    `${prefix} 没有在 Scene 的真实 Chromium 合成中形成 darken 对照`,
+    sceneDifference,
+  );
+  assert(
+    sceneDifference.center.left[0] > sceneDifference.center.right[0],
+    `${prefix} 没有压暗 Scene 点击中心的白色背景`,
+    sceneDifference.center,
+  );
+  assert(
+    sceneDifference.far.left.every((value) => value === 255) &&
+      sceneDifference.far.right.every((value) => value === 255),
+    `${prefix} 改变了远离特效遮罩的白色背景`,
+    sceneDifference.far,
+  );
+
+  return (
+    {
+      sceneDifference,
+      transparentDifference,
+    }
+  );
+}
+
 async function openFixture(browserInstance, baseUrl, dpr)
 {
   const context = await browserInstance.newContext(
@@ -1973,116 +2048,64 @@ async function runMatrix(browserInstance, baseUrl, baseline)
       );
       metrics.sceneBackgroundReset = sceneReset;
 
-      const contrastCases = new Map();
-
-      for (const outputCompositing of ['transparent-overlay', 'scene'])
+      for (const isolatedCompositing of isolationModes)
       {
-        for (const lightBackgroundContrastAlpha of [0, 0.35])
+        const contrastCases = new Map();
+        const isolationLabel = isolatedCompositing ? 'isolated' : 'direct';
+
+        for (const outputCompositing of ['transparent-overlay', 'scene'])
         {
-          const key = `${outputCompositing}__${lightBackgroundContrastAlpha}`;
-          const label = `software-bloom__contrast-${key}`;
-          const specification =
+          for (const lightBackgroundContrastAlpha of [0, 0.35])
           {
-            mode: 'software-bloom',
-            opacity: 1,
-            isolatedCompositing: false,
-            background: 'white',
-            outputCompositing,
-            lightBackgroundContrastAlpha,
-            shadow: false,
-            containStrict: false,
-            includeTrail: false,
-            inspectContrast: true,
-            sampleTimeMs: 120,
-            fxParams:
+            const key =
+              `${outputCompositing}__${lightBackgroundContrastAlpha}`;
+            const label =
+              `software-bloom__contrast-${isolationLabel}__${key}`;
+            const specification =
             {
-              'shards.clickCount': 0,
-              'shards.maxCount': 0,
-            },
-          };
+              mode: 'software-bloom',
+              opacity: 1,
+              isolatedCompositing,
+              background: 'white',
+              outputCompositing,
+              lightBackgroundContrastAlpha,
+              shadow: false,
+              containStrict: false,
+              includeTrail: false,
+              inspectContrast: true,
+              sampleTimeMs: 120,
+              fxParams:
+              {
+                'shards.clickCount': 0,
+                'shards.maxCount': 0,
+              },
+            };
 
-          currentLabel = label;
-          const result = await page.evaluate(
-            (input) => window.browserPixelSuite.runCase(input),
-            specification,
-          );
-          const screenshot = await captureContrastScreenshot(page);
+            currentLabel = label;
+            const result = await page.evaluate(
+              (input) => window.browserPixelSuite.runCase(input),
+              specification,
+            );
+            const screenshot = await captureContrastScreenshot(page);
 
-          contrastCases.set(
-            key,
-            {
-              result,
-              screenshot,
-            },
-          );
-          metrics.cases[label] = result;
+            contrastCases.set(
+              key,
+              {
+                result,
+                screenshot,
+              },
+            );
+            metrics.cases[label] = result;
+          }
         }
+
+        metrics.contrastCompositing[isolationLabel] =
+          await validateContrastCompositing(
+            page,
+            contrastCases,
+            isolationLabel,
+          );
       }
-
-      const transparentZero = contrastCases.get('transparent-overlay__0');
-      const transparentContrast = contrastCases.get(
-        'transparent-overlay__0.35',
-      );
-      const sceneZero = contrastCases.get('scene__0');
-      const sceneContrast = contrastCases.get('scene__0.35');
-      const transparentDifference = await compareScreenshotBuffers(
-        page,
-        transparentZero.screenshot,
-        transparentContrast.screenshot,
-      );
-      const sceneDifference = await compareScreenshotBuffers(
-        page,
-        sceneZero.screenshot,
-        sceneContrast.screenshot,
-      );
-
-      validateEmptyPixels(
-        transparentZero.result.contrastLayer,
-        'transparent-overlay Contrast=0',
-      );
-      validateEmptyPixels(
-        transparentContrast.result.contrastLayer,
-        'transparent-overlay Contrast=0.35',
-      );
-      validateEmptyPixels(
-        sceneZero.result.contrastLayer,
-        'scene Contrast=0',
-      );
-      assert(
-        hasPixelOutput(sceneContrast.result.contrastLayer),
-        'scene Contrast=0.35 没有生成有效对比遮罩',
-        sceneContrast.result.contrastLayer,
-      );
-      assert(
-        transparentDifference.changedPixels === 0 &&
-          transparentDifference.maximumChannelDelta === 0,
-        'transparent-overlay 的 Chromium 输出受 Contrast 参数影响',
-        transparentDifference,
-      );
-      assert(
-        sceneDifference.changedPixels >= 8 &&
-          sceneDifference.redDropSum > 0 &&
-          sceneDifference.maximumRedDrop >= 4 &&
-          sceneDifference.maximumChannelIncrease <= 1,
-        'scene Contrast=0.35 没有在真实 Chromium 合成中形成 darken 对照',
-        sceneDifference,
-      );
-      assert(
-        sceneDifference.center.left[0] > sceneDifference.center.right[0],
-        'scene Contrast=0.35 没有压暗点击中心的白色背景',
-        sceneDifference.center,
-      );
-      assert(
-        sceneDifference.far.left.every((value) => value === 255) &&
-          sceneDifference.far.right.every((value) => value === 255),
-        'scene Contrast 改变了远离特效遮罩的白色背景',
-        sceneDifference.far,
-      );
-      metrics.contrastCompositing =
-      {
-        sceneDifference,
-        transparentDifference,
-      };
 
       for (const mode of modeNames)
       {
