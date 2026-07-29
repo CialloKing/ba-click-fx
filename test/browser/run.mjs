@@ -36,6 +36,7 @@ const metrics =
   cases: {},
   compositor: {},
   backendFailureChains: {},
+  contrastCompositing: {},
   contextLifecycle: {},
   effectLifecycle: {},
   trailContextLifecycle: {},
@@ -1109,6 +1110,145 @@ async function captureCompositorMetrics(page)
   return summarizeScreenshot(page, screenshot);
 }
 
+async function captureContrastScreenshot(page)
+{
+  await page.evaluate(() => window.browserPixelSuite.waitForCompositorFrame());
+  const clip = await page.evaluate(() => window.browserPixelSuite.getStageClip());
+
+  return page.screenshot(
+    {
+      animations: 'disabled',
+      clip,
+      type: 'png',
+    },
+  );
+}
+
+async function compareScreenshotBuffers(page, left, right)
+{
+  return page.evaluate(
+    async (encoded) =>
+    {
+      const decode = async (value) =>
+      {
+        const response = await fetch(`data:image/png;base64,${value}`);
+        const bitmap = await createImageBitmap(await response.blob());
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+        const context = canvas.getContext(
+          '2d',
+          {
+            willReadFrequently: true,
+          },
+        );
+
+        context.drawImage(bitmap, 0, 0);
+        bitmap.close();
+        return context.getImageData(0, 0, canvas.width, canvas.height);
+      };
+      const leftImage = await decode(encoded.left);
+      const rightImage = await decode(encoded.right);
+
+      if (
+        leftImage.width !== rightImage.width ||
+        leftImage.height !== rightImage.height
+      )
+      {
+        throw new Error('Contrast 对照截图尺寸不一致');
+      }
+
+      let changedPixels = 0;
+      let maximumChannelDelta = 0;
+      let maximumChannelIncrease = 0;
+      let maximumRedDrop = 0;
+      let redDropSum = 0;
+
+      for (let offset = 0; offset < leftImage.data.length; offset += 4)
+      {
+        let pixelChanged = false;
+
+        for (let channel = 0; channel < 4; channel++)
+        {
+          const leftValue = leftImage.data[offset + channel];
+          const rightValue = rightImage.data[offset + channel];
+          const delta = Math.abs(leftValue - rightValue);
+
+          maximumChannelDelta = Math.max(maximumChannelDelta, delta);
+          pixelChanged ||= delta > 0;
+
+          if (channel < 3)
+          {
+            maximumChannelIncrease = Math.max(
+              maximumChannelIncrease,
+              rightValue - leftValue,
+            );
+          }
+        }
+
+        const redDrop = Math.max(
+          0,
+          leftImage.data[offset] - rightImage.data[offset],
+        );
+
+        maximumRedDrop = Math.max(maximumRedDrop, redDrop);
+        redDropSum += redDrop;
+
+        if (pixelChanged)
+        {
+          changedPixels++;
+        }
+      }
+
+      const getPixelAt = (image, x, y) =>
+      {
+        const offset = (y * image.width + x) * 4;
+
+        return Array.from(image.data.slice(offset, offset + 4));
+      };
+      // Stage 在目标区域四周保留 16px，截图坐标必须包含该偏移。
+      const scale = leftImage.width / 352;
+      const centerX = Math.min(
+        leftImage.width - 1,
+        Math.round((16 + 160) * scale),
+      );
+      const centerY = Math.min(
+        leftImage.height - 1,
+        Math.round((16 + 96) * scale),
+      );
+      const farX = Math.min(
+        leftImage.width - 1,
+        Math.round((16 + 16) * scale),
+      );
+      const farY = Math.min(
+        leftImage.height - 1,
+        Math.round((16 + 224) * scale),
+      );
+
+      return {
+        changedPixels,
+        center:
+        {
+          left: getPixelAt(leftImage, centerX, centerY),
+          right: getPixelAt(rightImage, centerX, centerY),
+        },
+        far:
+        {
+          left: getPixelAt(leftImage, farX, farY),
+          right: getPixelAt(rightImage, farX, farY),
+        },
+        maximumChannelDelta,
+        maximumChannelIncrease,
+        maximumRedDrop,
+        pixelCount: leftImage.width * leftImage.height,
+        redDropSum,
+      };
+    },
+    {
+      left: left.toString('base64'),
+      right: right.toString('base64'),
+    },
+  );
+}
+
 async function openFixture(browserInstance, baseUrl, dpr)
 {
   const context = await browserInstance.newContext(
@@ -1690,6 +1830,117 @@ async function runMatrix(browserInstance, baseUrl, baseline)
         sceneReset,
       );
       metrics.sceneBackgroundReset = sceneReset;
+
+      const contrastCases = new Map();
+
+      for (const outputCompositing of ['transparent-overlay', 'scene'])
+      {
+        for (const lightBackgroundContrastAlpha of [0, 0.35])
+        {
+          const key = `${outputCompositing}__${lightBackgroundContrastAlpha}`;
+          const label = `software-bloom__contrast-${key}`;
+          const specification =
+          {
+            mode: 'software-bloom',
+            opacity: 1,
+            isolatedCompositing: false,
+            background: 'white',
+            outputCompositing,
+            lightBackgroundContrastAlpha,
+            shadow: false,
+            containStrict: false,
+            includeTrail: false,
+            inspectContrast: true,
+            sampleTimeMs: 120,
+            fxParams:
+            {
+              'shards.clickCount': 0,
+              'shards.maxCount': 0,
+            },
+          };
+
+          currentLabel = label;
+          const result = await page.evaluate(
+            (input) => window.browserPixelSuite.runCase(input),
+            specification,
+          );
+          const screenshot = await captureContrastScreenshot(page);
+
+          contrastCases.set(
+            key,
+            {
+              result,
+              screenshot,
+            },
+          );
+          metrics.cases[label] = result;
+        }
+      }
+
+      const transparentZero = contrastCases.get('transparent-overlay__0');
+      const transparentContrast = contrastCases.get(
+        'transparent-overlay__0.35',
+      );
+      const sceneZero = contrastCases.get('scene__0');
+      const sceneContrast = contrastCases.get('scene__0.35');
+      const transparentDifference = await compareScreenshotBuffers(
+        page,
+        transparentZero.screenshot,
+        transparentContrast.screenshot,
+      );
+      const sceneDifference = await compareScreenshotBuffers(
+        page,
+        sceneZero.screenshot,
+        sceneContrast.screenshot,
+      );
+
+      validateEmptyPixels(
+        transparentZero.result.contrastLayer,
+        'transparent-overlay Contrast=0',
+      );
+      validateEmptyPixels(
+        transparentContrast.result.contrastLayer,
+        'transparent-overlay Contrast=0.35',
+      );
+      validateEmptyPixels(
+        sceneZero.result.contrastLayer,
+        'scene Contrast=0',
+      );
+      assert(
+        hasPixelOutput(sceneContrast.result.contrastLayer),
+        'scene Contrast=0.35 没有生成有效对比遮罩',
+        sceneContrast.result.contrastLayer,
+      );
+      assert(
+        transparentDifference.changedPixels === 0 &&
+          transparentDifference.maximumChannelDelta === 0,
+        'transparent-overlay 的 Chromium 输出受 Contrast 参数影响',
+        transparentDifference,
+      );
+      assert(
+        sceneDifference.changedPixels >= 8 &&
+          sceneDifference.redDropSum > 0 &&
+          sceneDifference.maximumRedDrop >= 4 &&
+          sceneDifference.maximumChannelIncrease <= 1,
+        'scene Contrast=0.35 没有在真实 Chromium 合成中形成 darken 对照',
+        sceneDifference,
+      );
+      assert(
+        sceneDifference.center.left[0] > sceneDifference.center.right[0],
+        'scene Contrast=0.35 没有压暗点击中心的白色背景',
+        sceneDifference.center,
+      );
+      assert(
+        sceneDifference.far.left.every((value) => value === 255) &&
+          sceneDifference.far.right.every((value) => value === 255),
+        'scene Contrast 改变了远离特效遮罩的白色背景',
+        sceneDifference.far,
+      );
+      metrics.contrastCompositing =
+      {
+        sceneDifference,
+        transparentDifference,
+      };
 
       for (const mode of modeNames)
       {

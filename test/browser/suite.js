@@ -317,6 +317,23 @@ function captureLayers(effect, target, background = 'transparent')
   return context.getImageData(0, 0, width, height);
 }
 
+function captureContrastLayer(effect)
+{
+  if (!effect.contrastContext || !effect.contrastCanvas)
+  {
+    return null;
+  }
+
+  const image = effect.contrastContext.getImageData(
+    0,
+    0,
+    effect.contrastCanvas.width,
+    effect.contrastCanvas.height,
+  );
+
+  return summarizePixels(image, effect.dpr);
+}
+
 function getPixel(imageData, x, y, dpr)
 {
   const pixelX = Math.max(
@@ -678,6 +695,9 @@ async function runCase(specification)
       white: summarizePixels(white, fixture.effect.dpr),
       checker: summarizePixels(checker, fixture.effect.dpr),
     },
+    contrastLayer: specification.inspectContrast
+      ? captureContrastLayer(fixture.effect)
+      : null,
     trailProfile: specification.straightTrailProbe
       ? summarizeStraightTrail(transparent, fixture.effect)
       : null,
@@ -1392,6 +1412,14 @@ async function runTrailContextLifecycle(mode)
 async function waitForCompositorFrame()
 {
   await new Promise((resolve) => nativeRequestAnimationFrame(resolve));
+  await new Promise((resolve) => nativeRequestAnimationFrame(resolve));
+
+  if (animationFrames.size > 0)
+  {
+    // ResizeObserver 在原生合成帧重设 Canvas 尺寸后会请求库 RAF；测试使用
+    // 虚拟时钟，必须主动冲刷该帧，否则截图会落在清屏与重绘之间。
+    await runAnimationFrame(virtualNow);
+  }
 }
 
 function getStageClip()
