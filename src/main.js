@@ -607,8 +607,7 @@ if (ctrlRenderMode)
 
 // ── 输出合成 → outputCompositing ───────────────────────────────────────
 const ctrlOutputCompositing = document.getElementById('ctrlOutputCompositing');
-const DEFAULT_OUTPUT_COMPOSITING = 'transparent-overlay';
-const OUTPUT_COMPOSITING_STORAGE_KEY = 'bafx-ctrlOutputCompositing-v2';
+const DEFAULT_OUTPUT_COMPOSITING = 'scene';
 const OUTPUT_COMPOSITING_MODES = new Set([
   'scene',
   'transparent-overlay',
@@ -635,7 +634,7 @@ if (ctrlOutputCompositing)
   {
     const resolved = applyOutputCompositing(ctrlOutputCompositing.value);
 
-    localStorage.setItem(OUTPUT_COMPOSITING_STORAGE_KEY, resolved);
+    localStorage.setItem('bafx-ctrlOutputCompositing', resolved);
   });
 }
 
@@ -1440,10 +1439,10 @@ switchLanguage(currentLang);
   applyRenderMode(initialRenderMode);
 
   const savedOutputCompositing = localStorage.getItem(
-    OUTPUT_COMPOSITING_STORAGE_KEY,
+    'bafx-ctrlOutputCompositing',
   );
 
-  // v2 忽略旧版 Scene 默认值，避免升级后继续以高传输 Alpha 展示透明覆盖层。
+  // 即使没有持久化值，也显式应用 Scene，避免展示控件与构造默认值分叉。
   applyOutputCompositing(savedOutputCompositing);
 
   const isolatedCompositingEl = document.getElementById('ctrlIsolatedCompositing');

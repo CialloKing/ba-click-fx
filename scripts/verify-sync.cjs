@@ -225,10 +225,8 @@ verify(
     'scene',
     'transparent-overlay',
   ]) &&
-    /<option value="transparent-overlay" selected>/.test(
-      outputCompositingSelect,
-    ),
-  '展示页提供默认使用透明覆盖层的输出模式开关',
+    /<option value="scene" selected>/.test(outputCompositingSelect),
+  '展示页提供默认使用 Scene 的透明覆盖层输出模式开关',
 );
 verify(
   /labelOutputCompositing: '输出合成'/.test(mainJs) &&
@@ -240,23 +238,16 @@ verify(
 );
 verify(
   /effect\.updateConfig\(\{ outputCompositing: resolved \}\)/.test(mainJs) &&
-    /const OUTPUT_COMPOSITING_STORAGE_KEY = 'bafx-ctrlOutputCompositing-v2'/.test(
-      mainJs,
-    ) &&
-    /localStorage\.setItem\(OUTPUT_COMPOSITING_STORAGE_KEY, resolved\)/.test(
-      mainJs,
-    ) &&
-    /localStorage\.getItem\([\s\S]*?OUTPUT_COMPOSITING_STORAGE_KEY[\s\S]*?\)/.test(
-      mainJs,
-    ) &&
+    /localStorage\.setItem\('bafx-ctrlOutputCompositing', resolved\)/.test(mainJs) &&
+    /localStorage\.getItem\([\s\S]*?'bafx-ctrlOutputCompositing'[\s\S]*?\)/.test(mainJs) &&
     /applyOutputCompositing\(savedOutputCompositing\)/.test(mainJs),
-  '输出合成选择通过公开配置生效并迁移旧版默认值',
+  '输出合成选择通过公开配置生效并支持本地恢复',
 );
 verify(
   /ctrlOutputCompositing'\)\.value =[\s\S]*?DEFAULT_OUTPUT_COMPOSITING/.test(mainJs) &&
     /outputCompositing: DEFAULT_OUTPUT_COMPOSITING/.test(mainJs) &&
-    /const DEFAULT_OUTPUT_COMPOSITING = 'transparent-overlay'/.test(mainJs),
-  '展示页重置操作恢复透明覆盖层输出合同',
+    /const DEFAULT_OUTPUT_COMPOSITING = 'scene'/.test(mainJs),
+  '展示页重置操作恢复 Scene 输出合同',
 );
 verify(
   /BLOOM_BACKEND_CHANGE_EVENT/.test(mainJs) &&
