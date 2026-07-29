@@ -799,22 +799,26 @@ function summarizeBackgroundTransmission(images, dpr)
         Math.abs(channel - expectedChecker[index])),
     );
 
-    return {
-      radius,
-      alpha: transparent[3],
-      checkerError,
-      checkerUsesBlack,
-      transmissionError,
-    };
+    return (
+      {
+        radius,
+        alpha: transparent[3],
+        checkerError,
+        checkerUsesBlack,
+        transmissionError,
+      }
+    );
   });
 
-  return {
-    maximumCheckerError: Math.max(...samples.map((sample) =>
-      sample.checkerError)),
-    maximumTransmissionError: Math.max(...samples.map((sample) =>
-      sample.transmissionError)),
-    samples,
-  };
+  return (
+    {
+      maximumCheckerError: Math.max(...samples.map((sample) =>
+        sample.checkerError)),
+      maximumTransmissionError: Math.max(...samples.map((sample) =>
+        sample.transmissionError)),
+      samples,
+    }
+  );
 }
 
 function compareAlphaImages(reference, current)
@@ -840,19 +844,25 @@ function compareAlphaImages(reference, current)
 
   const pixelCount = reference.width * reference.height;
 
-  return {
-    meanAbsoluteDelta: absoluteDeltaSum / pixelCount,
-    maximumAbsoluteDelta,
-    visibleMeanAbsoluteDelta: visibleAbsoluteDeltaSum /
-      Math.max(1, visiblePixelCount),
-    visiblePixelCount,
-  };
+  return (
+    {
+      meanAbsoluteDelta: absoluteDeltaSum / pixelCount,
+      maximumAbsoluteDelta,
+      visibleMeanAbsoluteDelta: visibleAbsoluteDeltaSum /
+        Math.max(1, visiblePixelCount),
+      visiblePixelCount,
+    }
+  );
 }
 
 function captureCompositingPhases(effect, target)
 {
-  const images = {};
-  const pixels = {};
+  const images =
+  {
+  };
+  const pixels =
+  {
+  };
 
   for (const background of ['transparent', 'black', 'white', 'checker'])
   {
@@ -864,10 +874,12 @@ function captureCompositingPhases(effect, target)
     images,
     effect.dpr,
   );
-  return {
-    images,
-    pixels,
-  };
+  return (
+    {
+      images,
+      pixels,
+    }
+  );
 }
 
 async function runContextLifecycle(specification)
@@ -900,7 +912,11 @@ async function runContextLifecycle(specification)
   if (mode === 'full-webgl2')
   {
     // 完整 GPU 丢失后固定走 Software，避免独立 Bloom Context 掩盖回退帧。
-    effect.updateConfig({ bloomBackend: 'software' });
+    effect.updateConfig(
+      {
+        bloomBackend: 'software',
+      },
+    );
     await runAnimationFrame(SAMPLE_TIME_MS);
   }
 
@@ -1131,22 +1147,24 @@ function instrumentImageReadback(context, shouldFail)
     },
   );
 
-  return {
-    get calls()
+  return (
     {
-      return calls;
-    },
-    restore()
-    {
-      if (ownDescriptor)
+      get calls()
       {
-        Object.defineProperty(context, 'getImageData', ownDescriptor);
-        return;
-      }
+        return calls;
+      },
+      restore()
+      {
+        if (ownDescriptor)
+        {
+          Object.defineProperty(context, 'getImageData', ownDescriptor);
+          return;
+        }
 
-      delete context.getImageData;
-    },
-  };
+        delete context.getImageData;
+      },
+    }
+  );
 }
 
 function recordBackendEvents(effect)
@@ -1182,20 +1200,22 @@ function recordBackendEvents(effect)
     onBloomBackendChange,
   );
 
-  return {
-    events,
-    stop()
+  return (
     {
-      effect.canvas.removeEventListener(
-        EFFECT_BACKEND_CHANGE_EVENT,
-        onEffectBackendChange,
-      );
-      effect.canvas.removeEventListener(
-        BLOOM_BACKEND_CHANGE_EVENT,
-        onBloomBackendChange,
-      );
-    },
-  };
+      events,
+      stop()
+      {
+        effect.canvas.removeEventListener(
+          EFFECT_BACKEND_CHANGE_EVENT,
+          onEffectBackendChange,
+        );
+        effect.canvas.removeEventListener(
+          BLOOM_BACKEND_CHANGE_EVENT,
+          onBloomBackendChange,
+        );
+      },
+    }
+  );
 }
 
 async function runBackendFailureChain(specification)
@@ -1224,7 +1244,11 @@ async function runBackendFailureChain(specification)
   if (mode === 'full-webgl2')
   {
     // 完整特效 Context 丢失后必须固定经过 Software，再注入回读故障。
-    effect.updateConfig({ bloomBackend: 'software' });
+    effect.updateConfig(
+      {
+        bloomBackend: 'software',
+      },
+    );
     await runAnimationFrame(SAMPLE_TIME_MS);
   }
 

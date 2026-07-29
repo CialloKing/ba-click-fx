@@ -35,11 +35,17 @@ const metrics =
   environment: {},
   cases: {},
   compositor: {},
-  backendFailureChains: {},
-  contrastCompositing: {},
+  backendFailureChains:
+  {
+  },
+  contrastCompositing:
+  {
+  },
   contextLifecycle: {},
   sceneBackgroundContextLifecycle: null,
-  effectLifecycle: {},
+  effectLifecycle:
+  {
+  },
   trailContextLifecycle: {},
   trailTextureResourceLifecycle: {},
 };
@@ -1365,24 +1371,26 @@ async function compareScreenshotBuffers(page, left, right)
         Math.round((16 + 224) * scale),
       );
 
-      return {
-        changedPixels,
-        center:
+      return (
         {
-          left: getPixelAt(leftImage, centerX, centerY),
-          right: getPixelAt(rightImage, centerX, centerY),
-        },
-        far:
-        {
-          left: getPixelAt(leftImage, farX, farY),
-          right: getPixelAt(rightImage, farX, farY),
-        },
-        maximumChannelDelta,
-        maximumChannelIncrease,
-        maximumRedDrop,
-        pixelCount: leftImage.width * leftImage.height,
-        redDropSum,
-      };
+          changedPixels,
+          center:
+          {
+            left: getPixelAt(leftImage, centerX, centerY),
+            right: getPixelAt(rightImage, centerX, centerY),
+          },
+          far:
+          {
+            left: getPixelAt(leftImage, farX, farY),
+            right: getPixelAt(rightImage, farX, farY),
+          },
+          maximumChannelDelta,
+          maximumChannelIncrease,
+          maximumRedDrop,
+          pixelCount: leftImage.width * leftImage.height,
+          redDropSum,
+        }
+      );
     },
     {
       left: left.toString('base64'),
