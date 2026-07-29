@@ -999,6 +999,110 @@ async function runContextLifecycle(specification)
   };
 }
 
+async function runSceneBackgroundContextLifecycle()
+{
+  const fixture = await prepareEffect(
+    {
+      mode: 'full-webgl2',
+      opacity: 1,
+      isolatedCompositing: true,
+      background: 'transparent',
+      outputCompositing: 'scene',
+      shadow: false,
+      containStrict: false,
+      includeTrail: false,
+      fxParams:
+      {
+        'shards.clickCount': 0,
+        'shards.maxCount': 0,
+      },
+    },
+  );
+  const effect = fixture.effect;
+  const sceneBackground = createSceneBackground();
+  const accepted = effect.setSceneBackground(sceneBackground);
+
+  await runAnimationFrame(SAMPLE_TIME_MS);
+
+  const canvas = effect.webglEffectCanvas;
+  const context = canvas?.getContext('webgl2');
+  const extension = context?.getExtension('WEBGL_lose_context');
+
+  if (!accepted || !canvas || !context || !extension)
+  {
+    throw new Error('纯 WebGL2 无法建立 Scene 背景 Context 生命周期');
+  }
+
+  const capturePhase = () =>
+    (
+      {
+        overlay: summarizePixels(
+          captureLayers(effect, fixture.target, 'transparent'),
+          effect.dpr,
+        ),
+        composited: summarizePixels(
+          captureLayers(effect, fixture.target, 'checker'),
+          effect.dpr,
+        ),
+      }
+    );
+  const beforeRoute = effect.getConfig();
+  const before = capturePhase();
+  const lostEvent = waitForCanvasEvent(canvas, 'webglcontextlost');
+
+  extension.loseContext();
+  await lostEvent;
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  const fallbackRoute = effect.getConfig();
+  const fallback = capturePhase();
+  const restoredEvent = waitForCanvasEvent(canvas, 'webglcontextrestored');
+
+  // Chromium 需要先完成丢失后的 GPU 清理，立即恢复会被忽略。
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  extension.restoreContext();
+  await restoredEvent;
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  const restoringRoute = effect.getConfig();
+  const restoring = capturePhase();
+  await runAnimationFrame(SAMPLE_TIME_MS);
+  const restoredRoute = effect.getConfig();
+  const restored = capturePhase();
+
+  return (
+    {
+      accepted,
+      sourcePreserved: effect.sceneBackgroundSource === sceneBackground,
+      before,
+      fallback,
+      restoring,
+      restored,
+      routes:
+      {
+        before:
+        {
+          effect: beforeRoute.resolvedEffectBackend,
+          bloom: beforeRoute.resolvedBloomBackend,
+        },
+        fallback:
+        {
+          effect: fallbackRoute.resolvedEffectBackend,
+          bloom: fallbackRoute.resolvedBloomBackend,
+        },
+        restoring:
+        {
+          effect: restoringRoute.resolvedEffectBackend,
+          bloom: restoringRoute.resolvedBloomBackend,
+        },
+        restored:
+        {
+          effect: restoredRoute.resolvedEffectBackend,
+          bloom: restoredRoute.resolvedBloomBackend,
+        },
+      },
+    }
+  );
+}
+
 function instrumentImageReadback(context, shouldFail)
 {
   const ownDescriptor = Object.getOwnPropertyDescriptor(
@@ -1484,6 +1588,7 @@ window.browserPixelSuite = Object.freeze(
     runCase,
     runSceneBackgroundReset,
     runContextLifecycle,
+    runSceneBackgroundContextLifecycle,
     runBackendFailureChain,
     runTrailTextureResourceLifecycle,
     runTrailContextLifecycle,

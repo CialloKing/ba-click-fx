@@ -38,6 +38,7 @@ const metrics =
   backendFailureChains: {},
   contrastCompositing: {},
   contextLifecycle: {},
+  sceneBackgroundContextLifecycle: null,
   effectLifecycle: {},
   trailContextLifecycle: {},
   trailTextureResourceLifecycle: {},
@@ -746,6 +747,67 @@ function validateContextLifecycleGroup(mode, results)
   ])
   {
     validateContextOpacityGroup(mode, results, phase);
+  }
+}
+
+function validateSceneBackgroundContextLifecycle(lifecycle)
+{
+  assert(
+    lifecycle.accepted &&
+      lifecycle.sourcePreserved &&
+      lifecycle.routes.before.effect === 'webgl2' &&
+      lifecycle.routes.before.bloom === 'webgl2' &&
+      lifecycle.routes.fallback.effect === 'canvas2d' &&
+      lifecycle.routes.fallback.bloom === 'webgl2' &&
+      lifecycle.routes.restoring.effect === 'webgl2' &&
+      lifecycle.routes.restoring.bloom === 'webgl2' &&
+      lifecycle.routes.restored.effect === 'webgl2' &&
+      lifecycle.routes.restored.bloom === 'webgl2',
+    'Scene 背景 Context 生命周期路由或源对象保留失败',
+    lifecycle,
+  );
+
+  for (const phase of ['before', 'fallback', 'restoring', 'restored'])
+  {
+    const overlay = lifecycle[phase].overlay;
+    const composited = lifecycle[phase].composited;
+
+    assert(
+      hasPixelOutput(overlay),
+      `Scene 背景在 Context ${phase} 阶段产生空白叠加层`,
+      overlay,
+    );
+    assert(
+      relativeDifference(
+        lifecycle.before.overlay.meanEnergy,
+        overlay.meanEnergy,
+      ) <= 0.15 &&
+        relativeDifference(
+          lifecycle.before.overlay.meanAlpha,
+          overlay.meanAlpha,
+        ) <= 0.15,
+      `Scene 背景叠加层在 Context ${phase} 阶段出现突跳`,
+      {
+        before: lifecycle.before.overlay,
+        current: overlay,
+      },
+    );
+    assert(
+      composited.meanAlpha >= 0.99 &&
+        composited.maximumAlpha >= 0.99 &&
+        composited.visibleRatio >= 0.99 &&
+        composited.bounds.width >= 319 &&
+        composited.bounds.height >= 239 &&
+        relativeDifference(
+          lifecycle.before.composited.meanEnergy,
+          composited.meanEnergy,
+        ) <= 0.15,
+      `Scene 背景在 Context ${phase} 阶段没有保持宿主合成结果`,
+      {
+        before: lifecycle.before.composited,
+        current: composited,
+      },
+    );
   }
 }
 
@@ -2153,6 +2215,21 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     currentLabel = `${mode}__context-lifecycle`;
     validateContextLifecycleGroup(mode, contextResults);
     metrics.contextLifecycle[mode] = Object.fromEntries(contextResults);
+
+    if (mode === 'full-webgl2')
+    {
+      currentLabel = 'full-webgl2__scene-background-context-lifecycle';
+      const sceneBackgroundContextLifecycle =
+        await contextSession.page.evaluate(
+          () => window.browserPixelSuite.runSceneBackgroundContextLifecycle(),
+        );
+
+      validateSceneBackgroundContextLifecycle(
+        sceneBackgroundContextLifecycle,
+      );
+      metrics.sceneBackgroundContextLifecycle =
+        sceneBackgroundContextLifecycle;
+    }
 
     const failureChainResults = new Map();
 
