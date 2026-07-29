@@ -5848,18 +5848,6 @@ export class BAClickFX
       : useWebGLClickEffects
         ? 'webgl2'
         : this._resolveBloomBackend();
-    this._setResolvedBloomBackend(bloomBackend);
-
-    if (
-      !legacy &&
-      !useWebGLClickEffects &&
-      this.resolvedBloomBackend !== bloomBackend
-    )
-    {
-      // 宿主可在同步状态事件中立即切换后端；后续绘制必须读取新路由。
-      bloomBackend = this._resolveBloomBackend();
-    }
-
     let useSoftwareBloom = bloomBackend === 'software';
     let useWebGL2Bloom = bloomBackend === 'webgl2';
     // Legacy 本身就是 Canvas 阴影路径，不能因不属于增强后端而关闭圆盘辉光。
@@ -5876,6 +5864,7 @@ export class BAClickFX
     let canvasSceneRendered = false;
 
     this.lastFrameTime = now;
+    this._setResolvedBloomBackend(bloomBackend);
 
     if (!useWebGLClickEffects)
     {
@@ -5944,16 +5933,6 @@ export class BAClickFX
           useWebGL2Bloom = bloomBackend === 'webgl2';
           useNativeBloom = bloomBackend === 'native';
           this._setResolvedBloomBackend(bloomBackend);
-
-          if (this.resolvedBloomBackend !== bloomBackend)
-          {
-            // 状态监听器可能同步释放旧后端资源，不能继续使用缓存路由。
-            bloomBackend = this._resolveBloomBackend();
-            useSoftwareBloom = bloomBackend === 'software';
-            useWebGL2Bloom = bloomBackend === 'webgl2';
-            useNativeBloom = bloomBackend === 'native';
-          }
-
           this._setWebGLBloomVisible(useWebGL2Bloom);
           this._drawCanvasTrails(scale, useNativeBloom, legacy);
           this._drawCanvasClickEffects(scale, useNativeBloom);
@@ -7779,14 +7758,6 @@ export class BAClickFX
     const previousHueShift = themeHueShift;
     let resolvedBloomBackend = bloomBackend;
 
-    this._setResolvedBloomBackend(resolvedBloomBackend);
-
-    if (this.resolvedBloomBackend === 'native')
-    {
-      // Context 事件监听器可同步拒绝 Software，避免当前回退帧触发像素回读。
-      resolvedBloomBackend = 'native';
-    }
-
     themeHueShift = this._themeHueShift;
     this.context.save();
 
@@ -7972,15 +7943,6 @@ export class BAClickFX
       this._drawCanvasFallbackFrame(scale, false, false);
       this._renderLightBackgroundContrast(scale, true);
       this._setResolvedBloomBackend('software');
-
-      if (this.resolvedBloomBackend === 'native')
-      {
-        // 宿主在回退事件内选择 Native 时，同帧重画阴影并跳过 Software。
-        this._drawCanvasFallbackFrame(scale, true, false);
-        this._renderLightBackgroundContrast(scale, false);
-        return;
-      }
-
       this._renderSoftwareBloom(scale);
 
       if (!this.bloomRenderer.available)

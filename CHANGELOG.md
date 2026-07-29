@@ -14,7 +14,6 @@
 - 增加真实 Chromium 的 Trail_03 独立像素探针，验证完整 WebGL2 与 WebGL2 Bloom 的头尾能量、非对称横截面方向和逐项一致性；明确区分 Unity 语义 UV 与 PNG 顶行优先字节上传所需的 WebGL V 补偿
 - 软件 Bloom 的透明覆盖层改用清晰 Scene 与 Bloom 的剩余 Coverage 合成，避免中心 Alpha 重复抬高；Canvas 路径保持 `scene` 的加色语义，并在 `transparent-overlay` 下采用受预乘 Alpha 限制的兼容输出
 - WebGL2 Bloom 成功路径继续复用已验收的完整 WebGL2 Scene，同时移除每帧不可见的 Canvas 重复栅格化；GPU 当帧失败时才补画 Canvas 并进入 Software / Native 回退
-- 后端解析状态事件允许宿主同步切换路由；在 WebGL2 当帧失败或 Context 丢失事件中立即选择 Native 时，会按新路由重画当前帧并跳过 Software Bloom 像素回读
 - 统一完整 WebGL2、独立 WebGL2 Bloom、软件 Bloom 与原生回退的 Unity `GammaToLinearSpace` 阈值换算；Clamp 在换算后按 Shader half 上限 `65504` 截断，默认序列值仍为 `65472`
 - 修复原生辉光与 Legacy 在高 DPR 下仍按 CSS 像素计算模糊半径的问题，使点击光晕和原生拖尾的物理像素扩散范围不再随设备像素比缩小
 - 增加基于系统 Edge / Chromium 的真实浏览器像素回归门禁，覆盖五种模式、透明度梯度、黑白与棋盘背景、隔离合成、DPR、Shadow DOM、场景背景及 WebGL Context 恢复；固定基线仅用于浏览器实现回归，不替代 Unity HDR 工程真值
