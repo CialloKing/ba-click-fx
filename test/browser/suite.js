@@ -99,11 +99,45 @@ window.cancelAnimationFrame = (id) =>
 };
 
 window.__BACLICKFX_PIXEL_PROGRESS__ = 'importing-runtime';
+const runtimeKind = new URLSearchParams(window.location.search)
+  .get('runtime') === 'iife'
+  ? 'iife'
+  : 'source';
+
+async function loadIifeRuntime()
+{
+  const script = document.createElement('script');
+
+  script.src = '/dist/ba-click-fx.iife.js';
+  script.async = true;
+  await new Promise((resolve, reject) =>
+  {
+    script.addEventListener('load', resolve, { once: true });
+    script.addEventListener(
+      'error',
+      () => reject(new Error(`IIFE 运行时加载失败: ${script.src}`)),
+      { once: true },
+    );
+    document.head.appendChild(script);
+  });
+
+  // HTTP 成功也可能是 Vite 的 HTML 回退，必须验证真实包根导出。
+  if (typeof window.BAClickFX?.BAClickFX !== 'function')
+  {
+    throw new Error('IIFE 运行时没有暴露 BAClickFX.BAClickFX');
+  }
+
+  return window.BAClickFX;
+}
+
+const runtimeExports = runtimeKind === 'iife'
+  ? await loadIifeRuntime()
+  : await import('../../src/fx.js');
 const {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
   EFFECT_BACKEND_CHANGE_EVENT,
-} = await import('../../src/fx.js');
+} = runtimeExports;
 window.__BACLICKFX_PIXEL_PROGRESS__ = 'runtime-imported';
 
 function setRandomSeed(seed)
@@ -1717,6 +1751,7 @@ function getStageClip()
 
 window.browserPixelSuite = Object.freeze(
   {
+    runtimeKind,
     modeNames: Object.keys(MODE_CONFIGS),
     runCase,
     runSceneBackgroundReset,

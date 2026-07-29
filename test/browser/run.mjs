@@ -15,6 +15,7 @@ import { createServer as createViteServer } from 'vite';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const fixturePath = '/test/browser/fixture.html';
+const iifeBundlePath = join(rootDir, 'dist', 'ba-click-fx.iife.js');
 const baselinePath = join(rootDir, 'test', 'browser', 'baseline.json');
 const artifactDir = join(rootDir, 'test-results', 'browser-pixels');
 const optional = process.argv.includes('--optional');
@@ -54,6 +55,7 @@ const metrics =
   },
   trailContextLifecycle: {},
   trailTextureResourceLifecycle: {},
+  iifeSmoke: null,
 };
 
 let currentPage = null;
@@ -1598,7 +1600,7 @@ async function validateContrastCompositing(
   );
 }
 
-async function openFixture(browserInstance, baseUrl, dpr)
+async function openFixture(browserInstance, baseUrl, dpr, runtimeKind = 'source')
 {
   const context = await browserInstance.newContext(
     {
@@ -1655,7 +1657,13 @@ async function openFixture(browserInstance, baseUrl, dpr)
     }
   });
   currentPage = page;
-  await page.goto(`${baseUrl}${fixturePath}`, { waitUntil: 'load' });
+  const fixtureUrl = new URL(`${baseUrl}${fixturePath}`);
+
+  if (runtimeKind === 'iife')
+  {
+    fixtureUrl.searchParams.set('runtime', runtimeKind);
+  }
+  await page.goto(fixtureUrl.href, { waitUntil: 'load' });
 
   try
   {
@@ -1720,6 +1728,7 @@ async function openFixture(browserInstance, baseUrl, dpr)
     context,
     page,
     consoleErrors,
+    failedResources,
     pageErrors,
   };
 }
@@ -1823,6 +1832,86 @@ async function collectLifecycleTimeline(page, mode, variant, sampleTimes)
   }
 
   return timelines;
+}
+
+async function runIifeSmoke(browserInstance, baseUrl)
+{
+  currentLabel = 'iife-fixture-startup';
+  const session = await openFixture(browserInstance, baseUrl, 1, 'iife');
+  const page = session.page;
+
+  currentPage = page;
+
+  try
+  {
+    const runtimeContract = await page.evaluate(() =>
+      ({
+        constructorType: typeof window.BAClickFX?.BAClickFX,
+        runtimeKind: window.browserPixelSuite.runtimeKind,
+      }));
+
+    assert(
+      runtimeContract.runtimeKind === 'iife' &&
+        runtimeContract.constructorType === 'function',
+      '构建后 IIFE 夹具没有使用包根运行时',
+      runtimeContract,
+    );
+
+    currentLabel = 'iife-transparent-click-trail';
+    const basic = await page.evaluate(
+      (input) => window.browserPixelSuite.runCase(input),
+      {
+        mode: 'full-webgl2',
+        opacity: 1,
+        isolatedCompositing: true,
+        background: 'checker',
+        outputCompositing: 'transparent-overlay',
+        shadow: false,
+        containStrict: false,
+      },
+    );
+
+    validateBasicCase(basic, 1);
+    assert(
+      basic.runtime.waveCount > 0 && basic.runtime.trailPointCount >= 2,
+      '构建后 IIFE 没有同时创建点击与拖尾输出',
+      basic.runtime,
+    );
+
+    currentLabel = 'iife-transparent-trail-backend-failure-chain';
+    const failureChain = await page.evaluate(
+      (input) => window.browserPixelSuite.runBackendFailureChain(input),
+      {
+        mode: 'full-webgl2',
+        opacity: 1,
+        trailOnly: true,
+      },
+    );
+
+    validateTrailBackendFailureChain('full-webgl2', failureChain);
+    metrics.iifeSmoke =
+    {
+      basic,
+      failureChain,
+      runtimeContract,
+    };
+    assert(
+      session.pageErrors.length === 0 &&
+        session.consoleErrors.length === 0 &&
+        session.failedResources.length === 0,
+      '构建后 IIFE 浏览器夹具出现未处理异常',
+      {
+        consoleErrors: session.consoleErrors,
+        failedResources: session.failedResources,
+        pageErrors: session.pageErrors,
+      },
+    );
+  }
+  finally
+  {
+    await page.evaluate(() => window.browserPixelSuite.dispose());
+    await session.context.close();
+  }
 }
 
 async function runMatrix(browserInstance, baseUrl, baseline)
@@ -2572,6 +2661,10 @@ async function main()
     existsSync(baselinePath) || calibrate,
     `缺少数值特征基线: ${baselinePath}`,
   );
+  assert(
+    existsSync(iifeBundlePath),
+    `缺少构建后 IIFE: ${iifeBundlePath}；请先运行 npm run build`,
+  );
   const baseline = existsSync(baselinePath)
     ? JSON.parse(readFileSync(baselinePath, 'utf8'))
     : null;
@@ -2614,6 +2707,7 @@ async function main()
     },
   );
   const startedAt = performance.now();
+  await runIifeSmoke(browser, baseUrl);
   const calibration = await runMatrix(browser, baseUrl, baseline);
   const durationMs = performance.now() - startedAt;
 
