@@ -230,12 +230,7 @@ void main()
 
   if (u_transparentOverlay)
   {
-    // Coverage 只作为未知背景上的 Alpha 上限；可见能量更低时继续使用
-    // Coverage 会把浅色宿主遮暗。
-    float alpha = min(
-      clamp(filteredBloom.a, 0.0, 1.0),
-      maximumSrgb
-    );
+    float alpha = clamp(filteredBloom.a, 0.0, 1.0);
 
     if (maximumSrgb <= 0.00001 || alpha <= 0.00001)
     {

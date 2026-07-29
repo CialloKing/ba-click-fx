@@ -549,13 +549,8 @@ void main()
       ? clamp(scene.a, 0.0, 1.0)
       : 0.0;
     float bloomCoverage = clamp(filteredBloom.a, 0.0, 1.0);
+    float alpha = max(sceneCoverage, bloomCoverage);
     float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
-    // Scene/Bloom Coverage 只限定未知背景上的 Alpha 上限。低能量拖尾若
-    // 继续保留完整几何 Coverage，会在 source-over 时把浅色宿主遮成黑色。
-    float alpha = min(
-      max(sceneCoverage, bloomCoverage),
-      maximumSrgb
-    );
 
     if (maximumSrgb <= 0.00001 || alpha <= 0.00001)
     {

@@ -2253,14 +2253,16 @@ assert(
 );
 assert(
   nativeSegmentGradients.every(({ gradient }) =>
-    gradient.stops.every(([, color]) =>
-    {
-      const alpha = getCssAlpha(color);
+  {
+    const nonZeroAlphas = new Set(
+      gradient.stops
+        .map(([, color]) => getCssAlpha(color))
+        .filter((alpha) => alpha > 0),
+    );
 
-      return alpha <= 0 ||
-        Math.abs(getCssPremultipliedEnergy(color) - alpha * 255) <= 1;
-    })),
-  'Native 拖尾以可见 Bloom 能量限制 Coverage Alpha',
+    return nonZeroAlphas.size <= 1;
+  }),
+  'Native 拖尾横截面强度只改变 Bloom RGB，不改变同一网格段 Coverage',
 );
 const expectedNativeTrailPaths = [
   ...clearTrailPaths.slice(

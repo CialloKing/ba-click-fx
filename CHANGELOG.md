@@ -13,7 +13,6 @@
 - Disk、MeshTri 与 Ring (3)/(4) 的启用 Gradient RGB 改为保留 OriginalPrefab 归一化浮点真值，不再提前量化为整数 8-bit；拖尾距离粒子只受 Unity 每实例 `maxNumParticles=50` 限制，移除单次输入额外的 32 枚截断
 - 增加真实 Chromium 的 Trail_03 独立像素探针，验证完整 WebGL2 与 WebGL2 Bloom 的头尾能量、非对称横截面方向和逐项一致性；明确区分 Unity 语义 UV 与 PNG 顶行优先字节上传所需的 WebGL V 补偿
 - 软件 Bloom 的透明覆盖层改用清晰 Scene 与 Bloom 的剩余 Coverage 合成，避免中心 Alpha 重复抬高；Canvas 路径保持 `scene` 的加色语义，并在 `transparent-overlay` 下采用受预乘 Alpha 限制的兼容输出
-- 修复透明覆盖层中低能量拖尾仍保留完整几何 Coverage、在浅色背景上形成黑色尾端的问题；Canvas、Software、WebGL2 Bloom、完整 WebGL2 与构建后 IIFE 统一以可见 RGB 能量限制最终 Alpha
 - WebGL2 Bloom 成功路径继续复用已验收的完整 WebGL2 Scene，同时移除每帧不可见的 Canvas 重复栅格化；GPU 当帧失败时才补画 Canvas 并进入 Software / Native 回退
 - 后端解析状态事件允许宿主同步切换路由；在 WebGL2 当帧失败或 Context 丢失事件中立即选择 Native 时，会按新路由重画当前帧并跳过 Software Bloom 像素回读
 - 统一完整 WebGL2、独立 WebGL2 Bloom、软件 Bloom 与原生回退的 Unity `GammaToLinearSpace` 阈值换算；Clamp 在换算后按 Shader half 上限 `65504` 截断，默认序列值仍为 `65472`

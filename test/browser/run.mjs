@@ -376,10 +376,7 @@ function validateDprPair(dprOne, dprTwo, label)
     },
   );
   assert(
-    relativeDifference(
-      first.meanPremultipliedEnergy,
-      second.meanPremultipliedEnergy,
-    ) <= 0.25,
+    relativeDifference(first.meanEnergy, second.meanEnergy) <= 0.25,
     `${label}: DPR 归一化颜色能量偏差过大`,
     {
       dpr1: first,
@@ -1243,67 +1240,6 @@ function validateWebGLTrailProbe(result, label)
   );
 }
 
-function validateStraightTrailOverlay(result, label, opacity)
-{
-  const overlay = result.trailOverlay;
-
-  assert(
-    result.route.resolvedEffectBackend ===
-        result.expectedRoute.effectBackend &&
-      result.route.resolvedBloomBackend ===
-        result.expectedRoute.bloomBackend,
-    `${label}: 浅色背景拖尾探针没有使用请求的渲染路径`,
-    result.route,
-  );
-  assert(overlay, `${label}: 缺少浅色背景拖尾像素探针`);
-
-  const faintTail = overlay.faintTail;
-  const headEnergy = Math.max(...overlay.head.black.slice(0, 3));
-
-  if (opacity === 0)
-  {
-    assert(
-      Math.max(
-        ...faintTail.black.slice(0, 3),
-        ...overlay.head.black.slice(0, 3),
-      ) <= 1 &&
-        Math.min(...faintTail.white.slice(0, 3)) >= 254 &&
-        Math.min(...overlay.head.white.slice(0, 3)) >= 254,
-      `${label}: opacity=0 仍留下拖尾输出`,
-      overlay,
-    );
-    return;
-  }
-
-  const faintTailEnergy = Math.max(...faintTail.black.slice(0, 3));
-  const minimumTransmission = Math.min(...faintTail.channelTransmission);
-  const maximumWhiteChannel = Math.max(...faintTail.white.slice(0, 3));
-
-  assert(
-    faintTailEnergy > 0 && headEnergy >= opacity * 180,
-    `${label}: 浅色背景探针没有绘制可见拖尾`,
-    overlay,
-  );
-  assert(
-    maximumWhiteChannel >= 250,
-    `${label}: 低能量拖尾遮黑了浅色背景`,
-    {
-      faintTail,
-      maximumWhiteChannel,
-      minimumTransmission,
-    },
-  );
-  assert(
-    faintTail.transparent[3] <= faintTailEnergy + 8,
-    `${label}: 低能量拖尾 Alpha 明显高于可见 RGB`,
-    {
-      alpha: faintTail.transparent[3],
-      energy: faintTailEnergy,
-      faintTail,
-    },
-  );
-}
-
 function validateWebGLTrailProfiles(first, second, label)
 {
   for (const key of [
@@ -2024,28 +1960,6 @@ async function runIifeSmoke(browserInstance, baseUrl)
       basic.runtime,
     );
 
-    currentLabel = 'iife-transparent-straight-trail-overlay';
-    const trailOverlay = await page.evaluate(
-      (input) => window.browserPixelSuite.runCase(input),
-      {
-        mode: 'full-webgl2',
-        opacity: 1,
-        isolatedCompositing: true,
-        background: 'transparent',
-        outputCompositing: 'transparent-overlay',
-        shadow: false,
-        containStrict: false,
-        includeClick: false,
-        includeTrail: true,
-        includeTrailShards: false,
-        straightTrailProbe: true,
-        inspectTrailOverlay: true,
-        scale: 3,
-      },
-    );
-
-    validateStraightTrailOverlay(trailOverlay, currentLabel, 1);
-
     currentLabel = 'iife-transparent-trail-backend-failure-chain';
     const failureChain = await page.evaluate(
       (input) => window.browserPixelSuite.runBackendFailureChain(input),
@@ -2062,7 +1976,6 @@ async function runIifeSmoke(browserInstance, baseUrl)
       basic,
       failureChain,
       runtimeContract,
-      trailOverlay,
     };
     assert(
       session.pageErrors.length === 0 &&
@@ -2405,49 +2318,6 @@ async function runMatrix(browserInstance, baseUrl, baseline)
         webGLTrailResults.get('full-webgl2'),
         webGLTrailResults.get('webgl2-bloom'),
       );
-
-      for (const mode of [
-        'full-webgl2',
-        'webgl2-bloom',
-        'software-bloom',
-        'native',
-      ])
-      {
-        for (const opacity of opacities)
-        {
-          const specification =
-          {
-            mode,
-            opacity,
-            isolatedCompositing: true,
-            background: 'transparent',
-            outputCompositing: 'transparent-overlay',
-            shadow: false,
-            containStrict: false,
-            includeClick: false,
-            includeTrail: true,
-            includeTrailShards: false,
-            straightTrailProbe: true,
-            inspectTrailOverlay: true,
-            scale: 3,
-          };
-          const label = [
-            mode,
-            'straight-trail-overlay',
-            `opacity-${opacity}`,
-            'dpr-1',
-          ].join('__');
-
-          currentLabel = label;
-          const result = await page.evaluate(
-            (input) => window.browserPixelSuite.runCase(input),
-            specification,
-          );
-
-          validateStraightTrailOverlay(result, label, opacity);
-          metrics.cases[label] = result;
-        }
-      }
 
       currentLabel = 'scene-background-null';
       const sceneReset = await page.evaluate(
