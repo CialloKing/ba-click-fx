@@ -401,6 +401,20 @@ function sampleHorizontalEnergy(imageData, x, y, dpr, radius = 2)
   return energy / Math.max(1, count);
 }
 
+function sampleHorizontalAlpha(imageData, x, y, dpr, radius = 2)
+{
+  let alpha = 0;
+  let count = 0;
+
+  for (let offset = -radius; offset <= radius; offset++)
+  {
+    alpha += getPixel(imageData, x + offset, y, dpr)[3] / 255;
+    count++;
+  }
+
+  return alpha / Math.max(1, count);
+}
+
 function summarizeStraightTrail(imageData, effect)
 {
   const dpr = effect.dpr;
@@ -861,13 +875,27 @@ function compareAlphaImages(reference, current)
   let visibleAbsoluteDeltaSum = 0;
   let visiblePixelCount = 0;
   let maximumAbsoluteDelta = 0;
+  let maximumDifference = null;
 
   for (let offset = 3; offset < reference.data.length; offset += 4)
   {
     const delta = Math.abs(reference.data[offset] - current.data[offset]) / 255;
 
     absoluteDeltaSum += delta;
-    maximumAbsoluteDelta = Math.max(maximumAbsoluteDelta, delta);
+
+    if (delta > maximumAbsoluteDelta)
+    {
+      const pixelIndex = (offset - 3) / 4;
+
+      maximumAbsoluteDelta = delta;
+      maximumDifference =
+      {
+        current: current.data[offset],
+        reference: reference.data[offset],
+        x: pixelIndex % reference.width,
+        y: Math.floor(pixelIndex / reference.width),
+      };
+    }
 
     if (reference.data[offset] > 0 || current.data[offset] > 0)
     {
@@ -882,6 +910,7 @@ function compareAlphaImages(reference, current)
     {
       meanAbsoluteDelta: absoluteDeltaSum / pixelCount,
       maximumAbsoluteDelta,
+      maximumDifference,
       visibleMeanAbsoluteDelta: visibleAbsoluteDeltaSum /
         Math.max(1, visiblePixelCount),
       visiblePixelCount,
@@ -968,6 +997,12 @@ function captureCompositingPhases(effect, target)
     images,
     effect.dpr,
   );
+  pixels.transparent.trailProbeAlpha = sampleHorizontalAlpha(
+    images.transparent,
+    (112 + 184) * 0.5,
+    STRAIGHT_TRAIL_Y,
+    effect.dpr,
+  );
   return (
     {
       compositing: captureCompositingState(effect, target),
@@ -1006,7 +1041,6 @@ async function runContextLifecycle(specification)
     },
   );
   const effect = fixture.effect;
-
   if (mode === 'full-webgl2')
   {
     // 完整 GPU 丢失后固定走 Software，避免独立 Bloom Context 掩盖回退帧。
@@ -1353,6 +1387,19 @@ async function runBackendFailureChain(specification)
     },
   );
   const effect = fixture.effect;
+  const originalDrawCanvasFallbackFrame =
+    effect._drawCanvasFallbackFrame.bind(effect);
+  let nativeFallbackDrawCount = 0;
+
+  effect._drawCanvasFallbackFrame = (scale, useNativeBloom, legacy) =>
+  {
+    if (useNativeBloom && !legacy)
+    {
+      nativeFallbackDrawCount++;
+    }
+
+    return originalDrawCanvasFallbackFrame(scale, useNativeBloom, legacy);
+  };
 
   if (mode === 'full-webgl2')
   {
@@ -1388,8 +1435,18 @@ async function runBackendFailureChain(specification)
   await lostEvent;
   const softwareRoute = effect.getConfig();
   const software = captureCompositingPhases(effect, fixture.target);
-  const sourceContext = softwareRenderer.sourceContext;
-  const coverageContext = softwareRenderer.coverageContext;
+  let sourceContext = softwareRenderer.sourceContext;
+  let coverageContext = softwareRenderer.coverageContext;
+
+  if (opacity === 0 && (!sourceContext || !coverageContext))
+  {
+    // 零透明拖尾不会建立 Software 发射区域；短暂预热仅用于命中真实回读
+    // 故障，后续截图会先恢复请求的 opacity，不能伪造透明阶段像素。
+    effect.updateConfig({ opacity: 1 });
+    await runAnimationFrame(SAMPLE_TIME_MS);
+    sourceContext = softwareRenderer.sourceContext;
+    coverageContext = softwareRenderer.coverageContext;
+  }
 
   if (!sourceContext || !coverageContext)
   {
@@ -1405,8 +1462,18 @@ async function runBackendFailureChain(specification)
     coverageContext,
     mode === 'webgl2-bloom',
   );
+  const nativeFallbackDrawCountBeforeFault = nativeFallbackDrawCount;
 
   await runAnimationFrame(SAMPLE_TIME_MS);
+  const nativeFaultRedrawCount =
+    nativeFallbackDrawCount - nativeFallbackDrawCountBeforeFault;
+
+  if (opacity === 0)
+  {
+    effect.updateConfig({ opacity });
+    await runAnimationFrame(SAMPLE_TIME_MS);
+  }
+
   const faultRoute = effect.getConfig();
   const fault = captureCompositingPhases(effect, fixture.target);
   await runAnimationFrame(SAMPLE_TIME_MS);
@@ -1523,6 +1590,7 @@ async function runBackendFailureChain(specification)
       {
         coverageCalls,
         faultTarget: mode === 'full-webgl2' ? 'source' : 'coverage',
+        nativeFaultRedrawCount,
         sourceCalls,
       },
       renderer:

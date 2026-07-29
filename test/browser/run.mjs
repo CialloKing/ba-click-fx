@@ -586,18 +586,32 @@ function validateEffectLifecycle(mode, timelines)
   );
 }
 
-function validateContextOpacityGroup(mode, results, phase)
+function validateContextOpacityGroup(
+  mode,
+  results,
+  phase,
+  label = 'Context',
+  probe = 'center',
+)
 {
   const zero = results.get(0)[phase].transparent;
   const half = results.get(0.5)[phase].transparent;
   const full = results.get(1)[phase].transparent;
   const meanAlphaRatio = half.meanAlpha / Math.max(full.meanAlpha, 1e-9);
-  const centerAlphaRatio = half.center[3] / Math.max(full.center[3], 1);
+  const halfProbeAlpha = probe === 'trail'
+    ? half.trailProbeAlpha
+    : half.center[3] / 255;
+  const fullProbeAlpha = probe === 'trail'
+    ? full.trailProbeAlpha
+    : full.center[3] / 255;
+  const probeAlphaRatio = halfProbeAlpha / Math.max(fullProbeAlpha, 1e-9);
+  const maximumAlphaRatio = half.maximumAlpha /
+    Math.max(full.maximumAlpha, 1e-9);
 
-  validateEmptyPixels(zero, `${mode} Context ${phase} opacity=0`);
+  validateEmptyPixels(zero, `${mode} ${label} ${phase} opacity=0`);
   assert(
     meanAlphaRatio >= 0.35 && meanAlphaRatio <= 0.65,
-    `${mode}: Context ${phase} 的平均 Alpha 不接近线性`,
+    `${mode}: ${label} ${phase} 的平均 Alpha 不接近线性`,
     {
       half,
       full,
@@ -605,20 +619,22 @@ function validateContextOpacityGroup(mode, results, phase)
     },
   );
   assert(
-    centerAlphaRatio >= 0.35 && centerAlphaRatio <= 0.65,
-    `${mode}: Context ${phase} 的中心 Alpha 不接近线性`,
+    probeAlphaRatio >= 0.35 && probeAlphaRatio <= 0.65,
+    `${mode}: ${label} ${phase} 的${
+      probe === 'trail' ? '拖尾探针' : '中心'} Alpha 不接近线性`,
     {
-      centerAlphaRatio,
-      half: half.center,
-      full: full.center,
+      probeAlphaRatio,
+      half: halfProbeAlpha,
+      full: fullProbeAlpha,
     },
   );
   assert(
-    half.maximumAlpha <= full.maximumAlpha + 0.01,
-    `${mode}: Context ${phase} 的 opacity=0.5 最大 Alpha 超过 opacity=1`,
+    maximumAlphaRatio >= 0.35 && maximumAlphaRatio <= 0.65,
+    `${mode}: ${label} ${phase} 的最大 Alpha 不接近线性`,
     {
       half: half.maximumAlpha,
       full: full.maximumAlpha,
+      maximumAlphaRatio,
     },
   );
 }
@@ -945,6 +961,11 @@ function validateBackendFailureContract(mode, chain, label)
     chain.readback,
   );
   assert(
+    chain.readback.nativeFaultRedrawCount === 1,
+    `${mode}: ${label}Software 故障帧没有且仅有一次 Native 重画`,
+    chain.readback,
+  );
+  assert(
     chain.renderer.poolIdentityBeforeFailure &&
       chain.renderer.poolIdentityAfterRestore &&
       chain.renderer.sourceContextPreserved &&
@@ -972,153 +993,8 @@ function validateBackendFailureContract(mode, chain, label)
   );
 }
 
-function validateBackendFailureChain(
-  mode,
-  results,
-  validateOpacitySeries = true,
-)
+function validateBackendFailureAlphaContract(mode, chain, opacity, label)
 {
-  for (const [opacity, chain] of results)
-  {
-    validateBackendFailureContract(mode, chain, '完整后端失败链');
-
-    for (const phase of [
-      'before',
-      'software',
-      'fault',
-      'native',
-      'restoring',
-      'restored',
-    ])
-    {
-      const pixels = chain[phase].transparent;
-      const transmission = chain[phase].backgroundTransmission;
-
-      if (opacity === 0)
-      {
-        validateEmptyPixels(
-          pixels,
-          `${mode} 完整失败链 ${phase} opacity=0`,
-        );
-      }
-      else
-      {
-        assert(
-          hasPixelOutput(pixels),
-          `${mode}: 完整失败链 ${phase} opacity=${opacity} 输出为空`,
-          pixels,
-        );
-      }
-
-      assert(
-        transmission.maximumTransmissionError <= 2 &&
-          transmission.maximumCheckerError <= 1,
-        `${mode}: 完整失败链 ${phase} 破坏透明背景透出`,
-        transmission,
-      );
-    }
-
-    if (opacity > 0)
-    {
-      const before = chain.before.transparent;
-
-      for (const phase of [
-        'software',
-        'fault',
-        'native',
-        'restoring',
-        'restored',
-      ])
-      {
-        const current = chain[phase].transparent;
-        const spatial = chain.alphaContinuity[phase];
-        // Native 是浏览器阴影近似，外围 Coverage 比完整 WebGL2 窄；其余空间和
-        // 中心约束保持不变，故障当帧还会与下一 Native 帧直接比较。
-        const maximumMeanAlphaDifference =
-          phase === 'fault' || phase === 'native' ? 0.55 : 0.5;
-        const radialDelta = before.radialAlpha.map((value, index) =>
-          Math.abs(value - current.radialAlpha[index]));
-
-        assert(
-          relativeDifference(before.meanAlpha, current.meanAlpha) <=
-            maximumMeanAlphaDifference &&
-            Math.abs(before.center[3] - current.center[3]) <= 40 &&
-            spatial.meanAbsoluteDelta <= 0.006 &&
-            spatial.visibleMeanAbsoluteDelta <= 0.12 &&
-            spatial.maximumAbsoluteDelta <= 0.5 &&
-            Math.max(...radialDelta) <= 0.3,
-          `${mode}: 完整失败链 ${phase} 破坏透明 Alpha 合同`,
-          {
-            before,
-            current,
-            opacity,
-            radialDelta,
-            spatial,
-          },
-        );
-      }
-
-      const faultToNative = chain.alphaContinuity.faultToNative;
-
-      assert(
-        faultToNative.meanAbsoluteDelta <= 0.003 &&
-          faultToNative.visibleMeanAbsoluteDelta <= 0.08 &&
-          faultToNative.maximumAbsoluteDelta <= 0.35,
-        `${mode}: Software 故障当帧与 Native 稳定帧出现 Alpha 跳变`,
-        {
-          fault: chain.fault.transparent,
-          faultToNative,
-          native: chain.native.transparent,
-          opacity,
-        },
-      );
-      const restoringToRestored =
-        chain.alphaContinuity.restoringToRestored;
-
-      assert(
-        restoringToRestored.meanAbsoluteDelta <= 0.003 &&
-          restoringToRestored.visibleMeanAbsoluteDelta <= 0.08 &&
-          restoringToRestored.maximumAbsoluteDelta <= 0.35,
-        `${mode}: 失败链恢复首帧与稳定帧出现 Alpha 跳变`,
-        {
-          opacity,
-          restored: chain.restored.transparent,
-          restoring: chain.restoring.transparent,
-          restoringToRestored,
-        },
-      );
-    }
-  }
-
-  if (validateOpacitySeries)
-  {
-    for (const phase of [
-      'before',
-      'software',
-      'fault',
-      'native',
-      'restoring',
-      'restored',
-    ])
-    {
-      validateContextOpacityGroup(mode, results, phase);
-    }
-  }
-}
-
-function validateTrailBackendFailureChain(mode, chain)
-{
-  validateBackendFailureContract(
-    mode,
-    chain,
-    '透明拖尾后端失败链',
-  );
-  assert(
-    chain.variant === 'trail-only',
-    `${mode}: 透明拖尾失败链夹具混入点击特效`,
-    chain.variant,
-  );
-
   for (const phase of [
     'before',
     'software',
@@ -1128,23 +1004,34 @@ function validateTrailBackendFailureChain(mode, chain)
     'restored',
   ])
   {
-    const transparent = chain[phase].transparent;
+    const pixels = chain[phase].transparent;
     const black = chain[phase].black;
     const checker = chain[phase].checker;
     const white = chain[phase].white;
     const transmission = chain[phase].backgroundTransmission;
 
-    assert(
-      hasPixelOutput(transparent),
-      `${mode}: 透明拖尾失败链 ${phase} 输出为空`,
-      transparent,
-    );
+    if (opacity === 0)
+    {
+      validateEmptyPixels(
+        pixels,
+        `${mode} ${label} ${phase} opacity=0`,
+      );
+    }
+    else
+    {
+      assert(
+        hasPixelOutput(pixels),
+        `${mode}: ${label} ${phase} opacity=${opacity} 输出为空`,
+        pixels,
+      );
+    }
+
     assert(
       black.meanEnergy < checker.meanEnergy &&
         checker.meanEnergy < white.meanEnergy &&
         transmission.maximumTransmissionError <= 2 &&
         transmission.maximumCheckerError <= 1,
-      `${mode}: 透明拖尾失败链 ${phase} 没有保留 Coverage 背景透出`,
+      `${mode}: ${label} ${phase} 没有保留 Coverage 背景透出`,
       {
         black: black.meanEnergy,
         checker: checker.meanEnergy,
@@ -1153,6 +1040,136 @@ function validateTrailBackendFailureChain(mode, chain)
       },
     );
   }
+
+  if (opacity === 0)
+  {
+    return;
+  }
+
+  const before = chain.before.transparent;
+
+  for (const phase of [
+    'software',
+    'fault',
+    'native',
+    'restoring',
+    'restored',
+  ])
+  {
+    const current = chain[phase].transparent;
+    const spatial = chain.alphaContinuity[phase];
+    // Native 是浏览器阴影近似，外围 Coverage 比完整 WebGL2 窄；其余空间和
+    // 中心约束保持不变，故障当帧还会与下一 Native 帧直接比较。
+    const maximumMeanAlphaDifference =
+      phase === 'fault' || phase === 'native' ? 0.55 : 0.5;
+    const radialDelta = before.radialAlpha.map((value, index) =>
+      Math.abs(value - current.radialAlpha[index]));
+
+    assert(
+      relativeDifference(before.meanAlpha, current.meanAlpha) <=
+        maximumMeanAlphaDifference &&
+        Math.abs(before.center[3] - current.center[3]) <= 40 &&
+        spatial.meanAbsoluteDelta <= 0.006 &&
+        spatial.visibleMeanAbsoluteDelta <= 0.12 &&
+        spatial.maximumAbsoluteDelta <= 0.5 &&
+        Math.max(...radialDelta) <= 0.3,
+      `${mode}: ${label} ${phase} 破坏透明 Alpha 合同`,
+      {
+        before,
+        current,
+        opacity,
+        radialDelta,
+        spatial,
+      },
+    );
+  }
+
+  const faultToNative = chain.alphaContinuity.faultToNative;
+
+  assert(
+    faultToNative.meanAbsoluteDelta <= 0.003 &&
+      faultToNative.visibleMeanAbsoluteDelta <= 0.08 &&
+      faultToNative.maximumAbsoluteDelta <= 0.35,
+    `${mode}: ${label} Software 故障帧与 Native 稳定帧出现 Alpha 跳变`,
+    {
+      fault: chain.fault.transparent,
+      faultToNative,
+      native: chain.native.transparent,
+      opacity,
+    },
+  );
+  const restoringToRestored = chain.alphaContinuity.restoringToRestored;
+
+  assert(
+    restoringToRestored.meanAbsoluteDelta <= 0.003 &&
+      restoringToRestored.visibleMeanAbsoluteDelta <= 0.08 &&
+      restoringToRestored.maximumAbsoluteDelta <= 0.35,
+    `${mode}: ${label} 恢复首帧与稳定帧出现 Alpha 跳变`,
+    {
+      opacity,
+      restored: chain.restored.transparent,
+      restoring: chain.restoring.transparent,
+      restoringToRestored,
+    },
+  );
+}
+
+function validateBackendFailureOpacitySeries(
+  mode,
+  results,
+  label,
+  probe = 'center',
+)
+{
+  for (const phase of [
+    'before',
+    'software',
+    'fault',
+    'native',
+    'restoring',
+    'restored',
+  ])
+  {
+    validateContextOpacityGroup(mode, results, phase, label, probe);
+  }
+}
+
+function validateBackendFailureChain(
+  mode,
+  results,
+  validateOpacitySeries = true,
+)
+{
+  const label = '完整后端失败链';
+
+  for (const [opacity, chain] of results)
+  {
+    validateBackendFailureContract(mode, chain, label);
+    validateBackendFailureAlphaContract(mode, chain, opacity, label);
+  }
+
+  if (validateOpacitySeries)
+  {
+    validateBackendFailureOpacitySeries(mode, results, label);
+  }
+}
+
+function validateTrailBackendFailureChain(mode, results)
+{
+  const label = '透明拖尾后端失败链';
+
+  for (const [opacity, chain] of results)
+  {
+    validateBackendFailureContract(mode, chain, label);
+    assert(
+      chain.variant === 'trail-only',
+      `${mode}: ${label}夹具混入点击特效`,
+      chain.variant,
+    );
+    validateBackendFailureAlphaContract(mode, chain, opacity, label);
+  }
+
+  validateBackendFailureOpacitySeries(mode, results, label, 'trail');
 }
 
 function validateBackendReentrantNative(mode, result)
@@ -1960,17 +1977,31 @@ async function runIifeSmoke(browserInstance, baseUrl)
       basic.runtime,
     );
 
-    currentLabel = 'iife-transparent-trail-backend-failure-chain';
-    const failureChain = await page.evaluate(
-      (input) => window.browserPixelSuite.runBackendFailureChain(input),
-      {
-        mode: 'full-webgl2',
-        opacity: 1,
-        trailOnly: true,
-      },
-    );
+    const trailFailureChains = {};
 
-    validateTrailBackendFailureChain('full-webgl2', failureChain);
+    for (const mode of ['full-webgl2', 'webgl2-bloom'])
+    {
+      const results = new Map();
+
+      for (const opacity of opacities)
+      {
+        currentLabel =
+          `iife-${mode}-trail-backend-failure-chain-opacity-${opacity}`;
+        const failureChain = await page.evaluate(
+          (input) => window.browserPixelSuite.runBackendFailureChain(input),
+          {
+            mode,
+            opacity,
+            trailOnly: true,
+          },
+        );
+
+        results.set(opacity, failureChain);
+      }
+
+      validateTrailBackendFailureChain(mode, results);
+      trailFailureChains[mode] = Object.fromEntries(results);
+    }
     const reentrantNative = {};
 
     for (const mode of ['full-webgl2', 'webgl2-bloom'])
@@ -1988,9 +2019,9 @@ async function runIifeSmoke(browserInstance, baseUrl)
     metrics.iifeSmoke =
     {
       basic,
-      failureChain,
       reentrantNative,
       runtimeContract,
+      trailFailureChains,
     };
     assert(
       session.pageErrors.length === 0 &&
@@ -2586,18 +2617,29 @@ async function runMatrix(browserInstance, baseUrl, baseline)
       failureChainResults,
     );
 
-    currentLabel = `${mode}__trail-backend-failure-chain`;
-    const trailFailureChain = await contextSession.page.evaluate(
-      (input) => window.browserPixelSuite.runBackendFailureChain(input),
-      {
-        mode,
-        opacity: 1,
-        trailOnly: true,
-      },
-    );
+    const trailFailureChainResults = new Map();
 
-    validateTrailBackendFailureChain(mode, trailFailureChain);
-    metrics.trailBackendFailureChains[mode] = trailFailureChain;
+    for (const opacity of opacities)
+    {
+      currentLabel =
+        `${mode}__trail-backend-failure-chain-opacity-${opacity}`;
+      const trailFailureChain = await contextSession.page.evaluate(
+        (input) => window.browserPixelSuite.runBackendFailureChain(input),
+        {
+          mode,
+          opacity,
+          trailOnly: true,
+        },
+      );
+
+      trailFailureChainResults.set(opacity, trailFailureChain);
+    }
+
+    currentLabel = `${mode}__trail-backend-failure-chain`;
+    validateTrailBackendFailureChain(mode, trailFailureChainResults);
+    metrics.trailBackendFailureChains[mode] = Object.fromEntries(
+      trailFailureChainResults,
+    );
 
     currentLabel = `${mode}__trail-context-lifecycle`;
     const trailLifecycle = await contextSession.page.evaluate(
