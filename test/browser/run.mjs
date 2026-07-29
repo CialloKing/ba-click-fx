@@ -797,7 +797,7 @@ function validateBackendFailureChain(mode, results)
       },
     );
 
-    for (const phase of ['before', 'software', 'native', 'restored'])
+    for (const phase of ['before', 'software', 'fault', 'native', 'restored'])
     {
       const pixels = chain[phase].transparent;
       const transmission = chain[phase].backgroundTransmission;
@@ -830,15 +830,20 @@ function validateBackendFailureChain(mode, results)
     {
       const before = chain.before.transparent;
 
-      for (const phase of ['software', 'native', 'restored'])
+      for (const phase of ['software', 'fault', 'native', 'restored'])
       {
         const current = chain[phase].transparent;
         const spatial = chain.alphaContinuity[phase];
+        // Native 是浏览器阴影近似，外围 Coverage 比完整 WebGL2 窄；其余空间和
+        // 中心约束保持不变，故障当帧还会与下一 Native 帧直接比较。
+        const maximumMeanAlphaDifference =
+          phase === 'fault' || phase === 'native' ? 0.55 : 0.5;
         const radialDelta = before.radialAlpha.map((value, index) =>
           Math.abs(value - current.radialAlpha[index]));
 
         assert(
-          relativeDifference(before.meanAlpha, current.meanAlpha) <= 0.5 &&
+          relativeDifference(before.meanAlpha, current.meanAlpha) <=
+            maximumMeanAlphaDifference &&
             Math.abs(before.center[3] - current.center[3]) <= 40 &&
             spatial.meanAbsoluteDelta <= 0.006 &&
             spatial.visibleMeanAbsoluteDelta <= 0.12 &&
@@ -854,10 +859,25 @@ function validateBackendFailureChain(mode, results)
           },
         );
       }
+
+      const faultToNative = chain.alphaContinuity.faultToNative;
+
+      assert(
+        faultToNative.meanAbsoluteDelta <= 0.003 &&
+          faultToNative.visibleMeanAbsoluteDelta <= 0.08 &&
+          faultToNative.maximumAbsoluteDelta <= 0.35,
+        `${mode}: Software 故障当帧与 Native 稳定帧出现 Alpha 跳变`,
+        {
+          fault: chain.fault.transparent,
+          faultToNative,
+          native: chain.native.transparent,
+          opacity,
+        },
+      );
     }
   }
 
-  for (const phase of ['before', 'software', 'native', 'restored'])
+  for (const phase of ['before', 'software', 'fault', 'native', 'restored'])
   {
     validateContextOpacityGroup(mode, results, phase);
   }

@@ -1151,6 +1151,7 @@ async function runBackendFailureChain(specification)
 
   await runAnimationFrame(SAMPLE_TIME_MS);
   const faultRoute = effect.getConfig();
+  const fault = captureCompositingPhases(effect, fixture.target);
   await runAnimationFrame(SAMPLE_TIME_MS);
   const nativeRoute = effect.getConfig();
   const native = captureCompositingPhases(effect, fixture.target);
@@ -1174,75 +1175,86 @@ async function runBackendFailureChain(specification)
 
   backendEvents.stop();
 
-  return {
-    mode,
-    opacity,
-    before: before.pixels,
-    software: software.pixels,
-    native: native.pixels,
-    restored: restored.pixels,
-    alphaContinuity:
+  return (
     {
-      software: compareAlphaImages(
-        before.images.transparent,
-        software.images.transparent,
-      ),
-      native: compareAlphaImages(
-        before.images.transparent,
-        native.images.transparent,
-      ),
-      restored: compareAlphaImages(
-        before.images.transparent,
-        restored.images.transparent,
-      ),
-    },
-    routes:
-    {
-      before:
+      mode,
+      opacity,
+      before: before.pixels,
+      software: software.pixels,
+      fault: fault.pixels,
+      native: native.pixels,
+      restored: restored.pixels,
+      alphaContinuity:
       {
-        effect: beforeRoute.resolvedEffectBackend,
-        bloom: beforeRoute.resolvedBloomBackend,
+        software: compareAlphaImages(
+          before.images.transparent,
+          software.images.transparent,
+        ),
+        fault: compareAlphaImages(
+          before.images.transparent,
+          fault.images.transparent,
+        ),
+        faultToNative: compareAlphaImages(
+          fault.images.transparent,
+          native.images.transparent,
+        ),
+        native: compareAlphaImages(
+          before.images.transparent,
+          native.images.transparent,
+        ),
+        restored: compareAlphaImages(
+          before.images.transparent,
+          restored.images.transparent,
+        ),
       },
-      software:
+      routes:
       {
-        effect: softwareRoute.resolvedEffectBackend,
-        bloom: softwareRoute.resolvedBloomBackend,
+        before:
+        {
+          effect: beforeRoute.resolvedEffectBackend,
+          bloom: beforeRoute.resolvedBloomBackend,
+        },
+        software:
+        {
+          effect: softwareRoute.resolvedEffectBackend,
+          bloom: softwareRoute.resolvedBloomBackend,
+        },
+        fault:
+        {
+          effect: faultRoute.resolvedEffectBackend,
+          bloom: faultRoute.resolvedBloomBackend,
+        },
+        native:
+        {
+          effect: nativeRoute.resolvedEffectBackend,
+          bloom: nativeRoute.resolvedBloomBackend,
+        },
+        restored:
+        {
+          effect: restoredRoute.resolvedEffectBackend,
+          bloom: restoredRoute.resolvedBloomBackend,
+        },
       },
-      fault:
+      readback:
       {
-        effect: faultRoute.resolvedEffectBackend,
-        bloom: faultRoute.resolvedBloomBackend,
+        coverageCalls,
+        faultTarget: mode === 'full-webgl2' ? 'source' : 'coverage',
+        sourceCalls,
       },
-      native:
+      renderer:
       {
-        effect: nativeRoute.resolvedEffectBackend,
-        bloom: nativeRoute.resolvedBloomBackend,
+        availableAfterRestore: softwareRenderer.available,
+        poolIdentityAfterRestore: effect.bloomRenderer === softwareRenderer &&
+          effect.bloomRenderers[0] === softwareRenderer,
+        poolIdentityBeforeFailure,
+        sourceContextPreserved: softwareRenderer.sourceContext === sourceContext,
+        coverageContextPreserved:
+          softwareRenderer.coverageContext === coverageContext,
+        unavailableAfterFailure,
       },
-      restored:
-      {
-        effect: restoredRoute.resolvedEffectBackend,
-        bloom: restoredRoute.resolvedBloomBackend,
-      },
-    },
-    readback:
-    {
-      coverageCalls,
-      faultTarget: mode === 'full-webgl2' ? 'source' : 'coverage',
-      sourceCalls,
-    },
-    renderer:
-    {
-      availableAfterRestore: softwareRenderer.available,
-      poolIdentityAfterRestore: effect.bloomRenderer === softwareRenderer &&
-        effect.bloomRenderers[0] === softwareRenderer,
-      poolIdentityBeforeFailure,
-      sourceContextPreserved: softwareRenderer.sourceContext === sourceContext,
-      coverageContextPreserved:
-        softwareRenderer.coverageContext === coverageContext,
-      unavailableAfterFailure,
-    },
-    events,
-  };
+      events,
+    }
+  );
 }
 
 function getWebGLModeResources(effect, mode)
