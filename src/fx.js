@@ -17,6 +17,7 @@ import {
   isEffectBackend,
   isInputSource,
   isOutputCompositing,
+  isTimeScale,
   normalizeBloomBackend,
   normalizeEffectBackend,
   normalizeThemeColor,
@@ -8462,14 +8463,14 @@ export class BAClickFX
       }
     }
 
-    if (Number.isFinite(overrides.clickTimeScale) && overrides.clickTimeScale > 0)
+    if (isTimeScale(overrides.clickTimeScale))
     {
       // 倍率只作用于配置变更后的时间，不能追溯重算上一帧后的区间。
       this._advanceClickTime();
       this.config.clickTimeScale = overrides.clickTimeScale;
     }
 
-    if (Number.isFinite(overrides.trailTimeScale) && overrides.trailTimeScale > 0)
+    if (isTimeScale(overrides.trailTimeScale))
     {
       // 先用旧倍率结算到配置变更时刻，避免把此前的空闲时间追溯套用新倍率。
       this._advanceTrailTime();

@@ -17,6 +17,9 @@ const OUTPUT_COMPOSITING_MODES = new Set([
   'transparent-overlay',
 ]);
 
+// 极低倍率会让每帧逻辑时间几乎停滞；保留可预期的最小有效速度。
+export const MIN_TIME_SCALE = 0.01;
+
 // 主题色属于宿主配置状态；固定导出游戏蓝可避免各适配层重复写常量。
 export const DEFAULT_THEME_COLOR = '#4ca7ff';
 
@@ -1018,9 +1021,14 @@ export function normalizeOutputCompositing(
   return isOutputCompositing(value) ? value : fallback;
 }
 
+export function isTimeScale(value)
+{
+  return Number.isFinite(value) && value >= MIN_TIME_SCALE;
+}
+
 export function normalizeTimeScale(value, fallback = 1)
 {
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+  return isTimeScale(value) ? value : fallback;
 }
 
 export function normalizeThemeColor(value, fallback = DEFAULT_THEME_COLOR)

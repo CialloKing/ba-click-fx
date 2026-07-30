@@ -72,9 +72,9 @@ declare module 'ba-click-fx'
     trailAlways?: boolean;
     /** 'dom' 自动监听 Pointer 事件；'manual' 仅接受宿主注入。默认 'dom'。 */
     inputSource?: BAClickFXInputSource;
-    /** 点击波纹、旋转和点击碎片的时间倍率，必须有限且大于 0。默认 1。 */
+    /** 点击波纹、旋转和点击碎片的时间倍率，必须有限且不小于 0.01。默认 1。 */
     clickTimeScale?: number;
-    /** 拖尾衰减和拖尾碎片的时间倍率，必须有限且大于 0。默认 1。 */
+    /** 拖尾衰减和拖尾碎片的时间倍率，必须有限且不小于 0.01。默认 1。 */
     trailTimeScale?: number;
     /** 完整特效后端；默认 'webgl2'，未就绪或丢失时安全回退 Canvas2D。 */
     effectBackend?: BAClickFXEffectBackend;

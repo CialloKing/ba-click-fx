@@ -1339,11 +1339,17 @@ const manualInputConfig = createConfig(
     trailTimeScale: 0.5,
   },
 );
+const minimumTimeScaleConfig = createConfig(
+  {
+    clickTimeScale: 0.01,
+    trailTimeScale: 0.01,
+  },
+);
 const invalidHostControlConfig = createConfig(
   {
     inputSource: 'electron',
-    clickTimeScale: 0,
-    trailTimeScale: Infinity,
+    clickTimeScale: 0.009,
+    trailTimeScale: 0,
   },
 );
 const themedConfig = createConfig({ themeColor: '#FF6969' });
@@ -1381,10 +1387,15 @@ assert(
   'createConfig 保留有效的宿主输入模式与独立时间倍率',
 );
 assert(
+  minimumTimeScaleConfig.clickTimeScale === 0.01 &&
+    minimumTimeScaleConfig.trailTimeScale === 0.01,
+  'createConfig 接受 0.01 的最低时间倍率',
+);
+assert(
   invalidHostControlConfig.inputSource === CONFIG.inputSource &&
     invalidHostControlConfig.clickTimeScale === CONFIG.clickTimeScale &&
     invalidHostControlConfig.trailTimeScale === CONFIG.trailTimeScale,
-  'createConfig 忽略无效输入模式与非正有限时间倍率',
+  'createConfig 忽略无效输入模式与低于 0.01 的时间倍率',
 );
 assert(
   themedConfig.themeColor === '#ff6969' &&
@@ -3237,17 +3248,22 @@ assert(
   'trailTimeScale 不改变 minVertexDistance 与 trailSpacing 等空间采样',
 );
 
-timeScaleEffect.updateConfig({ clickTimeScale: 3, trailTimeScale: 4 });
+timeScaleEffect.updateConfig({ clickTimeScale: 0.01, trailTimeScale: 0.01 });
+assert(
+  timeScaleEffect.getConfig().clickTimeScale === 0.01 &&
+    timeScaleEffect.getConfig().trailTimeScale === 0.01,
+  'updateConfig 接受 0.01 的最低时间倍率',
+);
 timeScaleEffect.updateConfig(
   {
-    clickTimeScale: 0,
-    trailTimeScale: Number.NaN,
+    clickTimeScale: 0.009,
+    trailTimeScale: 0,
   },
 );
 assert(
-  timeScaleEffect.getConfig().clickTimeScale === 3 &&
-    timeScaleEffect.getConfig().trailTimeScale === 4,
-  'updateConfig 忽略非正有限时间倍率并保留有效值',
+  timeScaleEffect.getConfig().clickTimeScale === 0.01 &&
+    timeScaleEffect.getConfig().trailTimeScale === 0.01,
+  'updateConfig 忽略低于 0.01 的时间倍率并保留有效值',
 );
 timeScaleEffect.destroy();
 

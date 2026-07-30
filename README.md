@@ -151,8 +151,8 @@ new BAClickFX(options?: {
   trailEnabled?: boolean,         // 启用拖尾，默认 true
   trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
   inputSource?: 'dom' | 'manual', // 输入来源，默认 dom
-  clickTimeScale?: number,        // 点击时间倍率，默认 1
-  trailTimeScale?: number,        // 拖尾时间倍率，默认 1
+  clickTimeScale?: number,        // 点击时间倍率，不小于 0.01，默认 1
+  trailTimeScale?: number,        // 拖尾时间倍率，不小于 0.01，默认 1
   effectBackend?: 'canvas2d' | 'webgl2' | 'auto', // 完整特效后端，默认 webgl2
   renderingMode?: 'enhanced' | 'legacy', // 渲染模式，默认 enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // Bloom 后端，默认 webgl2
@@ -279,7 +279,7 @@ fx.pointerUp(7);
 
 ### 独立时间倍率
 
-`clickTimeScale` 和 `trailTimeScale` 都必须是有限且大于 `0` 的数字。`1` 为原始速度，`2` 表示两倍速度且持续时间减半，`0.5` 表示半速且持续时间加倍；`0` 不表示暂停。两个倍率都可通过 `updateConfig()` 实时更新：
+`clickTimeScale` 和 `trailTimeScale` 都必须是有限且不小于 `0.01` 的数字。`1` 为原始速度，`2` 表示两倍速度且持续时间减半，`0.5` 表示半速且持续时间加倍；`0` 不表示暂停，低于 `0.01` 的值会被忽略。两个倍率都可通过 `updateConfig()` 实时更新：
 
 ```js
 fx.updateConfig(

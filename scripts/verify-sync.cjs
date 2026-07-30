@@ -132,6 +132,18 @@ for (const [controlId, expectedStep] of Object.entries(preciseRangeSteps))
   );
 }
 
+for (const controlId of ['ctrlClickTimeScale', 'ctrlTrailTimeScale'])
+{
+  const control = indexHtml.match(
+    new RegExp(`<input\\s+[^>]*id="${controlId}"[^>]*>`),
+  )?.[0] ?? '';
+
+  verify(
+    control.includes('min="0.01"'),
+    `${controlId} 与 API 共享 0.01 最低时间倍率`,
+  );
+}
+
 verify(
   /bindRange\('ctrlDpr', 'outDpr',[\s\S]*?\}, false, 'change'\);/.test(mainJs) &&
     /dprEl\.dispatchEvent\(new Event\('input'\)\);[\s\S]*?dprEl\.dispatchEvent\(new Event\('change'\)\);/.test(mainJs) &&

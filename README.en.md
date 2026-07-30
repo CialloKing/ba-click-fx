@@ -131,8 +131,8 @@ new BAClickFX(options?: {
   trailEnabled?: boolean,        // default true
   trailAlways?: boolean,         // default false
   inputSource?: 'dom' | 'manual', // default dom
-  clickTimeScale?: number,       // default 1
-  trailTimeScale?: number,       // default 1
+  clickTimeScale?: number,       // minimum 0.01, default 1
+  trailTimeScale?: number,       // minimum 0.01, default 1
   effectBackend?: 'canvas2d' | 'webgl2' | 'auto', // default webgl2
   renderingMode?: 'enhanced' | 'legacy', // default enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // default webgl2
@@ -259,7 +259,7 @@ fx.pointerUp(7);
 
 ### Independent Time Scales
 
-`clickTimeScale` and `trailTimeScale` must both be finite numbers greater than `0`. `1` is the original speed, `2` means twice the speed with half the duration, and `0.5` means half speed with twice the duration; `0` does not mean pause. Both values can be updated at runtime:
+`clickTimeScale` and `trailTimeScale` must both be finite numbers no smaller than `0.01`. `1` is the original speed, `2` means twice the speed with half the duration, and `0.5` means half speed with twice the duration; `0` does not mean pause, and values below `0.01` are ignored. Both values can be updated at runtime:
 
 ```js
 fx.updateConfig(
