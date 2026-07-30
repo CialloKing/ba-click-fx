@@ -11,6 +11,10 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const mainJs = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8');
+const themeBackgroundJs = fs.readFileSync(
+  path.join(root, 'src', 'theme-background.js'),
+  'utf8',
+);
 const styleCss = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 const engineJs = fs.readFileSync(path.join(root, 'src', 'fx.js'), 'utf8');
 const configJs = fs.readFileSync(path.join(root, 'src', 'config.js'), 'utf8');
@@ -23,6 +27,39 @@ function verify(condition, message)
   }
 
   console.log(`  ✓ ${message}`);
+}
+
+function getFunctionSource(source, name)
+{
+  const signature = 'function ' + name + '(';
+  const start = source.indexOf(signature);
+
+  if (start < 0)
+  {
+    return '';
+  }
+
+  const openingBrace = source.indexOf('{', start);
+  let depth = 0;
+
+  for (let index = openingBrace; index < source.length; index++)
+  {
+    if (source[index] === '{')
+    {
+      depth++;
+    }
+    else if (source[index] === '}')
+    {
+      depth--;
+
+      if (depth === 0)
+      {
+        return source.slice(start, index + 1);
+      }
+    }
+  }
+
+  return '';
 }
 
 verify(/setFxParam/.test(mainJs), '控制面板通过 setFxParam 修改参数，不绕过引擎');
@@ -299,6 +336,46 @@ verify(
     /classList\.toggle\('theme-pure-white', name === '纯白'\)/.test(mainJs) &&
     /classList\.remove\('theme-pure-white'\)[\s\S]*?applySceneBackgroundImage/.test(mainJs),
   '纯白主题关闭装饰网格，自定义栅格背景仍走原子 Scene 加载路径',
+);
+const applyThemeSource = getFunctionSource(mainJs, 'applyTheme');
+const updateThemeSceneBackgroundSource = getFunctionSource(
+  mainJs,
+  'updateThemeSceneBackground',
+);
+
+verify(
+  /getThemeBackgroundCss,[\s\S]*?renderThemeSceneBackground,[\s\S]*?from '\.\/theme-background\.js';/.test(mainJs) &&
+    /const THEME_DEFINITIONS = Object\.freeze/.test(themeBackgroundJs) &&
+    /export function getThemeBackgroundCss/.test(themeBackgroundJs) &&
+    /export function renderThemeSceneBackground/.test(themeBackgroundJs) &&
+    !/\bTHEMES\b/.test(mainJs),
+  '内置主题 CSS 与场景栅格化共用单一数据源',
+);
+verify(
+  /getThemeBackgroundCss\(name\)/.test(applyThemeSource) &&
+    /document\.body\.style\.backgroundAttachment = 'fixed';/.test(applyThemeSource) &&
+    /applyThemeSceneBackground\(name\)/.test(applyThemeSource) &&
+    !/clearSceneBackground\(\)/.test(applyThemeSource),
+  '内置主题进入固定视口的 Scene 背景同步路径',
+);
+verify(
+  /renderThemeSceneBackground\([\s\S]*?themeSceneCanvas,[\s\S]*?activeThemeScene/.test(
+    updateThemeSceneBackgroundSource,
+  ) &&
+    /effect\.setSceneBackground\(themeSceneCanvas, \{ fit: 'cover' \}\)/.test(
+      updateThemeSceneBackgroundSource,
+    ) &&
+    /classList\.add\('scene-background-source'\)/.test(
+      updateThemeSceneBackgroundSource,
+    ),
+  '内置主题栅格源会交给 Scene 合成并移除非场景装饰层',
+);
+verify(
+  /stopThemeSceneBackgroundSync\(\)/.test(getFunctionSource(mainJs, 'clearSceneBackground')) &&
+    /applySceneBackgroundImage\(resolveSceneBackgroundUrl\(rawValue\)\)/.test(
+      getFunctionSource(mainJs, 'applyCustomBackground'),
+    ),
+  '自定义 CSS 会清空主题场景源，自定义图片仍按既有路径上传',
 );
 verify(
   /ctrlColor\.addEventListener\('input',[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)[\s\S]*?\}\);[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)/.test(mainJs),

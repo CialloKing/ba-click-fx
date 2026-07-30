@@ -68,6 +68,7 @@
     "preview": "vite preview",
     "test": "node test/smoke.js",
     "test:source": "node test/smoke.js --source",
+    "test:themes": "node test/theme-background.js",
     "test:bloom": "node test/software-bloom.js",
     "test:config": "node test/config-schema.js && node test/fx-param-patch.js",
     "test:browser:built": "node test/browser/run.mjs",
@@ -77,8 +78,8 @@
     "verify:package": "node scripts/verify-package.mjs",
     "verify:pack": "node scripts/verify-pack.mjs",
     "verify:tarball": "node scripts/verify-tarball.mjs",
-    "check:fast": "npm run test:config && node test/smoke.js --source && node scripts/verify-sync.cjs",
-    "check": "npm run build && npm run test:bloom && npm run test:config && npm run test:source && npm test && npm run verify:sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
+    "check:fast": "npm run test:config && npm run test:themes && node test/smoke.js --source && node scripts/verify-sync.cjs",
+    "check": "npm run build && npm run test:bloom && npm run test:config && npm run test:themes && npm run test:source && npm test && npm run verify:sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
     "check:release": "npm run check && npm run test:browser:built",
     "prepack": "npm run build",
     "prepublishOnly": "npm run check:release"

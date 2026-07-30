@@ -4,6 +4,10 @@ import {
   BLOOM_BACKEND_CHANGE_EVENT,
   EFFECT_BACKEND_CHANGE_EVENT,
 } from './fx.js';
+import {
+  getThemeBackgroundCss,
+  renderThemeSceneBackground,
+} from './theme-background.js';
 
 function acceptDemoPointer(event)
 {
@@ -23,19 +27,83 @@ const effect = new BAClickFX(
 window.BAClickFXDemo = effect;
 
 // ── 主题预设 ────────────────────────────────────────────────────────────
-const THEMES = {
-  '蔚蓝': 'radial-gradient(circle at 30% 20%, #1d3558 0%, #101827 45%, #080d16 100%)',
-  '深紫': 'radial-gradient(circle at 30% 20%, #2d1b4e 0%, #1a1028 45%, #0d0616 100%)',
-  '深绿': 'radial-gradient(circle at 30% 20%, #1a3d2a 0%, #0f1a14 45%, #080d0a 100%)',
-  '暖金': 'radial-gradient(circle at 30% 20%, #3d2a1a 0%, #1f1910 45%, #14100a 100%)',
-  '纯黑': '#000000',
-  '纯白': '#ffffff',
-};
 let sceneBackgroundRequestId = 0;
+let themeSceneCanvas = null;
+let activeThemeScene = null;
+let themeSceneResizeFrame = 0;
+
+function stopThemeSceneBackgroundSync()
+{
+  activeThemeScene = null;
+
+  if (themeSceneResizeFrame !== 0)
+  {
+    window.cancelAnimationFrame(themeSceneResizeFrame);
+    themeSceneResizeFrame = 0;
+  }
+}
+
+function updateThemeSceneBackground()
+{
+  if (!activeThemeScene)
+  {
+    return false;
+  }
+
+  if (!themeSceneCanvas)
+  {
+    themeSceneCanvas = document.createElement('canvas');
+  }
+
+  const width = Math.max(1, window.innerWidth || 1);
+  const height = Math.max(1, window.innerHeight || 1);
+  const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+  const rendered = renderThemeSceneBackground(
+    themeSceneCanvas,
+    activeThemeScene,
+    width,
+    height,
+    pixelRatio,
+  );
+
+  if (!rendered || !effect.setSceneBackground(themeSceneCanvas, { fit: 'cover' }))
+  {
+    effect.setSceneBackground(null);
+    document.body.classList.remove('scene-background-source');
+    return false;
+  }
+
+  document.body.classList.add('scene-background-source');
+  return true;
+}
+
+function applyThemeSceneBackground(name)
+{
+  sceneBackgroundRequestId++;
+  activeThemeScene = name;
+  return updateThemeSceneBackground();
+}
+
+function scheduleThemeSceneBackgroundSync()
+{
+  if (!activeThemeScene || themeSceneResizeFrame !== 0)
+  {
+    return;
+  }
+
+  themeSceneResizeFrame = window.requestAnimationFrame(() =>
+  {
+    themeSceneResizeFrame = 0;
+    updateThemeSceneBackground();
+  });
+}
+
+window.addEventListener('resize', scheduleThemeSceneBackgroundSync);
 
 function clearSceneBackground()
 {
   sceneBackgroundRequestId++;
+  stopThemeSceneBackgroundSync();
   effect.setSceneBackground(null);
   document.body.classList.remove('scene-background-source');
 }
@@ -45,6 +113,7 @@ function applySceneBackgroundImage(url)
   const requestId = ++sceneBackgroundRequestId;
 
   // 背景切换时不能继续用旧纹理求差值，否则首个加载帧会使用不匹配的场景。
+  stopThemeSceneBackgroundSync();
   effect.setSceneBackground(null);
   document.body.classList.remove('scene-background-source');
 
@@ -119,7 +188,7 @@ function applyTheme(name)
     return true;
   }
 
-  const bg = THEMES[name];
+  const bg = getThemeBackgroundCss(name);
 
   if (!bg)
   {
@@ -127,8 +196,9 @@ function applyTheme(name)
   }
 
   document.body.style.background = bg;
+  document.body.style.backgroundAttachment = 'fixed';
   document.body.classList.toggle('theme-pure-white', name === '纯白');
-  clearSceneBackground();
+  applyThemeSceneBackground(name);
   selectTheme(name);
   return true;
 }
@@ -1040,7 +1110,7 @@ const I18N = {
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.15/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>自定义图片背景怎样参与游戏式合成？</strong> 展示页会把已解码图片通过 <code>setSceneBackground(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；CSS 渐变不是可上传的栅格源，只能作为普通 DOM 背景。</p><p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>transparent-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应使用 <code>setSceneBackground()</code>。</p><p><strong>纯白背景下特效颜色太浅？</strong> 只使用 DOM 背景时，纯白会让直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；它们是网页兼容选项，不代替 <code>setSceneBackground()</code> 的游戏式线性场景合成。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 展示页会用与 CSS 相同的色标把内置主题同步为场景纹理；已解码图片通过 <code>setSceneBackground(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；任意自定义 CSS 渐变或多图层背景无法可靠自动上传，仍作为普通 DOM 背景显示。</p><p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>transparent-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应使用 <code>setSceneBackground()</code>。</p><p><strong>纯白背景下特效颜色太浅？</strong> 只使用 DOM 背景时，纯白会让直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；它们是网页兼容选项，不代替 <code>setSceneBackground()</code> 的游戏式线性场景合成。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
     introHostApiSummary: '宿主控制 API / Host Control API',
   },
   en: {
@@ -1133,7 +1203,7 @@ const I18N = {
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.15/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How does a custom image join the game-style composite?</strong> The demo passes a decoded image to <code>setSceneBackground(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. A CSS gradient is not an uploadable raster source and remains a normal DOM background.</p><p><strong>Which compositing mode should a transparent desktop use?</strong> The demo and strict game reproduction keep the default <code>scene</code>; transparent hosts such as BASpark, WebView2, and Electron select <code>transparent-overlay</code> explicitly. Over an unknown background, standard <code>source-over</code> cannot simultaneously provide strict Unity additive RGB, pure Coverage alpha, and no white-background darkening. Isolation cannot read desktop pixels; use <code>setSceneBackground()</code> for a known background.</p><p><strong>Effects look washed out on a pure white background?</strong> With a DOM-only background, direct additive output loses cyan-blue colour and contrast on pure white. Enable Isolated Compositing (<code>isolatedCompositing: true</code>) and optionally <code>lightBackgroundContrastAlpha: 0.35</code> for a sharper outline. These are web compatibility options, not replacements for <code>setSceneBackground()</code> linear Scene compositing.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How do built-in themes and custom images join the game-style composite?</strong> The demo rasterizes every built-in theme from the same colour stops as its CSS preview; decoded images are passed to <code>setSceneBackground(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. Arbitrary custom CSS gradients and multi-layer backgrounds cannot be uploaded reliably and remain normal DOM backgrounds.</p><p><strong>Which compositing mode should a transparent desktop use?</strong> The demo and strict game reproduction keep the default <code>scene</code>; transparent hosts such as BASpark, WebView2, and Electron select <code>transparent-overlay</code> explicitly. Over an unknown background, standard <code>source-over</code> cannot simultaneously provide strict Unity additive RGB, pure Coverage alpha, and no white-background darkening. Isolation cannot read desktop pixels; use <code>setSceneBackground()</code> for a known background.</p><p><strong>Effects look washed out on a pure white background?</strong> With a DOM-only background, direct additive output loses cyan-blue colour and contrast on pure white. Enable Isolated Compositing (<code>isolatedCompositing: true</code>) and optionally <code>lightBackgroundContrastAlpha: 0.35</code> for a sharper outline. These are web compatibility options, not replacements for <code>setSceneBackground()</code> linear Scene compositing.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
     introHostApiSummary: 'Host Control API / 宿主控制 API',
   },
 };
@@ -1597,7 +1667,7 @@ switchLanguage(currentLang);
       applyTheme('蔚蓝');
     }
   }
-  else if (theme && THEMES[theme])
+  else if (theme && getThemeBackgroundCss(theme))
   {
     applyTheme(theme);
   }
