@@ -257,6 +257,16 @@ export const UNITY_FX_TOUCH = Object.freeze(
         [0.97941558, [0, 99.598249, 255]],
         [1, [0, 99.598249, 255]],
       ],
+      coverageLongitudinalKeys:
+      [
+        // 这是透明宿主的独立 Coverage 包络，不是 Unity Gradient Alpha。
+        // 旧端零能量区保持透明，头部最终颜色区保持完整 Coverage；区间由
+        // trail-coverage.js 使用 smootherstep 插值，避免删点边界产生跳变。
+        [0, 0],
+        [0.248532, 0],
+        [0.97941558, 1],
+        [1, 1],
+      ],
       textureLongitudinalKeys:
       [
         // FX_TEX_Trail_03 使用 Stretch UV 且按 sRGB 导入，而 Unity 工程运行在

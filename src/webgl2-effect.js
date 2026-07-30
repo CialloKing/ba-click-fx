@@ -25,8 +25,8 @@ import {
 const COMPONENTS_PER_VERTEX = 6;
 const COMPONENTS_PER_DISK_VERTEX = 8;
 const COMPONENTS_PER_RING_VERTEX = 9;
-const COMPONENTS_PER_TRIANGLE_VERTEX = 8;
-const COMPONENTS_PER_TRAIL_VERTEX = 8;
+const COMPONENTS_PER_TRIANGLE_VERTEX = 9;
+const COMPONENTS_PER_TRAIL_VERTEX = 9;
 const INITIAL_VERTEX_CAPACITY = 4096;
 const MAX_PYRAMID_LEVELS = 16;
 const DISK_CENTER_RADIUS_EPSILON = 0.00001;
@@ -209,12 +209,14 @@ layout(location = 0) in vec2 a_position;
 layout(location = 1) in vec2 a_uv;
 layout(location = 2) in vec3 a_materialColor;
 layout(location = 3) in float a_particleAlpha;
+layout(location = 4) in float a_coverageFactor;
 
 uniform vec2 u_displaySize;
 
 out vec2 v_uv;
 out vec3 v_materialColor;
 out float v_particleAlpha;
+out float v_coverageFactor;
 
 void main()
 {
@@ -228,6 +230,7 @@ void main()
   v_uv = a_uv;
   v_materialColor = a_materialColor;
   v_particleAlpha = a_particleAlpha;
+  v_coverageFactor = a_coverageFactor;
 }
 `;
 
@@ -242,6 +245,7 @@ uniform bool u_antialiasGeometryCoverage;
 in vec2 v_uv;
 in vec3 v_materialColor;
 in float v_particleAlpha;
+in float v_coverageFactor;
 
 out vec4 outColor;
 
@@ -259,7 +263,8 @@ void main()
     geometryCoverage = smoothstep(0.0, halfPixelFootprint, edgeDistance);
   }
 
-  float coverage = sampleColor.a * particleAlpha * geometryCoverage;
+  float coverage = sampleColor.a * particleAlpha *
+    clamp(v_coverageFactor, 0.0, 1.0) * geometryCoverage;
   // sRGB 纹理采样会自动把 RGB 解码到线性空间。
   vec3 emission = sampleColor.rgb *
     max(v_materialColor, vec3(0.0)) *
@@ -565,7 +570,7 @@ void main()
     float alpha = max(sceneCoverage, bloomCoverage);
     float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
 
-    if (maximumSrgb <= 0.00001 || alpha <= 0.00001)
+    if (alpha <= 0.00001)
     {
       outColor = vec4(0.0);
       return;
@@ -573,7 +578,10 @@ void main()
 
     // 未知桌面背景无法精确承载 HDR 加色。只压缩超过 Alpha 的 RGB，
     // 以保持色相并满足浏览器预乘合成所要求的 RGB <= Alpha。
-    float premultiplyScale = min(1.0, alpha / maximumSrgb);
+    float premultiplyScale = min(
+      1.0,
+      alpha / max(maximumSrgb, 0.000001)
+    );
 
     outColor = vec4(srgb * premultiplyScale, alpha);
     return;
@@ -1047,7 +1055,6 @@ export class WebGL2EffectRenderer
         diskStride,
         7 * Float32Array.BYTES_PER_ELEMENT,
       );
-
       gl.bindVertexArray(this.ringVao);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.ringBuffer);
 
@@ -1143,6 +1150,15 @@ export class WebGL2EffectRenderer
         false,
         triangleStride,
         7 * Float32Array.BYTES_PER_ELEMENT,
+      );
+      gl.enableVertexAttribArray(4);
+      gl.vertexAttribPointer(
+        4,
+        1,
+        gl.FLOAT,
+        false,
+        triangleStride,
+        8 * Float32Array.BYTES_PER_ELEMENT,
       );
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
@@ -2522,6 +2538,8 @@ export class WebGL2EffectRenderer
     this.triangleVertexData[offset + 5] = Math.max(0, green);
     this.triangleVertexData[offset + 6] = Math.max(0, blue);
     this.triangleVertexData[offset + 7] = clamp(particleAlpha, 0, 1);
+    // 普通碎片没有额外纵向 Coverage 包络。
+    this.triangleVertexData[offset + 8] = 1;
     this.triangleVertexCount++;
   }
 
@@ -2552,7 +2570,7 @@ export class WebGL2EffectRenderer
     this.trailVertexData = next;
   }
 
-  _appendTrailVertex(point, uv, color, particleAlpha)
+  _appendTrailVertex(point, uv, color, particleAlpha, coverageFactor)
   {
     const offset = this.trailVertexCount * COMPONENTS_PER_TRAIL_VERTEX;
 
@@ -2564,6 +2582,7 @@ export class WebGL2EffectRenderer
     this.trailVertexData[offset + 5] = Math.max(0, color[1]);
     this.trailVertexData[offset + 6] = Math.max(0, color[2]);
     this.trailVertexData[offset + 7] = clamp(particleAlpha, 0, 1);
+    this.trailVertexData[offset + 8] = clamp(coverageFactor, 0, 1);
     this.trailVertexCount++;
   }
 
@@ -2906,7 +2925,14 @@ export class WebGL2EffectRenderer
     );
   }
 
-  addTexturedTrailTriangle(first, second, third, color, opacity = 1)
+  addTexturedTrailTriangle(
+    first,
+    second,
+    third,
+    color,
+    opacity = 1,
+    coverageFactor = 1,
+  )
   {
     const perVertexColor = Array.isArray(color?.[0]);
     const firstColor = perVertexColor ? color[0] : color;
@@ -2915,13 +2941,23 @@ export class WebGL2EffectRenderer
     const particleAlpha = Number.isFinite(opacity)
       ? clamp(opacity, 0, 1)
       : 0;
+    const perVertexCoverage = Array.isArray(coverageFactor);
+    const firstCoverage = perVertexCoverage
+      ? coverageFactor[0]
+      : coverageFactor;
+    const secondCoverage = perVertexCoverage
+      ? coverageFactor[1]
+      : coverageFactor;
+    const thirdCoverage = perVertexCoverage
+      ? coverageFactor[2]
+      : coverageFactor;
 
     if (
       particleAlpha <= 0 ||
       Math.max(
-        ...firstColor,
-        ...secondColor,
-        ...thirdColor,
+        firstCoverage,
+        secondCoverage,
+        thirdCoverage,
       ) <= 0
     )
     {
@@ -2929,9 +2965,27 @@ export class WebGL2EffectRenderer
     }
 
     this._ensureTrailVertexCapacity(3);
-    this._appendTrailVertex(first, first, firstColor, particleAlpha);
-    this._appendTrailVertex(second, second, secondColor, particleAlpha);
-    this._appendTrailVertex(third, third, thirdColor, particleAlpha);
+    this._appendTrailVertex(
+      first,
+      first,
+      firstColor,
+      particleAlpha,
+      firstCoverage,
+    );
+    this._appendTrailVertex(
+      second,
+      second,
+      secondColor,
+      particleAlpha,
+      secondCoverage,
+    );
+    this._appendTrailVertex(
+      third,
+      third,
+      thirdColor,
+      particleAlpha,
+      thirdCoverage,
+    );
   }
 
   addTrailTriangle(first, second, third, color, opacity = 1)

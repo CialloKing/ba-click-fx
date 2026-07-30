@@ -12,6 +12,7 @@ const module = await import(modulePath);
 let ring3AlphaSource = null;
 let circleTextureSource = null;
 let trailTextureSource = null;
+let trailCoverageSource = null;
 let trailCoverageGolden = null;
 let createHash = null;
 let webgl2EffectSourceText = null;
@@ -21,6 +22,7 @@ if (sourceMode)
   ring3AlphaSource = await import('../src/ring3-alpha.js');
   circleTextureSource = await import('../src/circle-texture.js');
   trailTextureSource = await import('../src/trail-texture.js');
+  trailCoverageSource = await import('../src/trail-coverage.js');
   ({ createHash } = await import('node:crypto'));
   const { readFileSync } = await import('node:fs');
 
@@ -1004,6 +1006,56 @@ assert(
     UNITY_FX_TOUCH.trail.textureLongitudinalKeys.at(-1)[1] === 1,
   'FX_TEX_Trail_03 的 Stretch 亮度从尾部黑色过渡到头部全亮',
 );
+assert(
+  JSON.stringify(UNITY_FX_TOUCH.trail.coverageLongitudinalKeys) ===
+    JSON.stringify(
+      [
+        [0, 0],
+        [0.248532, 0],
+        [0.97941558, 1],
+        [1, 1],
+      ],
+    ),
+  '透明拖尾使用独立的旧端零 Coverage 与头部完整 Coverage 锚点',
+);
+
+if (sourceMode)
+{
+  const coverageKeys = UNITY_FX_TOUCH.trail.coverageLongitudinalKeys;
+  const coverageSamples = Array.from({ length: 101 }, (_, index) =>
+    trailCoverageSource.evaluateTrailLongitudinalCoverage(
+      coverageKeys,
+      index / 100,
+    ));
+  const asymmetricCoverageProfile =
+    trailCoverageSource.evaluateTrailTextureCoverageProfile(1 - 20 / 511);
+
+  assert(
+    trailCoverageSource.evaluateTrailLongitudinalCoverage(
+      coverageKeys,
+      0.248532,
+    ) === 0 &&
+      trailCoverageSource.evaluateTrailLongitudinalCoverage(
+        coverageKeys,
+        0.61397379,
+      ) === 0.5 &&
+      trailCoverageSource.evaluateTrailLongitudinalCoverage(
+        coverageKeys,
+        0.97941558,
+      ) === 1 &&
+      coverageSamples.every((value, index, values) =>
+        value >= 0 && value <= 1 &&
+          (index === 0 || value >= values[index - 1])),
+    '拖尾纵向 Coverage 以 smootherstep 有界单调连接两个平坦端点',
+  );
+  assert(
+    asymmetricCoverageProfile.length === 17 &&
+      asymmetricCoverageProfile[1][1] >
+        asymmetricCoverageProfile.at(-2)[1] + 0.03 &&
+      Math.max(...asymmetricCoverageProfile.map(([, value]) => value)) === 1,
+    'Canvas 后端从固定二维 Coverage 资产采样非对称横截面',
+  );
+}
 const textureMidpoint = UNITY_FX_TOUCH.trail.textureLongitudinalKeys.find(
   ([position]) => Math.abs(position - 0.499022) < 0.000001,
 );
@@ -2298,20 +2350,25 @@ assert(
     nativeHeadPeak > 20,
   '回环轨迹裁剪严格零尾段，并由 MXFinalBloom 阈值过滤首个低能段',
 );
-assert(
-  nativeSegmentGradients.every(({ gradient }) =>
-  {
-    const nonZeroAlphas = new Set(
-      gradient.stops
-        .map(([, color]) => getCssAlpha(color))
-        .filter((alpha) => alpha > 0),
-    );
+const nativeCoveragePeaks = nativeSegmentGradients.map(({ gradient }) =>
+  Math.max(...gradient.stops.map(([, color]) => getCssAlpha(color))));
+const nativeHasSmoothTextureCoverage = nativeSegmentGradients.some(
+  ({ gradient }) => new Set(
+    gradient.stops
+      .map(([, color]) => getCssAlpha(color))
+      .filter((alpha) => alpha > 0),
+  ).size > 1,
+);
 
-    return nonZeroAlphas.size <= 1 &&
-      [...nonZeroAlphas].every((alpha) =>
-        Math.abs(alpha - effect.config.opacity) < 0.000001);
-  }),
-  'Native 拖尾 Bloom 强度只改变 RGB，Coverage 仅跟随全局透明度',
+assert(
+  nativeHasSmoothTextureCoverage &&
+    nativeCoveragePeaks.every((alpha) =>
+      alpha >= 0 && alpha <= effect.config.opacity) &&
+    nativeCoveragePeaks.every((alpha, index) =>
+      index === 0 || alpha + 0.000001 >= nativeCoveragePeaks[index - 1]) &&
+    nativeCoveragePeaks[0] <= nativeCoveragePeaks.at(-1) * 0.1 &&
+    nativeCoveragePeaks.at(-1) >= effect.config.opacity * 0.9,
+  'Native 拖尾使用独立二维蒙版和单调纵向 Coverage，不读取 Bloom 强度',
 );
 const expectedNativeTrailPaths = [
   ...clearTrailPaths.slice(
@@ -4824,6 +4881,8 @@ const straightVertices = straightWebGLTrail.triangles.flatMap((triangle) =>
   triangle.slice(0, 3));
 const straightColors = straightWebGLTrail.triangles.flatMap((triangle) =>
   Array.isArray(triangle[3][0]) ? triangle[3] : [triangle[3]]);
+const straightCoverages = straightWebGLTrail.triangles.flatMap((triangle) =>
+  Array.isArray(triangle[5]) ? triangle[5] : [triangle[5]]);
 
 assert(
   straightWebGLTrail.rendered &&
@@ -4843,6 +4902,21 @@ assert(
     [straightColors[1], straightColors[2], straightColors[4]].every((color) =>
       color[2] === straightWebGLTrail.trailEmission),
   '拖尾 Gradient 使用旧点到新点进度，纹理 U 单独反向',
+);
+assert(
+  JSON.stringify(straightCoverages) === JSON.stringify([0, 1, 1, 0, 1, 0]) &&
+    (!sourceMode || (
+      webgl2EffectSourceText.includes(
+        'layout(location = 4) in float a_coverageFactor;',
+      ) &&
+      webgl2EffectSourceText.includes(
+        'clamp(v_coverageFactor, 0.0, 1.0) * geometryCoverage;',
+      ) &&
+      webgl2EffectSourceText.includes(
+        '(u_alphaModulatesEmission ? coverage : particleAlpha);',
+      )
+    )),
+  'WebGL2 以独立顶点通道淡出 Coverage，不修改 Trail_03 RGB 发射',
 );
 
 const leftInnerJoin = captureTexturedWebGLTrail(
@@ -5821,16 +5895,19 @@ legacyEffect.context.strokeStyles = [];
 legacyEffect.context.strokedPaths = [];
 legacyNow = flushFrames(dom, legacyNow, 1);
 const legacyTrailPaths = legacyEffect.context.strokedPaths;
+const legacyTrailFrameData = legacyEffect.currentTrailStroke.trailFrameData;
 const legacyGradientChannels = [0, 31, 62].map((index) =>
   getCssChannels(legacyEffect.context.strokeStyles[index]).slice(0, 3));
 
 assert(
   legacyEffect.getFxConfig().bloom.trailAlpha === 0 &&
-    JSON.stringify(
-      Object.keys(legacyEffect.currentTrailStroke.trailFrameData),
-    ) === JSON.stringify(['measurement']) &&
-    legacyEffect.currentTrailStroke.trailFrameData.measurement
-      .segmentLengths === null &&
+    legacyTrailFrameData.measurement.segmentLengths === null &&
+    legacyTrailFrameData.pointProgresses.length === 64 &&
+    legacyTrailFrameData.segmentProgresses.length === 63 &&
+    legacyTrailFrameData.pointCoverageFactors[0] === 0 &&
+    legacyTrailFrameData.pointCoverageFactors.at(-1) === 1 &&
+    legacyTrailFrameData.pointCoverageFactors.every((value, index, values) =>
+      index === 0 || value >= values[index - 1]) &&
     legacyEffect.context.strokeCount === 64 &&
     legacyTrailPaths.filter((path) => path.length === 2).length === 63 &&
     legacyTrailPaths.filter((path) => path.length === 64).length === 1 &&

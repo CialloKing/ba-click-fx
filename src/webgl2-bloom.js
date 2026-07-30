@@ -232,13 +232,16 @@ void main()
   {
     float alpha = clamp(filteredBloom.a, 0.0, 1.0);
 
-    if (maximumSrgb <= 0.00001 || alpha <= 0.00001)
+    if (alpha <= 0.00001)
     {
       outColor = vec4(0.0);
       return;
     }
 
-    float premultiplyScale = min(1.0, alpha / maximumSrgb);
+    float premultiplyScale = min(
+      1.0,
+      alpha / max(maximumSrgb, 0.000001)
+    );
 
     outColor = vec4(srgb * premultiplyScale, alpha);
     return;

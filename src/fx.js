@@ -40,6 +40,10 @@ import {
   TRIANGLE_TEXTURE_SIZE,
   createTriangleTextureSources,
 } from './triangle-texture.js';
+import {
+  evaluateTrailLongitudinalCoverage,
+  evaluateTrailTextureCoverageProfile,
+} from './trail-coverage.js';
 
 const TAU = Math.PI * 2;
 const LIGHT_BACKGROUND_CONTRAST_COLOR = [76, 255, 255];
@@ -613,12 +617,6 @@ function linearEnergyToOverlayCss(
   const green = Math.round(clamp01(color[1] * scale) * 255);
   const blue = Math.round(clamp01(color[2] * scale) * 255);
 
-  if (red === 0 && green === 0 && blue === 0)
-  {
-    // 透明桌面不能让无颜色能量的几何留下黑色 Coverage。
-    return 'rgba(0, 0, 0, 0)';
-  }
-
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
@@ -632,6 +630,7 @@ function linearEnergyToNativeTrailBloomCss(
   intensity,
   bloomCfg,
   outputCompositing = 'scene',
+  coverageOpacity = opacity,
 )
 {
   const sourceScale = clamp01(opacity) * Math.max(0, intensity);
@@ -661,7 +660,7 @@ function linearEnergyToNativeTrailBloomCss(
   {
     // Native blur 的 Alpha 取自几何 Coverage，而不是 HDR 明度；发射倍率只
     // 改变 RGB，不能把透明桌面的轨迹变成实心遮挡。
-    const coverage = clamp01(opacity);
+    const coverage = clamp01(coverageOpacity);
 
     return linearEnergyToOverlayCss(
       brightPass,
@@ -3250,35 +3249,66 @@ function createTrailFrameData(
 {
   // Legacy 只消费累计距离；WebGL2 虽不需要 LUT，仍复用段长构建精确网格。
   const measurement = measureTrail(points, cacheSegmentLengths);
+  const pointProgresses = measurement.distances.map((distanceAlongTrail) =>
+    measurement.totalLength > 0
+      ? distanceAlongTrail / measurement.totalLength
+      : 0);
+  const segmentProgresses = new Array(Math.max(0, points.length - 1));
+
+  for (let index = 1; index < points.length; index++)
+  {
+    segmentProgresses[index - 1] = measurement.totalLength > 0
+      ? (measurement.distances[index - 1] + measurement.distances[index]) *
+        0.5 / measurement.totalLength
+      : 0;
+  }
+
+  const coverageKeys = trailCfg.coverageLongitudinalKeys;
+  const pointCoverageFactors = pointProgresses.map((progress) =>
+    evaluateTrailLongitudinalCoverage(coverageKeys, progress));
+  const segmentCoverageFactors = segmentProgresses.map((progress) =>
+    evaluateTrailLongitudinalCoverage(coverageKeys, progress));
+  const sharedData =
+  {
+    measurement,
+    pointProgresses,
+    segmentProgresses,
+    pointCoverageFactors,
+    segmentCoverageFactors,
+  };
 
   if (materialIntensity === null)
   {
-    return { measurement };
+    return sharedData;
   }
 
   const pointEnergies = [];
   const pointTransverseProfiles = new Array(points.length);
+  const pointCoverageProfiles = new Array(points.length);
   const segmentEnergies = [];
   const segmentMaximumEnergies = [];
   const segmentTransverseProfiles = [];
+  const segmentCoverageProfiles = [];
   const textureLongitudinalKeys = trailCfg.textureLongitudinalKeys;
 
   if (measurement.totalLength <= 0)
   {
     return {
-      measurement,
+      ...sharedData,
       pointEnergies,
       pointTransverseProfiles,
+      pointCoverageProfiles,
       segmentEnergies,
       segmentMaximumEnergies,
       segmentTransverseProfiles,
+      segmentCoverageProfiles,
       textureLongitudinalKeys,
     };
   }
 
   for (let index = 0; index < points.length; index++)
   {
-    const progress = measurement.distances[index] / measurement.totalLength;
+    const progress = pointProgresses[index];
 
     pointEnergies.push(
       evaluateTrailLinearEnergy(
@@ -3292,9 +3322,7 @@ function createTrailFrameData(
 
   for (let index = 1; index < points.length; index++)
   {
-    const progress = (
-      measurement.distances[index - 1] + measurement.distances[index]
-    ) * 0.5 / measurement.totalLength;
+    const progress = segmentProgresses[index - 1];
     const energy = evaluateTrailLinearEnergy(
       progress,
       trailCfg,
@@ -3318,15 +3346,20 @@ function createTrailFrameData(
         textureLongitudinalKeys,
       ),
     );
+    segmentCoverageProfiles.push(
+      evaluateTrailTextureCoverageProfile(progress),
+    );
   }
 
   return {
-    measurement,
+    ...sharedData,
     pointEnergies,
     pointTransverseProfiles,
+    pointCoverageProfiles,
     segmentEnergies,
     segmentMaximumEnergies,
     segmentTransverseProfiles,
+    segmentCoverageProfiles,
     textureLongitudinalKeys,
   };
 }
@@ -3727,7 +3760,10 @@ function createTrailCrossSectionGradient(
     transverseProfile,
   ))
   {
-    gradient.addColorStop(clamp01(position), colorAtIntensity(intensity));
+    gradient.addColorStop(
+      clamp01(position),
+      colorAtIntensity(intensity, position),
+    );
   }
 
   return gradient;
@@ -3862,6 +3898,47 @@ function resolveTrailPointTransverseProfile(
   return profile;
 }
 
+function resolveTrailPointCoverageFactor(trailData, pointIndex, trailCfg)
+{
+  const cached = trailData.pointCoverageFactors?.[pointIndex];
+
+  if (Number.isFinite(cached))
+  {
+    return cached;
+  }
+
+  const progress = trailData.pointProgresses?.[pointIndex] ??
+    trailData.measurement.distances[pointIndex] /
+      trailData.measurement.totalLength;
+
+  return evaluateTrailLongitudinalCoverage(
+    trailCfg.coverageLongitudinalKeys,
+    progress,
+  );
+}
+
+function resolveTrailPointCoverageProfile(trailData, pointIndex)
+{
+  const profiles = trailData.pointCoverageProfiles;
+
+  if (profiles?.[pointIndex])
+  {
+    return profiles[pointIndex];
+  }
+
+  const progress = trailData.pointProgresses?.[pointIndex] ??
+    trailData.measurement.distances[pointIndex] /
+      trailData.measurement.totalLength;
+  const profile = evaluateTrailTextureCoverageProfile(progress);
+
+  if (profiles)
+  {
+    profiles[pointIndex] = profile;
+  }
+
+  return profile;
+}
+
 function drawTrailLayer(
   context,
   points,
@@ -3897,10 +3974,11 @@ function drawTrailLayer(
     points.length - 1,
   );
   const resolveCss = layer.colorAtIntensity ??
-    ((color, intensity) =>
+    ((color, intensity, textureCoverage, longitudinalCoverage) =>
     {
       const contribution = layer.alpha * opacity * intensity;
-      const coverage = layer.alpha * opacity;
+      const coverage = layer.alpha * opacity * textureCoverage *
+        longitudinalCoverage;
 
       return layer.outputCompositing === 'transparent-overlay'
         ? linearEnergyToOverlayCss(color, contribution, coverage)
@@ -3928,6 +4006,15 @@ function drawTrailLayer(
     const transverseProfile =
       trailData.segmentTransverseProfiles?.[index - 1] ??
         evaluateTrailTransverseProfile(progress, trailCfg);
+    const coverageProfile =
+      trailData.segmentCoverageProfiles?.[index - 1] ??
+        evaluateTrailTextureCoverageProfile(progress);
+    const longitudinalCoverage =
+      trailData.segmentCoverageFactors?.[index - 1] ??
+        evaluateTrailLongitudinalCoverage(
+          trailCfg.coverageLongitudinalKeys,
+          progress,
+        );
 
     fillTrailMeshSegment(
       context,
@@ -3936,7 +4023,12 @@ function drawTrailLayer(
         ? segment.endJoin
         : null,
       transverseProfile,
-      (intensity) => resolveCss(color, intensity),
+      (intensity, position) => resolveCss(
+        color,
+        intensity,
+        evaluateNumber(coverageProfile, position),
+        longitudinalCoverage,
+      ),
     );
   }
 
@@ -3961,12 +4053,26 @@ function drawTrailLayer(
       cap.pointIndex,
       trailCfg,
     );
+    const coverageProfile = resolveTrailPointCoverageProfile(
+      trailData,
+      cap.pointIndex,
+    );
+    const longitudinalCoverage = resolveTrailPointCoverageFactor(
+      trailData,
+      cap.pointIndex,
+      trailCfg,
+    );
 
     fillTrailMeshCap(
       context,
       cap,
       transverseProfile,
-      (intensity) => resolveCss(color, intensity),
+      (intensity, position) => resolveCss(
+        color,
+        intensity,
+        evaluateNumber(coverageProfile, position),
+        longitudinalCoverage,
+      ),
     );
   }
 
@@ -4147,13 +4253,19 @@ function drawNativeTrailBloom(
     {
       width: trailCfg.geometryWidth,
       materialIntensity: bloomCfg.trailEmission,
-      colorAtIntensity: (color, intensity) =>
+      colorAtIntensity: (
+        color,
+        intensity,
+        textureCoverage,
+        longitudinalCoverage,
+      ) =>
         linearEnergyToNativeTrailBloomCss(
           color,
           opacity,
           intensity,
           bloomCfg,
           outputCompositing,
+          opacity * textureCoverage * longitudinalCoverage,
         ),
     },
     firstVisibleSegment,
@@ -4186,14 +4298,16 @@ function drawNativeTrailBloom(
 function drawLegacyTrailLayer(
   context,
   points,
-  measurement,
+  trailData,
   scale,
   opacity,
   trailCfg,
   layer,
   linearOutput = false,
+  outputCompositing = 'scene',
 )
 {
+  const measurement = trailData.measurement;
   const effectiveAlpha = layer.alpha * opacity;
 
   if (measurement.totalLength <= 0 || effectiveAlpha <= 0)
@@ -4209,7 +4323,7 @@ function drawLegacyTrailLayer(
   context.shadowBlur = 0;
   context.shadowColor = 'transparent';
 
-  if (layer.color)
+  if (layer.color && outputCompositing !== 'transparent-overlay')
   {
     // 渐变分支每次只画两点，不存在 join；仅多点整路径需要圆角连接。
     context.lineJoin = 'round';
@@ -4242,19 +4356,44 @@ function drawLegacyTrailLayer(
 
   for (let index = 1; index < points.length; index++)
   {
-    const progress = ((distances[index - 1] + distances[index]) * 0.5) / totalLength;
+    const progress = trailData.segmentProgresses?.[index - 1] ??
+      ((distances[index - 1] + distances[index]) * 0.5) / totalLength;
 
-    evaluateColor(gradient, progress, color);
-    const fadeAlpha = Math.pow(progress, 0.5);
+    if (layer.color)
+    {
+      color[0] = layer.color[0];
+      color[1] = layer.color[1];
+      color[2] = layer.color[2];
+    }
+    else
+    {
+      evaluateColor(gradient, progress, color);
+    }
+
+    const fadeAlpha = layer.color ? 1 : Math.pow(progress, 0.5);
+    const longitudinalCoverage =
+      trailData.segmentCoverageFactors?.[index - 1] ??
+        evaluateTrailLongitudinalCoverage(
+          trailCfg.coverageLongitudinalKeys,
+          progress,
+        );
 
     context.beginPath();
     context.moveTo(points[index - 1].x, points[index - 1].y);
     context.lineTo(points[index].x, points[index].y);
-    context.strokeStyle = colorToCanvasOutputCss(
-      color,
-      effectiveAlpha * fadeAlpha,
-      linearOutput,
-    );
+    context.strokeStyle = outputCompositing === 'transparent-overlay'
+      ? linearEnergyToOverlayCss(
+          linearOutput
+            ? colorToLinearEnergy(color, 1, true)
+            : color.map((channel) => channel / 255),
+          effectiveAlpha * fadeAlpha,
+          effectiveAlpha * longitudinalCoverage,
+        )
+      : colorToCanvasOutputCss(
+          color,
+          effectiveAlpha * fadeAlpha,
+          linearOutput,
+        );
     context.stroke();
   }
 
@@ -4293,7 +4432,7 @@ function drawTrail(
       drawLegacyTrailLayer(
         context,
         points,
-        measurement,
+        trailData,
         scale,
         trailOpacity,
         trailCfg,
@@ -4303,28 +4442,31 @@ function drawTrail(
           color: LEGACY_TRAIL_OUTER_COLOR,
         },
         linearOutput,
+        outputCompositing,
       );
     }
 
     drawLegacyTrailLayer(
       context,
       points,
-      measurement,
+      trailData,
       scale,
       trailOpacity,
       trailCfg,
       LEGACY_TRAIL_MIDDLE_LAYER,
       linearOutput,
+      outputCompositing,
     );
     drawLegacyTrailLayer(
       context,
       points,
-      measurement,
+      trailData,
       scale,
       trailOpacity,
       trailCfg,
       LEGACY_TRAIL_CORE_LAYER,
       linearOutput,
+      outputCompositing,
     );
     return;
   }
@@ -4390,8 +4532,14 @@ function drawTrailCoverage(
       width: trailCfg.width,
       // Additive Shader 的目标 Alpha 固定为 1；透明适配层只保留实际
       // TrailRenderer 几何与全局透明度，不混入材质 HDR 发射倍率。
-      colorAtIntensity: () =>
-        `rgba(255, 255, 255, ${clamp01(trailOpacity)})`,
+      colorAtIntensity: (
+        _color,
+        _intensity,
+        textureCoverage,
+        longitudinalCoverage,
+      ) => `rgba(255, 255, 255, ${clamp01(
+        trailOpacity * textureCoverage * longitudinalCoverage,
+      )})`,
     },
     segmentStart,
     segmentEnd,
@@ -4511,6 +4659,7 @@ function appendTexturedTrailMeshSegment(
     toRight,
     [fromSample.color, toSample.color, toSample.color],
     opacity,
+    [fromSample.coverage, toSample.coverage, toSample.coverage],
   );
   renderer.addTexturedTrailTriangle(
     fromLeft,
@@ -4518,6 +4667,7 @@ function appendTexturedTrailMeshSegment(
     fromRight,
     [fromSample.color, toSample.color, fromSample.color],
     opacity,
+    [fromSample.coverage, toSample.coverage, fromSample.coverage],
   );
 }
 
@@ -4552,6 +4702,7 @@ function appendTexturedTrailMeshJoin(
       nextOuter,
       sample.color,
       opacity,
+      sample.coverage,
     );
   }
 }
@@ -4585,6 +4736,7 @@ function appendTexturedTrailMeshCaps(
       vertices[2],
       sample.color,
       opacity,
+      sample.coverage,
     );
   }
 }
@@ -4653,8 +4805,9 @@ function appendTrailWebGLScene(
 
   for (let index = 0; index < points.length; index++)
   {
-    const progress = trailData.measurement.distances[index] /
-      trailData.measurement.totalLength;
+    const progress = trailData.pointProgresses?.[index] ??
+      trailData.measurement.distances[index] /
+        trailData.measurement.totalLength;
 
     pointSamples[index] =
     {
@@ -4664,6 +4817,11 @@ function appendTrailWebGLScene(
         progress,
         trailCfg,
         bloomCfg.trailEmission,
+      ),
+      coverage: resolveTrailPointCoverageFactor(
+        trailData,
+        index,
+        trailCfg,
       ),
     };
   }

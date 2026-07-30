@@ -894,7 +894,10 @@ export function encodeAdditiveBloom(
           : 0;
       }
 
-      if (maximumSrgb <= 0.00001 || alpha <= 0.00001)
+      if (
+        alpha <= 0.00001 ||
+        (!transparentOverlay && maximumSrgb <= 0.00001)
+      )
       {
         output[outputIndex] = 0;
         output[outputIndex + 1] = 0;
