@@ -218,6 +218,8 @@ fx.setSceneBackground(null);
 
 Only centred `cover` is currently supported, matching CSS `background-size: cover` cropping. The caller owns decoding and CORS: a cross-origin server must allow anonymous reads or WebGL cannot upload the texture, in which case the method returns `false` or a deferred backend remains on its safe fallback. The Renderer retains the source object for WebGL context recovery, so do not close releasable sources such as `ImageBitmap` or `VideoFrame` before replacing the background or destroying the instance. Canvas and video sources upload their current frame at call time; call the method again after their content changes.
 
+The demo's Local Image picker converts a `File` into a document-session `blob:` URL and reuses the same CSS-background and `setSceneBackground(image)` path, so no external CORS header is needed. The URL is not written to `localStorage`; it is released when the background changes or the page unloads, and the file must be selected again after a reload. Browsers do not let an HTTP/HTTPS page reliably read a typed `file://` path, so use the picker rather than pasting a local file URL.
+
 Backend and mode changes release idle viewport-sized textures and FBOs while retaining the WebGL context, programs, static textures, and accepted background source. Re-enabling a backend rebuilds only the frame resources needed at the current size. Background replacement is atomic across existing Renderers: if one rejects the new source, accepted Renderers roll back to the old background; a candidate that cannot roll back is discarded and rebuilt lazily when needed.
 
 ### Host Input and Pointer Lifecycle

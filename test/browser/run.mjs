@@ -56,6 +56,7 @@ const metrics =
   trailContextLifecycle: {},
   trailTextureResourceLifecycle: {},
   iifeSmoke: null,
+  demoBackgroundFile: null,
 };
 
 let currentPage = null;
@@ -2261,6 +2262,149 @@ async function runIifeSmoke(browserInstance, baseUrl)
   }
 }
 
+async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
+{
+  currentLabel = 'demo-local-background-file';
+  const context = await browserInstance.newContext(
+    {
+      colorScheme: 'dark',
+      deviceScaleFactor: 1,
+      viewport:
+      {
+        width: 1024,
+        height: 768,
+      },
+    },
+  );
+  const page = await context.newPage();
+
+  try
+  {
+    await page.addInitScript(() =>
+    {
+      const revokeObjectUrl = URL.revokeObjectURL.bind(URL);
+
+      window.__BACLICKFX_REVOKED_OBJECT_URLS__ = [];
+      URL.revokeObjectURL = (url) =>
+      {
+        window.__BACLICKFX_REVOKED_OBJECT_URLS__.push(url);
+        return revokeObjectUrl(url);
+      };
+    });
+    currentPage = page;
+    await page.goto(baseUrl, { waitUntil: 'load' });
+    await page.waitForFunction(
+      () => typeof window.BAClickFXDemo?.setSceneBackground === 'function',
+    );
+
+    // 使用可上传到 WebGL 的完整 RGBA PNG，避免损坏的极小测试图片把
+    // File/Object URL 路径误判为纹理上传失败。
+    const localImage =
+      'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGOw7///nxLMMGrAqAGjBgwXAwBhM8wfgy2drAAAAABJRU5ErkJggg==';
+    await page.locator('#panelToggle').click();
+    await page.locator('.theme-btn[data-theme="custom"]').click();
+    await page.locator('#ctrlCustomBgFile').setInputFiles(
+      {
+        name: 'demo-background.png',
+        mimeType: 'image/png',
+        buffer: Buffer.from(localImage, 'base64'),
+      },
+    );
+    await page.waitForFunction(
+      () =>
+      {
+        const source = window.BAClickFXDemo?.sceneBackgroundSource;
+
+        return source instanceof HTMLImageElement &&
+          source.src.startsWith('blob:') &&
+          source.naturalWidth > 0 &&
+          source.naturalHeight > 0;
+      },
+    );
+    const firstBackground = await page.evaluate(() =>
+    {
+      const source = window.BAClickFXDemo.sceneBackgroundSource;
+
+      return (
+        {
+          cssContainsSource: document.body.style.background.includes(source.src),
+          sourceUrl: source.src,
+        }
+      );
+    });
+
+    assert(
+      firstBackground.cssContainsSource,
+      '展示页本地图片没有同时写入 CSS 背景和场景背景源',
+      firstBackground,
+    );
+
+    await page.locator('.theme-btn[data-theme="深紫"]').click();
+    await page.waitForFunction(
+      (sourceUrl) =>
+        window.__BACLICKFX_REVOKED_OBJECT_URLS__.includes(sourceUrl) &&
+        !document.body.style.background.includes(sourceUrl),
+      firstBackground.sourceUrl,
+    );
+    const releasedOnThemeChange = await page.evaluate(
+      (sourceUrl) =>
+        window.__BACLICKFX_REVOKED_OBJECT_URLS__.includes(sourceUrl),
+      firstBackground.sourceUrl,
+    );
+
+    await page.locator('.theme-btn[data-theme="custom"]').click();
+    await page.locator('#ctrlCustomBgFile').setInputFiles(
+      {
+        name: 'demo-background-reload.png',
+        mimeType: 'image/png',
+        buffer: Buffer.from(localImage, 'base64'),
+      },
+    );
+    await page.waitForFunction(
+      () =>
+        window.BAClickFXDemo?.sceneBackgroundSource instanceof HTMLImageElement &&
+        window.BAClickFXDemo.sceneBackgroundSource.src.startsWith('blob:'),
+    );
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(
+      () => typeof window.BAClickFXDemo?.setSceneBackground === 'function',
+    );
+    const restoredBackground = await page.evaluate(() =>
+    {
+      const source = window.BAClickFXDemo.sceneBackgroundSource;
+
+      return (
+        {
+          cssContainsBlob: document.body.style.background.includes('blob:'),
+          sourceIsBlob: source instanceof HTMLImageElement &&
+            source.src.startsWith('blob:'),
+        }
+      );
+    });
+
+    assert(
+      releasedOnThemeChange,
+      '展示页切换背景后没有释放旧的本地图片 object URL',
+      firstBackground,
+    );
+    assert(
+      !restoredBackground.cssContainsBlob && !restoredBackground.sourceIsBlob,
+      '展示页刷新后恢复了失效的本地图片 blob URL',
+      restoredBackground,
+    );
+    metrics.demoBackgroundFile =
+    {
+      releasedOnThemeChange,
+      restoredBackground,
+    };
+  }
+  finally
+  {
+    await context.close();
+    currentPage = null;
+  }
+}
+
 async function runMatrix(browserInstance, baseUrl, baseline)
 {
   const caseResults = new Map();
@@ -3105,6 +3249,7 @@ async function main()
   );
   const startedAt = performance.now();
   await runIifeSmoke(browser, baseUrl);
+  await runDemoBackgroundFileSmoke(browser, baseUrl);
   const calibration = await runMatrix(browser, baseUrl, baseline);
   const durationMs = performance.now() - startedAt;
 
