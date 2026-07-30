@@ -2124,7 +2124,9 @@ function drawTexturedTriangle(
   textureContext.globalCompositeOperation = 'destination-in';
   drawTriangleTextureFrame(
     textureContext,
-    resources.alphaCanvas,
+    outputCompositing === 'transparent-overlay'
+      ? resources.coverageCanvas
+      : resources.alphaCanvas,
     frameIndex,
   );
 

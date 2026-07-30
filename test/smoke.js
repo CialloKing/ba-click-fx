@@ -13,6 +13,7 @@ let ring3AlphaSource = null;
 let circleTextureSource = null;
 let trailTextureSource = null;
 let trailCoverageSource = null;
+let triangleTextureSource = null;
 let trailCoverageGolden = null;
 let createHash = null;
 let webgl2EffectSourceText = null;
@@ -23,6 +24,7 @@ if (sourceMode)
   circleTextureSource = await import('../src/circle-texture.js');
   trailTextureSource = await import('../src/trail-texture.js');
   trailCoverageSource = await import('../src/trail-coverage.js');
+  triangleTextureSource = await import('../src/triangle-texture.js');
   ({ createHash } = await import('node:crypto'));
   const { readFileSync } = await import('node:fs');
 
@@ -951,6 +953,51 @@ if (sourceMode)
       TRAIL_TEXTURE_RGB[upperTrailOffset + 1] === 71 &&
       TRAIL_TEXTURE_RGB[lowerTrailOffset + 1] === 131,
     'Trail_03 保留逐通道差异和不可由对称横截面表达的纹理细节',
+  );
+}
+if (sourceMode)
+{
+  const {
+    TRIANGLE_TEXTURE_COVERAGE,
+    TRIANGLE_TEXTURE_OVERLAY_RGBA,
+    TRIANGLE_TEXTURE_RGBA,
+    TRIANGLE_TEXTURE_SIZE,
+  } = triangleTextureSource;
+  const coverageHash = createHash('sha256')
+    .update(TRIANGLE_TEXTURE_COVERAGE)
+    .digest('hex');
+  let overlayMatchesAssets = true;
+  let correctedTexels = 0;
+
+  for (let index = 0; index < TRIANGLE_TEXTURE_COVERAGE.length; index++)
+  {
+    const offset = index * 4;
+
+    correctedTexels += Number(
+      TRIANGLE_TEXTURE_COVERAGE[index] !== TRIANGLE_TEXTURE_RGBA[offset + 3],
+    );
+    overlayMatchesAssets &&=
+      TRIANGLE_TEXTURE_OVERLAY_RGBA[offset] ===
+        TRIANGLE_TEXTURE_RGBA[offset] &&
+      TRIANGLE_TEXTURE_OVERLAY_RGBA[offset + 1] ===
+        TRIANGLE_TEXTURE_RGBA[offset + 1] &&
+      TRIANGLE_TEXTURE_OVERLAY_RGBA[offset + 2] ===
+        TRIANGLE_TEXTURE_RGBA[offset + 2] &&
+      TRIANGLE_TEXTURE_OVERLAY_RGBA[offset + 3] ===
+        TRIANGLE_TEXTURE_COVERAGE[index];
+  }
+
+  assert(
+    TRIANGLE_TEXTURE_SIZE === 128 &&
+      TRIANGLE_TEXTURE_COVERAGE.length === 128 * 128 &&
+      coverageHash ===
+        '9c45a4c8a83458648715ac47f758d9a046c65287f09ce124ee88d6f9b0aa39a8' &&
+      correctedTexels === 179,
+    '三角碎片独立 Coverage 的尺寸、哈希和修正范围保持固定',
+  );
+  assert(
+    overlayMatchesAssets,
+    '三角透明覆盖纹理只替换 Alpha 并保持原 RGB 字节',
   );
 }
 assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');

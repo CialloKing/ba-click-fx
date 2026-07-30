@@ -1,4 +1,5 @@
 import {
+  TRIANGLE_TEXTURE_OVERLAY_RGBA,
   TRIANGLE_TEXTURE_RGBA,
   TRIANGLE_TEXTURE_SIZE,
   resolveTriangleTextureFrame,
@@ -820,6 +821,7 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
+    this.triangleOverlayTexture = null;
     this.trailTexture = null;
     this.circleTexture = null;
     this.fullscreenVao = null;
@@ -952,6 +954,7 @@ export class WebGL2EffectRenderer
       this.triangleBuffer = gl.createBuffer();
       this.triangleVao = gl.createVertexArray();
       this.triangleTexture = gl.createTexture();
+      this.triangleOverlayTexture = gl.createTexture();
       this.trailTexture = gl.createTexture();
       this.circleTexture = gl.createTexture();
       this.fullscreenVao = gl.createVertexArray();
@@ -968,6 +971,7 @@ export class WebGL2EffectRenderer
         !this.triangleBuffer ||
         !this.triangleVao ||
         !this.triangleTexture ||
+        !this.triangleOverlayTexture ||
         !this.trailTexture ||
         !this.circleTexture
       )
@@ -1199,6 +1203,24 @@ export class WebGL2EffectRenderer
         TRIANGLE_TEXTURE_RGBA,
       );
 
+      // 透明宿主使用固定的独立 Coverage；RGB 字节与 Scene 纹理完全相同。
+      gl.bindTexture(gl.TEXTURE_2D, this.triangleOverlayTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.SRGB8_ALPHA8,
+        TRIANGLE_TEXTURE_SIZE,
+        TRIANGLE_TEXTURE_SIZE,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        TRIANGLE_TEXTURE_OVERLAY_RGBA,
+      );
+
       // Trail_03 的 Importer 使用 sRGB、Bilinear、Repeat 且关闭 Mipmap。
       // RGB 保留原逐通道纹理；派生 Alpha 只描述非零 texel 的 Coverage 支持面。
       gl.bindTexture(gl.TEXTURE_2D, this.trailTexture);
@@ -1299,6 +1321,7 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
+    this.triangleOverlayTexture = null;
     this.trailTexture = null;
     this.circleTexture = null;
     this.sceneBackgroundTexture = null;
@@ -1474,6 +1497,7 @@ export class WebGL2EffectRenderer
     gl.deleteBuffer(this.triangleBuffer);
     gl.deleteVertexArray(this.triangleVao);
     gl.deleteTexture(this.triangleTexture);
+    gl.deleteTexture(this.triangleOverlayTexture);
     gl.deleteTexture(this.trailTexture);
     gl.deleteTexture(this.circleTexture);
     gl.deleteTexture(this.sceneBackgroundTexture);
@@ -1489,6 +1513,7 @@ export class WebGL2EffectRenderer
     this.triangleBuffer = null;
     this.triangleVao = null;
     this.triangleTexture = null;
+    this.triangleOverlayTexture = null;
     this.trailTexture = null;
     this.circleTexture = null;
     this.sceneBackgroundTexture = null;
@@ -2222,7 +2247,9 @@ export class WebGL2EffectRenderer
         ),
         this.triangleBuffer,
         this.triangleVao,
-        this.triangleTexture,
+        transparentOverlay
+          ? this.triangleOverlayTexture
+          : this.triangleTexture,
         transparentOverlay,
       );
     }
