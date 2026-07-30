@@ -30,6 +30,8 @@ const COMPONENTS_PER_TRIANGLE_VERTEX = 9;
 const COMPONENTS_PER_TRAIL_VERTEX = 9;
 const INITIAL_VERTEX_CAPACITY = 4096;
 const MAX_PYRAMID_LEVELS = 16;
+// 未知背景至少保留 5/255 透出；这只限制透明宿主，不影响 Scene 合成。
+const TRANSPARENT_OVERLAY_MAX_ALPHA = 250 / 255;
 const DISK_CENTER_RADIUS_EPSILON = 0.00001;
 const DISK_TEXTURE_RADIAL_STOPS = Object.freeze(
   [
@@ -124,7 +126,7 @@ uniform float u_clampMax;
 in vec2 v_uv;
 out vec4 outColor;
 
-vec3 thresholdColor(vec3 color)
+vec3 thresholdColor(vec3 color, out float transportEnergy)
 {
   float clampMax = min(max(u_clampMax, 0.0), 65504.0);
 
@@ -133,6 +135,7 @@ vec3 thresholdColor(vec3 color)
 
   if (brightness <= 0.0)
   {
+    transportEnergy = 0.0;
     return vec3(0.0);
   }
 
@@ -144,6 +147,10 @@ vec3 thresholdColor(vec3 color)
   soft = soft * soft / (knee * 4.0);
 
   float contribution = max(max(brightness - threshold, soft), 0.0);
+
+  // contribution 等于 Bright Pass 的最大通道。作为独立标量经过相同的
+  // 正权重 Bloom 核后，它始终是三个 RGB 通道的上界。
+  transportEnergy = contribution;
   return color * contribution / max(brightness, 0.0001);
 }
 
@@ -155,12 +162,12 @@ void main()
     texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)) +
     texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0));
   vec4 filtered = sampleSum * 0.25;
+  float transportEnergy = 0.0;
+  vec3 brightPass = thresholdColor(filtered.rgb, transportEnergy);
 
-  // Coverage 只经过空间滤波，不受 HDR 阈值与强度影响。
-  outColor = vec4(
-    thresholdColor(filtered.rgb),
-    clamp(filtered.a, 0.0, 1.0)
-  );
+  // sourceTarget.a 仍保留清晰 Scene Coverage；Bloom RT 的 Alpha 从
+  // Prefilter 开始仅传输 Bright Pass 上界，不从最终 RGB 反推。
+  outColor = vec4(brightPass, transportEnergy);
 }
 `;
 
@@ -423,7 +430,32 @@ void main()
     texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0));
   vec4 filtered = sampleSum * 0.25;
 
-  outColor = vec4(filtered.rgb, clamp(filtered.a, 0.0, 1.0));
+  // Alpha 是 HDR 传输上界，必须与 RGB 使用同一线性核且保留大于 1 的值。
+  outColor = filtered;
+}
+`;
+
+const SCENE_OVERLAY_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+uniform sampler2D u_scene;
+
+in vec2 v_uv;
+out vec4 outColor;
+
+void main()
+{
+  vec4 scene = texture(u_scene, v_uv);
+  float coverage = clamp(scene.a, 0.0, 1.0);
+  float capacity = coverage <= 0.04045
+    ? coverage / 12.92
+    : pow((coverage + 0.055) / 1.055, 2.4);
+  float maximumEnergy = max(max(scene.r, scene.g), scene.b);
+  float scale = min(1.0, capacity / max(maximumEnergy, 0.000001));
+
+  // 只把清晰 Scene 收敛到 authored Coverage 的预乘容量；原 HDR Scene
+  // 仍保留在 sourceTarget，供 Bloom Prefilter 与已知背景精确合成使用。
+  outColor = vec4(scene.rgb * scale, coverage);
 }
 `;
 
@@ -454,11 +486,8 @@ void main()
   vec2 offset = u_lowTexel * (u_sampleScale * 0.5);
   vec4 low = sampleBox(u_low, v_uv, offset);
 
-  // 相邻 mip 来自同一份几何，Coverage 取最大值可扩散范围且不会重复累加。
-  outColor = vec4(
-    high.rgb + low.rgb,
-    max(clamp(high.a, 0.0, 1.0), clamp(low.a, 0.0, 1.0))
-  );
+  // Bright Pass RGB 会累加 high/low mip，传输上界必须执行完全相同的加法。
+  outColor = high + low;
 }
 `;
 
@@ -471,6 +500,7 @@ uniform sampler2D u_background;
 uniform vec2 u_bloomTexel;
 uniform float u_sampleScale;
 uniform float u_intensity;
+uniform float u_overlayAlphaLimit;
 uniform bool u_hasScene;
 uniform bool u_hasBackground;
 uniform bool u_transparentOverlay;
@@ -567,9 +597,14 @@ void main()
     float sceneCoverage = u_hasScene
       ? clamp(scene.a, 0.0, 1.0)
       : 0.0;
-    float bloomCoverage = clamp(filteredBloom.a, 0.0, 1.0);
-    float alpha = max(sceneCoverage, bloomCoverage);
-    float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
+    float bloomTransportAlpha = linearToSrgb(
+      max(0.0, filteredBloom.a) * max(0.0, u_intensity)
+    );
+    float requestedAlpha = sceneCoverage + bloomTransportAlpha;
+    float alpha = min(
+      requestedAlpha,
+      clamp(u_overlayAlphaLimit, 0.0, 1.0)
+    );
 
     if (alpha <= 0.00001)
     {
@@ -577,14 +612,14 @@ void main()
       return;
     }
 
-    // 未知桌面背景无法精确承载 HDR 加色。只压缩超过 Alpha 的 RGB，
-    // 以保持色相并满足浏览器预乘合成所要求的 RGB <= Alpha。
-    float premultiplyScale = min(
+    // 仅当透明宿主容量小于独立传输上界时等比收敛。缩放不读取最终
+    // maxRGB，且 opacity=1 的最坏损失仅为 5/255。
+    float capacityScale = min(
       1.0,
-      alpha / max(maximumSrgb, 0.000001)
+      alpha / max(requestedAlpha, 0.000001)
     );
 
-    outColor = vec4(srgb * premultiplyScale, alpha);
+    outColor = vec4(srgb * capacityScale, alpha);
     return;
   }
 
@@ -800,8 +835,10 @@ export class WebGL2EffectRenderer
       INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRAIL_VERTEX,
     );
     this.sourceTarget = null;
+    this.sceneOverlayTarget = null;
     this.levels = [];
     this.sceneFrameReady = false;
+    this.sceneOverlayFrameReady = false;
     this.sceneBackgroundFrameReady = false;
     this.sceneBackgroundSource = null;
     this.sceneBackgroundWidth = 0;
@@ -923,6 +960,11 @@ export class WebGL2EffectRenderer
         gl,
         FULLSCREEN_VERTEX_SHADER,
         SCENE_BACKGROUND_FRAGMENT_SHADER,
+      );
+      this.programs.sceneOverlay = createProgram(
+        gl,
+        FULLSCREEN_VERTEX_SHADER,
+        SCENE_OVERLAY_FRAGMENT_SHADER,
       );
       this.programs.prefilter = createProgram(
         gl,
@@ -1287,6 +1329,7 @@ export class WebGL2EffectRenderer
     this.contextLost = true;
     this.available = false;
     this.sceneFrameReady = false;
+    this.sceneOverlayFrameReady = false;
     this.sceneBackgroundFrameReady = false;
     this.sceneBackgroundUploadRetryPending =
       this.sceneBackgroundSource !== null;
@@ -1305,8 +1348,10 @@ export class WebGL2EffectRenderer
   _forgetResourceReferences()
   {
     this.sourceTarget = null;
+    this.sceneOverlayTarget = null;
     this.levels = [];
     this.sceneFrameReady = false;
+    this.sceneOverlayFrameReady = false;
     this.sceneBackgroundFrameReady = false;
     // Context 恢复代表一套新资源，旧尺寸的失败结论不能继续复用。
     this.failedResizeSignature = null;
@@ -1418,6 +1463,7 @@ export class WebGL2EffectRenderer
     if (gl && !this.contextLost)
     {
       deleteTarget(gl, this.sourceTarget);
+      deleteTarget(gl, this.sceneOverlayTarget);
       deleteTarget(gl, this.sceneBackgroundTarget);
 
       for (const level of this.levels)
@@ -1429,8 +1475,10 @@ export class WebGL2EffectRenderer
     }
 
     this.sourceTarget = null;
+    this.sceneOverlayTarget = null;
     this.sceneBackgroundTarget = null;
     this.sceneFrameReady = false;
+    this.sceneOverlayFrameReady = false;
     this.sceneBackgroundFrameReady = false;
     this.levels = [];
     this.stats.levelCount = 0;
@@ -1860,6 +1908,10 @@ export class WebGL2EffectRenderer
         this.sourceWidth,
         this.sourceHeight,
       );
+      this.sceneOverlayTarget = this._createTarget(
+        this.sourceWidth,
+        this.sourceHeight,
+      );
 
       const pyramid = calculatePyramidSettings(
         this.sourceWidth,
@@ -2014,6 +2066,7 @@ export class WebGL2EffectRenderer
       height === this.height &&
       safeDiffusion === this.diffusion &&
       this.sourceTarget !== null &&
+      this.sceneOverlayTarget !== null &&
       this.levels.length > 0;
 
     this.displayWidth = safeDisplayWidth;
@@ -2054,6 +2107,7 @@ export class WebGL2EffectRenderer
     if (options.preserveSceneStats !== true)
     {
       this.sceneFrameReady = false;
+      this.sceneOverlayFrameReady = false;
       this.sceneBackgroundFrameReady = false;
       this.stats.sceneVertexCount = 0;
       this.stats.sceneDiskVertexCount = 0;
@@ -2332,6 +2386,7 @@ export class WebGL2EffectRenderer
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       this.sceneFrameReady = false;
+      this.sceneOverlayFrameReady = false;
       this.sceneBackgroundFrameReady = this._copySceneBackgroundToSource();
       this.stats.sceneVertexCount = this.vertexCount +
         this.triangleVertexCount + this.trailVertexCount;
@@ -2342,6 +2397,11 @@ export class WebGL2EffectRenderer
 
       if (!this._hasGeometry())
       {
+        if (settings.outputCompositing === 'transparent-overlay')
+        {
+          this.sceneOverlayFrameReady = this._renderSceneOverlay();
+        }
+
         this.sceneFrameReady = true;
         return true;
       }
@@ -2350,6 +2410,16 @@ export class WebGL2EffectRenderer
         this.programs.scene,
         settings.outputCompositing === 'transparent-overlay',
       );
+
+      if (settings.outputCompositing === 'transparent-overlay')
+      {
+        this.sceneOverlayFrameReady = this._renderSceneOverlay();
+
+        if (!this.sceneOverlayFrameReady)
+        {
+          throw new Error('WebGL2 Scene 传输上界生成失败');
+        }
+      }
 
       const error = gl.getError();
 
@@ -3628,6 +3698,30 @@ export class WebGL2EffectRenderer
     this._drawFullscreen(program, level.down, level.width, level.height);
   }
 
+  _renderSceneOverlay()
+  {
+    if (
+      !this.sourceTarget ||
+      !this.sceneOverlayTarget ||
+      !this.programs?.sceneOverlay
+    )
+    {
+      return false;
+    }
+
+    const program = this.programs.sceneOverlay;
+
+    this.gl.useProgram(program);
+    this._bindTexture(program, 'u_scene', this.sourceTarget.texture, 0);
+    this._drawFullscreen(
+      program,
+      this.sceneOverlayTarget,
+      this.sourceWidth,
+      this.sourceHeight,
+    );
+    return true;
+  }
+
   _renderDownsample(sourceLevel, targetLevel)
   {
     const gl = this.gl;
@@ -3680,6 +3774,7 @@ export class WebGL2EffectRenderer
     settings,
     hasScene = false,
     hasBackground = false,
+    hasSceneOverlay = false,
   )
   {
     const gl = this.gl;
@@ -3697,7 +3792,13 @@ export class WebGL2EffectRenderer
     this._bindTexture(
       program,
       'u_scene',
-      hasScene ? this.sourceTarget.texture : texture,
+      hasScene
+        ? (
+            hasSceneOverlay
+              ? this.sceneOverlayTarget.texture
+              : this.sourceTarget.texture
+          )
+        : texture,
       1,
     );
     this._bindTexture(
@@ -3733,6 +3834,11 @@ export class WebGL2EffectRenderer
       // HDR 后处理时把 1.7 直接作为线性倍率并产生整片白色钳制。
       Math.pow(2, Math.max(0, settings.intensity) / 10) - 1,
     );
+    gl.uniform1f(
+      gl.getUniformLocation(program, 'u_overlayAlphaLimit'),
+      clamp(settings.opacity ?? 1, 0, 1) *
+        TRANSPARENT_OVERLAY_MAX_ALPHA,
+    );
     gl.bindVertexArray(this.fullscreenVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
@@ -3755,6 +3861,10 @@ export class WebGL2EffectRenderer
       this.sceneEnabled &&
       this.sceneFrameReady;
     const hasBackground = hasScene && this.sceneBackgroundFrameReady;
+    const hasSceneOverlay = hasScene &&
+      !hasBackground &&
+      settings.outputCompositing === 'transparent-overlay' &&
+      this.sceneOverlayFrameReady;
 
     try
     {
@@ -3799,6 +3909,7 @@ export class WebGL2EffectRenderer
         settings,
         hasScene,
         hasBackground,
+        hasSceneOverlay,
       );
       this.stats.vertexCount = this.vertexCount +
         this.triangleVertexCount +

@@ -7536,6 +7536,7 @@ export class BAClickFX
       clamp: bloomCfg.clamp,
       intensity: bloomCfg.intensity,
       diffusion,
+      opacity: this.config.opacity,
       outputCompositing: this.config.outputCompositing,
     };
     let processedSourcePixels = 0;
@@ -7663,10 +7664,9 @@ export class BAClickFX
       {
         if (this.config.outputCompositing === 'transparent-overlay')
         {
-          // Canvas 无法为 RGB 和 Alpha指定两套混合函数。Bloom 输出已包含
-          // 模糊 Coverage，使用 lighter 会与清晰 Coverage 相加并抬高桌面
-          // 遮挡；这里保留 source-over 的兼容近似，普通粒子仍严格 Additive。
-          this.context.globalCompositeOperation = 'source-over';
+          // Bloom ImageData 已按清晰层剩余 Alpha 容量编码；lighter 同时
+          // 累加预乘 RGB 与传输 Alpha，避免 source-over 吞掉已有清晰能量。
+          this.context.globalCompositeOperation = 'lighter';
         }
 
         compositeSucceeded = renderer.composite(this.context, settings);
@@ -7802,6 +7802,7 @@ export class BAClickFX
           clamp: bloomCfg.clamp,
           intensity: bloomCfg.intensity,
           diffusion: bloomCfg.diffusion,
+          opacity: this.config.opacity,
           outputCompositing: this.config.outputCompositing,
         },
         { preserveCanvas: true },

@@ -573,6 +573,12 @@ const overlayHdr = new Float32Array([
 ]);
 const overlayCoverage = new Float32Array([0, 0.25, 0.5, 1]);
 const overlayRgba = new Uint8ClampedArray(16);
+const overlayExposure = Math.pow(2, 1.7 / 10) - 1;
+const overlayAlphaLimit = 250 / 255;
+const expectedTransportAlpha = (value) => Math.min(
+  overlayAlphaLimit,
+  linearToSrgb(value * overlayExposure),
+);
 
 encodeAdditiveBloom(
   overlayHdr,
@@ -589,13 +595,17 @@ encodeAdditiveBloom(
 
 assert(
   overlayRgba.slice(0, 4).every((value) => value === 0),
-  'transparent-overlay 在 opacity 为零时不输出 HDR 颜色或 Alpha',
+  'transparent-overlay 在 Bright Pass 能量为零时不输出颜色或 Alpha',
 );
 assert(
-  overlayRgba[7] === 64 &&
-    overlayRgba[11] === 128 &&
-    overlayRgba[15] === 255,
-  'transparent-overlay 的 Alpha 随 Coverage 单调且近似线性',
+  [1, 2, 3].every((pixel) =>
+    Math.abs(
+      overlayRgba[pixel * 4 + 3] / 255 -
+        expectedTransportAlpha(overlayCoverage[pixel]),
+    ) <= 1 / 255) &&
+    overlayRgba[7] < overlayRgba[11] &&
+    overlayRgba[11] < overlayRgba[15],
+  'transparent-overlay Alpha 由 Bright Pass 传输上界单调生成',
 );
 
 let validPremultipliedOverlay = true;
@@ -651,8 +661,35 @@ encodeAdditiveBloom(
 );
 assert(
   dimOverlayRgba[3] === brightOverlayRgba[3] &&
-    dimOverlayRgba[3] === Math.round(0.35 * 255),
-  'transparent-overlay 的 Alpha 与 HDR 发射强度解耦',
+    Math.abs(
+      dimOverlayRgba[3] / 255 - expectedTransportAlpha(0.35),
+    ) <= 1 / 255,
+  'transparent-overlay 传输 Alpha 不读取最终 Bloom RGB',
+);
+
+const opacitySeries = [0, 0.5, 1].map((opacity) =>
+{
+  const output = new Uint8ClampedArray(4);
+
+  encodeAdditiveBloom(
+    new Float32Array([8, 4, 2]),
+    output,
+    1.7,
+    1,
+    null,
+    null,
+    {
+      outputCompositing: 'transparent-overlay',
+      coverage: new Float32Array([100]),
+      opacity,
+    },
+  );
+  return output[3];
+});
+
+assert(
+  JSON.stringify(opacitySeries) === JSON.stringify([0, 125, 250]),
+  'transparent-overlay 的最大传输 Alpha 对 opacity 保持三档线性',
 );
 
 const sceneCoverage = new Float32Array([0.45, 0.45, 0, 1]);
@@ -678,27 +715,29 @@ encodeAdditiveBloom(
   },
 );
 
-const compositeAlpha = (pixel) =>
+const additiveAlpha = (pixel) =>
 {
   const sourceAlpha = residualOverlayRgba[pixel * 4 + 3] / 255;
   const destinationAlpha = sceneCoverage[pixel];
 
-  return sourceAlpha + destinationAlpha * (1 - sourceAlpha);
+  return Math.min(1, sourceAlpha + destinationAlpha);
 };
 
 assert(
-  residualOverlayRgba[3] === 0 &&
-    approximatelyEqual(compositeAlpha(0), 0.45),
-  'Bloom Coverage 未超过清晰 Coverage 时不再抬高中心 Alpha',
+  [0, 1, 2].every((pixel) =>
+  {
+    const expected = Math.min(
+      overlayAlphaLimit,
+      sceneCoverage[pixel] + expectedTransportAlpha(bloomCoverage[pixel]),
+    );
+
+    return approximatelyEqual(additiveAlpha(pixel), expected, 1 / 255);
+  }),
+  'Bloom lighter 合成只占用清晰 Coverage 之外的剩余 Alpha 容量',
 );
 assert(
-  approximatelyEqual(compositeAlpha(1), 0.7, 1 / 255) &&
-    approximatelyEqual(compositeAlpha(2), 0.2, 1 / 255),
-  '残余 Alpha 经 source-over 后等于 max(sceneCoverage, bloomCoverage)',
-);
-assert(
-  residualOverlayRgba[15] === 0 && compositeAlpha(3) === 1,
-  '清晰层完全覆盖时不会产生无效或非有限的残余 Alpha',
+  residualOverlayRgba[15] === 0 && additiveAlpha(3) === 1,
+  '清晰层已占满容量时不会生成额外 Bloom Alpha',
 );
 
 const explicitSceneRgba = new Uint8ClampedArray(rgba.length);

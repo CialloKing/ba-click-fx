@@ -17,6 +17,7 @@ const DISK_COMPONENTS_PER_VERTEX = 8;
 const TRIANGLE_COMPONENTS_PER_VERTEX = 8;
 const INITIAL_VERTEX_CAPACITY = 4096;
 const MAX_PYRAMID_LEVELS = 16;
+const TRANSPARENT_OVERLAY_MAX_ALPHA = 250 / 255;
 
 const EMISSION_VERTEX_SHADER = `#version 300 es
 precision highp float;
@@ -93,13 +94,14 @@ uniform float u_clampMax;
 in vec2 v_uv;
 out vec4 outColor;
 
-vec3 thresholdColor(vec3 color)
+vec3 thresholdColor(vec3 color, out float transportEnergy)
 {
   color = min(color, vec3(u_clampMax));
   float brightness = max(max(color.r, color.g), color.b);
 
   if (brightness <= 0.0)
   {
+    transportEnergy = 0.0;
     return vec3(0.0);
   }
 
@@ -111,6 +113,9 @@ vec3 thresholdColor(vec3 color)
   soft = soft * soft / (knee * 4.0);
 
   float contribution = max(max(brightness - threshold, soft), 0.0);
+
+  // Bright Pass 的最大通道作为独立传输上界，与 RGB 共用后续正权重核。
+  transportEnergy = contribution;
   return color * contribution / max(brightness, 0.0001);
 }
 
@@ -122,12 +127,11 @@ void main()
     texture(u_source, v_uv + u_sourceTexel * vec2(-1.0, 1.0)) +
     texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0));
   vec4 filtered = sampleSum * 0.25;
+  float transportEnergy = 0.0;
+  vec3 brightPass = thresholdColor(filtered.rgb, transportEnergy);
 
-  // 与完整 WebGL2 共用合同：Coverage 不参与 HDR 阈值计算。
-  outColor = vec4(
-    thresholdColor(filtered.rgb),
-    clamp(filtered.a, 0.0, 1.0)
-  );
+  // 几何 Coverage 属于 Canvas 清晰层；Bloom RT 只携带能量传输上界。
+  outColor = vec4(brightPass, transportEnergy);
 }
 `;
 
@@ -149,7 +153,7 @@ void main()
     texture(u_source, v_uv + u_sourceTexel * vec2(1.0, 1.0));
   vec4 filtered = sampleSum * 0.25;
 
-  outColor = vec4(filtered.rgb, clamp(filtered.a, 0.0, 1.0));
+  outColor = filtered;
 }
 `;
 
@@ -180,10 +184,7 @@ void main()
   vec2 offset = u_lowTexel * (u_sampleScale * 0.5);
   vec4 low = sampleBox(u_low, v_uv, offset);
 
-  outColor = vec4(
-    high.rgb + low.rgb,
-    max(clamp(high.a, 0.0, 1.0), clamp(low.a, 0.0, 1.0))
-  );
+  outColor = high + low;
 }
 `;
 
@@ -194,6 +195,7 @@ uniform sampler2D u_bloom;
 uniform vec2 u_bloomTexel;
 uniform float u_sampleScale;
 uniform float u_intensity;
+uniform float u_overlayAlphaLimit;
 uniform bool u_transparentOverlay;
 
 in vec2 v_uv;
@@ -226,11 +228,15 @@ void main()
     linearToSrgb(linear.g),
     linearToSrgb(linear.b)
   );
-  float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
-
   if (u_transparentOverlay)
   {
-    float alpha = clamp(filteredBloom.a, 0.0, 1.0);
+    float transportAlpha = linearToSrgb(
+      max(0.0, filteredBloom.a) * max(0.0, u_intensity)
+    );
+    float alpha = min(
+      transportAlpha,
+      clamp(u_overlayAlphaLimit, 0.0, 1.0)
+    );
 
     if (alpha <= 0.00001)
     {
@@ -238,14 +244,16 @@ void main()
       return;
     }
 
-    float premultiplyScale = min(
+    float transportScale = min(
       1.0,
-      alpha / max(maximumSrgb, 0.000001)
+      alpha / max(transportAlpha, 0.000001)
     );
 
-    outColor = vec4(srgb * premultiplyScale, alpha);
+    outColor = vec4(srgb * transportScale, alpha);
     return;
   }
+
+  float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
 
   if (maximumSrgb <= 0.00001)
   {
@@ -1929,6 +1937,11 @@ export class WebGL2BloomRenderer
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_intensity'),
       Math.pow(2, Math.max(0, settings.intensity) / 10) - 1,
+    );
+    gl.uniform1f(
+      gl.getUniformLocation(program, 'u_overlayAlphaLimit'),
+      clamp(settings.opacity ?? 1, 0, 1) *
+        TRANSPARENT_OVERLAY_MAX_ALPHA,
     );
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_transparentOverlay'),

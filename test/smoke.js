@@ -17,6 +17,7 @@ let triangleTextureSource = null;
 let trailCoverageGolden = null;
 let createHash = null;
 let webgl2EffectSourceText = null;
+let webgl2BloomSourceText = null;
 
 if (sourceMode)
 {
@@ -34,6 +35,10 @@ if (sourceMode)
   ));
   webgl2EffectSourceText = readFileSync(
     new URL('../src/webgl2-effect.js', import.meta.url),
+    'utf8',
+  );
+  webgl2BloomSourceText = readFileSync(
+    new URL('../src/webgl2-bloom.js', import.meta.url),
     'utf8',
   );
 }
@@ -842,6 +847,82 @@ if (sourceMode)
       !webgl2EffectSourceText.includes('a_textureAlpha') &&
       !webgl2EffectSourceText.includes('sampleTextureAlpha'),
     '完整 WebGL2 在 Fragment Shader 逐片元采样 Ring3 并执行溶解裁剪',
+  );
+
+  const finalShaderSource = webgl2EffectSourceText.match(
+    /const FINAL_FRAGMENT_SHADER = `([\s\S]*?)`;/,
+  )?.[1] ?? '';
+  const sceneOverlayShaderSource = webgl2EffectSourceText.match(
+    /const SCENE_OVERLAY_FRAGMENT_SHADER = `([\s\S]*?)`;/,
+  )?.[1] ?? '';
+  const transparentFinalStart = finalShaderSource.indexOf(
+    'if (u_transparentOverlay)',
+  );
+  const sceneFinalStart = finalShaderSource.indexOf(
+    'float maximumSrgb',
+    transparentFinalStart,
+  );
+  const transparentFinalSource = finalShaderSource.slice(
+    transparentFinalStart,
+    sceneFinalStart,
+  );
+
+  for (const [label, source] of [
+    ['完整 WebGL2', webgl2EffectSourceText],
+    ['WebGL2 Bloom', webgl2BloomSourceText],
+  ])
+  {
+    const prefilterShaderSource = source.match(
+      /const PREFILTER_FRAGMENT_SHADER = `([\s\S]*?)`;/,
+    )?.[1] ?? '';
+    const downsampleShaderSource = source.match(
+      /const DOWNSAMPLE_FRAGMENT_SHADER = `([\s\S]*?)`;/,
+    )?.[1] ?? '';
+    const upsampleShaderSource = source.match(
+      /const UPSAMPLE_FRAGMENT_SHADER = `([\s\S]*?)`;/,
+    )?.[1] ?? '';
+
+    assert(
+      prefilterShaderSource.includes('transportEnergy = contribution;') &&
+        prefilterShaderSource.includes(
+          'outColor = vec4(brightPass, transportEnergy);',
+        ) &&
+        !prefilterShaderSource.includes('clamp(filtered.a'),
+      `${label} Prefilter 将 Bright Pass 最大通道作为独立传输上界`,
+    );
+    assert(
+      downsampleShaderSource.includes('outColor = filtered;') &&
+        upsampleShaderSource.includes('outColor = high + low;') &&
+        !upsampleShaderSource.includes('max(clamp(high.a'),
+      `${label} Bloom RGB 与传输 Alpha 共用同一 mip 加法链`,
+    );
+  }
+
+  assert(
+    transparentFinalSource.includes(
+      '? clamp(scene.a, 0.0, 1.0)',
+    ) &&
+      transparentFinalSource.includes(
+        'float bloomTransportAlpha = linearToSrgb(',
+      ) &&
+      transparentFinalSource.includes(
+        'float requestedAlpha = sceneCoverage + bloomTransportAlpha;',
+      ) &&
+      transparentFinalSource.includes(
+        'alpha / max(requestedAlpha, 0.000001)',
+      ) &&
+      transparentFinalSource.includes(
+        'outColor = vec4(srgb * capacityScale, alpha);',
+      ) &&
+      !transparentFinalSource.includes('premultiplyScale') &&
+      !transparentFinalSource.includes('maximumSrgb') &&
+      sceneOverlayShaderSource.includes(
+        'capacity / max(maximumEnergy, 0.000001)',
+      ) &&
+      sceneOverlayShaderSource.includes(
+        'outColor = vec4(scene.rgb * scale, coverage);',
+      ),
+    '完整 WebGL2 独立预乘清晰 Coverage 与 Bloom 传输上界',
   );
 
   const nonSeparableSamples = [
@@ -2599,11 +2680,11 @@ assert(
   '点击与拖尾 HDR 发射倍率不会改变独立 Coverage',
 );
 assert(
-  halfOverlayFrame.bloomOutputComposite === 'source-over' &&
+  halfOverlayFrame.bloomOutputComposite === 'lighter' &&
     halfOverlayFrame.mainCompositeOperations.every((operation) =>
       operation === 'source-over') &&
     halfOverlayFrame.diskCompositeOperations.includes('source-over'),
-  '透明 Canvas 暂用 source-over 保存 Coverage，scene 模式仍保持 Additive RGB',
+  '透明 Canvas 的 Bloom 使用 lighter 加色，Coverage 与主层仍使用 source-over',
 );
 assert(
   halfOverlayFrame.contrastFillCount === 0,
