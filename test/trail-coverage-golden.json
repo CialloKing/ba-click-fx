@@ -1,0 +1,58 @@
+{
+  "algorithm": "column-normalized-max-channel-v1",
+  "width": 512,
+  "height": 512,
+  "sha256": "172b0c1b69a4fca13fcbde72c5071c8e4e7e1459dba13042818f399e5a697216",
+  "counts": {
+    "zero": 99098,
+    "partial": 123210,
+    "full": 39836
+  },
+  "samples": [
+    {
+      "x": 0,
+      "y": 0,
+      "coverage": 5
+    },
+    {
+      "x": 20,
+      "y": 13,
+      "coverage": 71
+    },
+    {
+      "x": 20,
+      "y": 498,
+      "coverage": 131
+    },
+    {
+      "x": 128,
+      "y": 256,
+      "coverage": 255
+    },
+    {
+      "x": 256,
+      "y": 256,
+      "coverage": 253
+    },
+    {
+      "x": 320,
+      "y": 0,
+      "coverage": 0
+    },
+    {
+      "x": 320,
+      "y": 256,
+      "coverage": 249
+    },
+    {
+      "x": 384,
+      "y": 256,
+      "coverage": 0
+    },
+    {
+      "x": 511,
+      "y": 256,
+      "coverage": 0
+    }
+  ]
+}

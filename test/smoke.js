@@ -12,6 +12,7 @@ const module = await import(modulePath);
 let ring3AlphaSource = null;
 let circleTextureSource = null;
 let trailTextureSource = null;
+let trailCoverageGolden = null;
 let createHash = null;
 let webgl2EffectSourceText = null;
 
@@ -23,6 +24,10 @@ if (sourceMode)
   ({ createHash } = await import('node:crypto'));
   const { readFileSync } = await import('node:fs');
 
+  trailCoverageGolden = JSON.parse(readFileSync(
+    new URL('./trail-coverage-golden.json', import.meta.url),
+    'utf8',
+  ));
   webgl2EffectSourceText = readFileSync(
     new URL('../src/webgl2-effect.js', import.meta.url),
     'utf8',
@@ -875,6 +880,7 @@ if (sourceMode)
   );
 
   const {
+    TRAIL_TEXTURE_COVERAGE,
     TRAIL_TEXTURE_HEIGHT,
     TRAIL_TEXTURE_RGB,
     TRAIL_TEXTURE_RGBA,
@@ -883,19 +889,16 @@ if (sourceMode)
   const trailTextureHash = createHash('sha256')
     .update(TRAIL_TEXTURE_RGB)
     .digest('hex');
+  const trailCoverageHash = createHash('sha256')
+    .update(TRAIL_TEXTURE_COVERAGE)
+    .digest('hex');
   const trailPixelCount = TRAIL_TEXTURE_WIDTH * TRAIL_TEXTURE_HEIGHT;
-  let trailCoverageMatchesRgb = true;
+  let trailRgbaMatchesAssets = true;
 
   for (let pixel = 0; pixel < trailPixelCount; pixel++)
   {
     const rgbOffset = pixel * 3;
     const rgbaOffset = pixel * 4;
-    const expectedAlpha =
-      TRAIL_TEXTURE_RGB[rgbOffset] ||
-      TRAIL_TEXTURE_RGB[rgbOffset + 1] ||
-      TRAIL_TEXTURE_RGB[rgbOffset + 2]
-        ? 255
-        : 0;
 
     if (
       TRAIL_TEXTURE_RGBA[rgbaOffset] !== TRAIL_TEXTURE_RGB[rgbOffset] ||
@@ -903,10 +906,10 @@ if (sourceMode)
         TRAIL_TEXTURE_RGB[rgbOffset + 1] ||
       TRAIL_TEXTURE_RGBA[rgbaOffset + 2] !==
         TRAIL_TEXTURE_RGB[rgbOffset + 2] ||
-      TRAIL_TEXTURE_RGBA[rgbaOffset + 3] !== expectedAlpha
+      TRAIL_TEXTURE_RGBA[rgbaOffset + 3] !== TRAIL_TEXTURE_COVERAGE[pixel]
     )
     {
-      trailCoverageMatchesRgb = false;
+      trailRgbaMatchesAssets = false;
       break;
     }
   }
@@ -916,9 +919,10 @@ if (sourceMode)
   const lowerTrailOffset = (498 * TRAIL_TEXTURE_WIDTH + 20) * 3;
 
   assert(
-    TRAIL_TEXTURE_WIDTH === 512 &&
+      TRAIL_TEXTURE_WIDTH === 512 &&
       TRAIL_TEXTURE_HEIGHT === 512 &&
       TRAIL_TEXTURE_RGB.length === 512 * 512 * 3 &&
+      TRAIL_TEXTURE_COVERAGE.length === 512 * 512 &&
       TRAIL_TEXTURE_RGBA.length === 512 * 512 * 4,
     'Trail_03 解码为完整的 512x512 RGB 与 Coverage RGBA 纹理',
   );
@@ -928,8 +932,17 @@ if (sourceMode)
     'Trail_03 RGB 的完整字节 SHA256 与解包纹理一致',
   );
   assert(
-    trailCoverageMatchesRgb,
-    'Trail_03 RGBA 保留全部 RGB，并只把非零纹素支持面编码为 Coverage',
+    trailCoverageHash === trailCoverageGolden.sha256 &&
+      trailCoverageHash ===
+        '172b0c1b69a4fca13fcbde72c5071c8e4e7e1459dba13042818f399e5a697216' &&
+      trailCoverageGolden.counts.partial === 123210 &&
+      trailCoverageGolden.samples.every(({ x, y, coverage }) =>
+        TRAIL_TEXTURE_COVERAGE[y * TRAIL_TEXTURE_WIDTH + x] === coverage),
+    'Trail_03 独立 Coverage 的哈希、灰阶数量和 Golden 采样保持固定',
+  );
+  assert(
+    trailRgbaMatchesAssets,
+    'Trail_03 RGBA 分别保留原 RGB 与独立 Coverage 字节',
   );
   assert(
     JSON.stringify(firstTrailPixel) === JSON.stringify([5, 0, 0]) &&

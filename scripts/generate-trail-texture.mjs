@@ -7,14 +7,20 @@ const EXPECTED_SOURCE_SHA256 =
   '16001511757e7007f43db9613e24144b5e8d726239de0262f55d9e14c0f00feb';
 const EXPECTED_RGB_SHA256 =
   '9ef29db2147501c40c1ff0f1cd0848cd6e017a46b0e8aa0af685eef568d4faa0';
+const EXPECTED_COVERAGE_SHA256 =
+  '172b0c1b69a4fca13fcbde72c5071c8e4e7e1459dba13042818f399e5a697216';
+const EMBEDDED_SOURCE = '--embedded';
 const inputPath = process.argv[2];
 const outputPath = process.argv[3] ??
   new URL('../src/trail-texture.js', import.meta.url);
+const goldenPath = process.argv[4] ??
+  new URL('../test/trail-coverage-golden.json', import.meta.url);
 
 if (!inputPath)
 {
   throw new Error(
-    '用法: node scripts/generate-trail-texture.mjs <FX_TEX_Trail_03.png> [输出文件]',
+    '用法: node scripts/generate-trail-texture.mjs ' +
+      '<FX_TEX_Trail_03.png|--embedded> [输出文件] [Golden 文件]',
   );
 }
 
@@ -179,24 +185,24 @@ function extractRgb(rgba)
   return rgb;
 }
 
-function createPaethResidual(rgb, width, height)
+function createPaethResidual(source, width, height, channels)
 {
-  const stride = width * 3;
-  const residual = Buffer.alloc(rgb.length);
+  const stride = width * channels;
+  const residual = Buffer.alloc(source.length);
 
   for (let y = 0; y < height; y++)
   {
     for (let x = 0; x < stride; x++)
     {
       const offset = y * stride + x;
-      const left = x >= 3 ? rgb[offset - 3] : 0;
-      const above = y > 0 ? rgb[offset - stride] : 0;
-      const upperLeft = y > 0 && x >= 3
-        ? rgb[offset - stride - 3]
+      const left = x >= channels ? source[offset - channels] : 0;
+      const above = y > 0 ? source[offset - stride] : 0;
+      const upperLeft = y > 0 && x >= channels
+        ? source[offset - stride - channels]
         : 0;
 
       residual[offset] = (
-        rgb[offset] - paeth(left, above, upperLeft)
+        source[offset] - paeth(left, above, upperLeft)
       ) & 0xff;
     }
   }
@@ -338,20 +344,120 @@ function formatChunks(encoded, width = 100)
   return chunks.join('\n');
 }
 
-function createModule(width, height, packed)
+function createCoverage(rgb, width, height)
 {
-  const encoded = packed.toString('base64');
+  const coverage = Buffer.alloc(width * height);
+
+  for (let x = 0; x < width; x++)
+  {
+    let columnPeak = 0;
+
+    for (let y = 0; y < height; y++)
+    {
+      const offset = (y * width + x) * 3;
+
+      columnPeak = Math.max(
+        columnPeak,
+        rgb[offset],
+        rgb[offset + 1],
+        rgb[offset + 2],
+      );
+    }
+
+    if (columnPeak === 0)
+    {
+      continue;
+    }
+
+    for (let y = 0; y < height; y++)
+    {
+      const sourceOffset = (y * width + x) * 3;
+      const outputOffset = y * width + x;
+      const support = Math.max(
+        rgb[sourceOffset],
+        rgb[sourceOffset + 1],
+        rgb[sourceOffset + 2],
+      );
+
+      // 离线移除每个 U 切片的发射亮度，只保留二维横截面支持度。
+      // 固定字节进入运行时后不再读取 RGB，也不会受主题色或 Bloom 影响。
+      coverage[outputOffset] = Math.round(support / columnPeak * 255);
+    }
+  }
+
+  return coverage;
+}
+
+function createCoverageGolden(width, height, coverage)
+{
+  const samples = [
+    [0, 0],
+    [20, 13],
+    [20, 498],
+    [128, 256],
+    [256, 256],
+    [320, 0],
+    [320, 256],
+    [384, 256],
+    [511, 256],
+  ].map(([x, y]) => ({ x, y, coverage: coverage[y * width + x] }));
+  let zeroCount = 0;
+  let partialCount = 0;
+  let fullCount = 0;
+
+  for (const value of coverage)
+  {
+    if (value === 0)
+    {
+      zeroCount++;
+    }
+    else if (value === 255)
+    {
+      fullCount++;
+    }
+    else
+    {
+      partialCount++;
+    }
+  }
+
+  return {
+    algorithm: 'column-normalized-max-channel-v1',
+    width,
+    height,
+    sha256: sha256(coverage),
+    counts:
+    {
+      zero: zeroCount,
+      partial: partialCount,
+      full: fullCount,
+    },
+    samples,
+  };
+}
+
+function createModule(width, height, packedRgb, packedCoverage)
+{
+  const encodedRgb = packedRgb.toString('base64');
+  const encodedCoverage = packedCoverage.toString('base64');
 
   return `export const TRAIL_TEXTURE_WIDTH = ${width};
 export const TRAIL_TEXTURE_HEIGHT = ${height};
 const TRAIL_TEXTURE_CHANNELS = 3;
 const TRAIL_TEXTURE_RGB_LENGTH =
   TRAIL_TEXTURE_WIDTH * TRAIL_TEXTURE_HEIGHT * TRAIL_TEXTURE_CHANNELS;
+const TRAIL_TEXTURE_COVERAGE_LENGTH =
+  TRAIL_TEXTURE_WIDTH * TRAIL_TEXTURE_HEIGHT;
 
 // FX_TEX_Trail_03 的 Alpha 恒为 255。RGB texel 先做逐通道 Paeth 预测，
 // 再以 LZ4 block 无损保存；运行时不依赖外部图片或异步解码。
 const PACKED_TRAIL_TEXTURE_RGB = [
-${formatChunks(encoded)}
+${formatChunks(encodedRgb)}
+].join('');
+
+// Coverage 是离线审计后的独立二维资产，不在运行时从 RGB 或最终颜色反推。
+const PACKED_TRAIL_TEXTURE_COVERAGE = [
+${formatChunks(encodedCoverage)}
 ].join('');
 
 function decodeBase64Bytes(encoded)
@@ -485,38 +591,47 @@ function paeth(left, above, upperLeft)
   return upperLeft;
 }
 
-function decodeTrailTextureRgb()
+function decodePaethTexture(encoded, outputLength, channels)
 {
-  const packed = decodeBase64Bytes(PACKED_TRAIL_TEXTURE_RGB);
-  const residual = decodeLz4Block(packed, TRAIL_TEXTURE_RGB_LENGTH);
-  const rgb = new Uint8Array(TRAIL_TEXTURE_RGB_LENGTH);
-  const stride = TRAIL_TEXTURE_WIDTH * TRAIL_TEXTURE_CHANNELS;
+  const packed = decodeBase64Bytes(encoded);
+  const residual = decodeLz4Block(packed, outputLength);
+  const output = new Uint8Array(outputLength);
+  const stride = TRAIL_TEXTURE_WIDTH * channels;
 
   for (let y = 0; y < TRAIL_TEXTURE_HEIGHT; y++)
   {
     for (let x = 0; x < stride; x++)
     {
       const offset = y * stride + x;
-      const left = x >= TRAIL_TEXTURE_CHANNELS
-        ? rgb[offset - TRAIL_TEXTURE_CHANNELS]
+      const left = x >= channels
+        ? output[offset - channels]
         : 0;
-      const above = y > 0 ? rgb[offset - stride] : 0;
-      const upperLeft = y > 0 && x >= TRAIL_TEXTURE_CHANNELS
-        ? rgb[offset - stride - TRAIL_TEXTURE_CHANNELS]
+      const above = y > 0 ? output[offset - stride] : 0;
+      const upperLeft = y > 0 && x >= channels
+        ? output[offset - stride - channels]
         : 0;
 
-      rgb[offset] = (
+      output[offset] = (
         residual[offset] + paeth(left, above, upperLeft)
       ) & 0xff;
     }
   }
 
-  return rgb;
+  return output;
 }
 
-export const TRAIL_TEXTURE_RGB = decodeTrailTextureRgb();
+export const TRAIL_TEXTURE_RGB = decodePaethTexture(
+  PACKED_TRAIL_TEXTURE_RGB,
+  TRAIL_TEXTURE_RGB_LENGTH,
+  TRAIL_TEXTURE_CHANNELS,
+);
+export const TRAIL_TEXTURE_COVERAGE = decodePaethTexture(
+  PACKED_TRAIL_TEXTURE_COVERAGE,
+  TRAIL_TEXTURE_COVERAGE_LENGTH,
+  1,
+);
 
-function createTrailTextureRgba(rgb)
+function createTrailTextureRgba(rgb, coverage)
 {
   const pixelCount = TRAIL_TEXTURE_WIDTH * TRAIL_TEXTURE_HEIGHT;
   const rgba = new Uint8Array(pixelCount * 4);
@@ -525,44 +640,78 @@ function createTrailTextureRgba(rgb)
   {
     const sourceOffset = pixel * TRAIL_TEXTURE_CHANNELS;
     const outputOffset = pixel * 4;
-    const red = rgb[sourceOffset];
-    const green = rgb[sourceOffset + 1];
-    const blue = rgb[sourceOffset + 2];
-
-    rgba[outputOffset] = red;
-    rgba[outputOffset + 1] = green;
-    rgba[outputOffset + 2] = blue;
-    // 原纹理 Alpha 恒为 1，透明宿主改用二值 RGB 支持面。Bilinear 只在
-    // 纹理边界插值 Coverage，不会把 HDR 明度重新解释为 Alpha。
-    rgba[outputOffset + 3] = red || green || blue ? 255 : 0;
+    rgba[outputOffset] = rgb[sourceOffset];
+    rgba[outputOffset + 1] = rgb[sourceOffset + 1];
+    rgba[outputOffset + 2] = rgb[sourceOffset + 2];
+    rgba[outputOffset + 3] = coverage[pixel];
   }
 
   return rgba;
 }
 
-export const TRAIL_TEXTURE_RGBA = createTrailTextureRgba(TRAIL_TEXTURE_RGB);
+export const TRAIL_TEXTURE_RGBA = createTrailTextureRgba(
+  TRAIL_TEXTURE_RGB,
+  TRAIL_TEXTURE_COVERAGE,
+);
 `;
 }
 
-const png = readFileSync(inputPath);
+let width;
+let height;
+let rgb;
 
-if (sha256(png) !== EXPECTED_SOURCE_SHA256)
+if (inputPath === EMBEDDED_SOURCE)
 {
-  throw new Error('输入 PNG 的 SHA256 与已审计 FX_TEX_Trail_03 不一致');
-}
+  const embedded = await import('../src/trail-texture.js');
 
-const { width, height, rgba } = decodePngRgba(png);
-const rgb = extractRgb(rgba);
+  width = embedded.TRAIL_TEXTURE_WIDTH;
+  height = embedded.TRAIL_TEXTURE_HEIGHT;
+  rgb = Buffer.from(embedded.TRAIL_TEXTURE_RGB);
+}
+else
+{
+  const png = readFileSync(inputPath);
+
+  if (sha256(png) !== EXPECTED_SOURCE_SHA256)
+  {
+    throw new Error('输入 PNG 的 SHA256 与已审计 FX_TEX_Trail_03 不一致');
+  }
+
+  const decoded = decodePngRgba(png);
+
+  width = decoded.width;
+  height = decoded.height;
+  rgb = extractRgb(decoded.rgba);
+}
 
 if (sha256(rgb) !== EXPECTED_RGB_SHA256)
 {
   throw new Error('PNG 解码后的 RGB SHA256 与审计值不一致');
 }
 
-const residual = createPaethResidual(rgb, width, height);
-const packed = encodeLz4Block(residual);
+const coverage = createCoverage(rgb, width, height);
 
-writeFileSync(outputPath, createModule(width, height, packed), 'utf8');
+if (sha256(coverage) !== EXPECTED_COVERAGE_SHA256)
+{
+  throw new Error('生成的 Trail Coverage SHA256 与审计值不一致');
+}
+
+const rgbResidual = createPaethResidual(rgb, width, height, 3);
+const coverageResidual = createPaethResidual(coverage, width, height, 1);
+const packedRgb = encodeLz4Block(rgbResidual);
+const packedCoverage = encodeLz4Block(coverageResidual);
+
+writeFileSync(
+  outputPath,
+  createModule(width, height, packedRgb, packedCoverage),
+  'utf8',
+);
+writeFileSync(
+  goldenPath,
+  `${JSON.stringify(createCoverageGolden(width, height, coverage), null, 2)}\n`,
+  'utf8',
+);
 console.log(
-  `已生成 ${outputPath}: ${rgb.length} RGB bytes -> ${packed.length} packed bytes`,
+  `已生成 ${outputPath}: RGB ${rgb.length} -> ${packedRgb.length} bytes, ` +
+    `Coverage ${coverage.length} -> ${packedCoverage.length} bytes`,
 );
