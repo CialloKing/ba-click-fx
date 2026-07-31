@@ -460,25 +460,47 @@ assert(
   arraysApproximatelyEqual(
     [bicubicMixed[0], bicubicMixed[3], bicubicMixed[6], bicubicMixed[9]],
     [
-      2.35736346244812,
-      1.589678168296814,
-      1.4810634851455688,
-      0.7133780717849731,
+      4,
+      3,
+      1,
+      0,
     ],
   ),
-  '上采样按 SampleScale 对粗层执行四点采样',
+  '上采样按 Unity 顺序使用高层四点与低层单点',
 );
 assert(
   arraysApproximatelyEqual(
     [bilinearMixed[0], bilinearMixed[3], bilinearMixed[6], bilinearMixed[9]],
     [
-      2.35736346244812,
-      1.589678168296814,
-      1.4810634851455688,
-      0.7133780717849731,
+      4,
+      3,
+      1,
+      0,
     ],
   ),
-  'MXFinalBloom 上采样不再分叉为 URP bicubic 模式',
+  '两种兼容过滤选项都遵守 Unity 上采样核',
+);
+
+const highImpulse = new Float32Array(4 * 4 * 3);
+highImpulse[0] = 8;
+const highImpulseMixed = new Float32Array(highImpulse.length);
+
+upsampleAndMixBloom(
+  highImpulse,
+  4,
+  4,
+  new Float32Array(2 * 2 * 3),
+  2,
+  2,
+  highImpulseMixed,
+  1.42925835,
+  true,
+);
+
+assert(
+  approximatelyEqual(highImpulseMixed[0], 3.304356336593628) &&
+    approximatelyEqual(highImpulseMixed[3], 1.8371269702911377),
+  '高 mip 四点采样使用 SampleScale 偏移',
 );
 
 console.log('\nSoftware Bloom 加色编码');

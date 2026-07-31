@@ -549,26 +549,35 @@ function upsampleTransportAndAdd(
     for (let x = 0; x < highWidth; x++)
     {
       const lowX = (x + 0.5) * scaleX - 0.5;
-      let lowCoverage = 0;
+      let highCoverage = 0;
 
       for (const offsetX of [-offset, offset])
       {
         for (const offsetY of [-offset, offset])
         {
-          lowCoverage += sampleBilinearScalar(
-            low,
-            lowWidth,
-            lowHeight,
-            lowX + offsetX,
-            lowY + offsetY,
+          highCoverage += sampleBilinearScalar(
+            high,
+            highWidth,
+            highHeight,
+            x + offsetX,
+            y + offsetY,
           ) * 0.25;
         }
       }
 
       const outputIndex = y * highWidth + x;
 
-      // 传输上界与 Bloom RGB 执行相同的 high + low mip 加法。
-      output[outputIndex] = Math.max(0, high[outputIndex] + lowCoverage);
+      // Unity FragUpsample 使用高 mip 四点加权、低 mip 单点采样。
+      output[outputIndex] = Math.max(
+        0,
+        highCoverage + sampleBilinearScalar(
+          low,
+          lowWidth,
+          lowHeight,
+          lowX,
+          lowY,
+        ),
+      );
     }
   }
 }
@@ -798,7 +807,7 @@ export function downsampleGaussian(
 }
 
 /**
- * MXFinalBloom 反向金字塔：细层中心值加上粗层 4-tap 累积值。
+ * MXFinalBloom 反向金字塔：细层 4-tap 加权值加上粗层中心值。
  */
 function upsampleBoxAndAdd(
   high,
@@ -826,26 +835,33 @@ function upsampleBoxAndAdd(
       const lowX = (x + 0.5) * scaleX - 0.5;
       const outputIndex = (y * highWidth + x) * RGB_CHANNELS;
 
-      output[outputIndex] = high[outputIndex];
-      output[outputIndex + 1] = high[outputIndex + 1];
-      output[outputIndex + 2] = high[outputIndex + 2];
-
       for (const offsetX of [-offset, offset])
       {
         for (const offsetY of [-offset, offset])
         {
           addBilinearRgb(
-            low,
-            lowWidth,
-            lowHeight,
-            lowX + offsetX,
-            lowY + offsetY,
+            high,
+            highWidth,
+            highHeight,
+            x + offsetX,
+            y + offsetY,
             0.25,
             output,
             outputIndex,
           );
         }
       }
+
+      addBilinearRgb(
+        low,
+        lowWidth,
+        lowHeight,
+        lowX,
+        lowY,
+        1,
+        output,
+        outputIndex,
+      );
     }
   }
 

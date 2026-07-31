@@ -462,7 +462,7 @@ precision highp float;
 
 uniform sampler2D u_high;
 uniform sampler2D u_low;
-uniform vec2 u_lowTexel;
+uniform vec2 u_highTexel;
 uniform float u_sampleScale;
 
 in vec2 v_uv;
@@ -480,9 +480,9 @@ vec4 sampleBox(sampler2D source, vec2 uv, vec2 offset)
 
 void main()
 {
-  vec4 high = texture(u_high, v_uv);
-  vec2 offset = u_lowTexel * (u_sampleScale * 0.5);
-  vec4 low = sampleBox(u_low, v_uv, offset);
+  vec2 offset = u_highTexel * (u_sampleScale * 0.5);
+  vec4 high = sampleBox(u_high, v_uv, offset);
+  vec4 low = texture(u_low, v_uv);
 
   // Bright Pass RGB 会累加 high/low mip，传输上界必须执行完全相同的加法。
   outColor = high + low;
@@ -3832,9 +3832,9 @@ export class WebGL2EffectRenderer
     this._bindTexture(program, 'u_high', highLevel.down.texture, 0);
     this._bindTexture(program, 'u_low', lowTexture, 1);
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_lowTexel'),
-      1 / lowLevel.width,
-      1 / lowLevel.height,
+      gl.getUniformLocation(program, 'u_highTexel'),
+      1 / highLevel.width,
+      1 / highLevel.height,
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_sampleScale'),
