@@ -317,8 +317,11 @@ verify(
     /const DEFAULT_OUTPUT_COMPOSITING = 'scene'/.test(mainJs),
   '展示页重置操作恢复 Scene 输出合同',
 );
-const unknownBackgroundAppearanceSelect = indexHtml.match(
-  /<select\b[^>]*\bid="ctrlUnknownBackgroundAppearance"[^>]*>[\s\S]*?<\/select>/,
+const overlayAlphaPolicySelect = indexHtml.match(
+  /<select\b[^>]*\bid="ctrlOverlayAlphaPolicy"[^>]*>[\s\S]*?<\/select>/,
+)?.[0] ?? '';
+const overlayColorCompensationSelect = indexHtml.match(
+  /<select\b[^>]*\bid="ctrlOverlayColorCompensation"[^>]*>[\s\S]*?<\/select>/,
 )?.[0] ?? '';
 const hostCompositingSelect = indexHtml.match(
   /<select id="ctrlHostCompositing"[\s\S]*?<\/select>/,
@@ -326,27 +329,37 @@ const hostCompositingSelect = indexHtml.match(
 const overlayAlphaLimitControl = indexHtml.match(
   /<input\b[^>]*\bid="ctrlOverlayAlphaLimit"[^>]*>/,
 )?.[0] ?? '';
-const unknownBackgroundAppearanceValues = [
-  ...unknownBackgroundAppearanceSelect.matchAll(/<option value="([^"]+)"/g),
+const overlayAlphaPolicyValues = [
+  ...overlayAlphaPolicySelect.matchAll(/<option value="([^"]+)"/g),
+].map((match) => match[1]);
+const overlayColorCompensationValues = [
+  ...overlayColorCompensationSelect.matchAll(/<option value="([^"]+)"/g),
 ].map((match) => match[1]);
 const hostCompositingValues = [
   ...hostCompositingSelect.matchAll(/<option value="([^"]+)"/g),
 ].map((match) => match[1]);
 
 verify(
-  JSON.stringify(unknownBackgroundAppearanceValues) === JSON.stringify([
+  JSON.stringify(overlayAlphaPolicyValues) === JSON.stringify([
     'coverage',
-    'bright',
+    'visual-max',
   ]) &&
     /<option value="coverage" selected>/.test(
-      unknownBackgroundAppearanceSelect,
+      overlayAlphaPolicySelect,
+    ) &&
+    JSON.stringify(overlayColorCompensationValues) === JSON.stringify([
+      'none',
+      'bright-core',
+    ]) &&
+    /<option value="none" selected>/.test(
+      overlayColorCompensationSelect,
     ) &&
     JSON.stringify(hostCompositingValues) === JSON.stringify([
       'source-over',
       'plus-lighter',
     ]) &&
     /<option value="source-over" selected>/.test(hostCompositingSelect),
-  '透明覆盖层提供相互独立的外观与宿主合成选择',
+  '透明覆盖层提供相互独立的 Alpha、颜色与宿主合成选择',
 );
 verify(
   /min="0"/.test(overlayAlphaLimitControl) &&
@@ -362,9 +375,13 @@ const syncTransparentControlsSource = getFunctionSource(
   mainJs,
   'syncTransparentCompositingControlState',
 );
-const applyUnknownBackgroundAppearanceSource = getFunctionSource(
+const applyOverlayAlphaPolicySource = getFunctionSource(
   mainJs,
-  'applyUnknownBackgroundAppearance',
+  'applyOverlayAlphaPolicy',
+);
+const applyOverlayColorCompensationSource = getFunctionSource(
+  mainJs,
+  'applyOverlayColorCompensation',
 );
 const applyOverlayAlphaLimitSource = getFunctionSource(
   mainJs,
@@ -382,7 +399,10 @@ verify(
     /hostCompositing !== 'plus-lighter'/.test(
       syncTransparentControlsSource,
     ) &&
-    /ctrlUnknownBackgroundAppearance\.disabled = !sourceOverEnabled/.test(
+    /ctrlOverlayAlphaPolicy\.disabled = !sourceOverEnabled/.test(
+      syncTransparentControlsSource,
+    ) &&
+    /ctrlOverlayColorCompensation\.disabled = !sourceOverEnabled/.test(
       syncTransparentControlsSource,
     ) &&
     /ctrlOverlayAlphaLimit\.disabled = !sourceOverEnabled/.test(
@@ -397,12 +417,18 @@ verify(
   '透明合成控件按输出模式与宿主 Add 的实际合同启用',
 );
 verify(
-  /unknownBackgroundAppearance: resolved/.test(
-    applyUnknownBackgroundAppearanceSource,
+  /overlayAlphaPolicy: resolved/.test(
+    applyOverlayAlphaPolicySource,
+  ) &&
+    /overlayColorCompensation: resolved/.test(
+      applyOverlayColorCompensationSource,
   ) &&
     /overlayAlphaLimit: resolved/.test(applyOverlayAlphaLimitSource) &&
     /hostCompositing: resolved/.test(applyHostCompositingSource) &&
-    /localStorage\.setItem\('bafx-ctrlUnknownBackgroundAppearance', resolved\)/.test(
+    /localStorage\.setItem\('bafx-ctrlOverlayAlphaPolicy', resolved\)/.test(
+      mainJs,
+    ) &&
+    /localStorage\.setItem\('bafx-ctrlOverlayColorCompensation', resolved\)/.test(
       mainJs,
     ) &&
     /localStorage\.setItem\('bafx-ctrlOverlayAlphaLimit', String\(resolved\)\)/.test(
@@ -411,10 +437,13 @@ verify(
     /localStorage\.setItem\('bafx-ctrlHostCompositing', resolved\)/.test(
       mainJs,
     ),
-  '三个透明合成控件分别通过 updateConfig 生效并持久化',
+  '四个透明合成控件分别通过 updateConfig 生效并持久化',
 );
 verify(
-  /bafx-ctrlUnknownBackgroundAppearance[\s\S]*?applyUnknownBackgroundAppearance\(savedUnknownBackgroundAppearance\)/.test(
+  /bafx-ctrlOverlayAlphaPolicy[\s\S]*?applyOverlayAlphaPolicy\(savedOverlayAlphaPolicy\)/.test(
+    mainJs,
+  ) &&
+    /bafx-ctrlOverlayColorCompensation[\s\S]*?applyOverlayColorCompensation\(savedOverlayColorCompensation\)/.test(
     mainJs,
   ) &&
     /bafx-ctrlOverlayAlphaLimit[\s\S]*?applyOverlayAlphaLimit\([\s\S]*?savedOverlayAlphaLimit/.test(
@@ -423,7 +452,10 @@ verify(
     /bafx-ctrlHostCompositing[\s\S]*?applyHostCompositing\(savedHostCompositing\)/.test(
       mainJs,
     ) &&
-    /unknownBackgroundAppearance: DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE/.test(
+    /overlayAlphaPolicy: DEFAULT_OVERLAY_ALPHA_POLICY/.test(
+      mainJs,
+    ) &&
+    /overlayColorCompensation: DEFAULT_OVERLAY_COLOR_COMPENSATION/.test(
       mainJs,
     ) &&
     /overlayAlphaLimit: DEFAULT_OVERLAY_ALPHA_LIMIT/.test(mainJs) &&
@@ -431,14 +463,14 @@ verify(
   '透明合成配置支持本地恢复与统一重置',
 );
 verify(
-  /DOM Add 使用独立完整载荷[\s\S]*?停用[\s\S]*?未知背景外观[\s\S]*?Alpha 上限[\s\S]*?浏览器视觉近似/.test(
+  /DOM Add 使用独立完整载荷[\s\S]*?停用 Alpha 策略、颜色补偿和 Alpha 上限[\s\S]*?浏览器视觉近似/.test(
     indexHtml,
   ) &&
-    /unknownBackgroundAppearanceBright: '浅色背景兼容'/.test(mainJs) &&
-    /unknownBackgroundAppearanceBright: 'Light Background Compatibility'/.test(
+    /overlayAlphaPolicyVisualMax: '旧版视觉最大值'/.test(mainJs) &&
+    /overlayColorCompensationBrightCore: 'Light-background Bright Core'/.test(
       mainJs,
     ) &&
-    /DOM Add uses an independent full payload and disables Unknown Background Appearance and the Alpha limit/.test(
+    /DOM Add uses an independent full payload and disables the Alpha policy, color compensation, and Alpha limit/.test(
       mainJs,
     ),
   '双语文案明确 DOM Add 的独立载荷与无效控制项',

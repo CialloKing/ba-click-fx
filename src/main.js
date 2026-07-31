@@ -899,8 +899,11 @@ const ctrlOutputCompositing = document.getElementById('ctrlOutputCompositing');
 const transparentCompositingControls = document.getElementById(
   'transparentCompositingControls',
 );
-const ctrlUnknownBackgroundAppearance = document.getElementById(
-  'ctrlUnknownBackgroundAppearance',
+const ctrlOverlayAlphaPolicy = document.getElementById(
+  'ctrlOverlayAlphaPolicy',
+);
+const ctrlOverlayColorCompensation = document.getElementById(
+  'ctrlOverlayColorCompensation',
 );
 const ctrlOverlayAlphaLimit = document.getElementById('ctrlOverlayAlphaLimit');
 const outOverlayAlphaLimit = document.getElementById('outOverlayAlphaLimit');
@@ -909,17 +912,22 @@ const sourceOverOnlyControls = document.querySelectorAll(
   '.source-over-only-control',
 );
 const DEFAULT_OUTPUT_COMPOSITING = 'scene';
-const DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE =
-  CONFIG.unknownBackgroundAppearance;
+const DEFAULT_OVERLAY_ALPHA_POLICY = CONFIG.overlayAlphaPolicy;
+const DEFAULT_OVERLAY_COLOR_COMPENSATION =
+  CONFIG.overlayColorCompensation;
 const DEFAULT_OVERLAY_ALPHA_LIMIT = CONFIG.overlayAlphaLimit;
 const DEFAULT_HOST_COMPOSITING = CONFIG.hostCompositing;
 const OUTPUT_COMPOSITING_MODES = new Set([
   'scene',
   'browser-overlay',
 ]);
-const UNKNOWN_BACKGROUND_APPEARANCES = new Set([
+const OVERLAY_ALPHA_POLICIES = new Set([
   'coverage',
-  'bright',
+  'visual-max',
+]);
+const OVERLAY_COLOR_COMPENSATIONS = new Set([
+  'none',
+  'bright-core',
 ]);
 const HOST_COMPOSITING_MODES = new Set([
   'source-over',
@@ -940,9 +948,14 @@ function syncTransparentCompositingControlState(
     String(!enabled),
   );
 
-  if (ctrlUnknownBackgroundAppearance)
+  if (ctrlOverlayAlphaPolicy)
   {
-    ctrlUnknownBackgroundAppearance.disabled = !sourceOverEnabled;
+    ctrlOverlayAlphaPolicy.disabled = !sourceOverEnabled;
+  }
+
+  if (ctrlOverlayColorCompensation)
+  {
+    ctrlOverlayColorCompensation.disabled = !sourceOverEnabled;
   }
 
   if (ctrlOverlayAlphaLimit)
@@ -962,18 +975,33 @@ function syncTransparentCompositingControlState(
   }
 }
 
-function applyUnknownBackgroundAppearance(appearance)
+function applyOverlayAlphaPolicy(policy)
 {
-  const resolved = UNKNOWN_BACKGROUND_APPEARANCES.has(appearance)
-    ? appearance
-    : DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE;
+  const resolved = OVERLAY_ALPHA_POLICIES.has(policy)
+    ? policy
+    : DEFAULT_OVERLAY_ALPHA_POLICY;
 
-  if (ctrlUnknownBackgroundAppearance)
+  if (ctrlOverlayAlphaPolicy)
   {
-    ctrlUnknownBackgroundAppearance.value = resolved;
+    ctrlOverlayAlphaPolicy.value = resolved;
   }
 
-  effect.updateConfig({ unknownBackgroundAppearance: resolved });
+  effect.updateConfig({ overlayAlphaPolicy: resolved });
+  return resolved;
+}
+
+function applyOverlayColorCompensation(compensation)
+{
+  const resolved = OVERLAY_COLOR_COMPENSATIONS.has(compensation)
+    ? compensation
+    : DEFAULT_OVERLAY_COLOR_COMPENSATION;
+
+  if (ctrlOverlayColorCompensation)
+  {
+    ctrlOverlayColorCompensation.value = resolved;
+  }
+
+  effect.updateConfig({ overlayColorCompensation: resolved });
   return resolved;
 }
 
@@ -1046,15 +1074,27 @@ if (ctrlOutputCompositing)
   });
 }
 
-if (ctrlUnknownBackgroundAppearance)
+if (ctrlOverlayAlphaPolicy)
 {
-  ctrlUnknownBackgroundAppearance.addEventListener('change', () =>
+  ctrlOverlayAlphaPolicy.addEventListener('change', () =>
   {
-    const resolved = applyUnknownBackgroundAppearance(
-      ctrlUnknownBackgroundAppearance.value,
+    const resolved = applyOverlayAlphaPolicy(
+      ctrlOverlayAlphaPolicy.value,
     );
 
-    localStorage.setItem('bafx-ctrlUnknownBackgroundAppearance', resolved);
+    localStorage.setItem('bafx-ctrlOverlayAlphaPolicy', resolved);
+  });
+}
+
+if (ctrlOverlayColorCompensation)
+{
+  ctrlOverlayColorCompensation.addEventListener('change', () =>
+  {
+    const resolved = applyOverlayColorCompensation(
+      ctrlOverlayColorCompensation.value,
+    );
+
+    localStorage.setItem('bafx-ctrlOverlayColorCompensation', resolved);
   });
 }
 
@@ -1177,8 +1217,10 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
   document.getElementById('ctrlOutputCompositing').value =
     DEFAULT_OUTPUT_COMPOSITING;
-  document.getElementById('ctrlUnknownBackgroundAppearance').value =
-    DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE;
+  document.getElementById('ctrlOverlayAlphaPolicy').value =
+    DEFAULT_OVERLAY_ALPHA_POLICY;
+  document.getElementById('ctrlOverlayColorCompensation').value =
+    DEFAULT_OVERLAY_COLOR_COMPENSATION;
   document.getElementById('ctrlOverlayAlphaLimit').value =
     String(DEFAULT_OVERLAY_ALPHA_LIMIT);
   document.getElementById('outOverlayAlphaLimit').textContent =
@@ -1281,7 +1323,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
       trailAlways: false,
       ...RENDER_MODE_CONFIGS[DEFAULT_RENDER_MODE],
       outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
-      unknownBackgroundAppearance: DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE,
+      overlayAlphaPolicy: DEFAULT_OVERLAY_ALPHA_POLICY,
+      overlayColorCompensation: DEFAULT_OVERLAY_COLOR_COMPENSATION,
       overlayAlphaLimit: DEFAULT_OVERLAY_ALPHA_LIMIT,
       hostCompositing: DEFAULT_HOST_COMPOSITING,
       isolatedCompositing: false,
@@ -1438,14 +1481,17 @@ const I18N = {
     labelOutputCompositing: '输出合成',
     outputCompositingScene: '场景合成',
     outputCompositingTransparentOverlay: '透明覆盖层',
-    labelUnknownBackgroundAppearance: '未知背景外观',
-    unknownBackgroundAppearanceCoverage: 'Coverage 优先',
-    unknownBackgroundAppearanceBright: '浅色背景兼容',
+    labelOverlayAlphaPolicy: '覆盖层 Alpha 策略',
+    overlayAlphaPolicyCoverage: 'Coverage 传输和',
+    overlayAlphaPolicyVisualMax: '旧版视觉最大值',
+    labelOverlayColorCompensation: '覆盖层颜色补偿',
+    overlayColorCompensationNone: '不补偿',
+    overlayColorCompensationBrightCore: '浅色背景高能核心',
     labelOverlayAlphaLimit: '覆盖层 Alpha 上限',
     labelHostCompositing: '宿主合成',
     hostCompositingSourceOver: 'Source-over',
     hostCompositingDomAdd: 'DOM Add（近似）',
-    transparentCompositingNote: 'DOM Add 使用独立完整载荷，会停用“未知背景外观”和 Alpha 上限；两种兼容方式都只是浏览器视觉近似。',
+    transparentCompositingNote: 'DOM Add 使用独立完整载荷，会停用 Alpha 策略、颜色补偿和 Alpha 上限；透明覆盖层策略都是浏览器视觉近似。',
     labelCompositingReference: '特效背景参考',
     compositingReferenceMatchPage: '匹配当前页面（精确）',
     compositingReferenceUnknown: '未知透明背景（兼容）',
@@ -1546,14 +1592,17 @@ const I18N = {
     labelOutputCompositing: 'Output Compositing',
     outputCompositingScene: 'Scene',
     outputCompositingTransparentOverlay: 'Transparent Overlay',
-    labelUnknownBackgroundAppearance: 'Unknown Background Appearance',
-    unknownBackgroundAppearanceCoverage: 'Coverage First',
-    unknownBackgroundAppearanceBright: 'Light Background Compatibility',
+    labelOverlayAlphaPolicy: 'Overlay Alpha Policy',
+    overlayAlphaPolicyCoverage: 'Coverage Transport Sum',
+    overlayAlphaPolicyVisualMax: 'Legacy Visual Maximum',
+    labelOverlayColorCompensation: 'Overlay Color Compensation',
+    overlayColorCompensationNone: 'None',
+    overlayColorCompensationBrightCore: 'Light-background Bright Core',
     labelOverlayAlphaLimit: 'Overlay Alpha Limit',
     labelHostCompositing: 'Host Compositing',
     hostCompositingSourceOver: 'Source-over',
     hostCompositingDomAdd: 'DOM Add (Approximate)',
-    transparentCompositingNote: 'DOM Add uses an independent full payload and disables Unknown Background Appearance and the Alpha limit; both compatibility paths are browser approximations.',
+    transparentCompositingNote: 'DOM Add uses an independent full payload and disables the Alpha policy, color compensation, and Alpha limit; transparent-overlay policies are browser approximations.',
     labelCompositingReference: 'Effect Reference',
     compositingReferenceMatchPage: 'Current Page (Exact)',
     compositingReferenceUnknown: 'Unknown Background',
@@ -1705,7 +1754,8 @@ function switchLanguage(lang)
     ctrlDpr: d.labelDpr,
     ctrlRenderMode: d.labelRenderMode,
     ctrlOutputCompositing: d.labelOutputCompositing,
-    ctrlUnknownBackgroundAppearance: d.labelUnknownBackgroundAppearance,
+    ctrlOverlayAlphaPolicy: d.labelOverlayAlphaPolicy,
+    ctrlOverlayColorCompensation: d.labelOverlayColorCompensation,
     ctrlOverlayAlphaLimit: d.labelOverlayAlphaLimit,
     ctrlHostCompositing: d.labelHostCompositing,
     ctrlCompositingReference: d.labelCompositingReference,
@@ -1818,18 +1868,33 @@ function switchLanguage(lang)
     }
   });
 
-  const unknownBackgroundAppearanceOptions = {
-    coverage: d.unknownBackgroundAppearanceCoverage,
-    bright: d.unknownBackgroundAppearanceBright,
+  const overlayAlphaPolicyOptions = {
+    coverage: d.overlayAlphaPolicyCoverage,
+    'visual-max': d.overlayAlphaPolicyVisualMax,
   };
 
   document.querySelectorAll(
-    '#ctrlUnknownBackgroundAppearance option',
+    '#ctrlOverlayAlphaPolicy option',
   ).forEach((option) =>
   {
-    if (unknownBackgroundAppearanceOptions[option.value])
+    if (overlayAlphaPolicyOptions[option.value])
     {
-      option.textContent = unknownBackgroundAppearanceOptions[option.value];
+      option.textContent = overlayAlphaPolicyOptions[option.value];
+    }
+  });
+
+  const overlayColorCompensationOptions = {
+    none: d.overlayColorCompensationNone,
+    'bright-core': d.overlayColorCompensationBrightCore,
+  };
+
+  document.querySelectorAll(
+    '#ctrlOverlayColorCompensation option',
+  ).forEach((option) =>
+  {
+    if (overlayColorCompensationOptions[option.value])
+    {
+      option.textContent = overlayColorCompensationOptions[option.value];
     }
   });
 
@@ -1990,11 +2055,17 @@ switchLanguage(currentLang);
   // 即使没有持久化值，也显式应用 Scene，避免展示控件与构造默认值分叉。
   applyOutputCompositing(savedOutputCompositing);
 
-  const savedUnknownBackgroundAppearance = localStorage.getItem(
-    'bafx-ctrlUnknownBackgroundAppearance',
+  const savedOverlayAlphaPolicy = localStorage.getItem(
+    'bafx-ctrlOverlayAlphaPolicy',
   );
 
-  applyUnknownBackgroundAppearance(savedUnknownBackgroundAppearance);
+  applyOverlayAlphaPolicy(savedOverlayAlphaPolicy);
+
+  const savedOverlayColorCompensation = localStorage.getItem(
+    'bafx-ctrlOverlayColorCompensation',
+  );
+
+  applyOverlayColorCompensation(savedOverlayColorCompensation);
 
   const savedOverlayAlphaLimit = localStorage.getItem(
     'bafx-ctrlOverlayAlphaLimit',

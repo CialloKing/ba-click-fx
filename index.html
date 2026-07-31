@@ -156,14 +156,25 @@ fx.setPaused(true, { clear: true });</code></pre>
         aria-disabled="true"
       >
         <label class="ctrl source-over-only-control">
-          <span>未知背景外观</span>
+          <span>覆盖层 Alpha 策略</span>
           <select
-            id="ctrlUnknownBackgroundAppearance"
+            id="ctrlOverlayAlphaPolicy"
             class="ctrl-select"
             disabled
           >
-            <option value="coverage" selected>Coverage 优先</option>
-            <option value="bright">浅色背景兼容</option>
+            <option value="coverage" selected>Coverage 传输和</option>
+            <option value="visual-max">旧版视觉最大值</option>
+          </select>
+        </label>
+        <label class="ctrl source-over-only-control">
+          <span>覆盖层颜色补偿</span>
+          <select
+            id="ctrlOverlayColorCompensation"
+            class="ctrl-select"
+            disabled
+          >
+            <option value="none" selected>不补偿</option>
+            <option value="bright-core">浅色背景高能核心</option>
           </select>
         </label>
         <label class="ctrl source-over-only-control">
@@ -186,7 +197,7 @@ fx.setPaused(true, { clear: true });</code></pre>
           </select>
         </label>
         <p id="transparentCompositingNote" class="compositing-mode-note">
-          DOM Add 使用独立完整载荷，会停用“未知背景外观”和 Alpha 上限；两种兼容方式都只是浏览器视觉近似。
+          DOM Add 使用独立完整载荷，会停用 Alpha 策略、颜色补偿和 Alpha 上限；透明覆盖层策略都是浏览器视觉近似。
         </p>
       </div>
       <label class="ctrl">

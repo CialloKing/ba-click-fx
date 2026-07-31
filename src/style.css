@@ -504,7 +504,8 @@ kbd {
   width: 164px;
 }
 
-#ctrlUnknownBackgroundAppearance
+#ctrlOverlayAlphaPolicy,
+#ctrlOverlayColorCompensation
 {
   width: 164px;
 }
