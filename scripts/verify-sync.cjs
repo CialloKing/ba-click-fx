@@ -310,11 +310,30 @@ verify(
 const isolatedCompositingControl = indexHtml.match(
   /<input\s+[^>]*id="ctrlIsolatedCompositing"[^>]*>/,
 )?.[0] ?? '';
+const sceneBackgroundControl = indexHtml.match(
+  /<input\s+[^>]*id="ctrlSceneBackgroundEnabled"[^>]*>/,
+)?.[0] ?? '';
 
 verify(
   /type="checkbox"/.test(isolatedCompositingControl) &&
     !/\bchecked\b/.test(isolatedCompositingControl),
   '展示页提供默认关闭的隔离合成兼容开关',
+);
+verify(
+  /type="checkbox"/.test(sceneBackgroundControl) &&
+    /\bchecked\b/.test(sceneBackgroundControl) &&
+    /labelSceneBackgroundEnabled: '启用场景背景'/.test(mainJs) &&
+    /labelSceneBackgroundEnabled: 'Enable Scene Background'/.test(mainJs) &&
+    /ctrlSceneBackgroundEnabled: d\.labelSceneBackgroundEnabled/.test(mainJs),
+  '展示页提供可本地化的通用场景背景开关',
+);
+verify(
+  /sceneBackgroundEnabledOverride = ctrlSceneBackgroundEnabled\.checked/.test(mainJs) &&
+    /applySceneBackgroundEnabled\(sceneBackgroundEnabledOverride\)/.test(mainJs) &&
+    /localStorage\.setItem\([\s\S]*?'bafx-ctrlSceneBackgroundEnabled'[\s\S]*?String\(sceneBackgroundEnabledOverride\)/.test(mainJs) &&
+    /const savedSceneBackgroundEnabled = localStorage\.getItem\([\s\S]*?'bafx-ctrlSceneBackgroundEnabled'[\s\S]*?\)/.test(mainJs) &&
+    /sceneBackgroundEnabledOverride = savedSceneBackgroundEnabled === 'true'/.test(mainJs),
+  '场景背景开关通过公开 API 生效，并可全局持久化恢复',
 );
 const staticFaqContent = indexHtml.match(
   /<div id="introFAQContent">[\s\S]*?<\/div>/,
@@ -351,7 +370,7 @@ verify(
   /body\.scene-background-source::before,[\s\S]*?body\.theme-pure-white::before[\s\S]*?display: none/.test(
     styleCss,
   ) &&
-    /classList\.toggle\('theme-pure-white', name === '纯白'\)/.test(mainJs) &&
+    /classList\.toggle\('theme-pure-white', name === PURE_WHITE_THEME\)/.test(mainJs) &&
     /classList\.remove\('theme-pure-white'\)[\s\S]*?applySceneBackgroundImage/.test(mainJs),
   '纯白主题关闭装饰网格，并在自定义背景切换时不保留旧场景源',
 );
@@ -363,6 +382,18 @@ const applyThemeSceneBackgroundSource = getFunctionSource(
 const updateThemeSceneBackgroundSource = getFunctionSource(
   mainJs,
   'updateThemeSceneBackground',
+);
+const applySceneBackgroundEnabledSource = getFunctionSource(
+  mainJs,
+  'applySceneBackgroundEnabled',
+);
+const syncSceneBackgroundSourceClassSource = getFunctionSource(
+  mainJs,
+  'syncSceneBackgroundSourceClass',
+);
+const applyCustomBackgroundSource = getFunctionSource(
+  mainJs,
+  'applyCustomBackground',
 );
 
 verify(
@@ -381,11 +412,14 @@ verify(
   '内置主题统一进入对应的 Scene 背景选择路径',
 );
 verify(
-  /name === '纯白'[\s\S]*?clearSceneBackground\(\)/.test(
+  /applySceneBackgroundEnabledForTheme\(name\)/.test(
     applyThemeSceneBackgroundSource,
   ) &&
-    /activeThemeScene = name/.test(applyThemeSceneBackgroundSource),
-  '纯白保留 DOM 背景以避免严格加色在白色 Scene 中饱和，其他主题继续上传场景纹理',
+    !/clearSceneBackground\(\)/.test(applyThemeSceneBackgroundSource) &&
+    applyThemeSceneBackgroundSource.indexOf(
+      'applySceneBackgroundEnabledForTheme(name)',
+    ) < applyThemeSceneBackgroundSource.indexOf('activeThemeScene = name'),
+  '主题切换先应用场景背景开关，再保留对应的可重连栅格源',
 );
 verify(
   /renderThemeSceneBackground\([\s\S]*?themeSceneCanvas,[\s\S]*?activeThemeScene/.test(
@@ -394,17 +428,68 @@ verify(
     /effect\.setSceneBackground\(themeSceneCanvas, \{ fit: 'cover' \}\)/.test(
       updateThemeSceneBackgroundSource,
     ) &&
-    /classList\.add\('scene-background-source'\)/.test(
+    /syncSceneBackgroundSourceClass\(\)/.test(
       updateThemeSceneBackgroundSource,
     ),
-  '内置主题栅格源会交给 Scene 合成并移除非场景装饰层',
+  '内置主题栅格源会交给 Scene 合成，并按开关同步装饰层',
 );
 verify(
   /stopThemeSceneBackgroundSync\(\)/.test(getFunctionSource(mainJs, 'clearSceneBackground')) &&
+    /applySceneBackgroundEnabledForTheme\('custom'\)/.test(applyCustomBackgroundSource) &&
     /applySceneBackgroundImage\(resolveSceneBackgroundUrl\(rawValue\)\)/.test(
-      getFunctionSource(mainJs, 'applyCustomBackground'),
+      applyCustomBackgroundSource,
+    ) &&
+    applyCustomBackgroundSource.indexOf(
+      "applySceneBackgroundEnabledForTheme('custom')",
+    ) < applyCustomBackgroundSource.indexOf(
+      'applySceneBackgroundImage(resolveSceneBackgroundUrl(rawValue))',
     ),
-  '自定义 CSS 会清空主题场景源，自定义图片仍按既有路径上传',
+  '自定义背景沿用全局开关，自定义图片仍按既有路径上传',
+);
+verify(
+  /effect\.setSceneBackgroundEnabled\(enabled\)/.test(
+    applySceneBackgroundEnabledSource,
+  ) &&
+    /control\.checked = actualEnabled/.test(
+      applySceneBackgroundEnabledSource,
+    ) &&
+    /sceneBackgroundEnabled && effect\.sceneBackgroundSource !== null/.test(
+      syncSceneBackgroundSourceClassSource,
+    ),
+  '展示页以公开开关控制渲染器，并只在已启用且有源时隐藏装饰层',
+);
+const sceneBackgroundRestoreIndex = mainJs.indexOf(
+  'const savedSceneBackgroundEnabled = localStorage.getItem(',
+);
+const themeRestoreIndex = mainJs.indexOf(
+  "const theme = localStorage.getItem('bafx-theme');",
+);
+
+verify(
+  sceneBackgroundRestoreIndex >= 0 &&
+    themeRestoreIndex > sceneBackgroundRestoreIndex &&
+    mainJs.indexOf(
+      'applySceneBackgroundEnabled(sceneBackgroundEnabledOverride);',
+      sceneBackgroundRestoreIndex,
+    ) < themeRestoreIndex,
+  '场景背景人工偏好会在主题源恢复前先应用',
+);
+verify(
+  /return sceneBackgroundEnabledOverride \?\? name !== PURE_WHITE_THEME/.test(mainJs) &&
+    /sceneBackgroundEnabled && effect\.sceneBackgroundSource !== null/.test(mainJs) &&
+    /sceneBackgroundEnabledOverride = null/.test(mainJs) &&
+    /getElementById\('ctrlSceneBackgroundEnabled'\)\.checked = true/.test(mainJs) &&
+    /else\s*\{\s*applyTheme\('蔚蓝'\);\s*\}/.test(mainJs),
+  '纯白默认停用场景背景；重置和首次加载均恢复自动主题策略',
+);
+verify(
+  /纯白默认不激活场景纹理/.test(staticFaqContent) &&
+    /启用场景背景/.test(staticFaqContent) &&
+    /手动切换后，该偏好会应用于全部主题/.test(staticFaqContent) &&
+    /Pure White does not activate its scene texture by default/.test(mainJs) &&
+    /Enable Scene Background reconnects the currently retained scene/.test(mainJs) &&
+    /Once changed manually, the setting applies to every theme/.test(mainJs),
+  '静态与双语 FAQ 说明纯白默认和通用场景背景开关的关系',
 );
 verify(
   /new URL\(trimmed, document\.baseURI\)/.test(

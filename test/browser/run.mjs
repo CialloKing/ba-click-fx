@@ -2403,16 +2403,37 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
 
       return (
         {
+          controlChecked:
+            document.getElementById('ctrlSceneBackgroundEnabled').checked,
           cssContainsSource: document.body.style.background.includes(source.src),
+          sceneBackgroundEnabled:
+            window.BAClickFXDemo.getConfig().sceneBackgroundEnabled,
+          sceneBackgroundSourceClass:
+            document.body.classList.contains('scene-background-source'),
           sourceUrl: source.src,
         }
       );
     });
 
     assert(
-      firstBackground.cssContainsSource,
-      '展示页本地图片没有同时写入 CSS 背景和场景背景源',
+      firstBackground.cssContainsSource &&
+        firstBackground.sceneBackgroundEnabled === true &&
+        firstBackground.controlChecked === true &&
+        firstBackground.sceneBackgroundSourceClass === true,
+      '展示页本地图片没有默认启用场景背景合成',
       firstBackground,
+    );
+
+    await page.locator('#ctrlSceneBackgroundEnabled + .toggle-track').click();
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return effect.getConfig().sceneBackgroundEnabled === false &&
+          effect.sceneBackgroundSource instanceof HTMLImageElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+      },
     );
 
     await page.locator('.theme-btn[data-theme="深紫"]').click();
@@ -2421,6 +2442,16 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
         window.__BACLICKFX_REVOKED_OBJECT_URLS__.includes(sourceUrl) &&
         !document.body.style.background.includes(sourceUrl),
       firstBackground.sourceUrl,
+    );
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return effect.getConfig().sceneBackgroundEnabled === false &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+      },
     );
     const releasedOnThemeChange = await page.evaluate(
       (sourceUrl) =>
@@ -2439,7 +2470,9 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
     await page.waitForFunction(
       () =>
         window.BAClickFXDemo?.sceneBackgroundSource instanceof HTMLImageElement &&
-        window.BAClickFXDemo.sceneBackgroundSource.src.startsWith('blob:'),
+        window.BAClickFXDemo.sceneBackgroundSource.src.startsWith('blob:') &&
+        window.BAClickFXDemo.getConfig().sceneBackgroundEnabled === false &&
+        document.getElementById('ctrlSceneBackgroundEnabled').checked === false,
     );
     await page.reload({ waitUntil: 'load' });
     await page.waitForFunction(
@@ -2452,6 +2485,11 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
       return (
         {
           cssContainsBlob: document.body.style.background.includes('blob:'),
+          controlChecked:
+            document.getElementById('ctrlSceneBackgroundEnabled').checked,
+          sceneBackgroundEnabled:
+            window.BAClickFXDemo.getConfig().sceneBackgroundEnabled,
+          sourceIsCanvas: source instanceof HTMLCanvasElement,
           sourceIsBlob: source instanceof HTMLImageElement &&
             source.src.startsWith('blob:'),
         }
@@ -2464,8 +2502,12 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
       firstBackground,
     );
     assert(
-      !restoredBackground.cssContainsBlob && !restoredBackground.sourceIsBlob,
-      '展示页刷新后恢复了失效的本地图片 blob URL',
+      !restoredBackground.cssContainsBlob &&
+        !restoredBackground.sourceIsBlob &&
+        restoredBackground.sceneBackgroundEnabled === false &&
+        restoredBackground.controlChecked === false &&
+        restoredBackground.sourceIsCanvas,
+      '展示页刷新后恢复了失效的本地图片 blob URL 或丢失全局关闭偏好',
       restoredBackground,
     );
     metrics.demoBackgroundFile =
@@ -2505,6 +2547,28 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
     await page.waitForFunction(
       () => typeof window.BAClickFXDemo?.boom === 'function',
     );
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return effect.getConfig().sceneBackgroundEnabled === true &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
+          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === null;
+      },
+    );
+    const automaticDefaultScene = await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+
+      return {
+        controlChecked:
+          document.getElementById('ctrlSceneBackgroundEnabled').checked,
+        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
+        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+      };
+    });
     await page.locator('#panelToggle').click();
     await page.locator('.theme-btn[data-theme="纯白"]').click();
     await page.locator('#ctrlIsolatedCompositing + .toggle-track').click();
@@ -2516,7 +2580,9 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
         return document.body.classList.contains('theme-pure-white') &&
           config?.isolatedCompositing === true &&
           config.lightBackgroundContrastAlpha === 0 &&
-          window.BAClickFXDemo.sceneBackgroundSource === null;
+          config.sceneBackgroundEnabled === false &&
+          window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
       },
     );
     await page.evaluate(async () =>
@@ -2528,7 +2594,9 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       await new Promise((resolve) => requestAnimationFrame(resolve));
     });
     await page.waitForFunction(
-      () => window.BAClickFXDemo.sceneBackgroundSource === null,
+      () =>
+        window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
+        window.BAClickFXDemo.getConfig().sceneBackgroundEnabled === false,
     );
 
     const modeSamples = {};
@@ -2658,7 +2726,8 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       assert(
         sample.config.outputCompositing === 'scene' &&
           sample.config.isolatedCompositing === true &&
-          sample.config.lightBackgroundContrastAlpha === 0,
+          sample.config.lightBackgroundContrastAlpha === 0 &&
+          sample.config.sceneBackgroundEnabled === false,
         `${mode}: 展示页纯白隔离场景错误启用了淡青对比层`,
         sample,
       );
@@ -2728,8 +2797,73 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
+        return effect.getConfig().sceneBackgroundEnabled === true &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
+          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === null;
+      },
+    );
+    const automaticNonWhiteScene = await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+
+      return {
+        controlChecked:
+          document.getElementById('ctrlSceneBackgroundEnabled').checked,
+        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
+        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+      };
+    });
+
+    await page.locator('.theme-btn[data-theme="纯白"]').click();
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return effect.getConfig().sceneBackgroundEnabled === false &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false &&
+          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === null;
+      },
+    );
+    const automaticPureWhiteScene = await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+
+      return {
+        controlChecked:
+          document.getElementById('ctrlSceneBackgroundEnabled').checked,
+        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
+        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+      };
+    });
+
+    await page.locator('#ctrlOutputCompositing').selectOption(
+      'transparent-overlay',
+    );
+    await page.locator('#ctrlSceneBackgroundEnabled + .toggle-track').click();
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return effect.getConfig().sceneBackgroundEnabled === true &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
+      },
+    );
+
+    await page.locator('.theme-btn[data-theme="深紫"]').click();
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
         return effect.getConfig().lightBackgroundContrastAlpha === 0 &&
-          effect.sceneBackgroundSource !== null;
+          effect.getConfig().sceneBackgroundEnabled === true &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
       },
     );
     const resetContrastAlpha = await page.evaluate(
@@ -2742,6 +2876,32 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       { resetContrastAlpha },
     );
 
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return document.body.classList.contains('theme-pure-white') === false &&
+          effect.getConfig().sceneBackgroundEnabled === true &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
+      },
+    );
+    const restoredEnabledScene = await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+
+      return {
+        controlChecked:
+          document.getElementById('ctrlSceneBackgroundEnabled').checked,
+        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
+        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+      };
+    });
+
+    await page.locator('#panelToggle').click();
+
     await page.locator('.theme-btn[data-theme="纯白"]').click();
     await page.waitForFunction(
       () =>
@@ -2750,9 +2910,59 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
 
         return config.isolatedCompositing === true &&
           config.lightBackgroundContrastAlpha === 0 &&
-          window.BAClickFXDemo.sceneBackgroundSource === null;
+          config.sceneBackgroundEnabled === true &&
+          window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
       },
     );
+
+    await page.locator('#ctrlSceneBackgroundEnabled + .toggle-track').click();
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return effect.getConfig().sceneBackgroundEnabled === false &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+      },
+    );
+
+    await page.locator('.theme-btn[data-theme="深紫"]').click();
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return effect.getConfig().sceneBackgroundEnabled === false &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+      },
+    );
+    const manualDisabledNonWhiteScene = await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+
+      return {
+        controlChecked:
+          document.getElementById('ctrlSceneBackgroundEnabled').checked,
+        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
+        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+      };
+    });
+
+    await page.locator('.theme-btn[data-theme="纯白"]').click();
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return effect.getConfig().sceneBackgroundEnabled === false &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+      },
+    );
+
     await page.reload({ waitUntil: 'load' });
     await page.waitForFunction(() =>
     {
@@ -2761,11 +2971,62 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
         return document.body.classList.contains('theme-pure-white') &&
           config?.isolatedCompositing === true &&
           config.lightBackgroundContrastAlpha === 0 &&
-          window.BAClickFXDemo.sceneBackgroundSource === null;
+          config.sceneBackgroundEnabled === false &&
+          window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
     });
     const restoredContrastAlpha = await page.evaluate(
       () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha,
     );
+
+    await page.locator('#panelToggle').click();
+    await page.locator('.theme-btn[data-theme="深紫"]').click();
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return effect.getConfig().sceneBackgroundEnabled === false &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false &&
+          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === 'false';
+      },
+    );
+    const restoredDisabledNonWhiteScene = await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+
+      return {
+        controlChecked:
+          document.getElementById('ctrlSceneBackgroundEnabled').checked,
+        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
+        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+      };
+    });
+
+    await page.locator('#btnReset').click();
+    await page.waitForFunction(
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return effect.getConfig().sceneBackgroundEnabled === true &&
+          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
+          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === null;
+      },
+    );
+    const resetAutomaticScene = await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+
+      return {
+        controlChecked:
+          document.getElementById('ctrlSceneBackgroundEnabled').checked,
+        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
+        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+      };
+    });
 
     assert(
       restoredContrastAlpha === 0,
@@ -2774,9 +3035,16 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
     );
     metrics.demoPureWhiteIsolation =
     {
+      automaticDefaultScene,
+      automaticNonWhiteScene,
+      automaticPureWhiteScene,
       disabledContrastAlpha,
+      manualDisabledNonWhiteScene,
       modeSamples,
       resetContrastAlpha,
+      resetAutomaticScene,
+      restoredDisabledNonWhiteScene,
+      restoredEnabledScene,
       restoredContrastAlpha,
     };
   }

@@ -27,11 +27,13 @@ const effect = new BAClickFX(
 window.BAClickFXDemo = effect;
 
 // ── 主题预设 ────────────────────────────────────────────────────────────
+const PURE_WHITE_THEME = '纯白';
 let sceneBackgroundRequestId = 0;
 let themeSceneCanvas = null;
 let activeThemeScene = null;
 let themeSceneResizeFrame = 0;
 let customBackgroundObjectUrl = null;
+let sceneBackgroundEnabledOverride = null;
 
 function revokeCustomBackgroundObjectUrl(except = null)
 {
@@ -85,24 +87,17 @@ function updateThemeSceneBackground()
   if (!rendered || !effect.setSceneBackground(themeSceneCanvas, { fit: 'cover' }))
   {
     effect.setSceneBackground(null);
-    document.body.classList.remove('scene-background-source');
+    syncSceneBackgroundSourceClass();
     return false;
   }
 
-  document.body.classList.add('scene-background-source');
+  syncSceneBackgroundSourceClass();
   return true;
 }
 
 function applyThemeSceneBackground(name)
 {
-  if (name === '纯白')
-  {
-    // 严格加色无法在 RGB=1 的场景纹理上留下色彩余量。保留 DOM 白底，
-    // 让隔离组以透明主输出合成，才能显示完整的蓝青点击与 Bloom。
-    clearSceneBackground();
-    return false;
-  }
-
+  applySceneBackgroundEnabledForTheme(name);
   sceneBackgroundRequestId++;
   activeThemeScene = name;
   return updateThemeSceneBackground();
@@ -129,7 +124,7 @@ function clearSceneBackground()
   sceneBackgroundRequestId++;
   stopThemeSceneBackgroundSync();
   effect.setSceneBackground(null);
-  document.body.classList.remove('scene-background-source');
+  syncSceneBackgroundSourceClass();
 }
 
 function applySceneBackgroundImage(url)
@@ -139,7 +134,7 @@ function applySceneBackgroundImage(url)
   // 背景切换时不能继续用旧纹理求差值，否则首个加载帧会使用不匹配的场景。
   stopThemeSceneBackgroundSync();
   effect.setSceneBackground(null);
-  document.body.classList.remove('scene-background-source');
+  syncSceneBackgroundSourceClass();
 
   if (!url)
   {
@@ -168,7 +163,7 @@ function applySceneBackgroundImage(url)
     if (effect.setSceneBackground(image, { fit: 'cover' }))
     {
       // 装饰网格不属于宿主栅格源，严格 Scene 路径下必须移除。
-      document.body.classList.add('scene-background-source');
+      syncSceneBackgroundSourceClass();
     }
   }, { once: true });
   image.addEventListener('error', () =>
@@ -177,6 +172,7 @@ function applySceneBackgroundImage(url)
     {
       // CSS 背景仍可显示；无 CORS 时所有需要栅格 Scene 的后端保持 DOM 回退。
       effect.setSceneBackground(null);
+      syncSceneBackgroundSourceClass();
     }
   }, { once: true });
   image.src = url.href;
@@ -210,6 +206,42 @@ function selectTheme(name)
   setCustomBackgroundControlsVisible(name === 'custom');
 }
 
+function syncSceneBackgroundSourceClass()
+{
+  const sceneBackgroundEnabled =
+    effect.getConfig().sceneBackgroundEnabled;
+
+  document.body.classList.toggle(
+    'scene-background-source',
+    sceneBackgroundEnabled && effect.sceneBackgroundSource !== null,
+  );
+}
+
+function resolveThemeSceneBackgroundEnabled(name)
+{
+  return sceneBackgroundEnabledOverride ?? name !== PURE_WHITE_THEME;
+}
+
+function applySceneBackgroundEnabled(enabled)
+{
+  const applied = effect.setSceneBackgroundEnabled(enabled);
+  const actualEnabled = effect.getConfig().sceneBackgroundEnabled;
+  const control = document.getElementById('ctrlSceneBackgroundEnabled');
+
+  if (control)
+  {
+    control.checked = actualEnabled;
+  }
+
+  syncSceneBackgroundSourceClass();
+  return applied;
+}
+
+function applySceneBackgroundEnabledForTheme(name)
+{
+  return applySceneBackgroundEnabled(resolveThemeSceneBackgroundEnabled(name));
+}
+
 function applyTheme(name)
 {
   if (name === 'custom')
@@ -228,7 +260,7 @@ function applyTheme(name)
   revokeCustomBackgroundObjectUrl();
   document.body.style.background = bg;
   document.body.style.backgroundAttachment = 'fixed';
-  document.body.classList.toggle('theme-pure-white', name === '纯白');
+  document.body.classList.toggle('theme-pure-white', name === PURE_WHITE_THEME);
   applyThemeSceneBackground(name);
   selectTheme(name);
   return true;
@@ -323,6 +355,7 @@ function applyCustomBackground(value, persist = true)
 
   document.body.style.background = resolved;
   document.body.classList.remove('theme-pure-white');
+  applySceneBackgroundEnabledForTheme('custom');
   applySceneBackgroundImage(resolveSceneBackgroundUrl(rawValue));
   revokeCustomBackgroundObjectUrl(rawValue);
 
@@ -438,6 +471,23 @@ bindRange('ctrlDpr', 'outDpr', (value) =>
 
 bindToggle('ctrlIsolatedCompositing', (checked) =>
   effect.updateConfig({ isolatedCompositing: checked }));
+
+const ctrlSceneBackgroundEnabled =
+  document.getElementById('ctrlSceneBackgroundEnabled');
+
+if (ctrlSceneBackgroundEnabled)
+{
+  ctrlSceneBackgroundEnabled.addEventListener('change', () =>
+  {
+    sceneBackgroundEnabledOverride = ctrlSceneBackgroundEnabled.checked;
+    applySceneBackgroundEnabled(sceneBackgroundEnabledOverride);
+    localStorage.setItem(
+      'bafx-ctrlSceneBackgroundEnabled',
+      String(sceneBackgroundEnabledOverride),
+    );
+  });
+}
+
 bindToggle('ctrlClick', (checked) => effect.updateConfig({ clickEnabled: checked }));
 bindToggle('ctrlTrail', (checked) => effect.updateConfig({ trailEnabled: checked }));
 bindToggle('ctrlTrailAlways', (checked) => effect.updateConfig({ trailAlways: checked }));
@@ -891,6 +941,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlPaused').checked = false;
   document.getElementById('ctrlPauseClear').checked = false;
   document.getElementById('ctrlIsolatedCompositing').checked = false;
+  document.getElementById('ctrlSceneBackgroundEnabled').checked = true;
   document.getElementById('ctrlClick').checked = true;
   document.getElementById('ctrlTrail').checked = true;
   document.getElementById('ctrlTrailAlways').checked = false;
@@ -963,6 +1014,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
   effect.resetFxConfig();
   effect.setPaused(false);
   applyInputSource('dom', false);
+  // 重置回每个主题自己的默认策略，而不是沿用此前的全局人工覆盖。
+  sceneBackgroundEnabledOverride = null;
 
   effect.updateConfig(
     {
@@ -1129,6 +1182,7 @@ const I18N = {
     labelOutputCompositing: '输出合成',
     outputCompositingScene: '场景合成',
     outputCompositingTransparentOverlay: '透明覆盖层',
+    labelSceneBackgroundEnabled: '启用场景背景',
     labelIsolatedCompositing: '隔离合成',
     hostApiSummary: '宿主控制 API',
     labelInputSource: '输入来源',
@@ -1197,7 +1251,7 @@ const I18N = {
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.15/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 展示页会用与 CSS 相同的色标把非纯白内置主题同步为场景纹理；纯白保留 DOM 背景，避免严格加色在白色纹理上饱和。已解码图片通过 <code>setSceneBackground(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；本地图片选择器会生成当前页面的 <code>blob:</code> URL，不需要 CORS，但刷新后需要重新选择。手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。</p><p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>transparent-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应使用 <code>setSceneBackground()</code>。</p><p><strong>纯白背景下特效颜色太浅？</strong> 展示页会保持完整点击特效，不会自动叠加淡青轮廓。需要网页兼容轮廓的宿主可显式设置 <code>lightBackgroundContrastAlpha</code>；它不是游戏式线性场景合成的一部分。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 展示页会把内置主题和已解码的自定义图片同步为场景纹理。纯白默认不激活场景纹理，避免严格加色在白色纹理上饱和；“启用场景背景”会重新接入当前保存的场景，适用于透明覆盖层调试。手动切换后，该偏好会应用于全部主题。已解码图片通过 <code>setSceneBackground(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；本地图片选择器会生成当前页面的 <code>blob:</code> URL，不需要 CORS，但刷新后需要重新选择。手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。</p><p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>transparent-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应使用 <code>setSceneBackground()</code>。</p><p><strong>纯白背景下特效颜色太浅？</strong> 展示页会保持完整点击特效，不会自动叠加淡青轮廓。需要网页兼容轮廓的宿主可显式设置 <code>lightBackgroundContrastAlpha</code>；它不是游戏式线性场景合成的一部分。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
     introHostApiSummary: '宿主控制 API / Host Control API',
   },
   en: {
@@ -1223,6 +1277,7 @@ const I18N = {
     labelOutputCompositing: 'Output Compositing',
     outputCompositingScene: 'Scene',
     outputCompositingTransparentOverlay: 'Transparent Overlay',
+    labelSceneBackgroundEnabled: 'Enable Scene Background',
     labelIsolatedCompositing: 'Isolated Compositing',
     hostApiSummary: 'Host Control API',
     labelInputSource: 'Input Source',
@@ -1291,7 +1346,7 @@ const I18N = {
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.15/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How do built-in themes and custom images join the game-style composite?</strong> The demo rasterizes non-Pure-White built-in themes from the same colour stops as their CSS previews. Pure White stays as the DOM background so strict additive output does not saturate against an all-white texture. Decoded images are passed to <code>setSceneBackground(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. The local-image picker creates a page-session <code>blob:</code> URL, so it needs no CORS but must be selected again after a reload. A typed <code>file://</code> URL is passed through for desktop hosts that permit both local-protocol reads and Canvas/WebGL texture use; regular HTTP/HTTPS pages remain subject to browser local-resource permissions and should use the local-image picker.</p><p><strong>Which compositing mode should a transparent desktop use?</strong> The demo and strict game reproduction keep the default <code>scene</code>; transparent hosts such as BASpark, WebView2, and Electron select <code>transparent-overlay</code> explicitly. Over an unknown background, standard <code>source-over</code> cannot simultaneously provide strict Unity additive RGB, pure Coverage alpha, and no white-background darkening. Isolation cannot read desktop pixels; use <code>setSceneBackground()</code> for a known background.</p><p><strong>Effects look washed out on a pure white background?</strong> The demo keeps the complete click effect and does not automatically add a pale-cyan outline. Hosts that need that web compatibility layer can explicitly set <code>lightBackgroundContrastAlpha</code>; it is not part of game-style linear Scene compositing.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How do built-in themes and custom images join the game-style composite?</strong> The demo synchronizes built-in themes and decoded custom images as scene textures. Pure White does not activate its scene texture by default, so strict additive output does not saturate against an all-white texture. Enable Scene Background reconnects the currently retained scene for transparent-overlay diagnostics. Once changed manually, the setting applies to every theme. Decoded images are passed to <code>setSceneBackground(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. The local-image picker creates a page-session <code>blob:</code> URL, so it needs no CORS but must be selected again after a reload. A typed <code>file://</code> URL is passed through for desktop hosts that permit both local-protocol reads and Canvas/WebGL texture use; regular HTTP/HTTPS pages remain subject to browser local-resource permissions and should use the local-image picker.</p><p><strong>Which compositing mode should a transparent desktop use?</strong> The demo and strict game reproduction keep the default <code>scene</code>; transparent hosts such as BASpark, WebView2, and Electron select <code>transparent-overlay</code> explicitly. Over an unknown background, standard <code>source-over</code> cannot simultaneously provide strict Unity additive RGB, pure Coverage alpha, and no white-background darkening. Isolation cannot read desktop pixels; use <code>setSceneBackground()</code> for a known background.</p><p><strong>Effects look washed out on a pure white background?</strong> The demo keeps the complete click effect and does not automatically add a pale-cyan outline. Hosts that need that web compatibility layer can explicitly set <code>lightBackgroundContrastAlpha</code>; it is not part of game-style linear Scene compositing.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
     introHostApiSummary: 'Host Control API / 宿主控制 API',
   },
 };
@@ -1368,6 +1423,7 @@ function switchLanguage(lang)
     ctrlDpr: d.labelDpr,
     ctrlRenderMode: d.labelRenderMode,
     ctrlOutputCompositing: d.labelOutputCompositing,
+    ctrlSceneBackgroundEnabled: d.labelSceneBackgroundEnabled,
     ctrlIsolatedCompositing: d.labelIsolatedCompositing,
     ctrlInputSource: d.labelInputSource,
     ctrlClickTimeScale: d.labelClickTimeScale,
@@ -1615,6 +1671,16 @@ switchLanguage(currentLang);
     effect.updateConfig({ isolatedCompositing: isolated });
   }
 
+  const savedSceneBackgroundEnabled = localStorage.getItem(
+    'bafx-ctrlSceneBackgroundEnabled',
+  );
+
+  if (savedSceneBackgroundEnabled !== null)
+  {
+    sceneBackgroundEnabledOverride = savedSceneBackgroundEnabled === 'true';
+    applySceneBackgroundEnabled(sceneBackgroundEnabledOverride);
+  }
+
   if (localStorage.getItem('bafx-ctrlTrail') === 'false')
   {
     const el = document.getElementById('ctrlTrail');
@@ -1759,6 +1825,10 @@ switchLanguage(currentLang);
   else if (theme && getThemeBackgroundCss(theme))
   {
     applyTheme(theme);
+  }
+  else
+  {
+    applyTheme('蔚蓝');
   }
 })();
 
