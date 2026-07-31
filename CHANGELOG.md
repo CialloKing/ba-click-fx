@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## v1.2.17 — 外部 Canvas 宿主样式与透明合成稳定性
+
+- 保留外部 Canvas 调用方对 `style.mixBlendMode` 的所有权；使用 `hostCompositing: 'plus-lighter'` 时继续输出完整 Add 载荷，不再静默改写宿主样式。
+- 补充构造、运行时切换和销毁路径的外部 Canvas 样式回归，确保宿主 CSS、WebView 或原生 Add 合成可以独立接管最终显示。
+- 通过完整源代码、打包和真实 Chromium 像素回归验证透明合成后端、DPR 与回退链在本版本保持稳定。
+
 ## v1.2.16 — 合成参考模式重构
 
 - 以 `setCompositingReference(source, { fit: 'cover' })` 取代场景背景布尔开关；传入匹配当前页面的栅格参考可获得精确合成，传入 `null` 则明确使用未知透明背景兼容路径
