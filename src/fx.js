@@ -17,6 +17,8 @@ import {
   isEffectBackend,
   isInputSource,
   isHostCompositing,
+  isOverlayAlphaPolicy,
+  isOverlayColorCompensation,
   isOutputCompositing,
   isTimeScale,
   isUnknownBackgroundAppearance,
@@ -24,6 +26,8 @@ import {
   normalizeEffectBackend,
   normalizeHostCompositing,
   normalizeOverlayAlphaLimit,
+  normalizeOverlayAlphaPolicyConfig,
+  normalizeOverlayColorCompensationConfig,
   normalizeThemeColor,
   normalizeTimeScale,
   normalizeUnknownBackgroundAppearance,
@@ -5445,6 +5449,8 @@ export class BAClickFX
    * @param {number} [options.trailTimeScale]
    * @param {'scene'|'browser-overlay'} [options.outputCompositing]
    * @param {'coverage'|'bright'} [options.unknownBackgroundAppearance]
+   * @param {'coverage'|'visual-max'} [options.overlayAlphaPolicy]
+   * @param {'none'|'bright-core'} [options.overlayColorCompensation]
    * @param {number} [options.overlayAlphaLimit]
    * @param {'source-over'|'plus-lighter'} [options.hostCompositing]
    * @param {'canvas2d'|'webgl2'|'auto'} [options.effectBackend]
@@ -9654,6 +9660,42 @@ export class BAClickFX
           this.config.unknownBackgroundAppearance;
       this.config.unknownBackgroundAppearance =
         overrides.unknownBackgroundAppearance;
+
+      if (!isOverlayColorCompensation(overrides.overlayColorCompensation))
+      {
+        this.config.overlayColorCompensation =
+          overrides.unknownBackgroundAppearance === 'bright'
+            ? 'bright-core'
+            : 'none';
+      }
+    }
+
+    if (isOverlayAlphaPolicy(overrides.overlayAlphaPolicy))
+    {
+      const overlayAlphaPolicy = normalizeOverlayAlphaPolicyConfig(
+        overrides.overlayAlphaPolicy,
+        this.config.overlayAlphaPolicy,
+      );
+
+      transparentContractChanged = transparentContractChanged ||
+        overlayAlphaPolicy !== this.config.overlayAlphaPolicy;
+      this.config.overlayAlphaPolicy = overlayAlphaPolicy;
+    }
+
+    if (isOverlayColorCompensation(overrides.overlayColorCompensation))
+    {
+      const overlayColorCompensation =
+        normalizeOverlayColorCompensationConfig(
+          overrides.overlayColorCompensation,
+          this.config.overlayColorCompensation,
+        );
+
+      transparentContractChanged = transparentContractChanged ||
+        overlayColorCompensation !== this.config.overlayColorCompensation;
+      this.config.overlayColorCompensation = overlayColorCompensation;
+      // 旧字段只作为兼容镜像，渲染器不再从它解析两种独立职责。
+      this.config.unknownBackgroundAppearance =
+        overlayColorCompensation === 'bright-core' ? 'bright' : 'coverage';
     }
 
     if (Number.isFinite(overrides.overlayAlphaLimit))

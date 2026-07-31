@@ -8,6 +8,10 @@ declare module 'ba-click-fx'
     'scene' | 'browser-overlay';
   /** 未知背景 source-over 载荷的 Coverage 优先或浅色背景视觉近似。 */
   export type BAClickFXUnknownBackgroundAppearance = 'coverage' | 'bright';
+  /** 网页覆盖层 Alpha 使用独立传输和，或恢复旧版最大传输分配。 */
+  export type BAClickFXOverlayAlphaPolicy = 'coverage' | 'visual-max';
+  /** 未知背景颜色不补偿，或仅补偿高能核心。 */
+  export type BAClickFXOverlayColorCompensation = 'none' | 'bright-core';
   /** 宿主使用普通覆盖，或由 DOM 执行一次 SDR 加色近似。 */
   export type BAClickFXHostCompositing = 'source-over' | 'plus-lighter';
   export type BAClickFXEffectBackend = 'canvas2d' | 'webgl2' | 'auto';
@@ -80,6 +84,10 @@ declare module 'ba-click-fx'
      * hostCompositing 为 'plus-lighter' 时忽略此项。
      */
     unknownBackgroundAppearance?: BAClickFXUnknownBackgroundAppearance;
+    /** browser-overlay 的 Alpha 分配策略，默认 'coverage'。 */
+    overlayAlphaPolicy?: BAClickFXOverlayAlphaPolicy;
+    /** 未知背景的颜色补偿，默认 'none'。 */
+    overlayColorCompensation?: BAClickFXOverlayColorCompensation;
     /**
      * browser-overlay + source-over 的最终 Alpha 上限。有限值钳制到 0..1，
      * 默认 250/255；与 opacity、HDR 发射和 Bloom 强度相互独立。
@@ -136,6 +144,8 @@ declare module 'ba-click-fx'
     themeColor: string;
     outputCompositing: BAClickFXOutputCompositing;
     unknownBackgroundAppearance: BAClickFXUnknownBackgroundAppearance;
+    overlayAlphaPolicy: BAClickFXOverlayAlphaPolicy;
+    overlayColorCompensation: BAClickFXOverlayColorCompensation;
     overlayAlphaLimit: number;
     hostCompositing: BAClickFXHostCompositing;
     clickEnabled: boolean;
