@@ -24,7 +24,7 @@ const requiredRuntimeMethods = [
   'pointerUp',
   'pointerCancel',
   'setPaused',
-  'setSceneBackground',
+  'setCompositingReference',
   'updateConfig',
   'setThemeColor',
   'setFxParam',
@@ -372,7 +372,7 @@ if (
   type BAClickFXPointerType,
   type BAClickFXResolvedBloomBackend,
   type BAClickFXResolvedEffectBackend,
-  type BAClickFXSceneBackgroundOptions,
+  type BAClickFXCompositingReferenceOptions,
   type BAClickFXStandalonePatchOptions,
   type BAClickFXUpdateOptions,
   type UnityFxTouchConfig,
@@ -452,7 +452,10 @@ const pauseOptions: BAClickFXPauseOptions =
 {
   clear: true,
 };
-const sceneBackgroundOptions: BAClickFXSceneBackgroundOptions =
+const compositingReferenceSource: HTMLCanvasElement = document.createElement(
+  'canvas',
+);
+const compositingReferenceOptions: BAClickFXCompositingReferenceOptions =
 {
   fit: 'cover',
 };
@@ -535,9 +538,18 @@ const pointerUpAccepted: boolean = namedInstance.pointerUp(7);
 const pointerCancelAccepted: boolean = namedInstance.pointerCancel();
 namedInstance.setPaused(true, pauseOptions);
 namedInstance.setPaused(false);
-const sceneBackgroundAccepted: boolean = namedInstance.setSceneBackground(
-  null,
-  sceneBackgroundOptions,
+const compositingReferenceAccepted: boolean = namedInstance.setCompositingReference(
+  compositingReferenceSource,
+  compositingReferenceOptions,
+);
+const compositingReferenceCleared: boolean =
+  namedInstance.setCompositingReference(null);
+namedInstance.setCompositingReference(
+  compositingReferenceSource,
+  {
+    // @ts-expect-error 合成参考目前只接受 cover。
+    fit: 'contain',
+  },
 );
 namedInstance.setThemeColor(DEFAULT_THEME_COLOR);
 const paramValue: BAClickFXParamValue = true;
@@ -644,8 +656,10 @@ void [
   pointerMoveAccepted,
   pointerUpAccepted,
   pointerCancelAccepted,
-  sceneBackgroundOptions,
-  sceneBackgroundAccepted,
+  compositingReferenceSource,
+  compositingReferenceOptions,
+  compositingReferenceAccepted,
+  compositingReferenceCleared,
   patchOptions,
   standalonePatchOptions,
   standalonePatchResult,

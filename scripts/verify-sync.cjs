@@ -325,9 +325,12 @@ verify(
 const isolatedCompositingControl = indexHtml.match(
   /<input\s+[^>]*id="ctrlIsolatedCompositing"[^>]*>/,
 )?.[0] ?? '';
-const sceneBackgroundControl = indexHtml.match(
-  /<input\s+[^>]*id="ctrlSceneBackgroundEnabled"[^>]*>/,
+const compositingReferenceControl = indexHtml.match(
+  /<select id="ctrlCompositingReference"[\s\S]*?<\/select>/,
 )?.[0] ?? '';
+const compositingReferenceValues = [
+  ...compositingReferenceControl.matchAll(/<option value="([^"]+)"/g),
+].map((match) => match[1]);
 
 verify(
   /type="checkbox"/.test(isolatedCompositingControl) &&
@@ -335,25 +338,45 @@ verify(
   '展示页提供默认关闭的隔离合成兼容开关',
 );
 verify(
-  /type="checkbox"/.test(sceneBackgroundControl) &&
-    /\bchecked\b/.test(sceneBackgroundControl) &&
-    /labelSceneBackgroundEnabled: '启用场景背景'/.test(mainJs) &&
-    /labelSceneBackgroundEnabled: 'Enable Scene Background'/.test(mainJs) &&
-    /ctrlSceneBackgroundEnabled: d\.labelSceneBackgroundEnabled/.test(mainJs),
-  '展示页提供可本地化的通用场景背景开关',
+  JSON.stringify(compositingReferenceValues) === JSON.stringify([
+    'match-page',
+    'unknown',
+  ]) &&
+    /<option value="match-page" selected>/.test(compositingReferenceControl) &&
+    /id="compositingReferenceStatus"/.test(indexHtml),
+  '展示页提供默认匹配当前页面的合成参考选择与状态提示',
 );
 verify(
-  /sceneBackgroundEnabledOverride = ctrlSceneBackgroundEnabled\.checked/.test(mainJs) &&
-    /applySceneBackgroundEnabled\(sceneBackgroundEnabledOverride\)/.test(mainJs) &&
-    /localStorage\.setItem\([\s\S]*?'bafx-ctrlSceneBackgroundEnabled'[\s\S]*?String\(sceneBackgroundEnabledOverride\)/.test(mainJs) &&
-    /const savedSceneBackgroundEnabled = localStorage\.getItem\([\s\S]*?'bafx-ctrlSceneBackgroundEnabled'[\s\S]*?\)/.test(mainJs) &&
-    /sceneBackgroundEnabledOverride = savedSceneBackgroundEnabled === 'true'/.test(mainJs),
-  '场景背景开关通过公开 API 生效，并可全局持久化恢复',
+  /labelCompositingReference: '特效背景参考'/.test(mainJs) &&
+    /labelCompositingReference: 'Effect Reference'/.test(mainJs) &&
+    /ctrlCompositingReference: d\.labelCompositingReference/.test(mainJs) &&
+    /compositingReferenceMatchPage: '匹配当前页面（精确）'/.test(mainJs) &&
+    /compositingReferenceUnknown: '未知透明背景（兼容）'/.test(mainJs) &&
+    /compositingReferenceMatchPage: 'Current Page \(Exact\)'/.test(mainJs) &&
+    /compositingReferenceUnknown: 'Unknown Background'/.test(mainJs),
+  '合成参考选择与状态文案支持中英文',
+);
+verify(
+  /function applyCompositingReferenceMode\(mode\)/.test(mainJs) &&
+    /const resolved = COMPOSITING_REFERENCE_MODES\.has\(mode\)/.test(mainJs) &&
+    /localStorage\.setItem\('bafx-ctrlCompositingReference', resolved\)/.test(mainJs) &&
+    /const savedCompositingReference = localStorage\.getItem\([\s\S]*?'bafx-ctrlCompositingReference'[\s\S]*?\)/.test(mainJs) &&
+    /applyCompositingReferenceMode\(savedCompositingReference\)/.test(mainJs),
+  '合成参考模式通过公开 API 生效，并可持久化恢复',
 );
 const staticFaqContent = indexHtml.match(
   /<div id="introFAQContent">[\s\S]*?<\/div>/,
 )?.[0] ?? '';
 
+verify(
+  /特效背景参考/.test(staticFaqContent) &&
+    /匹配当前页面/.test(staticFaqContent) &&
+    /未知透明背景/.test(staticFaqContent) &&
+    /setCompositingReference\(null\)/.test(mainJs) &&
+    /Effect Reference offers Current Page or Unknown Background/.test(mainJs) &&
+    /setCompositingReference\(image, \{ fit:/.test(mainJs),
+  '静态与双语 FAQ 说明匹配参考和未知背景的明确合同',
+);
 verify(
   /纯白背景下特效颜色太浅/.test(staticFaqContent) &&
     /关闭“隔离合成”时会保留游戏原始的低可见度表现/.test(staticFaqContent) &&
@@ -386,33 +409,37 @@ verify(
   '展示页重置操作恢复游戏的直接加色默认值',
 );
 verify(
-  /body\.scene-background-source::before,[\s\S]*?body\.theme-pure-white::before[\s\S]*?display: none/.test(
+  /body\.compositing-reference-matched::before,[\s\S]*?body\.theme-pure-white::before[\s\S]*?display: none/.test(
     styleCss,
   ) &&
     /classList\.toggle\('theme-pure-white', name === PURE_WHITE_THEME\)/.test(mainJs) &&
-    /classList\.remove\('theme-pure-white'\)[\s\S]*?applySceneBackgroundImage/.test(mainJs),
-  '纯白主题关闭装饰网格，并在自定义背景切换时不保留旧场景源',
+    /classList\.remove\('theme-pure-white'\)[\s\S]*?applyPageCompositingReferenceImage/.test(mainJs),
+  '纯白主题关闭装饰网格，并在自定义背景切换时不保留旧参考',
 );
 const applyThemeSource = getFunctionSource(mainJs, 'applyTheme');
-const applyThemeSceneBackgroundSource = getFunctionSource(
+const applyThemeCompositingReferenceSource = getFunctionSource(
   mainJs,
-  'applyThemeSceneBackground',
+  'applyThemeCompositingReference',
 );
-const updateThemeSceneBackgroundSource = getFunctionSource(
+const updateThemeCompositingReferenceSource = getFunctionSource(
   mainJs,
-  'updateThemeSceneBackground',
+  'updateThemeCompositingReference',
 );
-const applySceneBackgroundEnabledSource = getFunctionSource(
+const syncCompositingReferenceSource = getFunctionSource(
   mainJs,
-  'applySceneBackgroundEnabled',
+  'syncCompositingReference',
 );
-const syncSceneBackgroundSourceClassSource = getFunctionSource(
+const hasMatchedCompositingReferenceSource = getFunctionSource(
   mainJs,
-  'syncSceneBackgroundSourceClass',
+  'hasMatchedCompositingReference',
 );
 const applyCustomBackgroundSource = getFunctionSource(
   mainJs,
   'applyCustomBackground',
+);
+const applyPageCompositingReferenceImageSource = getFunctionSource(
+  mainJs,
+  'applyPageCompositingReferenceImage',
 );
 
 verify(
@@ -427,95 +454,112 @@ verify(
   /getThemeBackgroundCss\(name\)/.test(applyThemeSource) &&
     /document\.body\.style\.backgroundAttachment = 'fixed';/.test(applyThemeSource) &&
     /syncPureWhiteIsolationContrast\(\)/.test(applyThemeSource) &&
-    /applyThemeSceneBackground\(name\)/.test(applyThemeSource) &&
-    !/clearSceneBackground\(\)/.test(applyThemeSource),
-  '内置主题统一进入对应的 Scene 背景选择路径',
+    /applyThemeCompositingReference\(name\)/.test(applyThemeSource),
+  '内置主题统一进入对应的页面合成参考选择路径',
 );
 verify(
-  /applySceneBackgroundEnabledForTheme\(\)/.test(
-    applyThemeSceneBackgroundSource,
+  /pageBackgroundRequestId\+\+/.test(
+    applyThemeCompositingReferenceSource,
   ) &&
-    !/clearSceneBackground\(\)/.test(applyThemeSceneBackgroundSource) &&
-    applyThemeSceneBackgroundSource.indexOf(
-      'applySceneBackgroundEnabledForTheme()',
-    ) < applyThemeSceneBackgroundSource.indexOf('activeThemeScene = name'),
-  '主题切换先应用场景背景开关，再保留对应的可重连栅格源',
-);
-verify(
-  /renderThemeSceneBackground\([\s\S]*?themeSceneCanvas,[\s\S]*?activeThemeScene/.test(
-    updateThemeSceneBackgroundSource,
-  ) &&
-    /effect\.setSceneBackground\(themeSceneCanvas, \{ fit: 'cover' \}\)/.test(
-      updateThemeSceneBackgroundSource,
+    /activeThemeReference = name/.test(
+      applyThemeCompositingReferenceSource,
     ) &&
-    /syncSceneBackgroundSourceClass\(\)/.test(
-      updateThemeSceneBackgroundSource,
+    /pageBackgroundRasterSource = null/.test(
+      applyThemeCompositingReferenceSource,
+    ) &&
+    /syncCompositingReference\(\)/.test(
+      applyThemeCompositingReferenceSource,
+    ) &&
+    /updateThemeCompositingReference\(\)/.test(
+      applyThemeCompositingReferenceSource,
     ),
-  '内置主题栅格源会交给 Scene 合成，并按开关同步装饰层',
+  '主题切换先清除旧参考，再生成可重连的当前主题栅格源',
 );
 verify(
-  /stopThemeSceneBackgroundSync\(\)/.test(getFunctionSource(mainJs, 'clearSceneBackground')) &&
-    /syncPureWhiteIsolationContrast\(\)/.test(applyCustomBackgroundSource) &&
-    /applySceneBackgroundEnabledForTheme\(\)/.test(applyCustomBackgroundSource) &&
-    /applySceneBackgroundImage\(resolveSceneBackgroundUrl\(rawValue\)\)/.test(
+  /renderThemeSceneBackground\([\s\S]*?themeReferenceCanvas,[\s\S]*?activeThemeReference/.test(
+    updateThemeCompositingReferenceSource,
+  ) &&
+    /pageBackgroundRasterSource = themeReferenceCanvas/.test(
+      updateThemeCompositingReferenceSource,
+    ) &&
+    /syncCompositingReference\(\)/.test(
+      updateThemeCompositingReferenceSource,
+    ),
+  '内置主题栅格源会交给合成参考同步入口',
+);
+verify(
+  /syncPureWhiteIsolationContrast\(\)/.test(applyCustomBackgroundSource) &&
+    /applyPageCompositingReferenceImage\(resolveCompositingReferenceUrl\(rawValue\)\)/.test(
       applyCustomBackgroundSource,
     ) &&
-    applyCustomBackgroundSource.indexOf(
-      'applySceneBackgroundEnabledForTheme()',
-    ) < applyCustomBackgroundSource.indexOf(
-      'applySceneBackgroundImage(resolveSceneBackgroundUrl(rawValue))',
+    /stopThemeReferenceSync\(\)/.test(
+      applyPageCompositingReferenceImageSource,
+    ) &&
+    /image\.crossOrigin = 'anonymous'/.test(
+      applyPageCompositingReferenceImageSource,
+    ) &&
+    /pageBackgroundRasterSource = image/.test(
+      applyPageCompositingReferenceImageSource,
+    ) &&
+    /pageBackgroundRasterSource = null/.test(
+      applyPageCompositingReferenceImageSource,
     ),
-  '自定义背景沿用全局开关，自定义图片仍按既有路径上传',
+  '自定义背景独立显示，已解码图片才会作为 CORS 合规的合成参考上传',
 );
 verify(
-  /effect\.setSceneBackgroundEnabled\(enabled\)/.test(
-    applySceneBackgroundEnabledSource,
+  /const source = compositingReferenceMode === 'match-page'[\s\S]*?\? pageBackgroundRasterSource[\s\S]*?: null/.test(
+    syncCompositingReferenceSource,
   ) &&
-    /control\.checked = actualEnabled/.test(
-      applySceneBackgroundEnabledSource,
+    /effect\.setCompositingReference\(source, \{ fit: 'cover' \}\)/.test(
+      syncCompositingReferenceSource,
     ) &&
-    /sceneBackgroundEnabled && effect\.sceneBackgroundSource !== null/.test(
-      syncSceneBackgroundSourceClassSource,
+    /compositing-reference-matched/.test(syncCompositingReferenceSource) &&
+    /compositingReferenceMode === 'match-page'/.test(
+      hasMatchedCompositingReferenceSource,
+    ) &&
+    /effect\.compositingReferenceSource === pageBackgroundRasterSource/.test(
+      hasMatchedCompositingReferenceSource,
     ),
-  '展示页以公开开关控制渲染器，并只在已启用且有源时隐藏装饰层',
+  '展示页只在参考与页面匹配时提交像素并隐藏未参与合成的装饰层',
 );
-const sceneBackgroundRestoreIndex = mainJs.indexOf(
-  'const savedSceneBackgroundEnabled = localStorage.getItem(',
+const compositingReferenceRestoreIndex = mainJs.indexOf(
+  'const savedCompositingReference = localStorage.getItem(',
 );
 const themeRestoreIndex = mainJs.indexOf(
   "const theme = localStorage.getItem('bafx-theme');",
 );
 
 verify(
-  sceneBackgroundRestoreIndex >= 0 &&
-    themeRestoreIndex > sceneBackgroundRestoreIndex &&
+  compositingReferenceRestoreIndex >= 0 &&
+    themeRestoreIndex > compositingReferenceRestoreIndex &&
     mainJs.indexOf(
-      'applySceneBackgroundEnabled(sceneBackgroundEnabledOverride);',
-      sceneBackgroundRestoreIndex,
+      'applyCompositingReferenceMode(savedCompositingReference);',
+      compositingReferenceRestoreIndex,
     ) < themeRestoreIndex,
-  '场景背景人工偏好会在主题源恢复前先应用',
+  '合成参考偏好会在主题或自定义图片源恢复前先应用',
 );
 verify(
-  /return sceneBackgroundEnabledOverride \?\? true/.test(mainJs) &&
-    /sceneBackgroundEnabled && effect\.sceneBackgroundSource !== null/.test(mainJs) &&
-    /sceneBackgroundEnabledOverride = null/.test(mainJs) &&
-    /getElementById\('ctrlSceneBackgroundEnabled'\)\.checked = true/.test(mainJs) &&
+  /const DEFAULT_COMPOSITING_REFERENCE_MODE = 'match-page'/.test(mainJs) &&
+    /compositingReferenceMode = DEFAULT_COMPOSITING_REFERENCE_MODE/.test(mainJs) &&
+    /getElementById\('ctrlCompositingReference'\)\.value =[\s\S]*?DEFAULT_COMPOSITING_REFERENCE_MODE/.test(mainJs) &&
     /else\s*\{\s*applyTheme\('蔚蓝'\);\s*\}/.test(mainJs),
-  '所有内置主题默认启用场景背景；重置和首次加载均恢复自动策略',
+  '重置和首次加载均恢复匹配当前页面的合成参考策略',
 );
 verify(
-  /纯白主题也保留白色场景纹理/.test(staticFaqContent) &&
-    /“启用场景背景”是独立的全局人工覆盖/.test(staticFaqContent) &&
-    /纯白主题也保留白色场景纹理/.test(mainJs) &&
-    /Enable Scene Background is an independent global manual override/.test(mainJs),
-  '静态与双语 FAQ 说明纯白场景纹理和全局人工背景开关的关系',
+  /setCompositingReference\(null\)/.test(mainJs) &&
+    /未知背景/.test(mainJs) &&
+    /Unknown Background/.test(mainJs) &&
+    /pageBackgroundRasterSource = null/.test(
+      applyPageCompositingReferenceImageSource,
+    ),
+  '新 API 明确将未知背景与宿主 CSS 背景管理分离',
 );
 verify(
   /new URL\(trimmed, document\.baseURI\)/.test(
-    getFunctionSource(mainJs, 'resolveSceneBackgroundUrl'),
+    getFunctionSource(mainJs, 'resolveCompositingReferenceUrl'),
   ) &&
     /url\.protocol !== 'file:'/.test(
-      getFunctionSource(mainJs, 'resolveSceneBackgroundUrl'),
+      getFunctionSource(mainJs, 'resolveCompositingReferenceUrl'),
     ),
   '自定义裸图片 URL 会把 file: 交给受信任宿主，其他协议仍保持白名单限制',
 );
@@ -535,17 +579,19 @@ verify(
   '严格默认关闭网页兼容合成，createConfig 仍接受布尔覆盖值',
 );
 verify(
-  /sceneBackgroundEnabled: true/.test(configJs) &&
-    /typeof overrides\.sceneBackgroundEnabled === 'boolean'/.test(configJs) &&
-    /setSceneBackgroundEnabled\(enabled\)/.test(engineJs) &&
-    /typeof overrides\.sceneBackgroundEnabled === 'boolean'[\s\S]*?setSceneBackgroundEnabled\(overrides\.sceneBackgroundEnabled\)/.test(
-      engineJs,
-    ) &&
-    /sceneBackgroundEnabled\?: boolean/.test(typeDefinitions) &&
-    /setSceneBackgroundEnabled\(enabled: boolean\): boolean/.test(
+  /this\.compositingReferenceSource = null/.test(engineJs) &&
+    /this\.compositingReferenceFit = 'cover'/.test(engineJs) &&
+    /setCompositingReference\(source, options = \{\}\)/.test(engineJs) &&
+    /this\.compositingReferenceSource = source/.test(engineJs) &&
+    /source === null[\s\S]*?releaseFrameResources\(\)/.test(engineJs) &&
+    /export interface BAClickFXCompositingReferenceOptions/.test(
       typeDefinitions,
-    ),
-  '场景背景可通过公开 API 与运行时配置无损开关',
+    ) &&
+    /setCompositingReference\([\s\S]*?source: TexImageSource \| null,[\s\S]*?options\?: BAClickFXCompositingReferenceOptions/.test(
+      typeDefinitions,
+    ) &&
+    !/compositingReferenceSource/.test(configJs),
+  '合成参考通过公开 API 管理资源状态，并以 TypeScript 类型明确 cover 合同',
 );
 verify(
   /const DEFAULT_EFFECT_BACKEND = 'webgl2'/.test(configJs) &&
