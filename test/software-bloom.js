@@ -628,6 +628,7 @@ const clearSceneData = new Uint8ClampedArray([0, 0, 0, 102]);
 applyOverlayAlphaPolicyToImageData(
   visualMaxImageData,
   clearSceneData,
+  null,
   1,
   'visual-max',
 );
@@ -642,6 +643,27 @@ assert(
       visualMaxImageData.data[2] / visualMaxImageData.data[0] - 0.25,
     ) < 0.01,
   'Canvas visual-max 等比收敛最终载荷并保留色相',
+);
+
+const saturatedVisualMaxImageData = {
+  width: 1,
+  height: 1,
+  data: new Uint8ClampedArray([255, 255, 255, 179]),
+};
+const saturatedSceneData = new Uint8ClampedArray([0, 0, 0, 114]);
+const independentBloomTransportData = new Uint8ClampedArray([0, 0, 0, 250]);
+
+applyOverlayAlphaPolicyToImageData(
+  saturatedVisualMaxImageData,
+  saturatedSceneData,
+  independentBloomTransportData,
+  0.7,
+  'visual-max',
+);
+
+assert(
+  saturatedVisualMaxImageData.data[3] === 179,
+  'Canvas visual-max 在 lighter 饱和后仍读取独立 Bloom 传输 Alpha',
 );
 
 const overlayHdr = new Float32Array([

@@ -5975,6 +5975,9 @@ export class BAClickFX
     // Canvas 回读在同一渲染时刻失败时，保留上一张已经完成的 Bloom 输出。
     // 它只用于相同输入的过渡帧，避免故障瞬间把透明拖尾降成细线。
     this.lastSoftwareBloomFrame = null;
+    // visual-max 必须保留独立 Bloom transport；该离屏层按需创建，不进入 DOM。
+    this.canvasBloomTransportCanvas = null;
+    this.canvasBloomTransportContext = null;
     this.webglBloomFrameStats =
     {
       available: false,
@@ -8779,7 +8782,59 @@ export class BAClickFX
     }
   }
 
-  _limitCanvasOverlayAlpha(scale, sceneAlphaSnapshot = null)
+  _prepareCanvasBloomTransportContext()
+  {
+    if (this._getOverlayAlphaPolicy() !== 'visual-max')
+    {
+      return null;
+    }
+
+    if (!this.canvasBloomTransportCanvas)
+    {
+      const canvas = createCanvas();
+      const context = canvas?.getContext?.(
+        '2d',
+        {
+          alpha: true,
+          willReadFrequently: true,
+        },
+      );
+
+      if (!canvas || !context)
+      {
+        return null;
+      }
+
+      this.canvasBloomTransportCanvas = canvas;
+      this.canvasBloomTransportContext = context;
+    }
+
+    const canvas = this.canvasBloomTransportCanvas;
+    const context = this.canvasBloomTransportContext;
+
+    if (
+      canvas.width !== this.canvas.width ||
+      canvas.height !== this.canvas.height
+    )
+    {
+      canvas.width = this.canvas.width;
+      canvas.height = this.canvas.height;
+    }
+
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    // 多个 Bloom 区域与主 Canvas 使用相同的累计规则；超过 1 的部分对
+    // 最终不高于 1 的 Alpha 容量没有额外信息价值。
+    context.globalCompositeOperation = 'lighter';
+    return context;
+  }
+
+  _limitCanvasOverlayAlpha(
+    scale,
+    sceneAlphaSnapshot = null,
+    bloomTransportContext = null,
+  )
   {
     const overlayAlphaPolicy = this._getOverlayAlphaPolicy();
 
@@ -8823,10 +8878,19 @@ export class BAClickFX
           sceneAlphaSnapshot.height === bounds.height
           ? sceneAlphaSnapshot.data
           : null;
+        const bloomTransportData = bloomTransportContext
+          ? bloomTransportContext.getImageData(
+            bounds.minimumX,
+            bounds.minimumY,
+            bounds.width,
+            bounds.height,
+          ).data
+          : null;
 
         applyOverlayAlphaPolicyToImageData(
           imageData,
           matchingSnapshot,
+          bloomTransportData,
           this.config.overlayAlphaLimit,
           overlayAlphaPolicy,
         );
@@ -9047,6 +9111,8 @@ export class BAClickFX
     const regions = this._getSoftwareBloomRegions(scale);
     const combinedBounds = combineBloomRegionBounds(regions);
     const sceneAlphaSnapshot = this._captureCanvasOverlayAlpha(scale);
+    const bloomTransportContext =
+      this._prepareCanvasBloomTransportContext();
     const settings = {
       encodingRange: bloomCfg.emissionRange,
       threshold: bloomCfg.threshold,
@@ -9195,6 +9261,11 @@ export class BAClickFX
         }
 
         compositeSucceeded = renderer.composite(this.context, settings);
+
+        if (compositeSucceeded && bloomTransportContext)
+        {
+          renderer.drawCurrentOutput(bloomTransportContext);
+        }
       }
       finally
       {
@@ -9210,7 +9281,11 @@ export class BAClickFX
 
     if (!failed)
     {
-      this._limitCanvasOverlayAlpha(scale, sceneAlphaSnapshot);
+      this._limitCanvasOverlayAlpha(
+        scale,
+        sceneAlphaSnapshot,
+        bloomTransportContext,
+      );
       this._cacheSoftwareBloomFrame(scale);
     }
 
@@ -10680,6 +10755,14 @@ export class BAClickFX
     {
       this.legacyRingRasterizer.destroy();
       this.legacyRingRasterizer = null;
+    }
+
+    if (this.canvasBloomTransportCanvas)
+    {
+      this.canvasBloomTransportCanvas.width = 0;
+      this.canvasBloomTransportCanvas.height = 0;
+      this.canvasBloomTransportCanvas = null;
+      this.canvasBloomTransportContext = null;
     }
 
     if (this.ownsCanvas)

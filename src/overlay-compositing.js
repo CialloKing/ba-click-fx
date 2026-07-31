@@ -130,6 +130,7 @@ export function scaleOverlayPremultipliedRgb(
 export function applyOverlayAlphaPolicyToImageData(
   imageData,
   sceneAlphaData = null,
+  bloomAlphaData = null,
   alphaLimit = 1,
   policy = 'coverage',
 )
@@ -153,7 +154,11 @@ export function applyOverlayAlphaPolicyToImageData(
     const sceneAlpha = sceneAlphaData?.[index + 3] === undefined
       ? currentAlpha
       : sceneAlphaData[index + 3] / 255;
-    const bloomAlpha = Math.max(0, currentAlpha - sceneAlpha);
+    // lighter 会在写入 Canvas 时把累计 Alpha 饱和到 1。优先读取 Bloom
+    // 独立传输层，避免在高能核心从已丢失信息的总 Alpha 反推。
+    const bloomAlpha = bloomAlphaData?.[index + 3] === undefined
+      ? Math.max(0, currentAlpha - sceneAlpha)
+      : bloomAlphaData[index + 3] / 255;
     const targetAlpha = Math.min(
       Math.max(sceneAlpha, bloomAlpha),
       safeLimit,

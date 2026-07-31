@@ -2065,6 +2065,16 @@ export class SoftwareBloomRenderer
     return true;
   }
 
+  drawCurrentOutput(targetContext)
+  {
+    if (!targetContext || !this.outputCanvas)
+    {
+      return false;
+    }
+
+    return this._drawOutput(targetContext);
+  }
+
   _limitTransparentOverlayAlpha(targetContext, overlayAlphaLimit)
   {
     if (
