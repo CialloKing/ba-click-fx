@@ -315,6 +315,7 @@ const SCENE_DISK_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 uniform sampler2D u_texture;
+uniform float u_emissionScale;
 
 in vec2 v_uv;
 in vec3 v_materialColor;
@@ -327,7 +328,8 @@ void main()
   // Cross2 的 _RGBRGBA=0 读取线性 R 作为透明度，原图 A 恒为 1。
   float textureAlpha = sampleColor.r;
   vec3 color = sampleColor.rgb *
-    max(v_materialColor, vec3(0.0)) * textureAlpha;
+    max(v_materialColor, vec3(0.0)) * textureAlpha *
+    max(u_emissionScale, 0.0);
   // 生命周期 Alpha 只控制目标颜色衰减，不能再次乘入源 RGB。
   float alpha = textureAlpha * clamp(v_particleAlpha, 0.0, 1.0);
 
@@ -380,6 +382,7 @@ in float v_coverageOpacity;
 
 uniform sampler2D u_texture;
 uniform bool u_transparentOverlay;
+uniform float u_emissionScale;
 
 out vec4 outColor;
 
@@ -395,7 +398,8 @@ void main()
   }
 
   textureAlpha = clamp(textureAlpha, 0.0, 1.0);
-  vec3 materialColor = max(v_materialColor, vec3(0.0));
+  vec3 materialColor = max(v_materialColor, vec3(0.0)) *
+    max(u_emissionScale, 0.0);
 
   if (u_transparentOverlay)
   {
@@ -918,9 +922,12 @@ export class WebGL2EffectRenderer
       INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRAIL_VERTEX,
     );
     this.sourceTarget = null;
+    // 非默认点击辉光倍率需要与清晰 Scene 分离；默认值不额外占用显存。
+    this.bloomSourceTarget = null;
     this.sceneOverlayTarget = null;
     this.levels = [];
     this.sceneFrameReady = false;
+    this.bloomSourceFrameReady = false;
     this.sceneOverlayFrameReady = false;
     this.sceneBackgroundFrameReady = false;
     this.sceneBackgroundSource = null;
@@ -1412,6 +1419,7 @@ export class WebGL2EffectRenderer
     this.contextLost = true;
     this.available = false;
     this.sceneFrameReady = false;
+    this.bloomSourceFrameReady = false;
     this.sceneOverlayFrameReady = false;
     this.sceneBackgroundFrameReady = false;
     this.sceneBackgroundUploadRetryPending =
@@ -1431,9 +1439,11 @@ export class WebGL2EffectRenderer
   _forgetResourceReferences()
   {
     this.sourceTarget = null;
+    this.bloomSourceTarget = null;
     this.sceneOverlayTarget = null;
     this.levels = [];
     this.sceneFrameReady = false;
+    this.bloomSourceFrameReady = false;
     this.sceneOverlayFrameReady = false;
     this.sceneBackgroundFrameReady = false;
     // Context 恢复代表一套新资源，旧尺寸的失败结论不能继续复用。
@@ -1546,6 +1556,7 @@ export class WebGL2EffectRenderer
     if (gl && !this.contextLost)
     {
       deleteTarget(gl, this.sourceTarget);
+      deleteTarget(gl, this.bloomSourceTarget);
       deleteTarget(gl, this.sceneOverlayTarget);
       deleteTarget(gl, this.sceneBackgroundTarget);
 
@@ -1558,9 +1569,11 @@ export class WebGL2EffectRenderer
     }
 
     this.sourceTarget = null;
+    this.bloomSourceTarget = null;
     this.sceneOverlayTarget = null;
     this.sceneBackgroundTarget = null;
     this.sceneFrameReady = false;
+    this.bloomSourceFrameReady = false;
     this.sceneOverlayFrameReady = false;
     this.sceneBackgroundFrameReady = false;
     this.levels = [];
@@ -1943,9 +1956,9 @@ export class WebGL2EffectRenderer
     return true;
   }
 
-  _copySceneBackgroundToSource()
+  _copySceneBackgroundToTarget(target)
   {
-    if (!this.sceneBackgroundTarget || !this.sourceTarget)
+    if (!this.sceneBackgroundTarget || !target)
     {
       return false;
     }
@@ -1959,7 +1972,7 @@ export class WebGL2EffectRenderer
     );
     gl.bindFramebuffer(
       gl.DRAW_FRAMEBUFFER,
-      this.sourceTarget.framebuffer,
+      target.framebuffer,
     );
     gl.blitFramebuffer(
       0,
@@ -1973,8 +1986,26 @@ export class WebGL2EffectRenderer
       gl.COLOR_BUFFER_BIT,
       gl.NEAREST,
     );
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sourceTarget.framebuffer);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
     return true;
+  }
+
+  _ensureBloomSourceTarget()
+  {
+    if (
+      this.bloomSourceTarget?.width === this.sourceWidth &&
+      this.bloomSourceTarget?.height === this.sourceHeight
+    )
+    {
+      return true;
+    }
+
+    deleteTarget(this.gl, this.bloomSourceTarget);
+    this.bloomSourceTarget = this._createTarget(
+      this.sourceWidth,
+      this.sourceHeight,
+    );
+    return this.bloomSourceTarget !== null;
   }
 
   _allocateTargets()
@@ -2190,6 +2221,7 @@ export class WebGL2EffectRenderer
     if (options.preserveSceneStats !== true)
     {
       this.sceneFrameReady = false;
+      this.bloomSourceFrameReady = false;
       this.sceneOverlayFrameReady = false;
       this.sceneBackgroundFrameReady = false;
       this.stats.sceneVertexCount = 0;
@@ -2273,9 +2305,21 @@ export class WebGL2EffectRenderer
     gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
   }
 
-  _drawGeometryBatches(additiveProgram, transparentOverlay = false)
+  _drawGeometryBatches(
+    additiveProgram,
+    transparentOverlay = false,
+    clickEmissionScales = null,
+  )
   {
     const gl = this.gl;
+    const diskEmissionScale = Math.max(
+      0,
+      clickEmissionScales?.disk ?? 1,
+    );
+    const ringEmissionScale = Math.max(
+      0,
+      clickEmissionScales?.ring ?? 1,
+    );
 
     gl.enable(gl.BLEND);
     gl.blendEquation(gl.FUNC_ADD);
@@ -2290,6 +2334,10 @@ export class WebGL2EffectRenderer
         gl.getUniformLocation(diskProgram, 'u_displaySize'),
         this.displayWidth,
         this.displayHeight,
+      );
+      gl.uniform1f(
+        gl.getUniformLocation(diskProgram, 'u_emissionScale'),
+        diskEmissionScale,
       );
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.circleTexture);
@@ -2417,6 +2465,10 @@ export class WebGL2EffectRenderer
         gl.getUniformLocation(ringProgram, 'u_transparentOverlay'),
         transparentOverlay ? 1 : 0,
       );
+      gl.uniform1f(
+        gl.getUniformLocation(ringProgram, 'u_emissionScale'),
+        ringEmissionScale,
+      );
       gl.uniform2f(
         gl.getUniformLocation(ringProgram, 'u_displaySize'),
         this.displayWidth,
@@ -2442,6 +2494,46 @@ export class WebGL2EffectRenderer
     }
 
     gl.disable(gl.BLEND);
+  }
+
+  _renderScaledBloomSource(settings)
+  {
+    const disk = Math.max(0, settings.diskEmissionScale ?? 1);
+    const ring = Math.max(0, settings.ringEmissionScale ?? 1);
+
+    this.bloomSourceFrameReady = false;
+
+    if (disk === 1 && ring === 1)
+    {
+      // Unity 默认值直接复用原 Scene，避免常态增加一张全分辨率 HDR RT。
+      return true;
+    }
+
+    if (!this._ensureBloomSourceTarget())
+    {
+      return false;
+    }
+
+    const gl = this.gl;
+
+    gl.bindFramebuffer(
+      gl.FRAMEBUFFER,
+      this.bloomSourceTarget.framebuffer,
+    );
+    gl.viewport(0, 0, this.sourceWidth, this.sourceHeight);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    this._copySceneBackgroundToTarget(this.bloomSourceTarget);
+
+    // 复用清晰 Scene 的几何与队列，只缩放点击材质的 Bloom RGB。Coverage、
+    // Cross2 目标衰减以及拖尾/碎片发射仍保持 Unity 原顺序和数值。
+    this._drawGeometryBatches(
+      this.programs.scene,
+      settings.outputCompositing === 'browser-overlay',
+      { disk, ring },
+    );
+    this.bloomSourceFrameReady = true;
+    return true;
   }
 
   renderScene(settings = {})
@@ -2472,8 +2564,11 @@ export class WebGL2EffectRenderer
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       this.sceneFrameReady = false;
+      this.bloomSourceFrameReady = false;
       this.sceneOverlayFrameReady = false;
-      this.sceneBackgroundFrameReady = this._copySceneBackgroundToSource();
+      this.sceneBackgroundFrameReady = this._copySceneBackgroundToTarget(
+        this.sourceTarget,
+      );
       this.stats.sceneVertexCount = this.vertexCount +
         this.triangleVertexCount + this.trailVertexCount;
       this.stats.sceneDiskVertexCount = this.sceneDiskVertexCount;
@@ -2496,6 +2591,11 @@ export class WebGL2EffectRenderer
         this.programs.scene,
         settings.outputCompositing === 'browser-overlay',
       );
+
+      if (!this._renderScaledBloomSource(settings))
+      {
+        throw new Error('WebGL2 独立点击 Bloom 源生成失败');
+      }
 
       if (needsCoverageOverlay)
       {
@@ -3757,13 +3857,16 @@ export class WebGL2EffectRenderer
     const gl = this.gl;
     const program = this.programs.prefilter;
     const level = this.levels[0];
+    const sourceTarget = this.bloomSourceFrameReady
+      ? this.bloomSourceTarget
+      : this.sourceTarget;
     const softKnee = Number.isFinite(settings.softKnee)
       ? clamp(settings.softKnee, 0, 1)
       : 0;
     const clampMax = resolveUnityBloomClamp(settings.clamp);
 
     gl.useProgram(program);
-    this._bindTexture(program, 'u_source', this.sourceTarget.texture, 0);
+    this._bindTexture(program, 'u_source', sourceTarget.texture, 0);
     gl.uniform2f(
       gl.getUniformLocation(program, 'u_sourceTexel'),
       1 / this.sourceWidth,
@@ -4048,6 +4151,7 @@ export class WebGL2EffectRenderer
   clear()
   {
     this.sceneFrameReady = false;
+    this.bloomSourceFrameReady = false;
     this.sceneBackgroundFrameReady = false;
     this.stats.vertexCount = 0;
     this.stats.diskVertexCount = 0;

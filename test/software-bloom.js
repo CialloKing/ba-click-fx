@@ -19,6 +19,7 @@ import {
 } from '../src/software-bloom.js';
 import { UNITY_FX_TOUCH } from '../src/config.js';
 import { WebGL2BloomRenderer } from '../src/webgl2-bloom.js';
+import { WebGL2EffectRenderer } from '../src/webgl2-effect.js';
 import {
   applyOverlayAlphaPolicyToImageData,
   resolveOverlayAlpha,
@@ -1433,6 +1434,148 @@ assert(
     resizeRenderer.sourceTarget === null &&
     resizeRenderer.levels.length === 0,
   'WebGL2 renderer 销毁时同时清除目标和失败尺寸缓存',
+);
+
+console.log('\nWebGL2 独立点击 Bloom 源');
+const scaledBloomCalls =
+{
+  createdTargets: 0,
+  copiedTarget: null,
+  draw: null,
+  prefilterTexture: null,
+};
+const scaledBloomGl =
+{
+  FRAMEBUFFER: 0x8D40,
+  COLOR_BUFFER_BIT: 0x4000,
+  bindFramebuffer()
+  {
+  },
+  viewport()
+  {
+  },
+  clearColor()
+  {
+  },
+  clear()
+  {
+  },
+  useProgram()
+  {
+  },
+  getUniformLocation(program, name)
+  {
+    return name;
+  },
+  uniform1f()
+  {
+  },
+  uniform2f()
+  {
+  },
+};
+const scaledBloomRenderer = Object.create(WebGL2EffectRenderer.prototype);
+
+Object.assign(
+  scaledBloomRenderer,
+  {
+    gl: scaledBloomGl,
+    sourceWidth: 64,
+    sourceHeight: 32,
+    width: 32,
+    height: 16,
+    bloomSourceTarget: null,
+    bloomSourceFrameReady: false,
+    sourceTarget:
+    {
+      texture: 'scene-texture',
+    },
+    programs:
+    {
+      scene: 'scene-program',
+      prefilter: 'prefilter-program',
+    },
+    levels:
+    [
+      {
+        width: 32,
+        height: 16,
+        down: 'prefilter-target',
+      },
+    ],
+  },
+);
+scaledBloomRenderer._createTarget = (width, height) =>
+{
+  scaledBloomCalls.createdTargets++;
+  return {
+    width,
+    height,
+    texture: 'scaled-bloom-texture',
+    framebuffer: 'scaled-bloom-framebuffer',
+  };
+};
+scaledBloomRenderer._copySceneBackgroundToTarget = (target) =>
+{
+  scaledBloomCalls.copiedTarget = target;
+  return true;
+};
+scaledBloomRenderer._drawGeometryBatches = (...args) =>
+{
+  scaledBloomCalls.draw = args;
+};
+
+assert(
+  scaledBloomRenderer._renderScaledBloomSource(
+    {
+      outputCompositing: 'browser-overlay',
+      diskEmissionScale: 1,
+      ringEmissionScale: 1,
+    },
+  ) &&
+    scaledBloomCalls.createdTargets === 0 &&
+    !scaledBloomRenderer.bloomSourceFrameReady,
+  'WebGL2 默认 Unity 点击发射直接复用 Scene，不分配额外 HDR 目标',
+);
+assert(
+  scaledBloomRenderer._renderScaledBloomSource(
+    {
+      outputCompositing: 'browser-overlay',
+      diskEmissionScale: 0,
+      ringEmissionScale: 2,
+    },
+  ) &&
+    scaledBloomCalls.createdTargets === 1 &&
+    scaledBloomCalls.copiedTarget ===
+      scaledBloomRenderer.bloomSourceTarget &&
+    scaledBloomCalls.draw?.[0] === 'scene-program' &&
+    scaledBloomCalls.draw?.[1] === true &&
+    scaledBloomCalls.draw?.[2]?.disk === 0 &&
+    scaledBloomCalls.draw?.[2]?.ring === 2 &&
+    scaledBloomRenderer.bloomSourceFrameReady,
+  'WebGL2 非默认倍率复用 Scene 几何并只传入光盘与圆环发射缩放',
+);
+
+scaledBloomRenderer._bindTexture = (program, name, texture) =>
+{
+  if (name === 'u_source')
+  {
+    scaledBloomCalls.prefilterTexture = texture;
+  }
+};
+scaledBloomRenderer._drawFullscreen = () =>
+{
+};
+scaledBloomRenderer._renderPrefilter(
+  {
+    threshold: 1,
+    softKnee: 0,
+    clamp: DEFAULT_BLOOM_CLAMP,
+  },
+);
+assert(
+  scaledBloomCalls.prefilterTexture === 'scaled-bloom-texture',
+  'WebGL2 Bloom Prefilter 读取独立点击发射源而清晰 Scene 保持原值',
 );
 
 const rendererCanvas =
