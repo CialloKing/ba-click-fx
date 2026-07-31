@@ -69,9 +69,9 @@
       <div id="introFAQContent">
         <p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p>
         <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要图片素材；默认使用纯 WebGL2，能力不足时自动回退 Canvas 2D、软件 Bloom 与原生辉光，零外部运行时依赖。</p>
-        <p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 展示页会把内置主题和已解码的自定义图片同步为场景纹理，纯白主题也保留白色场景纹理。关闭“隔离合成”时，纯白会保留接近游戏原始的低可见度；开启时，展示页会自动使用 <code>lightBackgroundContrastAlpha: 0.35</code> 补足网页白底可见性。“启用场景背景”是独立的全局人工覆盖，手动切换后会应用于全部主题和自定义图片。已解码的自定义图片也会通过 <code>setSceneBackground()</code> 参与合成。本地图片选择器会创建当前页面有效的 <code>blob:</code> URL，不需要 CORS，但刷新后需重新选择；手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。任意自定义 CSS 渐变或多图层背景无法可靠自动上传，仍作为普通 DOM 背景显示。</p>
+        <p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 页面主题始终由 CSS 单独显示。特效背景参考可选择“匹配当前页面”或“未知透明背景”：前者把内置主题或已解码图片送入渲染器，后者不读取页面背景并保留透明宿主的 Coverage 合同。纯白主题在关闭“隔离合成”时保留接近游戏原始的低可见度；开启后会自动使用 <code>lightBackgroundContrastAlpha: 0.35</code> 补足网页白底可见性。本地图片选择器会创建当前页面有效的 <code>blob:</code> URL，不需要 CORS，但刷新后需重新选择；手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。任意自定义 CSS 渐变或多图层背景无法可靠自动上传，仍作为普通 DOM 背景显示。</p>
         <p><strong>纯白背景下特效颜色太浅？</strong> 关闭“隔离合成”时会保留游戏原始的低可见度表现；开启后，展示页自动叠加不参与 Bloom 的淡青对比轮廓，使效果在常见网页白底上保持可见。其他宿主也可按需显式设置 <code>lightBackgroundContrastAlpha</code>。</p>
-        <p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>transparent-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应使用 <code>setSceneBackground()</code>。</p>
+        <p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>transparent-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应通过 <code>setCompositingReference()</code> 提供给渲染器。</p>
         <p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和直接 script 引入三种方式。</p>
       </div>
     </details>
@@ -150,11 +150,14 @@ fx.setPaused(true, { clear: true });</code></pre>
           <option value="transparent-overlay">透明覆盖层</option>
         </select>
       </label>
-      <label class="ctrl toggle">
-        <span>启用场景背景</span>
-        <input type="checkbox" id="ctrlSceneBackgroundEnabled" checked />
-        <span class="toggle-track"></span>
+      <label class="ctrl">
+        <span>特效背景参考</span>
+        <select id="ctrlCompositingReference" class="ctrl-select">
+          <option value="match-page" selected>匹配当前页面（精确）</option>
+          <option value="unknown">未知透明背景（兼容）</option>
+        </select>
       </label>
+      <p id="compositingReferenceStatus" class="compositing-reference-status" aria-live="polite"></p>
       <label class="ctrl toggle">
         <span>隔离合成</span>
         <input type="checkbox" id="ctrlIsolatedCompositing" />

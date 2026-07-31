@@ -30,12 +30,18 @@ window.BAClickFXDemo = effect;
 // ── 主题预设 ────────────────────────────────────────────────────────────
 const PURE_WHITE_THEME = '纯白';
 const PURE_WHITE_ISOLATED_CONTRAST_ALPHA = 0.35;
-let sceneBackgroundRequestId = 0;
-let themeSceneCanvas = null;
-let activeThemeScene = null;
-let themeSceneResizeFrame = 0;
+const DEFAULT_COMPOSITING_REFERENCE_MODE = 'match-page';
+const COMPOSITING_REFERENCE_MODES = new Set([
+  'match-page',
+  'unknown',
+]);
+let pageBackgroundRequestId = 0;
+let themeReferenceCanvas = null;
+let activeThemeReference = null;
+let themeReferenceResizeFrame = 0;
 let customBackgroundObjectUrl = null;
-let sceneBackgroundEnabledOverride = null;
+let pageBackgroundRasterSource = null;
+let compositingReferenceMode = DEFAULT_COMPOSITING_REFERENCE_MODE;
 
 function revokeCustomBackgroundObjectUrl(except = null)
 {
@@ -52,91 +58,132 @@ function revokeCustomBackgroundObjectUrl(except = null)
   customBackgroundObjectUrl = null;
 }
 
-function stopThemeSceneBackgroundSync()
+function stopThemeReferenceSync()
 {
-  activeThemeScene = null;
+  activeThemeReference = null;
 
-  if (themeSceneResizeFrame !== 0)
+  if (themeReferenceResizeFrame !== 0)
   {
-    window.cancelAnimationFrame(themeSceneResizeFrame);
-    themeSceneResizeFrame = 0;
+    window.cancelAnimationFrame(themeReferenceResizeFrame);
+    themeReferenceResizeFrame = 0;
   }
 }
 
-function updateThemeSceneBackground()
+function hasMatchedCompositingReference()
 {
-  if (!activeThemeScene)
+  return compositingReferenceMode === 'match-page' &&
+    pageBackgroundRasterSource !== null &&
+    effect.compositingReferenceSource === pageBackgroundRasterSource;
+}
+
+function updateCompositingReferenceStatus()
+{
+  const status = document.getElementById('compositingReferenceStatus');
+
+  if (!status)
+  {
+    return;
+  }
+
+  const d = I18N[currentLang] || I18N.zh;
+
+  if (compositingReferenceMode === 'unknown')
+  {
+    status.textContent = d.compositingReferenceUnknownStatus;
+    return;
+  }
+
+  status.textContent = hasMatchedCompositingReference()
+    ? d.compositingReferenceMatchedStatus
+    : d.compositingReferenceUnavailableStatus;
+}
+
+function syncCompositingReference()
+{
+  const source = compositingReferenceMode === 'match-page'
+    ? pageBackgroundRasterSource
+    : null;
+  const applied = effect.setCompositingReference(source, { fit: 'cover' });
+
+  // 页面主题仍由 CSS 管理；只有参考真的与它匹配时才移除未参与合成的装饰网格。
+  document.body.classList.toggle(
+    'compositing-reference-matched',
+    hasMatchedCompositingReference(),
+  );
+  updateCompositingReferenceStatus();
+  return applied;
+}
+
+function updateThemeCompositingReference()
+{
+  if (!activeThemeReference)
   {
     return false;
   }
 
-  if (!themeSceneCanvas)
+  if (!themeReferenceCanvas)
   {
-    themeSceneCanvas = document.createElement('canvas');
+    themeReferenceCanvas = document.createElement('canvas');
   }
 
   const width = Math.max(1, window.innerWidth || 1);
   const height = Math.max(1, window.innerHeight || 1);
   const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
   const rendered = renderThemeSceneBackground(
-    themeSceneCanvas,
-    activeThemeScene,
+    themeReferenceCanvas,
+    activeThemeReference,
     width,
     height,
     pixelRatio,
   );
 
-  if (!rendered || !effect.setSceneBackground(themeSceneCanvas, { fit: 'cover' }))
+  if (!rendered)
   {
-    effect.setSceneBackground(null);
-    syncSceneBackgroundSourceClass();
+    pageBackgroundRasterSource = null;
+    syncCompositingReference();
     return false;
   }
 
-  syncSceneBackgroundSourceClass();
-  return true;
+  pageBackgroundRasterSource = themeReferenceCanvas;
+  return syncCompositingReference();
 }
 
-function applyThemeSceneBackground(name)
+function applyThemeCompositingReference(name)
 {
-  applySceneBackgroundEnabledForTheme();
-  sceneBackgroundRequestId++;
-  activeThemeScene = name;
-  return updateThemeSceneBackground();
+  pageBackgroundRequestId++;
+  activeThemeReference = name;
+
+  // 主题换图必须先撤销旧参考，避免上传失败时继续按上一主题的像素合成。
+  themeReferenceCanvas = null;
+  pageBackgroundRasterSource = null;
+  syncCompositingReference();
+  return updateThemeCompositingReference();
 }
 
-function scheduleThemeSceneBackgroundSync()
+function scheduleThemeReferenceSync()
 {
-  if (!activeThemeScene || themeSceneResizeFrame !== 0)
+  if (!activeThemeReference || themeReferenceResizeFrame !== 0)
   {
     return;
   }
 
-  themeSceneResizeFrame = window.requestAnimationFrame(() =>
+  themeReferenceResizeFrame = window.requestAnimationFrame(() =>
   {
-    themeSceneResizeFrame = 0;
-    updateThemeSceneBackground();
+    themeReferenceResizeFrame = 0;
+    updateThemeCompositingReference();
   });
 }
 
-window.addEventListener('resize', scheduleThemeSceneBackgroundSync);
+window.addEventListener('resize', scheduleThemeReferenceSync);
 
-function clearSceneBackground()
+function applyPageCompositingReferenceImage(url)
 {
-  sceneBackgroundRequestId++;
-  stopThemeSceneBackgroundSync();
-  effect.setSceneBackground(null);
-  syncSceneBackgroundSourceClass();
-}
+  const requestId = ++pageBackgroundRequestId;
 
-function applySceneBackgroundImage(url)
-{
-  const requestId = ++sceneBackgroundRequestId;
-
-  // 背景切换时不能继续用旧纹理求差值，否则首个加载帧会使用不匹配的场景。
-  stopThemeSceneBackgroundSync();
-  effect.setSceneBackground(null);
-  syncSceneBackgroundSourceClass();
+  // 背景切换期间不能继续用旧参考求差值，否则首个加载帧会使用不匹配的页面。
+  stopThemeReferenceSync();
+  pageBackgroundRasterSource = null;
+  syncCompositingReference();
 
   if (!url)
   {
@@ -154,7 +201,7 @@ function applySceneBackgroundImage(url)
   image.addEventListener('load', () =>
   {
     if (
-      requestId !== sceneBackgroundRequestId ||
+      requestId !== pageBackgroundRequestId ||
       image.naturalWidth <= 0 ||
       image.naturalHeight <= 0
     )
@@ -162,19 +209,16 @@ function applySceneBackgroundImage(url)
       return;
     }
 
-    if (effect.setSceneBackground(image, { fit: 'cover' }))
-    {
-      // 装饰网格不属于宿主栅格源，严格 Scene 路径下必须移除。
-      syncSceneBackgroundSourceClass();
-    }
+    pageBackgroundRasterSource = image;
+    syncCompositingReference();
   }, { once: true });
   image.addEventListener('error', () =>
   {
-    if (requestId === sceneBackgroundRequestId)
+    if (requestId === pageBackgroundRequestId)
     {
-      // CSS 背景仍可显示；无 CORS 时所有需要栅格 Scene 的后端保持 DOM 回退。
-      effect.setSceneBackground(null);
-      syncSceneBackgroundSourceClass();
+      // CSS 页面背景仍可显示；无 CORS 时明确停留在未知背景兼容模式。
+      pageBackgroundRasterSource = null;
+      syncCompositingReference();
     }
   }, { once: true });
   image.src = url.href;
@@ -206,44 +250,6 @@ function selectTheme(name)
     button.classList.toggle('active', button.dataset.theme === name);
   });
   setCustomBackgroundControlsVisible(name === 'custom');
-}
-
-function syncSceneBackgroundSourceClass()
-{
-  const sceneBackgroundEnabled =
-    effect.getConfig().sceneBackgroundEnabled;
-
-  document.body.classList.toggle(
-    'scene-background-source',
-    sceneBackgroundEnabled && effect.sceneBackgroundSource !== null,
-  );
-}
-
-function resolveThemeSceneBackgroundEnabled()
-{
-  // 自动策略保留所有主题的 Scene 栅格源。纯白是否补足网页可见性由隔离合成处理，
-  // 不能再通过关闭 Scene 源把两种语义混在一起。
-  return sceneBackgroundEnabledOverride ?? true;
-}
-
-function applySceneBackgroundEnabled(enabled)
-{
-  const applied = effect.setSceneBackgroundEnabled(enabled);
-  const actualEnabled = effect.getConfig().sceneBackgroundEnabled;
-  const control = document.getElementById('ctrlSceneBackgroundEnabled');
-
-  if (control)
-  {
-    control.checked = actualEnabled;
-  }
-
-  syncSceneBackgroundSourceClass();
-  return applied;
-}
-
-function applySceneBackgroundEnabledForTheme()
-{
-  return applySceneBackgroundEnabled(resolveThemeSceneBackgroundEnabled());
 }
 
 function resolvePureWhiteContrastAlpha(isolatedCompositing)
@@ -296,7 +302,7 @@ function applyTheme(name)
   document.body.style.backgroundAttachment = 'fixed';
   document.body.classList.toggle('theme-pure-white', name === PURE_WHITE_THEME);
   syncPureWhiteIsolationContrast();
-  applyThemeSceneBackground(name);
+  applyThemeCompositingReference(name);
   selectTheme(name);
   return true;
 }
@@ -331,7 +337,7 @@ function resolveCustomBackground(value)
     : null;
 }
 
-function resolveSceneBackgroundUrl(value)
+function resolveCompositingReferenceUrl(value)
 {
   const trimmed = value.trim();
 
@@ -391,8 +397,7 @@ function applyCustomBackground(value, persist = true)
   document.body.style.background = resolved;
   document.body.classList.remove('theme-pure-white');
   syncPureWhiteIsolationContrast();
-  applySceneBackgroundEnabledForTheme();
-  applySceneBackgroundImage(resolveSceneBackgroundUrl(rawValue));
+  applyPageCompositingReferenceImage(resolveCompositingReferenceUrl(rawValue));
   revokeCustomBackgroundObjectUrl(rawValue);
 
   if (input)
@@ -543,19 +548,35 @@ bindRange('ctrlDpr', 'outDpr', (value) =>
 
 bindToggle('ctrlIsolatedCompositing', applyIsolatedCompositing);
 
-const ctrlSceneBackgroundEnabled =
-  document.getElementById('ctrlSceneBackgroundEnabled');
+const ctrlCompositingReference =
+  document.getElementById('ctrlCompositingReference');
 
-if (ctrlSceneBackgroundEnabled)
+function applyCompositingReferenceMode(mode)
 {
-  ctrlSceneBackgroundEnabled.addEventListener('change', () =>
+  const resolved = COMPOSITING_REFERENCE_MODES.has(mode)
+    ? mode
+    : DEFAULT_COMPOSITING_REFERENCE_MODE;
+
+  compositingReferenceMode = resolved;
+
+  if (ctrlCompositingReference)
   {
-    sceneBackgroundEnabledOverride = ctrlSceneBackgroundEnabled.checked;
-    applySceneBackgroundEnabled(sceneBackgroundEnabledOverride);
-    localStorage.setItem(
-      'bafx-ctrlSceneBackgroundEnabled',
-      String(sceneBackgroundEnabledOverride),
+    ctrlCompositingReference.value = resolved;
+  }
+
+  syncCompositingReference();
+  return resolved;
+}
+
+if (ctrlCompositingReference)
+{
+  ctrlCompositingReference.addEventListener('change', () =>
+  {
+    const resolved = applyCompositingReferenceMode(
+      ctrlCompositingReference.value,
     );
+
+    localStorage.setItem('bafx-ctrlCompositingReference', resolved);
   });
 }
 
@@ -1012,7 +1033,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlPaused').checked = false;
   document.getElementById('ctrlPauseClear').checked = false;
   document.getElementById('ctrlIsolatedCompositing').checked = false;
-  document.getElementById('ctrlSceneBackgroundEnabled').checked = true;
+  document.getElementById('ctrlCompositingReference').value =
+    DEFAULT_COMPOSITING_REFERENCE_MODE;
   document.getElementById('ctrlClick').checked = true;
   document.getElementById('ctrlTrail').checked = true;
   document.getElementById('ctrlTrailAlways').checked = false;
@@ -1085,8 +1107,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   effect.resetFxConfig();
   effect.setPaused(false);
   applyInputSource('dom', false);
-  // 重置回每个主题自己的默认策略，而不是沿用此前的全局人工覆盖。
-  sceneBackgroundEnabledOverride = null;
+  compositingReferenceMode = DEFAULT_COMPOSITING_REFERENCE_MODE;
 
   effect.updateConfig(
     {
@@ -1253,7 +1274,12 @@ const I18N = {
     labelOutputCompositing: '输出合成',
     outputCompositingScene: '场景合成',
     outputCompositingTransparentOverlay: '透明覆盖层',
-    labelSceneBackgroundEnabled: '启用场景背景',
+    labelCompositingReference: '特效背景参考',
+    compositingReferenceMatchPage: '匹配当前页面（精确）',
+    compositingReferenceUnknown: '未知透明背景（兼容）',
+    compositingReferenceMatchedStatus: '正在使用与当前页面匹配的合成参考。',
+    compositingReferenceUnknownStatus: '未知背景兼容输出：亮度会随宿主背景变化。',
+    compositingReferenceUnavailableStatus: '当前页面背景无法作为合成参考，已使用未知背景输出。',
     labelIsolatedCompositing: '隔离合成',
     hostApiSummary: '宿主控制 API',
     labelInputSource: '输入来源',
@@ -1322,7 +1348,7 @@ const I18N = {
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.15/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 展示页会把内置主题和已解码的自定义图片同步为场景纹理，纯白主题也保留白色场景纹理。关闭“隔离合成”时，纯白会保留接近游戏原始的低可见度；开启时，展示页会自动使用 <code>lightBackgroundContrastAlpha: 0.35</code> 补足网页白底可见性。“启用场景背景”是独立的全局人工覆盖，手动切换后会应用于全部主题和自定义图片。已解码图片通过 <code>setSceneBackground(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；本地图片选择器会生成当前页面的 <code>blob:</code> URL，不需要 CORS，但刷新后需要重新选择。手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。</p><p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>transparent-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应使用 <code>setSceneBackground()</code>。</p><p><strong>纯白背景下特效颜色太浅？</strong> 关闭“隔离合成”时会保留游戏原始的低可见度表现；开启后，展示页自动叠加不参与 Bloom 的淡青对比轮廓，使效果在常见网页白底上保持可见。其他宿主也可按需显式设置 <code>lightBackgroundContrastAlpha</code>。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 页面主题始终由 CSS 单独显示。“特效背景参考”可选“匹配当前页面”或“未知透明背景”：前者把内置主题或已解码图片传入渲染器，后者调用 <code>setCompositingReference(null)</code> 并保留透明宿主的 Coverage 合同。纯白主题在关闭“隔离合成”时保留接近游戏原始的低可见度；开启后会自动使用 <code>lightBackgroundContrastAlpha: 0.35</code> 补足网页白底可见性。已解码图片通过 <code>setCompositingReference(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；本地图片选择器会生成当前页面的 <code>blob:</code> URL，不需要 CORS，但刷新后需要重新选择。手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。</p><p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>transparent-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应通过 <code>setCompositingReference()</code> 提供给渲染器。</p><p><strong>纯白背景下特效颜色太浅？</strong> 关闭“隔离合成”时会保留游戏原始的低可见度表现；开启后，展示页自动叠加不参与 Bloom 的淡青对比轮廓，使效果在常见网页白底上保持可见。其他宿主也可按需显式设置 <code>lightBackgroundContrastAlpha</code>。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
     introHostApiSummary: '宿主控制 API / Host Control API',
   },
   en: {
@@ -1348,7 +1374,12 @@ const I18N = {
     labelOutputCompositing: 'Output Compositing',
     outputCompositingScene: 'Scene',
     outputCompositingTransparentOverlay: 'Transparent Overlay',
-    labelSceneBackgroundEnabled: 'Enable Scene Background',
+    labelCompositingReference: 'Effect Reference',
+    compositingReferenceMatchPage: 'Current Page (Exact)',
+    compositingReferenceUnknown: 'Unknown Background',
+    compositingReferenceMatchedStatus: 'Using a compositing reference matched to the current page.',
+    compositingReferenceUnknownStatus: 'Unknown-background output: brightness varies with the host background.',
+    compositingReferenceUnavailableStatus: 'The current page cannot provide a compositing reference; using unknown-background output.',
     labelIsolatedCompositing: 'Isolated Compositing',
     hostApiSummary: 'Host Control API',
     labelInputSource: 'Input Source',
@@ -1417,7 +1448,7 @@ const I18N = {
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.15/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How do built-in themes and custom images join the game-style composite?</strong> The demo synchronizes built-in themes and decoded custom images as scene textures, including the white scene texture for Pure White. With Isolated Compositing off, Pure White keeps the lower-visibility result closest to the game original. With it on, the demo automatically uses <code>lightBackgroundContrastAlpha: 0.35</code> to keep the effect visible on ordinary web white backgrounds. Enable Scene Background is an independent global manual override; once changed, it applies to every theme and custom image. Decoded images are passed to <code>setSceneBackground(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. The local-image picker creates a page-session <code>blob:</code> URL, so it needs no CORS but must be selected again after a reload. A typed <code>file://</code> URL is passed through for desktop hosts that permit both local-protocol reads and Canvas/WebGL texture use; regular HTTP/HTTPS pages remain subject to browser local-resource permissions and should use the local-image picker.</p><p><strong>Which compositing mode should a transparent desktop use?</strong> The demo and strict game reproduction keep the default <code>scene</code>; transparent hosts such as BASpark, WebView2, and Electron select <code>transparent-overlay</code> explicitly. Over an unknown background, standard <code>source-over</code> cannot simultaneously provide strict Unity additive RGB, pure Coverage alpha, and no white-background darkening. Isolation cannot read desktop pixels; use <code>setSceneBackground()</code> for a known background.</p><p><strong>Effects look washed out on a pure white background?</strong> With Isolated Compositing off, the demo preserves the game-original lower-visibility result. With it on, the demo adds a pale-cyan contrast outline outside Bloom so the effect remains visible on ordinary web white backgrounds. Other hosts can set <code>lightBackgroundContrastAlpha</code> explicitly as needed.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How do built-in themes and custom images join the game-style composite?</strong> The page theme always remains a separate CSS concern. Effect Reference offers Current Page or Unknown Background: the former supplies a built-in theme or decoded image to the renderer, while the latter calls <code>setCompositingReference(null)</code> and preserves the Coverage contract for a transparent host. With Isolated Compositing off, Pure White keeps the lower-visibility result closest to the game original. With it on, the demo automatically uses <code>lightBackgroundContrastAlpha: 0.35</code> to keep the effect visible on ordinary web white backgrounds. Decoded images are passed to <code>setCompositingReference(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. The local-image picker creates a page-session <code>blob:</code> URL, so it needs no CORS but must be selected again after a reload. A typed <code>file://</code> URL is passed through for desktop hosts that permit both local-protocol reads and Canvas/WebGL texture use; regular HTTP/HTTPS pages remain subject to browser local-resource permissions and should use the local-image picker.</p><p><strong>Which compositing mode should a transparent desktop use?</strong> The demo and strict game reproduction keep the default <code>scene</code>; transparent hosts such as BASpark, WebView2, and Electron select <code>transparent-overlay</code> explicitly. Over an unknown background, standard <code>source-over</code> cannot simultaneously provide strict Unity additive RGB, pure Coverage alpha, and no white-background darkening. Isolation cannot read desktop pixels; provide a known background with <code>setCompositingReference()</code>.</p><p><strong>Effects look washed out on a pure white background?</strong> With Isolated Compositing off, the demo preserves the game-original lower-visibility result. With it on, the demo adds a pale-cyan contrast outline outside Bloom so the effect remains visible on ordinary web white backgrounds. Other hosts can set <code>lightBackgroundContrastAlpha</code> explicitly as needed.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
     introHostApiSummary: 'Host Control API / 宿主控制 API',
   },
 };
@@ -1494,7 +1525,7 @@ function switchLanguage(lang)
     ctrlDpr: d.labelDpr,
     ctrlRenderMode: d.labelRenderMode,
     ctrlOutputCompositing: d.labelOutputCompositing,
-    ctrlSceneBackgroundEnabled: d.labelSceneBackgroundEnabled,
+    ctrlCompositingReference: d.labelCompositingReference,
     ctrlIsolatedCompositing: d.labelIsolatedCompositing,
     ctrlInputSource: d.labelInputSource,
     ctrlClickTimeScale: d.labelClickTimeScale,
@@ -1604,6 +1635,19 @@ function switchLanguage(lang)
     }
   });
 
+  const compositingReferenceOptions = {
+    'match-page': d.compositingReferenceMatchPage,
+    unknown: d.compositingReferenceUnknown,
+  };
+
+  document.querySelectorAll('#ctrlCompositingReference option').forEach((option) =>
+  {
+    if (compositingReferenceOptions[option.value])
+    {
+      option.textContent = compositingReferenceOptions[option.value];
+    }
+  });
+
   const inputSourceOptions = {
     dom: d.inputSourceDom,
     manual: d.inputSourceManual,
@@ -1635,6 +1679,7 @@ function switchLanguage(lang)
   document.getElementById('introFAQContent').innerHTML = d.introFAQContent;
   document.getElementById('introHostApiSummary').textContent = d.introHostApiSummary;
   updateRenderBackendStatus();
+  updateCompositingReferenceStatus();
   updateHostApiStatus();
 }
 
@@ -1742,15 +1787,11 @@ switchLanguage(currentLang);
     applyIsolatedCompositing(isolated);
   }
 
-  const savedSceneBackgroundEnabled = localStorage.getItem(
-    'bafx-ctrlSceneBackgroundEnabled',
+  const savedCompositingReference = localStorage.getItem(
+    'bafx-ctrlCompositingReference',
   );
 
-  if (savedSceneBackgroundEnabled !== null)
-  {
-    sceneBackgroundEnabledOverride = savedSceneBackgroundEnabled === 'true';
-    applySceneBackgroundEnabled(sceneBackgroundEnabledOverride);
-  }
+  applyCompositingReferenceMode(savedCompositingReference);
 
   if (localStorage.getItem('bafx-ctrlTrail') === 'false')
   {

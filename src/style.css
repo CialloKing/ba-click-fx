@@ -36,7 +36,7 @@ body::before {
   z-index: 0;
 }
 
-body.scene-background-source::before,
+body.compositing-reference-matched::before,
 body.theme-pure-white::before {
   display: none;
 }
@@ -418,7 +418,8 @@ kbd {
   font-size: 12px;
 }
 
-.render-backend-status
+.render-backend-status,
+.compositing-reference-status
 {
   margin: -4px 0 10px;
   color: rgba(125, 239, 255, 0.68);
@@ -465,6 +466,11 @@ kbd {
     background-color 0.18s ease,
     border-color 0.18s ease,
     box-shadow 0.18s ease;
+}
+
+#ctrlCompositingReference
+{
+  width: 164px;
 }
 
 .ctrl-select:hover

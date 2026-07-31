@@ -787,7 +787,7 @@ export class WebGL2CanvasSceneRenderer
     return true;
   }
 
-  setSceneBackground(source, options = {})
+  setCompositingReference(source, options = {})
   {
     if (options.fit !== undefined && options.fit !== 'cover')
     {

@@ -1714,7 +1714,7 @@ export class WebGL2EffectRenderer
     return true;
   }
 
-  setSceneBackground(source, options = {})
+  setCompositingReference(source, options = {})
   {
     if (source === null)
     {

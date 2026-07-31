@@ -715,7 +715,7 @@ function isCanvas(value)
   return value?.tagName?.toLowerCase?.() === 'canvas';
 }
 
-function getSceneBackgroundDimensions(source)
+function getCompositingReferenceDimensions(source)
 {
   if (!source)
   {
@@ -4935,7 +4935,6 @@ export class BAClickFX
    * @param {number} [options.clickTimeScale]
    * @param {number} [options.trailTimeScale]
    * @param {'scene'|'transparent-overlay'} [options.outputCompositing]
-   * @param {boolean} [options.sceneBackgroundEnabled]
    * @param {'canvas2d'|'webgl2'|'auto'} [options.effectBackend]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
@@ -4991,9 +4990,6 @@ export class BAClickFX
         outputCompositing: isOutputCompositing(options.outputCompositing)
           ? options.outputCompositing
           : CONFIG.outputCompositing,
-        sceneBackgroundEnabled: typeof options.sceneBackgroundEnabled === 'boolean'
-          ? options.sceneBackgroundEnabled
-          : CONFIG.sceneBackgroundEnabled,
         effectBackend: normalizeEffectBackend(
           options.effectBackend,
           compatibilityEffectBackend,
@@ -5038,8 +5034,8 @@ export class BAClickFX
     this.canvasSceneRenderer = null;
     this.canvasSceneUnavailable = false;
     this.canvasSceneVisible = false;
-    this.sceneBackgroundSource = null;
-    this.sceneBackgroundFit = 'cover';
+    this.compositingReferenceSource = null;
+    this.compositingReferenceFit = 'cover';
 
     if (!this.canvas)
     {
@@ -6575,16 +6571,16 @@ export class BAClickFX
         return false;
       }
 
-      const sceneBackground = this._getActiveSceneBackgroundSource();
+      const compositingReference = this.compositingReferenceSource;
 
-      if (sceneBackground !== null)
+      if (compositingReference !== null)
       {
-        const backgroundReady = renderer.setSceneBackground(
-          sceneBackground,
-          { fit: this.sceneBackgroundFit },
+        const referenceReady = renderer.setCompositingReference(
+          compositingReference,
+          { fit: this.compositingReferenceFit },
         );
 
-        if (!backgroundReady)
+        if (!referenceReady)
         {
           // 候选 Renderer 未接入规范背景时不能宣称 Scene 已就绪。
           this.webglEffectUnavailable = true;
@@ -6736,7 +6732,7 @@ export class BAClickFX
     }
 
     if (
-      !this._hasActiveSceneBackground() ||
+      !this._hasCompositingReference() ||
       !this._hasVisibleEffects()
     )
     {
@@ -6800,16 +6796,16 @@ export class BAClickFX
         return false;
       }
 
-      const sceneBackground = this._getActiveSceneBackgroundSource();
+      const compositingReference = this.compositingReferenceSource;
 
-      if (sceneBackground !== null)
+      if (compositingReference !== null)
       {
-        const backgroundReady = renderer.setSceneBackground(
-          sceneBackground,
-          { fit: this.sceneBackgroundFit },
+        const referenceReady = renderer.setCompositingReference(
+          compositingReference,
+          { fit: this.compositingReferenceFit },
         );
 
-        if (!backgroundReady)
+        if (!referenceReady)
         {
           this.canvasSceneUnavailable = true;
           renderer.destroy();
@@ -6854,7 +6850,7 @@ export class BAClickFX
     if (
       useWebGLClickEffects ||
       (!legacy && bloomBackend !== 'native') ||
-      !this._hasActiveSceneBackground()
+      !this._hasCompositingReference()
     )
     {
       return false;
@@ -6965,16 +6961,16 @@ export class BAClickFX
         return false;
       }
 
-      const sceneBackground = this._getActiveSceneBackgroundSource();
+      const compositingReference = this.compositingReferenceSource;
 
-      if (sceneBackground !== null)
+      if (compositingReference !== null)
       {
-        const backgroundReady = renderer.setSceneBackground(
-          sceneBackground,
-          { fit: this.sceneBackgroundFit },
+        const referenceReady = renderer.setCompositingReference(
+          compositingReference,
+          { fit: this.compositingReferenceFit },
         );
 
-        if (!backgroundReady)
+        if (!referenceReady)
         {
           this.webglBloomUnavailable = true;
           renderer.destroy();
@@ -8873,11 +8869,6 @@ export class BAClickFX
       this.canvas.style.touchAction = overrides.touchAction;
     }
 
-    if (typeof overrides.sceneBackgroundEnabled === 'boolean')
-    {
-      this.setSceneBackgroundEnabled(overrides.sceneBackgroundEnabled);
-    }
-
     this._requestRender();
   }
 
@@ -8989,19 +8980,12 @@ export class BAClickFX
     this.canvasSceneRenderer?.clear();
   }
 
-  _getActiveSceneBackgroundSource()
+  _hasCompositingReference()
   {
-    return this.config.sceneBackgroundEnabled
-      ? this.sceneBackgroundSource
-      : null;
+    return this.compositingReferenceSource !== null;
   }
 
-  _hasActiveSceneBackground()
-  {
-    return this._getActiveSceneBackgroundSource() !== null;
-  }
-
-  _applySceneBackgroundToRenderers(
+  _applyCompositingReferenceToRenderers(
     source,
     fit,
     previousSource,
@@ -9047,7 +9031,7 @@ export class BAClickFX
 
       try
       {
-        accepted = entry.renderer.setSceneBackground(source, { fit });
+        accepted = entry.renderer.setCompositingReference(source, { fit });
       }
       catch (error)
       {
@@ -9077,7 +9061,7 @@ export class BAClickFX
 
       try
       {
-        restored = entry.renderer.setSceneBackground(
+        restored = entry.renderer.setCompositingReference(
           previousSource,
           { fit: previousFit },
         );
@@ -9109,10 +9093,10 @@ export class BAClickFX
   }
 
   /**
-   * 为 WebGL2 Scene 提供特效下方的真实不透明栅格场景；调用方负责解码与 CORS。
+   * 为 WebGL2 Scene 提供特效下方的真实不透明栅格参考；调用方负责解码与 CORS。
    * 资源对象不进入 getConfig()，避免配置快照持有宿主 DOM 生命周期。
    */
-  setSceneBackground(source, options = {})
+  setCompositingReference(source, options = {})
   {
     if (this.destroyed)
     {
@@ -9126,20 +9110,19 @@ export class BAClickFX
       return false;
     }
 
-    if (source !== null && !getSceneBackgroundDimensions(source))
+    if (source !== null && !getCompositingReferenceDimensions(source))
     {
       return false;
     }
 
-    const previousSource = this._getActiveSceneBackgroundSource();
-    const previousFit = this.sceneBackgroundFit;
-    const activeSource = this.config.sceneBackgroundEnabled ? source : null;
+    const previousSource = this.compositingReferenceSource;
+    const previousFit = this.compositingReferenceFit;
     const invalidatesVisibleOutput = this.webglEffectVisible ||
       this.webglBloomVisible ||
       this.canvasSceneVisible;
 
-    if (!this._applySceneBackgroundToRenderers(
-      activeSource,
+    if (!this._applyCompositingReferenceToRenderers(
+      source,
       fit,
       previousSource,
       previousFit,
@@ -9149,80 +9132,26 @@ export class BAClickFX
       return false;
     }
 
-    this.sceneBackgroundSource = source;
-    this.sceneBackgroundFit = fit;
-    // 显式提供新背景后，允许此前单次上传失败的候选后端重新尝试。
-    this.webglEffectUnavailable = false;
-    this.webglBloomUnavailable = false;
-    this.canvasSceneUnavailable = false;
-
-    if (invalidatesVisibleOutput)
+    this.compositingReferenceSource = source;
+    this.compositingReferenceFit = fit;
+    if (source !== null)
     {
-      this._invalidateSceneBackgroundOutputs();
-    }
-
-    if (activeSource === null)
-    {
-      // 暂停背景合成时 Canvas Final Pass 不会参与任何渲染链，
-      // 立即归还其全尺寸上传纹理，保留静态 Program 供下次背景复用。
-      this.canvasSceneRenderer?.releaseFrameResources();
-    }
-
-    this._requestRender();
-    return true;
-  }
-
-  /**
-   * 暂停或恢复当前栅格场景的渲染，不释放已由 setSceneBackground() 接受的源。
-   * @param {boolean} enabled
-   * @returns {boolean}
-   */
-  setSceneBackgroundEnabled(enabled)
-  {
-    if (this.destroyed || typeof enabled !== 'boolean')
-    {
-      return false;
-    }
-
-    if (enabled === this.config.sceneBackgroundEnabled)
-    {
-      return true;
-    }
-
-    const previousSource = this._getActiveSceneBackgroundSource();
-    const activeSource = enabled ? this.sceneBackgroundSource : null;
-    const invalidatesVisibleOutput = this.webglEffectVisible ||
-      this.webglBloomVisible ||
-      this.canvasSceneVisible;
-
-    if (!this._applySceneBackgroundToRenderers(
-      activeSource,
-      this.sceneBackgroundFit,
-      previousSource,
-      this.sceneBackgroundFit,
-      invalidatesVisibleOutput,
-    ))
-    {
-      return false;
-    }
-
-    this.config.sceneBackgroundEnabled = enabled;
-
-    if (activeSource !== null)
-    {
-      // 重新接入相同背景也应允许已丢弃的候选后端再次进行完整上传验证。
+      // 显式提供新参考后，允许此前单次上传失败的候选后端重新尝试。
       this.webglEffectUnavailable = false;
       this.webglBloomUnavailable = false;
       this.canvasSceneUnavailable = false;
     }
-    else
-    {
-      this.canvasSceneRenderer?.releaseFrameResources();
-    }
 
     if (invalidatesVisibleOutput)
     {
       this._invalidateSceneBackgroundOutputs();
+    }
+
+    if (source === null)
+    {
+      // 未知背景合同不需要 Canvas Final Pass；立即归还其全尺寸上传纹理，
+      // 保留静态 Program 供下次参考图接入。
+      this.canvasSceneRenderer?.releaseFrameResources();
     }
 
     this._requestRender();
@@ -9293,7 +9222,7 @@ export class BAClickFX
     this.webglBloomVisible = false;
     this.canvasSceneCanvas = null;
     this.canvasSceneVisible = false;
-    this.sceneBackgroundSource = null;
+    this.compositingReferenceSource = null;
     this.overlayParent = null;
     this.overlayMountParent = null;
     this.overlayRoot = null;
