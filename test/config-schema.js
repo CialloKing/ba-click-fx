@@ -13,7 +13,13 @@ import {
   FX_PARAM_SCHEMA_VERSION,
   UNITY_FX_TOUCH,
   createConfig,
+  isHostCompositing,
+  isOverlayAlphaLimit,
+  isUnknownBackgroundAppearance,
+  normalizeHostCompositing,
+  normalizeOverlayAlphaLimit,
   normalizeThemeColor,
+  normalizeUnknownBackgroundAppearance,
 } from '../src/config.js';
 
 let passed = 0;
@@ -201,6 +207,75 @@ check(
   createConfig({ themeColor: '#FF6969' }).themeColor === '#ff6969' &&
     createConfig({ themeColor: 'red' }).themeColor === DEFAULT_THEME_COLOR,
   '构造配置保存合法主题色并拒绝非十六进制颜色',
+);
+
+console.log('\n透明合成配置合同');
+check(
+  CONFIG.unknownBackgroundAppearance === 'coverage' &&
+    CONFIG.overlayAlphaLimit === 250 / 255 &&
+    CONFIG.hostCompositing === 'source-over',
+  '透明合成配置使用 Coverage、250/255 与 source-over 默认值',
+);
+check(
+  isUnknownBackgroundAppearance('coverage') &&
+    isUnknownBackgroundAppearance('bright') &&
+    !isUnknownBackgroundAppearance('auto') &&
+    normalizeUnknownBackgroundAppearance('invalid') === 'coverage',
+  '未知背景外观只接受 coverage 与 bright',
+);
+check(
+  isHostCompositing('source-over') &&
+    isHostCompositing('plus-lighter') &&
+    !isHostCompositing('screen') &&
+    normalizeHostCompositing('invalid') === 'source-over',
+  '宿主合成只接受 source-over 与 plus-lighter',
+);
+check(
+  isOverlayAlphaLimit(0) &&
+    isOverlayAlphaLimit(1) &&
+    !isOverlayAlphaLimit(-0.01) &&
+    !isOverlayAlphaLimit(1.01) &&
+    !isOverlayAlphaLimit(Number.NaN),
+  '覆盖层 Alpha 合法性限制为有限的 0..1',
+);
+check(
+  normalizeOverlayAlphaLimit(-1) === 0 &&
+    normalizeOverlayAlphaLimit(2) === 1 &&
+    normalizeOverlayAlphaLimit(0.5) === 0.5 &&
+    normalizeOverlayAlphaLimit(Number.POSITIVE_INFINITY) === 250 / 255 &&
+    normalizeOverlayAlphaLimit(Number.NaN, 2) === 1,
+  '覆盖层 Alpha 钳制有限值并让非有限值恢复默认值',
+);
+
+const transparentCompositingConfig = createConfig(
+  {
+    unknownBackgroundAppearance: 'bright',
+    overlayAlphaLimit: 2,
+    hostCompositing: 'plus-lighter',
+  },
+);
+const invalidTransparentCompositingConfig = createConfig(
+  {
+    unknownBackgroundAppearance: 'auto',
+    overlayAlphaLimit: '0.5',
+    hostCompositing: 'screen',
+  },
+);
+
+check(
+  transparentCompositingConfig.unknownBackgroundAppearance === 'bright' &&
+    transparentCompositingConfig.overlayAlphaLimit === 1 &&
+    transparentCompositingConfig.hostCompositing === 'plus-lighter',
+  '构造配置保留合法透明合成选项并钳制 Alpha',
+);
+check(
+  invalidTransparentCompositingConfig.unknownBackgroundAppearance ===
+      CONFIG.unknownBackgroundAppearance &&
+    invalidTransparentCompositingConfig.overlayAlphaLimit ===
+      CONFIG.overlayAlphaLimit &&
+    invalidTransparentCompositingConfig.hostCompositing ===
+      CONFIG.hostCompositing,
+  '构造配置拒绝非法透明合成选项和非数值 Alpha',
 );
 
 console.log(`\n参数 Schema 测试完成：${passed} 项通过。`);

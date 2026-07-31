@@ -5,6 +5,8 @@ declare module 'ba-click-fx'
   export type BAClickFXPointerType = 'mouse' | 'touch' | 'pen';
   export type BAClickFXOutputCompositing =
     'scene' | 'browser-overlay';
+  export type BAClickFXUnknownBackgroundAppearance = 'coverage' | 'bright';
+  export type BAClickFXHostCompositing = 'source-over' | 'plus-lighter';
   export type BAClickFXEffectBackend = 'canvas2d' | 'webgl2' | 'auto';
   export type BAClickFXResolvedEffectBackend =
     Exclude<BAClickFXEffectBackend, 'auto'> | 'pending';
@@ -66,6 +68,12 @@ declare module 'ba-click-fx'
     themeColor?: string;
     /** 输出合成：默认 'scene'；透明桌面覆盖层使用 'browser-overlay'。 */
     outputCompositing?: BAClickFXOutputCompositing;
+    /** 未知背景的覆盖层外观；默认 'coverage'，'bright' 使用明亮兼容载荷。 */
+    unknownBackgroundAppearance?: BAClickFXUnknownBackgroundAppearance;
+    /** 未知背景覆盖层的最大 Alpha，有限值钳制到 0..1，默认 250/255。 */
+    overlayAlphaLimit?: number;
+    /** 覆盖层与宿主的合成方式；默认 'source-over'，网页加色可选 'plus-lighter'。 */
+    hostCompositing?: BAClickFXHostCompositing;
     clickEnabled?: boolean;
     trailEnabled?: boolean;
     /** 无需按下鼠标，移动即显示拖尾。默认 false。 */
@@ -109,6 +117,9 @@ declare module 'ba-click-fx'
     opacity: number;
     themeColor: string;
     outputCompositing: BAClickFXOutputCompositing;
+    unknownBackgroundAppearance: BAClickFXUnknownBackgroundAppearance;
+    overlayAlphaLimit: number;
+    hostCompositing: BAClickFXHostCompositing;
     clickEnabled: boolean;
     trailEnabled: boolean;
     trailAlways: boolean;

@@ -16,6 +16,11 @@ const OUTPUT_COMPOSITING_MODES = new Set([
   'scene',
   'browser-overlay',
 ]);
+const DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE = 'coverage';
+const UNKNOWN_BACKGROUND_APPEARANCES = new Set(['coverage', 'bright']);
+const DEFAULT_OVERLAY_ALPHA_LIMIT = 250 / 255;
+const DEFAULT_HOST_COMPOSITING = 'source-over';
+const HOST_COMPOSITING_MODES = new Set(['source-over', 'plus-lighter']);
 
 // 极低倍率会让每帧逻辑时间几乎停滞；保留可预期的最小有效速度。
 export const MIN_TIME_SCALE = 0.01;
@@ -966,6 +971,12 @@ export const CONFIG = Object.freeze(
     trailTimeScale: 1,
     // 默认保留 Unity Scene 合成；透明桌面宿主必须显式选择覆盖层输出。
     outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
+    // Coverage 保持透明宿主合同；Bright 由渲染器显式选择更明亮的兼容载荷。
+    unknownBackgroundAppearance: DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE,
+    // 给未知背景覆盖层保留少量透出，宿主可按自身合成能力调整。
+    overlayAlphaLimit: DEFAULT_OVERLAY_ALPHA_LIMIT,
+    // 普通 source-over 不假定宿主可见背景；网页加色必须显式启用。
+    hostCompositing: DEFAULT_HOST_COMPOSITING,
     // 默认由纯 WebGL2 接管完整 Scene；能力不足时运行时安全回退 Canvas2D。
     effectBackend: DEFAULT_EFFECT_BACKEND,
     // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
@@ -1019,6 +1030,54 @@ export function normalizeOutputCompositing(
 )
 {
   return isOutputCompositing(value) ? value : fallback;
+}
+
+export function isUnknownBackgroundAppearance(value)
+{
+  return UNKNOWN_BACKGROUND_APPEARANCES.has(value);
+}
+
+export function normalizeUnknownBackgroundAppearance(
+  value,
+  fallback = DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE,
+)
+{
+  return isUnknownBackgroundAppearance(value) ? value : fallback;
+}
+
+export function isOverlayAlphaLimit(value)
+{
+  return Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+export function normalizeOverlayAlphaLimit(
+  value,
+  fallback = DEFAULT_OVERLAY_ALPHA_LIMIT,
+)
+{
+  const safeFallback = Number.isFinite(fallback)
+    ? Math.max(0, Math.min(1, fallback))
+    : DEFAULT_OVERLAY_ALPHA_LIMIT;
+
+  if (!Number.isFinite(value))
+  {
+    return safeFallback;
+  }
+
+  return Math.max(0, Math.min(1, value));
+}
+
+export function isHostCompositing(value)
+{
+  return HOST_COMPOSITING_MODES.has(value);
+}
+
+export function normalizeHostCompositing(
+  value,
+  fallback = DEFAULT_HOST_COMPOSITING,
+)
+{
+  return isHostCompositing(value) ? value : fallback;
 }
 
 export function isTimeScale(value)
@@ -1083,6 +1142,18 @@ export function createConfig(overrides = {})
     overrides.outputCompositing,
     CONFIG.outputCompositing,
   );
+  const unknownBackgroundAppearance = normalizeUnknownBackgroundAppearance(
+    overrides.unknownBackgroundAppearance,
+    CONFIG.unknownBackgroundAppearance,
+  );
+  const overlayAlphaLimit = normalizeOverlayAlphaLimit(
+    overrides.overlayAlphaLimit,
+    CONFIG.overlayAlphaLimit,
+  );
+  const hostCompositing = normalizeHostCompositing(
+    overrides.hostCompositing,
+    CONFIG.hostCompositing,
+  );
   const themeColor = normalizeThemeColor(
     overrides.themeColor,
     CONFIG.themeColor,
@@ -1096,6 +1167,9 @@ export function createConfig(overrides = {})
     clickTimeScale,
     trailTimeScale,
     outputCompositing,
+    unknownBackgroundAppearance,
+    overlayAlphaLimit,
+    hostCompositing,
     themeColor,
     bloomBackend,
     softwareBloomEnabled: bloomBackend !== 'native',
