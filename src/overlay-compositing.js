@@ -133,6 +133,7 @@ export function applyOverlayAlphaPolicyToImageData(
   bloomAlphaData = null,
   alphaLimit = 1,
   policy = 'coverage',
+  bloomCompositing = 'lighter',
 )
 {
   if (
@@ -156,9 +157,31 @@ export function applyOverlayAlphaPolicyToImageData(
       : sceneAlphaData[index + 3] / 255;
     // lighter 会在写入 Canvas 时把累计 Alpha 饱和到 1。优先读取 Bloom
     // 独立传输层，避免在高能核心从已丢失信息的总 Alpha 反推。
-    const bloomAlpha = bloomAlphaData?.[index + 3] === undefined
-      ? Math.max(0, currentAlpha - sceneAlpha)
-      : bloomAlphaData[index + 3] / 255;
+    let bloomAlpha;
+
+    if (bloomAlphaData?.[index + 3] !== undefined)
+    {
+      bloomAlpha = bloomAlphaData[index + 3] / 255;
+    }
+    else if (bloomCompositing === 'source-over')
+    {
+      // Native/Legacy 阴影与清晰层以 source-over 组成 Alpha 并集：
+      // 1 - A总 = (1 - A清晰) * (1 - A辉光)。清晰层已不透明时
+      // visual-max 必然选择它，无需再恢复被完全遮住的辉光 Alpha。
+      bloomAlpha = sceneAlpha >= 1
+        ? 0
+        : Math.max(
+            0,
+            Math.min(
+              1,
+              (currentAlpha - sceneAlpha) / Math.max(1 - sceneAlpha, 1e-6),
+            ),
+          );
+    }
+    else
+    {
+      bloomAlpha = Math.max(0, currentAlpha - sceneAlpha);
+    }
     const targetAlpha = Math.min(
       Math.max(sceneAlpha, bloomAlpha),
       safeLimit,

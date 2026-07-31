@@ -666,6 +666,26 @@ assert(
   'Canvas visual-max 在 lighter 饱和后仍读取独立 Bloom 传输 Alpha',
 );
 
+const sourceOverVisualMaxImageData = {
+  width: 1,
+  height: 1,
+  data: new Uint8ClampedArray([255, 200, 100, 179]),
+};
+
+applyOverlayAlphaPolicyToImageData(
+  sourceOverVisualMaxImageData,
+  saturatedSceneData,
+  null,
+  1,
+  'visual-max',
+  'source-over',
+);
+
+assert(
+  sourceOverVisualMaxImageData.data[3] === 118,
+  'Native visual-max 从 source-over Alpha 并集恢复独立辉光传输',
+);
+
 const overlayHdr = new Float32Array([
   4, 2, 1,
   4, 2, 1,

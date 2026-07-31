@@ -5978,6 +5978,7 @@ export class BAClickFX
     // visual-max 必须保留独立 Bloom transport；该离屏层按需创建，不进入 DOM。
     this.canvasBloomTransportCanvas = null;
     this.canvasBloomTransportContext = null;
+    this.canvasNativeSceneAlphaSnapshot = null;
     this.webglBloomFrameStats =
     {
       available: false,
@@ -7029,6 +7030,14 @@ export class BAClickFX
     // 随后会被隐藏的 Canvas；GPU 当帧失败时再由回退路径补画即可。
     const drawCanvasOutput =
       !useWebGLClickEffects && !useCanvasScene && !useWebGL2Bloom;
+    const deferNativeVisualMaxDraw =
+      drawCanvasOutput &&
+      useNativeBloom &&
+      this._usesUnknownBrowserOverlay() &&
+      !this._usesHostAdditivePayload() &&
+      this._getOverlayAlphaPolicy() === 'visual-max';
+    const drawCanvasDuringUpdate =
+      drawCanvasOutput && !deferNativeVisualMaxDraw;
     let canvasSceneRendered = false;
 
     this.lastFrameTime = now;
@@ -7064,6 +7073,7 @@ export class BAClickFX
         ? 'source-over'
         : 'lighter';
     this.renderingFrame = true;
+    this.canvasNativeSceneAlphaSnapshot = null;
 
     try
     {
@@ -7072,20 +7082,20 @@ export class BAClickFX
         scale,
         useNativeBloom,
         legacy,
-        drawCanvasOutput,
+        drawCanvasDuringUpdate,
         useWebGLClickEffects || useWebGL2Bloom,
       );
       this._updateWaves(
         this.clickTimeMs,
         scale,
         useNativeBloom,
-        drawCanvasOutput,
+        drawCanvasDuringUpdate,
       );
       this._updateShards(
         this.clickTimeMs,
         this.trailTimeMs,
         scale,
-        drawCanvasOutput,
+        drawCanvasDuringUpdate,
       );
 
       if (useWebGLClickEffects)
@@ -7146,8 +7156,15 @@ export class BAClickFX
         }
         else if (!useWebGL2Bloom)
         {
-          // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
-          this._drawWaveRings(scale, useNativeBloom, legacy);
+          if (deferNativeVisualMaxDraw)
+          {
+            this._drawCanvasFallbackFrame(scale, useNativeBloom, legacy);
+          }
+          else
+          {
+            // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
+            this._drawWaveRings(scale, useNativeBloom, legacy);
+          }
         }
       }
 
@@ -7198,7 +7215,7 @@ export class BAClickFX
         this.webglBloomRenderer?.clear();
       }
 
-      this._limitCanvasOverlayAlpha(scale);
+      this._finalizeCanvasOverlayAlpha(scale);
     }
     catch (error)
     {
@@ -8834,6 +8851,7 @@ export class BAClickFX
     scale,
     sceneAlphaSnapshot = null,
     bloomTransportContext = null,
+    bloomCompositing = 'lighter',
   )
   {
     const overlayAlphaPolicy = this._getOverlayAlphaPolicy();
@@ -8893,6 +8911,7 @@ export class BAClickFX
           bloomTransportData,
           this.config.overlayAlphaLimit,
           overlayAlphaPolicy,
+          bloomCompositing,
         );
         this.context.putImageData(
           imageData,
@@ -9570,7 +9589,7 @@ export class BAClickFX
     }
   }
 
-  _drawCanvasFallbackFrame(scale, useNativeBloom, legacy = false)
+  _drawCanvasFallbackPass(scale, useNativeBloom, legacy = false)
   {
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
@@ -9581,6 +9600,40 @@ export class BAClickFX
         : 'lighter';
     this._drawCanvasTrails(scale, useNativeBloom, legacy);
     this._drawCanvasClickEffects(scale, useNativeBloom, legacy);
+  }
+
+  _drawCanvasFallbackFrame(scale, useNativeBloom, legacy = false)
+  {
+    this.canvasNativeSceneAlphaSnapshot = null;
+
+    if (
+      useNativeBloom &&
+      this._usesUnknownBrowserOverlay() &&
+      !this._usesHostAdditivePayload() &&
+      this._getOverlayAlphaPolicy() === 'visual-max'
+    )
+    {
+      // Canvas shadowBlur 使用 source-over。先保存无阴影清晰层 Coverage，
+      // Final Pass 才能从完整帧 Alpha 精确分离聚合辉光传输量。
+      this._drawCanvasFallbackPass(scale, false, legacy);
+      this.canvasNativeSceneAlphaSnapshot =
+        this._captureCanvasOverlayAlpha(scale);
+    }
+
+    this._drawCanvasFallbackPass(scale, useNativeBloom, legacy);
+  }
+
+  _finalizeCanvasOverlayAlpha(scale)
+  {
+    const sceneAlphaSnapshot = this.canvasNativeSceneAlphaSnapshot;
+
+    this.canvasNativeSceneAlphaSnapshot = null;
+    this._limitCanvasOverlayAlpha(
+      scale,
+      sceneAlphaSnapshot,
+      null,
+      sceneAlphaSnapshot ? 'source-over' : 'lighter',
+    );
   }
 
   _restoreCanvasOutputAfterContextLoss(bloomBackend, legacy = false)
@@ -9657,7 +9710,7 @@ export class BAClickFX
       themeHueShift = previousHueShift;
     }
 
-    this._limitCanvasOverlayAlpha(scale);
+    this._finalizeCanvasOverlayAlpha(scale);
     this._setResolvedBloomBackend(resolvedBloomBackend);
     this._setCanvasOutputVisible(true);
     this._flushCompositingMountRefresh();
@@ -10764,6 +10817,8 @@ export class BAClickFX
       this.canvasBloomTransportCanvas = null;
       this.canvasBloomTransportContext = null;
     }
+
+    this.canvasNativeSceneAlphaSnapshot = null;
 
     if (this.ownsCanvas)
     {
