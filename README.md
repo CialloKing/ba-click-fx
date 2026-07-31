@@ -211,15 +211,15 @@ const fx = new BAClickFX(
 });
 ```
 
-这三个兼容选项的关系如下：`isolatedCompositing` 只决定多张库自有 Canvas 是否先在一个透明组内合成，不读取页面或桌面像素；`lightBackgroundContrastAlpha` 只在 `scene` 输出下增加非游戏的 `darken` 轮廓，在 `transparent-overlay` 下会被忽略；`setSceneBackground()` 才会把一张已知的不透明背景送入渲染管线。三者不能互相替代。
+这三个兼容选项的关系如下：`isolatedCompositing` 只决定多张库自有 Canvas 是否先在一个透明组内合成，不读取页面或桌面像素；`lightBackgroundContrastAlpha` 只在 `scene` 输出下增加非游戏的 `darken` 轮廓，在 `transparent-overlay` 下会被忽略；`setCompositingReference()` 才会把一张已知的不透明栅格参考送入渲染管线。三者不能互相替代。
 
-### 场景背景与线性合成
+### 合成参考与线性合成
 
-`setSceneBackground()` 可把特效下方的真实不透明栅格场景交给渲染器。只有纯 WebGL2，或成功解析到 GPU 的 WebGL2 Bloom，收到与实际显示内容逐像素匹配的已知背景时，才能在渲染合同内声明最终 RGB Scene 按 Unity 线性 HDR 管线严格求值。原生辉光和 Legacy 使用 Canvas Final Pass；软件 Bloom 仍使用普通 DOM 背景路径，这些能力受限的回退实现不能宣称与完整 WebGL2 Scene 或 Unity 逐像素等价。
+`setCompositingReference()` 可把特效下方真实且不透明的栅格参考交给渲染器；它不设置或修改宿主页面 CSS 背景。只有纯 WebGL2，或成功解析到 GPU 的 WebGL2 Bloom，收到与实际显示内容逐像素匹配的已知参考时，才能在渲染合同内声明最终 RGB Scene 按 Unity 线性 HDR 管线严格求值。原生辉光和 Legacy 使用 Canvas Final Pass；软件 Bloom 仍使用普通 DOM 背景路径，这些能力受限的回退实现不能宣称与完整 WebGL2 Scene 或 Unity 逐像素等价。
 
-透明桌面下的真实桌面通常对库不可见。调用 `setSceneBackground(null)` 或从未提供背景时，渲染器只能输出带 Alpha 的覆盖层，再由操作系统或宿主合成；未知背景无法在数学上复现 Unity 对已知不透明 HDR Scene 的逐像素结果。`transparent-overlay` 的目标是保持 Coverage、生命周期与亮度关系稳定，而不是绕过这一信息边界。
+透明桌面下的真实桌面通常对库不可见。调用 `setCompositingReference(null)` 清除参考，或从未提供参考时，渲染器进入未知背景路径，只能输出带 Alpha 的覆盖层，再由操作系统或宿主合成；未知背景无法在数学上复现 Unity 对已知不透明 HDR Scene 的逐像素结果。`transparent-overlay` 的目标是保持 Coverage、生命周期与亮度关系稳定，而不是绕过这一信息边界。
 
-标准预乘 `source-over` 满足 `Cout = Coverlay + Cbackground × (1 - A)`；严格 Unity 加色的目标则是 `Cbackground + E`。因此所需的 `Coverlay = E + A × Cbackground` 依赖库无法读取的背景。对未知背景，单张透明覆盖层不可能同时保证严格 Unity 加色、最终 Alpha 只表示 Coverage、以及在纯白背景上绝不变暗。`transparent-overlay` 明确优先保持 Coverage Alpha 与跨后端连续性；需要严格 Scene RGB 时，应使用默认 `scene` 并通过 `setSceneBackground()` 提供逐像素匹配的已知背景。
+标准预乘 `source-over` 满足 `Cout = Coverlay + Cbackground × (1 - A)`；严格 Unity 加色的目标则是 `Cbackground + E`。因此所需的 `Coverlay = E + A × Cbackground` 依赖库无法读取的背景。对未知背景，单张透明覆盖层不可能同时保证严格 Unity 加色、最终 Alpha 只表示 Coverage、以及在纯白背景上绝不变暗。`transparent-overlay` 明确优先保持 Coverage Alpha 与跨后端连续性；需要严格 Scene RGB 时，应使用默认 `scene` 并通过 `setCompositingReference()` 提供逐像素匹配的已知参考。
 
 实现不会用 `min(coverage, maxRGB)` 把最终 Alpha 限制到当前 RGB 亮度。该近似虽然能减少部分白底压暗，却会把发射亮度重新解释为遮挡率，使黑色或低能拖尾丢失 Coverage，并破坏 `opacity` 线性和后端切换连续性。
 
@@ -231,19 +231,16 @@ image.crossOrigin = 'anonymous';
 image.src = 'https://example.com/background.jpg';
 await image.decode();
 
-fx.setSceneBackground(image, { fit: 'cover' });
-// 暂停 Scene Final Pass，但保留 image 以便稍后恢复。
-fx.setSceneBackgroundEnabled(false);
-fx.setSceneBackgroundEnabled(true);
-// 恢复普通透明 DOM 背景，并释放仅供 Canvas Final Pass 使用的全尺寸帧资源。
-fx.setSceneBackground(null);
+fx.setCompositingReference(image, { fit: 'cover' });
+// 清除合成参考，进入未知背景路径；不会修改宿主页面 CSS 背景。
+fx.setCompositingReference(null);
 ```
 
-当前只支持居中 `cover`，裁剪规则与 CSS `background-size: cover` 对齐。调用方负责图片解码和 CORS：跨域服务器必须允许匿名读取，否则 WebGL 无法上传纹理，方法会返回 `false` 或候选后端保持安全回退。`setSceneBackgroundEnabled(false)` 会让所有后端临时跳过该背景而不释放源，重新传入 `true` 即可恢复；也可通过 `updateConfig({ sceneBackgroundEnabled })` 切换。Renderer 会保留源对象以支持 WebGL Context 恢复，因此在替换背景或销毁实例前不要关闭 `ImageBitmap`、`VideoFrame` 等可释放源。Canvas、Video 等动态源在调用时上传当前帧；内容变化后应再次调用。
+当前只支持居中 `cover`，裁剪规则与 CSS `background-size: cover` 对齐。调用方负责图片解码和 CORS：跨域服务器必须允许匿名读取，否则 WebGL 无法上传纹理，方法会返回 `false` 或候选后端保持安全回退。传入 `null` 会清除参考并释放仅供 Canvas Final Pass 使用的全尺寸帧资源。Renderer 会保留已接受的参考源以支持 WebGL Context 恢复，因此在替换参考或销毁实例前不要关闭 `ImageBitmap`、`VideoFrame` 等可释放源。Canvas、Video 等动态源在调用时上传当前帧；内容变化后应再次调用。
 
-展示页的“本地图片”选择器会把 `File` 转成当前文档的 `blob:` URL，再复用同一条 CSS 背景和 `setSceneBackground(image)` 链路，因此不需要外部服务器提供 CORS。该 URL 只在当前页面会话有效，不会写入 `localStorage`，切换背景或卸载页面时会被释放；刷新页面后需要重新选择文件。手输的 `file://` URL 会作为普通自定义背景文本保存，并交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，应使用选择器。
+展示页的“本地图片”选择器会把 `File` 转成当前文档的 `blob:` URL，再分别设置 CSS 页面背景和 `setCompositingReference(image)`，因此不需要外部服务器提供 CORS。该 URL 只在当前页面会话有效，不会写入 `localStorage`，切换背景或卸载页面时会被释放；刷新页面后需要重新选择文件。手输的 `file://` URL 会作为普通自定义背景文本保存，并交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，应使用选择器。
 
-模式切换会释放闲置后端的全尺寸纹理和 FBO，但保留 WebGL Context、Program、静态纹理与已接受的背景源；重新启用时只重建当前尺寸需要的帧资源。背景切换是跨 Renderer 的原子操作：任一已创建后端拒绝新源时，库会回滚到旧背景，无法回滚的候选实例会被丢弃并在需要时懒重建。
+模式切换会释放闲置后端的全尺寸纹理和 FBO，但保留 WebGL Context、Program、静态纹理与已接受的合成参考源；重新启用时只重建当前尺寸需要的帧资源。参考切换是跨 Renderer 的原子操作：任一已创建后端拒绝新源时，库会回滚到旧参考，无法回滚的候选实例会被丢弃并在需要时懒重建。
 
 ### 宿主输入与指针生命周期
 
@@ -322,8 +319,7 @@ fx.setPaused(false);
 | `pointerUp(pointerId?)` | 正常结束指针，已有拖尾自然消失 |
 | `pointerCancel(pointerId?)` | 强制取消指针并立即移除当前轨迹 |
 | `setPaused(paused, options?)` | 暂停或恢复输入与动画调度，可选在暂停时清屏 |
-| `setSceneBackground(source, { fit: 'cover' })` | 设置各渲染后端共享的真实栅格场景；传入 `null` 恢复透明 DOM 背景 |
-| `setSceneBackgroundEnabled(enabled)` | 暂停或恢复已设置的场景背景，保留源以便再次启用 |
+| `setCompositingReference(source, { fit: 'cover' })` | 设置各渲染后端共享的已知栅格合成参考；传入 `null` 清除参考并进入未知背景路径 |
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 仅清除拖尾和碎片 |
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |
@@ -517,7 +513,7 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 4. 从最低分辨率 mip 开始，以 SampleScale 四点采样累加回每个细层。
 5. 按游戏公式换算 `bloom.intensity`，再执行最终四点采样与 sRGB 加色合成。
 
-默认的 `isolatedCompositing: false` 让输出层直接与 DOM 背景合成；在纯白背景上，Unity 加色结果必然失去颜色和对比度。设为 `true` 后，各输出层会先在透明组内合成，再将带颜色与 Alpha 的结果覆盖到页面。这不会改变 Bloom 算法，只是用于纯白网页背景的非游戏兼容路径。需要按游戏方式让背景参与线性 Scene 计算时，应使用 `setSceneBackground()`，而不是把隔离合成当作背景采样替代品。
+默认的 `isolatedCompositing: false` 让输出层直接与 DOM 背景合成；在纯白背景上，Unity 加色结果必然失去颜色和对比度。设为 `true` 后，各输出层会先在透明组内合成，再将带颜色与 Alpha 的结果覆盖到页面。这不会改变 Bloom 算法，只是用于纯白网页背景的非游戏兼容路径。需要按游戏方式让背景参与线性 Scene 计算时，应使用 `setCompositingReference()`，而不是把隔离合成当作背景采样替代品。
 
 `lightBackgroundContrastAlpha` 默认是 `0`，因此不会创建游戏资源之外的可见轮廓。设为 `0.35` 时，库拥有的覆盖层会在主特效层上方增加独立的 `darken` 淡青色遮罩；它不接收或产生 Bloom，只用于提升纯白背景上的清晰轮廓。该层与隔离合成都属于非游戏网页兼容选项。直接传入已有 Canvas 时既无法插入这层独立背景合成层，也会强制关闭隔离合成。
 
@@ -543,13 +539,13 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 
 Unity 的点击特效使用加色混合；接近白色的目标已经没有足够通道空间继续变亮，因此直接合成时蓝青色对比会下降。纯白网页背景建议开启 `isolatedCompositing: true`，让库自有输出层先在透明组中解析。若使用 `scene` 输出仍需要更清晰的非游戏轮廓，可再按需设置 `lightBackgroundContrastAlpha`；透明桌面的 `transparent-overlay` 模式应保持该值为 `0`。
 
-### 隔离合成能否替代场景背景？
+### 隔离合成能否替代合成参考？
 
-不能。隔离合成只改变多 Canvas 的 CSS 合成边界，不读取页面或桌面像素，也不改变 Bloom 算法。需要让背景参与和游戏相同的线性 HDR Scene 计算时，必须向完整 WebGL2 Scene（纯 WebGL2 或成功解析到 GPU 的 WebGL2 Bloom）提供与实际显示内容匹配的 `setSceneBackground()`；未知或动态桌面背景无法逐像素复现该结果。
+不能。隔离合成只改变多 Canvas 的 CSS 合成边界，不读取页面或桌面像素，也不改变 Bloom 算法。需要让背景参与和游戏相同的线性 HDR Scene 计算时，必须向完整 WebGL2 Scene（纯 WebGL2 或成功解析到 GPU 的 WebGL2 Bloom）提供与实际显示内容匹配的 `setCompositingReference()`；未知或动态桌面背景无法逐像素复现该结果。
 
 ### 未知背景上能否同时得到严格 Unity 加色、纯 Coverage Alpha，并保证白底绝不变暗？
 
-不能。`source-over` 只有覆盖层 RGB 与 Alpha，严格加色所需的输出 RGB 又依赖底层背景颜色；库无法从透明桌面读取该颜色。展示与严格还原应保留默认 `scene`，已知背景交给 `setSceneBackground()`；透明桌面宿主显式使用 `transparent-overlay`，接受它优先保证 Coverage 和透明度连续性，而不宣称对任意背景逐像素等同 Unity。
+不能。`source-over` 只有覆盖层 RGB 与 Alpha，严格加色所需的输出 RGB 又依赖底层背景颜色；库无法从透明桌面读取该颜色。展示与严格还原应保留默认 `scene`，已知背景通过 `setCompositingReference()` 交给渲染器；透明桌面宿主显式使用 `transparent-overlay`，接受它优先保证 Coverage 和透明度连续性，而不宣称对任意背景逐像素等同 Unity。
 
 ### 透明桌面宿主应该使用什么配置？
 

@@ -48,7 +48,7 @@ declare module 'ba-click-fx'
     clear?: boolean;
   }
 
-  export interface BAClickFXSceneBackgroundOptions
+  export interface BAClickFXCompositingReferenceOptions
   {
     /** 当前仅支持与 CSS background-size: cover 对齐的居中裁剪。 */
     fit?: 'cover';
@@ -66,8 +66,6 @@ declare module 'ba-click-fx'
     themeColor?: string;
     /** 输出合成：默认 'scene'；透明桌面覆盖层使用 'transparent-overlay'。 */
     outputCompositing?: BAClickFXOutputCompositing;
-    /** 是否让已设置的 Scene 背景参与渲染，默认 true；关闭时保留背景源以便再次启用。 */
-    sceneBackgroundEnabled?: boolean;
     clickEnabled?: boolean;
     trailEnabled?: boolean;
     /** 无需按下鼠标，移动即显示拖尾。默认 false。 */
@@ -111,7 +109,6 @@ declare module 'ba-click-fx'
     opacity: number;
     themeColor: string;
     outputCompositing: BAClickFXOutputCompositing;
-    sceneBackgroundEnabled: boolean;
     clickEnabled: boolean;
     trailEnabled: boolean;
     trailAlways: boolean;
@@ -359,22 +356,19 @@ declare module 'ba-click-fx'
     setPaused(paused: boolean, options?: BAClickFXPauseOptions): void;
 
     /**
-     * 提供特效下方的已解码不透明栅格场景。纯 WebGL2 与 WebGL2 Bloom
-     * 在同一线性 HDR Scene 合成；Native / Legacy 使用 Canvas Final Pass。
+     * 提供与特效下方实际画面逐像素匹配的已解码不透明栅格合成参考。纯
+     * WebGL2 与 WebGL2 Bloom 在同一线性 HDR Scene 合成；Native / Legacy
+     * 使用 Canvas Final Pass。
      * 当前仅支持居中 cover。调用方负责图片 CORS，并须在替换或销毁前
      * 保持可释放源有效以支持 Context 恢复。Canvas、Video 等动态源上传
-     * 调用时的当前帧；内容变化后需再次调用。传入 null 恢复透明 DOM 背景。
-     * 返回 false 时旧背景保持不变；延迟创建的 Renderer 仍可能安全回退。
+     * 调用时的当前帧；内容变化后需再次调用。传入 null 清除合成参考并进入
+     * 未知背景路径，不会修改宿主页面 CSS 背景。返回 false 时旧参考保持不变；
+     * 延迟创建的 Renderer 仍可能安全回退。
      */
-    setSceneBackground(
+    setCompositingReference(
       source: TexImageSource | null,
-      options?: BAClickFXSceneBackgroundOptions,
+      options?: BAClickFXCompositingReferenceOptions,
     ): boolean;
-
-    /**
-     * 临时启用或关闭已设置的 Scene 背景，不释放背景源。返回 false 时保持当前状态。
-     */
-    setSceneBackgroundEnabled(enabled: boolean): boolean;
 
     /** 运行时更新输入来源、时间倍率、特效后端、Bloom 后端、DPR 与触摸行为。 */
     updateConfig(overrides: BAClickFXUpdateOptions): void;

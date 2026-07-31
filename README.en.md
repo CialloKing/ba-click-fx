@@ -191,15 +191,15 @@ const fx = new BAClickFX(
 });
 ```
 
-These controls have separate responsibilities. `isolatedCompositing` only decides whether library-owned canvases first resolve inside one transparent group; it does not sample page or desktop pixels. `lightBackgroundContrastAlpha` adds a non-game `darken` silhouette only for `scene` output and is ignored by `transparent-overlay`. Only `setSceneBackground()` supplies a known opaque background to the rendering pipeline. None of the three replaces another.
+These controls have separate responsibilities. `isolatedCompositing` only decides whether library-owned canvases first resolve inside one transparent group; it does not sample page or desktop pixels. `lightBackgroundContrastAlpha` adds a non-game `darken` silhouette only for `scene` output and is ignored by `transparent-overlay`. Only `setCompositingReference()` supplies a known opaque raster reference to the rendering pipeline. None of the three replaces another.
 
-### Scene Background and Linear Compositing
+### Compositing Reference and Linear Compositing
 
-`setSceneBackground()` supplies the renderer with a real opaque raster scene underneath the effect. Strict final-RGB Scene equivalence may only be claimed when Full WebGL2, or WebGL2 Bloom successfully resolved to the GPU, receives a known background whose pixels match the displayed content. Native Glow and Legacy use a Canvas Final Pass; Software Bloom continues to use the normal DOM-background path. Those capability-limited fallback paths must not be treated as pixel-equivalent to the complete WebGL2 Scene or Unity.
+`setCompositingReference()` supplies the renderer with a real opaque raster reference that pixel-matches the content beneath the effect; it does not set or modify the host page's CSS background. Strict final-RGB Scene equivalence may only be claimed when Full WebGL2, or WebGL2 Bloom successfully resolved to the GPU, receives that known reference. Native Glow and Legacy use a Canvas Final Pass; Software Bloom continues to use the normal DOM-background path. Those capability-limited fallback paths must not be treated as pixel-equivalent to the complete WebGL2 Scene or Unity.
 
-The real desktop is normally invisible to a transparent overlay. With `setSceneBackground(null)`, or when no background has been supplied, the renderer can only emit an alpha-bearing overlay for the host or operating system to composite later. An unknown background cannot mathematically reproduce Unity's result over a known opaque HDR Scene. `transparent-overlay` keeps Coverage, lifetime, and brightness relationships stable; it does not remove that information boundary.
+The real desktop is normally invisible to a transparent overlay. `setCompositingReference(null)` clears the reference and enters the unknown-background path; the renderer can then only emit an alpha-bearing overlay for the host or operating system to composite later. An unknown background cannot mathematically reproduce Unity's result over a known opaque HDR Scene. `transparent-overlay` keeps Coverage, lifetime, and brightness relationships stable; it does not remove that information boundary.
 
-Standard premultiplied `source-over` satisfies `Cout = Coverlay + Cbackground × (1 - A)`, while strict Unity additive output targets `Cbackground + E`. The required `Coverlay = E + A × Cbackground` therefore depends on background pixels that the library cannot read. For an unknown background, one transparent overlay cannot simultaneously guarantee strict Unity additive RGB, final alpha that represents only Coverage, and no darkening over pure white. `transparent-overlay` explicitly prioritises Coverage alpha and cross-backend continuity. For strict Scene RGB, keep the default `scene` mode and provide a pixel-matched known background through `setSceneBackground()`.
+Standard premultiplied `source-over` satisfies `Cout = Coverlay + Cbackground × (1 - A)`, while strict Unity additive output targets `Cbackground + E`. The required `Coverlay = E + A × Cbackground` therefore depends on background pixels that the library cannot read. For an unknown background, one transparent overlay cannot simultaneously guarantee strict Unity additive RGB, final alpha that represents only Coverage, and no darkening over pure white. `transparent-overlay` explicitly prioritises Coverage alpha and cross-backend continuity. For strict Scene RGB, keep the default `scene` mode and provide a pixel-matched known reference through `setCompositingReference()`.
 
 The implementation does not cap final alpha with `min(coverage, maxRGB)`. Although that approximation can hide some white-background darkening, it reinterprets emission brightness as occlusion, removes Coverage from black or low-energy trail regions, and breaks linear `opacity` and backend-transition continuity.
 
@@ -211,19 +211,16 @@ image.crossOrigin = 'anonymous';
 image.src = 'https://example.com/background.jpg';
 await image.decode();
 
-fx.setSceneBackground(image, { fit: 'cover' });
-// Pause the Scene Final Pass while retaining image for a later restore.
-fx.setSceneBackgroundEnabled(false);
-fx.setSceneBackgroundEnabled(true);
-// Restore the transparent DOM background and release Canvas Final Pass targets.
-fx.setSceneBackground(null);
+fx.setCompositingReference(image, { fit: 'cover' });
+// Clear the reference and enter the unknown-background path without changing page CSS.
+fx.setCompositingReference(null);
 ```
 
-Only centred `cover` is currently supported, matching CSS `background-size: cover` cropping. The caller owns decoding and CORS: a cross-origin server must allow anonymous reads or WebGL cannot upload the texture, in which case the method returns `false` or a deferred backend remains on its safe fallback. `setSceneBackgroundEnabled(false)` temporarily skips that background in every backend without releasing the source; passing `true` restores it. The same switch is available through `updateConfig({ sceneBackgroundEnabled })`. The Renderer retains the source object for WebGL context recovery, so do not close releasable sources such as `ImageBitmap` or `VideoFrame` before replacing the background or destroying the instance. Canvas and video sources upload their current frame at call time; call the method again after their content changes.
+Only centred `cover` is currently supported, matching CSS `background-size: cover` cropping. The caller owns decoding and CORS: a cross-origin server must allow anonymous reads or WebGL cannot upload the texture, in which case the method returns `false` or a deferred backend remains on its safe fallback. Passing `null` clears the reference and releases viewport-sized resources used only by the Canvas Final Pass. The Renderer retains an accepted reference source for WebGL context recovery, so do not close releasable sources such as `ImageBitmap` or `VideoFrame` before replacing the reference or destroying the instance. Canvas and video sources upload their current frame at call time; call the method again after their content changes.
 
-The demo's Local Image picker converts a `File` into a document-session `blob:` URL and reuses the same CSS-background and `setSceneBackground(image)` path, so no external CORS header is needed. The URL is not written to `localStorage`; it is released when the background changes or the page unloads, and the file must be selected again after a reload. A typed `file://` URL is saved as ordinary custom-background text and passed to a trusted desktop host that permits both local-protocol reads and Canvas/WebGL texture use. Regular HTTP/HTTPS pages remain subject to browser local-resource permissions and should use the picker.
+The demo's Local Image picker converts a `File` into a document-session `blob:` URL, then sets its CSS page background and `setCompositingReference(image)` separately, so no external CORS header is needed. The URL is not written to `localStorage`; it is released when the background changes or the page unloads, and the file must be selected again after a reload. A typed `file://` URL is saved as ordinary custom-background text and passed to a trusted desktop host that permits both local-protocol reads and Canvas/WebGL texture use. Regular HTTP/HTTPS pages remain subject to browser local-resource permissions and should use the picker.
 
-Backend and mode changes release idle viewport-sized textures and FBOs while retaining the WebGL context, programs, static textures, and accepted background source. Re-enabling a backend rebuilds only the frame resources needed at the current size. Background replacement is atomic across existing Renderers: if one rejects the new source, accepted Renderers roll back to the old background; a candidate that cannot roll back is discarded and rebuilt lazily when needed.
+Backend and mode changes release idle viewport-sized textures and FBOs while retaining the WebGL context, programs, static textures, and accepted compositing reference source. Re-enabling a backend rebuilds only the frame resources needed at the current size. Reference replacement is atomic across existing Renderers: if one rejects the new source, accepted Renderers roll back to the old reference; a candidate that cannot roll back is discarded and rebuilt lazily when needed.
 
 ### Host Input and Pointer Lifecycle
 
@@ -302,8 +299,7 @@ Pausing cancels the active pointer, ignores `boom()` and every automatic or manu
 | `pointerUp(pointerId?)` | End the pointer normally and let its trail decay |
 | `pointerCancel(pointerId?)` | Force-cancel the pointer and remove its current trail immediately |
 | `setPaused(paused, options?)` | Pause or resume input and animation scheduling, optionally clearing on pause |
-| `setSceneBackground(source, { fit: 'cover' })` | Share a real raster scene across rendering backends; pass `null` to restore the transparent DOM background |
-| `setSceneBackgroundEnabled(enabled)` | Pause or restore an already set scene background without dropping its source |
+| `setCompositingReference(source, { fit: 'cover' })` | Share a known raster compositing reference across rendering backends; pass `null` to clear it and enter the unknown-background path |
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
 | `destroy()` | Destroy instance, remove listeners and canvas |
@@ -497,7 +493,7 @@ When `bloomBackend: 'software'` is selected explicitly or WebGL2 is unavailable,
 4. Accumulate from the coarsest mip upward with SampleScale four-tap sampling.
 5. Apply the game's intensity conversion, final four-tap sampling, and additive sRGB composite.
 
-The default `isolatedCompositing: false` composites output layers directly against the DOM background; Unity's additive output necessarily loses colour and contrast on pure white. With `true`, the output layers first resolve inside a transparent group, then composite their coloured result and alpha over the page. This does not change the Bloom algorithm and exists only as a non-game compatibility path for pure-white web backgrounds. Use `setSceneBackground()` when the background must participate in the same linear Scene as it does in the game; isolation is not a substitute for background sampling.
+The default `isolatedCompositing: false` composites output layers directly against the DOM background; Unity's additive output necessarily loses colour and contrast on pure white. With `true`, the output layers first resolve inside a transparent group, then composite their coloured result and alpha over the page. This does not change the Bloom algorithm and exists only as a non-game compatibility path for pure-white web backgrounds. Use `setCompositingReference()` when the background must participate in the same linear Scene as it does in the game; isolation is not a substitute for background sampling.
 
 `lightBackgroundContrastAlpha` defaults to `0`, so no visible silhouette outside the game resource is added. Setting it to `0.35` gives a library-owned overlay an independent pale-cyan `darken` mask above the main FX layer. The mask neither receives nor generates Bloom and exists only to recover a crisp silhouette on pure white. It and isolated compositing are both non-game web compatibility options. An existing Canvas supplied as the target can receive neither this separate backdrop-compositing layer nor isolated compositing.
 
@@ -523,13 +519,13 @@ Consequently, “ported from the Unity project” describes the source of parame
 
 The Unity effect uses additive blending. A nearly white target has little channel headroom left, so direct composition loses cyan-blue contrast. Enable `isolatedCompositing: true` on pure-white web pages so library-owned output layers resolve inside a transparent group first. If `scene` output still needs a clearer non-game silhouette, opt into `lightBackgroundContrastAlpha`; keep it at `0` for transparent-desktop `transparent-overlay` output.
 
-### Can isolated compositing replace a scene background?
+### Can isolated compositing replace a compositing reference?
 
-No. Isolation only changes the CSS compositing boundary for multiple canvases. It neither samples page or desktop pixels nor changes the Bloom algorithm. To make the background participate in the game's linear HDR Scene calculation, a complete WebGL2 Scene (Full WebGL2 or WebGL2 Bloom successfully resolved to the GPU) must receive a `setSceneBackground()` source that matches the displayed content. An unknown or changing desktop cannot be reproduced pixel for pixel.
+No. Isolation only changes the CSS compositing boundary for multiple canvases. It neither samples page or desktop pixels nor changes the Bloom algorithm. To make the background participate in the game's linear HDR Scene calculation, a complete WebGL2 Scene (Full WebGL2 or WebGL2 Bloom successfully resolved to the GPU) must receive a `setCompositingReference()` source that matches the displayed content. An unknown or changing desktop cannot be reproduced pixel for pixel.
 
 ### Can an unknown background have strict Unity additive RGB, pure Coverage alpha, and no white-background darkening at the same time?
 
-No. `source-over` only receives overlay RGB and alpha, while the RGB needed for strict additive output depends on the background colour underneath; a transparent desktop does not expose those pixels to the library. Keep the default `scene` mode for the demo and strict reproduction, pass known backgrounds through `setSceneBackground()`, and select `transparent-overlay` explicitly for transparent desktop hosts with the understanding that it prioritises Coverage and alpha continuity rather than claiming pixel equivalence over every background.
+No. `source-over` only receives overlay RGB and alpha, while the RGB needed for strict additive output depends on the background colour underneath; a transparent desktop does not expose those pixels to the library. Keep the default `scene` mode for the demo and strict reproduction, pass known backgrounds through `setCompositingReference()`, and select `transparent-overlay` explicitly for transparent desktop hosts with the understanding that it prioritises Coverage and alpha continuity rather than claiming pixel equivalence over every background.
 
 ### Which configuration should a transparent desktop host use?
 
