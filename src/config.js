@@ -27,7 +27,6 @@ const DEFAULT_OVERLAY_COLOR_COMPENSATION = 'none';
 import {
   isOverlayAlphaPolicy,
   isOverlayColorCompensation,
-  mapOverlayColorCompensation,
   mapUnknownBackgroundAppearance,
   normalizeOverlayAlphaPolicy,
   normalizeOverlayColorCompensation,
