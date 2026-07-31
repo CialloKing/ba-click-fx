@@ -55,7 +55,7 @@ const metrics =
   {
   },
   contextLifecycle: {},
-  sceneBackgroundContextLifecycle: null,
+  compositingReferenceContextLifecycle: null,
   effectLifecycle:
   {
   },
@@ -867,11 +867,11 @@ function validateDirectCompositingContract(
   }
 }
 
-function validateSceneBackgroundContextLifecycle(lifecycle)
+function validateCompositingReferenceContextLifecycle(lifecycle)
 {
   assert(
-    lifecycle.accepted &&
-      lifecycle.sourcePreserved &&
+    lifecycle.referenceSet &&
+      lifecycle.referencePreserved &&
       lifecycle.routes.before.effect === 'webgl2' &&
       lifecycle.routes.before.bloom === 'webgl2' &&
       lifecycle.routes.fallback.effect === 'canvas2d' &&
@@ -880,7 +880,7 @@ function validateSceneBackgroundContextLifecycle(lifecycle)
       lifecycle.routes.restoring.bloom === 'webgl2' &&
       lifecycle.routes.restored.effect === 'webgl2' &&
       lifecycle.routes.restored.bloom === 'webgl2',
-    'Scene 背景 Context 生命周期路由或源对象保留失败',
+    '合成参考 Context 生命周期路由或参考对象保留失败',
     lifecycle,
   );
 
@@ -891,7 +891,7 @@ function validateSceneBackgroundContextLifecycle(lifecycle)
 
     assert(
       hasPixelOutput(overlay),
-      `Scene 背景在 Context ${phase} 阶段产生空白叠加层`,
+      `合成参考在 Context ${phase} 阶段产生空白叠加层`,
       overlay,
     );
     assert(
@@ -903,7 +903,7 @@ function validateSceneBackgroundContextLifecycle(lifecycle)
           lifecycle.before.overlay.meanAlpha,
           overlay.meanAlpha,
         ) <= 0.15,
-      `Scene 背景叠加层在 Context ${phase} 阶段出现突跳`,
+      `合成参考叠加层在 Context ${phase} 阶段出现突跳`,
       {
         before: lifecycle.before.overlay,
         current: overlay,
@@ -919,7 +919,7 @@ function validateSceneBackgroundContextLifecycle(lifecycle)
           lifecycle.before.composited.meanEnergy,
           composited.meanEnergy,
         ) <= 0.15,
-      `Scene 背景在 Context ${phase} 阶段没有保持宿主合成结果`,
+      `合成参考在 Context ${phase} 阶段没有保持宿主合成结果`,
       {
         before: lifecycle.before.composited,
         current: composited,
@@ -2502,7 +2502,8 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
     currentPage = page;
     await page.goto(baseUrl, { waitUntil: 'load' });
     await page.waitForFunction(
-      () => typeof window.BAClickFXDemo?.setSceneBackground === 'function',
+      () =>
+        typeof window.BAClickFXDemo?.setCompositingReference === 'function',
     );
 
     // 使用可上传到 WebGL 的完整 RGBA PNG，避免损坏的极小测试图片把
@@ -2553,7 +2554,7 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
     await page.waitForFunction(
       () =>
       {
-        const source = window.BAClickFXDemo?.sceneBackgroundSource;
+        const source = window.BAClickFXDemo?.compositingReferenceSource;
 
         return source instanceof HTMLImageElement &&
           source.src.startsWith('blob:') &&
@@ -2563,41 +2564,95 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
     );
     const firstBackground = await page.evaluate(() =>
     {
-      const source = window.BAClickFXDemo.sceneBackgroundSource;
+      const effect = window.BAClickFXDemo;
+      const source = effect.compositingReferenceSource;
 
       return (
         {
-          controlChecked:
-            document.getElementById('ctrlSceneBackgroundEnabled').checked,
+          controlValue:
+            document.getElementById('ctrlCompositingReference').value,
           cssContainsSource: document.body.style.background.includes(source.src),
-          sceneBackgroundEnabled:
-            window.BAClickFXDemo.getConfig().sceneBackgroundEnabled,
-          sceneBackgroundSourceClass:
-            document.body.classList.contains('scene-background-source'),
+          referenceFit: effect.compositingReferenceFit,
+          referenceMatchesPage:
+            effect.compositingReferenceSource === source,
+          compositingReferenceMatchedClass:
+            document.body.classList.contains('compositing-reference-matched'),
           sourceUrl: source.src,
+          cssBackground: document.body.style.background,
         }
       );
     });
 
     assert(
       firstBackground.cssContainsSource &&
-        firstBackground.sceneBackgroundEnabled === true &&
-        firstBackground.controlChecked === true &&
-        firstBackground.sceneBackgroundSourceClass === true,
-      '展示页本地图片没有默认启用场景背景合成',
+        firstBackground.referenceFit === 'cover' &&
+        firstBackground.referenceMatchesPage &&
+        firstBackground.controlValue === 'match-page' &&
+        firstBackground.compositingReferenceMatchedClass === true,
+      '展示页本地图片没有默认匹配页面合成参考',
       firstBackground,
     );
 
-    await page.locator('#ctrlSceneBackgroundEnabled + .toggle-track').click();
+    await page.locator('#ctrlCompositingReference').selectOption('unknown');
     await page.waitForFunction(
       () =>
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === false &&
-          effect.sceneBackgroundSource instanceof HTMLImageElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+        return effect.compositingReferenceSource === null &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'unknown' &&
+          localStorage.getItem('bafx-ctrlCompositingReference') === 'unknown';
       },
+    );
+    const unknownBackground = await page.evaluate(() =>
+      ({
+        compositingReferenceMatchedClass:
+          document.body.classList.contains('compositing-reference-matched'),
+        cssBackground: document.body.style.background,
+        sourceCleared: window.BAClickFXDemo.compositingReferenceSource === null,
+      }),
+    );
+
+    assert(
+      unknownBackground.sourceCleared &&
+        !unknownBackground.compositingReferenceMatchedClass &&
+        unknownBackground.cssBackground === firstBackground.cssBackground,
+      '未知背景模式没有清除合成参考，或错误改变了 CSS 页面背景',
+      { firstBackground, unknownBackground },
+    );
+
+    await page.locator('#ctrlCompositingReference').selectOption('match-page');
+    await page.waitForFunction(
+      (sourceUrl) =>
+      {
+        const effect = window.BAClickFXDemo;
+        const source = effect.compositingReferenceSource;
+
+        return source instanceof HTMLImageElement &&
+          source.src === sourceUrl &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'match-page' &&
+          localStorage.getItem('bafx-ctrlCompositingReference') ===
+            'match-page';
+      },
+      firstBackground.sourceUrl,
+    );
+    const restoredMatchedBackground = await page.evaluate(() =>
+      ({
+        compositingReferenceMatchedClass:
+          document.body.classList.contains('compositing-reference-matched'),
+        cssBackground: document.body.style.background,
+        sourceUrl: window.BAClickFXDemo.compositingReferenceSource?.src ?? null,
+      }),
+    );
+
+    assert(
+      restoredMatchedBackground.compositingReferenceMatchedClass &&
+        restoredMatchedBackground.sourceUrl === firstBackground.sourceUrl &&
+        restoredMatchedBackground.cssBackground === firstBackground.cssBackground,
+      '匹配页面模式没有恢复同一张页面合成参考',
+      { firstBackground, restoredMatchedBackground },
     );
 
     await page.locator('.theme-btn[data-theme="深紫"]').click();
@@ -2612,9 +2667,9 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === false &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+        return effect.compositingReferenceSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'match-page';
       },
     );
     const releasedOnThemeChange = await page.evaluate(
@@ -2633,29 +2688,37 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
     );
     await page.waitForFunction(
       () =>
-        window.BAClickFXDemo?.sceneBackgroundSource instanceof HTMLImageElement &&
-        window.BAClickFXDemo.sceneBackgroundSource.src.startsWith('blob:') &&
-        window.BAClickFXDemo.getConfig().sceneBackgroundEnabled === false &&
-        document.getElementById('ctrlSceneBackgroundEnabled').checked === false,
+        window.BAClickFXDemo?.compositingReferenceSource instanceof
+          HTMLImageElement &&
+        window.BAClickFXDemo.compositingReferenceSource.src.startsWith('blob:') &&
+        document.getElementById('ctrlCompositingReference').value ===
+          'match-page',
+    );
+    await page.locator('#ctrlCompositingReference').selectOption('unknown');
+    await page.waitForFunction(
+      () =>
+        window.BAClickFXDemo?.compositingReferenceSource === null &&
+        document.getElementById('ctrlCompositingReference').value ===
+          'unknown' &&
+        localStorage.getItem('bafx-ctrlCompositingReference') === 'unknown',
     );
     await page.reload({ waitUntil: 'load' });
     await page.waitForFunction(
-      () => typeof window.BAClickFXDemo?.setSceneBackground === 'function',
+      () =>
+        typeof window.BAClickFXDemo?.setCompositingReference === 'function',
     );
     const restoredBackground = await page.evaluate(() =>
     {
-      const source = window.BAClickFXDemo.sceneBackgroundSource;
+      const effect = window.BAClickFXDemo;
 
       return (
         {
           cssContainsBlob: document.body.style.background.includes('blob:'),
-          controlChecked:
-            document.getElementById('ctrlSceneBackgroundEnabled').checked,
-          sceneBackgroundEnabled:
-            window.BAClickFXDemo.getConfig().sceneBackgroundEnabled,
-          sourceIsCanvas: source instanceof HTMLCanvasElement,
-          sourceIsBlob: source instanceof HTMLImageElement &&
-            source.src.startsWith('blob:'),
+          controlValue:
+            document.getElementById('ctrlCompositingReference').value,
+          sourceCleared: effect.compositingReferenceSource === null,
+          referenceStorage:
+            localStorage.getItem('bafx-ctrlCompositingReference'),
         }
       );
     });
@@ -2667,16 +2730,18 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
     );
     assert(
       !restoredBackground.cssContainsBlob &&
-        !restoredBackground.sourceIsBlob &&
-        restoredBackground.sceneBackgroundEnabled === false &&
-        restoredBackground.controlChecked === false &&
-        restoredBackground.sourceIsCanvas,
-      '展示页刷新后恢复了失效的本地图片 blob URL 或丢失全局关闭偏好',
+        restoredBackground.sourceCleared &&
+        restoredBackground.controlValue === 'unknown' &&
+        restoredBackground.referenceStorage === 'unknown',
+      '展示页刷新后恢复了失效的本地图片 blob URL 或丢失未知背景偏好',
       restoredBackground,
     );
     metrics.demoBackgroundFile =
     {
       releasedOnThemeChange,
+      firstBackground,
+      unknownBackground,
+      restoredMatchedBackground,
       restoredBackground,
       typedFileBackground,
     };
@@ -2716,21 +2781,21 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === true &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
-          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === null;
+        return effect.compositingReferenceSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'match-page' &&
+          localStorage.getItem('bafx-ctrlCompositingReference') === null;
       },
     );
-    const automaticDefaultScene = await page.evaluate(() =>
+    const automaticDefaultReference = await page.evaluate(() =>
     {
       const effect = window.BAClickFXDemo;
 
       return {
-        controlChecked:
-          document.getElementById('ctrlSceneBackgroundEnabled').checked,
-        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
-        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+        controlValue:
+          document.getElementById('ctrlCompositingReference').value,
+        sourceIsCanvas:
+          effect.compositingReferenceSource instanceof HTMLCanvasElement,
       };
     });
     await page.locator('#panelToggle').click();
@@ -2744,23 +2809,26 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
         return document.body.classList.contains('theme-pure-white') &&
           config?.isolatedCompositing === true &&
           config.lightBackgroundContrastAlpha === 0.35 &&
-          config.sceneBackgroundEnabled === true &&
-          window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
+          window.BAClickFXDemo.compositingReferenceSource instanceof
+            HTMLCanvasElement &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'match-page';
       },
     );
     await page.evaluate(async () =>
     {
       window.dispatchEvent(new Event('resize'));
 
-      // Scene 主题同步通过 RAF 合并 resize；等待两帧才能覆盖延迟重传路径。
+      // 主题参考同步通过 RAF 合并 resize；等待两帧才能覆盖延迟重传路径。
       await new Promise((resolve) => requestAnimationFrame(resolve));
       await new Promise((resolve) => requestAnimationFrame(resolve));
     });
     await page.waitForFunction(
       () =>
-        window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
-        window.BAClickFXDemo.getConfig().sceneBackgroundEnabled === true,
+        window.BAClickFXDemo.compositingReferenceSource instanceof
+          HTMLCanvasElement &&
+        document.getElementById('ctrlCompositingReference').value ===
+          'match-page',
     );
 
     const modeSamples = {};
@@ -2855,6 +2923,10 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
         const result = {
           alphaSum,
           canvasSceneVisible: effect.canvasSceneVisible,
+          compositingReferenceMode:
+            document.getElementById('ctrlCompositingReference').value,
+          compositingReferenceMatchesPage:
+            effect.compositingReferenceSource instanceof HTMLCanvasElement,
           config: effect.getConfig(),
           contrastDisplay: getComputedStyle(effect.contrastCanvas).display,
           contrastVisibility:
@@ -2901,7 +2973,8 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
         sample.config.outputCompositing === 'scene' &&
           sample.config.isolatedCompositing === true &&
           sample.config.lightBackgroundContrastAlpha === 0.35 &&
-          sample.config.sceneBackgroundEnabled === true,
+          sample.compositingReferenceMode === 'match-page' &&
+          sample.compositingReferenceMatchesPage,
         `${mode}: 展示页没有保持纯白隔离的对比层配置`,
         sample,
       );
@@ -2976,21 +3049,21 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === true &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
-          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === null;
+        return effect.compositingReferenceSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'match-page' &&
+          localStorage.getItem('bafx-ctrlCompositingReference') === null;
       },
     );
-    const automaticNonWhiteScene = await page.evaluate(() =>
+    const automaticNonWhiteReference = await page.evaluate(() =>
     {
       const effect = window.BAClickFXDemo;
 
       return {
-        controlChecked:
-          document.getElementById('ctrlSceneBackgroundEnabled').checked,
-        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
-        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+        controlValue:
+          document.getElementById('ctrlCompositingReference').value,
+        sourceIsCanvas:
+          effect.compositingReferenceSource instanceof HTMLCanvasElement,
       };
     });
 
@@ -3000,38 +3073,55 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === true &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
-          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === null;
+        return effect.compositingReferenceSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'match-page' &&
+          localStorage.getItem('bafx-ctrlCompositingReference') === null;
       },
     );
-    const automaticPureWhiteScene = await page.evaluate(() =>
+    const automaticPureWhiteReference = await page.evaluate(() =>
     {
       const effect = window.BAClickFXDemo;
 
       return {
-        controlChecked:
-          document.getElementById('ctrlSceneBackgroundEnabled').checked,
-        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
-        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+        controlValue:
+          document.getElementById('ctrlCompositingReference').value,
+        sourceIsCanvas:
+          effect.compositingReferenceSource instanceof HTMLCanvasElement,
       };
     });
 
     await page.locator('#ctrlOutputCompositing').selectOption(
       'transparent-overlay',
     );
-    await page.locator('#ctrlSceneBackgroundEnabled + .toggle-track').click();
+    const matchedPureWhiteBackground = await page.evaluate(
+      () => document.body.style.background,
+    );
+    await page.locator('#ctrlCompositingReference').selectOption('unknown');
     await page.waitForFunction(
       () =>
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === false &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false &&
-          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === 'false';
+        return effect.getConfig().outputCompositing === 'transparent-overlay' &&
+          effect.compositingReferenceSource === null &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'unknown' &&
+          localStorage.getItem('bafx-ctrlCompositingReference') === 'unknown';
       },
+    );
+    const unknownPureWhiteReference = await page.evaluate(() =>
+      ({
+        cssBackground: document.body.style.background,
+        sourceCleared: window.BAClickFXDemo.compositingReferenceSource === null,
+      }),
+    );
+
+    assert(
+      unknownPureWhiteReference.sourceCleared &&
+        unknownPureWhiteReference.cssBackground === matchedPureWhiteBackground,
+      '纯白未知背景模式错误改变了页面背景，或没有清除合成参考',
+      { matchedPureWhiteBackground, unknownPureWhiteReference },
     );
 
     await page.locator('.theme-btn[data-theme="深紫"]').click();
@@ -3041,9 +3131,9 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
         const effect = window.BAClickFXDemo;
 
         return effect.getConfig().lightBackgroundContrastAlpha === 0 &&
-          effect.getConfig().sceneBackgroundEnabled === false &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+          effect.compositingReferenceSource === null &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'unknown';
       },
     );
     const resetContrastAlpha = await page.evaluate(
@@ -3063,26 +3153,21 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
         const effect = window.BAClickFXDemo;
 
         return document.body.classList.contains('theme-pure-white') === false &&
-          effect.getConfig().sceneBackgroundEnabled === false &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false &&
-          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === 'false';
+          effect.compositingReferenceSource === null &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'unknown' &&
+          localStorage.getItem('bafx-ctrlCompositingReference') === 'unknown';
       },
     );
-    const restoredDisabledScene = await page.evaluate(() =>
-    {
-      const effect = window.BAClickFXDemo;
-
-      return {
-        controlChecked:
-          document.getElementById('ctrlSceneBackgroundEnabled').checked,
-        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
-        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
-      };
-    });
+    const restoredUnknownReference = await page.evaluate(() =>
+      ({
+        controlValue:
+          document.getElementById('ctrlCompositingReference').value,
+        sourceCleared: window.BAClickFXDemo.compositingReferenceSource === null,
+      }),
+    );
 
     await page.locator('#panelToggle').click();
-
     await page.locator('.theme-btn[data-theme="纯白"]').click();
     await page.waitForFunction(
       () =>
@@ -3091,24 +3176,36 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
 
         return config.isolatedCompositing === true &&
           config.lightBackgroundContrastAlpha === 0.35 &&
-          config.sceneBackgroundEnabled === false &&
-          window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+          window.BAClickFXDemo.compositingReferenceSource === null &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'unknown';
       },
     );
 
-    await page.locator('#ctrlSceneBackgroundEnabled + .toggle-track').click();
+    await page.locator('#ctrlCompositingReference').selectOption('match-page');
     await page.waitForFunction(
       () =>
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === true &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
-          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === 'true';
+        return effect.compositingReferenceSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'match-page' &&
+          localStorage.getItem('bafx-ctrlCompositingReference') ===
+            'match-page';
       },
     );
+    const restoredMatchedPureWhiteReference = await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+
+      return {
+        controlValue:
+          document.getElementById('ctrlCompositingReference').value,
+        sourceIsCanvas:
+          effect.compositingReferenceSource instanceof HTMLCanvasElement,
+      };
+    });
 
     await page.locator('.theme-btn[data-theme="深紫"]').click();
     await page.waitForFunction(
@@ -3116,20 +3213,20 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === true &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
+        return effect.compositingReferenceSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'match-page';
       },
     );
-    const manualEnabledNonWhiteScene = await page.evaluate(() =>
+    const matchedNonWhiteReference = await page.evaluate(() =>
     {
       const effect = window.BAClickFXDemo;
 
       return {
-        controlChecked:
-          document.getElementById('ctrlSceneBackgroundEnabled').checked,
-        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
-        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+        controlValue:
+          document.getElementById('ctrlCompositingReference').value,
+        sourceIsCanvas:
+          effect.compositingReferenceSource instanceof HTMLCanvasElement,
       };
     });
 
@@ -3139,9 +3236,9 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === true &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
+        return effect.compositingReferenceSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'match-page';
       },
     );
 
@@ -3150,12 +3247,14 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
     {
       const config = window.BAClickFXDemo?.getConfig();
 
-        return document.body.classList.contains('theme-pure-white') &&
-          config?.isolatedCompositing === true &&
-          config.lightBackgroundContrastAlpha === 0.35 &&
-          config.sceneBackgroundEnabled === true &&
-          window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
+      return document.body.classList.contains('theme-pure-white') &&
+        config?.isolatedCompositing === true &&
+        config.lightBackgroundContrastAlpha === 0.35 &&
+        window.BAClickFXDemo.compositingReferenceSource instanceof
+          HTMLCanvasElement &&
+        document.getElementById('ctrlCompositingReference').value ===
+          'match-page' &&
+        localStorage.getItem('bafx-ctrlCompositingReference') === 'match-page';
     });
     const restoredContrastAlpha = await page.evaluate(
       () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha,
@@ -3168,21 +3267,22 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === true &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
-          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === 'true';
+        return effect.compositingReferenceSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'match-page' &&
+          localStorage.getItem('bafx-ctrlCompositingReference') ===
+            'match-page';
       },
     );
-    const restoredEnabledNonWhiteScene = await page.evaluate(() =>
+    const restoredMatchedNonWhiteReference = await page.evaluate(() =>
     {
       const effect = window.BAClickFXDemo;
 
       return {
-        controlChecked:
-          document.getElementById('ctrlSceneBackgroundEnabled').checked,
-        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
-        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+        controlValue:
+          document.getElementById('ctrlCompositingReference').value,
+        sourceIsCanvas:
+          effect.compositingReferenceSource instanceof HTMLCanvasElement,
       };
     });
 
@@ -3192,21 +3292,21 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === true &&
-          effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
-          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === null;
+        return effect.compositingReferenceSource instanceof HTMLCanvasElement &&
+          document.getElementById('ctrlCompositingReference').value ===
+            'match-page' &&
+          localStorage.getItem('bafx-ctrlCompositingReference') === null;
       },
     );
-    const resetAutomaticScene = await page.evaluate(() =>
+    const resetAutomaticReference = await page.evaluate(() =>
     {
       const effect = window.BAClickFXDemo;
 
       return {
-        controlChecked:
-          document.getElementById('ctrlSceneBackgroundEnabled').checked,
-        sceneBackgroundEnabled: effect.getConfig().sceneBackgroundEnabled,
-        sourceIsCanvas: effect.sceneBackgroundSource instanceof HTMLCanvasElement,
+        controlValue:
+          document.getElementById('ctrlCompositingReference').value,
+        sourceIsCanvas:
+          effect.compositingReferenceSource instanceof HTMLCanvasElement,
       };
     });
 
@@ -3217,17 +3317,18 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
     );
     metrics.demoPureWhiteIsolation =
     {
-      automaticDefaultScene,
-      automaticNonWhiteScene,
-      automaticPureWhiteScene,
+      automaticDefaultReference,
+      automaticNonWhiteReference,
+      automaticPureWhiteReference,
       disabledContrastAlpha,
-      manualEnabledNonWhiteScene,
       modeSamples,
       resetContrastAlpha,
-      resetAutomaticScene,
-      restoredDisabledScene,
-      restoredEnabledNonWhiteScene,
+      resetAutomaticReference,
+      restoredMatchedNonWhiteReference,
+      restoredMatchedPureWhiteReference,
       restoredContrastAlpha,
+      restoredUnknownReference,
+      unknownPureWhiteReference,
     };
   }
   finally
@@ -3560,63 +3661,63 @@ async function runMatrix(browserInstance, baseUrl, baseline)
         webGLTrailResults.get('webgl2-bloom'),
       );
 
-      currentLabel = 'scene-background-null';
-      const sceneReset = await page.evaluate(
-        () => window.browserPixelSuite.runSceneBackgroundReset(),
+      currentLabel = 'compositing-reference-reset';
+      const compositingReferenceReset = await page.evaluate(
+        () => window.browserPixelSuite.runCompositingReferenceReset(),
       );
 
       assert(
-        sceneReset.accepted &&
-          sceneReset.disabled &&
-          sceneReset.reenabled &&
-          sceneReset.cleared,
-        '场景背景设置、暂停、恢复或清除被拒绝',
-        sceneReset,
+        compositingReferenceReset.referenceSet &&
+          compositingReferenceReset.referenceCleared &&
+          compositingReferenceReset.referenceRestored &&
+          compositingReferenceReset.referenceClearedAgain,
+        '合成参考设置、清除或恢复被拒绝',
+        compositingReferenceReset,
       );
       assert(
         relativeDifference(
-          sceneReset.beforeScene.meanEnergy,
-          sceneReset.withScene.meanEnergy,
+          compositingReferenceReset.beforeReference.meanEnergy,
+          compositingReferenceReset.withReference.meanEnergy,
         ) > 0.1,
-        'setSceneBackground() 没有改变可见场景',
-        sceneReset,
+        'setCompositingReference() 没有改变可见合成结果',
+        compositingReferenceReset,
       );
       assert(
-        sceneReset.disabledState === false &&
-          sceneReset.sourcePreserved &&
-          sceneReset.reenabledState === true &&
+        compositingReferenceReset.referenceClearedFromEffect &&
+          compositingReferenceReset.referenceClearedAgainFromEffect &&
           relativeDifference(
-            sceneReset.beforeScene.meanEnergy,
-            sceneReset.withoutActiveScene.meanEnergy,
+            compositingReferenceReset.beforeReference.meanEnergy,
+            compositingReferenceReset.withoutReference.meanEnergy,
           ) <= 0.01 &&
           relativeDifference(
-            sceneReset.beforeScene.meanAlpha,
-            sceneReset.withoutActiveScene.meanAlpha,
+            compositingReferenceReset.beforeReference.meanAlpha,
+            compositingReferenceReset.withoutReference.meanAlpha,
           ) <= 0.01 &&
           relativeDifference(
-            sceneReset.withScene.meanEnergy,
-            sceneReset.reenabledScene.meanEnergy,
+            compositingReferenceReset.beforeReference.meanEnergy,
+            compositingReferenceReset.withoutReferenceAgain.meanEnergy,
           ) <= 0.01 &&
           relativeDifference(
-            sceneReset.withScene.meanAlpha,
-            sceneReset.reenabledScene.meanAlpha,
+            compositingReferenceReset.beforeReference.meanAlpha,
+            compositingReferenceReset.withoutReferenceAgain.meanAlpha,
           ) <= 0.01,
-        'setSceneBackgroundEnabled() 没有原子暂停并恢复已保留的场景背景',
-        sceneReset,
+        'setCompositingReference(null) 没有原子清除合成参考并恢复透明输出',
+        compositingReferenceReset,
       );
       assert(
+        compositingReferenceReset.referenceRestoredInEffect &&
         relativeDifference(
-          sceneReset.beforeScene.meanAlpha,
-          sceneReset.withoutScene.meanAlpha,
+          compositingReferenceReset.withReference.meanAlpha,
+          compositingReferenceReset.restoredReference.meanAlpha,
         ) <= 0.01 &&
-          relativeDifference(
-            sceneReset.beforeScene.meanEnergy,
-            sceneReset.withoutScene.meanEnergy,
-          ) <= 0.01,
-        'setSceneBackground(null) 未恢复设置前的透明输出',
-        sceneReset,
+        relativeDifference(
+          compositingReferenceReset.withReference.meanEnergy,
+          compositingReferenceReset.restoredReference.meanEnergy,
+        ) <= 0.01,
+        'setCompositingReference() 没有原子恢复已清除的合成参考',
+        compositingReferenceReset,
       );
-      metrics.sceneBackgroundReset = sceneReset;
+      metrics.compositingReferenceReset = compositingReferenceReset;
 
       for (const isolatedCompositing of isolationModes)
       {
@@ -3794,17 +3895,17 @@ async function runMatrix(browserInstance, baseUrl, baseline)
 
     if (mode === 'full-webgl2')
     {
-      currentLabel = 'full-webgl2__scene-background-context-lifecycle';
-      const sceneBackgroundContextLifecycle =
+      currentLabel = 'full-webgl2__compositing-reference-context-lifecycle';
+      const compositingReferenceContextLifecycle =
         await contextSession.page.evaluate(
-          () => window.browserPixelSuite.runSceneBackgroundContextLifecycle(),
+          () => window.browserPixelSuite.runCompositingReferenceContextLifecycle(),
         );
 
-      validateSceneBackgroundContextLifecycle(
-        sceneBackgroundContextLifecycle,
+      validateCompositingReferenceContextLifecycle(
+        compositingReferenceContextLifecycle,
       );
-      metrics.sceneBackgroundContextLifecycle =
-        sceneBackgroundContextLifecycle;
+      metrics.compositingReferenceContextLifecycle =
+        compositingReferenceContextLifecycle;
     }
 
     currentLabel = `${mode}__backend-reentrant-native`;
