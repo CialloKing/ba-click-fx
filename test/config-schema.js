@@ -14,10 +14,14 @@ import {
   UNITY_FX_TOUCH,
   createConfig,
   isHostCompositing,
+  isOverlayAlphaPolicy,
+  isOverlayColorCompensation,
   isOverlayAlphaLimit,
   isUnknownBackgroundAppearance,
   normalizeHostCompositing,
   normalizeOverlayAlphaLimit,
+  normalizeOverlayAlphaPolicyConfig,
+  normalizeOverlayColorCompensationConfig,
   normalizeThemeColor,
   normalizeUnknownBackgroundAppearance,
 } from '../src/config.js';
@@ -212,9 +216,25 @@ check(
 console.log('\n透明合成配置合同');
 check(
   CONFIG.unknownBackgroundAppearance === 'coverage' &&
+    CONFIG.overlayAlphaPolicy === 'coverage' &&
+    CONFIG.overlayColorCompensation === 'none' &&
     CONFIG.overlayAlphaLimit === 250 / 255 &&
     CONFIG.hostCompositing === 'source-over',
   '透明合成配置使用 Coverage、250/255 与 source-over 默认值',
+);
+check(
+  isOverlayAlphaPolicy('coverage') &&
+    isOverlayAlphaPolicy('visual-max') &&
+    !isOverlayAlphaPolicy('maxRGB') &&
+    normalizeOverlayAlphaPolicyConfig('invalid') === 'coverage',
+  'Alpha 策略只接受 coverage 与 visual-max',
+);
+check(
+  isOverlayColorCompensation('none') &&
+    isOverlayColorCompensation('bright-core') &&
+    !isOverlayColorCompensation('bright') &&
+    normalizeOverlayColorCompensationConfig('invalid') === 'none',
+  '颜色补偿只接受 none 与 bright-core',
 );
 check(
   isUnknownBackgroundAppearance('coverage') &&
@@ -250,6 +270,7 @@ check(
 const transparentCompositingConfig = createConfig(
   {
     unknownBackgroundAppearance: 'bright',
+    overlayAlphaPolicy: 'visual-max',
     overlayAlphaLimit: 2,
     hostCompositing: 'plus-lighter',
   },
@@ -264,9 +285,22 @@ const invalidTransparentCompositingConfig = createConfig(
 
 check(
   transparentCompositingConfig.unknownBackgroundAppearance === 'bright' &&
+    transparentCompositingConfig.overlayAlphaPolicy === 'visual-max' &&
+    transparentCompositingConfig.overlayColorCompensation === 'bright-core' &&
     transparentCompositingConfig.overlayAlphaLimit === 1 &&
     transparentCompositingConfig.hostCompositing === 'plus-lighter',
   '构造配置保留合法透明合成选项并钳制 Alpha',
+);
+const explicitOverlayContract = createConfig(
+  {
+    overlayColorCompensation: 'none',
+    unknownBackgroundAppearance: 'bright',
+  },
+);
+check(
+  explicitOverlayContract.overlayColorCompensation === 'none' &&
+    explicitOverlayContract.unknownBackgroundAppearance === 'bright',
+  '显式颜色补偿优先于旧外观字段',
 );
 check(
   invalidTransparentCompositingConfig.unknownBackgroundAppearance ===

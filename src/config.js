@@ -21,6 +21,17 @@ const UNKNOWN_BACKGROUND_APPEARANCES = new Set(['coverage', 'bright']);
 const DEFAULT_OVERLAY_ALPHA_LIMIT = 250 / 255;
 const DEFAULT_HOST_COMPOSITING = 'source-over';
 const HOST_COMPOSITING_MODES = new Set(['source-over', 'plus-lighter']);
+const DEFAULT_OVERLAY_ALPHA_POLICY = 'coverage';
+const DEFAULT_OVERLAY_COLOR_COMPENSATION = 'none';
+
+import {
+  isOverlayAlphaPolicy,
+  isOverlayColorCompensation,
+  mapOverlayColorCompensation,
+  mapUnknownBackgroundAppearance,
+  normalizeOverlayAlphaPolicy,
+  normalizeOverlayColorCompensation,
+} from './overlay-compositing.js';
 
 // 极低倍率会让每帧逻辑时间几乎停滞；保留可预期的最小有效速度。
 export const MIN_TIME_SCALE = 0.01;
@@ -973,6 +984,9 @@ export const CONFIG = Object.freeze(
     outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
     // Coverage 保持透明宿主合同；Bright 由渲染器显式选择更明亮的兼容载荷。
     unknownBackgroundAppearance: DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE,
+    // Alpha 分配和颜色补偿是两个独立开关；默认保持现有 Coverage 合同。
+    overlayAlphaPolicy: DEFAULT_OVERLAY_ALPHA_POLICY,
+    overlayColorCompensation: DEFAULT_OVERLAY_COLOR_COMPENSATION,
     // 给未知背景覆盖层保留少量透出，宿主可按自身合成能力调整。
     overlayAlphaLimit: DEFAULT_OVERLAY_ALPHA_LIMIT,
     // 普通 source-over 不假定宿主可见背景；网页加色必须显式启用。
@@ -1043,6 +1057,24 @@ export function normalizeUnknownBackgroundAppearance(
 )
 {
   return isUnknownBackgroundAppearance(value) ? value : fallback;
+}
+
+export { isOverlayAlphaPolicy, isOverlayColorCompensation };
+
+export function normalizeOverlayAlphaPolicyConfig(
+  value,
+  fallback = DEFAULT_OVERLAY_ALPHA_POLICY,
+)
+{
+  return normalizeOverlayAlphaPolicy(value, fallback);
+}
+
+export function normalizeOverlayColorCompensationConfig(
+  value,
+  fallback = DEFAULT_OVERLAY_COLOR_COMPENSATION,
+)
+{
+  return normalizeOverlayColorCompensation(value, fallback);
 }
 
 export function isOverlayAlphaLimit(value)
@@ -1146,6 +1178,19 @@ export function createConfig(overrides = {})
     overrides.unknownBackgroundAppearance,
     CONFIG.unknownBackgroundAppearance,
   );
+  const overlayAlphaPolicy = normalizeOverlayAlphaPolicyConfig(
+    overrides.overlayAlphaPolicy,
+    CONFIG.overlayAlphaPolicy,
+  );
+  const overlayColorCompensation = normalizeOverlayColorCompensationConfig(
+    overrides.overlayColorCompensation,
+    Object.prototype.hasOwnProperty.call(
+      overrides,
+      'overlayColorCompensation',
+    )
+      ? CONFIG.overlayColorCompensation
+      : mapUnknownBackgroundAppearance(unknownBackgroundAppearance),
+  );
   const overlayAlphaLimit = normalizeOverlayAlphaLimit(
     overrides.overlayAlphaLimit,
     CONFIG.overlayAlphaLimit,
@@ -1168,6 +1213,8 @@ export function createConfig(overrides = {})
     trailTimeScale,
     outputCompositing,
     unknownBackgroundAppearance,
+    overlayAlphaPolicy,
+    overlayColorCompensation,
     overlayAlphaLimit,
     hostCompositing,
     themeColor,
