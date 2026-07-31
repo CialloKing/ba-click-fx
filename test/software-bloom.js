@@ -90,12 +90,12 @@ const aboveThreshold = calculateBloomContribution(2, 1, 0.5);
 
 assert(belowKnee === 0, '低于 soft-knee 区间的亮度被完全剔除');
 assert(
-  approximatelyEqual(insideKnee, 0.03125),
-  'soft-knee 在阈值下方按 MXFinalBloom 公式平滑引入 Bloom',
+  approximatelyEqual(insideKnee, 0.031251875012499736),
+  'soft-knee 在阈值下方按 Unity 的 epsilon 公式平滑引入 Bloom',
 );
 assert(
-  approximatelyEqual(atThreshold, 0.125),
-  '阈值位置仍保留连续的 soft-knee 贡献',
+  approximatelyEqual(atThreshold, 0.1250025),
+  '阈值位置保留 Unity 无条件增加 epsilon 后的连续贡献',
 );
 assert(
   approximatelyEqual(aboveThreshold, 1),

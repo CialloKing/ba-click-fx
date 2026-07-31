@@ -138,7 +138,8 @@ vec3 thresholdColor(vec3 color, out float transportEnergy)
   }
 
   float threshold = max(0.0, u_threshold);
-  float knee = threshold * u_softKnee + 0.00001;
+  // BaGameBloomRendererFeature 的序列化范围是 0..1，并无条件加 epsilon。
+  float knee = threshold * clamp(u_softKnee, 0.0, 1.0) + 0.00001;
   float soft = brightness - threshold + knee;
 
   soft = clamp(soft, 0.0, knee * 2.0);

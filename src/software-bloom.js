@@ -148,7 +148,9 @@ export function linearToSrgb(value)
 export function calculateBloomContribution(brightness, threshold, softKnee)
 {
   const safeThreshold = Math.max(0, threshold);
-  const knee = Math.max(safeThreshold * clamp01(softKnee), 0.00001);
+  // Unity 在 CPU 侧无条件加 epsilon；不能改成下限，否则非零 Soft Knee
+  // 会与 BaGameBloomRendererFeature 产生细小但可累积的能量偏差。
+  const knee = safeThreshold * clamp01(softKnee) + 0.00001;
   let soft = brightness - safeThreshold + knee;
 
   soft = clamp(soft, 0, knee * 2);
