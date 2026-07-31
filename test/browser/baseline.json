@@ -76,25 +76,25 @@
       ]
     },
     "software-bloom": {
-      "meanRed": 0.0342,
-      "meanGreen": 0.041513,
-      "meanBlue": 0.118742,
-      "meanAlpha": 0.014795,
-      "meanEnergy": 0.118742,
+      "meanRed": 0.03581,
+      "meanGreen": 0.042876,
+      "meanBlue": 0.118728,
+      "meanAlpha": 0.014893,
+      "meanEnergy": 0.118728,
       "visibleRatio": 0.11875,
       "maximumAlpha": 0.980392,
       "boundsWidth": 106,
       "boundsHeight": 104,
       "centerAlpha": 0.980392,
       "centerRgb": [
-        0.286275,
-        0.482353,
+        0.572549,
+        0.729412,
         1
       ],
       "radialAlpha": [
         0.980392,
         0.980392,
-        0.945098,
+        0.980392,
         0.486275,
         0.298039,
         0.145098,
@@ -104,19 +104,19 @@
       ]
     },
     "native": {
-      "meanRed": 0.006904,
-      "meanGreen": 0.012889,
-      "meanBlue": 0.033688,
-      "meanAlpha": 0.004608,
-      "meanEnergy": 0.033688,
+      "meanRed": 0.010754,
+      "meanGreen": 0.017687,
+      "meanBlue": 0.033638,
+      "meanAlpha": 0.004597,
+      "meanEnergy": 0.033638,
       "visibleRatio": 0.033711,
-      "maximumAlpha": 1,
+      "maximumAlpha": 0.980392,
       "boundsWidth": 56,
       "boundsHeight": 56,
       "centerAlpha": 0.564706,
       "centerRgb": [
-        0.215686,
-        0.521569,
+        0.658824,
+        0.894118,
         1
       ],
       "radialAlpha": [
@@ -132,19 +132,19 @@
       ]
     },
     "legacy": {
-      "meanRed": 0.00756,
-      "meanGreen": 0.013483,
-      "meanBlue": 0.03369,
-      "meanAlpha": 0.004655,
-      "meanEnergy": 0.03369,
+      "meanRed": 0.011534,
+      "meanGreen": 0.01826,
+      "meanBlue": 0.033641,
+      "meanAlpha": 0.004644,
+      "meanEnergy": 0.033641,
       "visibleRatio": 0.033711,
-      "maximumAlpha": 1,
+      "maximumAlpha": 0.980392,
       "boundsWidth": 56,
       "boundsHeight": 56,
       "centerAlpha": 0.564706,
       "centerRgb": [
-        0.227451,
-        0.533333,
+        0.67451,
+        0.894118,
         1
       ],
       "radialAlpha": [

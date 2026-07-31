@@ -186,6 +186,10 @@ function applyBackground(target, background)
   {
     target.style.backgroundColor = '#fff';
   }
+  else if (background === 'color')
+  {
+    target.style.backgroundColor = '#4a7f62';
+  }
   else if (background === 'checker')
   {
     target.style.backgroundColor = '#fff';
@@ -308,6 +312,13 @@ function paintCaptureBackground(context, background, width, height, dpr)
   if (background === 'black' || background === 'white')
   {
     context.fillStyle = background === 'black' ? '#000' : '#fff';
+    context.fillRect(0, 0, width, height);
+    return;
+  }
+
+  if (background === 'color')
+  {
+    context.fillStyle = '#4a7f62';
     context.fillRect(0, 0, width, height);
     return;
   }
@@ -560,6 +571,10 @@ async function prepareEffect(specification)
       trailAlways: true,
       outputCompositing: specification.outputCompositing ??
         'browser-overlay',
+      unknownBackgroundAppearance:
+        specification.unknownBackgroundAppearance,
+      overlayAlphaLimit: specification.overlayAlphaLimit,
+      hostCompositing: specification.hostCompositing,
       opacity: specification.opacity,
       scale: specification.scale ?? 1,
       isolatedCompositing: specification.isolatedCompositing,
@@ -841,6 +856,119 @@ async function runCompositingReferenceReset()
   };
 }
 
+function captureTransparentContractPhase(effect, target)
+{
+  const capture = captureCompositingPhases(effect, target);
+  const snapshot = effect.getConfig();
+  const transparent = capture.images.transparent;
+  const cornerPixels = [
+    getPixel(transparent, 0, 0, effect.dpr),
+    getPixel(transparent, FIXTURE_WIDTH - 1, 0, effect.dpr),
+    getPixel(transparent, 0, FIXTURE_HEIGHT - 1, effect.dpr),
+    getPixel(
+      transparent,
+      FIXTURE_WIDTH - 1,
+      FIXTURE_HEIGHT - 1,
+      effect.dpr,
+    ),
+  ];
+
+  return {
+    config:
+    {
+      hostCompositing: snapshot.hostCompositing,
+      opacity: snapshot.opacity,
+      outputCompositing: snapshot.outputCompositing,
+      overlayAlphaLimit: snapshot.overlayAlphaLimit,
+      unknownBackgroundAppearance: snapshot.unknownBackgroundAppearance,
+    },
+    route:
+    {
+      bloom: snapshot.resolvedBloomBackend,
+      effect: snapshot.resolvedEffectBackend,
+    },
+    lifecycle:
+    {
+      clickTimeMs: effect.clickTimeMs,
+      shardAges: effect.shards.map((shard) => shard.ageMs),
+      trailPointBirthTimes: effect.trailStrokes.flatMap((stroke) =>
+        stroke.points.map((point) => point.bornAt)),
+      trailTimeMs: effect.trailTimeMs,
+      waveAges: effect.waves.map((wave) => wave.ageMs),
+    },
+    mount:
+    {
+      canvasBlendMode: effect.canvas.style.mixBlendMode,
+      overlayRootBlendMode: effect.overlayRoot?.style.mixBlendMode ?? '',
+      overlayRootConnected: effect.overlayRoot?.isConnected === true,
+    },
+    outside:
+    {
+      maximumAlpha: Math.max(...cornerPixels.map((pixel) => pixel[3])) / 255,
+      maximumEnergy: Math.max(...cornerPixels.flatMap((pixel) =>
+        pixel.slice(0, 3))) / 255,
+      pixels: cornerPixels,
+    },
+    pixels: capture.pixels,
+  };
+}
+
+async function beginTransparentContractTransitions(specification)
+{
+  const fixture = await prepareEffect(
+    {
+      ...specification,
+      background: specification.background ?? 'checker',
+      containStrict: false,
+      includeTrail: specification.includeTrail ?? true,
+      isolatedCompositing: specification.isolatedCompositing ?? true,
+      outputCompositing: 'browser-overlay',
+      shadow: false,
+    },
+  );
+
+  return captureTransparentContractPhase(fixture.effect, fixture.target);
+}
+
+async function transitionTransparentContract(specification = {})
+{
+  if (!activeFixture)
+  {
+    throw new Error('透明合同热切换夹具尚未建立');
+  }
+
+  const effect = activeFixture.effect;
+  const patch = {};
+
+  for (const key of [
+    'hostCompositing',
+    'opacity',
+    'outputCompositing',
+    'overlayAlphaLimit',
+    'unknownBackgroundAppearance',
+  ])
+  {
+    if (Object.hasOwn(specification, key))
+    {
+      patch[key] = specification[key];
+    }
+  }
+
+  if (Object.hasOwn(specification, 'background'))
+  {
+    applyBackground(activeFixture.target, specification.background);
+  }
+
+  if (Object.keys(patch).length > 0)
+  {
+    effect.updateConfig(patch);
+  }
+
+  // 使用相同虚拟时间重绘，模式切换不能借生命周期推进掩盖亮度跳变。
+  await runAnimationFrame(activeFixture.sampleTimeMs);
+  return captureTransparentContractPhase(effect, activeFixture.target);
+}
+
 function waitForCanvasEvent(canvas, eventName, timeoutMs = 5000)
 {
   return new Promise((resolve, reject) =>
@@ -1005,6 +1133,7 @@ function captureCanvasLayerState(canvas, target)
 function captureCompositingState(effect, target)
 {
   const canvases = [...target.querySelectorAll('canvas')];
+  const snapshot = effect.getConfig();
   const layerStates =
   {
     contrast: captureCanvasLayerState(effect.contrastCanvas, target),
@@ -1016,7 +1145,12 @@ function captureCompositingState(effect, target)
     .filter((layer) => layer.exists && layer.visible);
 
   return {
-    isolatedCompositing: effect.getConfig().isolatedCompositing,
+    hostCompositing: snapshot.hostCompositing,
+    isolatedCompositing: snapshot.isolatedCompositing,
+    outputCompositing: snapshot.outputCompositing,
+    overlayAlphaLimit: snapshot.overlayAlphaLimit,
+    overlayRootBlendMode: effect.overlayRoot?.style.mixBlendMode ?? '',
+    unknownBackgroundAppearance: snapshot.unknownBackgroundAppearance,
     overlayParentIsTarget: effect.overlayParent === target,
     overlayRootConnected: effect.overlayRoot?.isConnected === true,
     allCanvasLayersAbsolute: canvases.every((canvas) =>
@@ -1038,7 +1172,13 @@ function captureCompositingPhases(effect, target, transmissionCenter = null)
   {
   };
 
-  for (const background of ['transparent', 'black', 'white', 'checker'])
+  for (const background of [
+    'transparent',
+    'black',
+    'white',
+    'color',
+    'checker',
+  ])
   {
     images[background] = captureLayers(effect, target, background);
     pixels[background] = summarizePixels(images[background], effect.dpr);
@@ -1067,15 +1207,12 @@ function captureCompositingPhases(effect, target, transmissionCenter = null)
 
 async function runContextLifecycle(specification)
 {
-  const mode = typeof specification === 'string'
-    ? specification
-    : specification.mode;
-  const opacity = typeof specification === 'string'
-    ? 1
-    : specification.opacity;
-  const isolatedCompositing = typeof specification === 'string'
-    ? true
-    : specification.isolatedCompositing !== false;
+  const options = typeof specification === 'string'
+    ? { mode: specification }
+    : specification;
+  const mode = options.mode;
+  const opacity = options.opacity ?? 1;
+  const isolatedCompositing = options.isolatedCompositing !== false;
   const fixture = await prepareEffect(
     {
       mode,
@@ -1083,6 +1220,9 @@ async function runContextLifecycle(specification)
       isolatedCompositing,
       background: 'transparent',
       outputCompositing: 'browser-overlay',
+      unknownBackgroundAppearance: options.unknownBackgroundAppearance,
+      overlayAlphaLimit: options.overlayAlphaLimit,
+      hostCompositing: options.hostCompositing,
       shadow: false,
       containStrict: false,
       includeTrail: false,
@@ -1145,6 +1285,14 @@ async function runContextLifecycle(specification)
     mode,
     opacity,
     isolatedCompositing,
+    contract:
+    {
+      hostCompositing: beforeRoute.hostCompositing,
+      outputCompositing: beforeRoute.outputCompositing,
+      overlayAlphaLimit: beforeRoute.overlayAlphaLimit,
+      unknownBackgroundAppearance:
+        beforeRoute.unknownBackgroundAppearance,
+    },
     before: before.pixels,
     fallback: fallback.pixels,
     fallbackSteady: fallbackSteady.pixels,
@@ -2073,6 +2221,7 @@ window.browserPixelSuite = Object.freeze(
   {
     runtimeKind,
     modeNames: Object.keys(MODE_CONFIGS),
+    beginTransparentContractTransitions,
     runCase,
     runCompositingReferenceReset,
     runContextLifecycle,
@@ -2081,6 +2230,7 @@ window.browserPixelSuite = Object.freeze(
     runBackendReentrantNative,
     runTrailTextureResourceLifecycle,
     runTrailContextLifecycle,
+    transitionTransparentContract,
     waitForCompositorFrame,
     getStageClip,
     dispose: disposeActiveFixture,

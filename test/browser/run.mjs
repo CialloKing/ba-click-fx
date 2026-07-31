@@ -61,6 +61,8 @@ const metrics =
   },
   trailContextLifecycle: {},
   trailTextureResourceLifecycle: {},
+  transparentCompositingTransitions: {},
+  transparentContractContextLifecycle: {},
   iifeSmoke: null,
   demoTimeScaleControls: null,
   demoBackgroundFile: null,
@@ -640,15 +642,245 @@ function validateContextOpacityGroup(
       full: fullProbeAlpha,
     },
   );
+  // Bloom 传输 Alpha 在线性能量滤波后编码为 sRGB，单个峰值不按 0.5
+  // 线性缩放；平均 Coverage 与中心探针仍由上方断言保持线性。
   assert(
-    maximumAlphaRatio >= 0.35 && maximumAlphaRatio <= 0.65,
-    `${mode}: ${label} ${phase} 的最大 Alpha 不接近线性`,
+    maximumAlphaRatio >= 0.35 &&
+      half.maximumAlpha <= full.maximumAlpha + 1 / 255,
+    `${mode}: ${label} ${phase} 的最大 Alpha 不单调`,
     {
       half: half.maximumAlpha,
       full: full.maximumAlpha,
       maximumAlphaRatio,
     },
   );
+}
+
+function validateTransparentContractTransitions(mode, phases)
+{
+  const coverageZero = phases.coverageZero;
+  const coverageHalf = phases.coverageHalf;
+  const coverageFull = phases.coverageFull;
+  const bright = phases.bright;
+  const additiveZero = phases.additiveZero;
+  const additiveHalf = phases.additiveHalf;
+  const additiveFull = phases.additiveFull;
+  const roundTrip = phases.roundTrip;
+  const alphaLimit = coverageFull.config.overlayAlphaLimit;
+  const lifecycle = JSON.stringify(coverageZero.lifecycle);
+
+  for (const [name, phase] of Object.entries(phases))
+  {
+    assert(
+      JSON.stringify(phase.lifecycle) === lifecycle,
+      `${mode}: 透明合同热切换推进了 ${name} 的生命周期`,
+      {
+        initial: coverageZero.lifecycle,
+        phase: phase.lifecycle,
+      },
+    );
+    assert(
+      phase.config.outputCompositing === 'browser-overlay',
+      `${mode}: ${name} 离开了 browser-overlay 合同`,
+      phase.config,
+    );
+    assert(
+      phase.outside.maximumAlpha <= 1 / 255 &&
+        phase.outside.maximumEnergy <= 1 / 255,
+      `${mode}: ${name} 在特效区域外留下矩形像素`,
+      phase.outside,
+    );
+  }
+
+  validateEmptyPixels(
+    coverageZero.pixels.transparent,
+    `${mode} Coverage opacity=0`,
+  );
+  validateEmptyPixels(
+    additiveZero.pixels.transparent,
+    `${mode} Host Add opacity=0`,
+  );
+  assert(
+    hasPixelOutput(coverageHalf.pixels.transparent) &&
+      hasPixelOutput(coverageFull.pixels.transparent) &&
+      coverageHalf.pixels.transparent.meanAlpha <
+        coverageFull.pixels.transparent.meanAlpha &&
+      coverageHalf.pixels.transparent.meanEnergy <
+        coverageFull.pixels.transparent.meanEnergy,
+    `${mode}: Coverage opacity=0.5/1 不单调`,
+    {
+      half: coverageHalf.pixels.transparent,
+      full: coverageFull.pixels.transparent,
+    },
+  );
+
+  for (const [name, phase] of [
+    ['coverageHalf', coverageHalf],
+    ['coverageFull', coverageFull],
+    ['bright', bright],
+    ['roundTrip', roundTrip],
+  ])
+  {
+    const pixels = phase.pixels;
+
+    assert(
+      phase.config.hostCompositing === 'source-over' &&
+        pixels.transparent.maximumAlpha <= alphaLimit + 1 / 255 &&
+        pixels.black.meanEnergy < pixels.checker.meanEnergy &&
+        pixels.checker.meanEnergy < pixels.white.meanEnergy &&
+        pixels.backgroundTransmission.maximumTransmissionError <= 3 &&
+        pixels.backgroundTransmission.maximumCheckerError <= 1,
+      `${mode}: ${name} 没有保持 source-over Coverage 合同`,
+      phase,
+    );
+  }
+
+  const coveragePixels = coverageFull.pixels.transparent;
+  const brightPixels = bright.pixels.transparent;
+
+  assert(
+    bright.config.unknownBackgroundAppearance === 'bright' &&
+      Math.abs(brightPixels.meanAlpha - coveragePixels.meanAlpha) <= 0.002 &&
+      Math.abs(brightPixels.maximumAlpha - coveragePixels.maximumAlpha) <=
+        1 / 255 &&
+      brightPixels.meanRed >= coveragePixels.meanRed &&
+      brightPixels.meanGreen >= coveragePixels.meanGreen &&
+      brightPixels.meanBlue >= coveragePixels.meanBlue &&
+      brightPixels.meanRed > coveragePixels.meanRed + 0.000001,
+    `${mode}: bright 改变了 Alpha 或没有提升浅色兼容载荷`,
+    {
+      bright: brightPixels,
+      coverage: coveragePixels,
+    },
+  );
+
+  assert(
+    additiveFull.config.hostCompositing === 'plus-lighter' &&
+      additiveFull.mount.overlayRootBlendMode === 'plus-lighter' &&
+      additiveFull.mount.overlayRootConnected &&
+      hasPixelOutput(additiveHalf.pixels.transparent) &&
+      hasPixelOutput(additiveFull.pixels.transparent) &&
+      additiveHalf.pixels.transparent.meanAlpha <
+        additiveFull.pixels.transparent.meanAlpha &&
+      additiveHalf.pixels.transparent.meanEnergy <
+        additiveFull.pixels.transparent.meanEnergy,
+    `${mode}: Host Add 没有保持透明度单调或挂载 plus-lighter`,
+    {
+      half: additiveHalf,
+      full: additiveFull,
+    },
+  );
+
+  const roundTripPixels = roundTrip.pixels.transparent;
+
+  // Native/Legacy 的 Canvas blur 在重复栅格时会改变少量 1/255 边缘像素；
+  // 中心、峰值和生命周期保持严格，低能全画面均值沿用后端切换的 8% 容差。
+  assert(
+    roundTrip.config.unknownBackgroundAppearance === 'coverage' &&
+      roundTrip.config.hostCompositing === 'source-over' &&
+      relativeDifference(
+        roundTripPixels.meanAlpha,
+        coveragePixels.meanAlpha,
+      ) <= 0.08 &&
+      relativeDifference(
+        roundTripPixels.meanRed,
+        coveragePixels.meanRed,
+      ) <= 0.08 &&
+      relativeDifference(
+        roundTripPixels.meanGreen,
+        coveragePixels.meanGreen,
+      ) <= 0.08 &&
+      relativeDifference(
+        roundTripPixels.meanBlue,
+        coveragePixels.meanBlue,
+      ) <= 0.08 &&
+      Math.abs(
+        roundTripPixels.maximumAlpha - coveragePixels.maximumAlpha,
+      ) <= 1 / 255 &&
+      Math.abs(
+        roundTripPixels.center[3] - coveragePixels.center[3],
+      ) <= 2,
+    `${mode}: Coverage -> bright -> Host Add -> Coverage 往返发生跳变`,
+    {
+      initial: coveragePixels,
+      roundTrip: roundTripPixels,
+    },
+  );
+}
+
+function validateTransparentContractContext(mode, lifecycle, hostCompositing)
+{
+  validateContextLifecycleRoute(mode, lifecycle);
+  assert(
+    lifecycle.contract.outputCompositing === 'browser-overlay' &&
+      lifecycle.contract.hostCompositing === hostCompositing &&
+      lifecycle.contract.overlayAlphaLimit === 0.7,
+    `${mode}: Context 生命周期没有保留透明合同配置`,
+    lifecycle.contract,
+  );
+
+  if (hostCompositing === 'source-over')
+  {
+    assert(
+      lifecycle.contract.unknownBackgroundAppearance === 'bright',
+      `${mode}: Context 生命周期丢失 bright 外观`,
+      lifecycle.contract,
+    );
+    validateContextLifecycleGroup(
+      mode,
+      new Map([[1, lifecycle]]),
+      false,
+    );
+
+    for (const phase of [
+      'before',
+      'fallback',
+      'fallbackSteady',
+      'restoring',
+      'restored',
+    ])
+    {
+      assert(
+        lifecycle[phase].transparent.maximumAlpha <= 0.7 + 1 / 255 &&
+          lifecycle.compositing[phase].overlayRootBlendMode !==
+            'plus-lighter',
+        `${mode}: bright Context ${phase} 越过 Alpha 上限`,
+        {
+          compositing: lifecycle.compositing[phase],
+          pixels: lifecycle[phase].transparent,
+        },
+      );
+    }
+    return;
+  }
+
+  const before = lifecycle.before.transparent;
+
+  for (const phase of [
+    'before',
+    'fallback',
+    'fallbackSteady',
+    'restoring',
+    'restored',
+  ])
+  {
+    const pixels = lifecycle[phase].transparent;
+    const compositing = lifecycle.compositing[phase];
+
+    assert(
+      hasPixelOutput(pixels) &&
+        compositing.hostCompositing === 'plus-lighter' &&
+        compositing.overlayRootBlendMode === 'plus-lighter' &&
+        compositing.overlayRootConnected &&
+        relativeDifference(before.meanEnergy, pixels.meanEnergy) <= 0.35,
+      `${mode}: Host Add Context ${phase} 出现空白或载荷突跳`,
+      {
+        before,
+        compositing,
+        pixels,
+      },
+    );
+  }
 }
 
 function validateContextLifecycleGroup(
@@ -1762,7 +1994,9 @@ async function compareScreenshotBuffers(page, left, right)
 
       let changedPixels = 0;
       let maximumChannelDelta = 0;
+      let maximumChannelDrop = 0;
       let maximumChannelIncrease = 0;
+      let channelDropSum = 0;
       let maximumRedDrop = 0;
       let redDropSum = 0;
       let chromaticChangedPixels = 0;
@@ -1782,6 +2016,13 @@ async function compareScreenshotBuffers(page, left, right)
 
           if (channel < 3)
           {
+            const channelDrop = Math.max(0, leftValue - rightValue);
+
+            maximumChannelDrop = Math.max(
+              maximumChannelDrop,
+              channelDrop,
+            );
+            channelDropSum += channelDrop;
             maximumChannelIncrease = Math.max(
               maximumChannelIncrease,
               rightValue - leftValue,
@@ -1855,9 +2096,11 @@ async function compareScreenshotBuffers(page, left, right)
             right: getPixelAt(rightImage, farX, farY),
           },
           maximumChannelDelta,
+          maximumChannelDrop,
           maximumChannelIncrease,
           maximumRedDrop,
           pixelCount: leftImage.width * leftImage.height,
+          channelDropSum,
           redDropSum,
         }
       );
@@ -3338,6 +3581,136 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
   }
 }
 
+async function runTransparentCompositingTransitions(page, mode)
+{
+  const transition = (input) => page.evaluate(
+    (specification) =>
+      window.browserPixelSuite.transitionTransparentContract(specification),
+    input,
+  );
+  const phases = {};
+
+  phases.coverageZero = await page.evaluate(
+    (specification) =>
+      window.browserPixelSuite.beginTransparentContractTransitions(
+        specification,
+      ),
+    {
+      mode,
+      opacity: 0,
+      background: 'checker',
+      unknownBackgroundAppearance: 'coverage',
+      overlayAlphaLimit: 0.7,
+      hostCompositing: 'source-over',
+    },
+  );
+  phases.coverageHalf = await transition({ opacity: 0.5 });
+  phases.coverageFull = await transition({ opacity: 1 });
+  await transition({ background: 'white' });
+  const coverageWhiteScreenshot = await captureContrastScreenshot(page);
+
+  phases.bright = await transition(
+    {
+      unknownBackgroundAppearance: 'bright',
+    },
+  );
+  const brightWhiteScreenshot = await captureContrastScreenshot(page);
+  const brightDifference = await compareScreenshotBuffers(
+    page,
+    coverageWhiteScreenshot,
+    brightWhiteScreenshot,
+  );
+
+  phases.additiveZero = await transition(
+    {
+      hostCompositing: 'plus-lighter',
+      opacity: 0,
+    },
+  );
+  const baselineScreenshots = {};
+  const additiveScreenshots = {};
+
+  for (const background of ['black', 'white', 'color', 'checker'])
+  {
+    await transition({ background });
+    baselineScreenshots[background] = await captureContrastScreenshot(page);
+  }
+
+  phases.additiveHalf = await transition(
+    {
+      background: 'black',
+      opacity: 0.5,
+    },
+  );
+  phases.additiveFull = await transition(
+    {
+      opacity: 1,
+    },
+  );
+
+  for (const background of ['black', 'white', 'color', 'checker'])
+  {
+    await transition({ background });
+    additiveScreenshots[background] = await captureContrastScreenshot(page);
+  }
+
+  const hostAddDifferences = {};
+
+  for (const background of ['black', 'white', 'color', 'checker'])
+  {
+    const difference = await compareScreenshotBuffers(
+      page,
+      baselineScreenshots[background],
+      additiveScreenshots[background],
+    );
+
+    assert(
+      difference.maximumChannelDrop <= 1 &&
+        difference.channelDropSum <= 4,
+      `${mode}: Host Add 在 ${background} 背景压暗了宿主像素`,
+      difference,
+    );
+
+    if (background !== 'white')
+    {
+      assert(
+        difference.changedPixels >= 8 &&
+          difference.maximumChannelIncrease >= 4,
+        `${mode}: Host Add 在 ${background} 背景没有输出可见增量`,
+        difference,
+      );
+    }
+
+    hostAddDifferences[background] = difference;
+  }
+
+  assert(
+    brightDifference.changedPixels >= 4 &&
+      brightDifference.maximumChannelIncrease >= 2 &&
+      brightDifference.maximumChannelDrop <= 1,
+    `${mode}: bright 热切换没有改善纯白背景可见性`,
+    brightDifference,
+  );
+
+  phases.roundTrip = await transition(
+    {
+      background: 'checker',
+      hostCompositing: 'source-over',
+      opacity: 1,
+      unknownBackgroundAppearance: 'coverage',
+    },
+  );
+  validateTransparentContractTransitions(mode, phases);
+
+  return {
+    brightDifference,
+    brightWhite: await summarizeScreenshot(page, brightWhiteScreenshot),
+    coverageWhite: await summarizeScreenshot(page, coverageWhiteScreenshot),
+    hostAddDifferences,
+    phases,
+  };
+}
+
 async function runMatrix(browserInstance, baseUrl, baseline)
 {
   const caseResults = new Map();
@@ -3491,6 +3864,13 @@ async function runMatrix(browserInstance, baseUrl, baseline)
 
     if (dpr === 1)
     {
+      for (const mode of modeNames)
+      {
+        currentLabel = `${mode}__transparent-contract-transitions`;
+        metrics.transparentCompositingTransitions[mode] =
+          await runTransparentCompositingTransitions(page, mode);
+      }
+
       for (const mode of modeNames)
       {
         const baselineLabel = `${mode}__opacity-1__isolated__dpr-1`;
@@ -3895,6 +4275,45 @@ async function runMatrix(browserInstance, baseUrl, baseline)
 
     if (mode === 'full-webgl2')
     {
+      const transparentContractLifecycles = {};
+
+      for (const contract of [
+        {
+          name: 'bright',
+          unknownBackgroundAppearance: 'bright',
+          hostCompositing: 'source-over',
+        },
+        {
+          name: 'host-add',
+          unknownBackgroundAppearance: 'coverage',
+          hostCompositing: 'plus-lighter',
+        },
+      ])
+      {
+        currentLabel =
+          `${mode}__${contract.name}__context-lifecycle`;
+        const lifecycle = await contextSession.page.evaluate(
+          (input) => window.browserPixelSuite.runContextLifecycle(input),
+          {
+            mode,
+            opacity: 1,
+            overlayAlphaLimit: 0.7,
+            unknownBackgroundAppearance:
+              contract.unknownBackgroundAppearance,
+            hostCompositing: contract.hostCompositing,
+          },
+        );
+
+        validateTransparentContractContext(
+          mode,
+          lifecycle,
+          contract.hostCompositing,
+        );
+        transparentContractLifecycles[contract.name] = lifecycle;
+      }
+
+      metrics.transparentContractContextLifecycle[mode] =
+        transparentContractLifecycles;
       currentLabel = 'full-webgl2__compositing-reference-context-lifecycle';
       const compositingReferenceContextLifecycle =
         await contextSession.page.evaluate(
