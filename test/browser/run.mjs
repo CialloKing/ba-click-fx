@@ -1764,6 +1764,7 @@ async function compareScreenshotBuffers(page, left, right)
       let maximumChannelIncrease = 0;
       let maximumRedDrop = 0;
       let redDropSum = 0;
+      let chromaticChangedPixels = 0;
 
       for (let offset = 0; offset < leftImage.data.length; offset += 4)
       {
@@ -1798,6 +1799,18 @@ async function compareScreenshotBuffers(page, left, right)
         if (pixelChanged)
         {
           changedPixels++;
+
+          // 灰阶遮罩也会改变像素；只有 RGB 变化不一致才能证明仍有蓝青色 VFX。
+          const redDelta = rightImage.data[offset] - leftImage.data[offset];
+          const greenDelta = rightImage.data[offset + 1] -
+            leftImage.data[offset + 1];
+          const blueDelta = rightImage.data[offset + 2] -
+            leftImage.data[offset + 2];
+
+          if (redDelta !== greenDelta || greenDelta !== blueDelta)
+          {
+            chromaticChangedPixels++;
+          }
         }
       }
 
@@ -1829,6 +1842,7 @@ async function compareScreenshotBuffers(page, left, right)
       return (
         {
           changedPixels,
+          chromaticChangedPixels,
           center:
           {
             left: getPixelAt(leftImage, centerX, centerY),
@@ -2501,9 +2515,20 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
 
         return document.body.classList.contains('theme-pure-white') &&
           config?.isolatedCompositing === true &&
-          config.lightBackgroundContrastAlpha === 0.35 &&
-          window.BAClickFXDemo.sceneBackgroundSource !== null;
+          config.lightBackgroundContrastAlpha === 0 &&
+          window.BAClickFXDemo.sceneBackgroundSource === null;
       },
+    );
+    await page.evaluate(async () =>
+    {
+      window.dispatchEvent(new Event('resize'));
+
+      // Scene 主题同步通过 RAF 合并 resize；等待两帧才能覆盖延迟重传路径。
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    await page.waitForFunction(
+      () => window.BAClickFXDemo.sceneBackgroundSource === null,
     );
 
     const modeSamples = {};
@@ -2633,8 +2658,8 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       assert(
         sample.config.outputCompositing === 'scene' &&
           sample.config.isolatedCompositing === true &&
-          sample.config.lightBackgroundContrastAlpha === 0.35,
-        `${mode}: 展示页没有保持纯白隔离的对比层配置`,
+          sample.config.lightBackgroundContrastAlpha === 0,
+        `${mode}: 展示页纯白隔离场景错误启用了淡青对比层`,
         sample,
       );
       assert(
@@ -2643,22 +2668,26 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
           : mode === 'webgl2-bloom'
             ? sample.config.resolvedBloomBackend === 'webgl2'
             : sample.config.resolvedBloomBackend === 'native' &&
-              sample.canvasSceneVisible === true,
+              sample.canvasSceneVisible === false,
         `${mode}: 纯白隔离回归没有走到目标成功路径`,
         sample,
       );
       assert(
-        sample.alphaSum > 0 &&
-          sample.maximumAlpha > 0 &&
-          sample.contrastDisplay !== 'none' &&
-          sample.contrastVisibility !== 'hidden',
-        `${mode}: 纯白隔离场景没有生成可见对比遮罩`,
+        sample.alphaSum === 0 &&
+          sample.maximumAlpha === 0,
+        `${mode}: 纯白隔离场景仍绘制了淡青对比遮罩`,
         sample,
       );
       assert(
-        visualDifference.changedPixels >= 8 &&
+        visualDifference.changedPixels >= visualDifference.pixelCount * 0.05 &&
+          visualDifference.chromaticChangedPixels >= 2000 &&
           visualDifference.redDropSum > 0 &&
-          visualDifference.maximumRedDrop >= 4,
+          visualDifference.maximumRedDrop >= 4 &&
+          visualDifference.maximumChannelDelta >= 4 &&
+          visualDifference.far.left.every((value) => value === 255) &&
+          visualDifference.far.right[3] === 255 &&
+          visualDifference.far.right.slice(0, 3).every((value) => value >= 235) &&
+          visualDifference.center.right[0] <= visualDifference.far.right[0] - 8,
         `${mode}: 纯白页面截图中点击特效仍然不可见`,
         { sample, visualDifference },
       );
@@ -2684,13 +2713,24 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
 
     await page.locator('#ctrlIsolatedCompositing + .toggle-track').click();
     await page.waitForFunction(
-      () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha ===
-        0.35,
+      () =>
+      {
+        const config = window.BAClickFXDemo.getConfig();
+
+        return config.isolatedCompositing === true &&
+          config.lightBackgroundContrastAlpha === 0;
+      },
     );
 
     await page.locator('.theme-btn[data-theme="深紫"]').click();
     await page.waitForFunction(
-      () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha === 0,
+      () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        return effect.getConfig().lightBackgroundContrastAlpha === 0 &&
+          effect.sceneBackgroundSource !== null;
+      },
     );
     const resetContrastAlpha = await page.evaluate(
       () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha,
@@ -2704,25 +2744,32 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
 
     await page.locator('.theme-btn[data-theme="纯白"]').click();
     await page.waitForFunction(
-      () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha ===
-        0.35,
+      () =>
+      {
+        const config = window.BAClickFXDemo.getConfig();
+
+        return config.isolatedCompositing === true &&
+          config.lightBackgroundContrastAlpha === 0 &&
+          window.BAClickFXDemo.sceneBackgroundSource === null;
+      },
     );
     await page.reload({ waitUntil: 'load' });
     await page.waitForFunction(() =>
     {
       const config = window.BAClickFXDemo?.getConfig();
 
-      return document.body.classList.contains('theme-pure-white') &&
-        config?.isolatedCompositing === true &&
-        config.lightBackgroundContrastAlpha === 0.35;
+        return document.body.classList.contains('theme-pure-white') &&
+          config?.isolatedCompositing === true &&
+          config.lightBackgroundContrastAlpha === 0 &&
+          window.BAClickFXDemo.sceneBackgroundSource === null;
     });
     const restoredContrastAlpha = await page.evaluate(
       () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha,
     );
 
     assert(
-      restoredContrastAlpha === 0.35,
-      '刷新后没有恢复纯白主题的隔离对比轮廓',
+      restoredContrastAlpha === 0,
+      '刷新后纯白主题重新启用了隔离对比轮廓',
       { restoredContrastAlpha },
     );
     metrics.demoPureWhiteIsolation =

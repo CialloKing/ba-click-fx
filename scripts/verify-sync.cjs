@@ -318,23 +318,23 @@ const staticFaqContent = indexHtml.match(
 
 verify(
   /纯白背景下特效颜色太浅/.test(staticFaqContent) &&
-    /isolatedCompositing: true/.test(staticFaqContent) &&
-    /自动使用/.test(staticFaqContent) &&
+    /不会自动叠加淡青轮廓/.test(staticFaqContent) &&
     /纯白背景下特效颜色太浅/.test(mainJs) &&
     /Effects look washed out on a pure white background/.test(mainJs) &&
-    /lightBackgroundContrastAlpha: 0\.35/.test(mainJs),
-  '静态与双语 FAQ 说明纯白隔离自动补足淡青轮廓',
+    /does not automatically add a pale-cyan outline/.test(mainJs) &&
+    !/function resolvePureWhiteContrastAlpha/.test(mainJs),
+  '静态与双语 FAQ 说明纯白展示页不会自动补足淡青轮廓',
 );
 verify(
-  /function applyIsolatedCompositing\(checked\)[\s\S]*?isolatedCompositing: checked,[\s\S]*?lightBackgroundContrastAlpha: resolvePureWhiteContrastAlpha\(checked\)/.test(mainJs) &&
-    /bindToggle\('ctrlIsolatedCompositing', applyIsolatedCompositing\)/.test(mainJs),
-  '展示页隔离合成开关原子同步纯白对比层并复用持久化绑定',
+  /bindToggle\('ctrlIsolatedCompositing', \(checked\) =>[\s\S]*?effect\.updateConfig\(\{ isolatedCompositing: checked \}\)\)/.test(mainJs) &&
+    !/applyIsolatedCompositing/.test(mainJs),
+  '展示页隔离合成开关不再隐式启用纯白对比层',
 );
 verify(
   /localStorage\.getItem\('bafx-ctrlIsolatedCompositing'\)/.test(mainJs) &&
     /savedIsolatedCompositing !== null/.test(mainJs) &&
     /const isolated = savedIsolatedCompositing === 'true'/.test(mainJs) &&
-    /applyIsolatedCompositing\(isolated\)/.test(mainJs),
+    /effect\.updateConfig\(\{ isolatedCompositing: isolated \}\)/.test(mainJs),
   '展示页会恢复已持久化的隔离或直接合成选项',
 );
 verify(
@@ -347,12 +347,15 @@ verify(
   /body\.scene-background-source::before,[\s\S]*?body\.theme-pure-white::before[\s\S]*?display: none/.test(
     styleCss,
   ) &&
-    /const PURE_WHITE_THEME = '纯白'/.test(mainJs) &&
-    /classList\.toggle\('theme-pure-white', name === PURE_WHITE_THEME\)/.test(mainJs) &&
-    /classList\.remove\('theme-pure-white'\)[\s\S]*?syncPureWhiteIsolationContrast\(\)[\s\S]*?applySceneBackgroundImage/.test(mainJs),
-  '纯白主题关闭装饰网格，并在自定义背景切换时清除兼容轮廓',
+    /classList\.toggle\('theme-pure-white', name === '纯白'\)/.test(mainJs) &&
+    /classList\.remove\('theme-pure-white'\)[\s\S]*?applySceneBackgroundImage/.test(mainJs),
+  '纯白主题关闭装饰网格，并在自定义背景切换时不保留旧场景源',
 );
 const applyThemeSource = getFunctionSource(mainJs, 'applyTheme');
+const applyThemeSceneBackgroundSource = getFunctionSource(
+  mainJs,
+  'applyThemeSceneBackground',
+);
 const updateThemeSceneBackgroundSource = getFunctionSource(
   mainJs,
   'updateThemeSceneBackground',
@@ -369,10 +372,16 @@ verify(
 verify(
   /getThemeBackgroundCss\(name\)/.test(applyThemeSource) &&
     /document\.body\.style\.backgroundAttachment = 'fixed';/.test(applyThemeSource) &&
-    /syncPureWhiteIsolationContrast\(\)/.test(applyThemeSource) &&
     /applyThemeSceneBackground\(name\)/.test(applyThemeSource) &&
     !/clearSceneBackground\(\)/.test(applyThemeSource),
-  '内置主题同时同步 Scene 背景与纯白隔离对比层',
+  '内置主题统一进入对应的 Scene 背景选择路径',
+);
+verify(
+  /name === '纯白'[\s\S]*?clearSceneBackground\(\)/.test(
+    applyThemeSceneBackgroundSource,
+  ) &&
+    /activeThemeScene = name/.test(applyThemeSceneBackgroundSource),
+  '纯白保留 DOM 背景以避免严格加色在白色 Scene 中饱和，其他主题继续上传场景纹理',
 );
 verify(
   /renderThemeSceneBackground\([\s\S]*?themeSceneCanvas,[\s\S]*?activeThemeScene/.test(
