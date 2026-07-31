@@ -504,6 +504,7 @@ uniform float u_opacity;
 uniform bool u_hasScene;
 uniform bool u_hasBackground;
 uniform bool u_transparentOverlay;
+uniform bool u_visualMaxAlpha;
 uniform bool u_brightUnknownBackground;
 uniform bool u_hostAdditive;
 
@@ -552,7 +553,16 @@ void main()
     ? texture(u_sceneEnergy, v_uv)
     : vec4(0.0);
   vec4 filteredBloom = bloom * 0.25;
-  vec3 linear = scene.rgb +
+  vec3 sceneLinear = scene.rgb;
+
+  if (u_transparentOverlay && u_visualMaxAlpha && !u_hostAdditive && u_hasScene)
+  {
+    // visual-max 要恢复 v1.2.15 的颜色保留，必须读取未提前按 Coverage
+    // 收敛的清晰发射；sceneOverlay 只供默认 Coverage 合同使用。
+    sceneLinear = sceneEnergy.rgb;
+  }
+
+  vec3 linear = sceneLinear +
     filteredBloom.rgb * max(0.0, u_intensity);
   vec3 srgb = vec3(
     linearToSrgb(linear.r),
@@ -605,7 +615,9 @@ void main()
     float bloomTransportAlpha = linearToSrgb(
       max(0.0, filteredBloom.a) * max(0.0, u_intensity)
     );
-    float requestedAlpha = sceneCoverage + bloomTransportAlpha;
+    float requestedAlpha = u_visualMaxAlpha
+      ? max(sceneCoverage, bloomTransportAlpha)
+      : sceneCoverage + bloomTransportAlpha;
 
     if (u_hostAdditive)
     {
@@ -639,12 +651,12 @@ void main()
       return;
     }
 
-    // 仅当透明宿主容量小于独立传输上界时等比收敛。缩放不读取最终
-    // maxRGB，且 opacity=1 的最坏损失仅为 5/255。
-    float capacityScale = min(
-      1.0,
-      alpha / max(requestedAlpha, 0.000001)
-    );
+    // 默认合同按独立传输和收敛；visual-max 只在最后一步读取 maxRGB
+    // 约束预乘容量，不能用颜色反向生成 Coverage Alpha。
+    float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
+    float capacityScale = u_visualMaxAlpha
+      ? min(1.0, alpha / max(maximumSrgb, 0.000001))
+      : min(1.0, alpha / max(requestedAlpha, 0.000001));
 
     vec3 premultiplied = srgb * capacityScale;
 
@@ -3893,6 +3905,10 @@ export class WebGL2EffectRenderer
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_transparentOverlay'),
       settings.outputCompositing === 'browser-overlay' ? 1 : 0,
+    );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_visualMaxAlpha'),
+      settings.overlayAlphaPolicy === 'visual-max' ? 1 : 0,
     );
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_brightUnknownBackground'),

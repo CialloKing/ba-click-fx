@@ -5508,10 +5508,20 @@ export class BAClickFX
         outputCompositing: isOutputCompositing(options.outputCompositing)
           ? options.outputCompositing
           : CONFIG.outputCompositing,
-        unknownBackgroundAppearance: normalizeUnknownBackgroundAppearance(
-          options.unknownBackgroundAppearance,
-          CONFIG.unknownBackgroundAppearance,
-        ),
+         unknownBackgroundAppearance: normalizeUnknownBackgroundAppearance(
+           options.unknownBackgroundAppearance,
+           CONFIG.unknownBackgroundAppearance,
+         ),
+         overlayAlphaPolicy: normalizeOverlayAlphaPolicyConfig(
+           options.overlayAlphaPolicy,
+           CONFIG.overlayAlphaPolicy,
+         ),
+         overlayColorCompensation: normalizeOverlayColorCompensationConfig(
+           options.overlayColorCompensation,
+           options.unknownBackgroundAppearance === 'bright'
+             ? 'bright-core'
+             : CONFIG.overlayColorCompensation,
+         ),
         overlayAlphaLimit: normalizeOverlayAlphaLimit(
           options.overlayAlphaLimit,
           CONFIG.overlayAlphaLimit,
@@ -5821,7 +5831,17 @@ export class BAClickFX
   {
     return this._usesUnknownBrowserOverlay() &&
       !this._usesHostAdditivePayload()
-      ? this.config.unknownBackgroundAppearance
+      ? this.config.overlayColorCompensation === 'bright-core'
+        ? 'bright'
+        : 'coverage'
+      : 'coverage';
+  }
+
+  _getOverlayAlphaPolicy()
+  {
+    return this._usesUnknownBrowserOverlay() &&
+      !this._usesHostAdditivePayload()
+      ? this.config.overlayAlphaPolicy
       : 'coverage';
   }
 
@@ -8609,6 +8629,8 @@ export class BAClickFX
       opacity: this.config.opacity,
       outputCompositing: this.config.outputCompositing,
       unknownBackgroundAppearance: this._getUnknownBackgroundAppearance(),
+      overlayAlphaPolicy: this._getOverlayAlphaPolicy(),
+      overlayColorCompensation: this.config.overlayColorCompensation,
       overlayAlphaLimit: this.config.overlayAlphaLimit,
       hostCompositing: this._getEffectiveHostCompositing(),
       enforceOverlayAlphaLimit:
@@ -8901,6 +8923,8 @@ export class BAClickFX
           outputCompositing: this.config.outputCompositing,
           unknownBackgroundAppearance:
             this._getUnknownBackgroundAppearance(),
+          overlayAlphaPolicy: this._getOverlayAlphaPolicy(),
+          overlayColorCompensation: this.config.overlayColorCompensation,
           overlayAlphaLimit: this.config.overlayAlphaLimit,
           hostCompositing: this._getEffectiveHostCompositing(),
         },

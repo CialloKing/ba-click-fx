@@ -910,7 +910,13 @@ if (sourceMode)
         'float bloomTransportAlpha = linearToSrgb(',
       ) &&
       transparentFinalSource.includes(
-        'float requestedAlpha = sceneCoverage + bloomTransportAlpha;',
+        'float requestedAlpha = u_visualMaxAlpha',
+      ) &&
+      transparentFinalSource.includes(
+        '? max(sceneCoverage, bloomTransportAlpha)',
+      ) &&
+      transparentFinalSource.includes(
+        ': sceneCoverage + bloomTransportAlpha;',
       ) &&
       transparentFinalSource.includes(
         'alpha / max(requestedAlpha, 0.000001)',
@@ -931,6 +937,21 @@ if (sourceMode)
         'outColor = vec4(scene.rgb * scale, coverage);',
       ),
     '完整 WebGL2 独立预乘清晰 Coverage 与 Bloom 传输上界',
+  );
+  assert(
+    finalShaderSource.includes(
+      'sceneLinear = sceneEnergy.rgb;',
+    ) &&
+      transparentFinalSource.includes(
+        'alpha / max(maximumSrgb, 0.000001)',
+      ) &&
+      transparentFinalSource.includes(
+        ': min(1.0, alpha / max(requestedAlpha, 0.000001));',
+      ) &&
+      webgl2EffectSourceText.includes(
+        "settings.overlayAlphaPolicy === 'visual-max' ? 1 : 0",
+      ),
+    '完整 WebGL2 visual-max 只在最终 Pass 使用旧版 Alpha 容量策略',
   );
   const overlayColorStart = fxSourceText.indexOf(
     'function resolveOverlayStraightColor',
