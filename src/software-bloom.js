@@ -1867,7 +1867,17 @@ export class SoftwareBloomRenderer
       bloomBounds.maximumY - bloomBounds.minimumY + 1,
     );
 
-    return this._drawOutput(targetContext);
+    if (!this._drawOutput(targetContext))
+    {
+      return false;
+    }
+
+    if (transparentOverlay && settings.enforceOverlayAlphaLimit === true)
+    {
+      this._limitTransparentOverlayAlpha(targetContext, settings.opacity);
+    }
+
+    return true;
   }
 
   _drawOutput(targetContext)
@@ -1887,6 +1897,106 @@ export class SoftwareBloomRenderer
     );
 
     return true;
+  }
+
+  _limitTransparentOverlayAlpha(targetContext, opacity)
+  {
+    if (
+      !this.outputBounds ||
+      typeof targetContext?.getImageData !== 'function' ||
+      typeof targetContext?.putImageData !== 'function'
+    )
+    {
+      return;
+    }
+
+    const targetCanvas = targetContext.canvas;
+    const sourceScaleX = this.sourceWidth / Math.max(1, this.regionWidth);
+    const sourceScaleY = this.sourceHeight / Math.max(1, this.regionHeight);
+    const outputScaleX = this.sourceWidth / Math.max(1, this.width);
+    const outputScaleY = this.sourceHeight / Math.max(1, this.height);
+
+    if (
+      !Number.isFinite(targetCanvas?.width) ||
+      !Number.isFinite(targetCanvas?.height) ||
+      !Number.isFinite(sourceScaleX) ||
+      !Number.isFinite(sourceScaleY) ||
+      !Number.isFinite(outputScaleX) ||
+      !Number.isFinite(outputScaleY)
+    )
+    {
+      return;
+    }
+
+    const bounds = this.outputBounds;
+    const minimumX = clamp(
+      Math.floor(
+        this.originX * sourceScaleX +
+          (bounds.minimumX - 1) * outputScaleX,
+      ),
+      0,
+      targetCanvas.width,
+    );
+    const minimumY = clamp(
+      Math.floor(
+        this.originY * sourceScaleY +
+          (bounds.minimumY - 1) * outputScaleY,
+      ),
+      0,
+      targetCanvas.height,
+    );
+    const maximumX = clamp(
+      Math.ceil(
+        this.originX * sourceScaleX +
+          (bounds.maximumX + 2) * outputScaleX,
+      ),
+      minimumX,
+      targetCanvas.width,
+    );
+    const maximumY = clamp(
+      Math.ceil(
+        this.originY * sourceScaleY +
+          (bounds.maximumY + 2) * outputScaleY,
+      ),
+      minimumY,
+      targetCanvas.height,
+    );
+    const width = maximumX - minimumX;
+    const height = maximumY - minimumY;
+
+    if (width <= 0 || height <= 0)
+    {
+      return;
+    }
+
+    try
+    {
+      const image = targetContext.getImageData(minimumX, minimumY, width, height);
+      const maximumAlpha = Math.round(
+        clamp01(opacity) * TRANSPARENT_OVERLAY_MAX_ALPHA * 255,
+      );
+      let changed = false;
+
+      for (let offset = 3; offset < image.data.length; offset += RGBA_CHANNELS)
+      {
+        if (image.data[offset] > maximumAlpha)
+        {
+          // getImageData 返回非预乘 RGB；只收敛 Alpha 会按同一比例收敛
+          // 浏览器重新预乘后的能量，等价于 GPU Final Pass 的容量限制。
+          image.data[offset] = maximumAlpha;
+          changed = true;
+        }
+      }
+
+      if (changed)
+      {
+        targetContext.putImageData(image, minimumX, minimumY);
+      }
+    }
+    catch
+    {
+      // 外部绘制可能使宿主 Canvas 不可读；此时保留原输出，不中断渲染。
+    }
   }
 
   _clearOutputBounds()

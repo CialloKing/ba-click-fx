@@ -5111,6 +5111,9 @@ export class BAClickFX
       processedSourcePixels: 0,
       combinedBoundsPixels: 0,
     };
+    // Canvas 回读在同一渲染时刻失败时，保留上一张已经完成的 Bloom 输出。
+    // 它只用于相同输入的过渡帧，避免故障瞬间把透明拖尾降成细线。
+    this.lastSoftwareBloomFrame = null;
     this.webglBloomFrameStats =
     {
       available: false,
@@ -6030,6 +6033,19 @@ export class BAClickFX
       bloomBackend,
       legacy,
     );
+    const reuseCachedSoftwareBloom =
+      !legacy &&
+      !useWebGLClickEffects &&
+      bloomBackend === 'native' &&
+      !useCanvasScene &&
+      this._hasCachedSoftwareBloomFrame(scale);
+
+    if (reuseCachedSoftwareBloom)
+    {
+      // Software 回读刚失败但输入尚未推进时，复用上一张完整 Bloom。
+      // 这避免 Native 近似在同一帧状态下产生可见的透明 Coverage 跳变。
+      useNativeBloom = false;
+    }
     // WebGL2 Bloom 已复用完整 Scene Renderer。成功路径无需先栅格一份
     // 随后会被隐藏的 Canvas；GPU 当帧失败时再由回退路径补画即可。
     const drawCanvasOutput =
@@ -6178,7 +6194,16 @@ export class BAClickFX
         this.contrastContext.clearRect(0, 0, this.width, this.height);
       }
 
-      if (
+      if (reuseCachedSoftwareBloom)
+      {
+        if (!this._drawCachedSoftwareBloomFrame(scale))
+        {
+          // 快照绘制失败时退回完整 Native 帧，不能保留缺少辉光的清晰层。
+          this._drawCanvasFallbackFrame(scale, true, false);
+          this._renderLightBackgroundContrast(scale, false);
+        }
+      }
+      else if (
         !useWebGLClickEffects &&
         useSoftwareBloom &&
         this._hasVisibleEffects()
@@ -7524,6 +7549,184 @@ export class BAClickFX
     return combineBloomRegionBounds(this._getSoftwareBloomRegions(scale));
   }
 
+  _getSoftwareBloomFrameSignature(scale)
+  {
+    const trailSignature = this.trailStrokes.map((stroke) =>
+    {
+      const first = stroke.points[0];
+      const last = stroke.points.at(-1);
+
+      return [
+        stroke.points.length,
+        first?.x,
+        first?.y,
+        first?.bornAt,
+        last?.x,
+        last?.y,
+        last?.bornAt,
+      ].join(',');
+    }).join('|');
+    const waveSignature = this.waves.map((wave) =>
+      [
+        wave.x,
+        wave.y,
+        wave.ageMs,
+        wave.diskRotation,
+        ...wave.rings.flatMap((ring) =>
+          [ring.radius, ring.rotation, ring.angularVelocity]),
+      ].join(',')).join('|');
+    const shardSignature = this.shards.map((shard) =>
+      [
+        shard.kind,
+        shard.x,
+        shard.y,
+        shard.ageMs,
+        shard.rotation,
+        shard.size,
+        shard.textureFrame,
+      ].join(',')).join('|');
+    const bloomCfg = this.fxConfig.bloom;
+    const trailCfg = this.fxConfig.trail;
+
+    return [
+      this.width,
+      this.height,
+      this.dpr,
+      scale,
+      this.clickTimeMs,
+      this.trailTimeMs,
+      this.config.opacity,
+      this.config.outputCompositing,
+      this._themeHueShift,
+      bloomCfg.threshold,
+      bloomCfg.softKnee,
+      bloomCfg.intensity,
+      bloomCfg.diffusion,
+      bloomCfg.resolutionScale,
+      bloomCfg.trailEmission,
+      bloomCfg.trailEmissionAlpha,
+      trailCfg.width,
+      trailCfg.geometryWidth,
+      JSON.stringify(this.fxConfig),
+      trailSignature,
+      waveSignature,
+      shardSignature,
+    ].join(':');
+  }
+
+  _cacheSoftwareBloomFrame(scale)
+  {
+    if (
+      this.config.outputCompositing !== 'transparent-overlay' ||
+      this.canvas.width <= 0 ||
+      this.canvas.height <= 0
+    )
+    {
+      return;
+    }
+
+    const previousCanvas = this.lastSoftwareBloomFrame?.canvas;
+    const canvas = previousCanvas && previousCanvas !== this.canvas
+      ? previousCanvas
+      : createCanvas();
+    const context = canvas.getContext?.('2d', { alpha: true });
+
+    if (!context)
+    {
+      this.lastSoftwareBloomFrame = null;
+      return;
+    }
+
+    try
+    {
+      if (
+        canvas.width !== this.canvas.width ||
+        canvas.height !== this.canvas.height
+      )
+      {
+        canvas.width = this.canvas.width;
+        canvas.height = this.canvas.height;
+      }
+
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      // 软件输出已按透明容量收敛。冻结主画布而非 renderer 工作面，才能在
+      // 回读故障后同时保留清晰层与 Bloom 的最终预乘 Alpha。
+      context.drawImage(
+        this.canvas,
+        0,
+        0,
+        this.canvas.width,
+        this.canvas.height,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+    }
+    catch
+    {
+      this.lastSoftwareBloomFrame = null;
+      return;
+    }
+
+    this.lastSoftwareBloomFrame = {
+      canvas,
+      height: canvas.height,
+      signature: this._getSoftwareBloomFrameSignature(scale),
+      width: canvas.width,
+    };
+  }
+
+  _drawCachedSoftwareBloomFrame(scale)
+  {
+    const frame = this.lastSoftwareBloomFrame;
+
+    if (
+      !frame?.canvas ||
+      frame.signature !== this._getSoftwareBloomFrameSignature(scale)
+    )
+    {
+      return false;
+    }
+
+    try
+    {
+      this.context.save();
+      this.context.setTransform(1, 0, 0, 1, 0, 0);
+      this.context.globalAlpha = 1;
+      // 快照覆盖完整主画布，copy 不会再次按 source-over/lighter 叠加 Alpha。
+      this.context.globalCompositeOperation = 'copy';
+
+      this.context.drawImage(
+        frame.canvas,
+        0,
+        0,
+        frame.width,
+        frame.height,
+        0,
+        0,
+        this.canvas.width,
+        this.canvas.height,
+      );
+      this.context.restore();
+      return true;
+    }
+    catch
+    {
+      this.context.restore();
+      return false;
+    }
+  }
+
+  _hasCachedSoftwareBloomFrame(scale)
+  {
+    return this.config.outputCompositing === 'transparent-overlay' &&
+      this.lastSoftwareBloomFrame?.canvas !== undefined &&
+      this.lastSoftwareBloomFrame.signature ===
+        this._getSoftwareBloomFrameSignature(scale);
+  }
+
   _renderSoftwareBloom(scale)
   {
     const bloomCfg = this.fxConfig.bloom;
@@ -7539,6 +7742,8 @@ export class BAClickFX
       diffusion,
       opacity: this.config.opacity,
       outputCompositing: this.config.outputCompositing,
+      enforceOverlayAlphaLimit:
+        this.config.outputCompositing === 'transparent-overlay',
     };
     let processedSourcePixels = 0;
     let failed = false;
@@ -7682,6 +7887,10 @@ export class BAClickFX
         this.bloomRenderer.available = false;
         failed = true;
       }
+      else if (index === 0)
+      {
+        this._cacheSoftwareBloomFrame(scale);
+      }
     }
 
     this.softwareBloomFrameStats = {
@@ -7697,9 +7906,24 @@ export class BAClickFX
 
     if (failed)
     {
-      // Software 已在清晰层绘制后失败；必须同帧重画 Native 光晕，不能让
-      // 透明拖尾在状态切换当帧只剩几何细线。
+      const hasCachedSoftwareBloom = this._hasCachedSoftwareBloomFrame(scale);
+
+      // 即使同一时刻可以复用软件结果，也必须完成一次 Native 重画。这样下一
+      // 帧输入变化时，局部缓冲已经准备好，不会把回读故障变成第二次分配抖动。
       this._drawCanvasFallbackFrame(scale, true, false);
+
+      if (hasCachedSoftwareBloom)
+      {
+        // Native 先完成生命周期切换，再清掉近似层并复用同输入的已完成输出。
+        // 缓存失效或无法绘制时则保留刚才的 Native 帧。
+        this._drawCanvasFallbackFrame(scale, false, false);
+
+        if (!this._drawCachedSoftwareBloomFrame(scale))
+        {
+          this._drawCanvasFallbackFrame(scale, true, false);
+        }
+      }
+
       this._renderLightBackgroundContrast(scale, false);
       this._setResolvedBloomBackend('native');
     }
