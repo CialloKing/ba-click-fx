@@ -4,7 +4,7 @@ declare module 'ba-click-fx'
   export type BAClickFXInputSource = 'dom' | 'manual';
   export type BAClickFXPointerType = 'mouse' | 'touch' | 'pen';
   export type BAClickFXOutputCompositing =
-    'scene' | 'transparent-overlay';
+    'scene' | 'browser-overlay';
   export type BAClickFXEffectBackend = 'canvas2d' | 'webgl2' | 'auto';
   export type BAClickFXResolvedEffectBackend =
     Exclude<BAClickFXEffectBackend, 'auto'> | 'pending';
@@ -64,7 +64,7 @@ declare module 'ba-click-fx'
     opacity?: number;
     /** 主题色，默认游戏蓝 '#4ca7ff'；仅接受六位十六进制颜色。 */
     themeColor?: string;
-    /** 输出合成：默认 'scene'；透明桌面覆盖层使用 'transparent-overlay'。 */
+    /** 输出合成：默认 'scene'；透明桌面覆盖层使用 'browser-overlay'。 */
     outputCompositing?: BAClickFXOutputCompositing;
     clickEnabled?: boolean;
     trailEnabled?: boolean;
@@ -88,7 +88,7 @@ declare module 'ba-click-fx'
     isolatedCompositing?: boolean;
     /**
      * 浅色背景的非 Bloom 淡青轮廓强度，默认 0；建议与隔离合成一起显式开启。
-     * outputCompositing 为 'transparent-overlay' 时忽略此项。
+     * outputCompositing 为 'browser-overlay' 时忽略此项。
      */
     lightBackgroundContrastAlpha?: number;
     /** Canvas backing store 的设备像素比上限，默认 2。 */

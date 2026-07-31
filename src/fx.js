@@ -657,7 +657,7 @@ function linearEnergyToNativeTrailBloomCss(
   const contributionScale = contribution / brightness;
   const brightPass = source.map((channel) => channel * contributionScale);
 
-  if (outputCompositing === 'transparent-overlay')
+  if (outputCompositing === 'browser-overlay')
   {
     // Native blur 的 Alpha 取自几何 Coverage，而不是 HDR 明度；发射倍率只
     // 改变 RGB，不能把透明桌面的轨迹变成实心遮挡。
@@ -1454,7 +1454,7 @@ class LegacyRingRasterizer
       return;
     }
 
-    if (outputCompositing === 'transparent-overlay')
+    if (outputCompositing === 'browser-overlay')
     {
       if (materialEnergy.every((channel) => channel <= 0))
       {
@@ -1725,7 +1725,7 @@ function drawDissolvedCircle(
   {
     const coverage = opacity * luminance;
 
-    return outputCompositing === 'transparent-overlay'
+    return outputCompositing === 'browser-overlay'
       ? linearEnergyToOverlayCss(materialEnergy, coverage, coverage)
       : linearEnergyToAdditiveCss(materialEnergy, coverage);
   };
@@ -2088,7 +2088,7 @@ function drawTexturedTriangle(
     Math.round(clamp01(channel * Math.max(0, energyScale)) * 255));
 
   if (
-    outputCompositing === 'transparent-overlay' &&
+    outputCompositing === 'browser-overlay' &&
     scaledColor.every((channel) => channel === 0)
   )
   {
@@ -2125,7 +2125,7 @@ function drawTexturedTriangle(
   textureContext.globalCompositeOperation = 'destination-in';
   drawTriangleTextureFrame(
     textureContext,
-    outputCompositing === 'transparent-overlay'
+    outputCompositing === 'browser-overlay'
       ? resources.coverageCanvas
       : resources.alphaCanvas,
     frameIndex,
@@ -2194,7 +2194,7 @@ function drawTriangle(
   context.lineTo(textureFrame[1][0] * size, textureFrame[1][1] * size);
   context.lineTo(textureFrame[2][0] * size, textureFrame[2][1] * size);
   context.closePath();
-  context.fillStyle = outputCompositing === 'transparent-overlay'
+  context.fillStyle = outputCompositing === 'browser-overlay'
     ? linearEnergyToOverlayCss(materialEnergy, alpha, alpha)
     : linearEnergyToAdditiveCss(materialEnergy, alpha);
   // 三角碎片在原图中是清晰本体；显式清空阴影，避免继承上一层发光状态。
@@ -2235,7 +2235,7 @@ function drawTriangleCoverage(
     alpha,
     textureFrameIndex,
     1,
-    'transparent-overlay',
+    'browser-overlay',
   ))
   {
     return;
@@ -2747,7 +2747,7 @@ class ClickWave
         this.fx,
         false,
         [1, 1, 1],
-        'transparent-overlay',
+        'browser-overlay',
       );
     }
   }
@@ -3983,7 +3983,7 @@ function drawTrailLayer(
       const coverage = layer.alpha * opacity * textureCoverage *
         longitudinalCoverage;
 
-      return layer.outputCompositing === 'transparent-overlay'
+      return layer.outputCompositing === 'browser-overlay'
         ? linearEnergyToOverlayCss(color, contribution, coverage)
         : linearEnergyToAdditiveCss(color, contribution);
     });
@@ -4326,7 +4326,7 @@ function drawLegacyTrailLayer(
   context.shadowBlur = 0;
   context.shadowColor = 'transparent';
 
-  if (layer.color && outputCompositing !== 'transparent-overlay')
+  if (layer.color && outputCompositing !== 'browser-overlay')
   {
     // 渐变分支每次只画两点，不存在 join；仅多点整路径需要圆角连接。
     context.lineJoin = 'round';
@@ -4384,7 +4384,7 @@ function drawLegacyTrailLayer(
     context.beginPath();
     context.moveTo(points[index - 1].x, points[index - 1].y);
     context.lineTo(points[index].x, points[index].y);
-    context.strokeStyle = outputCompositing === 'transparent-overlay'
+    context.strokeStyle = outputCompositing === 'browser-overlay'
       ? linearEnergyToOverlayCss(
           linearOutput
             ? colorToLinearEnergy(color, 1, true)
@@ -4934,7 +4934,7 @@ export class BAClickFX
    * @param {'dom'|'manual'} [options.inputSource]
    * @param {number} [options.clickTimeScale]
    * @param {number} [options.trailTimeScale]
-   * @param {'scene'|'transparent-overlay'} [options.outputCompositing]
+   * @param {'scene'|'browser-overlay'} [options.outputCompositing]
    * @param {'canvas2d'|'webgl2'|'auto'} [options.effectBackend]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
@@ -6081,7 +6081,7 @@ export class BAClickFX
     // 透明 Canvas 无法独立保存 Additive RGB 与 Coverage Alpha；在 residual
     // Coverage Final Pass 完成前保留兼容 source-over，避免多个粒子把 Alpha 相加。
     this.context.globalCompositeOperation =
-      this.config.outputCompositing === 'transparent-overlay'
+      this.config.outputCompositing === 'browser-overlay'
         ? 'source-over'
         : 'lighter';
     this.renderingFrame = true;
@@ -7079,7 +7079,7 @@ export class BAClickFX
     if (this.contrastCanvas)
     {
       const contrastEnabled = !this._isLegacy &&
-        this.config.outputCompositing !== 'transparent-overlay' &&
+        this.config.outputCompositing !== 'browser-overlay' &&
         this.config.lightBackgroundContrastAlpha > 0;
 
       // 普通场景继续跟随主 Canvas 的输出所有权；启用淡青轮廓后则由
@@ -7221,7 +7221,7 @@ export class BAClickFX
     context.clearRect(0, 0, this.width, this.height);
 
     if (
-      this.config.outputCompositing === 'transparent-overlay' ||
+      this.config.outputCompositing === 'browser-overlay' ||
       this.config.lightBackgroundContrastAlpha <= 0
     )
     {
@@ -7625,7 +7625,7 @@ export class BAClickFX
   _cacheSoftwareBloomFrame(scale)
   {
     if (
-      this.config.outputCompositing !== 'transparent-overlay' ||
+      this.config.outputCompositing !== 'browser-overlay' ||
       this.canvas.width <= 0 ||
       this.canvas.height <= 0
     )
@@ -7729,7 +7729,7 @@ export class BAClickFX
 
   _hasCachedSoftwareBloomFrame(scale)
   {
-    return this.config.outputCompositing === 'transparent-overlay' &&
+    return this.config.outputCompositing === 'browser-overlay' &&
       this.lastSoftwareBloomFrame?.canvas !== undefined &&
       this.lastSoftwareBloomFrame.signature ===
         this._getSoftwareBloomFrameSignature(scale);
@@ -7751,7 +7751,7 @@ export class BAClickFX
       opacity: this.config.opacity,
       outputCompositing: this.config.outputCompositing,
       enforceOverlayAlphaLimit:
-        this.config.outputCompositing === 'transparent-overlay',
+        this.config.outputCompositing === 'browser-overlay',
     };
     let processedSourcePixels = 0;
     let failed = false;
@@ -7876,7 +7876,7 @@ export class BAClickFX
 
       try
       {
-        if (this.config.outputCompositing === 'transparent-overlay')
+        if (this.config.outputCompositing === 'browser-overlay')
         {
           // Bloom ImageData 已按清晰层剩余 Alpha 容量编码；lighter 同时
           // 累加预乘 RGB 与传输 Alpha，避免 source-over 吞掉已有清晰能量。
@@ -8164,7 +8164,7 @@ export class BAClickFX
     this.context.clearRect(0, 0, this.width, this.height);
     // Context 丢失回退必须沿用正常帧的透明 Coverage 兼容合同。
     this.context.globalCompositeOperation =
-      this.config.outputCompositing === 'transparent-overlay'
+      this.config.outputCompositing === 'browser-overlay'
         ? 'source-over'
         : 'lighter';
     this._drawCanvasTrails(scale, useNativeBloom, legacy);

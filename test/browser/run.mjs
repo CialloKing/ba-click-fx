@@ -290,7 +290,7 @@ function validateBasicCase(result, expectedDpr)
     result.pixels,
   );
 
-  if (result.outputCompositing === 'transparent-overlay' &&
+  if (result.outputCompositing === 'browser-overlay' &&
       result.specification.opacity > 0)
   {
     const blackCenter = result.pixels.black.center;
@@ -1520,7 +1520,7 @@ function validateTrailContextLifecycle(
     `${label} 恢复稳定帧`,
   );
 
-  if (lifecycle.outputCompositing === 'transparent-overlay')
+  if (lifecycle.outputCompositing === 'browser-overlay')
   {
     validateTrailContextCoverage(mode, lifecycle);
   }
@@ -1875,9 +1875,9 @@ async function validateContrastCompositing(
   isolationLabel,
 )
 {
-  const transparentZero = contrastCases.get('transparent-overlay__0');
+  const transparentZero = contrastCases.get('browser-overlay__0');
   const transparentContrast = contrastCases.get(
-    'transparent-overlay__0.35',
+    'browser-overlay__0.35',
   );
   const sceneZero = contrastCases.get('scene__0');
   const sceneContrast = contrastCases.get('scene__0.35');
@@ -1895,11 +1895,11 @@ async function validateContrastCompositing(
 
   validateEmptyPixels(
     transparentZero.result.contrastLayer,
-    `${prefix} transparent-overlay=0`,
+    `${prefix} browser-overlay=0`,
   );
   validateEmptyPixels(
     transparentContrast.result.contrastLayer,
-    `${prefix} transparent-overlay=0.35`,
+    `${prefix} browser-overlay=0.35`,
   );
   validateEmptyPixels(
     sceneZero.result.contrastLayer,
@@ -1913,7 +1913,7 @@ async function validateContrastCompositing(
   assert(
     transparentDifference.changedPixels === 0 &&
       transparentDifference.maximumChannelDelta === 0,
-    `${prefix} 改变了 transparent-overlay 的 Chromium 输出`,
+    `${prefix} 改变了 browser-overlay 的 Chromium 输出`,
     transparentDifference,
   );
   assert(
@@ -2086,7 +2086,7 @@ async function collectLifecycleTimeline(page, mode, variant, sampleTimes)
     opacity: 1,
     isolatedCompositing: true,
     background: 'transparent',
-    outputCompositing: 'transparent-overlay',
+    outputCompositing: 'browser-overlay',
     shadow: false,
     containStrict: false,
   };
@@ -2209,7 +2209,7 @@ async function runIifeSmoke(browserInstance, baseUrl)
         opacity: 1,
         isolatedCompositing: true,
         background: 'checker',
-        outputCompositing: 'transparent-overlay',
+        outputCompositing: 'browser-overlay',
         shadow: false,
         containStrict: false,
       },
@@ -3092,7 +3092,7 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
     });
 
     await page.locator('#ctrlOutputCompositing').selectOption(
-      'transparent-overlay',
+      'browser-overlay',
     );
     const matchedPureWhiteBackground = await page.evaluate(
       () => document.body.style.background,
@@ -3103,7 +3103,7 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().outputCompositing === 'transparent-overlay' &&
+        return effect.getConfig().outputCompositing === 'browser-overlay' &&
           effect.compositingReferenceSource === null &&
           document.getElementById('ctrlCompositingReference').value ===
             'unknown' &&
@@ -3724,7 +3724,7 @@ async function runMatrix(browserInstance, baseUrl, baseline)
         const contrastCases = new Map();
         const isolationLabel = isolatedCompositing ? 'isolated' : 'direct';
 
-        for (const outputCompositing of ['transparent-overlay', 'scene'])
+        for (const outputCompositing of ['browser-overlay', 'scene'])
         {
           for (const lightBackgroundContrastAlpha of [0, 0.35])
           {
@@ -3965,7 +3965,7 @@ async function runMatrix(browserInstance, baseUrl, baseline)
 
     const trailLifecycles = {};
 
-    for (const outputCompositing of ['scene', 'transparent-overlay'])
+    for (const outputCompositing of ['scene', 'browser-overlay'])
     {
       currentLabel =
         `${mode}__${outputCompositing}__trail-context-lifecycle`;

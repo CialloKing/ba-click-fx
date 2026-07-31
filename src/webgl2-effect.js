@@ -2397,7 +2397,7 @@ export class WebGL2EffectRenderer
 
       if (!this._hasGeometry())
       {
-        if (settings.outputCompositing === 'transparent-overlay')
+        if (settings.outputCompositing === 'browser-overlay')
         {
           this.sceneOverlayFrameReady = this._renderSceneOverlay();
         }
@@ -2408,10 +2408,10 @@ export class WebGL2EffectRenderer
 
       this._drawGeometryBatches(
         this.programs.scene,
-        settings.outputCompositing === 'transparent-overlay',
+        settings.outputCompositing === 'browser-overlay',
       );
 
-      if (settings.outputCompositing === 'transparent-overlay')
+      if (settings.outputCompositing === 'browser-overlay')
       {
         this.sceneOverlayFrameReady = this._renderSceneOverlay();
 
@@ -3654,7 +3654,7 @@ export class WebGL2EffectRenderer
   {
     const gl = this.gl;
     const transparentOverlay =
-      settings.outputCompositing === 'transparent-overlay';
+      settings.outputCompositing === 'browser-overlay';
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sourceTarget.framebuffer);
     gl.viewport(0, 0, this.sourceWidth, this.sourceHeight);
@@ -3817,7 +3817,7 @@ export class WebGL2EffectRenderer
     );
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_transparentOverlay'),
-      settings.outputCompositing === 'transparent-overlay' ? 1 : 0,
+      settings.outputCompositing === 'browser-overlay' ? 1 : 0,
     );
     gl.uniform2f(
       gl.getUniformLocation(program, 'u_bloomTexel'),
@@ -3863,7 +3863,7 @@ export class WebGL2EffectRenderer
     const hasBackground = hasScene && this.sceneBackgroundFrameReady;
     const hasSceneOverlay = hasScene &&
       !hasBackground &&
-      settings.outputCompositing === 'transparent-overlay' &&
+      settings.outputCompositing === 'browser-overlay' &&
       this.sceneOverlayFrameReady;
 
     try

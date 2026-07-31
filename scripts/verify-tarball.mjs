@@ -386,7 +386,7 @@ const options: BAClickFXOptions =
   scale: 1,
   opacity: 1,
   themeColor: '#4ca7ff',
-  outputCompositing: 'transparent-overlay',
+  outputCompositing: 'browser-overlay',
   clickEnabled: true,
   trailEnabled: true,
   inputSource: 'manual',

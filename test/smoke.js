@@ -2396,7 +2396,7 @@ effect.trailStrokes[0].points = [
 effect.updateConfig(
   {
     softwareBloomEnabled: false,
-    outputCompositing: 'transparent-overlay',
+    outputCompositing: 'browser-overlay',
   },
 );
 now = flushFrames(dom, now, 1);
@@ -2563,7 +2563,7 @@ function captureTransparentSoftwareFrame(opacity)
     {
       effectBackend: 'canvas2d',
       bloomBackend: 'software',
-      outputCompositing: 'transparent-overlay',
+      outputCompositing: 'browser-overlay',
       inputSource: 'manual',
       opacity,
       lightBackgroundContrastAlpha: 0.35,
@@ -2661,9 +2661,9 @@ const fullOverlayFrame = captureTransparentSoftwareFrame(1);
 
 assert(
   halfOverlayFrame.coverageModes.every((mode) =>
-    mode === 'transparent-overlay') &&
+    mode === 'browser-overlay') &&
     halfOverlayFrame.compositeSettings?.outputCompositing ===
-      'transparent-overlay',
+      'browser-overlay',
   'Software Bloom 将透明输出模式同时传给 Coverage 与最终合成',
 );
 assert(
@@ -4039,7 +4039,7 @@ const reentrantWebGLBloomEffect = new BAClickFX(
   {
     effectBackend: 'canvas2d',
     bloomBackend: 'webgl2',
-    outputCompositing: 'transparent-overlay',
+    outputCompositing: 'browser-overlay',
   },
 );
 const reentrantWebGLBloomCanvas = document.createElement('canvas');
@@ -4129,7 +4129,7 @@ const reentrantFullWebGLEffect = new BAClickFX(
   {
     effectBackend: 'webgl2',
     bloomBackend: 'webgl2',
-    outputCompositing: 'transparent-overlay',
+    outputCompositing: 'browser-overlay',
   },
 );
 const reentrantFullWebGLEvents = [];
@@ -4532,7 +4532,7 @@ const reentrantContextLossEffect = new BAClickFX(
   {
     effectBackend: 'canvas2d',
     bloomBackend: 'webgl2',
-    outputCompositing: 'transparent-overlay',
+    outputCompositing: 'browser-overlay',
   },
 );
 const reentrantContextLossEvents = [];
@@ -6149,7 +6149,7 @@ legacyWave.drawBase(
   1,
   1,
   true,
-  'transparent-overlay',
+  'browser-overlay',
   2,
 );
 const dprTwoDiskDraw = legacyEffect.context.drawImageCalls.find((call) =>
@@ -6165,7 +6165,7 @@ legacyWave.drawRings(
   true,
   legacyRingRasterizer,
   2,
-  'transparent-overlay',
+  'browser-overlay',
 );
 const dprTwoRingDraws = legacyEffect.context.drawImageCalls.filter((call) =>
   call.args[0] === legacyRingRasterizer.canvas);

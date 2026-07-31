@@ -1727,7 +1727,7 @@ export class WebGL2BloomRenderer
   {
     const gl = this.gl;
     const transparentOverlay =
-      settings.outputCompositing === 'transparent-overlay';
+      settings.outputCompositing === 'browser-overlay';
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sourceTarget.framebuffer);
     gl.viewport(0, 0, this.sourceWidth, this.sourceHeight);
@@ -1945,7 +1945,7 @@ export class WebGL2BloomRenderer
     );
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_transparentOverlay'),
-      settings.outputCompositing === 'transparent-overlay' ? 1 : 0,
+      settings.outputCompositing === 'browser-overlay' ? 1 : 0,
     );
     gl.bindVertexArray(this.fullscreenVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);

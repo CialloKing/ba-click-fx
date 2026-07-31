@@ -291,7 +291,7 @@ const outputCompositingValues = [
 verify(
   JSON.stringify(outputCompositingValues) === JSON.stringify([
     'scene',
-    'transparent-overlay',
+    'browser-overlay',
   ]) &&
     /<option value="scene" selected>/.test(outputCompositingSelect),
   '展示页提供默认使用 Scene 的透明覆盖层输出模式开关',

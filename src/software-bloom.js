@@ -807,7 +807,7 @@ export function upsampleAndMixBloom(
 /**
  * 将线性 HDR Bloom 转成可由透明 Canvas 保存的 sRGB 贡献。
  *
- * scene 保留原有的加色编码。transparent-overlay 使用 Prefilter 贡献经过
+ * scene 保留原有的加色编码。browser-overlay 使用 Prefilter 贡献经过
  * 同一 mip 链得到的传输上界，不从最终 RGB 反推 Alpha。
  */
 export function encodeAdditiveBloom(
@@ -822,7 +822,7 @@ export function encodeAdditiveBloom(
 {
   const safeIntensity = Math.pow(2, Math.max(0, intensity) / 10) - 1;
   const transparentOverlay =
-    options?.outputCompositing === 'transparent-overlay';
+    options?.outputCompositing === 'browser-overlay';
   const coverage = transparentOverlay ? options?.coverage : null;
   const sceneCoverage = transparentOverlay
     ? options?.sceneCoverage
@@ -1521,7 +1521,7 @@ export class SoftwareBloomRenderer
   }
 
   /**
-   * 为 transparent-overlay 准备独立 Coverage 源。
+   * 为 browser-overlay 准备独立 Coverage 源。
    *
    * 调用方应在 beginFrame() 之后调用，并使用白色几何把纹理 Coverage、
    * 生命周期 Alpha 与全局 opacity 写入返回 Context 的 Alpha。
@@ -1530,7 +1530,7 @@ export class SoftwareBloomRenderer
   {
     this.coverageFrameReady = false;
 
-    if (outputCompositing !== 'transparent-overlay')
+    if (outputCompositing !== 'browser-overlay')
     {
       return null;
     }
@@ -1589,7 +1589,7 @@ export class SoftwareBloomRenderer
     }
 
     const transparentOverlay =
-      settings.outputCompositing === 'transparent-overlay';
+      settings.outputCompositing === 'browser-overlay';
 
     if (
       transparentOverlay &&

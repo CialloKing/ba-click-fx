@@ -588,14 +588,14 @@ encodeAdditiveBloom(
   null,
   null,
   {
-    outputCompositing: 'transparent-overlay',
+    outputCompositing: 'browser-overlay',
     coverage: overlayCoverage,
   },
 );
 
 assert(
   overlayRgba.slice(0, 4).every((value) => value === 0),
-  'transparent-overlay 在 Bright Pass 能量为零时不输出颜色或 Alpha',
+  'browser-overlay 在 Bright Pass 能量为零时不输出颜色或 Alpha',
 );
 assert(
   [1, 2, 3].every((pixel) =>
@@ -605,7 +605,7 @@ assert(
     ) <= 1 / 255) &&
     overlayRgba[7] < overlayRgba[11] &&
     overlayRgba[11] < overlayRgba[15],
-  'transparent-overlay Alpha 由 Bright Pass 传输上界单调生成',
+  'browser-overlay Alpha 由 Bright Pass 传输上界单调生成',
 );
 
 let validPremultipliedOverlay = true;
@@ -628,7 +628,7 @@ for (let pixel = 0; pixel < overlayRgba.length / 4; pixel++)
 
 assert(
   validPremultipliedOverlay,
-  'transparent-overlay 写入 Canvas 后的预乘 RGB 始终不超过 Alpha',
+  'browser-overlay 写入 Canvas 后的预乘 RGB 始终不超过 Alpha',
 );
 
 const dimOverlayRgba = new Uint8ClampedArray(4);
@@ -643,7 +643,7 @@ encodeAdditiveBloom(
   null,
   null,
   {
-    outputCompositing: 'transparent-overlay',
+    outputCompositing: 'browser-overlay',
     coverage: fixedCoverage,
   },
 );
@@ -655,7 +655,7 @@ encodeAdditiveBloom(
   null,
   null,
   {
-    outputCompositing: 'transparent-overlay',
+    outputCompositing: 'browser-overlay',
     coverage: fixedCoverage,
   },
 );
@@ -664,7 +664,7 @@ assert(
     Math.abs(
       dimOverlayRgba[3] / 255 - expectedTransportAlpha(0.35),
     ) <= 1 / 255,
-  'transparent-overlay 传输 Alpha 不读取最终 Bloom RGB',
+  'browser-overlay 传输 Alpha 不读取最终 Bloom RGB',
 );
 
 const opacitySeries = [0, 0.5, 1].map((opacity) =>
@@ -679,7 +679,7 @@ const opacitySeries = [0, 0.5, 1].map((opacity) =>
     null,
     null,
     {
-      outputCompositing: 'transparent-overlay',
+      outputCompositing: 'browser-overlay',
       coverage: new Float32Array([100]),
       opacity,
     },
@@ -689,7 +689,7 @@ const opacitySeries = [0, 0.5, 1].map((opacity) =>
 
 assert(
   JSON.stringify(opacitySeries) === JSON.stringify([0, 125, 250]),
-  'transparent-overlay 的最大传输 Alpha 对 opacity 保持三档线性',
+  'browser-overlay 的最大传输 Alpha 对 opacity 保持三档线性',
 );
 
 const sceneCoverage = new Float32Array([0.45, 0.45, 0, 1]);
@@ -709,7 +709,7 @@ encodeAdditiveBloom(
   null,
   null,
   {
-    outputCompositing: 'transparent-overlay',
+    outputCompositing: 'browser-overlay',
     coverage: bloomCoverage,
     sceneCoverage,
   },
@@ -838,10 +838,10 @@ assert(
   'scene 模式不会创建 Coverage Canvas 或分配单通道金字塔',
 );
 assert(
-  coverageRenderer.beginCoverageFrame('transparent-overlay') !== null &&
+  coverageRenderer.beginCoverageFrame('browser-overlay') !== null &&
     coverageFactory.creationCount === 3 &&
     coverageRenderer.sourceCoverage.length === 0,
-  'transparent-overlay 首次使用时才懒创建 Coverage Canvas',
+  'browser-overlay 首次使用时才懒创建 Coverage Canvas',
 );
 coverageRenderer.outputBounds = {
   minimumX: 0,
@@ -856,7 +856,7 @@ const emptyCoverageComposite = coverageRenderer.composite(
     },
   },
   {
-    outputCompositing: 'transparent-overlay',
+    outputCompositing: 'browser-overlay',
     encodingRange: 8,
     threshold: 1,
     softKnee: 0.5,

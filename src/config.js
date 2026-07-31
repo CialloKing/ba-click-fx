@@ -14,7 +14,7 @@ const INPUT_SOURCES = new Set(['dom', 'manual']);
 const DEFAULT_OUTPUT_COMPOSITING = 'scene';
 const OUTPUT_COMPOSITING_MODES = new Set([
   'scene',
-  'transparent-overlay',
+  'browser-overlay',
 ]);
 
 // 极低倍率会让每帧逻辑时间几乎停滞；保留可预期的最小有效速度。
