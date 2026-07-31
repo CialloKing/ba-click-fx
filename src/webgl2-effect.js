@@ -3929,9 +3929,8 @@ export class WebGL2EffectRenderer
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_intensity'),
-      // WebGL 最终输出与软件后端共享网页曝光标定，避免缺少 Unity 相机
-      // HDR 后处理时把 1.7 直接作为线性倍率并产生整片白色钳制。
-      Math.pow(2, Math.max(0, settings.intensity) / 10) - 1,
+      // Unity BaGameBloom Composite 直接乘 _Bloom_Settings.y。
+      Math.max(0, settings.intensity),
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_overlayAlphaLimit'),

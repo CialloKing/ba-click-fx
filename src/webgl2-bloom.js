@@ -1986,7 +1986,8 @@ export class WebGL2BloomRenderer
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_intensity'),
-      Math.pow(2, Math.max(0, settings.intensity) / 10) - 1,
+      // Unity BaGameBloom Composite 直接乘 _Bloom_Settings.y。
+      Math.max(0, settings.intensity),
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_overlayAlphaLimit'),

@@ -900,7 +900,8 @@ export function encodeAdditiveBloom(
   options = null,
 )
 {
-  const safeIntensity = Math.pow(2, Math.max(0, intensity) / 10) - 1;
+  // Unity BaGameBloom 直接把 Intensity 乘到 Composite Bloom，不是曝光档位。
+  const safeIntensity = Math.max(0, intensity);
   const transparentOverlay =
     options?.outputCompositing === 'browser-overlay';
   const hostAdditive = transparentOverlay &&

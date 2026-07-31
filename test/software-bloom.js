@@ -496,14 +496,14 @@ assert(
   arraysApproximatelyEqual(
     rgba,
     [
-      255, 186, 135, 188,
+      255, 255, 255, 255,
       0, 0, 0, 0,
-      77, 153, 255, 165,
-      255, 111, 0, 49,
+      174, 255, 255, 255,
+      255, 134, 0, 174,
     ],
     0,
   ),
-  '线性 HDR 经过游戏强度转换和 sRGB 编码后得到确定的 RGBA8',
+  '线性 HDR 经过 Unity 直接强度和 sRGB 编码后得到确定的 RGBA8',
 );
 assert(
   rgba[4] === 0 &&
@@ -629,7 +629,7 @@ const overlayHdr = new Float32Array([
 ]);
 const overlayCoverage = new Float32Array([0, 0.25, 0.5, 1]);
 const overlayRgba = new Uint8ClampedArray(16);
-const overlayExposure = Math.pow(2, 1.7 / 10) - 1;
+const overlayExposure = 1.7;
 const overlayAlphaLimit = 250 / 255;
 const expectedTransportAlpha = (value) => Math.min(
   overlayAlphaLimit,
@@ -646,6 +646,7 @@ encodeAdditiveBloom(
   {
     outputCompositing: 'browser-overlay',
     coverage: overlayCoverage,
+    overlayAlphaLimit,
   },
 );
 
@@ -879,7 +880,7 @@ assert(
     additiveHostWithSceneRgba[3] / 255,
     linearToSrgb(0.2 * overlayExposure),
     1 / 255,
-  ) && additiveHostWithSceneRgba[3] < 128,
+  ) && additiveHostWithSceneRgba[3] < 200,
   '宿主 Add 的 Software Bloom Alpha 不重复累计清晰层 Coverage',
 );
 
@@ -993,6 +994,7 @@ encodeAdditiveBloom(
     outputCompositing: 'browser-overlay',
     coverage: bloomCoverage,
     sceneCoverage,
+    overlayAlphaLimit,
   },
 );
 
