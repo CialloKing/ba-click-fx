@@ -1441,6 +1441,8 @@ const scaledBloomCalls =
 {
   createdTargets: 0,
   copiedTarget: null,
+  deletedFramebuffers: 0,
+  deletedTextures: 0,
   draw: null,
   prefilterTexture: null,
 };
@@ -1459,6 +1461,14 @@ const scaledBloomGl =
   },
   clear()
   {
+  },
+  deleteFramebuffer()
+  {
+    scaledBloomCalls.deletedFramebuffers++;
+  },
+  deleteTexture()
+  {
+    scaledBloomCalls.deletedTextures++;
   },
   useProgram()
   {
@@ -1576,6 +1586,19 @@ scaledBloomRenderer._renderPrefilter(
 assert(
   scaledBloomCalls.prefilterTexture === 'scaled-bloom-texture',
   'WebGL2 Bloom Prefilter 读取独立点击发射源而清晰 Scene 保持原值',
+);
+assert(
+  scaledBloomRenderer._renderScaledBloomSource(
+    {
+      outputCompositing: 'browser-overlay',
+      diskEmissionScale: 1,
+      ringEmissionScale: 1,
+    },
+  ) &&
+    scaledBloomRenderer.bloomSourceTarget === null &&
+    scaledBloomCalls.deletedFramebuffers === 1 &&
+    scaledBloomCalls.deletedTextures === 1,
+  'WebGL2 切回 Unity 默认点击发射时立即释放独立 HDR 目标',
 );
 
 const rendererCanvas =

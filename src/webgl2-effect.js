@@ -2505,7 +2505,10 @@ export class WebGL2EffectRenderer
 
     if (disk === 1 && ring === 1)
     {
-      // Unity 默认值直接复用原 Scene，避免常态增加一张全分辨率 HDR RT。
+      // Unity 默认值直接复用原 Scene；从自定义倍率切回后同步释放整屏
+      // HDR 目标，避免一次调节让默认路径长期保留额外显存。
+      deleteTarget(this.gl, this.bloomSourceTarget);
+      this.bloomSourceTarget = null;
       return true;
     }
 
