@@ -28,6 +28,7 @@ window.BAClickFXDemo = effect;
 
 // ── 主题预设 ────────────────────────────────────────────────────────────
 const PURE_WHITE_THEME = '纯白';
+const PURE_WHITE_ISOLATED_CONTRAST_ALPHA = 0.35;
 let sceneBackgroundRequestId = 0;
 let themeSceneCanvas = null;
 let activeThemeScene = null;
@@ -97,7 +98,7 @@ function updateThemeSceneBackground()
 
 function applyThemeSceneBackground(name)
 {
-  applySceneBackgroundEnabledForTheme(name);
+  applySceneBackgroundEnabledForTheme();
   sceneBackgroundRequestId++;
   activeThemeScene = name;
   return updateThemeSceneBackground();
@@ -217,9 +218,11 @@ function syncSceneBackgroundSourceClass()
   );
 }
 
-function resolveThemeSceneBackgroundEnabled(name)
+function resolveThemeSceneBackgroundEnabled()
 {
-  return sceneBackgroundEnabledOverride ?? name !== PURE_WHITE_THEME;
+  // 自动策略保留所有主题的 Scene 栅格源。纯白是否补足网页可见性由隔离合成处理，
+  // 不能再通过关闭 Scene 源把两种语义混在一起。
+  return sceneBackgroundEnabledOverride ?? true;
 }
 
 function applySceneBackgroundEnabled(enabled)
@@ -237,9 +240,39 @@ function applySceneBackgroundEnabled(enabled)
   return applied;
 }
 
-function applySceneBackgroundEnabledForTheme(name)
+function applySceneBackgroundEnabledForTheme()
 {
-  return applySceneBackgroundEnabled(resolveThemeSceneBackgroundEnabled(name));
+  return applySceneBackgroundEnabled(resolveThemeSceneBackgroundEnabled());
+}
+
+function resolvePureWhiteContrastAlpha(isolatedCompositing)
+{
+  // 库无法读取任意宿主背景；展示页只为已知的内置纯白主题自动补足轮廓。
+  return isolatedCompositing === true &&
+    document.body.classList.contains('theme-pure-white')
+    ? PURE_WHITE_ISOLATED_CONTRAST_ALPHA
+    : 0;
+}
+
+function syncPureWhiteIsolationContrast()
+{
+  effect.updateConfig(
+    {
+      lightBackgroundContrastAlpha: resolvePureWhiteContrastAlpha(
+        effect.getConfig().isolatedCompositing,
+      ),
+    },
+  );
+}
+
+function applyIsolatedCompositing(checked)
+{
+  effect.updateConfig(
+    {
+      isolatedCompositing: checked,
+      lightBackgroundContrastAlpha: resolvePureWhiteContrastAlpha(checked),
+    },
+  );
 }
 
 function applyTheme(name)
@@ -261,6 +294,7 @@ function applyTheme(name)
   document.body.style.background = bg;
   document.body.style.backgroundAttachment = 'fixed';
   document.body.classList.toggle('theme-pure-white', name === PURE_WHITE_THEME);
+  syncPureWhiteIsolationContrast();
   applyThemeSceneBackground(name);
   selectTheme(name);
   return true;
@@ -355,7 +389,8 @@ function applyCustomBackground(value, persist = true)
 
   document.body.style.background = resolved;
   document.body.classList.remove('theme-pure-white');
-  applySceneBackgroundEnabledForTheme('custom');
+  syncPureWhiteIsolationContrast();
+  applySceneBackgroundEnabledForTheme();
   applySceneBackgroundImage(resolveSceneBackgroundUrl(rawValue));
   revokeCustomBackgroundObjectUrl(rawValue);
 
@@ -469,8 +504,7 @@ bindRange('ctrlDpr', 'outDpr', (value) =>
   );
 }, false, 'change');
 
-bindToggle('ctrlIsolatedCompositing', (checked) =>
-  effect.updateConfig({ isolatedCompositing: checked }));
+bindToggle('ctrlIsolatedCompositing', applyIsolatedCompositing);
 
 const ctrlSceneBackgroundEnabled =
   document.getElementById('ctrlSceneBackgroundEnabled');
@@ -1668,7 +1702,7 @@ switchLanguage(currentLang);
     const isolated = savedIsolatedCompositing === 'true';
 
     isolatedCompositingEl.checked = isolated;
-    effect.updateConfig({ isolatedCompositing: isolated });
+    applyIsolatedCompositing(isolated);
   }
 
   const savedSceneBackgroundEnabled = localStorage.getItem(
