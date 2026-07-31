@@ -949,6 +949,35 @@ if (sourceMode)
     )),
     'Canvas 透明覆盖层将 Unity Linear 清晰能量编码为 sRGB',
   );
+  const hostAdditiveStart = fxSourceText.indexOf(
+    'function resolveHostAdditivePayload',
+  );
+  const hostAdditiveEnd = fxSourceText.indexOf(
+    'function resolveOverlayStraightColor',
+    hostAdditiveStart,
+  );
+  const hostAdditiveSource = fxSourceText
+    .slice(hostAdditiveStart, hostAdditiveEnd)
+    .replace(/\s+/g, ' ');
+
+  assert(
+    [0, 1, 2].every((channel) => hostAdditiveSource.includes(
+      `linearToSrgb(Math.max(0, color[${channel}]) * contribution)`,
+    )) &&
+      hostAdditiveSource.includes('clamp01(coverageAlpha)') &&
+      fxSourceText.includes("? 'host-additive'") &&
+      fxSourceText.includes(
+        "outputCompositing === 'host-additive'",
+      ) &&
+      fxSourceText.includes(
+        'srgbOutput ? resources.srgbColorCanvas : resources.colorCanvas',
+      ) &&
+      fxSourceText.includes(
+        "outputCompositing === 'host-additive'\n" +
+          '      ? resources.srgbColorCanvas',
+      ),
+    'Canvas 宿主 Add 使用独立 sRGB 完整载荷而不再复用 Scene 编码',
+  );
 
   const nonSeparableSamples = [
     [129, 80],
@@ -2633,6 +2662,15 @@ function captureTransparentSoftwareFrame(opacity, options = {})
       (maximum, [, color]) => Math.max(maximum, getCssAlpha(color)),
       0,
     ) ?? 0;
+  const clearPayloadPeak = transparentEffect.context.linearGradients
+    .flatMap(({ gradient }) => gradient.stops)
+    .reduce(
+      (maximum, [, color]) => Math.max(
+        maximum,
+        getCssPremultipliedEnergy(color),
+      ),
+      0,
+    );
 
   renderer.coverageContext.drawImageCalls = [];
   renderer.coverageContext.linearGradients = [];
@@ -2657,6 +2695,9 @@ function captureTransparentSoftwareFrame(opacity, options = {})
     );
   const result = {
     bloomOutputComposite: bloomOutputDraw?.compositeOperation,
+    canvasOutputCompositing:
+      transparentEffect._getCanvasOutputCompositing(),
+    clearPayloadPeak,
     compositeSettings,
     coverageDiskAlpha,
     coverageModes,
@@ -2693,6 +2734,10 @@ const brightOverlayFrame = captureTransparentSoftwareFrame(
     unknownBackgroundAppearance: 'bright',
     overlayAlphaLimit: 0.7,
   },
+);
+const limitedOverlayFrame = captureTransparentSoftwareFrame(
+  1,
+  { overlayAlphaLimit: 0.2 },
 );
 const additiveOverlayFrame = captureTransparentSoftwareFrame(
   1,
@@ -2754,11 +2799,64 @@ assert(
 assert(
   additiveOverlayFrame.compositeSettings?.hostCompositing ===
       'plus-lighter' &&
+    additiveOverlayFrame.canvasOutputCompositing === 'host-additive' &&
     additiveOverlayFrame.rootBlendMode === 'plus-lighter' &&
     additiveOverlayFrame.canvasParentIsRoot &&
     additiveOverlayFrame.mainCompositeOperations.every((operation) =>
-      operation === 'lighter'),
-  '宿主 Add 在单一合成根执行一次并让 Canvas 回退输出完整加色载荷',
+      operation === 'lighter') &&
+    additiveOverlayFrame.clearPayloadPeak >
+      limitedOverlayFrame.clearPayloadPeak,
+  '宿主 Add 在单一合成根执行一次并输出不受 Alpha 上限压缩的 sRGB 载荷',
+);
+
+function captureHostAdditiveFallback(renderingMode)
+{
+  const fallbackEffect = new BAClickFX(
+    {
+      effectBackend: 'canvas2d',
+      bloomBackend: 'native',
+      renderingMode,
+      outputCompositing: 'browser-overlay',
+      hostCompositing: 'plus-lighter',
+      overlayAlphaLimit: 0.2,
+      inputSource: 'manual',
+    },
+  );
+
+  fallbackEffect.pointerDown({ x: 400, y: 300, pointerId: 72 });
+  fallbackEffect.pointerMove({ x: 560, y: 300, pointerId: 72 });
+  flushFrames(dom, performance.now(), 1, 50);
+
+  const payloadStyles = [
+    ...fallbackEffect.context.filledStyles,
+    ...fallbackEffect.context.strokeStyles,
+    ...fallbackEffect.context.fillShadowColors,
+    ...fallbackEffect.context.linearGradients.flatMap(
+      ({ gradient }) => gradient.stops.map(([, color]) => color),
+    ),
+    ...fallbackEffect.context.conicGradients.flatMap(
+      ({ gradient }) => gradient.stops.map(([, color]) => color),
+    ),
+  ].filter((value) => /^rgba\(/.test(String(value)));
+  const result = {
+    canvasOutputCompositing: fallbackEffect._getCanvasOutputCompositing(),
+    payloadStyles,
+    rootBlendMode: fallbackEffect.overlayRoot.style.mixBlendMode,
+  };
+
+  fallbackEffect.destroy();
+  return result;
+}
+
+const nativeHostAdditiveFrame = captureHostAdditiveFallback('enhanced');
+const legacyHostAdditiveFrame = captureHostAdditiveFallback('legacy');
+
+assert(
+  [nativeHostAdditiveFrame, legacyHostAdditiveFrame].every((frame) =>
+    frame.canvasOutputCompositing === 'host-additive' &&
+    frame.rootBlendMode === 'plus-lighter' &&
+    frame.payloadStyles.length > 0),
+  'Native 与 Legacy 回退统一生成 Canvas 宿主 Add 的 sRGB 载荷',
 );
 
 const compositingSwitchEffect = new BAClickFX(

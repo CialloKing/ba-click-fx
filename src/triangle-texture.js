@@ -147,31 +147,39 @@ export function createTriangleTextureSources(createCanvas)
   }
 
   const colorCanvas = createCanvas();
+  const srgbColorCanvas = createCanvas();
   const alphaCanvas = createCanvas();
   const coverageCanvas = createCanvas();
 
   colorCanvas.width = TRIANGLE_TEXTURE_SIZE;
   colorCanvas.height = TRIANGLE_TEXTURE_SIZE;
+  srgbColorCanvas.width = TRIANGLE_TEXTURE_SIZE;
+  srgbColorCanvas.height = TRIANGLE_TEXTURE_SIZE;
   alphaCanvas.width = TRIANGLE_TEXTURE_SIZE;
   alphaCanvas.height = TRIANGLE_TEXTURE_SIZE;
   coverageCanvas.width = TRIANGLE_TEXTURE_SIZE;
   coverageCanvas.height = TRIANGLE_TEXTURE_SIZE;
 
   const colorContext = colorCanvas.getContext('2d');
+  const srgbColorContext = srgbColorCanvas.getContext('2d');
   const alphaContext = alphaCanvas.getContext('2d');
   const coverageContext = coverageCanvas.getContext('2d');
 
   if (
     !colorContext ||
+    !srgbColorContext ||
     !alphaContext ||
     !coverageContext ||
     typeof colorContext.createImageData !== 'function' ||
+    typeof srgbColorContext.createImageData !== 'function' ||
     typeof alphaContext.createImageData !== 'function' ||
     typeof coverageContext.createImageData !== 'function'
   )
   {
     colorCanvas.width = 0;
     colorCanvas.height = 0;
+    srgbColorCanvas.width = 0;
+    srgbColorCanvas.height = 0;
     alphaCanvas.width = 0;
     alphaCanvas.height = 0;
     coverageCanvas.width = 0;
@@ -180,6 +188,10 @@ export function createTriangleTextureSources(createCanvas)
   }
 
   const colorImage = colorContext.createImageData(
+    TRIANGLE_TEXTURE_SIZE,
+    TRIANGLE_TEXTURE_SIZE,
+  );
+  const srgbColorImage = srgbColorContext.createImageData(
     TRIANGLE_TEXTURE_SIZE,
     TRIANGLE_TEXTURE_SIZE,
   );
@@ -205,6 +217,12 @@ export function createTriangleTextureSources(createCanvas)
       TRIANGLE_TEXTURE_RGBA[offset + 2],
     );
     colorImage.data[offset + 3] = 255;
+    // DOM Add 在 Canvas 后直接进入 CSS 合成，需使用原始 sRGB 纹理近似
+    // Unity Final Pass，不能把线性字节再次当作显示空间颜色。
+    srgbColorImage.data[offset] = TRIANGLE_TEXTURE_RGBA[offset];
+    srgbColorImage.data[offset + 1] = TRIANGLE_TEXTURE_RGBA[offset + 1];
+    srgbColorImage.data[offset + 2] = TRIANGLE_TEXTURE_RGBA[offset + 2];
+    srgbColorImage.data[offset + 3] = 255;
     alphaImage.data[offset] = 255;
     alphaImage.data[offset + 1] = 255;
     alphaImage.data[offset + 2] = 255;
@@ -217,10 +235,12 @@ export function createTriangleTextureSources(createCanvas)
   }
 
   colorContext.putImageData(colorImage, 0, 0);
+  srgbColorContext.putImageData(srgbColorImage, 0, 0);
   alphaContext.putImageData(alphaImage, 0, 0);
   coverageContext.putImageData(coverageImage, 0, 0);
   return {
     colorCanvas,
+    srgbColorCanvas,
     alphaCanvas,
     coverageCanvas,
   };

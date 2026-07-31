@@ -119,31 +119,43 @@ export function createCircleTextureSources(createCanvas)
   }
 
   const colorCanvas = createCanvas();
+  const srgbColorCanvas = createCanvas();
   const coverageCanvas = createCanvas();
 
   colorCanvas.width = CIRCLE_TEXTURE_SIZE;
   colorCanvas.height = CIRCLE_TEXTURE_SIZE;
+  srgbColorCanvas.width = CIRCLE_TEXTURE_SIZE;
+  srgbColorCanvas.height = CIRCLE_TEXTURE_SIZE;
   coverageCanvas.width = CIRCLE_TEXTURE_SIZE;
   coverageCanvas.height = CIRCLE_TEXTURE_SIZE;
 
   const colorContext = colorCanvas.getContext('2d');
+  const srgbColorContext = srgbColorCanvas.getContext('2d');
   const coverageContext = coverageCanvas.getContext('2d');
 
   if (
     !colorContext ||
+    !srgbColorContext ||
     !coverageContext ||
     typeof colorContext.createImageData !== 'function' ||
+    typeof srgbColorContext.createImageData !== 'function' ||
     typeof coverageContext.createImageData !== 'function'
   )
   {
     colorCanvas.width = 0;
     colorCanvas.height = 0;
+    srgbColorCanvas.width = 0;
+    srgbColorCanvas.height = 0;
     coverageCanvas.width = 0;
     coverageCanvas.height = 0;
     return null;
   }
 
   const colorImage = colorContext.createImageData(
+    CIRCLE_TEXTURE_SIZE,
+    CIRCLE_TEXTURE_SIZE,
+  );
+  const srgbColorImage = srgbColorContext.createImageData(
     CIRCLE_TEXTURE_SIZE,
     CIRCLE_TEXTURE_SIZE,
   );
@@ -162,6 +174,11 @@ export function createCircleTextureSources(createCanvas)
     );
     colorImage.data[offset + 2] = linearRed;
     colorImage.data[offset + 3] = 255;
+    // DOM Add 没有后续 Linear -> sRGB Final Pass，保留原始采样值供其近似。
+    srgbColorImage.data[offset] = CIRCLE_TEXTURE_RGBA[offset];
+    srgbColorImage.data[offset + 1] = CIRCLE_TEXTURE_RGBA[offset + 1];
+    srgbColorImage.data[offset + 2] = CIRCLE_TEXTURE_RGBA[offset + 2];
+    srgbColorImage.data[offset + 3] = 255;
     coverageImage.data[offset] = 255;
     coverageImage.data[offset + 1] = 255;
     coverageImage.data[offset + 2] = 255;
@@ -169,9 +186,11 @@ export function createCircleTextureSources(createCanvas)
   }
 
   colorContext.putImageData(colorImage, 0, 0);
+  srgbColorContext.putImageData(srgbColorImage, 0, 0);
   coverageContext.putImageData(coverageImage, 0, 0);
   return {
     colorCanvas,
+    srgbColorCanvas,
     coverageCanvas,
   };
 }

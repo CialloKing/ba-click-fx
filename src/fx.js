@@ -595,6 +595,61 @@ function linearEnergyToAdditiveCss(color, opacity = 1)
     Math.round(blue / alpha * 255)}, ${alpha})`;
 }
 
+/**
+ * 为 DOM plus-lighter/宿主 Add 保存完整的 sRGB 发射载荷。
+ *
+ * scene Canvas 允许把 Linear 能量直接相加，最终由 Scene Final Pass
+ * 统一编码；普通 Canvas 回退没有这个 Final Pass，若继续写 Linear 数值，
+ * CSS 会把它当作 sRGB 解释，低能量尤其容易变暗。因此这里在每个回退
+ * 图层边界编码一次，并用独立 Coverage 作为最小传输 Alpha。
+ */
+function resolveHostAdditivePayload(
+  color,
+  contributionOpacity = 1,
+  coverageAlpha = contributionOpacity,
+)
+{
+  const contribution = Math.max(0, contributionOpacity);
+  const red = linearToSrgb(Math.max(0, color[0]) * contribution);
+  const green = linearToSrgb(Math.max(0, color[1]) * contribution);
+  const blue = linearToSrgb(Math.max(0, color[2]) * contribution);
+  const alpha = clamp01(Math.max(
+    red,
+    green,
+    blue,
+    clamp01(coverageAlpha),
+  ));
+
+  if (alpha <= 0.00001)
+  {
+    return [0, 0, 0, 0];
+  }
+
+  // alpha 至少覆盖三个 sRGB 通道，Canvas 预乘后仍满足 RGB <= Alpha。
+  return [red / alpha, green / alpha, blue / alpha, alpha];
+}
+
+function linearEnergyToHostAdditiveCss(
+  color,
+  contributionOpacity = 1,
+  coverageAlpha = contributionOpacity,
+)
+{
+  const [red, green, blue, alpha] = resolveHostAdditivePayload(
+    color,
+    contributionOpacity,
+    coverageAlpha,
+  );
+
+  if (alpha <= 0.00001)
+  {
+    return 'rgba(0, 0, 0, 0)';
+  }
+
+  return `rgba(${Math.round(red * 255)}, ${Math.round(green * 255)}, ${
+    Math.round(blue * 255)}, ${alpha})`;
+}
+
 function resolveOverlayStraightColor(
   color,
   contributionOpacity,
@@ -746,6 +801,15 @@ function linearEnergyToNativeTrailBloomCss(
       unknownBackgroundAppearance,
       overlayAlphaLimit,
       opacity,
+    );
+  }
+
+  if (outputCompositing === 'host-additive')
+  {
+    return linearEnergyToHostAdditiveCss(
+      brightPass,
+      bloomCfg.trailAlpha,
+      coverageOpacity,
     );
   }
 
@@ -934,7 +998,7 @@ function getCircleTextureResources()
  * 动态材质只触发局部 GPU/Canvas 操作，不重新遍历 512x512 texel；这样既
  * 保留 G 通道的非径向细节，也不会重新引入旧 Native/Legacy 的逐帧 CPU 卡顿。
  */
-function prepareCircleTextureCanvas(channelScales)
+function prepareCircleTextureCanvas(channelScales, srgbOutput = false)
 {
   const resources = getCircleTextureResources();
   const maximumScale = Math.max(0, ...channelScales);
@@ -958,7 +1022,11 @@ function prepareCircleTextureCanvas(channelScales)
   tintContext.globalCompositeOperation = 'source-over';
   tintContext.filter = 'none';
   tintContext.clearRect(0, 0, CIRCLE_TEXTURE_SIZE, CIRCLE_TEXTURE_SIZE);
-  tintContext.drawImage(resources.colorCanvas, 0, 0);
+  tintContext.drawImage(
+    srgbOutput ? resources.srgbColorCanvas : resources.colorCanvas,
+    0,
+    0,
+  );
   tintContext.globalCompositeOperation = 'multiply';
   tintContext.fillStyle = `rgb(${normalizedChannels[0]}, ${
     normalizedChannels[1]}, ${normalizedChannels[2]})`;
@@ -1562,6 +1630,21 @@ class LegacyRingRasterizer
       return;
     }
 
+    if (outputCompositing === 'host-additive')
+    {
+      const [red, green, blue, alpha] = resolveHostAdditivePayload(
+        materialEnergy,
+        energyScale,
+        energyScale,
+      );
+
+      data[offset] = Math.round(red * 255);
+      data[offset + 1] = Math.round(green * 255);
+      data[offset + 2] = Math.round(blue * 255);
+      data[offset + 3] = Math.round(alpha * 255);
+      return;
+    }
+
     const red = clamp01(materialEnergy[0] * energyScale);
     const green = clamp01(materialEnergy[1] * energyScale);
     const blue = clamp01(materialEnergy[2] * energyScale);
@@ -1709,22 +1792,38 @@ class LegacyRingRasterizer
       opacity * bloomCfg.ringAlpha,
       bloomCfg.clickEmissionScale,
     );
-    const shadowColor = useNativeBloom
-      ? outputCompositing === 'browser-overlay'
-        ? linearEnergyToOverlayCss(
-            colorToLinearEnergy(this.particleColor, 1, true),
-            shadowAlpha,
-            shadowAlpha,
-            unknownBackgroundAppearance,
-            overlayAlphaLimit,
-            opacity,
-          )
-        : colorToCanvasOutputCss(
-            this.particleColor,
-            shadowAlpha,
-            linearNativeGlow,
-          )
-      : 'transparent';
+    let shadowColor = 'transparent';
+
+    if (useNativeBloom)
+    {
+      if (outputCompositing === 'browser-overlay')
+      {
+        shadowColor = linearEnergyToOverlayCss(
+          colorToLinearEnergy(this.particleColor, 1, true),
+          shadowAlpha,
+          shadowAlpha,
+          unknownBackgroundAppearance,
+          overlayAlphaLimit,
+          opacity,
+        );
+      }
+      else if (outputCompositing === 'host-additive')
+      {
+        shadowColor = linearEnergyToHostAdditiveCss(
+          colorToLinearEnergy(this.particleColor, 1, true),
+          shadowAlpha,
+          shadowAlpha,
+        );
+      }
+      else
+      {
+        shadowColor = colorToCanvasOutputCss(
+          this.particleColor,
+          shadowAlpha,
+          linearNativeGlow,
+        );
+      }
+    }
 
     for (const ring of rings)
     {
@@ -1835,14 +1934,23 @@ function drawDissolvedCircle(
   {
     const coverage = opacity * luminance;
 
-    return outputCompositing === 'browser-overlay'
-      ? linearEnergyToOverlayCss(
+    if (outputCompositing === 'browser-overlay')
+    {
+      return linearEnergyToOverlayCss(
+        materialEnergy,
+        coverage,
+        coverage,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
+        opacity,
+      );
+    }
+
+    return outputCompositing === 'host-additive'
+      ? linearEnergyToHostAdditiveCss(
           materialEnergy,
           coverage,
           coverage,
-          unknownBackgroundAppearance,
-          overlayAlphaLimit,
-          opacity,
         )
       : linearEnergyToAdditiveCss(materialEnergy, coverage);
   };
@@ -1854,20 +1962,35 @@ function drawDissolvedCircle(
     opacity * bloomCfg.ringAlpha,
     bloomCfg.clickEmissionScale,
   );
-  const ringGlowColor = outputCompositing === 'browser-overlay'
-    ? linearEnergyToOverlayCss(
-        colorToLinearEnergy(particleColor, 1, true),
-        ringGlowAlpha,
-        ringGlowAlpha,
-        unknownBackgroundAppearance,
-        overlayAlphaLimit,
-        opacity,
-      )
-    : colorToCanvasOutputCss(
-        particleColor,
-        ringGlowAlpha,
-        linearNativeGlow,
-      );
+  let ringGlowColor;
+
+  if (outputCompositing === 'browser-overlay')
+  {
+    ringGlowColor = linearEnergyToOverlayCss(
+      colorToLinearEnergy(particleColor, 1, true),
+      ringGlowAlpha,
+      ringGlowAlpha,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
+      opacity,
+    );
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    ringGlowColor = linearEnergyToHostAdditiveCss(
+      colorToLinearEnergy(particleColor, 1, true),
+      ringGlowAlpha,
+      ringGlowAlpha,
+    );
+  }
+  else
+  {
+    ringGlowColor = colorToCanvasOutputCss(
+      particleColor,
+      ringGlowAlpha,
+      linearNativeGlow,
+    );
+  }
 
   fillDissolvedRing(
     context,
@@ -1968,17 +2091,41 @@ function drawDisk(
     progress,
     bloomCfg.diskEmission,
   );
-  const textureScales = outputCompositing === 'browser-overlay'
-    ? resolveOverlayStraightColor(
-        materialEnergy,
-        opacity,
-        particleAlpha * opacity,
-        unknownBackgroundAppearance,
-        opacity,
-      )
-    : materialEnergy.map((channel) =>
-        channel / Math.max(particleAlpha, 0.00001));
-  const textureCanvas = prepareCircleTextureCanvas(textureScales);
+  const coverageAlpha = particleAlpha * opacity;
+  let textureAlpha = clamp01(coverageAlpha);
+  let textureScales;
+
+  if (outputCompositing === 'browser-overlay')
+  {
+    textureScales = resolveOverlayStraightColor(
+      materialEnergy,
+      opacity,
+      coverageAlpha,
+      unknownBackgroundAppearance,
+      opacity,
+    );
+    textureAlpha = Math.min(textureAlpha, clamp01(overlayAlphaLimit));
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    const payload = resolveHostAdditivePayload(
+      materialEnergy,
+      opacity,
+      coverageAlpha,
+    );
+
+    textureScales = payload.slice(0, 3);
+    textureAlpha = payload[3];
+  }
+  else
+  {
+    textureScales = materialEnergy.map((channel) =>
+      channel / Math.max(particleAlpha, 0.00001));
+  }
+  const textureCanvas = prepareCircleTextureCanvas(
+    textureScales,
+    outputCompositing === 'host-additive',
+  );
 
   if (!textureCanvas)
   {
@@ -1991,24 +2138,34 @@ function drawDisk(
   context.globalCompositeOperation = 'source-over';
   context.translate(wave.x, wave.y);
   context.rotate(wave.diskRotation);
-  const coverageAlpha = particleAlpha * opacity;
-  context.globalAlpha = outputCompositing === 'browser-overlay'
-    ? Math.min(clamp01(coverageAlpha), clamp01(overlayAlphaLimit))
-    : clamp01(coverageAlpha);
+  context.globalAlpha = textureAlpha;
   const shadowAlpha = scaleNativeGlowAlpha(
     opacity * bloomCfg.diskAlpha,
     bloomCfg.clickEmissionScale,
   );
-  context.shadowColor = outputCompositing === 'browser-overlay'
-    ? linearEnergyToOverlayCss(
-        colorToLinearEnergy(color, 1, true),
-        shadowAlpha,
-        shadowAlpha,
-        unknownBackgroundAppearance,
-        overlayAlphaLimit,
-        opacity,
-      )
-    : colorToCss(color, shadowAlpha);
+  if (outputCompositing === 'browser-overlay')
+  {
+    context.shadowColor = linearEnergyToOverlayCss(
+      colorToLinearEnergy(color, 1, true),
+      shadowAlpha,
+      shadowAlpha,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
+      opacity,
+    );
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    context.shadowColor = linearEnergyToHostAdditiveCss(
+      colorToLinearEnergy(color, 1, true),
+      shadowAlpha,
+      shadowAlpha,
+    );
+  }
+  else
+  {
+    context.shadowColor = colorToCss(color, shadowAlpha);
+  }
   // Canvas shadowBlur 不受 DPR 变换影响；按物理像素缩放才能保持 CSS 尺寸。
   context.shadowBlur = useNativeBloom
     ? bloomCfg.diskBlur * scale * dpr
@@ -2239,19 +2396,42 @@ function drawTexturedTriangle(
   const textureContext = resources.context;
   const scaledEnergy = materialEnergy.map((channel) =>
     channel * Math.max(0, energyScale));
-  const scaledColor = outputCompositing === 'browser-overlay'
-    ? resolveOverlayStraightColor(
-        scaledEnergy,
-        particleAlpha,
-        particleAlpha,
-        unknownBackgroundAppearance,
-        opacity,
-      ).map((channel) => Math.round(channel * 255))
-    : scaledEnergy.map((channel) =>
-        Math.round(clamp01(channel) * 255));
+  const transparentPayload = outputCompositing === 'browser-overlay' ||
+    outputCompositing === 'host-additive';
+  let payloadAlpha = clamp01(particleAlpha);
+  let scaledColor;
+
+  if (outputCompositing === 'browser-overlay')
+  {
+    scaledColor = resolveOverlayStraightColor(
+      scaledEnergy,
+      particleAlpha,
+      particleAlpha,
+      unknownBackgroundAppearance,
+      opacity,
+    ).map((channel) => Math.round(channel * 255));
+    payloadAlpha = Math.min(payloadAlpha, clamp01(overlayAlphaLimit));
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    const payload = resolveHostAdditivePayload(
+      scaledEnergy,
+      particleAlpha,
+      particleAlpha,
+    );
+
+    scaledColor = payload.slice(0, 3).map((channel) =>
+      Math.round(channel * 255));
+    payloadAlpha = payload[3];
+  }
+  else
+  {
+    scaledColor = scaledEnergy.map((channel) =>
+      Math.round(clamp01(channel) * 255));
+  }
 
   if (
-    outputCompositing === 'browser-overlay' &&
+    transparentPayload &&
     scaledColor.every((channel) => channel === 0)
   )
   {
@@ -2271,7 +2451,9 @@ function drawTexturedTriangle(
   );
   drawTriangleTextureFrame(
     textureContext,
-    resources.colorCanvas,
+    outputCompositing === 'host-additive'
+      ? resources.srgbColorCanvas
+      : resources.colorCanvas,
     frameIndex,
   );
 
@@ -2288,7 +2470,7 @@ function drawTexturedTriangle(
   textureContext.globalCompositeOperation = 'destination-in';
   drawTriangleTextureFrame(
     textureContext,
-    outputCompositing === 'browser-overlay'
+    transparentPayload
       ? resources.coverageCanvas
       : resources.alphaCanvas,
     frameIndex,
@@ -2297,9 +2479,7 @@ function drawTexturedTriangle(
   context.save();
   context.translate(particle.x, particle.y);
   context.rotate(particle.rotation);
-  context.globalAlpha = outputCompositing === 'browser-overlay'
-    ? Math.min(clamp01(particleAlpha), clamp01(overlayAlphaLimit))
-    : clamp01(particleAlpha);
+  context.globalAlpha = payloadAlpha;
   context.shadowColor = 'transparent';
   context.shadowBlur = 0;
   context.drawImage(resources.canvas, -size * 0.5, -size * 0.5, size, size);
@@ -2364,16 +2544,29 @@ function drawTriangle(
   context.lineTo(textureFrame[1][0] * size, textureFrame[1][1] * size);
   context.lineTo(textureFrame[2][0] * size, textureFrame[2][1] * size);
   context.closePath();
-  context.fillStyle = outputCompositing === 'browser-overlay'
-    ? linearEnergyToOverlayCss(
-        materialEnergy,
-        alpha,
-        alpha,
-        unknownBackgroundAppearance,
-        overlayAlphaLimit,
-        opacity,
-      )
-    : linearEnergyToAdditiveCss(materialEnergy, alpha);
+  if (outputCompositing === 'browser-overlay')
+  {
+    context.fillStyle = linearEnergyToOverlayCss(
+      materialEnergy,
+      alpha,
+      alpha,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
+      opacity,
+    );
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    context.fillStyle = linearEnergyToHostAdditiveCss(
+      materialEnergy,
+      alpha,
+      alpha,
+    );
+  }
+  else
+  {
+    context.fillStyle = linearEnergyToAdditiveCss(materialEnergy, alpha);
+  }
   // 三角碎片在原图中是清晰本体；显式清空阴影，避免继承上一层发光状态。
   context.shadowColor = 'transparent';
   context.shadowBlur = 0;
@@ -2535,16 +2728,29 @@ function drawHit(
   context.save();
   context.beginPath();
   context.arc(wave.x, wave.y, radius, 0, TAU);
-  context.fillStyle = outputCompositing === 'browser-overlay'
-    ? linearEnergyToOverlayCss(
-        colorToLinearEnergy(color, 1, true),
-        alpha,
-        alpha,
-        unknownBackgroundAppearance,
-        overlayAlphaLimit,
-        opacity,
-      )
-    : colorToCanvasOutputCss(color, alpha, linearOutput);
+  if (outputCompositing === 'browser-overlay')
+  {
+    context.fillStyle = linearEnergyToOverlayCss(
+      colorToLinearEnergy(color, 1, true),
+      alpha,
+      alpha,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
+      opacity,
+    );
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    context.fillStyle = linearEnergyToHostAdditiveCss(
+      colorToLinearEnergy(color, 1, true),
+      alpha,
+      alpha,
+    );
+  }
+  else
+  {
+    context.fillStyle = colorToCanvasOutputCss(color, alpha, linearOutput);
+  }
   context.fill();
   context.restore();
 }
@@ -2575,16 +2781,29 @@ function drawFlare(
   context.save();
   context.translate(wave.x, wave.y);
   // Final Pass 直接采样 Canvas 预乘颜色，因此附加粒子也必须写入线性能量。
-  context.strokeStyle = outputCompositing === 'browser-overlay'
-    ? linearEnergyToOverlayCss(
-        colorToLinearEnergy(color, 1, true),
-        alpha,
-        alpha,
-        unknownBackgroundAppearance,
-        overlayAlphaLimit,
-        opacity,
-      )
-    : colorToCanvasOutputCss(color, alpha, linearOutput);
+  if (outputCompositing === 'browser-overlay')
+  {
+    context.strokeStyle = linearEnergyToOverlayCss(
+      colorToLinearEnergy(color, 1, true),
+      alpha,
+      alpha,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
+      opacity,
+    );
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    context.strokeStyle = linearEnergyToHostAdditiveCss(
+      colorToLinearEnergy(color, 1, true),
+      alpha,
+      alpha,
+    );
+  }
+  else
+  {
+    context.strokeStyle = colorToCanvasOutputCss(color, alpha, linearOutput);
+  }
 
   for (let i = 0; i < cfg.rayCount; i++)
   {
@@ -4237,7 +4456,13 @@ function drawTrailLayer(
             layer.overlayAlphaLimit,
             layer.globalOpacity ?? opacity,
           )
-        : linearEnergyToAdditiveCss(color, contribution);
+        : layer.outputCompositing === 'host-additive'
+          ? linearEnergyToHostAdditiveCss(
+              color,
+              contribution,
+              coverage,
+            )
+          : linearEnergyToAdditiveCss(color, contribution);
     });
 
   for (let index = firstSegment; index <= lastSegment; index++)
@@ -4584,7 +4809,7 @@ function drawLegacyTrailLayer(
   context.shadowBlur = 0;
   context.shadowColor = 'transparent';
 
-  if (layer.color && outputCompositing !== 'browser-overlay')
+  if (layer.color && outputCompositing === 'scene')
   {
     // 渐变分支每次只画两点，不存在 join；仅多点整路径需要圆角连接。
     context.lineJoin = 'round';
@@ -4642,20 +4867,33 @@ function drawLegacyTrailLayer(
     context.beginPath();
     context.moveTo(points[index - 1].x, points[index - 1].y);
     context.lineTo(points[index].x, points[index].y);
-    context.strokeStyle = outputCompositing === 'browser-overlay'
-      ? linearEnergyToOverlayCss(
-          colorToLinearEnergy(color, 1, true),
-          effectiveAlpha * fadeAlpha,
-          effectiveAlpha * longitudinalCoverage,
-          unknownBackgroundAppearance,
-          overlayAlphaLimit,
-          opacity,
-        )
-      : colorToCanvasOutputCss(
-          color,
-          effectiveAlpha * fadeAlpha,
-          linearOutput,
-        );
+    if (outputCompositing === 'browser-overlay')
+    {
+      context.strokeStyle = linearEnergyToOverlayCss(
+        colorToLinearEnergy(color, 1, true),
+        effectiveAlpha * fadeAlpha,
+        effectiveAlpha * longitudinalCoverage,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
+        opacity,
+      );
+    }
+    else if (outputCompositing === 'host-additive')
+    {
+      context.strokeStyle = linearEnergyToHostAdditiveCss(
+        colorToLinearEnergy(color, 1, true),
+        effectiveAlpha * fadeAlpha,
+        effectiveAlpha * longitudinalCoverage,
+      );
+    }
+    else
+    {
+      context.strokeStyle = colorToCanvasOutputCss(
+        color,
+        effectiveAlpha * fadeAlpha,
+        linearOutput,
+      );
+    }
     context.stroke();
   }
 
@@ -5566,9 +5804,10 @@ export class BAClickFX
 
   _getCanvasOutputCompositing()
   {
-    // Add 宿主需要完整发射载荷；scene 编码不会把 RGB 收敛进 Coverage 容量。
+    // Add 宿主需要完整发射载荷，但普通 Canvas 没有 Scene Final Pass；
+    // 独立内部合同会先完成 sRGB 编码，避免 Linear 数值被 CSS 当作 sRGB。
     return this._usesHostAdditivePayload()
-      ? 'scene'
+      ? 'host-additive'
       : this.config.outputCompositing;
   }
 
