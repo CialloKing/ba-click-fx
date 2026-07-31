@@ -122,3 +122,69 @@ export function scaleOverlayPremultipliedRgb(
     Math.min(safeAlpha, Math.max(0, Number(color[2]) || 0) * scale),
   ];
 }
+
+/**
+ * 对 Canvas 最终 ImageData 执行 visual-max。Canvas 回读的是直通道 RGB，
+ * 因此先还原当前预乘载荷，再以新的 Alpha 容量重新编码，不能只改 A 通道。
+ */
+export function applyOverlayAlphaPolicyToImageData(
+  imageData,
+  sceneAlphaData = null,
+  alphaLimit = 1,
+  policy = 'coverage',
+)
+{
+  if (
+    policy !== 'visual-max' ||
+    !imageData?.data ||
+    !Number.isFinite(imageData.width) ||
+    !Number.isFinite(imageData.height)
+  )
+  {
+    return imageData;
+  }
+
+  const data = imageData.data;
+  const safeLimit = Math.max(0, Math.min(1, Number(alphaLimit) || 0));
+
+  for (let index = 0; index + 3 < data.length; index += 4)
+  {
+    const currentAlpha = data[index + 3] / 255;
+    const sceneAlpha = sceneAlphaData?.[index + 3] === undefined
+      ? currentAlpha
+      : sceneAlphaData[index + 3] / 255;
+    const bloomAlpha = Math.max(0, currentAlpha - sceneAlpha);
+    const targetAlpha = Math.min(
+      Math.max(sceneAlpha, bloomAlpha),
+      safeLimit,
+    );
+
+    if (targetAlpha <= 0.00001)
+    {
+      data[index] = 0;
+      data[index + 1] = 0;
+      data[index + 2] = 0;
+      data[index + 3] = 0;
+      continue;
+    }
+
+    const currentPremultiplied = [
+      (data[index] / 255) * currentAlpha,
+      (data[index + 1] / 255) * currentAlpha,
+      (data[index + 2] / 255) * currentAlpha,
+    ];
+
+    data[index] = Math.round(
+      Math.min(currentPremultiplied[0], targetAlpha) / targetAlpha * 255,
+    );
+    data[index + 1] = Math.round(
+      Math.min(currentPremultiplied[1], targetAlpha) / targetAlpha * 255,
+    );
+    data[index + 2] = Math.round(
+      Math.min(currentPremultiplied[2], targetAlpha) / targetAlpha * 255,
+    );
+    data[index + 3] = Math.round(targetAlpha * 255);
+  }
+
+  return imageData;
+}

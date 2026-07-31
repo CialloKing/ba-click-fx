@@ -41,6 +41,9 @@ import {
   linearToSrgb,
   limitCanvasAlpha,
 } from './software-bloom.js';
+import {
+  applyOverlayAlphaPolicyToImageData,
+} from './overlay-compositing.js';
 import { WebGL2EffectRenderer } from './webgl2-effect.js';
 import { WebGL2CanvasSceneRenderer } from './webgl2-canvas-scene.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
@@ -8395,12 +8398,82 @@ export class BAClickFX
     return combineBloomRegionBounds(bounds);
   }
 
-  _limitCanvasOverlayAlpha(scale)
+  _getCanvasOverlayPixelBounds(scale)
   {
+    const bounds = this._getCanvasOverlayBounds(scale);
+
+    if (!bounds)
+    {
+      return null;
+    }
+
+    const minimumX = Math.max(0, Math.floor(bounds.x * this.dpr));
+    const minimumY = Math.max(0, Math.floor(bounds.y * this.dpr));
+    const maximumX = Math.min(
+      this.canvas.width,
+      Math.ceil((bounds.x + bounds.width) * this.dpr),
+    );
+    const maximumY = Math.min(
+      this.canvas.height,
+      Math.ceil((bounds.y + bounds.height) * this.dpr),
+    );
+
+    return {
+      minimumX,
+      minimumY,
+      maximumX,
+      maximumY,
+      width: Math.max(0, maximumX - minimumX),
+      height: Math.max(0, maximumY - minimumY),
+    };
+  }
+
+  _captureCanvasOverlayAlpha(scale)
+  {
+    if (
+      this._getOverlayAlphaPolicy() !== 'visual-max' ||
+      typeof this.context?.getImageData !== 'function'
+    )
+    {
+      return null;
+    }
+
+    const bounds = this._getCanvasOverlayPixelBounds(scale);
+
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0)
+    {
+      return null;
+    }
+
+    try
+    {
+      return {
+        ...bounds,
+        data: this.context.getImageData(
+          bounds.minimumX,
+          bounds.minimumY,
+          bounds.width,
+          bounds.height,
+        ).data,
+      };
+    }
+    catch
+    {
+      return null;
+    }
+  }
+
+  _limitCanvasOverlayAlpha(scale, sceneAlphaSnapshot = null)
+  {
+    const overlayAlphaPolicy = this._getOverlayAlphaPolicy();
+
     if (
       !this._usesUnknownBrowserOverlay() ||
       this._usesHostAdditivePayload() ||
-      this.config.overlayAlphaLimit >= 1 ||
+      (
+        overlayAlphaPolicy === 'coverage' &&
+        this.config.overlayAlphaLimit >= 1
+      ) ||
       this.webglEffectVisible ||
       this.webglBloomVisible ||
       this.canvasSceneVisible ||
@@ -8410,10 +8483,48 @@ export class BAClickFX
       return;
     }
 
-    const bounds = this._getCanvasOverlayBounds(scale);
+    const bounds = this._getCanvasOverlayPixelBounds(scale);
 
-    if (!bounds)
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0)
     {
+      return;
+    }
+
+    if (overlayAlphaPolicy === 'visual-max')
+    {
+      try
+      {
+        const imageData = this.context.getImageData(
+          bounds.minimumX,
+          bounds.minimumY,
+          bounds.width,
+          bounds.height,
+        );
+        const matchingSnapshot = sceneAlphaSnapshot &&
+          sceneAlphaSnapshot.minimumX === bounds.minimumX &&
+          sceneAlphaSnapshot.minimumY === bounds.minimumY &&
+          sceneAlphaSnapshot.width === bounds.width &&
+          sceneAlphaSnapshot.height === bounds.height
+          ? sceneAlphaSnapshot.data
+          : null;
+
+        applyOverlayAlphaPolicyToImageData(
+          imageData,
+          matchingSnapshot,
+          this.config.overlayAlphaLimit,
+          overlayAlphaPolicy,
+        );
+        this.context.putImageData(
+          imageData,
+          bounds.minimumX,
+          bounds.minimumY,
+        );
+      }
+      catch
+      {
+        // 受污染 Canvas 无法回读时保持原像素，不能让视觉兼容策略中断帧循环。
+      }
+
       return;
     }
 
@@ -8422,10 +8533,10 @@ export class BAClickFX
     limitCanvasAlpha(
       this.context,
       {
-        minimumX: Math.floor(bounds.x * this.dpr),
-        minimumY: Math.floor(bounds.y * this.dpr),
-        maximumX: Math.ceil((bounds.x + bounds.width) * this.dpr) - 1,
-        maximumY: Math.ceil((bounds.y + bounds.height) * this.dpr) - 1,
+        minimumX: bounds.minimumX,
+        minimumY: bounds.minimumY,
+        maximumX: bounds.maximumX - 1,
+        maximumY: bounds.maximumY - 1,
       },
       this.config.overlayAlphaLimit,
     );
@@ -8619,6 +8730,7 @@ export class BAClickFX
     const diffusion = bloomCfg.diffusion;
     const regions = this._getSoftwareBloomRegions(scale);
     const combinedBounds = combineBloomRegionBounds(regions);
+    const sceneAlphaSnapshot = this._captureCanvasOverlayAlpha(scale);
     const settings = {
       encodingRange: bloomCfg.emissionRange,
       threshold: bloomCfg.threshold,
@@ -8778,10 +8890,12 @@ export class BAClickFX
         this.bloomRenderer.available = false;
         failed = true;
       }
-      else if (index === 0)
-      {
-        this._cacheSoftwareBloomFrame(scale);
-      }
+    }
+
+    if (!failed)
+    {
+      this._limitCanvasOverlayAlpha(scale, sceneAlphaSnapshot);
+      this._cacheSoftwareBloomFrame(scale);
     }
 
     this.softwareBloomFrameStats = {

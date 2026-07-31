@@ -20,6 +20,11 @@ import {
 import { UNITY_FX_TOUCH } from '../src/config.js';
 import { WebGL2BloomRenderer } from '../src/webgl2-bloom.js';
 import {
+  applyOverlayAlphaPolicyToImageData,
+  resolveOverlayAlpha,
+  scaleOverlayPremultipliedRgb,
+} from '../src/overlay-compositing.js';
+import {
   DEFAULT_BLOOM_CLAMP,
   HALF_FLOAT_MAX,
   gammaToLinear,
@@ -566,6 +571,50 @@ assert(
 );
 
 console.log('\nSoftware Bloom 透明覆盖层编码');
+const coverageAlphaResult = resolveOverlayAlpha(0.4, 0.35, 1, 'coverage');
+const visualMaxAlphaResult = resolveOverlayAlpha(0.4, 0.35, 1, 'visual-max');
+
+assert(
+  Math.abs(coverageAlphaResult.alpha - 0.75) < 0.000001 &&
+    Math.abs(visualMaxAlphaResult.alpha - 0.4) < 0.000001,
+  'Alpha 策略分别使用清晰与 Bloom 传输和或最大值',
+);
+
+const visualMaxPremultiplied = scaleOverlayPremultipliedRgb(
+  [0.8, 0.3, 0.1],
+  visualMaxAlphaResult.requestedAlpha,
+  visualMaxAlphaResult.alpha,
+  'visual-max',
+);
+
+assert(
+  Math.abs(visualMaxPremultiplied[0] - 0.4) < 0.000001 &&
+    Math.abs(visualMaxPremultiplied[1] - 0.15) < 0.000001 &&
+    Math.abs(visualMaxPremultiplied[2] - 0.05) < 0.000001,
+  'visual-max 只用 maxRGB 收敛预乘颜色而不改变 Alpha',
+);
+
+const visualMaxImageData = {
+  width: 1,
+  height: 1,
+  data: new Uint8ClampedArray([204, 102, 51, 191]),
+};
+const clearSceneData = new Uint8ClampedArray([0, 0, 0, 102]);
+
+applyOverlayAlphaPolicyToImageData(
+  visualMaxImageData,
+  clearSceneData,
+  1,
+  'visual-max',
+);
+
+assert(
+  visualMaxImageData.data[3] === 102 &&
+    visualMaxImageData.data[0] === 255 &&
+    visualMaxImageData.data[1] > visualMaxImageData.data[2],
+  'Canvas visual-max 从最终载荷恢复 Scene/Bloom 最大 Alpha 并保留色相',
+);
+
 const overlayHdr = new Float32Array([
   4, 2, 1,
   4, 2, 1,
