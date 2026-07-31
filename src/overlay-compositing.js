@@ -173,15 +173,21 @@ export function applyOverlayAlphaPolicyToImageData(
       (data[index + 1] / 255) * currentAlpha,
       (data[index + 2] / 255) * currentAlpha,
     ];
+    // WebGL Final Pass 也使用统一容量倍率；逐通道钳制会让蓝青核心偏白。
+    const maximumPremultiplied = Math.max(...currentPremultiplied);
+    const capacityScale = Math.min(
+      1,
+      targetAlpha / Math.max(maximumPremultiplied, 0.000001),
+    );
 
     data[index] = Math.round(
-      Math.min(currentPremultiplied[0], targetAlpha) / targetAlpha * 255,
+      currentPremultiplied[0] * capacityScale / targetAlpha * 255,
     );
     data[index + 1] = Math.round(
-      Math.min(currentPremultiplied[1], targetAlpha) / targetAlpha * 255,
+      currentPremultiplied[1] * capacityScale / targetAlpha * 255,
     );
     data[index + 2] = Math.round(
-      Math.min(currentPremultiplied[2], targetAlpha) / targetAlpha * 255,
+      currentPremultiplied[2] * capacityScale / targetAlpha * 255,
     );
     data[index + 3] = Math.round(targetAlpha * 255);
   }

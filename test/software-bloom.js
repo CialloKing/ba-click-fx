@@ -611,8 +611,13 @@ applyOverlayAlphaPolicyToImageData(
 assert(
   visualMaxImageData.data[3] === 102 &&
     visualMaxImageData.data[0] === 255 &&
-    visualMaxImageData.data[1] > visualMaxImageData.data[2],
-  'Canvas visual-max 从最终载荷恢复 Scene/Bloom 最大 Alpha 并保留色相',
+    Math.abs(
+      visualMaxImageData.data[1] / visualMaxImageData.data[0] - 0.5,
+    ) < 0.01 &&
+    Math.abs(
+      visualMaxImageData.data[2] / visualMaxImageData.data[0] - 0.25,
+    ) < 0.01,
+  'Canvas visual-max 等比收敛最终载荷并保留色相',
 );
 
 const overlayHdr = new Float32Array([
