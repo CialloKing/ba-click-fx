@@ -6777,7 +6777,9 @@ export class BAClickFX
     setOverlayStyle(
       canvas,
       !this.host && !this.config.isolatedCompositing,
-      '2147483647',
+      // Scene Final Pass 是常规输出层；必须低于对比层，避免延迟创建后以
+      // 相同层级覆盖纯白隔离合成的淡青轮廓。
+      '2147483646',
       '',
     );
     // 首个完整帧成功前保持旧 Canvas 可见，避免资源创建时闪烁。
