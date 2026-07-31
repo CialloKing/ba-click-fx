@@ -2293,13 +2293,33 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
     await page.addInitScript(() =>
     {
       const revokeObjectUrl = URL.revokeObjectURL.bind(URL);
+      const imageSource = Object.getOwnPropertyDescriptor(
+        HTMLImageElement.prototype,
+        'src',
+      );
 
       window.__BACLICKFX_REVOKED_OBJECT_URLS__ = [];
+      window.__BACLICKFX_ASSIGNED_IMAGE_URLS__ = [];
       URL.revokeObjectURL = (url) =>
       {
         window.__BACLICKFX_REVOKED_OBJECT_URLS__.push(url);
         return revokeObjectUrl(url);
       };
+
+      if (imageSource?.get && imageSource.set)
+      {
+        Object.defineProperty(HTMLImageElement.prototype, 'src',
+          {
+            configurable: true,
+            enumerable: imageSource.enumerable,
+            get: imageSource.get,
+            set(value)
+            {
+              window.__BACLICKFX_ASSIGNED_IMAGE_URLS__.push(String(value));
+              return imageSource.set.call(this, value);
+            },
+          });
+      }
     });
     currentPage = page;
     await page.goto(baseUrl, { waitUntil: 'load' });
@@ -2313,6 +2333,38 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
       'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGOw7///nxLMMGrAqAGjBgwXAwBhM8wfgy2drAAAAABJRU5ErkJggg==';
     await page.locator('#panelToggle').click();
     await page.locator('.theme-btn[data-theme="custom"]').click();
+    // 展示页接受 file: 并把读取与纹理上传权限交给宿主；标准网页会拒绝读取，
+    // 随后由文件选择器生成 blob:，不需要文件协议或 CORS 特权。
+    const typedFileUrl = 'file:///C:/BAClickFX/demo-background.png';
+    await page.locator('#ctrlCustomBg').fill(typedFileUrl);
+    await page.locator('#btnApplyBg').click();
+    await page.waitForFunction(
+      (url) => document.body.style.background.includes(url),
+      typedFileUrl,
+    );
+    await page.waitForFunction(
+      (url) => window.__BACLICKFX_ASSIGNED_IMAGE_URLS__.includes(url),
+      typedFileUrl,
+    );
+    const typedFileBackground = await page.evaluate(() =>
+    {
+      const input = document.getElementById('ctrlCustomBg');
+
+      return {
+        imageRequested:
+          window.__BACLICKFX_ASSIGNED_IMAGE_URLS__.includes(input?.value ?? ''),
+        inputValue: input?.value ?? '',
+        background: document.body.style.background,
+      };
+    });
+
+    assert(
+      typedFileBackground.inputValue === typedFileUrl &&
+        typedFileBackground.background.includes(typedFileUrl) &&
+        typedFileBackground.imageRequested,
+      '展示页拒绝了自定义 file:// 背景 URL',
+      typedFileBackground,
+    );
     await page.locator('#ctrlCustomBgFile').setInputFiles(
       {
         name: 'demo-background.png',
@@ -2406,6 +2458,7 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
     {
       releasedOnThemeChange,
       restoredBackground,
+      typedFileBackground,
     };
   }
   finally

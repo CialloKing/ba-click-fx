@@ -238,7 +238,7 @@ fx.setSceneBackground(null);
 
 当前只支持居中 `cover`，裁剪规则与 CSS `background-size: cover` 对齐。调用方负责图片解码和 CORS：跨域服务器必须允许匿名读取，否则 WebGL 无法上传纹理，方法会返回 `false` 或候选后端保持安全回退。Renderer 会保留源对象以支持 WebGL Context 恢复，因此在替换背景或销毁实例前不要关闭 `ImageBitmap`、`VideoFrame` 等可释放源。Canvas、Video 等动态源在调用时上传当前帧；内容变化后应再次调用。
 
-展示页的“本地图片”选择器会把 `File` 转成当前文档的 `blob:` URL，再复用同一条 CSS 背景和 `setSceneBackground(image)` 链路，因此不需要外部服务器提供 CORS。该 URL 只在当前页面会话有效，不会写入 `localStorage`，切换背景或卸载页面时会被释放；刷新页面后需要重新选择文件。浏览器不会让 HTTP/HTTPS 页面可靠读取手输的 `file://` 路径，应使用选择器而不是直接粘贴本地文件 URL。
+展示页的“本地图片”选择器会把 `File` 转成当前文档的 `blob:` URL，再复用同一条 CSS 背景和 `setSceneBackground(image)` 链路，因此不需要外部服务器提供 CORS。该 URL 只在当前页面会话有效，不会写入 `localStorage`，切换背景或卸载页面时会被释放；刷新页面后需要重新选择文件。手输的 `file://` URL 会作为普通自定义背景文本保存，并交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，应使用选择器。
 
 模式切换会释放闲置后端的全尺寸纹理和 FBO，但保留 WebGL Context、Program、静态纹理与已接受的背景源；重新启用时只重建当前尺寸需要的帧资源。背景切换是跨 Renderer 的原子操作：任一已创建后端拒绝新源时，库会回滚到旧背景，无法回滚的候选实例会被丢弃并在需要时懒重建。
 

@@ -69,7 +69,7 @@
       <div id="introFAQContent">
         <p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p>
         <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要图片素材；默认使用纯 WebGL2，能力不足时自动回退 Canvas 2D、软件 Bloom 与原生辉光，零外部运行时依赖。</p>
-        <p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 展示页会用与 CSS 相同的色标把内置主题同步为场景纹理；已解码的自定义图片也会通过 <code>setSceneBackground()</code> 参与合成。本地图片选择器会创建当前页面有效的 <code>blob:</code> URL，不需要 CORS，但刷新后需重新选择；手输 <code>file://</code> 受浏览器安全限制不能可靠读取。任意自定义 CSS 渐变或多图层背景无法可靠自动上传，仍作为普通 DOM 背景显示。</p>
+        <p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 展示页会用与 CSS 相同的色标把内置主题同步为场景纹理；已解码的自定义图片也会通过 <code>setSceneBackground()</code> 参与合成。本地图片选择器会创建当前页面有效的 <code>blob:</code> URL，不需要 CORS，但刷新后需重新选择；手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。任意自定义 CSS 渐变或多图层背景无法可靠自动上传，仍作为普通 DOM 背景显示。</p>
         <p><strong>纯白背景下特效颜色太浅？</strong> 纯白背景会让默认的直接加色丢失蓝青色和对比度。展示页在“纯白”主题且开启“隔离合成”（<code>isolatedCompositing: true</code>）时，会自动使用 <code>lightBackgroundContrastAlpha: 0.35</code> 增加不参与 Bloom 的淡青轮廓；其他宿主可按需显式设置。它们是网页兼容选项，不是游戏默认路径。</p>
         <p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>transparent-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应使用 <code>setSceneBackground()</code>。</p>
         <p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和直接 script 引入三种方式。</p>

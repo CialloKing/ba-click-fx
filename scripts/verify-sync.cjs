@@ -394,6 +394,15 @@ verify(
   '自定义 CSS 会清空主题场景源，自定义图片仍按既有路径上传',
 );
 verify(
+  /new URL\(trimmed, document\.baseURI\)/.test(
+    getFunctionSource(mainJs, 'resolveSceneBackgroundUrl'),
+  ) &&
+    /url\.protocol !== 'file:'/.test(
+      getFunctionSource(mainJs, 'resolveSceneBackgroundUrl'),
+    ),
+  '自定义裸图片 URL 会把 file: 交给受信任宿主，其他协议仍保持白名单限制',
+);
+verify(
   /ctrlColor\.addEventListener\('input',[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)[\s\S]*?\}\);[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)/.test(mainJs),
   '展示页首次加载会主动应用颜色控件默认值',
 );
