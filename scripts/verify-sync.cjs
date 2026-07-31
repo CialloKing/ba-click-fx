@@ -317,6 +317,119 @@ verify(
     /const DEFAULT_OUTPUT_COMPOSITING = 'scene'/.test(mainJs),
   '展示页重置操作恢复 Scene 输出合同',
 );
+const unknownBackgroundAppearanceSelect = indexHtml.match(
+  /<select\b[^>]*\bid="ctrlUnknownBackgroundAppearance"[^>]*>[\s\S]*?<\/select>/,
+)?.[0] ?? '';
+const hostCompositingSelect = indexHtml.match(
+  /<select id="ctrlHostCompositing"[\s\S]*?<\/select>/,
+)?.[0] ?? '';
+const overlayAlphaLimitControl = indexHtml.match(
+  /<input\b[^>]*\bid="ctrlOverlayAlphaLimit"[^>]*>/,
+)?.[0] ?? '';
+const unknownBackgroundAppearanceValues = [
+  ...unknownBackgroundAppearanceSelect.matchAll(/<option value="([^"]+)"/g),
+].map((match) => match[1]);
+const hostCompositingValues = [
+  ...hostCompositingSelect.matchAll(/<option value="([^"]+)"/g),
+].map((match) => match[1]);
+
+verify(
+  JSON.stringify(unknownBackgroundAppearanceValues) === JSON.stringify([
+    'coverage',
+    'bright',
+  ]) &&
+    /<option value="coverage" selected>/.test(
+      unknownBackgroundAppearanceSelect,
+    ) &&
+    JSON.stringify(hostCompositingValues) === JSON.stringify([
+      'source-over',
+      'plus-lighter',
+    ]) &&
+    /<option value="source-over" selected>/.test(hostCompositingSelect),
+  '透明覆盖层提供相互独立的外观与宿主合成选择',
+);
+verify(
+  /min="0"/.test(overlayAlphaLimitControl) &&
+    /max="1"/.test(overlayAlphaLimitControl) &&
+    /step="0\.00392156862745098"/.test(overlayAlphaLimitControl) &&
+    /value="0\.9803921568627451"/.test(overlayAlphaLimitControl) &&
+    /const DEFAULT_OVERLAY_ALPHA_LIMIT = CONFIG\.overlayAlphaLimit/.test(
+      mainJs,
+    ),
+  '覆盖层 Alpha 上限滑块覆盖 0..1 并精确使用 250/255 默认值',
+);
+const syncTransparentControlsSource = getFunctionSource(
+  mainJs,
+  'syncTransparentCompositingControlState',
+);
+const applyUnknownBackgroundAppearanceSource = getFunctionSource(
+  mainJs,
+  'applyUnknownBackgroundAppearance',
+);
+const applyOverlayAlphaLimitSource = getFunctionSource(
+  mainJs,
+  'applyOverlayAlphaLimit',
+);
+const applyHostCompositingSource = getFunctionSource(
+  mainJs,
+  'applyHostCompositing',
+);
+
+verify(
+  /outputCompositing === 'browser-overlay'/.test(
+    syncTransparentControlsSource,
+  ) &&
+    /control\.disabled = !enabled/.test(syncTransparentControlsSource) &&
+    /syncTransparentCompositingControlState\(resolved\)/.test(mainJs),
+  '三个透明合成控件仅在 browser-overlay 下启用',
+);
+verify(
+  /unknownBackgroundAppearance: resolved/.test(
+    applyUnknownBackgroundAppearanceSource,
+  ) &&
+    /overlayAlphaLimit: resolved/.test(applyOverlayAlphaLimitSource) &&
+    /hostCompositing: resolved/.test(applyHostCompositingSource) &&
+    /localStorage\.setItem\('bafx-ctrlUnknownBackgroundAppearance', resolved\)/.test(
+      mainJs,
+    ) &&
+    /localStorage\.setItem\('bafx-ctrlOverlayAlphaLimit', String\(resolved\)\)/.test(
+      mainJs,
+    ) &&
+    /localStorage\.setItem\('bafx-ctrlHostCompositing', resolved\)/.test(
+      mainJs,
+    ),
+  '三个透明合成控件分别通过 updateConfig 生效并持久化',
+);
+verify(
+  /bafx-ctrlUnknownBackgroundAppearance[\s\S]*?applyUnknownBackgroundAppearance\(savedUnknownBackgroundAppearance\)/.test(
+    mainJs,
+  ) &&
+    /bafx-ctrlOverlayAlphaLimit[\s\S]*?applyOverlayAlphaLimit\([\s\S]*?savedOverlayAlphaLimit/.test(
+      mainJs,
+    ) &&
+    /bafx-ctrlHostCompositing[\s\S]*?applyHostCompositing\(savedHostCompositing\)/.test(
+      mainJs,
+    ) &&
+    /unknownBackgroundAppearance: DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE/.test(
+      mainJs,
+    ) &&
+    /overlayAlphaLimit: DEFAULT_OVERLAY_ALPHA_LIMIT/.test(mainJs) &&
+    /hostCompositing: DEFAULT_HOST_COMPOSITING/.test(mainJs),
+  '透明合成配置支持本地恢复与统一重置',
+);
+verify(
+  /浅色背景兼容[\s\S]*?DOM Add[\s\S]*?浏览器视觉近似[\s\S]*?Unity 线性 HDR 精确还原/.test(
+    indexHtml,
+  ) &&
+    /unknownBackgroundAppearanceBright: '浅色背景兼容'/.test(mainJs) &&
+    /unknownBackgroundAppearanceBright: 'Light Background Compatibility'/.test(
+      mainJs,
+    ) &&
+    /browser visual approximations, not exact Unity linear-HDR compositing/.test(
+      mainJs,
+    ),
+  '双语文案明确 Bright 与 DOM Add 不是 Unity 线性 HDR 精确还原',
+);
 verify(
   /BLOOM_BACKEND_CHANGE_EVENT/.test(mainJs) &&
     /renderBackendPending/.test(mainJs),

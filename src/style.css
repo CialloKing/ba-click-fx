@@ -428,6 +428,27 @@ kbd {
   text-align: right;
 }
 
+.transparent-compositing-controls
+{
+  margin: -2px 0 10px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(125, 239, 255, 0.22);
+  transition: opacity 0.18s ease;
+}
+
+.transparent-compositing-controls.is-inactive
+{
+  opacity: 0.42;
+}
+
+.compositing-mode-note
+{
+  margin: -2px 0 4px;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .host-api-status
 {
   margin: 2px 0 10px;
@@ -471,6 +492,24 @@ kbd {
 #ctrlCompositingReference
 {
   width: 164px;
+}
+
+#ctrlUnknownBackgroundAppearance
+{
+  width: 164px;
+}
+
+.ctrl-select:disabled,
+.ctrl input[type="range"]:disabled
+{
+  cursor: not-allowed;
+}
+
+.ctrl-select:disabled
+{
+  border-color: rgba(255, 255, 255, 0.14);
+  background-color: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.48);
 }
 
 .ctrl-select:hover
@@ -535,6 +574,11 @@ kbd {
 
 .ctrl input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
+}
+
+.ctrl input[type="range"]:disabled::-webkit-slider-thumb
+{
+  background: rgba(255, 255, 255, 0.38);
 }
 
 /* Color picker */

@@ -2,6 +2,7 @@ import './style.css';
 import {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
+  CONFIG,
   EFFECT_BACKEND_CHANGE_EVENT,
 } from './fx.js';
 import {
@@ -895,11 +896,106 @@ if (ctrlRenderMode)
 
 // ── 输出合成 → outputCompositing ───────────────────────────────────────
 const ctrlOutputCompositing = document.getElementById('ctrlOutputCompositing');
+const transparentCompositingControls = document.getElementById(
+  'transparentCompositingControls',
+);
+const ctrlUnknownBackgroundAppearance = document.getElementById(
+  'ctrlUnknownBackgroundAppearance',
+);
+const ctrlOverlayAlphaLimit = document.getElementById('ctrlOverlayAlphaLimit');
+const outOverlayAlphaLimit = document.getElementById('outOverlayAlphaLimit');
+const ctrlHostCompositing = document.getElementById('ctrlHostCompositing');
 const DEFAULT_OUTPUT_COMPOSITING = 'scene';
+const DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE =
+  CONFIG.unknownBackgroundAppearance;
+const DEFAULT_OVERLAY_ALPHA_LIMIT = CONFIG.overlayAlphaLimit;
+const DEFAULT_HOST_COMPOSITING = CONFIG.hostCompositing;
 const OUTPUT_COMPOSITING_MODES = new Set([
   'scene',
   'browser-overlay',
 ]);
+const UNKNOWN_BACKGROUND_APPEARANCES = new Set([
+  'coverage',
+  'bright',
+]);
+const HOST_COMPOSITING_MODES = new Set([
+  'source-over',
+  'plus-lighter',
+]);
+
+function syncTransparentCompositingControlState(outputCompositing)
+{
+  const enabled = outputCompositing === 'browser-overlay';
+
+  transparentCompositingControls?.classList.toggle('is-inactive', !enabled);
+  transparentCompositingControls?.setAttribute(
+    'aria-disabled',
+    String(!enabled),
+  );
+
+  for (const control of [
+    ctrlUnknownBackgroundAppearance,
+    ctrlOverlayAlphaLimit,
+    ctrlHostCompositing,
+  ])
+  {
+    if (control)
+    {
+      control.disabled = !enabled;
+    }
+  }
+}
+
+function applyUnknownBackgroundAppearance(appearance)
+{
+  const resolved = UNKNOWN_BACKGROUND_APPEARANCES.has(appearance)
+    ? appearance
+    : DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE;
+
+  if (ctrlUnknownBackgroundAppearance)
+  {
+    ctrlUnknownBackgroundAppearance.value = resolved;
+  }
+
+  effect.updateConfig({ unknownBackgroundAppearance: resolved });
+  return resolved;
+}
+
+function applyOverlayAlphaLimit(value)
+{
+  const numericValue = Number(value);
+  const resolved = Number.isFinite(numericValue)
+    ? Math.max(0, Math.min(1, numericValue))
+    : DEFAULT_OVERLAY_ALPHA_LIMIT;
+
+  if (ctrlOverlayAlphaLimit)
+  {
+    ctrlOverlayAlphaLimit.value = String(resolved);
+  }
+
+  if (outOverlayAlphaLimit)
+  {
+    outOverlayAlphaLimit.textContent = resolved.toFixed(2);
+  }
+
+  effect.updateConfig({ overlayAlphaLimit: resolved });
+  return resolved;
+}
+
+function applyHostCompositing(mode)
+{
+  const resolved = HOST_COMPOSITING_MODES.has(mode)
+    ? mode
+    : DEFAULT_HOST_COMPOSITING;
+
+  if (ctrlHostCompositing)
+  {
+    ctrlHostCompositing.value = resolved;
+  }
+
+  effect.updateConfig({ hostCompositing: resolved });
+  return resolved;
+}
 
 function applyOutputCompositing(mode)
 {
@@ -912,6 +1008,7 @@ function applyOutputCompositing(mode)
     ctrlOutputCompositing.value = resolved;
   }
 
+  syncTransparentCompositingControlState(resolved);
   effect.updateConfig({ outputCompositing: resolved });
   return resolved;
 }
@@ -923,6 +1020,38 @@ if (ctrlOutputCompositing)
     const resolved = applyOutputCompositing(ctrlOutputCompositing.value);
 
     localStorage.setItem('bafx-ctrlOutputCompositing', resolved);
+  });
+}
+
+if (ctrlUnknownBackgroundAppearance)
+{
+  ctrlUnknownBackgroundAppearance.addEventListener('change', () =>
+  {
+    const resolved = applyUnknownBackgroundAppearance(
+      ctrlUnknownBackgroundAppearance.value,
+    );
+
+    localStorage.setItem('bafx-ctrlUnknownBackgroundAppearance', resolved);
+  });
+}
+
+if (ctrlOverlayAlphaLimit)
+{
+  ctrlOverlayAlphaLimit.addEventListener('input', () =>
+  {
+    const resolved = applyOverlayAlphaLimit(ctrlOverlayAlphaLimit.value);
+
+    localStorage.setItem('bafx-ctrlOverlayAlphaLimit', String(resolved));
+  });
+}
+
+if (ctrlHostCompositing)
+{
+  ctrlHostCompositing.addEventListener('change', () =>
+  {
+    const resolved = applyHostCompositing(ctrlHostCompositing.value);
+
+    localStorage.setItem('bafx-ctrlHostCompositing', resolved);
   });
 }
 
@@ -1025,6 +1154,15 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
   document.getElementById('ctrlOutputCompositing').value =
     DEFAULT_OUTPUT_COMPOSITING;
+  document.getElementById('ctrlUnknownBackgroundAppearance').value =
+    DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE;
+  document.getElementById('ctrlOverlayAlphaLimit').value =
+    String(DEFAULT_OVERLAY_ALPHA_LIMIT);
+  document.getElementById('outOverlayAlphaLimit').textContent =
+    DEFAULT_OVERLAY_ALPHA_LIMIT.toFixed(2);
+  document.getElementById('ctrlHostCompositing').value =
+    DEFAULT_HOST_COMPOSITING;
+  syncTransparentCompositingControlState(DEFAULT_OUTPUT_COMPOSITING);
   document.getElementById('ctrlInputSource').value = 'dom';
   document.getElementById('ctrlClickTimeScale').value = '1';
   document.getElementById('outClickTimeScale').textContent = '1.00';
@@ -1120,6 +1258,9 @@ document.getElementById('btnReset').addEventListener('click', () =>
       trailAlways: false,
       ...RENDER_MODE_CONFIGS[DEFAULT_RENDER_MODE],
       outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
+      unknownBackgroundAppearance: DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE,
+      overlayAlphaLimit: DEFAULT_OVERLAY_ALPHA_LIMIT,
+      hostCompositing: DEFAULT_HOST_COMPOSITING,
       isolatedCompositing: false,
       lightBackgroundContrastAlpha: 0,
       maxDpr: 2,
@@ -1274,6 +1415,14 @@ const I18N = {
     labelOutputCompositing: '输出合成',
     outputCompositingScene: '场景合成',
     outputCompositingTransparentOverlay: '透明覆盖层',
+    labelUnknownBackgroundAppearance: '未知背景外观',
+    unknownBackgroundAppearanceCoverage: 'Coverage 优先',
+    unknownBackgroundAppearanceBright: '浅色背景兼容',
+    labelOverlayAlphaLimit: '覆盖层 Alpha 上限',
+    labelHostCompositing: '宿主合成',
+    hostCompositingSourceOver: 'Source-over',
+    hostCompositingDomAdd: 'DOM Add（近似）',
+    transparentCompositingNote: '“浅色背景兼容”和“DOM Add”仅为浏览器视觉近似，不等同于 Unity 线性 HDR 精确还原。',
     labelCompositingReference: '特效背景参考',
     compositingReferenceMatchPage: '匹配当前页面（精确）',
     compositingReferenceUnknown: '未知透明背景（兼容）',
@@ -1374,6 +1523,14 @@ const I18N = {
     labelOutputCompositing: 'Output Compositing',
     outputCompositingScene: 'Scene',
     outputCompositingTransparentOverlay: 'Transparent Overlay',
+    labelUnknownBackgroundAppearance: 'Unknown Background Appearance',
+    unknownBackgroundAppearanceCoverage: 'Coverage First',
+    unknownBackgroundAppearanceBright: 'Light Background Compatibility',
+    labelOverlayAlphaLimit: 'Overlay Alpha Limit',
+    labelHostCompositing: 'Host Compositing',
+    hostCompositingSourceOver: 'Source-over',
+    hostCompositingDomAdd: 'DOM Add (Approximate)',
+    transparentCompositingNote: '“Light Background Compatibility” and “DOM Add” are browser visual approximations, not exact Unity linear-HDR compositing.',
     labelCompositingReference: 'Effect Reference',
     compositingReferenceMatchPage: 'Current Page (Exact)',
     compositingReferenceUnknown: 'Unknown Background',
@@ -1525,6 +1682,9 @@ function switchLanguage(lang)
     ctrlDpr: d.labelDpr,
     ctrlRenderMode: d.labelRenderMode,
     ctrlOutputCompositing: d.labelOutputCompositing,
+    ctrlUnknownBackgroundAppearance: d.labelUnknownBackgroundAppearance,
+    ctrlOverlayAlphaLimit: d.labelOverlayAlphaLimit,
+    ctrlHostCompositing: d.labelHostCompositing,
     ctrlCompositingReference: d.labelCompositingReference,
     ctrlIsolatedCompositing: d.labelIsolatedCompositing,
     ctrlInputSource: d.labelInputSource,
@@ -1634,6 +1794,37 @@ function switchLanguage(lang)
       option.textContent = outputCompositingOptions[option.value];
     }
   });
+
+  const unknownBackgroundAppearanceOptions = {
+    coverage: d.unknownBackgroundAppearanceCoverage,
+    bright: d.unknownBackgroundAppearanceBright,
+  };
+
+  document.querySelectorAll(
+    '#ctrlUnknownBackgroundAppearance option',
+  ).forEach((option) =>
+  {
+    if (unknownBackgroundAppearanceOptions[option.value])
+    {
+      option.textContent = unknownBackgroundAppearanceOptions[option.value];
+    }
+  });
+
+  const hostCompositingOptions = {
+    'source-over': d.hostCompositingSourceOver,
+    'plus-lighter': d.hostCompositingDomAdd,
+  };
+
+  document.querySelectorAll('#ctrlHostCompositing option').forEach((option) =>
+  {
+    if (hostCompositingOptions[option.value])
+    {
+      option.textContent = hostCompositingOptions[option.value];
+    }
+  });
+
+  document.getElementById('transparentCompositingNote').textContent =
+    d.transparentCompositingNote;
 
   const compositingReferenceOptions = {
     'match-page': d.compositingReferenceMatchPage,
@@ -1775,6 +1966,26 @@ switchLanguage(currentLang);
 
   // 即使没有持久化值，也显式应用 Scene，避免展示控件与构造默认值分叉。
   applyOutputCompositing(savedOutputCompositing);
+
+  const savedUnknownBackgroundAppearance = localStorage.getItem(
+    'bafx-ctrlUnknownBackgroundAppearance',
+  );
+
+  applyUnknownBackgroundAppearance(savedUnknownBackgroundAppearance);
+
+  const savedOverlayAlphaLimit = localStorage.getItem(
+    'bafx-ctrlOverlayAlphaLimit',
+  );
+
+  applyOverlayAlphaLimit(
+    savedOverlayAlphaLimit ?? DEFAULT_OVERLAY_ALPHA_LIMIT,
+  );
+
+  const savedHostCompositing = localStorage.getItem(
+    'bafx-ctrlHostCompositing',
+  );
+
+  applyHostCompositing(savedHostCompositing);
 
   const isolatedCompositingEl = document.getElementById('ctrlIsolatedCompositing');
   const savedIsolatedCompositing = localStorage.getItem('bafx-ctrlIsolatedCompositing');

@@ -150,6 +150,45 @@ fx.setPaused(true, { clear: true });</code></pre>
           <option value="browser-overlay">透明覆盖层</option>
         </select>
       </label>
+      <div
+        id="transparentCompositingControls"
+        class="transparent-compositing-controls is-inactive"
+        aria-disabled="true"
+      >
+        <label class="ctrl">
+          <span>未知背景外观</span>
+          <select
+            id="ctrlUnknownBackgroundAppearance"
+            class="ctrl-select"
+            disabled
+          >
+            <option value="coverage" selected>Coverage 优先</option>
+            <option value="bright">浅色背景兼容</option>
+          </select>
+        </label>
+        <label class="ctrl">
+          <span>覆盖层 Alpha 上限 <output id="outOverlayAlphaLimit">0.98</output></span>
+          <input
+            type="range"
+            id="ctrlOverlayAlphaLimit"
+            min="0"
+            max="1"
+            step="0.00392156862745098"
+            value="0.9803921568627451"
+            disabled
+          />
+        </label>
+        <label class="ctrl">
+          <span>宿主合成</span>
+          <select id="ctrlHostCompositing" class="ctrl-select" disabled>
+            <option value="source-over" selected>Source-over</option>
+            <option value="plus-lighter">DOM Add（近似）</option>
+          </select>
+        </label>
+        <p id="transparentCompositingNote" class="compositing-mode-note">
+          “浅色背景兼容”和“DOM Add”仅为浏览器视觉近似，不等同于 Unity 线性 HDR 精确还原。
+        </p>
+      </div>
       <label class="ctrl">
         <span>特效背景参考</span>
         <select id="ctrlCompositingReference" class="ctrl-select">
