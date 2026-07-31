@@ -991,13 +991,26 @@ if (sourceMode)
         "outputCompositing === 'host-additive'",
       ) &&
       fxSourceText.includes(
-        'srgbOutput ? resources.srgbColorCanvas : resources.colorCanvas',
+        'function prepareLinearTintedTextureCanvas',
+      ) &&
+      fxSourceText.includes('Linear(texture) × Linear(material)') &&
+      fxSourceText.includes(
+        'srgbToLinearChannel(rgba[sourceOffset]) * exactCoverage',
       ) &&
       fxSourceText.includes(
-        "outputCompositing === 'host-additive'\n" +
+        'const straightDivisor = safeDivisor * texelAlpha',
+      ) &&
+      fxSourceText.includes(
+        'image.data[outputOffset + 3] = coverageByte',
+      ) &&
+      fxSourceText.includes(
+        'textureCanvas = prepareLinearTintedTextureCanvas(',
+      ) &&
+      !fxSourceText.includes(
+        'outputCompositing === \'host-additive\'\n' +
           '      ? resources.srgbColorCanvas',
       ),
-    'Canvas 宿主 Add 使用独立 sRGB 完整载荷而不再复用 Scene 编码',
+    'Canvas 回退在线性空间合成纹理、Coverage 与材质后只编码一次 sRGB',
   );
 
   const nonSeparableSamples = [

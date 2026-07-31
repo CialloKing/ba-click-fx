@@ -53,6 +53,7 @@ import {
   createCircleTextureSources,
 } from './circle-texture.js';
 import {
+  TRIANGLE_TEXTURE_COVERAGE,
   TRIANGLE_TEXTURE_SIZE,
   TRIANGLE_TEXTURE_RGBA,
   createTriangleTextureSources,
@@ -970,7 +971,9 @@ function getTriangleTextureResources()
     canvas,
     context,
     linearTextureRgba: TRIANGLE_TEXTURE_RGBA,
-    linearTextureRgb: null,
+    linearTextureCoverage: TRIANGLE_TEXTURE_COVERAGE,
+    linearTextureCoverageFromSrgbRed: false,
+    linearTextureEnergyRgb: null,
     linearTintFrameCount: 2,
     linearTintFrames: null,
     linearTintUnavailable: false,
@@ -1020,7 +1023,9 @@ function getCircleTextureResources()
     outputCanvas,
     outputContext,
     linearTextureRgba: CIRCLE_TEXTURE_RGBA,
-    linearTextureRgb: null,
+    linearTextureCoverage: null,
+    linearTextureCoverageFromSrgbRed: true,
+    linearTextureEnergyRgb: null,
     linearTintFrameCount: 1,
     linearTintFrames: null,
     linearTintUnavailable: false,
@@ -1028,20 +1033,69 @@ function getCircleTextureResources()
   return circleTextureResources;
 }
 
-function createTextureRgb(rgba)
+function prepareLinearTextureData(resources)
 {
-  const rgb = new Uint8Array((rgba.length / 4) * 3);
-
-  for (let sourceOffset = 0, targetOffset = 0;
-    sourceOffset < rgba.length;
-    sourceOffset += 4, targetOffset += 3)
+  if (resources.linearTextureEnergyRgb)
   {
-    rgb[targetOffset] = rgba[sourceOffset];
-    rgb[targetOffset + 1] = rgba[sourceOffset + 1];
-    rgb[targetOffset + 2] = rgba[sourceOffset + 2];
+    return;
   }
 
-  return rgb;
+  const rgba = resources.linearTextureRgba;
+  const pixelCount = rgba.length / 4;
+  const coverage = resources.linearTextureCoverage ??
+    new Uint8Array(pixelCount);
+  const energyRgb = new Float32Array(pixelCount * 3);
+
+  for (let sourceOffset = 0, pixelIndex = 0, targetOffset = 0;
+    sourceOffset < rgba.length;
+    sourceOffset += 4, pixelIndex++, targetOffset += 3)
+  {
+    const exactCoverage = resources.linearTextureCoverageFromSrgbRed
+      ? srgbToLinearChannel(rgba[sourceOffset])
+      : coverage[pixelIndex] / 255;
+
+    if (resources.linearTextureCoverageFromSrgbRed)
+    {
+      coverage[pixelIndex] = Math.round(clamp01(exactCoverage) * 255);
+    }
+
+    // Unity 先在线性空间把纹理 Coverage 乘入发射 RGB，之后才由 Final
+    // Pass 编码 sRGB。把 Coverage 留给 Canvas Alpha 才相乘会压暗半覆盖
+    // texel，因此这里缓存 Shader 乘法后的逐 texel 线性能量。
+    energyRgb[targetOffset] =
+      srgbToLinearChannel(rgba[sourceOffset]) * exactCoverage;
+    energyRgb[targetOffset + 1] =
+      srgbToLinearChannel(rgba[sourceOffset + 1]) * exactCoverage;
+    energyRgb[targetOffset + 2] =
+      srgbToLinearChannel(rgba[sourceOffset + 2]) * exactCoverage;
+  }
+
+  resources.linearTextureCoverage = coverage;
+  resources.linearTextureEnergyRgb = energyRgb;
+}
+
+// 12 位线性索引的最大 sRGB 误差低于一个 8 位通道步长，同时避免在
+// Context 回退首帧同步计算 65536 次幂函数造成可见卡顿。
+const LINEAR_TO_SRGB_LUT_SIZE = 4096;
+let linearToSrgbLut = null;
+
+function getLinearToSrgbLut()
+{
+  if (linearToSrgbLut)
+  {
+    return linearToSrgbLut;
+  }
+
+  linearToSrgbLut = new Float32Array(LINEAR_TO_SRGB_LUT_SIZE);
+
+  for (let index = 0; index < LINEAR_TO_SRGB_LUT_SIZE; index++)
+  {
+    linearToSrgbLut[index] = linearToSrgb(
+      index / (LINEAR_TO_SRGB_LUT_SIZE - 1),
+    );
+  }
+
+  return linearToSrgbLut;
 }
 
 function createLinearTintFrames(textureSize, frameCount)
@@ -1073,7 +1127,6 @@ function createLinearTintFrames(textureSize, frameCount)
           context,
           image: context.createImageData(textureSize, textureSize),
           key: null,
-          lookup: new Uint8ClampedArray(256 * 3),
         },
       );
     }
@@ -1103,7 +1156,6 @@ function prepareLinearTintedTextureCanvas(
   materialEnergy,
   contribution,
   alphaDivisor,
-  coverageCanvas,
   frameIndex = 0,
   compensation = 0,
 )
@@ -1138,12 +1190,7 @@ function prepareLinearTintedTextureCanvas(
     }
   }
 
-  if (!resources.linearTextureRgb)
-  {
-    resources.linearTextureRgb = createTextureRgb(
-      resources.linearTextureRgba,
-    );
-  }
+  prepareLinearTextureData(resources);
 
   const rawFrameIndex = Number.isFinite(frameIndex)
     ? Math.trunc(frameIndex)
@@ -1165,23 +1212,23 @@ function prepareLinearTintedTextureCanvas(
     return frame.canvas;
   }
 
-  const { context, image, lookup } = frame;
-  const sourceRgb = resources.linearTextureRgb;
+  const { context, image } = frame;
+  const sourceEnergyRgb = resources.linearTextureEnergyRgb;
+  const sourceCoverage = resources.linearTextureCoverage;
+  const srgbLut = getLinearToSrgbLut();
   const flipVertical = frameSlot === 1;
-
-  for (let channel = 0; channel < 3; channel++)
+  const encodeChannel = (sourceOffset, channel, straightDivisor) =>
   {
-    const lookupOffset = channel * 256;
+    const linear = clamp01(
+      sourceEnergyRgb[sourceOffset + channel] *
+        safeMaterialEnergy[channel] * safeContribution,
+    );
+    const lookupIndex = Math.round(
+      linear * (LINEAR_TO_SRGB_LUT_SIZE - 1),
+    );
 
-    for (let value = 0; value < 256; value++)
-    {
-      const linear = srgbToLinearChannel(value) *
-        safeMaterialEnergy[channel] * safeContribution;
-      const straight = linearToSrgb(linear) / safeDivisor;
-
-      lookup[lookupOffset + value] = Math.round(clamp01(straight) * 255);
-    }
-  }
+    return srgbLut[lookupIndex] / straightDivisor;
+  };
 
   context.setTransform(1, 0, 0, 1, 0, 0);
   context.globalAlpha = 1;
@@ -1195,46 +1242,45 @@ function prepareLinearTintedTextureCanvas(
 
     for (let x = 0; x < textureSize; x++)
     {
-      const sourceOffset = (sourceY * textureSize + x) * 3;
+      const sourcePixelIndex = sourceY * textureSize + x;
+      const sourceOffset = sourcePixelIndex * 3;
       const outputOffset = (y * textureSize + x) * 4;
-      const red = sourceRgb[sourceOffset];
-      const green = sourceRgb[sourceOffset + 1];
-      const blue = sourceRgb[sourceOffset + 2];
+      const coverageByte = sourceCoverage[sourcePixelIndex];
+
+      if (coverageByte === 0)
+      {
+        image.data[outputOffset] = 0;
+        image.data[outputOffset + 1] = 0;
+        image.data[outputOffset + 2] = 0;
+        image.data[outputOffset + 3] = 0;
+        continue;
+      }
+
+      const texelAlpha = coverageByte / 255;
+      const straightDivisor = safeDivisor * texelAlpha;
+      const red = encodeChannel(sourceOffset, 0, straightDivisor);
+      const green = encodeChannel(sourceOffset, 1, straightDivisor);
+      const blue = encodeChannel(sourceOffset, 2, straightDivisor);
       // 补偿只作用于有纹理能量的核心；直接用全局颜色作 texel 下限会把
       // Circle 与 Tri3 的低能细节填成同一块灰白轮廓。
       const compensationFloor = safeCompensation > 0
-        ? Math.round(safeCompensation * Math.max(red, green, blue))
+        ? safeCompensation * clamp01(Math.max(red, green, blue))
         : 0;
 
-      image.data[outputOffset] = Math.max(
-        lookup[red],
-        compensationFloor,
+      image.data[outputOffset] = Math.round(
+        clamp01(Math.max(red, compensationFloor)) * 255,
       );
-      image.data[outputOffset + 1] = Math.max(
-        lookup[256 + green],
-        compensationFloor,
+      image.data[outputOffset + 1] = Math.round(
+        clamp01(Math.max(green, compensationFloor)) * 255,
       );
-      image.data[outputOffset + 2] = Math.max(
-        lookup[512 + blue],
-        compensationFloor,
+      image.data[outputOffset + 2] = Math.round(
+        clamp01(Math.max(blue, compensationFloor)) * 255,
       );
-
-      image.data[outputOffset + 3] = 255;
+      image.data[outputOffset + 3] = coverageByte;
     }
   }
 
   context.putImageData(image, 0, 0);
-  context.globalCompositeOperation = 'destination-in';
-  context.save();
-
-  if (flipVertical)
-  {
-    context.translate(0, textureSize);
-    context.scale(1, -1);
-  }
-
-  context.drawImage(coverageCanvas, 0, 0);
-  context.restore();
   context.globalCompositeOperation = 'source-over';
   context.filter = 'none';
   frame.key = key;
@@ -2365,7 +2411,6 @@ function drawDisk(
         materialEnergy,
         opacity,
         coverageAlpha,
-        resources.coverageCanvas,
         0,
         compensation,
       );
@@ -2390,7 +2435,6 @@ function drawDisk(
         materialEnergy,
         opacity,
         textureAlpha,
-        resources.coverageCanvas,
       );
     }
   }
@@ -2694,7 +2738,6 @@ function drawTexturedTriangle(
         scaledEnergy,
         particleAlpha,
         particleAlpha,
-        resources.coverageCanvas,
         frameIndex,
         compensation,
       );
@@ -2715,7 +2758,6 @@ function drawTexturedTriangle(
       scaledEnergy,
       particleAlpha,
       payloadAlpha,
-      resources.coverageCanvas,
       frameIndex,
     );
   }
