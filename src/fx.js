@@ -21,7 +21,6 @@ import {
   isOverlayColorCompensation,
   isOutputCompositing,
   isTimeScale,
-  isUnknownBackgroundAppearance,
   normalizeBloomBackend,
   normalizeEffectBackend,
   normalizeHostCompositing,
@@ -30,7 +29,6 @@ import {
   normalizeOverlayColorCompensationConfig,
   normalizeThemeColor,
   normalizeTimeScale,
-  normalizeUnknownBackgroundAppearance,
   SIZE_CORRECTION,
 } from './config.js';
 import { applyFxParamPatch as prepareFxParamPatch } from './fx-param-patch.js';
@@ -664,7 +662,7 @@ function resolveOverlayStraightColor(
   color,
   contributionOpacity,
   coverageAlpha,
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   globalOpacity = 1,
 )
 {
@@ -688,7 +686,7 @@ function resolveOverlayStraightColor(
     linearToSrgb(Math.max(0, color[2]) * contribution) / requestedAlpha,
   );
 
-  if (unknownBackgroundAppearance === 'bright')
+  if (overlayColorCompensation === 'bright-core')
   {
     const compensation = resolveOverlayCompensation(
       color,
@@ -749,7 +747,7 @@ function linearEnergyToOverlayCss(
   color,
   contributionOpacity,
   coverageAlpha,
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
   globalOpacity = 1,
 )
@@ -769,7 +767,7 @@ function linearEnergyToOverlayCss(
     color,
     contributionOpacity,
     requestedAlpha,
-    unknownBackgroundAppearance,
+    overlayColorCompensation,
     globalOpacity,
   );
 
@@ -788,7 +786,7 @@ function linearEnergyToNativeTrailBloomCss(
   bloomCfg,
   outputCompositing = 'scene',
   coverageOpacity = opacity,
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
 )
 {
@@ -825,7 +823,7 @@ function linearEnergyToNativeTrailBloomCss(
       brightPass,
       bloomCfg.trailAlpha,
       coverage,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
       opacity,
     );
@@ -1886,7 +1884,7 @@ class LegacyRingRasterizer
     opacity,
     textureAlpha,
     outputCompositing,
-    unknownBackgroundAppearance = 'coverage',
+    overlayColorCompensation = 'none',
     overlayAlphaLimit = 1,
   )
   {
@@ -1913,7 +1911,7 @@ class LegacyRingRasterizer
         materialEnergy,
         energyScale,
         energyScale,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         opacity,
       );
       data[offset] = Math.round(red * 255);
@@ -1965,7 +1963,7 @@ class LegacyRingRasterizer
     materialEnergy,
     ringCfg,
     outputCompositing,
-    unknownBackgroundAppearance = 'coverage',
+    overlayColorCompensation = 'none',
     overlayAlphaLimit = 1,
   )
   {
@@ -2023,7 +2021,7 @@ class LegacyRingRasterizer
         opacity,
         textureAlpha,
         outputCompositing,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
       );
     }
@@ -2045,7 +2043,7 @@ class LegacyRingRasterizer
     materialEnergy,
     outputCompositing,
     linearNativeGlow = false,
-    unknownBackgroundAppearance = 'coverage',
+    overlayColorCompensation = 'none',
     overlayAlphaLimit = 1,
   )
   {
@@ -2072,7 +2070,7 @@ class LegacyRingRasterizer
         materialEnergy,
         ringCfg,
         outputCompositing,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
       );
     }
@@ -2097,7 +2095,7 @@ class LegacyRingRasterizer
           colorToLinearEnergy(this.particleColor, 1, true),
           shadowAlpha,
           shadowAlpha,
-          unknownBackgroundAppearance,
+          overlayColorCompensation,
           overlayAlphaLimit,
           opacity,
         );
@@ -2202,7 +2200,7 @@ function drawDissolvedCircle(
   outputCompositing = 'scene',
   linearNativeGlow = false,
   dpr = 1,
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
 )
 {
@@ -2235,7 +2233,7 @@ function drawDissolvedCircle(
         materialEnergy,
         coverage,
         coverage,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
         opacity,
       );
@@ -2265,7 +2263,7 @@ function drawDissolvedCircle(
       colorToLinearEnergy(particleColor, 1, true),
       ringGlowAlpha,
       ringGlowAlpha,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
       opacity,
     );
@@ -2360,7 +2358,7 @@ function drawDisk(
   useNativeBloom = true,
   dpr = 1,
   outputCompositing = 'scene',
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
 )
 {
@@ -2394,7 +2392,7 @@ function drawDisk(
   {
     textureAlpha = Math.min(textureAlpha, clamp01(overlayAlphaLimit));
     const resources = getCircleTextureResources();
-    const compensation = unknownBackgroundAppearance === 'bright'
+    const compensation = overlayColorCompensation === 'bright-core'
       ? resolveOverlayCompensation(
           materialEnergy,
           opacity,
@@ -2467,7 +2465,7 @@ function drawDisk(
       colorToLinearEnergy(color, 1, true),
       shadowAlpha,
       shadowAlpha,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
       opacity,
     );
@@ -2699,7 +2697,7 @@ function drawTexturedTriangle(
   frameIndex,
   energyScale = 1,
   outputCompositing = 'scene',
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
   opacity = 1,
 )
@@ -2721,7 +2719,7 @@ function drawTexturedTriangle(
   if (outputCompositing === 'browser-overlay')
   {
     payloadAlpha = Math.min(payloadAlpha, clamp01(overlayAlphaLimit));
-    const compensation = unknownBackgroundAppearance === 'bright'
+    const compensation = overlayColorCompensation === 'bright-core'
       ? resolveOverlayCompensation(
           scaledEnergy,
           particleAlpha,
@@ -2817,7 +2815,7 @@ function drawTriangle(
   opacity,
   fxConfig = UNITY_FX_TOUCH,
   outputCompositing = 'scene',
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
 )
 {
@@ -2851,7 +2849,7 @@ function drawTriangle(
     textureFrameIndex,
     1,
     outputCompositing,
-    unknownBackgroundAppearance,
+    overlayColorCompensation,
     overlayAlphaLimit,
     opacity,
   ))
@@ -2873,7 +2871,7 @@ function drawTriangle(
       materialEnergy,
       alpha,
       alpha,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
       opacity,
     );
@@ -3034,7 +3032,7 @@ function drawHit(
   fxConfig,
   linearOutput = false,
   outputCompositing = 'scene',
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
 )
 {
@@ -3057,7 +3055,7 @@ function drawHit(
       colorToLinearEnergy(color, 1, true),
       alpha,
       alpha,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
       opacity,
     );
@@ -3087,7 +3085,7 @@ function drawFlare(
   fxConfig,
   linearOutput = false,
   outputCompositing = 'scene',
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
 )
 {
@@ -3110,7 +3108,7 @@ function drawFlare(
       colorToLinearEnergy(color, 1, true),
       alpha,
       alpha,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
       opacity,
     );
@@ -3225,7 +3223,7 @@ class ClickWave
     opacity,
     linearOutput = false,
     outputCompositing = 'scene',
-    unknownBackgroundAppearance = 'coverage',
+    overlayColorCompensation = 'none',
     overlayAlphaLimit = 1,
   )
   {
@@ -3243,7 +3241,7 @@ class ClickWave
         this.fx,
         linearOutput,
         outputCompositing,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
       );
     }
@@ -3262,7 +3260,7 @@ class ClickWave
         this.fx,
         linearOutput,
         outputCompositing,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
       );
     }
@@ -3275,7 +3273,7 @@ class ClickWave
     useNativeBloom = true,
     dpr = 1,
     outputCompositing = 'scene',
-    unknownBackgroundAppearance = 'coverage',
+    overlayColorCompensation = 'none',
     overlayAlphaLimit = 1,
   )
   {
@@ -3293,7 +3291,7 @@ class ClickWave
         useNativeBloom,
         dpr,
         outputCompositing,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
       );
     }
@@ -3324,7 +3322,7 @@ class ClickWave
     useNativeBloom = true,
     outputCompositing = 'scene',
     dpr = 1,
-    unknownBackgroundAppearance = 'coverage',
+    overlayColorCompensation = 'none',
     overlayAlphaLimit = 1,
   )
   {
@@ -3335,7 +3333,7 @@ class ClickWave
       opacity,
       false,
       outputCompositing,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
     );
     this.drawDiskLayer(
@@ -3345,7 +3343,7 @@ class ClickWave
       useNativeBloom,
       dpr,
       outputCompositing,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
     );
   }
@@ -3360,7 +3358,7 @@ class ClickWave
     dpr = 1,
     outputCompositing = 'scene',
     linearNativeGlow = false,
-    unknownBackgroundAppearance = 'coverage',
+    overlayColorCompensation = 'none',
     overlayAlphaLimit = 1,
   )
   {
@@ -3388,7 +3386,7 @@ class ClickWave
           ringMaterialEnergy,
           outputCompositing,
           linearNativeGlow,
-          unknownBackgroundAppearance,
+          overlayColorCompensation,
           overlayAlphaLimit,
         )
       )
@@ -3410,7 +3408,7 @@ class ClickWave
           outputCompositing,
           linearNativeGlow,
           dpr,
-          unknownBackgroundAppearance,
+          overlayColorCompensation,
           overlayAlphaLimit,
         );
       }
@@ -3425,7 +3423,7 @@ class ClickWave
     legacy = false,
     outputCompositing = 'scene',
     dpr = 1,
-    unknownBackgroundAppearance = 'coverage',
+    overlayColorCompensation = 'none',
     overlayAlphaLimit = 1,
   )
   {
@@ -3436,7 +3434,7 @@ class ClickWave
       useNativeBloom,
       outputCompositing,
       dpr,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
     );
     this.drawRings(
@@ -3449,7 +3447,7 @@ class ClickWave
       dpr,
       outputCompositing,
       false,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
     );
   }
@@ -3850,7 +3848,7 @@ class ShardParticle
     opacity,
     fxConfig = UNITY_FX_TOUCH,
     outputCompositing = 'scene',
-    unknownBackgroundAppearance = 'coverage',
+    overlayColorCompensation = 'none',
     overlayAlphaLimit = 1,
   )
   {
@@ -3861,7 +3859,7 @@ class ShardParticle
       opacity,
       fxConfig,
       outputCompositing,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
     );
   }
@@ -4775,7 +4773,7 @@ function drawTrailLayer(
             color,
             contribution,
             coverage,
-            layer.unknownBackgroundAppearance,
+            layer.overlayColorCompensation,
             layer.overlayAlphaLimit,
             layer.globalOpacity ?? opacity,
           )
@@ -4962,7 +4960,7 @@ function drawNativeTrailBloom(
   bloomCfg,
   surface,
   outputCompositing = 'scene',
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
 )
 {
@@ -5071,7 +5069,7 @@ function drawNativeTrailBloom(
           bloomCfg,
           outputCompositing,
           opacity * textureCoverage * longitudinalCoverage,
-          unknownBackgroundAppearance,
+          overlayColorCompensation,
           overlayAlphaLimit,
         ),
     },
@@ -5112,7 +5110,7 @@ function drawLegacyTrailLayer(
   layer,
   linearOutput = false,
   outputCompositing = 'scene',
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
 )
 {
@@ -5196,7 +5194,7 @@ function drawLegacyTrailLayer(
         colorToLinearEnergy(color, 1, true),
         effectiveAlpha * fadeAlpha,
         effectiveAlpha * longitudinalCoverage,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
         opacity,
       );
@@ -5235,7 +5233,7 @@ function drawTrail(
   sharedTrailData = null,
   linearOutput = false,
   outputCompositing = 'scene',
-  unknownBackgroundAppearance = 'coverage',
+  overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
 )
 {
@@ -5268,7 +5266,7 @@ function drawTrail(
         },
         linearOutput,
         outputCompositing,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
       );
     }
@@ -5283,7 +5281,7 @@ function drawTrail(
       LEGACY_TRAIL_MIDDLE_LAYER,
       linearOutput,
       outputCompositing,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
     );
     drawLegacyTrailLayer(
@@ -5296,7 +5294,7 @@ function drawTrail(
       LEGACY_TRAIL_CORE_LAYER,
       linearOutput,
       outputCompositing,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
     );
     return;
@@ -5314,7 +5312,7 @@ function drawTrail(
       bloomCfg,
       nativeBloomSurface,
       outputCompositing,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
     );
   }
@@ -5326,7 +5324,7 @@ function drawTrail(
       alpha: 1,
       materialIntensity: bloomCfg.trailEmission,
       outputCompositing,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
     },
   );
@@ -5767,7 +5765,6 @@ export class BAClickFX
    * @param {number} [options.clickTimeScale]
    * @param {number} [options.trailTimeScale]
    * @param {'scene'|'browser-overlay'} [options.outputCompositing]
-   * @param {'coverage'|'bright'} [options.unknownBackgroundAppearance]
    * @param {'coverage'|'visual-max'} [options.overlayAlphaPolicy]
    * @param {'none'|'bright-core'} [options.overlayColorCompensation]
    * @param {number} [options.overlayAlphaLimit]
@@ -5827,20 +5824,14 @@ export class BAClickFX
         outputCompositing: isOutputCompositing(options.outputCompositing)
           ? options.outputCompositing
           : CONFIG.outputCompositing,
-         unknownBackgroundAppearance: normalizeUnknownBackgroundAppearance(
-           options.unknownBackgroundAppearance,
-           CONFIG.unknownBackgroundAppearance,
-         ),
-         overlayAlphaPolicy: normalizeOverlayAlphaPolicyConfig(
-           options.overlayAlphaPolicy,
-           CONFIG.overlayAlphaPolicy,
-         ),
-         overlayColorCompensation: normalizeOverlayColorCompensationConfig(
-           options.overlayColorCompensation,
-           options.unknownBackgroundAppearance === 'bright'
-             ? 'bright-core'
-             : CONFIG.overlayColorCompensation,
-         ),
+        overlayAlphaPolicy: normalizeOverlayAlphaPolicyConfig(
+          options.overlayAlphaPolicy,
+          CONFIG.overlayAlphaPolicy,
+        ),
+        overlayColorCompensation: normalizeOverlayColorCompensationConfig(
+          options.overlayColorCompensation,
+          CONFIG.overlayColorCompensation,
+        ),
         overlayAlphaLimit: normalizeOverlayAlphaLimit(
           options.overlayAlphaLimit,
           CONFIG.overlayAlphaLimit,
@@ -6150,14 +6141,12 @@ export class BAClickFX
       : this.config.outputCompositing;
   }
 
-  _getUnknownBackgroundAppearance()
+  _getOverlayColorCompensation()
   {
     return this._usesUnknownBrowserOverlay() &&
       !this._usesHostAdditivePayload()
-      ? this.config.overlayColorCompensation === 'bright-core'
-        ? 'bright'
-        : 'coverage'
-      : 'coverage';
+      ? this.config.overlayColorCompensation
+      : 'none';
   }
 
   _getOverlayAlphaPolicy()
@@ -8989,7 +8978,7 @@ export class BAClickFX
       this.trailTimeMs,
       this.config.opacity,
       this.config.outputCompositing,
-      this._getUnknownBackgroundAppearance(),
+      this._getOverlayColorCompensation(),
       this.config.overlayAlphaLimit,
       this._getEffectiveHostCompositing(),
       this.compositingReferenceSource === null ? 'unknown' : 'known',
@@ -9141,9 +9130,8 @@ export class BAClickFX
       diffusion,
       opacity: this.config.opacity,
       outputCompositing: this.config.outputCompositing,
-      unknownBackgroundAppearance: this._getUnknownBackgroundAppearance(),
+      overlayColorCompensation: this._getOverlayColorCompensation(),
       overlayAlphaPolicy: this._getOverlayAlphaPolicy(),
-      overlayColorCompensation: this.config.overlayColorCompensation,
       overlayAlphaLimit: this.config.overlayAlphaLimit,
       hostCompositing: this._getEffectiveHostCompositing(),
       enforceOverlayAlphaLimit:
@@ -9451,10 +9439,9 @@ export class BAClickFX
           diffusion: bloomCfg.diffusion,
           opacity: this.config.opacity,
           outputCompositing: this.config.outputCompositing,
-          unknownBackgroundAppearance:
-            this._getUnknownBackgroundAppearance(),
+          overlayColorCompensation:
+            this._getOverlayColorCompensation(),
           overlayAlphaPolicy: this._getOverlayAlphaPolicy(),
-          overlayColorCompensation: this.config.overlayColorCompensation,
           overlayAlphaLimit: this.config.overlayAlphaLimit,
           hostCompositing: this._getEffectiveHostCompositing(),
         },
@@ -9719,8 +9706,8 @@ export class BAClickFX
   _drawCanvasClickEffects(scale, useNativeBloom, legacy = false)
   {
     const outputCompositing = this._getCanvasOutputCompositing();
-    const unknownBackgroundAppearance =
-      this._getUnknownBackgroundAppearance();
+    const overlayColorCompensation =
+      this._getOverlayColorCompensation();
     const overlayAlphaLimit = this.config.overlayAlphaLimit;
 
     for (const wave of this.waves)
@@ -9732,7 +9719,7 @@ export class BAClickFX
         useNativeBloom,
         outputCompositing,
         this.dpr,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
       );
     }
@@ -9745,7 +9732,7 @@ export class BAClickFX
         this.config.opacity,
         this.fxConfig,
         outputCompositing,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
       );
     }
@@ -9756,7 +9743,7 @@ export class BAClickFX
       legacy,
       false,
       outputCompositing,
-      unknownBackgroundAppearance,
+      overlayColorCompensation,
       overlayAlphaLimit,
     );
   }
@@ -9774,9 +9761,9 @@ export class BAClickFX
     const outputCompositing = linearOutput
       ? 'scene'
       : this._getCanvasOutputCompositing();
-    const unknownBackgroundAppearance = linearOutput
-      ? 'coverage'
-      : this._getUnknownBackgroundAppearance();
+    const overlayColorCompensation = linearOutput
+      ? 'none'
+      : this._getOverlayColorCompensation();
     const overlayAlphaLimit = this.config.overlayAlphaLimit;
 
     for (
@@ -9818,7 +9805,7 @@ export class BAClickFX
         stroke.trailFrameData,
         linearOutput,
         outputCompositing,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
       );
     }
@@ -9969,7 +9956,7 @@ export class BAClickFX
           useNativeBloom,
           outputCompositing,
           this.dpr,
-          this._getUnknownBackgroundAppearance(),
+          this._getOverlayColorCompensation(),
           this.config.overlayAlphaLimit,
         );
       }
@@ -9982,7 +9969,7 @@ export class BAClickFX
     legacy = false,
     linearNativeGlow = false,
     outputCompositing = this._getCanvasOutputCompositing(),
-    unknownBackgroundAppearance = this._getUnknownBackgroundAppearance(),
+    overlayColorCompensation = this._getOverlayColorCompensation(),
     overlayAlphaLimit = this.config.overlayAlphaLimit,
   )
   {
@@ -10005,7 +9992,7 @@ export class BAClickFX
         this.dpr,
         outputCompositing,
         linearNativeGlow,
-        unknownBackgroundAppearance,
+        overlayColorCompensation,
         overlayAlphaLimit,
       );
     }
@@ -10043,7 +10030,7 @@ export class BAClickFX
           this.config.opacity,
           this.fxConfig,
           outputCompositing,
-          this._getUnknownBackgroundAppearance(),
+          this._getOverlayColorCompensation(),
           this.config.overlayAlphaLimit,
         );
       }
@@ -10241,23 +10228,6 @@ export class BAClickFX
       this.config.outputCompositing = overrides.outputCompositing;
     }
 
-    if (isUnknownBackgroundAppearance(overrides.unknownBackgroundAppearance))
-    {
-      transparentContractChanged = transparentContractChanged ||
-        overrides.unknownBackgroundAppearance !==
-          this.config.unknownBackgroundAppearance;
-      this.config.unknownBackgroundAppearance =
-        overrides.unknownBackgroundAppearance;
-
-      if (!isOverlayColorCompensation(overrides.overlayColorCompensation))
-      {
-        this.config.overlayColorCompensation =
-          overrides.unknownBackgroundAppearance === 'bright'
-            ? 'bright-core'
-            : 'none';
-      }
-    }
-
     if (isOverlayAlphaPolicy(overrides.overlayAlphaPolicy))
     {
       const overlayAlphaPolicy = normalizeOverlayAlphaPolicyConfig(
@@ -10281,9 +10251,6 @@ export class BAClickFX
       transparentContractChanged = transparentContractChanged ||
         overlayColorCompensation !== this.config.overlayColorCompensation;
       this.config.overlayColorCompensation = overlayColorCompensation;
-      // 旧字段只作为兼容镜像，渲染器不再从它解析两种独立职责。
-      this.config.unknownBackgroundAppearance =
-        overlayColorCompensation === 'bright-core' ? 'bright' : 'coverage';
     }
 
     if (Number.isFinite(overrides.overlayAlphaLimit))

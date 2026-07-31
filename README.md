@@ -151,7 +151,6 @@ new BAClickFX(options?: {
   overlayColorCompensation?: 'none' | 'bright-core', // 覆盖层颜色补偿，默认 none
   overlayAlphaLimit?: number,      // 网页覆盖层 Alpha 上限，默认 250/255
   hostCompositing?: 'source-over' | 'plus-lighter', // 宿主合成，默认 source-over
-  unknownBackgroundAppearance?: 'coverage' | 'bright', // 旧 API 兼容镜像
   clickEnabled?: boolean,         // 启用点击特效，默认 true
   trailEnabled?: boolean,         // 启用拖尾，默认 true
   trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
@@ -200,7 +199,7 @@ new BAClickFX(options?: {
 | `hostCompositing: 'source-over'` | 默认宿主合同，使用以上 Alpha 策略、颜色补偿和 Alpha 上限 |
 | `hostCompositing: 'plus-lighter'` | 未知背景下的独立 Add 载荷合同。渲染器输出完整加色载荷并由宿主执行一次 `plus-lighter`，因此忽略 `overlayAlphaPolicy`、`overlayColorCompensation` 与 `overlayAlphaLimit` |
 
-`unknownBackgroundAppearance` 仅作为旧 API 的兼容镜像保留，不应再用于新集成：旧输入 `'coverage'` 映射到 `overlayColorCompensation: 'none'`，`'bright'` 映射到 `'bright-core'`，它不会改变 `overlayAlphaPolicy`。同一次构造或 `updateConfig()` 同时提供新旧颜色字段时，以 `overlayColorCompensation` 为准；`getConfig()` 仍暴露旧字段只为兼容旧消费者，新代码应读取两个正交字段。
+旧的 `unknownBackgroundAppearance` 已从构造参数、`updateConfig()`、`getConfig()` 和类型声明中删除。颜色补偿只由 `overlayColorCompensation` 控制，Alpha 分配只由 `overlayAlphaPolicy` 控制，两者不会再通过兼容镜像隐式联动。
 
 `plus-lighter` 只是 SDR DOM 合成近似，可能在白底饱和，并受浏览器色彩管理和实现差异影响。要严格匹配 Unity 的 `Blend One One`、`Blend SrcAlpha One, One One` 等加色结果，宿主必须在线性 HDR Render Target 中执行 Add；仅切换 CSS 混合模式不能提供这项保证。若已激活合成参考，库会回到已知 Scene 的普通 `source-over` 最终输出，避免重复加色。
 

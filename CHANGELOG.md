@@ -8,7 +8,7 @@
 - 正式收敛透明合成 API：`outputCompositing: 'scene' | 'browser-overlay'`、`overlayAlphaPolicy: 'coverage' | 'visual-max'`、`overlayColorCompensation: 'none' | 'bright-core'`、默认 `overlayAlphaLimit: 250 / 255`，以及 `hostCompositing: 'source-over' | 'plus-lighter'`
 - `browser-overlay + coverage` 作为未知背景默认透明合同，使用清晰 Scene Coverage 与独立 Bloom 传输 Alpha 的和；`visual-max` 取两种传输量的较大值，提供 v1.2.15 风格的低遮挡视觉近似，但最终 `maxRGB` 仍不参与 Alpha 生成
 - `bright-core` 与 Alpha 策略正交，只按清晰发射和 Bloom 能量补偿高能核心，不整体混白 RGB 或提亮低能拖尾；所有 `source-over` 组合继续满足预乘约束 `RGB <= Alpha`
-- 旧 `unknownBackgroundAppearance` 仅作为颜色补偿的兼容镜像保留：`coverage` 对应 `none`，`bright` 对应 `bright-core`，不再承担 Alpha 策略选择
+- 删除旧 `unknownBackgroundAppearance` 兼容镜像；构造参数、`updateConfig()`、`getConfig()` 与类型声明只保留彼此正交的 `overlayAlphaPolicy` 和 `overlayColorCompensation`
 - `plus-lighter` 改为独立 Add 载荷合同并忽略 Alpha 策略、颜色补偿与 Alpha 上限；CSS 合成仅作为 SDR DOM 近似，严格 Unity 加色仍要求宿主在线性 HDR 目标中执行 Add，已知背景继续使用 `scene + setCompositingReference()` 精确路径
 - 对照解包工程的 `BaGameBloomRendererFeature` 与 Shader 修正 Bloom 数值合同：Clamp 原值直传、Intensity 线性相乘、上采样使用高 mip 四点加低 mip 单点，并保留 soft-knee 无条件增加的误差项
 

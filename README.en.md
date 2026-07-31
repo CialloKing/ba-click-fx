@@ -131,7 +131,6 @@ new BAClickFX(options?: {
   overlayColorCompensation?: 'none' | 'bright-core', // default none
   overlayAlphaLimit?: number,    // overlay alpha limit, default 250/255
   hostCompositing?: 'source-over' | 'plus-lighter', // default source-over
-  unknownBackgroundAppearance?: 'coverage' | 'bright', // legacy API mirror
   clickEnabled?: boolean,        // default true
   trailEnabled?: boolean,        // default true
   trailAlways?: boolean,         // default false
@@ -180,7 +179,7 @@ Four orthogonal options further define transparent output over an unknown backgr
 | `hostCompositing: 'source-over'` | Default host contract; uses the alpha policy, colour compensation, and alpha limit above |
 | `hostCompositing: 'plus-lighter'` | Independent Add-payload contract for unknown backgrounds. The renderer emits the complete additive payload for the host to composite once with `plus-lighter`, so `overlayAlphaPolicy`, `overlayColorCompensation`, and `overlayAlphaLimit` are ignored |
 
-`unknownBackgroundAppearance` remains only as a legacy API mirror and should not be used by new integrations: the legacy input `'coverage'` maps to `overlayColorCompensation: 'none'`, while `'bright'` maps to `'bright-core'`; it never changes `overlayAlphaPolicy`. When one constructor call or `updateConfig()` patch supplies both old and new colour fields, `overlayColorCompensation` wins. `getConfig()` still exposes the legacy field only for old consumers; new code should read the two orthogonal fields.
+The old `unknownBackgroundAppearance` field has been removed from constructor options, `updateConfig()`, `getConfig()`, and the type declarations. Colour compensation is controlled only by `overlayColorCompensation`, while alpha allocation is controlled only by `overlayAlphaPolicy`; no compatibility mirror links the two settings.
 
 `plus-lighter` is only an SDR DOM-compositing approximation. It can saturate over white and varies with browser colour management and implementation details. Strict agreement with Unity's `Blend One One` and `Blend SrcAlpha One, One One` results requires the host to execute Add into a linear HDR render target; changing a CSS blend mode alone cannot provide that guarantee. When a compositing reference is active, the library returns to a normal `source-over` final output for the known Scene to avoid applying Add twice.
 

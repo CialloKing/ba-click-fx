@@ -872,7 +872,7 @@ encodeAdditiveBloom(
   null,
   {
     ...appearanceOptions,
-    unknownBackgroundAppearance: 'bright',
+    overlayColorCompensation: 'bright-core',
   },
 );
 encodeAdditiveBloom(
@@ -903,13 +903,13 @@ assert(
     brightAppearanceRgba[0] >= coverageAppearanceRgba[0] &&
     brightAppearanceRgba[1] > coverageAppearanceRgba[1] &&
     brightAppearanceRgba[2] > coverageAppearanceRgba[2],
-  'bright 只补偿独立高能 Bloom 通道且不改变 Coverage Alpha',
+  'bright-core 只补偿独立高能 Bloom 通道且不改变 Coverage Alpha',
 );
 assert(
   [0, 1, 2].every((channel) =>
     brightAppearanceRgba[channel] <= 255) &&
     additiveHostRgba[3] > 51,
-  'bright 保持预乘容量而宿主 Add 绕过网页 Alpha 上限',
+  'bright-core 保持预乘容量而宿主 Add 绕过网页 Alpha 上限',
 );
 
 const additivePremultiplied = [0, 1, 2].map((channel) =>
@@ -1004,13 +1004,13 @@ encodeAdditiveBloom(
   null,
   {
     ...lowEnergyOptions,
-    unknownBackgroundAppearance: 'bright',
+    overlayColorCompensation: 'bright-core',
   },
 );
 
 assert(
   arraysApproximatelyEqual(lowEnergyBrightRgba, lowEnergyCoverageRgba, 0),
-  'bright 的绝对能量门不会把低能拖尾尾端补成灰白色',
+  'bright-core 的绝对能量门不会把低能拖尾尾端补成灰白色',
 );
 
 const limitedCanvasData = new Uint8ClampedArray([

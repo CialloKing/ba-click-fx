@@ -2004,7 +2004,7 @@ export class WebGL2BloomRenderer
     );
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_brightUnknownBackground'),
-      settings.unknownBackgroundAppearance === 'bright' ? 1 : 0,
+      settings.overlayColorCompensation === 'bright-core' ? 1 : 0,
     );
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_hostAdditive'),

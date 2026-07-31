@@ -926,7 +926,7 @@ export function encodeAdditiveBloom(
     options?.hostCompositing === 'plus-lighter';
   const brightUnknownBackground = transparentOverlay &&
     !hostAdditive &&
-    options?.unknownBackgroundAppearance === 'bright';
+    options?.overlayColorCompensation === 'bright-core';
   const coverage = transparentOverlay ? options?.coverage : null;
   const sceneCoverage = transparentOverlay
     ? options?.sceneCoverage
@@ -2002,7 +2002,7 @@ export class SoftwareBloomRenderer
       edgeCorrection,
       {
         outputCompositing: settings.outputCompositing,
-        unknownBackgroundAppearance: settings.unknownBackgroundAppearance,
+        overlayColorCompensation: settings.overlayColorCompensation,
         hostCompositing: settings.hostCompositing,
         overlayAlphaLimit: settings.overlayAlphaLimit,
         deferOverlayAlphaLimit: true,

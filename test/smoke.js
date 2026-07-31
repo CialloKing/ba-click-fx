@@ -2768,7 +2768,7 @@ const fullOverlayFrame = captureTransparentSoftwareFrame(1);
 const brightOverlayFrame = captureTransparentSoftwareFrame(
   1,
   {
-    unknownBackgroundAppearance: 'bright',
+    overlayColorCompensation: 'bright-core',
     overlayAlphaLimit: 0.7,
   },
 );
@@ -2827,8 +2827,8 @@ assert(
   '透明覆盖层保留 Contrast 配置但不绘制额外桌面遮挡',
 );
 assert(
-  brightOverlayFrame.compositeSettings?.unknownBackgroundAppearance ===
-      'bright' &&
+  brightOverlayFrame.compositeSettings?.overlayColorCompensation ===
+      'bright-core' &&
     brightOverlayFrame.compositeSettings?.overlayAlphaLimit === 0.7 &&
     brightOverlayFrame.compositeSettings?.hostCompositing === 'source-over',
   'Software Bloom 接收独立外观、Alpha 上限和有效宿主合成设置',
@@ -2918,7 +2918,7 @@ assert(
 compositingSwitchEffect.lastSoftwareBloomFrame = { canvas: {} };
 compositingSwitchEffect.updateConfig(
   {
-    unknownBackgroundAppearance: 'bright',
+    overlayColorCompensation: 'bright-core',
     overlayAlphaLimit: 0.7,
     hostCompositing: 'source-over',
   },
@@ -2926,7 +2926,7 @@ compositingSwitchEffect.updateConfig(
 const switchedCompositingConfig = compositingSwitchEffect.getConfig();
 
 assert(
-  switchedCompositingConfig.unknownBackgroundAppearance === 'bright' &&
+  switchedCompositingConfig.overlayColorCompensation === 'bright-core' &&
     switchedCompositingConfig.overlayAlphaLimit === 0.7 &&
     switchedCompositingConfig.hostCompositing === 'source-over' &&
     compositingSwitchEffect.lastSoftwareBloomFrame === null &&
@@ -2937,14 +2937,14 @@ assert(
 
 compositingSwitchEffect.updateConfig(
   {
-    unknownBackgroundAppearance: 'auto',
+    overlayColorCompensation: 'bright',
     overlayAlphaLimit: Number.NaN,
     hostCompositing: 'screen',
   },
 );
 assert(
-  compositingSwitchEffect.getConfig().unknownBackgroundAppearance ===
-      'bright' &&
+  compositingSwitchEffect.getConfig().overlayColorCompensation ===
+      'bright-core' &&
     compositingSwitchEffect.getConfig().overlayAlphaLimit === 0.7 &&
     compositingSwitchEffect.getConfig().hostCompositing === 'source-over',
   'updateConfig 忽略非法透明合同值并保留上一份有效配置',

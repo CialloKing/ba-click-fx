@@ -16,8 +16,6 @@ const OUTPUT_COMPOSITING_MODES = new Set([
   'scene',
   'browser-overlay',
 ]);
-const DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE = 'coverage';
-const UNKNOWN_BACKGROUND_APPEARANCES = new Set(['coverage', 'bright']);
 const DEFAULT_OVERLAY_ALPHA_LIMIT = 250 / 255;
 const DEFAULT_HOST_COMPOSITING = 'source-over';
 const HOST_COMPOSITING_MODES = new Set(['source-over', 'plus-lighter']);
@@ -27,7 +25,6 @@ const DEFAULT_OVERLAY_COLOR_COMPENSATION = 'none';
 import {
   isOverlayAlphaPolicy,
   isOverlayColorCompensation,
-  mapUnknownBackgroundAppearance,
   normalizeOverlayAlphaPolicy,
   normalizeOverlayColorCompensation,
 } from './overlay-compositing.js';
@@ -981,8 +978,6 @@ export const CONFIG = Object.freeze(
     trailTimeScale: 1,
     // 默认保留 Unity Scene 合成；透明桌面宿主必须显式选择覆盖层输出。
     outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
-    // Coverage 保持透明宿主合同；Bright 由渲染器显式选择更明亮的兼容载荷。
-    unknownBackgroundAppearance: DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE,
     // Alpha 分配和颜色补偿是两个独立开关；默认保持现有 Coverage 合同。
     overlayAlphaPolicy: DEFAULT_OVERLAY_ALPHA_POLICY,
     overlayColorCompensation: DEFAULT_OVERLAY_COLOR_COMPENSATION,
@@ -1043,19 +1038,6 @@ export function normalizeOutputCompositing(
 )
 {
   return isOutputCompositing(value) ? value : fallback;
-}
-
-export function isUnknownBackgroundAppearance(value)
-{
-  return UNKNOWN_BACKGROUND_APPEARANCES.has(value);
-}
-
-export function normalizeUnknownBackgroundAppearance(
-  value,
-  fallback = DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE,
-)
-{
-  return isUnknownBackgroundAppearance(value) ? value : fallback;
 }
 
 export { isOverlayAlphaPolicy, isOverlayColorCompensation };
@@ -1138,6 +1120,11 @@ export function normalizeThemeColor(value, fallback = DEFAULT_THEME_COLOR)
  */
 export function createConfig(overrides = {})
 {
+  const supportedOverrides = { ...overrides };
+
+  // 该旧字段已经从公共合同删除；createConfig 会保留其他宿主扩展键，
+  // 因此必须在展开 overrides 前显式剔除，避免它继续出现在配置快照中。
+  delete supportedOverrides.unknownBackgroundAppearance;
   let bloomBackend = CONFIG.bloomBackend;
 
   if (isBloomBackend(overrides.bloomBackend))
@@ -1173,22 +1160,13 @@ export function createConfig(overrides = {})
     overrides.outputCompositing,
     CONFIG.outputCompositing,
   );
-  const unknownBackgroundAppearance = normalizeUnknownBackgroundAppearance(
-    overrides.unknownBackgroundAppearance,
-    CONFIG.unknownBackgroundAppearance,
-  );
   const overlayAlphaPolicy = normalizeOverlayAlphaPolicyConfig(
     overrides.overlayAlphaPolicy,
     CONFIG.overlayAlphaPolicy,
   );
   const overlayColorCompensation = normalizeOverlayColorCompensationConfig(
     overrides.overlayColorCompensation,
-    Object.prototype.hasOwnProperty.call(
-      overrides,
-      'overlayColorCompensation',
-    )
-      ? CONFIG.overlayColorCompensation
-      : mapUnknownBackgroundAppearance(unknownBackgroundAppearance),
+    CONFIG.overlayColorCompensation,
   );
   const overlayAlphaLimit = normalizeOverlayAlphaLimit(
     overrides.overlayAlphaLimit,
@@ -1205,13 +1183,12 @@ export function createConfig(overrides = {})
 
   return {
     ...CONFIG,
-    ...overrides,
+    ...supportedOverrides,
     inputSource,
     effectBackend,
     clickTimeScale,
     trailTimeScale,
     outputCompositing,
-    unknownBackgroundAppearance,
     overlayAlphaPolicy,
     overlayColorCompensation,
     overlayAlphaLimit,

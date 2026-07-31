@@ -6,8 +6,6 @@ declare module 'ba-click-fx'
   /** Scene 精确路径或普通网页透明覆盖层输出。 */
   export type BAClickFXOutputCompositing =
     'scene' | 'browser-overlay';
-  /** 未知背景 source-over 载荷的 Coverage 优先或浅色背景视觉近似。 */
-  export type BAClickFXUnknownBackgroundAppearance = 'coverage' | 'bright';
   /** 网页覆盖层 Alpha 使用独立传输和，或恢复旧版最大传输分配。 */
   export type BAClickFXOverlayAlphaPolicy = 'coverage' | 'visual-max';
   /** 未知背景颜色不补偿，或仅补偿高能核心。 */
@@ -78,12 +76,6 @@ declare module 'ba-click-fx'
      * setCompositingReference()；透明桌面的未知背景使用 'browser-overlay'。
      */
     outputCompositing?: BAClickFXOutputCompositing;
-    /**
-     * 未知背景 source-over 的外观，默认 'coverage'。'bright' 按独立的
-     * 清晰发射和 Bloom 能量门控补偿，是未知浅色背景的视觉近似。
-     * hostCompositing 为 'plus-lighter' 时忽略此项。
-     */
-    unknownBackgroundAppearance?: BAClickFXUnknownBackgroundAppearance;
     /** browser-overlay 的 Alpha 分配策略，默认 'coverage'。 */
     overlayAlphaPolicy?: BAClickFXOverlayAlphaPolicy;
     /** 未知背景的颜色补偿，默认 'none'。 */
@@ -143,7 +135,6 @@ declare module 'ba-click-fx'
     opacity: number;
     themeColor: string;
     outputCompositing: BAClickFXOutputCompositing;
-    unknownBackgroundAppearance: BAClickFXUnknownBackgroundAppearance;
     overlayAlphaPolicy: BAClickFXOverlayAlphaPolicy;
     overlayColorCompensation: BAClickFXOverlayColorCompensation;
     overlayAlphaLimit: number;

@@ -45,16 +45,6 @@ export function normalizeOverlayColorCompensation(
   return isOverlayColorCompensation(value) ? value : fallback;
 }
 
-export function mapUnknownBackgroundAppearance(value)
-{
-  return value === 'bright' ? 'bright-core' : 'none';
-}
-
-export function mapOverlayColorCompensation(value)
-{
-  return value === 'bright-core' ? 'bright' : 'coverage';
-}
-
 export function resolveOverlayRequestedAlpha(
   sceneCoverage,
   bloomTransportAlpha,

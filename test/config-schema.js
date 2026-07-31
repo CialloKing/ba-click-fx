@@ -17,13 +17,11 @@ import {
   isOverlayAlphaPolicy,
   isOverlayColorCompensation,
   isOverlayAlphaLimit,
-  isUnknownBackgroundAppearance,
   normalizeHostCompositing,
   normalizeOverlayAlphaLimit,
   normalizeOverlayAlphaPolicyConfig,
   normalizeOverlayColorCompensationConfig,
   normalizeThemeColor,
-  normalizeUnknownBackgroundAppearance,
 } from '../src/config.js';
 
 let passed = 0;
@@ -215,8 +213,7 @@ check(
 
 console.log('\n透明合成配置合同');
 check(
-  CONFIG.unknownBackgroundAppearance === 'coverage' &&
-    CONFIG.overlayAlphaPolicy === 'coverage' &&
+  CONFIG.overlayAlphaPolicy === 'coverage' &&
     CONFIG.overlayColorCompensation === 'none' &&
     CONFIG.overlayAlphaLimit === 250 / 255 &&
     CONFIG.hostCompositing === 'source-over',
@@ -235,13 +232,6 @@ check(
     !isOverlayColorCompensation('bright') &&
     normalizeOverlayColorCompensationConfig('invalid') === 'none',
   '颜色补偿只接受 none 与 bright-core',
-);
-check(
-  isUnknownBackgroundAppearance('coverage') &&
-    isUnknownBackgroundAppearance('bright') &&
-    !isUnknownBackgroundAppearance('auto') &&
-    normalizeUnknownBackgroundAppearance('invalid') === 'coverage',
-  '未知背景外观只接受 coverage 与 bright',
 );
 check(
   isHostCompositing('source-over') &&
@@ -269,47 +259,45 @@ check(
 
 const transparentCompositingConfig = createConfig(
   {
-    unknownBackgroundAppearance: 'bright',
     overlayAlphaPolicy: 'visual-max',
+    overlayColorCompensation: 'bright-core',
     overlayAlphaLimit: 2,
     hostCompositing: 'plus-lighter',
   },
 );
 const invalidTransparentCompositingConfig = createConfig(
   {
-    unknownBackgroundAppearance: 'auto',
+    overlayColorCompensation: 'bright',
     overlayAlphaLimit: '0.5',
     hostCompositing: 'screen',
   },
 );
 
 check(
-  transparentCompositingConfig.unknownBackgroundAppearance === 'bright' &&
-    transparentCompositingConfig.overlayAlphaPolicy === 'visual-max' &&
+  transparentCompositingConfig.overlayAlphaPolicy === 'visual-max' &&
     transparentCompositingConfig.overlayColorCompensation === 'bright-core' &&
     transparentCompositingConfig.overlayAlphaLimit === 1 &&
     transparentCompositingConfig.hostCompositing === 'plus-lighter',
   '构造配置保留合法透明合成选项并钳制 Alpha',
 );
-const explicitOverlayContract = createConfig(
-  {
-    overlayColorCompensation: 'none',
-    unknownBackgroundAppearance: 'bright',
-  },
-);
 check(
-  explicitOverlayContract.overlayColorCompensation === 'none' &&
-    explicitOverlayContract.unknownBackgroundAppearance === 'bright',
-  '显式颜色补偿优先于旧外观字段',
-);
-check(
-  invalidTransparentCompositingConfig.unknownBackgroundAppearance ===
-      CONFIG.unknownBackgroundAppearance &&
+  invalidTransparentCompositingConfig.overlayColorCompensation ===
+      CONFIG.overlayColorCompensation &&
     invalidTransparentCompositingConfig.overlayAlphaLimit ===
       CONFIG.overlayAlphaLimit &&
     invalidTransparentCompositingConfig.hostCompositing ===
       CONFIG.hostCompositing,
   '构造配置拒绝非法透明合成选项和非数值 Alpha',
+);
+
+const removedAppearanceConfig = createConfig(
+  { unknownBackgroundAppearance: 'bright' },
+);
+
+check(
+  !Object.hasOwn(removedAppearanceConfig, 'unknownBackgroundAppearance') &&
+    removedAppearanceConfig.overlayColorCompensation === 'none',
+  '已删除的未知背景外观字段不再映射或进入配置快照',
 );
 
 console.log(`\n参数 Schema 测试完成：${passed} 项通过。`);
