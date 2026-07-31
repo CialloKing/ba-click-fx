@@ -201,11 +201,11 @@ new BAClickFX(options?: {
 
 旧的 `unknownBackgroundAppearance` 已从构造参数、`updateConfig()`、`getConfig()` 和类型声明中删除。颜色补偿只由 `overlayColorCompensation` 控制，Alpha 分配只由 `overlayAlphaPolicy` 控制，两者不会再通过兼容镜像隐式联动。
 
-`plus-lighter` 只是 SDR DOM 合成近似，可能在白底饱和，并受浏览器色彩管理和实现差异影响。要严格匹配 Unity 的 `Blend One One`、`Blend SrcAlpha One, One One` 等加色结果，宿主必须在线性 HDR Render Target 中执行 Add；仅切换 CSS 混合模式不能提供这项保证。若已激活合成参考，库会回到已知 Scene 的普通 `source-over` 最终输出，避免重复加色。
+`plus-lighter` 只是 SDR DOM 合成近似，可能在白底饱和，并受浏览器色彩管理和实现差异影响。库创建覆盖层时会在完整图层组上执行一次 `plus-lighter`；若 `target` 是调用方传入的 `<canvas>`，库只输出独立 Add 载荷，不会修改该元素的 `mix-blend-mode`，最终 CSS、WebView 或原生合成由宿主负责。要严格匹配 Unity 的 `Blend One One`、`Blend SrcAlpha One, One One` 等加色结果，宿主必须在线性 HDR Render Target 中执行 Add；仅切换 CSS 混合模式不能提供这项保证。若已激活合成参考，库会回到已知 Scene 的普通 `source-over` 最终输出，避免重复加色。
 
 `isolatedCompositing` 默认是 `false`，各 Canvas 直接挂载到目标容器或页面。设为 `true` 后，库拥有的主特效层、WebGL2 层和浅色背景兼容层会先在透明隔离组内解析，再将整个组覆盖到页面上，避免浏览器分别把兼容层与纯白页面合成后丢失蓝青色对比。默认 `source-over` 合同不会在外层再次使用 CSS 加色；只有显式选择独立 Add 载荷时，完整图层组才执行一次 `plus-lighter`。隔离合成是非游戏的网页白底兼容选项，可通过 `updateConfig()` 在运行时切换。
 
-纯 WebGL2、WebGL2 Bloom、场景背景 Final Pass 和隔离合成都需要库拥有 DOM 覆盖层。若 `target` 是一个已有的 `<canvas>`，库无法安全插入额外的 WebGL2、对比或隔离层，因此完整特效的 `'webgl2'` / `'auto'` 会回退 `canvas2d`，Bloom 的 `'webgl2'` / `'auto'` 会回退软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回降级后的实际配置。默认全屏覆盖层不受此限制。普通容器也可以使用，但容器必须自行建立定位上下文（通常设置 `position: relative`），库不会静默修改宿主样式。
+纯 WebGL2、WebGL2 Bloom、场景背景 Final Pass 和隔离合成都需要库拥有 DOM 覆盖层。若 `target` 是一个已有的 `<canvas>`，库无法安全插入额外的 WebGL2、对比或隔离层，因此完整特效的 `'webgl2'` / `'auto'` 会回退 `canvas2d`，Bloom 的 `'webgl2'` / `'auto'` 会回退软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回降级后的实际配置。外部 Canvas 的 CSS 所有权始终属于调用方，包括 `hostCompositing: 'plus-lighter'` 所需的最终混合样式。默认全屏覆盖层不受此限制。普通容器也可以使用，但容器必须自行建立定位上下文（通常设置 `position: relative`），库不会静默修改宿主样式。
 
 隔离根按 `BAClickFX` 实例独立创建和销毁。同一页面的多个隔离实例不会跨根混合内部兼容层；一个实例切换模式或销毁也不会移动、删除其他实例的 Canvas。
 

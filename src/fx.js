@@ -6188,11 +6188,8 @@ export class BAClickFX
 
     if (!this.ownsCanvas)
     {
-      // 外部 Canvas 没有可包装的内部图层组；显式 API 仍应把宿主 Add
-      // 应用到实际输出元素，调用方可在原生宿主中覆盖这一 CSS 能力。
-      this.canvas.style.mixBlendMode = hostAdditive
-        ? 'plus-lighter'
-        : '';
+      // 外部 Canvas 的样式归调用方所有。渲染器仍按 hostCompositing 输出
+      // 完整 Add 载荷，但 CSS、WebView 或原生宿主的最终混合由调用方执行。
       return;
     }
 

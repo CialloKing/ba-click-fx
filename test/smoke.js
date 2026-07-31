@@ -4764,13 +4764,16 @@ assert(
 directWebGLEffect.destroy();
 
 const externalCanvas = new CanvasMock();
+externalCanvas.style.mixBlendMode = 'screen';
 const externalWebGLEffect = new BAClickFX(
   {
     target: externalCanvas,
     bloomBackend: 'webgl2',
+    outputCompositing: 'browser-overlay',
+    hostCompositing: 'plus-lighter',
   },
 );
-const canvasCountBeforeExternalFallback = dom.createdCanvases.length;
+const canvasMountCountBeforeExternalFallback = dom.canvasMounts.length;
 
 assert(
   externalWebGLEffect.getConfig().resolvedBloomBackend === 'software',
@@ -4779,6 +4782,17 @@ assert(
 assert(
   externalWebGLEffect.getConfig().isolatedCompositing === false,
   '已有 Canvas target 明确降级为直接合成',
+);
+assert(
+  externalWebGLEffect._getCanvasOutputCompositing() === 'host-additive' &&
+    externalCanvas.style.mixBlendMode === 'screen',
+  '外部 Canvas 输出完整 Add 载荷但不覆盖调用方的混合样式',
+);
+externalWebGLEffect.updateConfig({ hostCompositing: 'source-over' });
+externalWebGLEffect.updateConfig({ hostCompositing: 'plus-lighter' });
+assert(
+  externalCanvas.style.mixBlendMode === 'screen',
+  '运行时切换宿主合成不会修改外部 Canvas 样式',
 );
 externalWebGLEffect.updateConfig({ isolatedCompositing: true });
 assert(
@@ -4808,13 +4822,16 @@ flushFrames(dom, performance.now(), 1);
 const externalFallbackConfig = externalWebGLEffect.getConfig();
 
 assert(
-  dom.createdCanvases.length === canvasCountBeforeExternalFallback &&
+  dom.canvasMounts.length === canvasMountCountBeforeExternalFallback &&
     externalWebGLEffect.webglBloomCanvas === null &&
     externalFallbackConfig.resolvedBloomBackend === 'software',
   '已有 Canvas target 无法插入独立 GPU 层时直接回退软件 Bloom',
 );
 externalWebGLEffect.destroy();
-assert(!externalCanvas.removed, '销毁实例不会移除调用方传入的 Canvas');
+assert(
+  !externalCanvas.removed && externalCanvas.style.mixBlendMode === 'screen',
+  '销毁实例不会移除外部 Canvas 或改写调用方混合样式',
+);
 
 const compatibilityEffect = new BAClickFX(
   {

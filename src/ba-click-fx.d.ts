@@ -88,8 +88,9 @@ declare module 'ba-click-fx'
     overlayAlphaLimit?: number;
     /**
      * 覆盖层与宿主的合成方式，默认 'source-over'。'plus-lighter' 使用独立
-     * Add 载荷并由 DOM 执行 SDR 近似；严格 Unity 一致要求宿主在线性 HDR
-     * 目标中执行 Add。已激活已知合成参考时实际输出恢复 source-over。
+     * Add 载荷；库自有覆盖层会由 DOM 执行 SDR 近似，外部 Canvas 的样式
+     * 不会被修改，调用方必须完成最终混合。严格 Unity 一致要求宿主在线性
+     * HDR 目标中执行 Add。已激活已知合成参考时实际输出恢复 source-over。
      */
     hostCompositing?: BAClickFXHostCompositing;
     clickEnabled?: boolean;
