@@ -37,9 +37,14 @@ const OPACITY_LINEAR_RADIAL_SAMPLE_INDEX = 5;
 // Bright Pass 会让半透明外围先跌破阈值；平均覆盖面积不要求严格 0.5，
 // 径向探针与最大 Alpha 仍保留更严格的线性约束。
 const MINIMUM_BLOOM_MEAN_ALPHA_RATIO = 0.25;
-// DPR2 会解析出更多接近 2/255 可见阈值的 Bloom 边缘；中心、峰值和
-// CSS 包围盒另有独立断言，因此这里只为全画面均值保留少量量化余量。
-const MAXIMUM_DPR_MEAN_DIFFERENCE = 0.28;
+// Unity 按物理渲染尺寸计算 Bloom 迭代数；DPR2 可能比 DPR1 多一个 mip，
+// 因此默认配置的全画面均值不要求逐像素相等。
+const MAXIMUM_DPR_MEAN_DIFFERENCE = 0.27;
+// Software 在低 DPR 还会经过 RGBA8 光栅、回读和缩放，Alpha 均值需要
+// 独立容差；颜色能量仍使用通用约束，不能全局放宽所有后端。
+const MAXIMUM_SOFTWARE_DPR_MEAN_ALPHA_DIFFERENCE = 0.29;
+const MAXIMUM_DPR_CORE_ALPHA_DIFFERENCE = 2 / 255;
+const MAXIMUM_DPR_RADIAL_ALPHA_DIFFERENCE = 0.12;
 const metrics =
 {
   environment: {},
@@ -386,9 +391,13 @@ function validateDprPair(dprOne, dprTwo, label)
 {
   const first = dprOne.pixels.transparent;
   const second = dprTwo.pixels.transparent;
-  // Bloom 边缘以 2/255 的离散可见阈值统计；完整纹理会让不同 DPR 的
-  // 亚像素采样在大范围低能边缘产生少量差异；中心、峰值与
-  // CSS 包围盒由其他断言独立防止真正的缩放错误。
+  const meanAlphaTolerance = label.startsWith('software-bloom/')
+    ? MAXIMUM_SOFTWARE_DPR_MEAN_ALPHA_DIFFERENCE
+    : MAXIMUM_DPR_MEAN_DIFFERENCE;
+  const radialProbeDifferences = [5, 6].map((index) =>
+    Math.abs(first.radialAlpha[index] - second.radialAlpha[index]));
+  // 可见包围盒才使用 2/255 阈值；均值会累计全部像素，并允许 Unity
+  // 因物理分辨率改变 mip 数。核心与固定 CSS 半径探针另行约束真实缩放。
   const widthTolerance = Math.max(
     16,
     Math.max(first.bounds.width, second.bounds.width) * 0.08,
@@ -400,11 +409,12 @@ function validateDprPair(dprOne, dprTwo, label)
 
   assert(
     relativeDifference(first.meanAlpha, second.meanAlpha) <=
-      MAXIMUM_DPR_MEAN_DIFFERENCE,
+      meanAlphaTolerance,
     `${label}: DPR 归一化 Alpha 偏差过大`,
     {
       dpr1: first,
       dpr2: second,
+      tolerance: meanAlphaTolerance,
     },
   );
   assert(
@@ -414,6 +424,29 @@ function validateDprPair(dprOne, dprTwo, label)
     {
       dpr1: first,
       dpr2: second,
+    },
+  );
+  assert(
+    Math.abs(first.maximumAlpha - second.maximumAlpha) <=
+      MAXIMUM_DPR_CORE_ALPHA_DIFFERENCE &&
+      Math.abs(first.center[3] - second.center[3]) / 255 <=
+        MAXIMUM_DPR_CORE_ALPHA_DIFFERENCE,
+    `${label}: DPR 改变了点击核心 Alpha`,
+    {
+      dpr1Center: first.center,
+      dpr1MaximumAlpha: first.maximumAlpha,
+      dpr2Center: second.center,
+      dpr2MaximumAlpha: second.maximumAlpha,
+    },
+  );
+  assert(
+    radialProbeDifferences.every((difference) =>
+      difference <= MAXIMUM_DPR_RADIAL_ALPHA_DIFFERENCE),
+    `${label}: DPR 改变了点击径向 Alpha 轮廓`,
+    {
+      dpr1: first.radialAlpha,
+      dpr2: second.radialAlpha,
+      probeDifferences: radialProbeDifferences,
     },
   );
   assert(
@@ -828,7 +861,6 @@ function validateTransparentContractTransitions(mode, phases)
   assert(
     brightCore.config.overlayAlphaPolicy === 'visual-max' &&
       brightCore.config.overlayColorCompensation === 'bright-core' &&
-      brightCore.config.unknownBackgroundAppearance === 'bright' &&
       Math.abs(
         brightCorePixels.meanAlpha - visualMaxPixels.meanAlpha,
       ) <= 0.002 &&
@@ -874,7 +906,6 @@ function validateTransparentContractTransitions(mode, phases)
   assert(
     roundTrip.config.overlayAlphaPolicy === 'coverage' &&
       roundTrip.config.overlayColorCompensation === 'none' &&
-      roundTrip.config.unknownBackgroundAppearance === 'coverage' &&
       roundTrip.config.hostCompositing === 'source-over' &&
       relativeDifference(
         roundTripPixels.meanAlpha,
@@ -3978,7 +4009,7 @@ async function runTransparentCompositingTransitions(page, mode)
     brightDifference.changedPixels >= 4 &&
       brightDifference.maximumChannelIncrease >= 2 &&
       brightDifference.maximumChannelDrop <= 1,
-    `${mode}: bright 热切换没有改善纯白背景可见性`,
+    `${mode}: bright-core 热切换没有改善纯白背景可见性`,
     brightDifference,
   );
 

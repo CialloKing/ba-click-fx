@@ -809,10 +809,8 @@ async function prepareEffect(specification)
     bloomBackend: mode.bloomBackend,
   };
 
-  // 只把调用方实际提供的透明配置传入；传入 undefined 会让归一化器把
-  // 兼容字段误认为已被新字段覆盖，破坏 unknownBackgroundAppearance 映射。
+  // 只把调用方实际提供的透明配置传入，避免 undefined 覆盖默认合同。
   for (const key of [
-    'unknownBackgroundAppearance',
     'overlayAlphaPolicy',
     'overlayAlphaLimit',
     'overlayColorCompensation',
@@ -1116,7 +1114,6 @@ function captureTransparentContractPhase(effect, target)
       overlayAlphaPolicy: snapshot.overlayAlphaPolicy,
       overlayAlphaLimit: snapshot.overlayAlphaLimit,
       overlayColorCompensation: snapshot.overlayColorCompensation,
-      unknownBackgroundAppearance: snapshot.unknownBackgroundAppearance,
     },
     route:
     {
@@ -1180,7 +1177,6 @@ async function transitionTransparentContract(specification = {})
     'overlayAlphaPolicy',
     'overlayAlphaLimit',
     'overlayColorCompensation',
-    'unknownBackgroundAppearance',
   ])
   {
     if (
@@ -1390,7 +1386,6 @@ function captureCompositingState(effect, target)
     overlayAlphaLimit: snapshot.overlayAlphaLimit,
     overlayColorCompensation: snapshot.overlayColorCompensation,
     overlayRootBlendMode: effect.overlayRoot?.style.mixBlendMode ?? '',
-    unknownBackgroundAppearance: snapshot.unknownBackgroundAppearance,
     overlayParentIsTarget: effect.overlayParent === target,
     overlayRootConnected: effect.overlayRoot?.isConnected === true,
     allCanvasLayersAbsolute: canvases.every((canvas) =>
@@ -1463,7 +1458,6 @@ async function runContextLifecycle(specification)
       outputCompositing: 'browser-overlay',
       overlayAlphaPolicy: options.overlayAlphaPolicy,
       overlayColorCompensation: options.overlayColorCompensation,
-      unknownBackgroundAppearance: options.unknownBackgroundAppearance,
       overlayAlphaLimit: options.overlayAlphaLimit,
       hostCompositing: options.hostCompositing,
       shadow: false,
@@ -1535,8 +1529,6 @@ async function runContextLifecycle(specification)
       overlayAlphaPolicy: beforeRoute.overlayAlphaPolicy,
       overlayAlphaLimit: beforeRoute.overlayAlphaLimit,
       overlayColorCompensation: beforeRoute.overlayColorCompensation,
-      unknownBackgroundAppearance:
-        beforeRoute.unknownBackgroundAppearance,
     },
     before: before.pixels,
     fallback: fallback.pixels,
