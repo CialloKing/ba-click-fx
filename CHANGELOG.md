@@ -5,6 +5,9 @@
 - 以 `setCompositingReference(source, { fit: 'cover' })` 取代场景背景布尔开关；传入匹配当前页面的栅格参考可获得精确合成，传入 `null` 则明确使用未知透明背景兼容路径
 - 展示页将页面 CSS 背景与渲染器合成参考分离，改为“匹配当前页面（精确）”和“未知透明背景（兼容）”两种可见模式，避免背景选择隐式改变输出合同
 - 迁移类型声明、发布校验和浏览器像素回归到新 API，覆盖完整 WebGL2、回退链与两种合成参考模式
+- 正式收敛透明合成 API：`outputCompositing: 'scene' | 'browser-overlay'`、`unknownBackgroundAppearance: 'coverage' | 'bright'`、默认 `overlayAlphaLimit: 250 / 255`，以及 `hostCompositing: 'source-over' | 'plus-lighter'`
+- `browser-overlay + coverage` 作为未知背景默认透明合同，保持 Coverage、生命周期 Alpha、发射能量与 Bloom 能量彼此独立；`bright` 使用能量门控的浅色背景视觉近似，同时保持预乘约束，不恢复用最终 RGB 反推 Alpha 的旧算法
+- `plus-lighter` 改为独立 Add 载荷合同并忽略 Bright 与 Alpha 上限；CSS 合成仅作为 SDR DOM 近似，严格 Unity 加色仍要求宿主在线性 HDR 目标中执行 Add，已知背景继续使用 `scene + setCompositingReference()` 精确路径
 
 ## v1.2.15 — 参数契约与透明覆盖层收敛
 

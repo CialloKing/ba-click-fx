@@ -127,6 +127,9 @@ new BAClickFX(options?: {
   opacity?: number,              // default 1
   themeColor?: string,           // six-digit hex, default #4ca7ff
   outputCompositing?: 'scene' | 'browser-overlay', // default scene
+  unknownBackgroundAppearance?: 'coverage' | 'bright', // default coverage
+  overlayAlphaLimit?: number,    // overlay alpha limit, default 250/255
+  hostCompositing?: 'source-over' | 'plus-lighter', // default source-over
   clickEnabled?: boolean,        // default true
   trailEnabled?: boolean,        // default true
   trailAlways?: boolean,         // default false
@@ -161,9 +164,21 @@ The demo exposes Isolated Compositing as a separate switch beside the five rende
 
 To preserve the already reviewed colour, transparency, and edge sampling, a successful WebGL2 Bloom frame intentionally reuses the complete `WebGL2EffectRenderer` Scene instead of uploading an 8-bit Canvas Scene. It therefore uses the same shaders and pixel pipeline as Full WebGL2 and does not pre-rasterise a Canvas that will be hidden. The distinction is the compatibility contract: WebGL2 Bloom retains the `effectBackend: 'canvas2d'` request and its Software / Native fallback chain, while Full WebGL2 is owned directly by the complete-effect backend.
 
-`outputCompositing: 'scene'` is the default and preserves Unity's direct additive RGB semantics for a known Scene render target; the demo and integrations that require strict game reproduction should use this mode. `'browser-overlay'` must be selected explicitly by transparent desktop hosts such as BASpark, WebView2, and Electron: HDR RGB still drives Bloom, while final alpha comes from geometry Coverage, lifetime alpha, and `opacity`, preventing a high-HDR centre disk from fully occluding the desktop. It does not alter Bloom thresholds or emission strength.
+`outputCompositing: 'scene'` is the default and preserves Unity's direct additive RGB semantics for a Scene render target. The demo and integrations that require strict game reproduction should use it together with a `setCompositingReference()` image that pixel-matches the displayed background; this is the contract under which the complete WebGL2 path evaluates Scene RGB precisely. `'browser-overlay'` is selected explicitly by transparent desktop hosts such as BASpark, WebView2, and Electron. HDR emission and Bloom energy remain independent, while final alpha is no longer inferred from the largest final RGB channel.
 
-`isolatedCompositing` defaults to `false`, so canvases mount directly into the target or page. With `true`, the library-owned main FX canvas, WebGL2 canvases, and light-background compatibility canvas resolve inside one transparent isolated group before that group is composited over the page. This prevents the browser from resolving compatibility layers independently against pure white and losing cyan-blue contrast. Each renderer already performs Unity's additive work internally and emits premultiplied alpha, so the outer layer no longer uses CSS `plus-lighter`, which would brighten the result a second time. Isolated compositing is a non-game web compatibility option and can be changed at runtime through `updateConfig()`.
+Three options further define transparent output over an unknown background:
+
+| Configuration | Contract |
+|---|---|
+| `unknownBackgroundAppearance: 'coverage'` | Default transparent contract. Alpha comes only from geometry Coverage, lifetime alpha, `opacity`, and the final limit, while emission and Bloom energy remain independent. Use it when stable occlusion and cross-backend continuity matter most |
+| `unknownBackgroundAppearance: 'bright'` | A visual approximation for unknown light backgrounds. Compensation is gated by separate crisp-emission and Bloom energy instead of mixing all RGB towards white or deriving alpha from `maxRGB`. It preserves the premultiplied `RGB <= Alpha` constraint, but does not claim pixel equivalence with Unity |
+| `overlayAlphaLimit` | Final alpha capacity for `browser-overlay + source-over`, default `250 / 255`, with finite values clamped to `0..1`. Premultiplied RGB contracts proportionally when capacity is insufficient. The option does not change effect `opacity`, HDR emission strength, or Bloom strength |
+| `hostCompositing: 'source-over'` | Default host contract; uses the Coverage/Bright appearance and alpha limit above |
+| `hostCompositing: 'plus-lighter'` | Independent Add-payload contract for unknown backgrounds. The renderer emits the complete additive payload for the host to composite once with `plus-lighter`, so `unknownBackgroundAppearance` and `overlayAlphaLimit` are ignored |
+
+`plus-lighter` is only an SDR DOM-compositing approximation. It can saturate over white and varies with browser colour management and implementation details. Strict agreement with Unity's `Blend One One` and `Blend SrcAlpha One, One One` results requires the host to execute Add into a linear HDR render target; changing a CSS blend mode alone cannot provide that guarantee. When a compositing reference is active, the library returns to a normal `source-over` final output for the known Scene to avoid applying Add twice.
+
+`isolatedCompositing` defaults to `false`, so canvases mount directly into the target or page. With `true`, the library-owned main FX canvas, WebGL2 canvases, and light-background compatibility canvas resolve inside one transparent isolated group before that group is composited over the page. This prevents the browser from resolving compatibility layers independently against pure white and losing cyan-blue contrast. The default `source-over` contract does not apply CSS Add again at the outer boundary; only an explicitly selected Add-payload contract composites the complete layer group once with `plus-lighter`. Isolated compositing is a non-game web compatibility option and can be changed at runtime through `updateConfig()`.
 
 Full WebGL2, WebGL2 Bloom, scene-background Final Passes, and isolated compositing require a library-owned DOM overlay. When `target` is an existing `<canvas>`, the library cannot safely insert the extra WebGL2, contrast, or isolation layers: Full Effect `'webgl2'` / `'auto'` falls back to `canvas2d`, Bloom `'webgl2'` / `'auto'` falls back to Software Bloom, and `isolatedCompositing` is forced to `false`. `getConfig()` reports these effective values. The default fullscreen overlay has no such limitation. A regular container is also supported, but it must establish its own positioning context, normally with `position: relative`; the library does not silently modify host styles.
 
@@ -187,15 +202,20 @@ const fx = new BAClickFX(
   effectBackend: 'webgl2',
   bloomBackend: 'webgl2',
   outputCompositing: 'browser-overlay',
+  unknownBackgroundAppearance: 'coverage',
+  overlayAlphaLimit: 250 / 255,
+  hostCompositing: 'source-over',
   lightBackgroundContrastAlpha: 0,
 });
 ```
 
-These controls have separate responsibilities. `isolatedCompositing` only decides whether library-owned canvases first resolve inside one transparent group; it does not sample page or desktop pixels. `lightBackgroundContrastAlpha` adds a non-game `darken` silhouette only for `scene` output and is ignored by `browser-overlay`. Only `setCompositingReference()` supplies a known opaque raster reference to the rendering pipeline. None of the three replaces another.
+For visibility over an unknown light desktop, change `unknownBackgroundAppearance` to `'bright'`. A host that supports DOM Add can instead select `hostCompositing: 'plus-lighter'`, but that contract ignores the appearance choice and alpha limit and should only be treated as an SDR additive approximation.
+
+These compatibility controls have separate responsibilities. `isolatedCompositing` only decides whether library-owned canvases first resolve inside one transparent group; it does not sample page or desktop pixels. `lightBackgroundContrastAlpha` adds a non-game `darken` silhouette only for `scene` output and is ignored by `browser-overlay`. Only `setCompositingReference()` supplies a known opaque raster reference to the rendering pipeline. None of these controls replaces another.
 
 ### Compositing Reference and Linear Compositing
 
-`setCompositingReference()` supplies the renderer with a real opaque raster reference that pixel-matches the content beneath the effect; it does not set or modify the host page's CSS background. Strict final-RGB Scene equivalence may only be claimed when Full WebGL2, or WebGL2 Bloom successfully resolved to the GPU, receives that known reference. Native Glow and Legacy use a Canvas Final Pass; Software Bloom continues to use the normal DOM-background path. Those capability-limited fallback paths must not be treated as pixel-equivalent to the complete WebGL2 Scene or Unity.
+`setCompositingReference()` supplies the renderer with a real opaque raster reference that pixel-matches the content beneath the effect; it does not set or modify the host page's CSS background. `scene + setCompositingReference()` is the precise known-background path. Strict final-RGB Scene equivalence may only be claimed when Full WebGL2, or WebGL2 Bloom successfully resolved to the GPU, receives that known reference. Native Glow and Legacy use a Canvas Final Pass; Software Bloom continues to use the normal DOM-background path. Those capability-limited fallback paths must not be treated as pixel-equivalent to the complete WebGL2 Scene or Unity.
 
 The real desktop is normally invisible to a transparent overlay. `setCompositingReference(null)` clears the reference and enters the unknown-background path; the renderer can then only emit an alpha-bearing overlay for the host or operating system to composite later. An unknown background cannot mathematically reproduce Unity's result over a known opaque HDR Scene. `browser-overlay` keeps Coverage, lifetime, and brightness relationships stable; it does not remove that information boundary.
 
@@ -529,7 +549,7 @@ No. `source-over` only receives overlay RGB and alpha, while the RGB needed for 
 
 ### Which configuration should a transparent desktop host use?
 
-Use `effectBackend: 'webgl2'`, `bloomBackend: 'webgl2'`, `outputCompositing: 'browser-overlay'`, and `lightBackgroundContrastAlpha: 0`. The host should also listen for backend-resolution events because an unavailable or lost WebGL2 context enters a compatibility fallback. Fallbacks preserve the transparent-alpha contract but cannot promise the exact same Bloom as Full WebGL2.
+The recommended default is `effectBackend: 'webgl2'`, `bloomBackend: 'webgl2'`, `outputCompositing: 'browser-overlay'`, `unknownBackgroundAppearance: 'coverage'`, `overlayAlphaLimit: 250 / 255`, `hostCompositing: 'source-over'`, and `lightBackgroundContrastAlpha: 0`. Switch the appearance to `'bright'` for an emission- and Bloom-gated visual approximation over unknown light backgrounds. A host with DOM Add support can select `'plus-lighter'`; appearance and alpha limit then do not participate in output. It remains an SDR approximation, and strict Unity Add requires the host to composite into a linear HDR target. The host should also listen for backend-resolution events because an unavailable or lost WebGL2 context enters a compatibility fallback. Fallbacks preserve the transparency contract but cannot promise the exact same Bloom as Full WebGL2.
 
 ---
 

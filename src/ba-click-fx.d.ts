@@ -3,9 +3,12 @@ declare module 'ba-click-fx'
   export type BAClickFXInputFilter = (event: PointerEvent) => boolean;
   export type BAClickFXInputSource = 'dom' | 'manual';
   export type BAClickFXPointerType = 'mouse' | 'touch' | 'pen';
+  /** Scene 精确路径或普通网页透明覆盖层输出。 */
   export type BAClickFXOutputCompositing =
     'scene' | 'browser-overlay';
+  /** 未知背景 source-over 载荷的 Coverage 优先或浅色背景视觉近似。 */
   export type BAClickFXUnknownBackgroundAppearance = 'coverage' | 'bright';
+  /** 宿主使用普通覆盖，或由 DOM 执行一次 SDR 加色近似。 */
   export type BAClickFXHostCompositing = 'source-over' | 'plus-lighter';
   export type BAClickFXEffectBackend = 'canvas2d' | 'webgl2' | 'auto';
   export type BAClickFXResolvedEffectBackend =
@@ -66,13 +69,28 @@ declare module 'ba-click-fx'
     opacity?: number;
     /** 主题色，默认游戏蓝 '#4ca7ff'；仅接受六位十六进制颜色。 */
     themeColor?: string;
-    /** 输出合成：默认 'scene'；透明桌面覆盖层使用 'browser-overlay'。 */
+    /**
+     * 输出合成，默认 'scene'。已知背景的精确路径应配合
+     * setCompositingReference()；透明桌面的未知背景使用 'browser-overlay'。
+     */
     outputCompositing?: BAClickFXOutputCompositing;
-    /** 未知背景的覆盖层外观；默认 'coverage'，'bright' 使用明亮兼容载荷。 */
+    /**
+     * 未知背景 source-over 的外观，默认 'coverage'。'bright' 按独立的
+     * 清晰发射和 Bloom 能量门控补偿，是未知浅色背景的视觉近似。
+     * hostCompositing 为 'plus-lighter' 时忽略此项。
+     */
     unknownBackgroundAppearance?: BAClickFXUnknownBackgroundAppearance;
-    /** 未知背景覆盖层的最大 Alpha，有限值钳制到 0..1，默认 250/255。 */
+    /**
+     * browser-overlay + source-over 的最终 Alpha 上限。有限值钳制到 0..1，
+     * 默认 250/255；与 opacity、HDR 发射和 Bloom 强度相互独立。
+     * hostCompositing 为 'plus-lighter' 时忽略此项。
+     */
     overlayAlphaLimit?: number;
-    /** 覆盖层与宿主的合成方式；默认 'source-over'，网页加色可选 'plus-lighter'。 */
+    /**
+     * 覆盖层与宿主的合成方式，默认 'source-over'。'plus-lighter' 使用独立
+     * Add 载荷并由 DOM 执行 SDR 近似；严格 Unity 一致要求宿主在线性 HDR
+     * 目标中执行 Add。已激活已知合成参考时实际输出恢复 source-over。
+     */
     hostCompositing?: BAClickFXHostCompositing;
     clickEnabled?: boolean;
     trailEnabled?: boolean;
@@ -381,7 +399,7 @@ declare module 'ba-click-fx'
       options?: BAClickFXCompositingReferenceOptions,
     ): boolean;
 
-    /** 运行时更新输入来源、时间倍率、特效后端、Bloom 后端、DPR 与触摸行为。 */
+    /** 运行时更新合成合同、输入来源、时间倍率、渲染后端、DPR 与触摸行为。 */
     updateConfig(overrides: BAClickFXUpdateOptions): void;
 
     /** 设置并保存主题色；传入空字符串或非法值恢复默认游戏蓝。 */
