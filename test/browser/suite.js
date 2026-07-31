@@ -780,6 +780,27 @@ async function runSceneBackgroundReset()
     fixture.target,
     'transparent',
   );
+  const disabled = fixture.effect.setSceneBackgroundEnabled(false);
+  const disabledState = fixture.effect.getConfig().sceneBackgroundEnabled;
+
+  await runAnimationFrame(SAMPLE_TIME_MS);
+
+  const withoutActiveScene = captureLayers(
+    fixture.effect,
+    fixture.target,
+    'transparent',
+  );
+  const sourcePreserved = fixture.effect.sceneBackgroundSource === sceneBackground;
+  const reenabled = fixture.effect.setSceneBackgroundEnabled(true);
+  const reenabledState = fixture.effect.getConfig().sceneBackgroundEnabled;
+
+  await runAnimationFrame(SAMPLE_TIME_MS);
+
+  const reenabledScene = captureLayers(
+    fixture.effect,
+    fixture.target,
+    'transparent',
+  );
   const cleared = fixture.effect.setSceneBackground(null);
 
   await runAnimationFrame(SAMPLE_TIME_MS);
@@ -792,8 +813,18 @@ async function runSceneBackgroundReset()
   return {
     accepted,
     cleared,
+    disabled,
+    disabledState,
+    reenabled,
+    reenabledState,
+    sourcePreserved,
     beforeScene: summarizePixels(beforeScene, fixture.effect.dpr),
     withScene: summarizePixels(withScene, fixture.effect.dpr),
+    withoutActiveScene: summarizePixels(
+      withoutActiveScene,
+      fixture.effect.dpr,
+    ),
+    reenabledScene: summarizePixels(reenabledScene, fixture.effect.dpr),
     withoutScene: summarizePixels(withoutScene, fixture.effect.dpr),
   };
 }

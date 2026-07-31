@@ -66,6 +66,8 @@ declare module 'ba-click-fx'
     themeColor?: string;
     /** 输出合成：默认 'scene'；透明桌面覆盖层使用 'transparent-overlay'。 */
     outputCompositing?: BAClickFXOutputCompositing;
+    /** 是否让已设置的 Scene 背景参与渲染，默认 true；关闭时保留背景源以便再次启用。 */
+    sceneBackgroundEnabled?: boolean;
     clickEnabled?: boolean;
     trailEnabled?: boolean;
     /** 无需按下鼠标，移动即显示拖尾。默认 false。 */
@@ -109,6 +111,7 @@ declare module 'ba-click-fx'
     opacity: number;
     themeColor: string;
     outputCompositing: BAClickFXOutputCompositing;
+    sceneBackgroundEnabled: boolean;
     clickEnabled: boolean;
     trailEnabled: boolean;
     trailAlways: boolean;
@@ -367,6 +370,11 @@ declare module 'ba-click-fx'
       source: TexImageSource | null,
       options?: BAClickFXSceneBackgroundOptions,
     ): boolean;
+
+    /**
+     * 临时启用或关闭已设置的 Scene 背景，不释放背景源。返回 false 时保持当前状态。
+     */
+    setSceneBackgroundEnabled(enabled: boolean): boolean;
 
     /** 运行时更新输入来源、时间倍率、特效后端、Bloom 后端、DPR 与触摸行为。 */
     updateConfig(overrides: BAClickFXUpdateOptions): void;

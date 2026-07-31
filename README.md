@@ -232,11 +232,14 @@ image.src = 'https://example.com/background.jpg';
 await image.decode();
 
 fx.setSceneBackground(image, { fit: 'cover' });
+// 暂停 Scene Final Pass，但保留 image 以便稍后恢复。
+fx.setSceneBackgroundEnabled(false);
+fx.setSceneBackgroundEnabled(true);
 // 恢复普通透明 DOM 背景，并释放仅供 Canvas Final Pass 使用的全尺寸帧资源。
 fx.setSceneBackground(null);
 ```
 
-当前只支持居中 `cover`，裁剪规则与 CSS `background-size: cover` 对齐。调用方负责图片解码和 CORS：跨域服务器必须允许匿名读取，否则 WebGL 无法上传纹理，方法会返回 `false` 或候选后端保持安全回退。Renderer 会保留源对象以支持 WebGL Context 恢复，因此在替换背景或销毁实例前不要关闭 `ImageBitmap`、`VideoFrame` 等可释放源。Canvas、Video 等动态源在调用时上传当前帧；内容变化后应再次调用。
+当前只支持居中 `cover`，裁剪规则与 CSS `background-size: cover` 对齐。调用方负责图片解码和 CORS：跨域服务器必须允许匿名读取，否则 WebGL 无法上传纹理，方法会返回 `false` 或候选后端保持安全回退。`setSceneBackgroundEnabled(false)` 会让所有后端临时跳过该背景而不释放源，重新传入 `true` 即可恢复；也可通过 `updateConfig({ sceneBackgroundEnabled })` 切换。Renderer 会保留源对象以支持 WebGL Context 恢复，因此在替换背景或销毁实例前不要关闭 `ImageBitmap`、`VideoFrame` 等可释放源。Canvas、Video 等动态源在调用时上传当前帧；内容变化后应再次调用。
 
 展示页的“本地图片”选择器会把 `File` 转成当前文档的 `blob:` URL，再复用同一条 CSS 背景和 `setSceneBackground(image)` 链路，因此不需要外部服务器提供 CORS。该 URL 只在当前页面会话有效，不会写入 `localStorage`，切换背景或卸载页面时会被释放；刷新页面后需要重新选择文件。手输的 `file://` URL 会作为普通自定义背景文本保存，并交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，应使用选择器。
 
@@ -320,6 +323,7 @@ fx.setPaused(false);
 | `pointerCancel(pointerId?)` | 强制取消指针并立即移除当前轨迹 |
 | `setPaused(paused, options?)` | 暂停或恢复输入与动画调度，可选在暂停时清屏 |
 | `setSceneBackground(source, { fit: 'cover' })` | 设置各渲染后端共享的真实栅格场景；传入 `null` 恢复透明 DOM 背景 |
+| `setSceneBackgroundEnabled(enabled)` | 暂停或恢复已设置的场景背景，保留源以便再次启用 |
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 仅清除拖尾和碎片 |
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |

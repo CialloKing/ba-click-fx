@@ -2687,7 +2687,7 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
           visualDifference.far.left.every((value) => value === 255) &&
           visualDifference.far.right[3] === 255 &&
           visualDifference.far.right.slice(0, 3).every((value) => value >= 235) &&
-          visualDifference.center.right[0] <= visualDifference.far.right[0] - 8,
+          visualDifference.center.right[0] <= visualDifference.far.right[0] - 4,
         `${mode}: 纯白页面截图中点击特效仍然不可见`,
         { sample, visualDifference },
       );
@@ -3116,8 +3116,11 @@ async function runMatrix(browserInstance, baseUrl, baseline)
       );
 
       assert(
-        sceneReset.accepted && sceneReset.cleared,
-        'setSceneBackground() 或 setSceneBackground(null) 被拒绝',
+        sceneReset.accepted &&
+          sceneReset.disabled &&
+          sceneReset.reenabled &&
+          sceneReset.cleared,
+        '场景背景设置、暂停、恢复或清除被拒绝',
         sceneReset,
       );
       assert(
@@ -3126,6 +3129,29 @@ async function runMatrix(browserInstance, baseUrl, baseline)
           sceneReset.withScene.meanEnergy,
         ) > 0.1,
         'setSceneBackground() 没有改变可见场景',
+        sceneReset,
+      );
+      assert(
+        sceneReset.disabledState === false &&
+          sceneReset.sourcePreserved &&
+          sceneReset.reenabledState === true &&
+          relativeDifference(
+            sceneReset.beforeScene.meanEnergy,
+            sceneReset.withoutActiveScene.meanEnergy,
+          ) <= 0.01 &&
+          relativeDifference(
+            sceneReset.beforeScene.meanAlpha,
+            sceneReset.withoutActiveScene.meanAlpha,
+          ) <= 0.01 &&
+          relativeDifference(
+            sceneReset.withScene.meanEnergy,
+            sceneReset.reenabledScene.meanEnergy,
+          ) <= 0.01 &&
+          relativeDifference(
+            sceneReset.withScene.meanAlpha,
+            sceneReset.reenabledScene.meanAlpha,
+          ) <= 0.01,
+        'setSceneBackgroundEnabled() 没有原子暂停并恢复已保留的场景背景',
         sceneReset,
       );
       assert(

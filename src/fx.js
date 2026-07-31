@@ -4935,6 +4935,7 @@ export class BAClickFX
    * @param {number} [options.clickTimeScale]
    * @param {number} [options.trailTimeScale]
    * @param {'scene'|'transparent-overlay'} [options.outputCompositing]
+   * @param {boolean} [options.sceneBackgroundEnabled]
    * @param {'canvas2d'|'webgl2'|'auto'} [options.effectBackend]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
@@ -4990,6 +4991,9 @@ export class BAClickFX
         outputCompositing: isOutputCompositing(options.outputCompositing)
           ? options.outputCompositing
           : CONFIG.outputCompositing,
+        sceneBackgroundEnabled: typeof options.sceneBackgroundEnabled === 'boolean'
+          ? options.sceneBackgroundEnabled
+          : CONFIG.sceneBackgroundEnabled,
         effectBackend: normalizeEffectBackend(
           options.effectBackend,
           compatibilityEffectBackend,
@@ -6571,10 +6575,12 @@ export class BAClickFX
         return false;
       }
 
-      if (this.sceneBackgroundSource)
+      const sceneBackground = this._getActiveSceneBackgroundSource();
+
+      if (sceneBackground !== null)
       {
         const backgroundReady = renderer.setSceneBackground(
-          this.sceneBackgroundSource,
+          sceneBackground,
           { fit: this.sceneBackgroundFit },
         );
 
@@ -6730,7 +6736,7 @@ export class BAClickFX
     }
 
     if (
-      this.sceneBackgroundSource === null ||
+      !this._hasActiveSceneBackground() ||
       !this._hasVisibleEffects()
     )
     {
@@ -6792,10 +6798,12 @@ export class BAClickFX
         return false;
       }
 
-      if (this.sceneBackgroundSource)
+      const sceneBackground = this._getActiveSceneBackgroundSource();
+
+      if (sceneBackground !== null)
       {
         const backgroundReady = renderer.setSceneBackground(
-          this.sceneBackgroundSource,
+          sceneBackground,
           { fit: this.sceneBackgroundFit },
         );
 
@@ -6844,7 +6852,7 @@ export class BAClickFX
     if (
       useWebGLClickEffects ||
       (!legacy && bloomBackend !== 'native') ||
-      this.sceneBackgroundSource === null
+      !this._hasActiveSceneBackground()
     )
     {
       return false;
@@ -6955,10 +6963,12 @@ export class BAClickFX
         return false;
       }
 
-      if (this.sceneBackgroundSource)
+      const sceneBackground = this._getActiveSceneBackgroundSource();
+
+      if (sceneBackground !== null)
       {
         const backgroundReady = renderer.setSceneBackground(
-          this.sceneBackgroundSource,
+          sceneBackground,
           { fit: this.sceneBackgroundFit },
         );
 
@@ -8861,6 +8871,11 @@ export class BAClickFX
       this.canvas.style.touchAction = overrides.touchAction;
     }
 
+    if (typeof overrides.sceneBackgroundEnabled === 'boolean')
+    {
+      this.setSceneBackgroundEnabled(overrides.sceneBackgroundEnabled);
+    }
+
     this._requestRender();
   }
 
@@ -8972,34 +8987,26 @@ export class BAClickFX
     this.canvasSceneRenderer?.clear();
   }
 
-  /**
-   * 为 WebGL2 Scene 提供特效下方的真实不透明栅格场景；调用方负责解码与 CORS。
-   * 资源对象不进入 getConfig()，避免配置快照持有宿主 DOM 生命周期。
-   */
-  setSceneBackground(source, options = {})
+  _getActiveSceneBackgroundSource()
   {
-    if (this.destroyed)
-    {
-      return false;
-    }
+    return this.config.sceneBackgroundEnabled
+      ? this.sceneBackgroundSource
+      : null;
+  }
 
-    const fit = options.fit ?? 'cover';
+  _hasActiveSceneBackground()
+  {
+    return this._getActiveSceneBackgroundSource() !== null;
+  }
 
-    if (fit !== 'cover')
-    {
-      return false;
-    }
-
-    if (source !== null && !getSceneBackgroundDimensions(source))
-    {
-      return false;
-    }
-
-    const previousSource = this.sceneBackgroundSource;
-    const previousFit = this.sceneBackgroundFit;
-    const invalidatesVisibleOutput = this.webglEffectVisible ||
-      this.webglBloomVisible ||
-      this.canvasSceneVisible;
+  _applySceneBackgroundToRenderers(
+    source,
+    fit,
+    previousSource,
+    previousFit,
+    invalidatesVisibleOutput,
+  )
+  {
     const entries = [
       {
         name: '纯 WebGL2',
@@ -9054,45 +9061,89 @@ export class BAClickFX
       appliedEntries.push(entry);
     }
 
-    if (failedEntry)
+    if (!failedEntry)
     {
-      let rollbackFailed = false;
+      return true;
+    }
 
-      for (let index = appliedEntries.length - 1; index >= 0; index--)
+    let rollbackFailed = false;
+
+    for (let index = appliedEntries.length - 1; index >= 0; index--)
+    {
+      const entry = appliedEntries[index];
+      let restored = false;
+
+      try
       {
-        const entry = appliedEntries[index];
-        let restored = false;
-
-        try
-        {
-          restored = entry.renderer.setSceneBackground(
-            previousSource,
-            { fit: previousFit },
-          );
-        }
-        catch (error)
-        {
-          console.warn(`[BAClickFX] ${entry.name} 背景回滚失败:`, error);
-        }
-
-        if (!restored)
-        {
-          // 无法回滚的 Renderer 不得继续持有与主状态不一致的背景。
-          entry.discard();
-          rollbackFailed = true;
-        }
+        restored = entry.renderer.setSceneBackground(
+          previousSource,
+          { fit: previousFit },
+        );
+      }
+      catch (error)
+      {
+        console.warn(`[BAClickFX] ${entry.name} 背景回滚失败:`, error);
       }
 
-      if (rollbackFailed)
+      if (!restored)
       {
-        if (invalidatesVisibleOutput)
-        {
-          this._invalidateSceneBackgroundOutputs();
-        }
+        // 无法回滚的 Renderer 不得继续持有与主状态不一致的背景。
+        entry.discard();
+        rollbackFailed = true;
+      }
+    }
 
-        this._requestRender();
+    if (rollbackFailed)
+    {
+      if (invalidatesVisibleOutput)
+      {
+        this._invalidateSceneBackgroundOutputs();
       }
 
+      this._requestRender();
+    }
+
+    return false;
+  }
+
+  /**
+   * 为 WebGL2 Scene 提供特效下方的真实不透明栅格场景；调用方负责解码与 CORS。
+   * 资源对象不进入 getConfig()，避免配置快照持有宿主 DOM 生命周期。
+   */
+  setSceneBackground(source, options = {})
+  {
+    if (this.destroyed)
+    {
+      return false;
+    }
+
+    const fit = options.fit ?? 'cover';
+
+    if (fit !== 'cover')
+    {
+      return false;
+    }
+
+    if (source !== null && !getSceneBackgroundDimensions(source))
+    {
+      return false;
+    }
+
+    const previousSource = this._getActiveSceneBackgroundSource();
+    const previousFit = this.sceneBackgroundFit;
+    const activeSource = this.config.sceneBackgroundEnabled ? source : null;
+    const invalidatesVisibleOutput = this.webglEffectVisible ||
+      this.webglBloomVisible ||
+      this.canvasSceneVisible;
+
+    if (!this._applySceneBackgroundToRenderers(
+      activeSource,
+      fit,
+      previousSource,
+      previousFit,
+      invalidatesVisibleOutput,
+    ))
+    {
       return false;
     }
 
@@ -9108,11 +9159,68 @@ export class BAClickFX
       this._invalidateSceneBackgroundOutputs();
     }
 
-    if (source === null)
+    if (activeSource === null)
     {
-      // 没有真实场景背景时 Canvas Final Pass 不会参与任何渲染链，
+      // 暂停背景合成时 Canvas Final Pass 不会参与任何渲染链，
       // 立即归还其全尺寸上传纹理，保留静态 Program 供下次背景复用。
       this.canvasSceneRenderer?.releaseFrameResources();
+    }
+
+    this._requestRender();
+    return true;
+  }
+
+  /**
+   * 暂停或恢复当前栅格场景的渲染，不释放已由 setSceneBackground() 接受的源。
+   * @param {boolean} enabled
+   * @returns {boolean}
+   */
+  setSceneBackgroundEnabled(enabled)
+  {
+    if (this.destroyed || typeof enabled !== 'boolean')
+    {
+      return false;
+    }
+
+    if (enabled === this.config.sceneBackgroundEnabled)
+    {
+      return true;
+    }
+
+    const previousSource = this._getActiveSceneBackgroundSource();
+    const activeSource = enabled ? this.sceneBackgroundSource : null;
+    const invalidatesVisibleOutput = this.webglEffectVisible ||
+      this.webglBloomVisible ||
+      this.canvasSceneVisible;
+
+    if (!this._applySceneBackgroundToRenderers(
+      activeSource,
+      this.sceneBackgroundFit,
+      previousSource,
+      this.sceneBackgroundFit,
+      invalidatesVisibleOutput,
+    ))
+    {
+      return false;
+    }
+
+    this.config.sceneBackgroundEnabled = enabled;
+
+    if (activeSource !== null)
+    {
+      // 重新接入相同背景也应允许已丢弃的候选后端再次进行完整上传验证。
+      this.webglEffectUnavailable = false;
+      this.webglBloomUnavailable = false;
+      this.canvasSceneUnavailable = false;
+    }
+    else
+    {
+      this.canvasSceneRenderer?.releaseFrameResources();
+    }
+
+    if (invalidatesVisibleOutput)
+    {
+      this._invalidateSceneBackgroundOutputs();
     }
 
     this._requestRender();

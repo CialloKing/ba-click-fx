@@ -212,11 +212,14 @@ image.src = 'https://example.com/background.jpg';
 await image.decode();
 
 fx.setSceneBackground(image, { fit: 'cover' });
+// Pause the Scene Final Pass while retaining image for a later restore.
+fx.setSceneBackgroundEnabled(false);
+fx.setSceneBackgroundEnabled(true);
 // Restore the transparent DOM background and release Canvas Final Pass targets.
 fx.setSceneBackground(null);
 ```
 
-Only centred `cover` is currently supported, matching CSS `background-size: cover` cropping. The caller owns decoding and CORS: a cross-origin server must allow anonymous reads or WebGL cannot upload the texture, in which case the method returns `false` or a deferred backend remains on its safe fallback. The Renderer retains the source object for WebGL context recovery, so do not close releasable sources such as `ImageBitmap` or `VideoFrame` before replacing the background or destroying the instance. Canvas and video sources upload their current frame at call time; call the method again after their content changes.
+Only centred `cover` is currently supported, matching CSS `background-size: cover` cropping. The caller owns decoding and CORS: a cross-origin server must allow anonymous reads or WebGL cannot upload the texture, in which case the method returns `false` or a deferred backend remains on its safe fallback. `setSceneBackgroundEnabled(false)` temporarily skips that background in every backend without releasing the source; passing `true` restores it. The same switch is available through `updateConfig({ sceneBackgroundEnabled })`. The Renderer retains the source object for WebGL context recovery, so do not close releasable sources such as `ImageBitmap` or `VideoFrame` before replacing the background or destroying the instance. Canvas and video sources upload their current frame at call time; call the method again after their content changes.
 
 The demo's Local Image picker converts a `File` into a document-session `blob:` URL and reuses the same CSS-background and `setSceneBackground(image)` path, so no external CORS header is needed. The URL is not written to `localStorage`; it is released when the background changes or the page unloads, and the file must be selected again after a reload. A typed `file://` URL is saved as ordinary custom-background text and passed to a trusted desktop host that permits both local-protocol reads and Canvas/WebGL texture use. Regular HTTP/HTTPS pages remain subject to browser local-resource permissions and should use the picker.
 
@@ -300,6 +303,7 @@ Pausing cancels the active pointer, ignores `boom()` and every automatic or manu
 | `pointerCancel(pointerId?)` | Force-cancel the pointer and remove its current trail immediately |
 | `setPaused(paused, options?)` | Pause or resume input and animation scheduling, optionally clearing on pause |
 | `setSceneBackground(source, { fit: 'cover' })` | Share a real raster scene across rendering backends; pass `null` to restore the transparent DOM background |
+| `setSceneBackgroundEnabled(enabled)` | Pause or restore an already set scene background without dropping its source |
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
 | `destroy()` | Destroy instance, remove listeners and canvas |

@@ -18,6 +18,10 @@ const themeBackgroundJs = fs.readFileSync(
 const styleCss = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 const engineJs = fs.readFileSync(path.join(root, 'src', 'fx.js'), 'utf8');
 const configJs = fs.readFileSync(path.join(root, 'src', 'config.js'), 'utf8');
+const typeDefinitions = fs.readFileSync(
+  path.join(root, 'src', 'ba-click-fx.d.ts'),
+  'utf8',
+);
 
 function verify(condition, message)
 {
@@ -425,6 +429,19 @@ verify(
     /lightBackgroundContrastAlpha: 0/.test(configJs) &&
     /typeof overrides\.isolatedCompositing === 'boolean'/.test(configJs),
   '严格默认关闭网页兼容合成，createConfig 仍接受布尔覆盖值',
+);
+verify(
+  /sceneBackgroundEnabled: true/.test(configJs) &&
+    /typeof overrides\.sceneBackgroundEnabled === 'boolean'/.test(configJs) &&
+    /setSceneBackgroundEnabled\(enabled\)/.test(engineJs) &&
+    /typeof overrides\.sceneBackgroundEnabled === 'boolean'[\s\S]*?setSceneBackgroundEnabled\(overrides\.sceneBackgroundEnabled\)/.test(
+      engineJs,
+    ) &&
+    /sceneBackgroundEnabled\?: boolean/.test(typeDefinitions) &&
+    /setSceneBackgroundEnabled\(enabled: boolean\): boolean/.test(
+      typeDefinitions,
+    ),
+  '场景背景可通过公开 API 与运行时配置无损开关',
 );
 verify(
   /const DEFAULT_EFFECT_BACKEND = 'webgl2'/.test(configJs) &&

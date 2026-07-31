@@ -966,6 +966,8 @@ export const CONFIG = Object.freeze(
     trailTimeScale: 1,
     // 默认保留 Unity Scene 合成；透明桌面宿主必须显式选择覆盖层输出。
     outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
+    // 保留宿主提供的栅格源，但允许在不释放资源的情况下临时退出 Scene Final Pass。
+    sceneBackgroundEnabled: true,
     // 默认由纯 WebGL2 接管完整 Scene；能力不足时运行时安全回退 Canvas2D。
     effectBackend: DEFAULT_EFFECT_BACKEND,
     // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
@@ -1099,6 +1101,9 @@ export function createConfig(overrides = {})
     themeColor,
     bloomBackend,
     softwareBloomEnabled: bloomBackend !== 'native',
+    sceneBackgroundEnabled: typeof overrides.sceneBackgroundEnabled === 'boolean'
+      ? overrides.sceneBackgroundEnabled
+      : CONFIG.sceneBackgroundEnabled,
     isolatedCompositing: typeof overrides.isolatedCompositing === 'boolean'
       ? overrides.isolatedCompositing
       : CONFIG.isolatedCompositing,

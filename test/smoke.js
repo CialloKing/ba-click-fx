@@ -1233,6 +1233,7 @@ assert(
 assert(CONFIG.effectBackend === 'webgl2', '默认由纯 WebGL2 接管完整特效');
 assert(CONFIG.bloomBackend === 'webgl2', '默认使用 WebGL2 Bloom 后端');
 assert(CONFIG.isolatedCompositing === false, '默认直接与页面加色，保持游戏合成顺序');
+assert(CONFIG.sceneBackgroundEnabled === true, '默认让已设置的场景背景参与合成');
 assert(CONFIG.inputSource === 'dom', '默认由 DOM 指针事件驱动输入');
 assert(
   CONFIG.clickTimeScale === 1 && CONFIG.trailTimeScale === 1,
@@ -1332,6 +1333,8 @@ const explicitEffectBackendConfig = createConfig(
 const invalidEffectBackendConfig = createConfig({ effectBackend: 'webgpu' });
 const directCompositingConfig = createConfig({ isolatedCompositing: false });
 const invalidCompositingConfig = createConfig({ isolatedCompositing: 'yes' });
+const disabledSceneBackgroundConfig = createConfig({ sceneBackgroundEnabled: false });
+const invalidSceneBackgroundConfig = createConfig({ sceneBackgroundEnabled: 'no' });
 const manualInputConfig = createConfig(
   {
     inputSource: 'manual',
@@ -1379,6 +1382,12 @@ assert(
   directCompositingConfig.isolatedCompositing === false &&
     invalidCompositingConfig.isolatedCompositing === CONFIG.isolatedCompositing,
   'createConfig 只接受布尔隔离合成配置',
+);
+assert(
+  disabledSceneBackgroundConfig.sceneBackgroundEnabled === false &&
+    invalidSceneBackgroundConfig.sceneBackgroundEnabled ===
+      CONFIG.sceneBackgroundEnabled,
+  'createConfig 只接受布尔场景背景开关配置',
 );
 assert(
   manualInputConfig.inputSource === 'manual' &&
