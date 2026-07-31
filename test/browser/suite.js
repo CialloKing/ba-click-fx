@@ -524,7 +524,7 @@ function summarizePixels(imageData, dpr)
   };
 }
 
-function createSceneBackground()
+function createCompositingReference()
 {
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
@@ -753,7 +753,7 @@ async function runCase(specification)
   };
 }
 
-async function runSceneBackgroundReset()
+async function runCompositingReferenceReset()
 {
   const fixture = await prepareEffect(
     {
@@ -766,66 +766,78 @@ async function runSceneBackgroundReset()
       containStrict: false,
     },
   );
-  const sceneBackground = createSceneBackground();
-  const beforeScene = captureLayers(
+  const compositingReference = createCompositingReference();
+  const beforeReference = captureLayers(
     fixture.effect,
     fixture.target,
     'transparent',
   );
-  const accepted = fixture.effect.setSceneBackground(sceneBackground);
+  const referenceSet = fixture.effect.setCompositingReference(
+    compositingReference,
+    { fit: 'cover' },
+  );
 
   await runAnimationFrame(SAMPLE_TIME_MS);
-  const withScene = captureLayers(
+  const withReference = captureLayers(
     fixture.effect,
     fixture.target,
     'transparent',
   );
-  const disabled = fixture.effect.setSceneBackgroundEnabled(false);
-  const disabledState = fixture.effect.getConfig().sceneBackgroundEnabled;
+  const referenceCleared = fixture.effect.setCompositingReference(null);
 
   await runAnimationFrame(SAMPLE_TIME_MS);
 
-  const withoutActiveScene = captureLayers(
+  const withoutReference = captureLayers(
     fixture.effect,
     fixture.target,
     'transparent',
   );
-  const sourcePreserved = fixture.effect.sceneBackgroundSource === sceneBackground;
-  const reenabled = fixture.effect.setSceneBackgroundEnabled(true);
-  const reenabledState = fixture.effect.getConfig().sceneBackgroundEnabled;
+  const referenceClearedFromEffect =
+    fixture.effect.compositingReferenceSource === null;
+  const referenceRestored = fixture.effect.setCompositingReference(
+    compositingReference,
+    { fit: 'cover' },
+  );
 
   await runAnimationFrame(SAMPLE_TIME_MS);
 
-  const reenabledScene = captureLayers(
+  const restoredReference = captureLayers(
     fixture.effect,
     fixture.target,
     'transparent',
   );
-  const cleared = fixture.effect.setSceneBackground(null);
+  const referenceRestoredInEffect =
+    fixture.effect.compositingReferenceSource === compositingReference;
+  const referenceClearedAgain = fixture.effect.setCompositingReference(null);
+  const referenceClearedAgainFromEffect =
+    fixture.effect.compositingReferenceSource === null;
 
   await runAnimationFrame(SAMPLE_TIME_MS);
-  const withoutScene = captureLayers(
+  const withoutReferenceAgain = captureLayers(
     fixture.effect,
     fixture.target,
     'transparent',
   );
 
   return {
-    accepted,
-    cleared,
-    disabled,
-    disabledState,
-    reenabled,
-    reenabledState,
-    sourcePreserved,
-    beforeScene: summarizePixels(beforeScene, fixture.effect.dpr),
-    withScene: summarizePixels(withScene, fixture.effect.dpr),
-    withoutActiveScene: summarizePixels(
-      withoutActiveScene,
+    referenceSet,
+    referenceCleared,
+    referenceClearedAgain,
+    referenceClearedFromEffect,
+    referenceClearedAgainFromEffect,
+    referenceRestored,
+    referenceRestoredInEffect,
+    beforeReference: summarizePixels(beforeReference, fixture.effect.dpr),
+    withReference: summarizePixels(withReference, fixture.effect.dpr),
+    withoutReference: summarizePixels(
+      withoutReference,
       fixture.effect.dpr,
     ),
-    reenabledScene: summarizePixels(reenabledScene, fixture.effect.dpr),
-    withoutScene: summarizePixels(withoutScene, fixture.effect.dpr),
+    restoredReference: summarizePixels(restoredReference, fixture.effect.dpr),
+    withoutReferenceAgain: summarizePixels(
+      withoutReferenceAgain,
+      fixture.effect.dpr,
+    ),
   };
 }
 
@@ -1197,7 +1209,7 @@ async function runContextLifecycle(specification)
   };
 }
 
-async function runSceneBackgroundContextLifecycle()
+async function runCompositingReferenceContextLifecycle()
 {
   const fixture = await prepareEffect(
     {
@@ -1217,8 +1229,11 @@ async function runSceneBackgroundContextLifecycle()
     },
   );
   const effect = fixture.effect;
-  const sceneBackground = createSceneBackground();
-  const accepted = effect.setSceneBackground(sceneBackground);
+  const compositingReference = createCompositingReference();
+  const referenceSet = effect.setCompositingReference(
+    compositingReference,
+    { fit: 'cover' },
+  );
 
   await runAnimationFrame(SAMPLE_TIME_MS);
 
@@ -1226,9 +1241,9 @@ async function runSceneBackgroundContextLifecycle()
   const context = canvas?.getContext('webgl2');
   const extension = context?.getExtension('WEBGL_lose_context');
 
-  if (!accepted || !canvas || !context || !extension)
+  if (!referenceSet || !canvas || !context || !extension)
   {
-    throw new Error('纯 WebGL2 无法建立 Scene 背景 Context 生命周期');
+    throw new Error('纯 WebGL2 无法建立合成参考 Context 生命周期');
   }
 
   const capturePhase = () =>
@@ -1268,8 +1283,9 @@ async function runSceneBackgroundContextLifecycle()
 
   return (
     {
-      accepted,
-      sourcePreserved: effect.sceneBackgroundSource === sceneBackground,
+      referenceSet,
+      referencePreserved:
+        effect.compositingReferenceSource === compositingReference,
       before,
       fallback,
       restoring,
@@ -2058,9 +2074,9 @@ window.browserPixelSuite = Object.freeze(
     runtimeKind,
     modeNames: Object.keys(MODE_CONFIGS),
     runCase,
-    runSceneBackgroundReset,
+    runCompositingReferenceReset,
     runContextLifecycle,
-    runSceneBackgroundContextLifecycle,
+    runCompositingReferenceContextLifecycle,
     runBackendFailureChain,
     runBackendReentrantNative,
     runTrailTextureResourceLifecycle,
