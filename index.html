@@ -155,7 +155,7 @@ fx.setPaused(true, { clear: true });</code></pre>
         class="transparent-compositing-controls is-inactive"
         aria-disabled="true"
       >
-        <label class="ctrl">
+        <label class="ctrl source-over-only-control">
           <span>未知背景外观</span>
           <select
             id="ctrlUnknownBackgroundAppearance"
@@ -166,7 +166,7 @@ fx.setPaused(true, { clear: true });</code></pre>
             <option value="bright">浅色背景兼容</option>
           </select>
         </label>
-        <label class="ctrl">
+        <label class="ctrl source-over-only-control">
           <span>覆盖层 Alpha 上限 <output id="outOverlayAlphaLimit">0.98</output></span>
           <input
             type="range"
@@ -186,7 +186,7 @@ fx.setPaused(true, { clear: true });</code></pre>
           </select>
         </label>
         <p id="transparentCompositingNote" class="compositing-mode-note">
-          “浅色背景兼容”和“DOM Add”仅为浏览器视觉近似，不等同于 Unity 线性 HDR 精确还原。
+          DOM Add 使用独立完整载荷，会停用“未知背景外观”和 Alpha 上限；两种兼容方式都只是浏览器视觉近似。
         </p>
       </div>
       <label class="ctrl">

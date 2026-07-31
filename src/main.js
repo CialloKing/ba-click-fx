@@ -905,6 +905,9 @@ const ctrlUnknownBackgroundAppearance = document.getElementById(
 const ctrlOverlayAlphaLimit = document.getElementById('ctrlOverlayAlphaLimit');
 const outOverlayAlphaLimit = document.getElementById('outOverlayAlphaLimit');
 const ctrlHostCompositing = document.getElementById('ctrlHostCompositing');
+const sourceOverOnlyControls = document.querySelectorAll(
+  '.source-over-only-control',
+);
 const DEFAULT_OUTPUT_COMPOSITING = 'scene';
 const DEFAULT_UNKNOWN_BACKGROUND_APPEARANCE =
   CONFIG.unknownBackgroundAppearance;
@@ -923,9 +926,13 @@ const HOST_COMPOSITING_MODES = new Set([
   'plus-lighter',
 ]);
 
-function syncTransparentCompositingControlState(outputCompositing)
+function syncTransparentCompositingControlState(
+  outputCompositing,
+  hostCompositing = ctrlHostCompositing?.value,
+)
 {
   const enabled = outputCompositing === 'browser-overlay';
+  const sourceOverEnabled = enabled && hostCompositing !== 'plus-lighter';
 
   transparentCompositingControls?.classList.toggle('is-inactive', !enabled);
   transparentCompositingControls?.setAttribute(
@@ -933,16 +940,25 @@ function syncTransparentCompositingControlState(outputCompositing)
     String(!enabled),
   );
 
-  for (const control of [
-    ctrlUnknownBackgroundAppearance,
-    ctrlOverlayAlphaLimit,
-    ctrlHostCompositing,
-  ])
+  if (ctrlUnknownBackgroundAppearance)
   {
-    if (control)
-    {
-      control.disabled = !enabled;
-    }
+    ctrlUnknownBackgroundAppearance.disabled = !sourceOverEnabled;
+  }
+
+  if (ctrlOverlayAlphaLimit)
+  {
+    ctrlOverlayAlphaLimit.disabled = !sourceOverEnabled;
+  }
+
+  if (ctrlHostCompositing)
+  {
+    ctrlHostCompositing.disabled = !enabled;
+  }
+
+  for (const control of sourceOverOnlyControls)
+  {
+    control.classList.toggle('is-inactive', !sourceOverEnabled);
+    control.setAttribute('aria-disabled', String(!sourceOverEnabled));
   }
 }
 
@@ -994,6 +1010,10 @@ function applyHostCompositing(mode)
   }
 
   effect.updateConfig({ hostCompositing: resolved });
+  syncTransparentCompositingControlState(
+    ctrlOutputCompositing?.value,
+    resolved,
+  );
   return resolved;
 }
 
@@ -1008,7 +1028,10 @@ function applyOutputCompositing(mode)
     ctrlOutputCompositing.value = resolved;
   }
 
-  syncTransparentCompositingControlState(resolved);
+  syncTransparentCompositingControlState(
+    resolved,
+    ctrlHostCompositing?.value,
+  );
   effect.updateConfig({ outputCompositing: resolved });
   return resolved;
 }
@@ -1422,7 +1445,7 @@ const I18N = {
     labelHostCompositing: '宿主合成',
     hostCompositingSourceOver: 'Source-over',
     hostCompositingDomAdd: 'DOM Add（近似）',
-    transparentCompositingNote: '“浅色背景兼容”和“DOM Add”仅为浏览器视觉近似，不等同于 Unity 线性 HDR 精确还原。',
+    transparentCompositingNote: 'DOM Add 使用独立完整载荷，会停用“未知背景外观”和 Alpha 上限；两种兼容方式都只是浏览器视觉近似。',
     labelCompositingReference: '特效背景参考',
     compositingReferenceMatchPage: '匹配当前页面（精确）',
     compositingReferenceUnknown: '未知透明背景（兼容）',
@@ -1530,7 +1553,7 @@ const I18N = {
     labelHostCompositing: 'Host Compositing',
     hostCompositingSourceOver: 'Source-over',
     hostCompositingDomAdd: 'DOM Add (Approximate)',
-    transparentCompositingNote: '“Light Background Compatibility” and “DOM Add” are browser visual approximations, not exact Unity linear-HDR compositing.',
+    transparentCompositingNote: 'DOM Add uses an independent full payload and disables Unknown Background Appearance and the Alpha limit; both compatibility paths are browser approximations.',
     labelCompositingReference: 'Effect Reference',
     compositingReferenceMatchPage: 'Current Page (Exact)',
     compositingReferenceUnknown: 'Unknown Background',

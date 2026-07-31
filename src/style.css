@@ -441,6 +441,16 @@ kbd {
   opacity: 0.42;
 }
 
+.source-over-only-control
+{
+  transition: opacity 0.18s ease;
+}
+
+.source-over-only-control.is-inactive
+{
+  opacity: 0.42;
+}
+
 .compositing-mode-note
 {
   margin: -2px 0 4px;

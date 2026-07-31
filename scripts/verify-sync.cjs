@@ -379,9 +379,22 @@ verify(
   /outputCompositing === 'browser-overlay'/.test(
     syncTransparentControlsSource,
   ) &&
-    /control\.disabled = !enabled/.test(syncTransparentControlsSource) &&
-    /syncTransparentCompositingControlState\(resolved\)/.test(mainJs),
-  '三个透明合成控件仅在 browser-overlay 下启用',
+    /hostCompositing !== 'plus-lighter'/.test(
+      syncTransparentControlsSource,
+    ) &&
+    /ctrlUnknownBackgroundAppearance\.disabled = !sourceOverEnabled/.test(
+      syncTransparentControlsSource,
+    ) &&
+    /ctrlOverlayAlphaLimit\.disabled = !sourceOverEnabled/.test(
+      syncTransparentControlsSource,
+    ) &&
+    /ctrlHostCompositing\.disabled = !enabled/.test(
+      syncTransparentControlsSource,
+    ) &&
+    /syncTransparentCompositingControlState\([\s\S]*?resolved/.test(
+      applyHostCompositingSource,
+    ),
+  '透明合成控件按输出模式与宿主 Add 的实际合同启用',
 );
 verify(
   /unknownBackgroundAppearance: resolved/.test(
@@ -418,17 +431,17 @@ verify(
   '透明合成配置支持本地恢复与统一重置',
 );
 verify(
-  /浅色背景兼容[\s\S]*?DOM Add[\s\S]*?浏览器视觉近似[\s\S]*?Unity 线性 HDR 精确还原/.test(
+  /DOM Add 使用独立完整载荷[\s\S]*?停用[\s\S]*?未知背景外观[\s\S]*?Alpha 上限[\s\S]*?浏览器视觉近似/.test(
     indexHtml,
   ) &&
     /unknownBackgroundAppearanceBright: '浅色背景兼容'/.test(mainJs) &&
     /unknownBackgroundAppearanceBright: 'Light Background Compatibility'/.test(
       mainJs,
     ) &&
-    /browser visual approximations, not exact Unity linear-HDR compositing/.test(
+    /DOM Add uses an independent full payload and disables Unknown Background Appearance and the Alpha limit/.test(
       mainJs,
     ),
-  '双语文案明确 Bright 与 DOM Add 不是 Unity 线性 HDR 精确还原',
+  '双语文案明确 DOM Add 的独立载荷与无效控制项',
 );
 verify(
   /BLOOM_BACKEND_CHANGE_EVENT/.test(mainJs) &&
