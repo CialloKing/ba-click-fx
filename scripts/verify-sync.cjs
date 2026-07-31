@@ -341,24 +341,28 @@ const staticFaqContent = indexHtml.match(
 
 verify(
   /纯白背景下特效颜色太浅/.test(staticFaqContent) &&
-    /不会自动叠加淡青轮廓/.test(staticFaqContent) &&
+    /关闭“隔离合成”时会保留游戏原始的低可见度表现/.test(staticFaqContent) &&
+    /开启后，展示页自动叠加不参与 Bloom 的淡青对比轮廓/.test(staticFaqContent) &&
     /纯白背景下特效颜色太浅/.test(mainJs) &&
     /Effects look washed out on a pure white background/.test(mainJs) &&
-    /does not automatically add a pale-cyan outline/.test(mainJs) &&
-    !/function resolvePureWhiteContrastAlpha/.test(mainJs),
-  '静态与双语 FAQ 说明纯白展示页不会自动补足淡青轮廓',
+    /With Isolated Compositing off/.test(mainJs) &&
+    /pale-cyan contrast outline/.test(mainJs),
+  '静态与双语 FAQ 说明隔离合成切换纯白的原始与可见性表现',
 );
 verify(
-  /bindToggle\('ctrlIsolatedCompositing', \(checked\) =>[\s\S]*?effect\.updateConfig\(\{ isolatedCompositing: checked \}\)\)/.test(mainJs) &&
-    !/applyIsolatedCompositing/.test(mainJs),
-  '展示页隔离合成开关不再隐式启用纯白对比层',
+  /const PURE_WHITE_ISOLATED_CONTRAST_ALPHA = 0\.35/.test(mainJs) &&
+    /function resolvePureWhiteContrastAlpha\(isolatedCompositing\)/.test(mainJs) &&
+    /function syncPureWhiteIsolationContrast\(\)/.test(mainJs) &&
+    /function applyIsolatedCompositing\(checked\)[\s\S]*?isolatedCompositing: checked,[\s\S]*?lightBackgroundContrastAlpha: resolvePureWhiteContrastAlpha\(checked\)/.test(mainJs) &&
+    /bindToggle\('ctrlIsolatedCompositing', applyIsolatedCompositing\)/.test(mainJs),
+  '展示页隔离合成开关会同步切换纯白对比层',
 );
 verify(
   /localStorage\.getItem\('bafx-ctrlIsolatedCompositing'\)/.test(mainJs) &&
     /savedIsolatedCompositing !== null/.test(mainJs) &&
     /const isolated = savedIsolatedCompositing === 'true'/.test(mainJs) &&
-    /effect\.updateConfig\(\{ isolatedCompositing: isolated \}\)/.test(mainJs),
-  '展示页会恢复已持久化的隔离或直接合成选项',
+    /applyIsolatedCompositing\(isolated\)/.test(mainJs),
+  '展示页会恢复已持久化的隔离与纯白对比选项',
 );
 verify(
   /getElementById\('ctrlIsolatedCompositing'\)\.checked = false/.test(mainJs) &&
@@ -407,17 +411,18 @@ verify(
 verify(
   /getThemeBackgroundCss\(name\)/.test(applyThemeSource) &&
     /document\.body\.style\.backgroundAttachment = 'fixed';/.test(applyThemeSource) &&
+    /syncPureWhiteIsolationContrast\(\)/.test(applyThemeSource) &&
     /applyThemeSceneBackground\(name\)/.test(applyThemeSource) &&
     !/clearSceneBackground\(\)/.test(applyThemeSource),
   '内置主题统一进入对应的 Scene 背景选择路径',
 );
 verify(
-  /applySceneBackgroundEnabledForTheme\(name\)/.test(
+  /applySceneBackgroundEnabledForTheme\(\)/.test(
     applyThemeSceneBackgroundSource,
   ) &&
     !/clearSceneBackground\(\)/.test(applyThemeSceneBackgroundSource) &&
     applyThemeSceneBackgroundSource.indexOf(
-      'applySceneBackgroundEnabledForTheme(name)',
+      'applySceneBackgroundEnabledForTheme()',
     ) < applyThemeSceneBackgroundSource.indexOf('activeThemeScene = name'),
   '主题切换先应用场景背景开关，再保留对应的可重连栅格源',
 );
@@ -435,12 +440,13 @@ verify(
 );
 verify(
   /stopThemeSceneBackgroundSync\(\)/.test(getFunctionSource(mainJs, 'clearSceneBackground')) &&
-    /applySceneBackgroundEnabledForTheme\('custom'\)/.test(applyCustomBackgroundSource) &&
+    /syncPureWhiteIsolationContrast\(\)/.test(applyCustomBackgroundSource) &&
+    /applySceneBackgroundEnabledForTheme\(\)/.test(applyCustomBackgroundSource) &&
     /applySceneBackgroundImage\(resolveSceneBackgroundUrl\(rawValue\)\)/.test(
       applyCustomBackgroundSource,
     ) &&
     applyCustomBackgroundSource.indexOf(
-      "applySceneBackgroundEnabledForTheme('custom')",
+      'applySceneBackgroundEnabledForTheme()',
     ) < applyCustomBackgroundSource.indexOf(
       'applySceneBackgroundImage(resolveSceneBackgroundUrl(rawValue))',
     ),
@@ -475,21 +481,19 @@ verify(
   '场景背景人工偏好会在主题源恢复前先应用',
 );
 verify(
-  /return sceneBackgroundEnabledOverride \?\? name !== PURE_WHITE_THEME/.test(mainJs) &&
+  /return sceneBackgroundEnabledOverride \?\? true/.test(mainJs) &&
     /sceneBackgroundEnabled && effect\.sceneBackgroundSource !== null/.test(mainJs) &&
     /sceneBackgroundEnabledOverride = null/.test(mainJs) &&
     /getElementById\('ctrlSceneBackgroundEnabled'\)\.checked = true/.test(mainJs) &&
     /else\s*\{\s*applyTheme\('蔚蓝'\);\s*\}/.test(mainJs),
-  '纯白默认停用场景背景；重置和首次加载均恢复自动主题策略',
+  '所有内置主题默认启用场景背景；重置和首次加载均恢复自动策略',
 );
 verify(
-  /纯白默认不激活场景纹理/.test(staticFaqContent) &&
-    /启用场景背景/.test(staticFaqContent) &&
-    /手动切换后，该偏好会应用于全部主题/.test(staticFaqContent) &&
-    /Pure White does not activate its scene texture by default/.test(mainJs) &&
-    /Enable Scene Background reconnects the currently retained scene/.test(mainJs) &&
-    /Once changed manually, the setting applies to every theme/.test(mainJs),
-  '静态与双语 FAQ 说明纯白默认和通用场景背景开关的关系',
+  /纯白主题也保留白色场景纹理/.test(staticFaqContent) &&
+    /“启用场景背景”是独立的全局人工覆盖/.test(staticFaqContent) &&
+    /纯白主题也保留白色场景纹理/.test(mainJs) &&
+    /Enable Scene Background is an independent global manual override/.test(mainJs),
+  '静态与双语 FAQ 说明纯白场景纹理和全局人工背景开关的关系',
 );
 verify(
   /new URL\(trimmed, document\.baseURI\)/.test(
@@ -548,6 +552,19 @@ verify(
   /const hasDedicatedSceneOutput =[\s\S]*?useWebGLClickEffects \|\| useWebGL2Bloom \|\| canvasSceneRendered/.test(engineJs) &&
     /_renderLightBackgroundContrast\([\s\S]*?useSoftwareBloom && !hasDedicatedSceneOutput/.test(engineJs),
   'GPU 与场景 Final Pass 成功时仍按几何重建纯白对比遮罩',
+);
+const canvasSceneRendererSource = engineJs.match(
+  /  _ensureCanvasSceneRenderer\(\)[\s\S]*?\n  _resizeCanvasSceneRenderer\(\)/,
+)?.[0] ?? '';
+
+verify(
+  /setOverlayStyle\([\s\S]*?canvas,[\s\S]*?'2147483646'/.test(
+    canvasSceneRendererSource,
+  ) &&
+    /this\.overlayParent\.appendChild\(canvas\)/.test(
+      canvasSceneRendererSource,
+    ),
+  'Canvas Scene Final Pass 位于纯白对比层下方',
 );
 const canvasOutputVisibilitySource = engineJs.match(
   /  _setCanvasOutputVisible\(visible\)[\s\S]*?\n  _invalidateSceneBackgroundOutputs\(\)/,

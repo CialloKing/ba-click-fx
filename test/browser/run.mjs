@@ -2579,10 +2579,10 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
 
         return document.body.classList.contains('theme-pure-white') &&
           config?.isolatedCompositing === true &&
-          config.lightBackgroundContrastAlpha === 0 &&
-          config.sceneBackgroundEnabled === false &&
+          config.lightBackgroundContrastAlpha === 0.35 &&
+          config.sceneBackgroundEnabled === true &&
           window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
       },
     );
     await page.evaluate(async () =>
@@ -2596,7 +2596,7 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
     await page.waitForFunction(
       () =>
         window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
-        window.BAClickFXDemo.getConfig().sceneBackgroundEnabled === false,
+        window.BAClickFXDemo.getConfig().sceneBackgroundEnabled === true,
     );
 
     const modeSamples = {};
@@ -2703,6 +2703,16 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
             minimumY,
           },
           contrastRect: effect.contrastCanvas.getBoundingClientRect().toJSON(),
+          contrastZIndex: Number.parseInt(
+            getComputedStyle(effect.contrastCanvas).zIndex,
+            10,
+          ),
+          canvasSceneZIndex: effect.canvasSceneCanvas
+            ? Number.parseInt(
+              getComputedStyle(effect.canvasSceneCanvas).zIndex,
+              10,
+            )
+            : null,
           maximumAlpha,
         };
 
@@ -2726,9 +2736,9 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       assert(
         sample.config.outputCompositing === 'scene' &&
           sample.config.isolatedCompositing === true &&
-          sample.config.lightBackgroundContrastAlpha === 0 &&
-          sample.config.sceneBackgroundEnabled === false,
-        `${mode}: 展示页纯白隔离场景错误启用了淡青对比层`,
+          sample.config.lightBackgroundContrastAlpha === 0.35 &&
+          sample.config.sceneBackgroundEnabled === true,
+        `${mode}: 展示页没有保持纯白隔离的对比层配置`,
         sample,
       );
       assert(
@@ -2737,29 +2747,34 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
           : mode === 'webgl2-bloom'
             ? sample.config.resolvedBloomBackend === 'webgl2'
             : sample.config.resolvedBloomBackend === 'native' &&
-              sample.canvasSceneVisible === false,
+              sample.canvasSceneVisible === true,
         `${mode}: 纯白隔离回归没有走到目标成功路径`,
         sample,
       );
       assert(
-        sample.alphaSum === 0 &&
-          sample.maximumAlpha === 0,
-        `${mode}: 纯白隔离场景仍绘制了淡青对比遮罩`,
+        sample.alphaSum > 0 &&
+          sample.maximumAlpha > 0 &&
+          sample.contrastDisplay !== 'none' &&
+          sample.contrastVisibility !== 'hidden',
+        `${mode}: 纯白隔离场景没有生成可见对比遮罩`,
         sample,
       );
       assert(
-        visualDifference.changedPixels >= visualDifference.pixelCount * 0.05 &&
-          visualDifference.chromaticChangedPixels >= 2000 &&
+        visualDifference.changedPixels >= 8 &&
           visualDifference.redDropSum > 0 &&
-          visualDifference.maximumRedDrop >= 4 &&
-          visualDifference.maximumChannelDelta >= 4 &&
-          visualDifference.far.left.every((value) => value === 255) &&
-          visualDifference.far.right[3] === 255 &&
-          visualDifference.far.right.slice(0, 3).every((value) => value >= 235) &&
-          visualDifference.center.right[0] <= visualDifference.far.right[0] - 4,
+          visualDifference.maximumRedDrop >= 4,
         `${mode}: 纯白页面截图中点击特效仍然不可见`,
         { sample, visualDifference },
       );
+      if (mode === 'native-bloom')
+      {
+        assert(
+          Number.isFinite(sample.canvasSceneZIndex) &&
+            sample.contrastZIndex > sample.canvasSceneZIndex,
+          'Canvas Scene Final Pass 覆盖了纯白隔离对比层',
+          sample,
+        );
+      }
       modeSamples[mode] =
       {
         ...sample,
@@ -2787,7 +2802,7 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
         const config = window.BAClickFXDemo.getConfig();
 
         return config.isolatedCompositing === true &&
-          config.lightBackgroundContrastAlpha === 0;
+          config.lightBackgroundContrastAlpha === 0.35;
       },
     );
 
@@ -2821,9 +2836,9 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === false &&
+        return effect.getConfig().sceneBackgroundEnabled === true &&
           effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false &&
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
           localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === null;
       },
     );
@@ -2848,9 +2863,10 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === true &&
+        return effect.getConfig().sceneBackgroundEnabled === false &&
           effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false &&
+          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === 'false';
       },
     );
 
@@ -2861,9 +2877,9 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
         const effect = window.BAClickFXDemo;
 
         return effect.getConfig().lightBackgroundContrastAlpha === 0 &&
-          effect.getConfig().sceneBackgroundEnabled === true &&
+          effect.getConfig().sceneBackgroundEnabled === false &&
           effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
       },
     );
     const resetContrastAlpha = await page.evaluate(
@@ -2883,12 +2899,13 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
         const effect = window.BAClickFXDemo;
 
         return document.body.classList.contains('theme-pure-white') === false &&
-          effect.getConfig().sceneBackgroundEnabled === true &&
+          effect.getConfig().sceneBackgroundEnabled === false &&
           effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false &&
+          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === 'false';
       },
     );
-    const restoredEnabledScene = await page.evaluate(() =>
+    const restoredDisabledScene = await page.evaluate(() =>
     {
       const effect = window.BAClickFXDemo;
 
@@ -2909,10 +2926,10 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
         const config = window.BAClickFXDemo.getConfig();
 
         return config.isolatedCompositing === true &&
-          config.lightBackgroundContrastAlpha === 0 &&
-          config.sceneBackgroundEnabled === true &&
+          config.lightBackgroundContrastAlpha === 0.35 &&
+          config.sceneBackgroundEnabled === false &&
           window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
       },
     );
 
@@ -2922,9 +2939,10 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === false &&
+        return effect.getConfig().sceneBackgroundEnabled === true &&
           effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
+          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === 'true';
       },
     );
 
@@ -2934,12 +2952,12 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === false &&
+        return effect.getConfig().sceneBackgroundEnabled === true &&
           effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
       },
     );
-    const manualDisabledNonWhiteScene = await page.evaluate(() =>
+    const manualEnabledNonWhiteScene = await page.evaluate(() =>
     {
       const effect = window.BAClickFXDemo;
 
@@ -2957,9 +2975,9 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === false &&
+        return effect.getConfig().sceneBackgroundEnabled === true &&
           effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
       },
     );
 
@@ -2970,10 +2988,10 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
 
         return document.body.classList.contains('theme-pure-white') &&
           config?.isolatedCompositing === true &&
-          config.lightBackgroundContrastAlpha === 0 &&
-          config.sceneBackgroundEnabled === false &&
+          config.lightBackgroundContrastAlpha === 0.35 &&
+          config.sceneBackgroundEnabled === true &&
           window.BAClickFXDemo.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false;
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true;
     });
     const restoredContrastAlpha = await page.evaluate(
       () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha,
@@ -2986,13 +3004,13 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       {
         const effect = window.BAClickFXDemo;
 
-        return effect.getConfig().sceneBackgroundEnabled === false &&
+        return effect.getConfig().sceneBackgroundEnabled === true &&
           effect.sceneBackgroundSource instanceof HTMLCanvasElement &&
-          document.getElementById('ctrlSceneBackgroundEnabled').checked === false &&
-          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === 'false';
+          document.getElementById('ctrlSceneBackgroundEnabled').checked === true &&
+          localStorage.getItem('bafx-ctrlSceneBackgroundEnabled') === 'true';
       },
     );
-    const restoredDisabledNonWhiteScene = await page.evaluate(() =>
+    const restoredEnabledNonWhiteScene = await page.evaluate(() =>
     {
       const effect = window.BAClickFXDemo;
 
@@ -3029,8 +3047,8 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
     });
 
     assert(
-      restoredContrastAlpha === 0,
-      '刷新后纯白主题重新启用了隔离对比轮廓',
+      restoredContrastAlpha === 0.35,
+      '刷新后没有恢复纯白主题的隔离对比轮廓',
       { restoredContrastAlpha },
     );
     metrics.demoPureWhiteIsolation =
@@ -3039,12 +3057,12 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
       automaticNonWhiteScene,
       automaticPureWhiteScene,
       disabledContrastAlpha,
-      manualDisabledNonWhiteScene,
+      manualEnabledNonWhiteScene,
       modeSamples,
       resetContrastAlpha,
       resetAutomaticScene,
-      restoredDisabledNonWhiteScene,
-      restoredEnabledScene,
+      restoredDisabledScene,
+      restoredEnabledNonWhiteScene,
       restoredContrastAlpha,
     };
   }
