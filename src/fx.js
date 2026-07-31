@@ -16,12 +16,17 @@ import {
   isBloomBackend,
   isEffectBackend,
   isInputSource,
+  isHostCompositing,
   isOutputCompositing,
   isTimeScale,
+  isUnknownBackgroundAppearance,
   normalizeBloomBackend,
   normalizeEffectBackend,
+  normalizeHostCompositing,
+  normalizeOverlayAlphaLimit,
   normalizeThemeColor,
   normalizeTimeScale,
+  normalizeUnknownBackgroundAppearance,
   SIZE_CORRECTION,
 } from './config.js';
 import { applyFxParamPatch as prepareFxParamPatch } from './fx-param-patch.js';
@@ -29,6 +34,8 @@ import { gammaToLinear } from './bloom-color-space.js';
 import {
   SoftwareBloomRenderer,
   calculateBloomContribution,
+  linearToSrgb,
+  limitCanvasAlpha,
 } from './software-bloom.js';
 import { WebGL2EffectRenderer } from './webgl2-effect.js';
 import { WebGL2CanvasSceneRenderer } from './webgl2-canvas-scene.js';
@@ -196,6 +203,12 @@ function clamp(value, min, max)
 function clamp01(value)
 {
   return clamp(value, 0, 1);
+}
+
+function smoothstep(edge0, edge1, value)
+{
+  const progress = clamp01((value - edge0) / (edge1 - edge0));
+  return progress * progress * (3 - 2 * progress);
 }
 
 function scaleTimeDelta(elapsedMs, timeScale)
@@ -582,6 +595,56 @@ function linearEnergyToAdditiveCss(color, opacity = 1)
     Math.round(blue / alpha * 255)}, ${alpha})`;
 }
 
+function resolveOverlayStraightColor(
+  color,
+  contributionOpacity,
+  coverageAlpha,
+  unknownBackgroundAppearance = 'coverage',
+  globalOpacity = 1,
+)
+{
+  const requestedAlpha = clamp01(coverageAlpha);
+
+  if (requestedAlpha <= 0.00001)
+  {
+    return [0, 0, 0];
+  }
+
+  const contribution = Math.max(0, contributionOpacity);
+  // Canvas CSS 颜色位于 sRGB 空间。这里的材质颜色是 Unity Linear
+  // 能量，必须先完成最终编码，再除以 Coverage 得到直通道颜色。
+  let red = clamp01(
+    linearToSrgb(Math.max(0, color[0]) * contribution) / requestedAlpha,
+  );
+  let green = clamp01(
+    linearToSrgb(Math.max(0, color[1]) * contribution) / requestedAlpha,
+  );
+  let blue = clamp01(
+    linearToSrgb(Math.max(0, color[2]) * contribution) / requestedAlpha,
+  );
+
+  if (unknownBackgroundAppearance === 'bright')
+  {
+    const safeOpacity = Math.max(clamp01(globalOpacity), 0.000001);
+    const normalizedCoverage = clamp01(requestedAlpha / safeOpacity);
+    const normalizedEnergy = linearToSrgb(
+      Math.max(...color) * Math.max(0, contributionOpacity) / safeOpacity,
+    );
+    const energyRatio = normalizedEnergy /
+      Math.max(normalizedCoverage, 0.000001);
+    const ratioGate = smoothstep(0.25, 0.75, energyRatio);
+    const energyGate = smoothstep(0.03125, 0.25, normalizedEnergy);
+    const compensation = ratioGate * energyGate;
+
+    // 只补偿有足够独立发射能量的核心，低能拖尾继续保留原始色相。
+    red = Math.max(red, compensation);
+    green = Math.max(green, compensation);
+    blue = Math.max(blue, compensation);
+  }
+
+  return [red, green, blue];
+}
+
 function colorToCanvasOutputCss(color, alpha, linearOutput = false)
 {
   if (!linearOutput)
@@ -604,21 +667,32 @@ function linearEnergyToOverlayCss(
   color,
   contributionOpacity,
   coverageAlpha,
+  unknownBackgroundAppearance = 'coverage',
+  overlayAlphaLimit = 1,
+  globalOpacity = 1,
 )
 {
-  const alpha = clamp01(coverageAlpha);
+  const requestedAlpha = clamp01(coverageAlpha);
+  const alpha = Math.min(
+    requestedAlpha,
+    clamp01(overlayAlphaLimit),
+  );
 
   if (alpha <= 0.00001)
   {
     return 'rgba(0, 0, 0, 0)';
   }
 
-  const scale = Math.max(0, contributionOpacity) / alpha;
-  const red = Math.round(clamp01(color[0] * scale) * 255);
-  const green = Math.round(clamp01(color[1] * scale) * 255);
-  const blue = Math.round(clamp01(color[2] * scale) * 255);
+  const [red, green, blue] = resolveOverlayStraightColor(
+    color,
+    contributionOpacity,
+    requestedAlpha,
+    unknownBackgroundAppearance,
+    globalOpacity,
+  );
 
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+  return `rgba(${Math.round(red * 255)}, ${Math.round(green * 255)}, ${
+    Math.round(blue * 255)}, ${alpha})`;
 }
 
 /**
@@ -632,6 +706,8 @@ function linearEnergyToNativeTrailBloomCss(
   bloomCfg,
   outputCompositing = 'scene',
   coverageOpacity = opacity,
+  unknownBackgroundAppearance = 'coverage',
+  overlayAlphaLimit = 1,
 )
 {
   const sourceScale = clamp01(opacity) * Math.max(0, intensity);
@@ -667,6 +743,9 @@ function linearEnergyToNativeTrailBloomCss(
       brightPass,
       bloomCfg.trailAlpha,
       coverage,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
+      opacity,
     );
   }
 
@@ -1444,6 +1523,8 @@ class LegacyRingRasterizer
     opacity,
     textureAlpha,
     outputCompositing,
+    unknownBackgroundAppearance = 'coverage',
+    overlayAlphaLimit = 1,
   )
   {
     const energyScale = clamp01(opacity * textureAlpha);
@@ -1465,10 +1546,19 @@ class LegacyRingRasterizer
 
       // Unity 将 Ring3 的纹理 Alpha 写入 Coverage，同时以 SrcAlpha/One
       // 混合 HDR RGB；ImageData 交给 Canvas 预乘即可得到同一颜色贡献。
-      data[offset] = Math.round(clamp01(materialEnergy[0]) * 255);
-      data[offset + 1] = Math.round(clamp01(materialEnergy[1]) * 255);
-      data[offset + 2] = Math.round(clamp01(materialEnergy[2]) * 255);
-      data[offset + 3] = Math.round(energyScale * 255);
+      const [red, green, blue] = resolveOverlayStraightColor(
+        materialEnergy,
+        energyScale,
+        energyScale,
+        unknownBackgroundAppearance,
+        opacity,
+      );
+      data[offset] = Math.round(red * 255);
+      data[offset + 1] = Math.round(green * 255);
+      data[offset + 2] = Math.round(blue * 255);
+      data[offset + 3] = Math.round(
+        Math.min(energyScale, clamp01(overlayAlphaLimit)) * 255,
+      );
       return;
     }
 
@@ -1497,6 +1587,8 @@ class LegacyRingRasterizer
     materialEnergy,
     ringCfg,
     outputCompositing,
+    unknownBackgroundAppearance = 'coverage',
+    overlayAlphaLimit = 1,
   )
   {
     const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
@@ -1553,6 +1645,8 @@ class LegacyRingRasterizer
         opacity,
         textureAlpha,
         outputCompositing,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
       );
     }
 
@@ -1573,6 +1667,8 @@ class LegacyRingRasterizer
     materialEnergy,
     outputCompositing,
     linearNativeGlow = false,
+    unknownBackgroundAppearance = 'coverage',
+    overlayAlphaLimit = 1,
   )
   {
     const ringCfg = fxConfig.rings;
@@ -1598,6 +1694,8 @@ class LegacyRingRasterizer
         materialEnergy,
         ringCfg,
         outputCompositing,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
       );
     }
     catch
@@ -1607,15 +1705,25 @@ class LegacyRingRasterizer
     }
 
     evaluateColor(ringCfg.colorKeys, progress, this.particleColor);
+    const shadowAlpha = scaleNativeGlowAlpha(
+      opacity * bloomCfg.ringAlpha,
+      bloomCfg.clickEmissionScale,
+    );
     const shadowColor = useNativeBloom
-      ? colorToCanvasOutputCss(
-        this.particleColor,
-        scaleNativeGlowAlpha(
-          opacity * bloomCfg.ringAlpha,
-          bloomCfg.clickEmissionScale,
-        ),
-        linearNativeGlow,
-      )
+      ? outputCompositing === 'browser-overlay'
+        ? linearEnergyToOverlayCss(
+            colorToLinearEnergy(this.particleColor, 1, true),
+            shadowAlpha,
+            shadowAlpha,
+            unknownBackgroundAppearance,
+            overlayAlphaLimit,
+            opacity,
+          )
+        : colorToCanvasOutputCss(
+            this.particleColor,
+            shadowAlpha,
+            linearNativeGlow,
+          )
       : 'transparent';
 
     for (const ring of rings)
@@ -1700,6 +1808,8 @@ function drawDissolvedCircle(
   outputCompositing = 'scene',
   linearNativeGlow = false,
   dpr = 1,
+  unknownBackgroundAppearance = 'coverage',
+  overlayAlphaLimit = 1,
 )
 {
   const ringCfg = fxConfig.rings;
@@ -1726,13 +1836,39 @@ function drawDissolvedCircle(
     const coverage = opacity * luminance;
 
     return outputCompositing === 'browser-overlay'
-      ? linearEnergyToOverlayCss(materialEnergy, coverage, coverage)
+      ? linearEnergyToOverlayCss(
+          materialEnergy,
+          coverage,
+          coverage,
+          unknownBackgroundAppearance,
+          overlayAlphaLimit,
+          opacity,
+        )
       : linearEnergyToAdditiveCss(materialEnergy, coverage);
   };
 
   context.save();
   context.translate(ring.x, ring.y);
   context.rotate(ring.rotation);
+  const ringGlowAlpha = scaleNativeGlowAlpha(
+    opacity * bloomCfg.ringAlpha,
+    bloomCfg.clickEmissionScale,
+  );
+  const ringGlowColor = outputCompositing === 'browser-overlay'
+    ? linearEnergyToOverlayCss(
+        colorToLinearEnergy(particleColor, 1, true),
+        ringGlowAlpha,
+        ringGlowAlpha,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
+        opacity,
+      )
+    : colorToCanvasOutputCss(
+        particleColor,
+        ringGlowAlpha,
+        linearNativeGlow,
+      );
+
   fillDissolvedRing(
     context,
     geometry.radius,
@@ -1744,14 +1880,7 @@ function drawDissolvedCircle(
       ? {
           // Canvas shadowBlur 不跟随当前变换矩阵，必须显式换算到物理像素。
           blur: bloomCfg.ringBlur * scale * dpr,
-          color: colorToCanvasOutputCss(
-            particleColor,
-            scaleNativeGlowAlpha(
-              opacity * bloomCfg.ringAlpha,
-              bloomCfg.clickEmissionScale,
-            ),
-            linearNativeGlow,
-          ),
+          color: ringGlowColor,
         }
       : null,
   );
@@ -1812,6 +1941,9 @@ function drawDisk(
   fxConfig = UNITY_FX_TOUCH,
   useNativeBloom = true,
   dpr = 1,
+  outputCompositing = 'scene',
+  unknownBackgroundAppearance = 'coverage',
+  overlayAlphaLimit = 1,
 )
 {
   const diskCfg = fxConfig.disk;
@@ -1836,9 +1968,17 @@ function drawDisk(
     progress,
     bloomCfg.diskEmission,
   );
-  const textureCanvas = prepareCircleTextureCanvas(
-    materialEnergy.map((channel) => channel / Math.max(particleAlpha, 0.00001)),
-  );
+  const textureScales = outputCompositing === 'browser-overlay'
+    ? resolveOverlayStraightColor(
+        materialEnergy,
+        opacity,
+        particleAlpha * opacity,
+        unknownBackgroundAppearance,
+        opacity,
+      )
+    : materialEnergy.map((channel) =>
+        channel / Math.max(particleAlpha, 0.00001));
+  const textureCanvas = prepareCircleTextureCanvas(textureScales);
 
   if (!textureCanvas)
   {
@@ -1851,14 +1991,24 @@ function drawDisk(
   context.globalCompositeOperation = 'source-over';
   context.translate(wave.x, wave.y);
   context.rotate(wave.diskRotation);
-  context.globalAlpha = clamp01(particleAlpha * opacity);
-  context.shadowColor = colorToCss(
-    color,
-    scaleNativeGlowAlpha(
-      opacity * bloomCfg.diskAlpha,
-      bloomCfg.clickEmissionScale,
-    ),
+  const coverageAlpha = particleAlpha * opacity;
+  context.globalAlpha = outputCompositing === 'browser-overlay'
+    ? Math.min(clamp01(coverageAlpha), clamp01(overlayAlphaLimit))
+    : clamp01(coverageAlpha);
+  const shadowAlpha = scaleNativeGlowAlpha(
+    opacity * bloomCfg.diskAlpha,
+    bloomCfg.clickEmissionScale,
   );
+  context.shadowColor = outputCompositing === 'browser-overlay'
+    ? linearEnergyToOverlayCss(
+        colorToLinearEnergy(color, 1, true),
+        shadowAlpha,
+        shadowAlpha,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
+        opacity,
+      )
+    : colorToCss(color, shadowAlpha);
   // Canvas shadowBlur 不受 DPR 变换影响；按物理像素缩放才能保持 CSS 尺寸。
   context.shadowBlur = useNativeBloom
     ? bloomCfg.diskBlur * scale * dpr
@@ -2074,6 +2224,9 @@ function drawTexturedTriangle(
   frameIndex,
   energyScale = 1,
   outputCompositing = 'scene',
+  unknownBackgroundAppearance = 'coverage',
+  overlayAlphaLimit = 1,
+  opacity = 1,
 )
 {
   const resources = getTriangleTextureResources();
@@ -2084,8 +2237,18 @@ function drawTexturedTriangle(
   }
 
   const textureContext = resources.context;
-  const scaledColor = materialEnergy.map((channel) =>
-    Math.round(clamp01(channel * Math.max(0, energyScale)) * 255));
+  const scaledEnergy = materialEnergy.map((channel) =>
+    channel * Math.max(0, energyScale));
+  const scaledColor = outputCompositing === 'browser-overlay'
+    ? resolveOverlayStraightColor(
+        scaledEnergy,
+        particleAlpha,
+        particleAlpha,
+        unknownBackgroundAppearance,
+        opacity,
+      ).map((channel) => Math.round(channel * 255))
+    : scaledEnergy.map((channel) =>
+        Math.round(clamp01(channel) * 255));
 
   if (
     outputCompositing === 'browser-overlay' &&
@@ -2134,7 +2297,9 @@ function drawTexturedTriangle(
   context.save();
   context.translate(particle.x, particle.y);
   context.rotate(particle.rotation);
-  context.globalAlpha = clamp01(particleAlpha);
+  context.globalAlpha = outputCompositing === 'browser-overlay'
+    ? Math.min(clamp01(particleAlpha), clamp01(overlayAlphaLimit))
+    : clamp01(particleAlpha);
   context.shadowColor = 'transparent';
   context.shadowBlur = 0;
   context.drawImage(resources.canvas, -size * 0.5, -size * 0.5, size, size);
@@ -2149,6 +2314,8 @@ function drawTriangle(
   opacity,
   fxConfig = UNITY_FX_TOUCH,
   outputCompositing = 'scene',
+  unknownBackgroundAppearance = 'coverage',
+  overlayAlphaLimit = 1,
 )
 {
   const shardCfg = fxConfig.shards;
@@ -2181,6 +2348,9 @@ function drawTriangle(
     textureFrameIndex,
     1,
     outputCompositing,
+    unknownBackgroundAppearance,
+    overlayAlphaLimit,
+    opacity,
   ))
   {
     return;
@@ -2195,7 +2365,14 @@ function drawTriangle(
   context.lineTo(textureFrame[2][0] * size, textureFrame[2][1] * size);
   context.closePath();
   context.fillStyle = outputCompositing === 'browser-overlay'
-    ? linearEnergyToOverlayCss(materialEnergy, alpha, alpha)
+    ? linearEnergyToOverlayCss(
+        materialEnergy,
+        alpha,
+        alpha,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
+        opacity,
+      )
     : linearEnergyToAdditiveCss(materialEnergy, alpha);
   // 三角碎片在原图中是清晰本体；显式清空阴影，避免继承上一层发光状态。
   context.shadowColor = 'transparent';
@@ -2340,6 +2517,9 @@ function drawHit(
   opacity,
   fxConfig,
   linearOutput = false,
+  outputCompositing = 'scene',
+  unknownBackgroundAppearance = 'coverage',
+  overlayAlphaLimit = 1,
 )
 {
   const cfg = fxConfig.hit;
@@ -2355,7 +2535,16 @@ function drawHit(
   context.save();
   context.beginPath();
   context.arc(wave.x, wave.y, radius, 0, TAU);
-  context.fillStyle = colorToCanvasOutputCss(color, alpha, linearOutput);
+  context.fillStyle = outputCompositing === 'browser-overlay'
+    ? linearEnergyToOverlayCss(
+        colorToLinearEnergy(color, 1, true),
+        alpha,
+        alpha,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
+        opacity,
+      )
+    : colorToCanvasOutputCss(color, alpha, linearOutput);
   context.fill();
   context.restore();
 }
@@ -2368,6 +2557,9 @@ function drawFlare(
   opacity,
   fxConfig,
   linearOutput = false,
+  outputCompositing = 'scene',
+  unknownBackgroundAppearance = 'coverage',
+  overlayAlphaLimit = 1,
 )
 {
   const cfg = fxConfig.flare;
@@ -2383,7 +2575,16 @@ function drawFlare(
   context.save();
   context.translate(wave.x, wave.y);
   // Final Pass 直接采样 Canvas 预乘颜色，因此附加粒子也必须写入线性能量。
-  context.strokeStyle = colorToCanvasOutputCss(color, alpha, linearOutput);
+  context.strokeStyle = outputCompositing === 'browser-overlay'
+    ? linearEnergyToOverlayCss(
+        colorToLinearEnergy(color, 1, true),
+        alpha,
+        alpha,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
+        opacity,
+      )
+    : colorToCanvasOutputCss(color, alpha, linearOutput);
 
   for (let i = 0; i < cfg.rayCount; i++)
   {
@@ -2481,6 +2682,9 @@ class ClickWave
     scale,
     opacity,
     linearOutput = false,
+    outputCompositing = 'scene',
+    unknownBackgroundAppearance = 'coverage',
+    overlayAlphaLimit = 1,
   )
   {
     // Hit：撞击爆发，极短极亮
@@ -2496,6 +2700,9 @@ class ClickWave
         opacity,
         this.fx,
         linearOutput,
+        outputCompositing,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
       );
     }
 
@@ -2512,6 +2719,9 @@ class ClickWave
         opacity,
         this.fx,
         linearOutput,
+        outputCompositing,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
       );
     }
   }
@@ -2522,6 +2732,9 @@ class ClickWave
     opacity,
     useNativeBloom = true,
     dpr = 1,
+    outputCompositing = 'scene',
+    unknownBackgroundAppearance = 'coverage',
+    overlayAlphaLimit = 1,
   )
   {
     const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
@@ -2537,6 +2750,9 @@ class ClickWave
         this.fx,
         useNativeBloom,
         dpr,
+        outputCompositing,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
       );
     }
   }
@@ -2566,16 +2782,29 @@ class ClickWave
     useNativeBloom = true,
     outputCompositing = 'scene',
     dpr = 1,
+    unknownBackgroundAppearance = 'coverage',
+    overlayAlphaLimit = 1,
   )
   {
     // 旧 Canvas 回退保持既有绘制顺序；精确 Scene 路径按材质队列分层调用。
-    this.drawAdditiveBase(context, scale, opacity);
+    this.drawAdditiveBase(
+      context,
+      scale,
+      opacity,
+      false,
+      outputCompositing,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
+    );
     this.drawDiskLayer(
       context,
       scale,
       opacity,
       useNativeBloom,
       dpr,
+      outputCompositing,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
     );
   }
 
@@ -2589,6 +2818,8 @@ class ClickWave
     dpr = 1,
     outputCompositing = 'scene',
     linearNativeGlow = false,
+    unknownBackgroundAppearance = 'coverage',
+    overlayAlphaLimit = 1,
   )
   {
     const ringProgress = this.ageMs / this.fx.rings.lifetimeMs;
@@ -2615,6 +2846,8 @@ class ClickWave
           ringMaterialEnergy,
           outputCompositing,
           linearNativeGlow,
+          unknownBackgroundAppearance,
+          overlayAlphaLimit,
         )
       )
       {
@@ -2635,6 +2868,8 @@ class ClickWave
           outputCompositing,
           linearNativeGlow,
           dpr,
+          unknownBackgroundAppearance,
+          overlayAlphaLimit,
         );
       }
     }
@@ -2648,6 +2883,8 @@ class ClickWave
     legacy = false,
     outputCompositing = 'scene',
     dpr = 1,
+    unknownBackgroundAppearance = 'coverage',
+    overlayAlphaLimit = 1,
   )
   {
     this.drawBase(
@@ -2657,6 +2894,8 @@ class ClickWave
       useNativeBloom,
       outputCompositing,
       dpr,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
     );
     this.drawRings(
       context,
@@ -2668,6 +2907,8 @@ class ClickWave
       dpr,
       outputCompositing,
       false,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
     );
   }
 
@@ -3067,6 +3308,8 @@ class ShardParticle
     opacity,
     fxConfig = UNITY_FX_TOUCH,
     outputCompositing = 'scene',
+    unknownBackgroundAppearance = 'coverage',
+    overlayAlphaLimit = 1,
   )
   {
     drawTriangle(
@@ -3076,6 +3319,8 @@ class ShardParticle
       opacity,
       fxConfig,
       outputCompositing,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
     );
   }
 
@@ -3984,7 +4229,14 @@ function drawTrailLayer(
         longitudinalCoverage;
 
       return layer.outputCompositing === 'browser-overlay'
-        ? linearEnergyToOverlayCss(color, contribution, coverage)
+        ? linearEnergyToOverlayCss(
+            color,
+            contribution,
+            coverage,
+            layer.unknownBackgroundAppearance,
+            layer.overlayAlphaLimit,
+            layer.globalOpacity ?? opacity,
+          )
         : linearEnergyToAdditiveCss(color, contribution);
     });
 
@@ -4162,6 +4414,8 @@ function drawNativeTrailBloom(
   bloomCfg,
   surface,
   outputCompositing = 'scene',
+  unknownBackgroundAppearance = 'coverage',
+  overlayAlphaLimit = 1,
 )
 {
   const measurement = trailData.measurement;
@@ -4269,6 +4523,8 @@ function drawNativeTrailBloom(
           bloomCfg,
           outputCompositing,
           opacity * textureCoverage * longitudinalCoverage,
+          unknownBackgroundAppearance,
+          overlayAlphaLimit,
         ),
     },
     firstVisibleSegment,
@@ -4308,6 +4564,8 @@ function drawLegacyTrailLayer(
   layer,
   linearOutput = false,
   outputCompositing = 'scene',
+  unknownBackgroundAppearance = 'coverage',
+  overlayAlphaLimit = 1,
 )
 {
   const measurement = trailData.measurement;
@@ -4386,11 +4644,12 @@ function drawLegacyTrailLayer(
     context.lineTo(points[index].x, points[index].y);
     context.strokeStyle = outputCompositing === 'browser-overlay'
       ? linearEnergyToOverlayCss(
-          linearOutput
-            ? colorToLinearEnergy(color, 1, true)
-            : color.map((channel) => channel / 255),
+          colorToLinearEnergy(color, 1, true),
           effectiveAlpha * fadeAlpha,
           effectiveAlpha * longitudinalCoverage,
+          unknownBackgroundAppearance,
+          overlayAlphaLimit,
+          opacity,
         )
       : colorToCanvasOutputCss(
           color,
@@ -4415,6 +4674,8 @@ function drawTrail(
   sharedTrailData = null,
   linearOutput = false,
   outputCompositing = 'scene',
+  unknownBackgroundAppearance = 'coverage',
+  overlayAlphaLimit = 1,
 )
 {
   const trailCfg = fxConfig.trail;
@@ -4446,6 +4707,8 @@ function drawTrail(
         },
         linearOutput,
         outputCompositing,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
       );
     }
 
@@ -4459,6 +4722,8 @@ function drawTrail(
       LEGACY_TRAIL_MIDDLE_LAYER,
       linearOutput,
       outputCompositing,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
     );
     drawLegacyTrailLayer(
       context,
@@ -4470,6 +4735,8 @@ function drawTrail(
       LEGACY_TRAIL_CORE_LAYER,
       linearOutput,
       outputCompositing,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
     );
     return;
   }
@@ -4486,6 +4753,8 @@ function drawTrail(
       bloomCfg,
       nativeBloomSurface,
       outputCompositing,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
     );
   }
 
@@ -4496,6 +4765,8 @@ function drawTrail(
       alpha: 1,
       materialIntensity: bloomCfg.trailEmission,
       outputCompositing,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
     },
   );
 }
@@ -4935,6 +5206,9 @@ export class BAClickFX
    * @param {number} [options.clickTimeScale]
    * @param {number} [options.trailTimeScale]
    * @param {'scene'|'browser-overlay'} [options.outputCompositing]
+   * @param {'coverage'|'bright'} [options.unknownBackgroundAppearance]
+   * @param {number} [options.overlayAlphaLimit]
+   * @param {'source-over'|'plus-lighter'} [options.hostCompositing]
    * @param {'canvas2d'|'webgl2'|'auto'} [options.effectBackend]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
@@ -4990,6 +5264,18 @@ export class BAClickFX
         outputCompositing: isOutputCompositing(options.outputCompositing)
           ? options.outputCompositing
           : CONFIG.outputCompositing,
+        unknownBackgroundAppearance: normalizeUnknownBackgroundAppearance(
+          options.unknownBackgroundAppearance,
+          CONFIG.unknownBackgroundAppearance,
+        ),
+        overlayAlphaLimit: normalizeOverlayAlphaLimit(
+          options.overlayAlphaLimit,
+          CONFIG.overlayAlphaLimit,
+        ),
+        hostCompositing: normalizeHostCompositing(
+          options.hostCompositing,
+          CONFIG.hostCompositing,
+        ),
         effectBackend: normalizeEffectBackend(
           options.effectBackend,
           compatibilityEffectBackend,
@@ -5036,6 +5322,7 @@ export class BAClickFX
     this.canvasSceneVisible = false;
     this.compositingReferenceSource = null;
     this.compositingReferenceFit = 'cover';
+    this.compositingMountPending = false;
 
     if (!this.canvas)
     {
@@ -5088,6 +5375,7 @@ export class BAClickFX
       this.overlayMountParent = null;
       this.overlayRoot = null;
       this.overlayParent = null;
+      this._applyCompositingMount();
     }
 
     this.canvas.style.touchAction = this.config.touchAction;
@@ -5238,17 +5526,121 @@ export class BAClickFX
       .filter(Boolean);
   }
 
+  _hasActiveCompositingReference()
+  {
+    if (this.compositingReferenceSource === null)
+    {
+      return false;
+    }
+
+    return (
+      this.webglEffectVisible &&
+      this.webglEffectRenderer?.hasSceneBackground === true
+    ) || (
+      this.webglBloomVisible &&
+      this.webglBloomRenderer?.hasSceneBackground === true
+    ) || (
+      this.canvasSceneVisible &&
+      this.canvasSceneRenderer?.hasSceneBackground === true
+    );
+  }
+
+  _usesUnknownBrowserOverlay()
+  {
+    return this.config.outputCompositing === 'browser-overlay' &&
+      !this._hasActiveCompositingReference();
+  }
+
+  _usesHostAdditivePayload()
+  {
+    return this._usesUnknownBrowserOverlay() &&
+      this.config.hostCompositing === 'plus-lighter';
+  }
+
+  _getEffectiveHostCompositing()
+  {
+    return this._usesHostAdditivePayload()
+      ? 'plus-lighter'
+      : 'source-over';
+  }
+
+  _getCanvasOutputCompositing()
+  {
+    // Add 宿主需要完整发射载荷；scene 编码不会把 RGB 收敛进 Coverage 容量。
+    return this._usesHostAdditivePayload()
+      ? 'scene'
+      : this.config.outputCompositing;
+  }
+
+  _getUnknownBackgroundAppearance()
+  {
+    return this._usesUnknownBrowserOverlay() &&
+      !this._usesHostAdditivePayload()
+      ? this.config.unknownBackgroundAppearance
+      : 'coverage';
+  }
+
+  _requestCompositingMountRefresh()
+  {
+    // 只要还有可见对象，就必须让当前像素先按新合同重绘，再改变根节点
+    // 的混合模式；否则暂停帧或 Context 回退会被错误的 CSS 重新解释。
+    if (this._hasVisibleEffects())
+    {
+      this.compositingMountPending = true;
+      return;
+    }
+
+    this.compositingMountPending = false;
+    this._applyCompositingMount();
+  }
+
+  _flushCompositingMountRefresh()
+  {
+    if (!this.compositingMountPending)
+    {
+      return;
+    }
+
+    this.compositingMountPending = false;
+    this._applyCompositingMount();
+  }
+
   _applyCompositingMount()
   {
-    if (!this.ownsCanvas || !this.overlayMountParent || !this.overlayRoot)
+    const hostAdditive = this._usesHostAdditivePayload();
+
+    if (!this.ownsCanvas)
+    {
+      // 外部 Canvas 没有可包装的内部图层组；显式 API 仍应把宿主 Add
+      // 应用到实际输出元素，调用方可在原生宿主中覆盖这一 CSS 能力。
+      this.canvas.style.mixBlendMode = hostAdditive
+        ? 'plus-lighter'
+        : '';
+      return;
+    }
+
+    if (!this.overlayMountParent || !this.overlayRoot)
     {
       return;
     }
 
     const isolated = this.config.isolatedCompositing;
-    const parent = isolated ? this.overlayRoot : this.overlayMountParent;
+    const grouped = isolated || hostAdditive;
+    const parent = grouped ? this.overlayRoot : this.overlayMountParent;
 
-    if (isolated)
+    // 子层始终先按普通 source-over 解析；宿主 Add 只允许在完整组上执行一次。
+    this.overlayRoot.style.mixBlendMode = hostAdditive
+      ? 'plus-lighter'
+      : '';
+
+    for (const canvas of this._getOverlayLayers())
+    {
+      canvas.style.mixBlendMode = canvas === this.contrastCanvas && !hostAdditive
+        ? 'darken'
+        : '';
+    }
+
+    if (grouped)
     {
       this.overlayMountParent.appendChild(this.overlayRoot);
     }
@@ -5256,11 +5648,11 @@ export class BAClickFX
     for (const canvas of this._getOverlayLayers())
     {
       // 直接合成时恢复旧版 fixed/absolute 定位；隔离组内一律相对根层铺满。
-      canvas.style.position = isolated || this.host ? 'absolute' : 'fixed';
+      canvas.style.position = grouped || this.host ? 'absolute' : 'fixed';
       parent.appendChild(canvas);
     }
 
-    if (!isolated)
+    if (!grouped)
     {
       this.overlayRoot.remove();
     }
@@ -6081,7 +6473,7 @@ export class BAClickFX
     // 透明 Canvas 无法独立保存 Additive RGB 与 Coverage Alpha；在 residual
     // Coverage Final Pass 完成前保留兼容 source-over，避免多个粒子把 Alpha 相加。
     this.context.globalCompositeOperation =
-      this.config.outputCompositing === 'browser-overlay'
+      this._getCanvasOutputCompositing() === 'browser-overlay'
         ? 'source-over'
         : 'lighter';
     this.renderingFrame = true;
@@ -6132,8 +6524,9 @@ export class BAClickFX
           }
 
           this._setWebGLBloomVisible(useWebGL2Bloom);
-          this._drawCanvasTrails(scale, useNativeBloom, legacy);
-          this._drawCanvasClickEffects(scale, useNativeBloom);
+          // 活动参考失效后，未知背景宿主 Add 需要从 source-over 切回
+          // lighter；统一入口会按已经解析的新后端重新建立 Canvas 状态。
+          this._drawCanvasFallbackFrame(scale, useNativeBloom, legacy);
         }
         else
         {
@@ -6157,6 +6550,7 @@ export class BAClickFX
           {
             // Final Pass 候选帧使用线性能量编码，失败后不能直接作为普通
             // Canvas 显示；对象已在本帧更新，只需用 sRGB 路径重新绘制。
+            this._setCanvasSceneVisible(false);
             this._drawCanvasFallbackFrame(scale, useNativeBloom, legacy);
           }
 
@@ -6216,6 +6610,8 @@ export class BAClickFX
       {
         this.webglBloomRenderer?.clear();
       }
+
+      this._limitCanvasOverlayAlpha(scale);
     }
     catch (error)
     {
@@ -6233,6 +6629,10 @@ export class BAClickFX
       this.context.restore();
       themeHueShift = prevHueShift;
     }
+
+    // 合成合同可能在本帧内因后端成功/失败而改变；此时像素已经完成，
+    // 现在切换根节点混合模式不会让浏览器用新合同解释旧帧。
+    this._flushCompositingMountRefresh();
 
     if (this._hasVisibleEffects())
     {
@@ -6658,7 +7058,14 @@ export class BAClickFX
   {
     if (!this.webglEffectCanvas)
     {
+      const changed = this.webglEffectVisible;
+
       this.webglEffectVisible = false;
+
+      if (changed)
+      {
+        this._requestCompositingMountRefresh();
+      }
       return;
     }
 
@@ -6674,6 +7081,8 @@ export class BAClickFX
     {
       this.webglEffectRenderer?.clear();
     }
+
+    this._requestCompositingMountRefresh();
   }
 
   _destroyWebGLEffectRenderer()
@@ -6865,7 +7274,14 @@ export class BAClickFX
   {
     if (!this.canvasSceneCanvas)
     {
+      const changed = this.canvasSceneVisible;
+
       this.canvasSceneVisible = false;
+
+      if (changed)
+      {
+        this._requestCompositingMountRefresh();
+      }
       return;
     }
 
@@ -6881,6 +7297,8 @@ export class BAClickFX
     {
       this.canvasSceneRenderer?.clear();
     }
+
+    this._requestCompositingMountRefresh();
   }
 
   _destroyCanvasSceneRenderer()
@@ -7037,7 +7455,14 @@ export class BAClickFX
   {
     if (!this.webglBloomCanvas)
     {
+      const changed = this.webglBloomVisible;
+
       this.webglBloomVisible = false;
+
+      if (changed)
+      {
+        this._requestCompositingMountRefresh();
+      }
       return;
     }
 
@@ -7062,6 +7487,8 @@ export class BAClickFX
     {
       this.webglBloomRenderer?.clear();
     }
+
+    this._requestCompositingMountRefresh();
   }
 
   _setCanvasOutputVisible(visible)
@@ -7552,9 +7979,191 @@ export class BAClickFX
     ];
   }
 
-  _getSoftwareBloomBounds(scale)
+  _getCanvasOverlayBounds(scale)
   {
-    return combineBloomRegionBounds(this._getSoftwareBloomRegions(scale));
+    const bounds = [];
+    const addBounds = (minimumX, minimumY, maximumX, maximumY) =>
+    {
+      if (
+        !Number.isFinite(minimumX) ||
+        !Number.isFinite(minimumY) ||
+        !Number.isFinite(maximumX) ||
+        !Number.isFinite(maximumY) ||
+        maximumX < minimumX ||
+        maximumY < minimumY
+      )
+      {
+        return;
+      }
+
+      bounds.push(
+        {
+          x: minimumX,
+          y: minimumY,
+          width: maximumX - minimumX,
+          height: maximumY - minimumY,
+        },
+      );
+    };
+    const bloomCfg = this.fxConfig.bloom;
+
+    for (const wave of this.waves)
+    {
+      let radius = 0;
+      const hitProgress = wave.ageMs / wave.fx.hit.lifetimeMs;
+      const flareProgress = wave.ageMs / wave.fx.flare.lifetimeMs;
+      const diskProgress = wave.ageMs / wave.fx.disk.lifetimeMs;
+      const ringProgress = wave.ageMs / wave.fx.rings.lifetimeMs;
+
+      if (wave.fx.hit.enabled && hitProgress < 1)
+      {
+        radius = Math.max(radius, wave.fx.hit.radius * scale);
+      }
+
+      if (wave.fx.flare.enabled && flareProgress < 1)
+      {
+        radius = Math.max(radius, wave.fx.flare.radius * scale);
+      }
+
+      if (diskProgress < 1)
+      {
+        const diskRadius = wave.fx.disk.radius * evaluateUnityHermiteCurve(
+          wave.fx.disk.sizeKeys,
+          diskProgress,
+        ) * scale;
+        // Canvas blur 的实现支撑范围没有标准化；三倍配置半径覆盖所有
+        // 可能高于网页 Alpha 上限的像素，同时保持回读区域局部化。
+        const diskBlur = bloomCfg.diskAlpha > 0
+          ? bloomCfg.diskBlur * scale * 3
+          : 0;
+
+        radius = Math.max(radius, diskRadius + diskBlur);
+      }
+
+      if (ringProgress < 1)
+      {
+        const ringBlur = bloomCfg.ringAlpha > 0
+          ? bloomCfg.ringBlur * scale * 3
+          : 0;
+
+        for (const ring of wave.rings)
+        {
+          const geometry = resolveRingGeometry(
+            ring,
+            ringProgress,
+            scale,
+            wave.fx.rings,
+          );
+
+          radius = Math.max(
+            radius,
+            geometry.radius + geometry.width * 0.5 + ringBlur,
+          );
+        }
+      }
+
+      if (radius > 0)
+      {
+        addBounds(
+          wave.x - radius,
+          wave.y - radius,
+          wave.x + radius,
+          wave.y + radius,
+        );
+      }
+    }
+
+    for (const shard of this.shards)
+    {
+      const progress = clamp01(shard.ageMs / shard.lifetimeMs);
+      const size = shard.size * evaluateUnityHermiteCurve(
+        this.fxConfig.shards.sizeKeys,
+        progress,
+      ) * scale;
+
+      if (size > 0)
+      {
+        // 纹理 Quad 的实际半径是 size/2；保守使用完整 size 容纳旋转。
+        addBounds(
+          shard.x - size,
+          shard.y - size,
+          shard.x + size,
+          shard.y + size,
+        );
+      }
+    }
+
+    const trailCfg = this.fxConfig.trail;
+    const trailMargin = Math.max(
+      trailCfg.width * scale * 0.5,
+      trailCfg.outerGlowWidth * scale * 3 + 2,
+    );
+
+    for (const stroke of this.trailStrokes)
+    {
+      if (stroke.points.length < 2)
+      {
+        continue;
+      }
+
+      let minimumX = Infinity;
+      let minimumY = Infinity;
+      let maximumX = -Infinity;
+      let maximumY = -Infinity;
+
+      for (const point of stroke.points)
+      {
+        minimumX = Math.min(minimumX, point.x);
+        minimumY = Math.min(minimumY, point.y);
+        maximumX = Math.max(maximumX, point.x);
+        maximumY = Math.max(maximumY, point.y);
+      }
+
+      addBounds(
+        minimumX - trailMargin,
+        minimumY - trailMargin,
+        maximumX + trailMargin,
+        maximumY + trailMargin,
+      );
+    }
+
+    return combineBloomRegionBounds(bounds);
+  }
+
+  _limitCanvasOverlayAlpha(scale)
+  {
+    if (
+      !this._usesUnknownBrowserOverlay() ||
+      this._usesHostAdditivePayload() ||
+      this.config.overlayAlphaLimit >= 1 ||
+      this.webglEffectVisible ||
+      this.webglBloomVisible ||
+      this.canvasSceneVisible ||
+      (this.ownsCanvas && this.canvas.style.visibility === 'hidden')
+    )
+    {
+      return;
+    }
+
+    const bounds = this._getCanvasOverlayBounds(scale);
+
+    if (!bounds)
+    {
+      return;
+    }
+
+    // getImageData 使用物理像素；只处理活跃特效脏区，避免 Native/Legacy
+    // 回退为了一个 Alpha 上限读取整个视口。
+    limitCanvasAlpha(
+      this.context,
+      {
+        minimumX: Math.floor(bounds.x * this.dpr),
+        minimumY: Math.floor(bounds.y * this.dpr),
+        maximumX: Math.ceil((bounds.x + bounds.width) * this.dpr) - 1,
+        maximumY: Math.ceil((bounds.y + bounds.height) * this.dpr) - 1,
+      },
+      this.config.overlayAlphaLimit,
+    );
   }
 
   _getSoftwareBloomFrameSignature(scale)
@@ -7605,6 +8214,10 @@ export class BAClickFX
       this.trailTimeMs,
       this.config.opacity,
       this.config.outputCompositing,
+      this._getUnknownBackgroundAppearance(),
+      this.config.overlayAlphaLimit,
+      this._getEffectiveHostCompositing(),
+      this.compositingReferenceSource === null ? 'unknown' : 'known',
       this._themeHueShift,
       bloomCfg.threshold,
       bloomCfg.softKnee,
@@ -7750,8 +8363,11 @@ export class BAClickFX
       diffusion,
       opacity: this.config.opacity,
       outputCompositing: this.config.outputCompositing,
+      unknownBackgroundAppearance: this._getUnknownBackgroundAppearance(),
+      overlayAlphaLimit: this.config.overlayAlphaLimit,
+      hostCompositing: this._getEffectiveHostCompositing(),
       enforceOverlayAlphaLimit:
-        this.config.outputCompositing === 'browser-overlay',
+        this._usesUnknownBrowserOverlay(),
     };
     let processedSourcePixels = 0;
     let failed = false;
@@ -8016,6 +8632,7 @@ export class BAClickFX
       if (!renderer.renderScene(
         {
           outputCompositing: this.config.outputCompositing,
+          hostCompositing: this._getEffectiveHostCompositing(),
         },
       ))
       {
@@ -8037,6 +8654,10 @@ export class BAClickFX
           diffusion: bloomCfg.diffusion,
           opacity: this.config.opacity,
           outputCompositing: this.config.outputCompositing,
+          unknownBackgroundAppearance:
+            this._getUnknownBackgroundAppearance(),
+          overlayAlphaLimit: this.config.overlayAlphaLimit,
+          hostCompositing: this._getEffectiveHostCompositing(),
         },
         { preserveCanvas: true },
       );
@@ -8092,6 +8713,9 @@ export class BAClickFX
     try
     {
       renderer.beginFrame();
+      // 精确 Scene Canvas 保存线性 HDR 发射，连续帧不能继承网页覆盖层的
+      // source-over；Unity 的 Additive 与 Dissolve 都要求先按 One/One 累加。
+      this.context.globalCompositeOperation = 'lighter';
       this._drawCanvasTrails(scale, useNativeBloom, legacy, true);
 
       // Cross2 是唯一会衰减已有场景颜色的材质，必须在普通加色粒子之前
@@ -8147,7 +8771,15 @@ export class BAClickFX
       }
 
       // Tri3 材质队列为 4499，始终覆盖 queue 3000 的圆盘和碎片。
-      this._drawWaveRings(scale, useNativeBloom, legacy, true);
+      this._drawWaveRings(
+        scale,
+        useNativeBloom,
+        legacy,
+        true,
+        'scene',
+        'coverage',
+        1,
+      );
       return renderer.render(this.canvas);
     }
     catch (error)
@@ -8164,7 +8796,7 @@ export class BAClickFX
     this.context.clearRect(0, 0, this.width, this.height);
     // Context 丢失回退必须沿用正常帧的透明 Coverage 兼容合同。
     this.context.globalCompositeOperation =
-      this.config.outputCompositing === 'browser-overlay'
+      this._getCanvasOutputCompositing() === 'browser-overlay'
         ? 'source-over'
         : 'lighter';
     this._drawCanvasTrails(scale, useNativeBloom, legacy);
@@ -8245,12 +8877,19 @@ export class BAClickFX
       themeHueShift = previousHueShift;
     }
 
+    this._limitCanvasOverlayAlpha(scale);
     this._setResolvedBloomBackend(resolvedBloomBackend);
     this._setCanvasOutputVisible(true);
+    this._flushCompositingMountRefresh();
   }
 
   _drawCanvasClickEffects(scale, useNativeBloom, legacy = false)
   {
+    const outputCompositing = this._getCanvasOutputCompositing();
+    const unknownBackgroundAppearance =
+      this._getUnknownBackgroundAppearance();
+    const overlayAlphaLimit = this.config.overlayAlphaLimit;
+
     for (const wave of this.waves)
     {
       wave.drawBase(
@@ -8258,8 +8897,10 @@ export class BAClickFX
         scale,
         this.config.opacity,
         useNativeBloom,
-        this.config.outputCompositing,
+        outputCompositing,
         this.dpr,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
       );
     }
 
@@ -8270,11 +8911,21 @@ export class BAClickFX
         scale,
         this.config.opacity,
         this.fxConfig,
-        this.config.outputCompositing,
+        outputCompositing,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
       );
     }
 
-    this._drawWaveRings(scale, useNativeBloom, legacy);
+    this._drawWaveRings(
+      scale,
+      useNativeBloom,
+      legacy,
+      false,
+      outputCompositing,
+      unknownBackgroundAppearance,
+      overlayAlphaLimit,
+    );
   }
 
   _drawCanvasTrails(
@@ -8289,7 +8940,11 @@ export class BAClickFX
       : null;
     const outputCompositing = linearOutput
       ? 'scene'
-      : this.config.outputCompositing;
+      : this._getCanvasOutputCompositing();
+    const unknownBackgroundAppearance = linearOutput
+      ? 'coverage'
+      : this._getUnknownBackgroundAppearance();
+    const overlayAlphaLimit = this.config.overlayAlphaLimit;
 
     for (
       let strokeIndex = this.trailStrokes.length - 1;
@@ -8330,6 +8985,8 @@ export class BAClickFX
         stroke.trailFrameData,
         linearOutput,
         outputCompositing,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
       );
     }
   }
@@ -8470,13 +9127,17 @@ export class BAClickFX
 
       if (drawCanvas)
       {
+        const outputCompositing = this._getCanvasOutputCompositing();
+
         wave.drawBase(
           this.context,
           scale,
           this.config.opacity,
           useNativeBloom,
-          this.config.outputCompositing,
+          outputCompositing,
           this.dpr,
+          this._getUnknownBackgroundAppearance(),
+          this.config.overlayAlphaLimit,
         );
       }
     }
@@ -8487,6 +9148,9 @@ export class BAClickFX
     useNativeBloom,
     legacy = false,
     linearNativeGlow = false,
+    outputCompositing = this._getCanvasOutputCompositing(),
+    unknownBackgroundAppearance = this._getUnknownBackgroundAppearance(),
+    overlayAlphaLimit = this.config.overlayAlphaLimit,
   )
   {
     const hasLegacyRings = legacy && this.waves.some(
@@ -8506,8 +9170,10 @@ export class BAClickFX
         legacy,
         legacyRingRasterizer,
         this.dpr,
-        this.config.outputCompositing,
+        outputCompositing,
         linearNativeGlow,
+        unknownBackgroundAppearance,
+        overlayAlphaLimit,
       );
     }
   }
@@ -8536,12 +9202,16 @@ export class BAClickFX
 
       if (drawCanvas)
       {
+        const outputCompositing = this._getCanvasOutputCompositing();
+
         shard.draw(
           this.context,
           scale,
           this.config.opacity,
           this.fxConfig,
-          this.config.outputCompositing,
+          outputCompositing,
+          this._getUnknownBackgroundAppearance(),
+          this.config.overlayAlphaLimit,
         );
       }
     }
@@ -8634,6 +9304,10 @@ export class BAClickFX
     {
       this._requestRender();
     }
+    else
+    {
+      this._flushCompositingMountRefresh();
+    }
   }
 
   /**
@@ -8675,6 +9349,9 @@ export class BAClickFX
     const previousEffectBackend = this.config.effectBackend;
     const previousRenderingMode = this.config.renderingMode;
     const previousBloomBackend = this.config.bloomBackend;
+    const previousOutputCompositing = this.config.outputCompositing;
+    const previousHostCompositing = this.config.hostCompositing;
+    let transparentContractChanged = false;
 
     if (
       isInputSource(overrides.inputSource) &&
@@ -8726,7 +9403,37 @@ export class BAClickFX
 
     if (isOutputCompositing(overrides.outputCompositing))
     {
+      transparentContractChanged = transparentContractChanged ||
+        overrides.outputCompositing !== this.config.outputCompositing;
       this.config.outputCompositing = overrides.outputCompositing;
+    }
+
+    if (isUnknownBackgroundAppearance(overrides.unknownBackgroundAppearance))
+    {
+      transparentContractChanged = transparentContractChanged ||
+        overrides.unknownBackgroundAppearance !==
+          this.config.unknownBackgroundAppearance;
+      this.config.unknownBackgroundAppearance =
+        overrides.unknownBackgroundAppearance;
+    }
+
+    if (Number.isFinite(overrides.overlayAlphaLimit))
+    {
+      const overlayAlphaLimit = normalizeOverlayAlphaLimit(
+        overrides.overlayAlphaLimit,
+        this.config.overlayAlphaLimit,
+      );
+
+      transparentContractChanged = transparentContractChanged ||
+        overlayAlphaLimit !== this.config.overlayAlphaLimit;
+      this.config.overlayAlphaLimit = overlayAlphaLimit;
+    }
+
+    if (isHostCompositing(overrides.hostCompositing))
+    {
+      transparentContractChanged = transparentContractChanged ||
+        overrides.hostCompositing !== this.config.hostCompositing;
+      this.config.hostCompositing = overrides.hostCompositing;
     }
 
     if (typeof overrides.clickEnabled === 'boolean')
@@ -8853,8 +9560,26 @@ export class BAClickFX
       if (isolated !== this.config.isolatedCompositing)
       {
         this.config.isolatedCompositing = isolated;
-        this._applyCompositingMount();
       }
+    }
+
+    if (
+      previousOutputCompositing !== this.config.outputCompositing ||
+      previousHostCompositing !== this.config.hostCompositing
+    )
+    {
+      this._requestCompositingMountRefresh();
+    }
+    else if (typeof overrides.isolatedCompositing === 'boolean')
+    {
+      // 隔离开关只改变图层分组和定位，不改变当前 Canvas 像素合同。
+      this._applyCompositingMount();
+    }
+
+    if (transparentContractChanged)
+    {
+      // 故障回退快照携带最终 Alpha/颜色合同，切换后不得复用旧模式像素。
+      this.lastSoftwareBloomFrame = null;
     }
 
     if (Number.isFinite(overrides.maxDpr))
@@ -8978,6 +9703,7 @@ export class BAClickFX
     this.webglBloomRenderer?.clear();
     this.webglEffectRenderer?.clear();
     this.canvasSceneRenderer?.clear();
+    this._flushCompositingMountRefresh();
   }
 
   _hasCompositingReference()
@@ -9134,6 +9860,10 @@ export class BAClickFX
 
     this.compositingReferenceSource = source;
     this.compositingReferenceFit = fit;
+    this.lastSoftwareBloomFrame = null;
+    // 只有当前输出链真正消费参考时才撤销宿主 Add；Software/Native/外部
+    // Canvas 仍按未知背景传输完整 Add 载荷。
+    this._requestCompositingMountRefresh();
     if (source !== null)
     {
       // 显式提供新参考后，允许此前单次上传失败的候选后端重新尝试。
@@ -9145,6 +9875,7 @@ export class BAClickFX
     if (invalidatesVisibleOutput)
     {
       this._invalidateSceneBackgroundOutputs();
+      this._flushCompositingMountRefresh();
     }
 
     if (source === null)

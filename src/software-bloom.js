@@ -9,7 +9,6 @@ const RGBA_CHANNELS = 4;
 const REGION_QUANTUM = 64;
 const MAX_PYRAMID_LEVELS = 16;
 const DEFAULT_DIFFUSION = 7;
-const TRANSPARENT_OVERLAY_MAX_ALPHA = 250 / 255;
 
 function clamp(value, minimum, maximum)
 {
@@ -19,6 +18,87 @@ function clamp(value, minimum, maximum)
 function clamp01(value)
 {
   return clamp(value, 0, 1);
+}
+
+function smoothstep(edge0, edge1, value)
+{
+  const progress = clamp01((value - edge0) / (edge1 - edge0));
+  return progress * progress * (3 - 2 * progress);
+}
+
+/**
+ * 将 Canvas 脏区的最终 Alpha 限制在独立容量内。getImageData 返回非预乘
+ * RGB，因此只降低 Alpha 就会让浏览器在写回时等比收敛预乘颜色。
+ */
+export function limitCanvasAlpha(context, bounds, alphaLimit)
+{
+  const canvas = context?.canvas;
+
+  if (
+    !canvas ||
+    !bounds ||
+    typeof context.getImageData !== 'function' ||
+    typeof context.putImageData !== 'function'
+  )
+  {
+    return false;
+  }
+
+  const minimumX = clamp(
+    Math.floor(bounds.minimumX),
+    0,
+    canvas.width,
+  );
+  const minimumY = clamp(
+    Math.floor(bounds.minimumY),
+    0,
+    canvas.height,
+  );
+  const maximumX = clamp(
+    Math.ceil(bounds.maximumX + 1),
+    minimumX,
+    canvas.width,
+  );
+  const maximumY = clamp(
+    Math.ceil(bounds.maximumY + 1),
+    minimumY,
+    canvas.height,
+  );
+  const width = maximumX - minimumX;
+  const height = maximumY - minimumY;
+
+  if (width <= 0 || height <= 0)
+  {
+    return false;
+  }
+
+  try
+  {
+    const image = context.getImageData(minimumX, minimumY, width, height);
+    const maximumAlpha = Math.round(clamp01(alphaLimit ?? 1) * 255);
+    let changed = false;
+
+    for (let offset = 3; offset < image.data.length; offset += RGBA_CHANNELS)
+    {
+      if (image.data[offset] > maximumAlpha)
+      {
+        image.data[offset] = maximumAlpha;
+        changed = true;
+      }
+    }
+
+    if (changed)
+    {
+      context.putImageData(image, minimumX, minimumY);
+    }
+
+    return true;
+  }
+  catch
+  {
+    // 跨域或外部绘制可能污染 Canvas；限制失败不能中断特效生命周期。
+    return false;
+  }
 }
 
 function calculatePyramidSettings(
@@ -823,12 +903,18 @@ export function encodeAdditiveBloom(
   const safeIntensity = Math.pow(2, Math.max(0, intensity) / 10) - 1;
   const transparentOverlay =
     options?.outputCompositing === 'browser-overlay';
+  const hostAdditive = transparentOverlay &&
+    options?.hostCompositing === 'plus-lighter';
+  const brightUnknownBackground = transparentOverlay &&
+    !hostAdditive &&
+    options?.unknownBackgroundAppearance === 'bright';
   const coverage = transparentOverlay ? options?.coverage : null;
   const sceneCoverage = transparentOverlay
     ? options?.sceneCoverage
     : null;
-  const overlayAlphaLimit = clamp01(options?.opacity ?? 1) *
-    TRANSPARENT_OVERLAY_MAX_ALPHA;
+  const opacity = clamp01(options?.opacity ?? 1);
+  const overlayAlphaLimit = clamp01(options?.overlayAlphaLimit ?? 1);
+  const deferOverlayAlphaLimit = options?.deferOverlayAlphaLimit === true;
   const safeWidth = Math.max(1, Math.floor(width));
   const sourceHeight = Math.ceil(
     source.length / (safeWidth * RGB_CHANNELS),
@@ -916,17 +1002,39 @@ export function encodeAdditiveBloom(
 
       if (transparentOverlay)
       {
-        const sceneAlpha = clamp01(sceneCoverage?.[pixelIndex] ?? 0);
-        transportAlpha = linearToSrgb(
-          Math.max(0, coverage?.[pixelIndex] ?? 0) * safeIntensity,
-        );
-        const remainingCapacity = Math.max(
-          0,
-          overlayAlphaLimit - sceneAlpha,
-        );
+        const transportLinear =
+          Math.max(0, coverage?.[pixelIndex] ?? 0) * safeIntensity;
+        transportAlpha = linearToSrgb(transportLinear);
 
-        // Bloom 以 lighter 加到已预乘的清晰层；只占用剩余 Alpha 容量。
-        alpha = Math.min(transportAlpha, remainingCapacity);
+        if (hostAdditive)
+        {
+          // Bloom 会先以 lighter 叠到已经包含清晰层的主 Canvas。这里的
+          // Alpha 只能承载 Bloom 自身，否则清晰 Coverage 会被累计两次。
+          alpha = Math.max(
+            maximumSrgb,
+            Math.min(1, transportAlpha),
+          );
+        }
+        else
+        {
+          if (deferOverlayAlphaLimit)
+          {
+            // Renderer 会先把 Bloom 与清晰层用 lighter 合并，再对总结果
+            // 等比收敛 Alpha；提前扣除 sceneCoverage 会让后端切换改变 Bloom。
+            alpha = transportAlpha;
+          }
+          else
+          {
+            const sceneAlpha = clamp01(sceneCoverage?.[pixelIndex] ?? 0);
+            const remainingCapacity = Math.max(
+              0,
+              overlayAlphaLimit - sceneAlpha,
+            );
+
+            // 独立调用仍可按已知清晰层容量编码一张完整 Bloom 层。
+            alpha = Math.min(transportAlpha, remainingCapacity);
+          }
+        }
       }
 
       if (
@@ -943,19 +1051,47 @@ export function encodeAdditiveBloom(
       {
         // 归一化使用 Prefilter 传输上界而非最终 maxRGB；若剩余容量充足，
         // 实际预乘 RGB 与 Unity Bloom 完全相同。
-        const normalization = transparentOverlay
-          ? Math.max(alpha, transportAlpha)
+        const normalization = transparentOverlay && !hostAdditive
+          ? deferOverlayAlphaLimit
+            ? alpha
+            : Math.max(alpha, transportAlpha)
           : alpha;
+        let outputRed = clamp01(red / normalization);
+        let outputGreen = clamp01(green / normalization);
+        let outputBlue = clamp01(blue / normalization);
 
-        output[outputIndex] = Math.round(
-          clamp01(red / normalization) * 255,
-        );
-        output[outputIndex + 1] = Math.round(
-          clamp01(green / normalization) * 255,
-        );
-        output[outputIndex + 2] = Math.round(
-          clamp01(blue / normalization) * 255,
-        );
+        if (brightUnknownBackground)
+        {
+          const safeOpacity = Math.max(opacity, 0.000001);
+          const normalizedTransport = linearToSrgb(
+            Math.max(0, coverage?.[pixelIndex] ?? 0) *
+              safeIntensity / safeOpacity,
+          );
+          const normalizedEnergy = linearToSrgb(
+            Math.max(
+              source[sourceIndex],
+              source[sourceIndex + 1],
+              source[sourceIndex + 2],
+            ) * safeIntensity / safeOpacity,
+          );
+          const energyRatio = normalizedEnergy /
+            Math.max(normalizedTransport, 0.000001);
+          const ratioGate = smoothstep(0.25, 0.75, energyRatio);
+          const energyGate = smoothstep(
+            0.03125,
+            0.25,
+            normalizedTransport,
+          );
+          const compensation = ratioGate * energyGate;
+
+          outputRed = Math.max(outputRed, compensation);
+          outputGreen = Math.max(outputGreen, compensation);
+          outputBlue = Math.max(outputBlue, compensation);
+        }
+
+        output[outputIndex] = Math.round(outputRed * 255);
+        output[outputIndex + 1] = Math.round(outputGreen * 255);
+        output[outputIndex + 2] = Math.round(outputBlue * 255);
         output[outputIndex + 3] = Math.round(alpha * 255);
       }
 
@@ -1847,6 +1983,10 @@ export class SoftwareBloomRenderer
       edgeCorrection,
       {
         outputCompositing: settings.outputCompositing,
+        unknownBackgroundAppearance: settings.unknownBackgroundAppearance,
+        hostCompositing: settings.hostCompositing,
+        overlayAlphaLimit: settings.overlayAlphaLimit,
+        deferOverlayAlphaLimit: true,
         coverage: compositeCoverage,
         opacity: settings.opacity,
         // mip0 的 down 缓冲与输出 ImageData 尺寸完全相同；读取源分辨率
@@ -1872,9 +2012,16 @@ export class SoftwareBloomRenderer
       return false;
     }
 
-    if (transparentOverlay && settings.enforceOverlayAlphaLimit === true)
+    if (
+      transparentOverlay &&
+      settings.hostCompositing !== 'plus-lighter' &&
+      settings.enforceOverlayAlphaLimit === true
+    )
     {
-      this._limitTransparentOverlayAlpha(targetContext, settings.opacity);
+      this._limitTransparentOverlayAlpha(
+        targetContext,
+        settings.overlayAlphaLimit,
+      );
     }
 
     return true;
@@ -1899,7 +2046,7 @@ export class SoftwareBloomRenderer
     return true;
   }
 
-  _limitTransparentOverlayAlpha(targetContext, opacity)
+  _limitTransparentOverlayAlpha(targetContext, overlayAlphaLimit)
   {
     if (
       !this.outputBounds ||
@@ -1969,34 +2116,16 @@ export class SoftwareBloomRenderer
       return;
     }
 
-    try
-    {
-      const image = targetContext.getImageData(minimumX, minimumY, width, height);
-      const maximumAlpha = Math.round(
-        clamp01(opacity) * TRANSPARENT_OVERLAY_MAX_ALPHA * 255,
-      );
-      let changed = false;
-
-      for (let offset = 3; offset < image.data.length; offset += RGBA_CHANNELS)
+    limitCanvasAlpha(
+      targetContext,
       {
-        if (image.data[offset] > maximumAlpha)
-        {
-          // getImageData 返回非预乘 RGB；只收敛 Alpha 会按同一比例收敛
-          // 浏览器重新预乘后的能量，等价于 GPU Final Pass 的容量限制。
-          image.data[offset] = maximumAlpha;
-          changed = true;
-        }
-      }
-
-      if (changed)
-      {
-        targetContext.putImageData(image, minimumX, minimumY);
-      }
-    }
-    catch
-    {
-      // 外部绘制可能使宿主 Canvas 不可读；此时保留原输出，不中断渲染。
-    }
+        minimumX,
+        minimumY,
+        maximumX: maximumX - 1,
+        maximumY: maximumY - 1,
+      },
+      overlayAlphaLimit,
+    );
   }
 
   _clearOutputBounds()

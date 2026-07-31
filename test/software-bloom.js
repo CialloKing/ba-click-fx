@@ -12,6 +12,7 @@ import {
   downsampleGaussian,
   encodeAdditiveBloom,
   linearToSrgb,
+  limitCanvasAlpha,
   prefilterBloom,
   SoftwareBloomRenderer,
   upsampleAndMixBloom,
@@ -681,6 +682,7 @@ const opacitySeries = [0, 0.5, 1].map((opacity) =>
     {
       outputCompositing: 'browser-overlay',
       coverage: new Float32Array([100]),
+      overlayAlphaLimit,
       opacity,
     },
   );
@@ -688,8 +690,232 @@ const opacitySeries = [0, 0.5, 1].map((opacity) =>
 });
 
 assert(
-  JSON.stringify(opacitySeries) === JSON.stringify([0, 125, 250]),
-  'browser-overlay 的最大传输 Alpha 对 opacity 保持三档线性',
+  JSON.stringify(opacitySeries) === JSON.stringify([250, 250, 250]),
+  'browser-overlay 的 Alpha 容量与 effect opacity 保持独立',
+);
+
+const alphaLimitSeries = [0, 0.5, 1].map((overlayAlphaLimitValue) =>
+{
+  const output = new Uint8ClampedArray(4);
+
+  encodeAdditiveBloom(
+    new Float32Array([8, 4, 2]),
+    output,
+    1.7,
+    1,
+    null,
+    null,
+    {
+      outputCompositing: 'browser-overlay',
+      coverage: new Float32Array([100]),
+      overlayAlphaLimit: overlayAlphaLimitValue,
+      opacity: 0.5,
+    },
+  );
+  return output[3];
+});
+
+assert(
+  JSON.stringify(alphaLimitSeries) === JSON.stringify([0, 128, 255]),
+  'overlayAlphaLimit 独立控制最终网页覆盖层容量',
+);
+
+const coverageAppearanceRgba = new Uint8ClampedArray(4);
+const brightAppearanceRgba = new Uint8ClampedArray(4);
+const additiveHostRgba = new Uint8ClampedArray(4);
+const scenePayloadRgba = new Uint8ClampedArray(4);
+const appearanceSource = new Float32Array([0.4, 0.2, 0.1]);
+const appearanceCoverage = new Float32Array([1]);
+const appearanceOptions = {
+  outputCompositing: 'browser-overlay',
+  coverage: appearanceCoverage,
+  overlayAlphaLimit: 0.2,
+  opacity: 1,
+};
+
+encodeAdditiveBloom(
+  appearanceSource,
+  coverageAppearanceRgba,
+  1.7,
+  1,
+  null,
+  null,
+  appearanceOptions,
+);
+encodeAdditiveBloom(
+  appearanceSource,
+  brightAppearanceRgba,
+  1.7,
+  1,
+  null,
+  null,
+  {
+    ...appearanceOptions,
+    unknownBackgroundAppearance: 'bright',
+  },
+);
+encodeAdditiveBloom(
+  appearanceSource,
+  additiveHostRgba,
+  1.7,
+  1,
+  null,
+  null,
+  {
+    ...appearanceOptions,
+    hostCompositing: 'plus-lighter',
+  },
+);
+encodeAdditiveBloom(
+  appearanceSource,
+  scenePayloadRgba,
+  1.7,
+  1,
+  null,
+  null,
+  { outputCompositing: 'scene' },
+);
+
+assert(
+  coverageAppearanceRgba[3] === 51 &&
+    brightAppearanceRgba[3] === 51 &&
+    brightAppearanceRgba[0] >= coverageAppearanceRgba[0] &&
+    brightAppearanceRgba[1] > coverageAppearanceRgba[1] &&
+    brightAppearanceRgba[2] > coverageAppearanceRgba[2],
+  'bright 只补偿独立高能 Bloom 通道且不改变 Coverage Alpha',
+);
+assert(
+  [0, 1, 2].every((channel) =>
+    brightAppearanceRgba[channel] <= 255) &&
+    additiveHostRgba[3] > 51,
+  'bright 保持预乘容量而宿主 Add 绕过网页 Alpha 上限',
+);
+
+const additivePremultiplied = [0, 1, 2].map((channel) =>
+  additiveHostRgba[channel] * additiveHostRgba[3] / 255);
+const scenePremultiplied = [0, 1, 2].map((channel) =>
+  scenePayloadRgba[channel] * scenePayloadRgba[3] / 255);
+
+assert(
+  additivePremultiplied.every((value, channel) =>
+    approximatelyEqual(value, scenePremultiplied[channel], 2)),
+  '宿主 Add 传输完整 Scene Bloom 载荷而不按 Coverage 容量压缩',
+);
+
+const additiveHostWithSceneRgba = new Uint8ClampedArray(4);
+
+encodeAdditiveBloom(
+  new Float32Array([0.01, 0.005, 0.0025]),
+  additiveHostWithSceneRgba,
+  1.7,
+  1,
+  null,
+  null,
+  {
+    outputCompositing: 'browser-overlay',
+    coverage: new Float32Array([0.2]),
+    sceneCoverage: new Float32Array([0.5]),
+    hostCompositing: 'plus-lighter',
+  },
+);
+
+assert(
+  approximatelyEqual(
+    additiveHostWithSceneRgba[3] / 255,
+    linearToSrgb(0.2 * overlayExposure),
+    1 / 255,
+  ) && additiveHostWithSceneRgba[3] < 128,
+  '宿主 Add 的 Software Bloom Alpha 不重复累计清晰层 Coverage',
+);
+
+const deferredOverlayRgba = new Uint8ClampedArray(4);
+
+encodeAdditiveBloom(
+  new Float32Array([0.1, 0.05, 0.025]),
+  deferredOverlayRgba,
+  1.7,
+  1,
+  null,
+  null,
+  {
+    outputCompositing: 'browser-overlay',
+    coverage: new Float32Array([0.5]),
+    sceneCoverage: new Float32Array([0.5]),
+    overlayAlphaLimit: 0.7,
+    deferOverlayAlphaLimit: true,
+  },
+);
+
+assert(
+  approximatelyEqual(
+    deferredOverlayRgba[3] / 255,
+    linearToSrgb(0.5 * overlayExposure),
+    1 / 255,
+  ),
+  'Software Bloom 先输出完整传输 Alpha，再由最终 Canvas 限制总容量',
+);
+
+const lowEnergyCoverageRgba = new Uint8ClampedArray(4);
+const lowEnergyBrightRgba = new Uint8ClampedArray(4);
+const lowEnergySource = new Float32Array([0.001, 0.0005, 0.00025]);
+const lowEnergyOptions = {
+  outputCompositing: 'browser-overlay',
+  coverage: new Float32Array([0.001]),
+  overlayAlphaLimit: 0.7,
+  opacity: 1,
+};
+
+encodeAdditiveBloom(
+  lowEnergySource,
+  lowEnergyCoverageRgba,
+  1.7,
+  1,
+  null,
+  null,
+  lowEnergyOptions,
+);
+encodeAdditiveBloom(
+  lowEnergySource,
+  lowEnergyBrightRgba,
+  1.7,
+  1,
+  null,
+  null,
+  {
+    ...lowEnergyOptions,
+    unknownBackgroundAppearance: 'bright',
+  },
+);
+
+assert(
+  arraysApproximatelyEqual(lowEnergyBrightRgba, lowEnergyCoverageRgba, 0),
+  'bright 的绝对能量门不会把低能拖尾尾端补成灰白色',
+);
+
+const limitedCanvasData = new Uint8ClampedArray([
+  20, 40, 60, 255,
+  10, 20, 30, 64,
+]);
+let limitedCanvasWrite = null;
+const limitedCanvasContext = {
+  canvas: { width: 2, height: 1 },
+  getImageData: () => ({ data: limitedCanvasData }),
+  putImageData: (image) =>
+  {
+    limitedCanvasWrite = image.data;
+  },
+};
+
+assert(
+  limitCanvasAlpha(
+    limitedCanvasContext,
+    { minimumX: 0, minimumY: 0, maximumX: 1, maximumY: 0 },
+    0.7,
+  ) &&
+    limitedCanvasWrite?.[3] === 179 &&
+    limitedCanvasWrite?.[7] === 64 &&
+    limitedCanvasWrite?.[0] === 20,
+  'Canvas 脏区上限只收敛超限 Alpha 并保留非预乘 RGB',
 );
 
 const sceneCoverage = new Float32Array([0.45, 0.45, 0, 1]);

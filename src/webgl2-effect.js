@@ -30,8 +30,6 @@ const COMPONENTS_PER_TRIANGLE_VERTEX = 9;
 const COMPONENTS_PER_TRAIL_VERTEX = 9;
 const INITIAL_VERTEX_CAPACITY = 4096;
 const MAX_PYRAMID_LEVELS = 16;
-// 未知背景至少保留 5/255 透出；这只限制透明宿主，不影响 Scene 合成。
-const TRANSPARENT_OVERLAY_MAX_ALPHA = 250 / 255;
 const DISK_CENTER_RADIUS_EPSILON = 0.00001;
 const DISK_TEXTURE_RADIAL_STOPS = Object.freeze(
   [
@@ -495,15 +493,19 @@ const FINAL_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 uniform sampler2D u_scene;
+uniform sampler2D u_sceneEnergy;
 uniform sampler2D u_bloom;
 uniform sampler2D u_background;
 uniform vec2 u_bloomTexel;
 uniform float u_sampleScale;
 uniform float u_intensity;
 uniform float u_overlayAlphaLimit;
+uniform float u_opacity;
 uniform bool u_hasScene;
 uniform bool u_hasBackground;
 uniform bool u_transparentOverlay;
+uniform bool u_brightUnknownBackground;
+uniform bool u_hostAdditive;
 
 in vec2 v_uv;
 out vec4 outColor;
@@ -545,6 +547,9 @@ void main()
     texture(u_bloom, v_uv + vec2(offset.x, offset.y));
   vec4 scene = u_hasScene
     ? texture(u_scene, v_uv)
+    : vec4(0.0);
+  vec4 sceneEnergy = u_hasScene
+    ? texture(u_sceneEnergy, v_uv)
     : vec4(0.0);
   vec4 filteredBloom = bloom * 0.25;
   vec3 linear = scene.rgb +
@@ -601,6 +606,28 @@ void main()
       max(0.0, filteredBloom.a) * max(0.0, u_intensity)
     );
     float requestedAlpha = sceneCoverage + bloomTransportAlpha;
+
+    if (u_hostAdditive)
+    {
+      // CSS/原生宿主使用 One/One 加色时不会以源 Alpha 衰减背景。Alpha
+      // 仅承担浏览器预乘传输，至少覆盖 RGB，不能再反向限制发射能量。
+      float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
+      float transportAlpha = clamp(
+        max(maximumSrgb, min(requestedAlpha, 1.0)),
+        0.0,
+        1.0
+      );
+
+      if (transportAlpha <= 0.00001)
+      {
+        outColor = vec4(0.0);
+        return;
+      }
+
+      outColor = vec4(srgb, transportAlpha);
+      return;
+    }
+
     float alpha = min(
       requestedAlpha,
       clamp(u_overlayAlphaLimit, 0.0, 1.0)
@@ -619,7 +646,41 @@ void main()
       alpha / max(requestedAlpha, 0.000001)
     );
 
-    outColor = vec4(srgb * capacityScale, alpha);
+    vec3 premultiplied = srgb * capacityScale;
+
+    if (u_brightUnknownBackground)
+    {
+      // 只在发射/传输能量相对 Coverage 足够高时补齐中性通道。门控先
+      // 去除全局 opacity，确保 0/0.5/1 的生命周期不会改变补偿分区。
+      float safeOpacity = max(u_opacity, 0.000001);
+      float normalizedCoverage = clamp(sceneCoverage / safeOpacity, 0.0, 1.0);
+      float clearEnergy = linearToSrgb(
+        max(max(sceneEnergy.r, sceneEnergy.g), sceneEnergy.b) / safeOpacity
+      );
+      float clearRatio = clearEnergy / max(normalizedCoverage, 0.000001);
+      float normalizedBloomTransport = linearToSrgb(
+        max(0.0, filteredBloom.a) * max(0.0, u_intensity) / safeOpacity
+      );
+      float bloomEnergy = linearToSrgb(
+        max(max(filteredBloom.r, filteredBloom.g), filteredBloom.b) *
+          max(0.0, u_intensity) / safeOpacity
+      );
+      float bloomRatio = bloomEnergy /
+        max(normalizedBloomTransport, 0.000001);
+      float clearGate = smoothstep(0.25, 0.75, clearRatio) *
+        smoothstep(0.03125, 0.25, clearEnergy);
+      float bloomGate = smoothstep(0.25, 0.75, bloomRatio) *
+        smoothstep(0.03125, 0.25, normalizedBloomTransport);
+      float compensation = alpha * max(clearGate, bloomGate);
+
+      // 只抬升缺失通道并继续满足预乘约束；低能拖尾不会进入补偿门。
+      premultiplied = min(
+        vec3(alpha),
+        max(premultiplied, vec3(compensation))
+      );
+    }
+
+    outColor = vec4(premultiplied, alpha);
     return;
   }
 
@@ -793,6 +854,11 @@ function deleteTarget(gl, target)
 
 export class WebGL2EffectRenderer
 {
+  get hasSceneBackground()
+  {
+    return this.sceneBackgroundSource !== null;
+  }
+
   constructor(canvas)
   {
     this.canvas = canvas;
@@ -2375,6 +2441,9 @@ export class WebGL2EffectRenderer
     }
 
     const gl = this.gl;
+    const needsCoverageOverlay =
+      settings.outputCompositing === 'browser-overlay' &&
+      settings.hostCompositing !== 'plus-lighter';
 
     try
     {
@@ -2397,7 +2466,7 @@ export class WebGL2EffectRenderer
 
       if (!this._hasGeometry())
       {
-        if (settings.outputCompositing === 'browser-overlay')
+        if (needsCoverageOverlay)
         {
           this.sceneOverlayFrameReady = this._renderSceneOverlay();
         }
@@ -2411,7 +2480,7 @@ export class WebGL2EffectRenderer
         settings.outputCompositing === 'browser-overlay',
       );
 
-      if (settings.outputCompositing === 'browser-overlay')
+      if (needsCoverageOverlay)
       {
         this.sceneOverlayFrameReady = this._renderSceneOverlay();
 
@@ -3807,6 +3876,12 @@ export class WebGL2EffectRenderer
       hasBackground ? this.sceneBackgroundTarget.texture : texture,
       2,
     );
+    this._bindTexture(
+      program,
+      'u_sceneEnergy',
+      hasScene ? this.sourceTarget.texture : texture,
+      3,
+    );
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_hasScene'),
       hasScene ? 1 : 0,
@@ -3818,6 +3893,14 @@ export class WebGL2EffectRenderer
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_transparentOverlay'),
       settings.outputCompositing === 'browser-overlay' ? 1 : 0,
+    );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_brightUnknownBackground'),
+      settings.unknownBackgroundAppearance === 'bright' ? 1 : 0,
+    );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_hostAdditive'),
+      settings.hostCompositing === 'plus-lighter' ? 1 : 0,
     );
     gl.uniform2f(
       gl.getUniformLocation(program, 'u_bloomTexel'),
@@ -3836,8 +3919,11 @@ export class WebGL2EffectRenderer
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_overlayAlphaLimit'),
-      clamp(settings.opacity ?? 1, 0, 1) *
-        TRANSPARENT_OVERLAY_MAX_ALPHA,
+      clamp(settings.overlayAlphaLimit ?? 1, 0, 1),
+    );
+    gl.uniform1f(
+      gl.getUniformLocation(program, 'u_opacity'),
+      clamp(settings.opacity ?? 1, 0, 1),
     );
     gl.bindVertexArray(this.fullscreenVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -3864,6 +3950,7 @@ export class WebGL2EffectRenderer
     const hasSceneOverlay = hasScene &&
       !hasBackground &&
       settings.outputCompositing === 'browser-overlay' &&
+      settings.hostCompositing !== 'plus-lighter' &&
       this.sceneOverlayFrameReady;
 
     try

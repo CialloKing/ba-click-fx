@@ -16,6 +16,7 @@ let trailCoverageSource = null;
 let triangleTextureSource = null;
 let trailCoverageGolden = null;
 let createHash = null;
+let fxSourceText = null;
 let webgl2EffectSourceText = null;
 let webgl2BloomSourceText = null;
 
@@ -33,6 +34,10 @@ if (sourceMode)
     new URL('./trail-coverage-golden.json', import.meta.url),
     'utf8',
   ));
+  fxSourceText = readFileSync(
+    new URL('../src/fx.js', import.meta.url),
+    'utf8',
+  );
   webgl2EffectSourceText = readFileSync(
     new URL('../src/webgl2-effect.js', import.meta.url),
     'utf8',
@@ -858,9 +863,8 @@ if (sourceMode)
   const transparentFinalStart = finalShaderSource.indexOf(
     'if (u_transparentOverlay)',
   );
-  const sceneFinalStart = finalShaderSource.indexOf(
+  const sceneFinalStart = finalShaderSource.lastIndexOf(
     'float maximumSrgb',
-    transparentFinalStart,
   );
   const transparentFinalSource = finalShaderSource.slice(
     transparentFinalStart,
@@ -912,10 +916,14 @@ if (sourceMode)
         'alpha / max(requestedAlpha, 0.000001)',
       ) &&
       transparentFinalSource.includes(
-        'outColor = vec4(srgb * capacityScale, alpha);',
+        'outColor = vec4(premultiplied, alpha);',
+      ) &&
+      transparentFinalSource.includes('if (u_hostAdditive)') &&
+      transparentFinalSource.includes('if (u_brightUnknownBackground)') &&
+      transparentFinalSource.includes(
+        'clamp(u_overlayAlphaLimit, 0.0, 1.0)',
       ) &&
       !transparentFinalSource.includes('premultiplyScale') &&
-      !transparentFinalSource.includes('maximumSrgb') &&
       sceneOverlayShaderSource.includes(
         'capacity / max(maximumEnergy, 0.000001)',
       ) &&
@@ -923,6 +931,23 @@ if (sourceMode)
         'outColor = vec4(scene.rgb * scale, coverage);',
       ),
     '完整 WebGL2 独立预乘清晰 Coverage 与 Bloom 传输上界',
+  );
+  const overlayColorStart = fxSourceText.indexOf(
+    'function resolveOverlayStraightColor',
+  );
+  const overlayColorEnd = fxSourceText.indexOf(
+    'function colorToCanvasOutputCss',
+    overlayColorStart,
+  );
+  const overlayColorSource = fxSourceText
+    .slice(overlayColorStart, overlayColorEnd)
+    .replace(/\s+/g, ' ');
+
+  assert(
+    [0, 1, 2].every((channel) => overlayColorSource.includes(
+      `linearToSrgb(Math.max(0, color[${channel}]) * contribution)`,
+    )),
+    'Canvas 透明覆盖层将 Unity Linear 清晰能量编码为 sRGB',
   );
 
   const nonSeparableSamples = [
@@ -2557,7 +2582,7 @@ assert(
 
 console.log('\n透明覆盖层 Canvas 合同');
 
-function captureTransparentSoftwareFrame(opacity)
+function captureTransparentSoftwareFrame(opacity, options = {})
 {
   const transparentEffect = new BAClickFX(
     {
@@ -2567,6 +2592,7 @@ function captureTransparentSoftwareFrame(opacity)
       inputSource: 'manual',
       opacity,
       lightBackgroundContrastAlpha: 0.35,
+      ...options,
     },
   );
   const renderer = transparentEffect.bloomRenderer;
@@ -2649,6 +2675,9 @@ function captureTransparentSoftwareFrame(opacity)
         call.args[0]?.width === 512 && call.args[0]?.height === 512)
       .map((call) => call.compositeOperation),
     contrastFillCount: transparentEffect.contrastContext.fillRects.length,
+    canvasParentIsRoot:
+      transparentEffect.canvas.parentElement === transparentEffect.overlayRoot,
+    rootBlendMode: transparentEffect.overlayRoot.style.mixBlendMode,
   };
 
   transparentEffect.destroy();
@@ -2658,6 +2687,20 @@ function captureTransparentSoftwareFrame(opacity)
 const zeroOverlayFrame = captureTransparentSoftwareFrame(0);
 const halfOverlayFrame = captureTransparentSoftwareFrame(0.5);
 const fullOverlayFrame = captureTransparentSoftwareFrame(1);
+const brightOverlayFrame = captureTransparentSoftwareFrame(
+  1,
+  {
+    unknownBackgroundAppearance: 'bright',
+    overlayAlphaLimit: 0.7,
+  },
+);
+const additiveOverlayFrame = captureTransparentSoftwareFrame(
+  1,
+  {
+    hostCompositing: 'plus-lighter',
+    overlayAlphaLimit: 0.2,
+  },
+);
 
 assert(
   halfOverlayFrame.coverageModes.every((mode) =>
@@ -2701,6 +2744,226 @@ assert(
   halfOverlayFrame.contrastFillCount === 0,
   '透明覆盖层保留 Contrast 配置但不绘制额外桌面遮挡',
 );
+assert(
+  brightOverlayFrame.compositeSettings?.unknownBackgroundAppearance ===
+      'bright' &&
+    brightOverlayFrame.compositeSettings?.overlayAlphaLimit === 0.7 &&
+    brightOverlayFrame.compositeSettings?.hostCompositing === 'source-over',
+  'Software Bloom 接收独立外观、Alpha 上限和有效宿主合成设置',
+);
+assert(
+  additiveOverlayFrame.compositeSettings?.hostCompositing ===
+      'plus-lighter' &&
+    additiveOverlayFrame.rootBlendMode === 'plus-lighter' &&
+    additiveOverlayFrame.canvasParentIsRoot &&
+    additiveOverlayFrame.mainCompositeOperations.every((operation) =>
+      operation === 'lighter'),
+  '宿主 Add 在单一合成根执行一次并让 Canvas 回退输出完整加色载荷',
+);
+
+const compositingSwitchEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    outputCompositing: 'browser-overlay',
+    hostCompositing: 'plus-lighter',
+    isolatedCompositing: false,
+    inputSource: 'manual',
+  },
+);
+
+assert(
+  compositingSwitchEffect.overlayRoot.style.mixBlendMode ===
+      'plus-lighter' &&
+    compositingSwitchEffect.canvas.parentElement ===
+      compositingSwitchEffect.overlayRoot,
+  '构造时宿主 Add 即挂载完整覆盖层组而不是单独混合内部 Canvas',
+);
+
+compositingSwitchEffect.lastSoftwareBloomFrame = { canvas: {} };
+compositingSwitchEffect.updateConfig(
+  {
+    unknownBackgroundAppearance: 'bright',
+    overlayAlphaLimit: 0.7,
+    hostCompositing: 'source-over',
+  },
+);
+const switchedCompositingConfig = compositingSwitchEffect.getConfig();
+
+assert(
+  switchedCompositingConfig.unknownBackgroundAppearance === 'bright' &&
+    switchedCompositingConfig.overlayAlphaLimit === 0.7 &&
+    switchedCompositingConfig.hostCompositing === 'source-over' &&
+    compositingSwitchEffect.lastSoftwareBloomFrame === null &&
+    compositingSwitchEffect.overlayRoot.style.mixBlendMode === '' &&
+    compositingSwitchEffect.canvas.parentElement === dom.body,
+  'updateConfig 原子切换透明合同、清除旧快照并刷新 DOM 合成挂载',
+);
+
+compositingSwitchEffect.updateConfig(
+  {
+    unknownBackgroundAppearance: 'auto',
+    overlayAlphaLimit: Number.NaN,
+    hostCompositing: 'screen',
+  },
+);
+assert(
+  compositingSwitchEffect.getConfig().unknownBackgroundAppearance ===
+      'bright' &&
+    compositingSwitchEffect.getConfig().overlayAlphaLimit === 0.7 &&
+    compositingSwitchEffect.getConfig().hostCompositing === 'source-over',
+  'updateConfig 忽略非法透明合同值并保留上一份有效配置',
+);
+
+compositingSwitchEffect.updateConfig({ hostCompositing: 'plus-lighter' });
+const knownReference = { width: 8, height: 8 };
+
+assert(
+  compositingSwitchEffect.setCompositingReference(knownReference) &&
+    compositingSwitchEffect.overlayRoot.style.mixBlendMode === 'plus-lighter' &&
+    compositingSwitchEffect.canvas.parentElement ===
+      compositingSwitchEffect.overlayRoot,
+  '没有可消费参考的回退链继续保持未知背景宿主 Add',
+);
+
+compositingSwitchEffect.webglEffectRenderer = {
+  hasSceneBackground: true,
+};
+compositingSwitchEffect.webglEffectVisible = true;
+compositingSwitchEffect._requestCompositingMountRefresh();
+
+assert(
+  compositingSwitchEffect.overlayRoot.style.mixBlendMode === '' &&
+    compositingSwitchEffect.canvas.parentElement === dom.body,
+  '活动 WebGL2 参考路径撤销宿主 Add，避免精确差值被二次增亮',
+);
+compositingSwitchEffect.webglEffectVisible = false;
+compositingSwitchEffect.webglEffectRenderer = null;
+assert(
+  compositingSwitchEffect.setCompositingReference(null) &&
+    compositingSwitchEffect.overlayRoot.style.mixBlendMode ===
+      'plus-lighter' &&
+    compositingSwitchEffect.canvas.parentElement ===
+      compositingSwitchEffect.overlayRoot,
+  '清除背景参考后立即恢复未知背景宿主 Add 合同',
+);
+compositingSwitchEffect.destroy();
+
+const pausedCompositingEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    outputCompositing: 'browser-overlay',
+    hostCompositing: 'plus-lighter',
+    inputSource: 'manual',
+  },
+);
+
+pausedCompositingEffect.boom(700, 450);
+let pausedCompositingNow = flushFrames(dom, performance.now(), 1);
+
+pausedCompositingEffect.setPaused(true);
+pausedCompositingEffect.updateConfig({ hostCompositing: 'source-over' });
+
+assert(
+  pausedCompositingEffect.compositingMountPending === true &&
+    pausedCompositingEffect.overlayRoot.style.mixBlendMode ===
+      'plus-lighter',
+  '暂停时保留旧像素对应的宿主合成模式并延迟挂载切换',
+);
+
+pausedCompositingEffect.setPaused(false);
+pausedCompositingNow = flushFrames(
+  dom,
+  pausedCompositingNow,
+  1,
+);
+
+assert(
+  pausedCompositingEffect.compositingMountPending === false &&
+    pausedCompositingEffect.overlayRoot.style.mixBlendMode === '',
+  '恢复后的首个新合同帧完成后再切换宿主合成模式',
+);
+pausedCompositingEffect.destroy();
+
+const localAlphaLimitEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    outputCompositing: 'browser-overlay',
+    overlayAlphaLimit: 0.7,
+    inputSource: 'manual',
+  },
+);
+
+localAlphaLimitEffect.setFxParam('bloom.clickEmissionScale', 0);
+localAlphaLimitEffect.setFxParam('rings.count', 0);
+localAlphaLimitEffect.setFxParam('shards.clickCount', 0);
+localAlphaLimitEffect.boom(800, 500);
+localAlphaLimitEffect.context.getImageDataCalls = [];
+localAlphaLimitEffect._limitCanvasOverlayAlpha(1);
+const localAlphaRead = localAlphaLimitEffect.context.getImageDataCalls[0];
+
+assert(
+  localAlphaLimitEffect._getSoftwareBloomRegions(1).length === 0 &&
+    localAlphaRead?.[2] > 0 &&
+    localAlphaRead?.[3] > 0 &&
+    localAlphaRead[2] < localAlphaLimitEffect.canvas.width &&
+    localAlphaRead[3] < localAlphaLimitEffect.canvas.height,
+  '零 Bloom 发射时仍按可见几何局部限制最终 Canvas Alpha',
+);
+localAlphaLimitEffect.destroy();
+
+const continuousCanvasSceneEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    inputSource: 'manual',
+  },
+);
+const continuousCanvasSceneOperations = [];
+
+continuousCanvasSceneEffect.canvasSceneRenderer = {
+  available: true,
+  contextLost: false,
+  beginFrame()
+  {
+  },
+  render()
+  {
+    return true;
+  },
+  clear()
+  {
+  },
+  destroy()
+  {
+  },
+};
+continuousCanvasSceneEffect._drawCanvasTrails = () =>
+{
+  continuousCanvasSceneOperations.push(
+    continuousCanvasSceneEffect.context.globalCompositeOperation,
+  );
+};
+continuousCanvasSceneEffect.context.globalCompositeOperation = 'source-over';
+
+const firstCanvasSceneFrame = continuousCanvasSceneEffect
+  ._renderCanvasSceneEffects(1, false, false);
+
+continuousCanvasSceneEffect.context.globalCompositeOperation = 'source-over';
+const secondCanvasSceneFrame = continuousCanvasSceneEffect
+  ._renderCanvasSceneEffects(1, false, false);
+
+assert(
+  firstCanvasSceneFrame &&
+    secondCanvasSceneFrame &&
+    continuousCanvasSceneOperations.length === 2 &&
+    continuousCanvasSceneOperations.every((operation) =>
+      operation === 'lighter'),
+  'Canvas Scene 连续帧始终以 Unity One/One 绘制加色层',
+);
+continuousCanvasSceneEffect.destroy();
 
 const hermiteBoundsEffect = new BAClickFX(
   {
@@ -4130,6 +4393,7 @@ const reentrantFullWebGLEffect = new BAClickFX(
     effectBackend: 'webgl2',
     bloomBackend: 'webgl2',
     outputCompositing: 'browser-overlay',
+    hostCompositing: 'plus-lighter',
   },
 );
 const reentrantFullWebGLEvents = [];
@@ -4139,8 +4403,27 @@ const reentrantFullWebGLDraw =
   );
 let reentrantFullWebGLSoftwareCount = 0;
 let reentrantFullWebGLNativeCount = 0;
+const reentrantFullWebGLCompositeOperations = [];
 
 reentrantFullWebGLEffect.webglBloomUnavailable = true;
+reentrantFullWebGLEffect.compositingReferenceSource = { width: 8, height: 8 };
+reentrantFullWebGLEffect.webglEffectCanvas = document.createElement('canvas');
+reentrantFullWebGLEffect.webglEffectRenderer = {
+  hasSceneBackground: true,
+  clear()
+  {
+  },
+  destroy()
+  {
+  },
+  releaseFrameResources()
+  {
+  },
+};
+reentrantFullWebGLEffect.webglEffectVisible = true;
+reentrantFullWebGLEffect.overlayParent.appendChild(
+  reentrantFullWebGLEffect.webglEffectCanvas,
+);
 reentrantFullWebGLEffect._prepareWebGLEffectBackend = () => true;
 reentrantFullWebGLEffect._renderWebGL2ClickEffects = () => false;
 reentrantFullWebGLEffect._renderSoftwareBloom = () =>
@@ -4150,6 +4433,10 @@ reentrantFullWebGLEffect._renderSoftwareBloom = () =>
 reentrantFullWebGLEffect._drawCanvasClickEffects =
   (scale, useNativeBloom, legacy) =>
   {
+    reentrantFullWebGLCompositeOperations.push(
+      reentrantFullWebGLEffect.context.globalCompositeOperation,
+    );
+
     if (useNativeBloom)
     {
       reentrantFullWebGLNativeCount++;
@@ -4185,6 +4472,7 @@ assert(
       'webgl2/software,native/native' &&
     reentrantFullWebGLSoftwareCount === 0 &&
     reentrantFullWebGLNativeCount >= 1 &&
+    reentrantFullWebGLCompositeOperations.includes('lighter') &&
     reentrantFullWebGLEvents.filter((event) =>
       event.resolvedBloomBackend === 'software').length === 1,
   '完整 WebGL2 失败事件内切换 Native 会按新路由重画当前帧',
