@@ -49,10 +49,12 @@ import { WebGL2CanvasSceneRenderer } from './webgl2-canvas-scene.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
 import {
   CIRCLE_TEXTURE_SIZE,
+  CIRCLE_TEXTURE_RGBA,
   createCircleTextureSources,
 } from './circle-texture.js';
 import {
   TRIANGLE_TEXTURE_SIZE,
+  TRIANGLE_TEXTURE_RGBA,
   createTriangleTextureSources,
 } from './triangle-texture.js';
 import {
@@ -687,16 +689,12 @@ function resolveOverlayStraightColor(
 
   if (unknownBackgroundAppearance === 'bright')
   {
-    const safeOpacity = Math.max(clamp01(globalOpacity), 0.000001);
-    const normalizedCoverage = clamp01(requestedAlpha / safeOpacity);
-    const normalizedEnergy = linearToSrgb(
-      Math.max(...color) * Math.max(0, contributionOpacity) / safeOpacity,
+    const compensation = resolveOverlayCompensation(
+      color,
+      contributionOpacity,
+      requestedAlpha,
+      globalOpacity,
     );
-    const energyRatio = normalizedEnergy /
-      Math.max(normalizedCoverage, 0.000001);
-    const ratioGate = smoothstep(0.25, 0.75, energyRatio);
-    const energyGate = smoothstep(0.03125, 0.25, normalizedEnergy);
-    const compensation = ratioGate * energyGate;
 
     // 只补偿有足够独立发射能量的核心，低能拖尾继续保留原始色相。
     red = Math.max(red, compensation);
@@ -705,6 +703,27 @@ function resolveOverlayStraightColor(
   }
 
   return [red, green, blue];
+}
+
+function resolveOverlayCompensation(
+  color,
+  contributionOpacity,
+  coverageAlpha,
+  globalOpacity = 1,
+)
+{
+  const safeOpacity = Math.max(clamp01(globalOpacity), 0.000001);
+  const normalizedCoverage = clamp01(
+    clamp01(coverageAlpha) / safeOpacity,
+  );
+  const normalizedEnergy = linearToSrgb(
+    Math.max(...color) * Math.max(0, contributionOpacity) / safeOpacity,
+  );
+  const energyRatio = normalizedEnergy /
+    Math.max(normalizedCoverage, 0.000001);
+
+  return smoothstep(0.25, 0.75, energyRatio) *
+    smoothstep(0.03125, 0.25, normalizedEnergy);
 }
 
 function colorToCanvasOutputCss(color, alpha, linearOutput = false)
@@ -950,6 +969,11 @@ function getTriangleTextureResources()
     ...sources,
     canvas,
     context,
+    linearTextureRgba: TRIANGLE_TEXTURE_RGBA,
+    linearTextureRgb: null,
+    linearTintFrameCount: 2,
+    linearTintFrames: null,
+    linearTintUnavailable: false,
   };
   return triangleTextureResources;
 }
@@ -995,8 +1019,226 @@ function getCircleTextureResources()
     tintContext,
     outputCanvas,
     outputContext,
+    linearTextureRgba: CIRCLE_TEXTURE_RGBA,
+    linearTextureRgb: null,
+    linearTintFrameCount: 1,
+    linearTintFrames: null,
+    linearTintUnavailable: false,
   };
   return circleTextureResources;
+}
+
+function createTextureRgb(rgba)
+{
+  const rgb = new Uint8Array((rgba.length / 4) * 3);
+
+  for (let sourceOffset = 0, targetOffset = 0;
+    sourceOffset < rgba.length;
+    sourceOffset += 4, targetOffset += 3)
+  {
+    rgb[targetOffset] = rgba[sourceOffset];
+    rgb[targetOffset + 1] = rgba[sourceOffset + 1];
+    rgb[targetOffset + 2] = rgba[sourceOffset + 2];
+  }
+
+  return rgb;
+}
+
+function createLinearTintFrames(textureSize, frameCount)
+{
+  const frames = [];
+
+  try
+  {
+    for (let index = 0; index < frameCount; index++)
+    {
+      const canvas = createCanvas();
+
+      canvas.width = textureSize;
+      canvas.height = textureSize;
+      const context = canvas.getContext('2d');
+
+      if (
+        !context ||
+        typeof context.createImageData !== 'function' ||
+        typeof context.putImageData !== 'function'
+      )
+      {
+        throw new Error('Canvas ImageData is unavailable');
+      }
+
+      frames.push(
+        {
+          canvas,
+          context,
+          image: context.createImageData(textureSize, textureSize),
+          key: null,
+          lookup: new Uint8ClampedArray(256 * 3),
+        },
+      );
+    }
+  }
+  catch
+  {
+    for (const frame of frames)
+    {
+      frame.canvas.width = 0;
+      frame.canvas.height = 0;
+    }
+
+    return null;
+  }
+
+  return frames;
+}
+
+/**
+ * Canvas 没有 Unity 的线性采样/材质乘法状态；透明回退必须在写入 8 位
+ * Canvas 前完成逐 texel 的 Linear(texture) × Linear(material)，否则 WebGL2
+ * 丢失后会把已编码 sRGB 材质再次相乘而明显变暗。
+ */
+function prepareLinearTintedTextureCanvas(
+  resources,
+  textureSize,
+  materialEnergy,
+  contribution,
+  alphaDivisor,
+  coverageCanvas,
+  frameIndex = 0,
+  compensation = 0,
+)
+{
+  const safeContribution = Math.max(0, Number(contribution) || 0);
+  const safeDivisor = Math.max(0, Number(alphaDivisor) || 0);
+  const safeMaterialEnergy = [0, 1, 2].map((channel) =>
+    Math.max(0, Number(materialEnergy[channel]) || 0));
+  const safeCompensation = clamp01(Number(compensation) || 0);
+
+  if (
+    safeContribution <= 0.000001 ||
+    safeDivisor <= 0.000001 ||
+    Math.max(...safeMaterialEnergy) <= 0.000001 ||
+    resources.linearTintUnavailable
+  )
+  {
+    return null;
+  }
+
+  if (!resources.linearTintFrames)
+  {
+    resources.linearTintFrames = createLinearTintFrames(
+      textureSize,
+      resources.linearTintFrameCount,
+    );
+
+    if (!resources.linearTintFrames)
+    {
+      resources.linearTintUnavailable = true;
+      return null;
+    }
+  }
+
+  if (!resources.linearTextureRgb)
+  {
+    resources.linearTextureRgb = createTextureRgb(
+      resources.linearTextureRgba,
+    );
+  }
+
+  const rawFrameIndex = Number.isFinite(frameIndex)
+    ? Math.trunc(frameIndex)
+    : 0;
+  const frameSlot = (
+    (rawFrameIndex % resources.linearTintFrameCount) +
+      resources.linearTintFrameCount
+  ) % resources.linearTintFrameCount;
+  const frame = resources.linearTintFrames[frameSlot];
+  const key = [
+    safeDivisor,
+    safeContribution,
+    ...safeMaterialEnergy,
+    safeCompensation,
+  ].join(',');
+
+  if (frame.key === key)
+  {
+    return frame.canvas;
+  }
+
+  const { context, image, lookup } = frame;
+  const sourceRgb = resources.linearTextureRgb;
+  const flipVertical = frameSlot === 1;
+
+  for (let channel = 0; channel < 3; channel++)
+  {
+    const lookupOffset = channel * 256;
+
+    for (let value = 0; value < 256; value++)
+    {
+      const linear = srgbToLinearChannel(value) *
+        safeMaterialEnergy[channel] * safeContribution;
+      const straight = linearToSrgb(linear) / safeDivisor;
+
+      lookup[lookupOffset + value] = Math.round(clamp01(straight) * 255);
+    }
+  }
+
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.globalAlpha = 1;
+  context.globalCompositeOperation = 'source-over';
+  context.filter = 'none';
+  context.imageSmoothingEnabled = false;
+
+  for (let y = 0; y < textureSize; y++)
+  {
+    const sourceY = flipVertical ? textureSize - 1 - y : y;
+
+    for (let x = 0; x < textureSize; x++)
+    {
+      const sourceOffset = (sourceY * textureSize + x) * 3;
+      const outputOffset = (y * textureSize + x) * 4;
+      const red = sourceRgb[sourceOffset];
+      const green = sourceRgb[sourceOffset + 1];
+      const blue = sourceRgb[sourceOffset + 2];
+      // 补偿只作用于有纹理能量的核心；直接用全局颜色作 texel 下限会把
+      // Circle 与 Tri3 的低能细节填成同一块灰白轮廓。
+      const compensationFloor = safeCompensation > 0
+        ? Math.round(safeCompensation * Math.max(red, green, blue))
+        : 0;
+
+      image.data[outputOffset] = Math.max(
+        lookup[red],
+        compensationFloor,
+      );
+      image.data[outputOffset + 1] = Math.max(
+        lookup[256 + green],
+        compensationFloor,
+      );
+      image.data[outputOffset + 2] = Math.max(
+        lookup[512 + blue],
+        compensationFloor,
+      );
+
+      image.data[outputOffset + 3] = 255;
+    }
+  }
+
+  context.putImageData(image, 0, 0);
+  context.globalCompositeOperation = 'destination-in';
+  context.save();
+
+  if (flipVertical)
+  {
+    context.translate(0, textureSize);
+    context.scale(1, -1);
+  }
+
+  context.drawImage(coverageCanvas, 0, 0);
+  context.restore();
+  context.globalCompositeOperation = 'source-over';
+  context.filter = 'none';
+  frame.key = key;
+  return frame.canvas;
 }
 
 /**
@@ -2100,18 +2342,34 @@ function drawDisk(
   );
   const coverageAlpha = particleAlpha * opacity;
   let textureAlpha = clamp01(coverageAlpha);
-  let textureScales;
+  let textureCanvas;
 
   if (outputCompositing === 'browser-overlay')
   {
-    textureScales = resolveOverlayStraightColor(
-      materialEnergy,
-      opacity,
-      coverageAlpha,
-      unknownBackgroundAppearance,
-      opacity,
-    );
     textureAlpha = Math.min(textureAlpha, clamp01(overlayAlphaLimit));
+    const resources = getCircleTextureResources();
+    const compensation = unknownBackgroundAppearance === 'bright'
+      ? resolveOverlayCompensation(
+          materialEnergy,
+          opacity,
+          coverageAlpha,
+          opacity,
+        )
+      : 0;
+
+    if (resources && textureAlpha > 0.000001)
+    {
+      textureCanvas = prepareLinearTintedTextureCanvas(
+        resources,
+        CIRCLE_TEXTURE_SIZE,
+        materialEnergy,
+        opacity,
+        coverageAlpha,
+        resources.coverageCanvas,
+        0,
+        compensation,
+      );
+    }
   }
   else if (outputCompositing === 'host-additive')
   {
@@ -2121,18 +2379,27 @@ function drawDisk(
       coverageAlpha,
     );
 
-    textureScales = payload.slice(0, 3);
     textureAlpha = payload[3];
+    const resources = getCircleTextureResources();
+
+    if (resources)
+    {
+      textureCanvas = prepareLinearTintedTextureCanvas(
+        resources,
+        CIRCLE_TEXTURE_SIZE,
+        materialEnergy,
+        opacity,
+        textureAlpha,
+        resources.coverageCanvas,
+      );
+    }
   }
   else
   {
-    textureScales = materialEnergy.map((channel) =>
+    const textureScales = materialEnergy.map((channel) =>
       channel / Math.max(particleAlpha, 0.00001));
+    textureCanvas = prepareCircleTextureCanvas(textureScales);
   }
-  const textureCanvas = prepareCircleTextureCanvas(
-    textureScales,
-    outputCompositing === 'host-additive',
-  );
 
   if (!textureCanvas)
   {
@@ -2400,24 +2667,38 @@ function drawTexturedTriangle(
     return false;
   }
 
-  const textureContext = resources.context;
   const scaledEnergy = materialEnergy.map((channel) =>
     channel * Math.max(0, energyScale));
   const transparentPayload = outputCompositing === 'browser-overlay' ||
     outputCompositing === 'host-additive';
   let payloadAlpha = clamp01(particleAlpha);
-  let scaledColor;
+  let textureCanvas;
 
   if (outputCompositing === 'browser-overlay')
   {
-    scaledColor = resolveOverlayStraightColor(
-      scaledEnergy,
-      particleAlpha,
-      particleAlpha,
-      unknownBackgroundAppearance,
-      opacity,
-    ).map((channel) => Math.round(channel * 255));
     payloadAlpha = Math.min(payloadAlpha, clamp01(overlayAlphaLimit));
+    const compensation = unknownBackgroundAppearance === 'bright'
+      ? resolveOverlayCompensation(
+          scaledEnergy,
+          particleAlpha,
+          particleAlpha,
+          opacity,
+        )
+      : 0;
+
+    if (payloadAlpha > 0.000001)
+    {
+      textureCanvas = prepareLinearTintedTextureCanvas(
+        resources,
+        TRIANGLE_TEXTURE_SIZE,
+        scaledEnergy,
+        particleAlpha,
+        particleAlpha,
+        resources.coverageCanvas,
+        frameIndex,
+        compensation,
+      );
+    }
   }
   else if (outputCompositing === 'host-additive')
   {
@@ -2427,61 +2708,54 @@ function drawTexturedTriangle(
       particleAlpha,
     );
 
-    scaledColor = payload.slice(0, 3).map((channel) =>
-      Math.round(channel * 255));
     payloadAlpha = payload[3];
+    textureCanvas = prepareLinearTintedTextureCanvas(
+      resources,
+      TRIANGLE_TEXTURE_SIZE,
+      scaledEnergy,
+      particleAlpha,
+      payloadAlpha,
+      resources.coverageCanvas,
+      frameIndex,
+    );
   }
   else
   {
-    scaledColor = scaledEnergy.map((channel) =>
+    const textureContext = resources.context;
+    const scaledColor = scaledEnergy.map((channel) =>
       Math.round(clamp01(channel) * 255));
+    textureContext.setTransform(1, 0, 0, 1, 0, 0);
+    textureContext.globalAlpha = 1;
+    textureContext.globalCompositeOperation = 'source-over';
+    textureContext.imageSmoothingEnabled = true;
+    textureContext.clearRect(
+      0,
+      0,
+      TRIANGLE_TEXTURE_SIZE,
+      TRIANGLE_TEXTURE_SIZE,
+    );
+    drawTriangleTextureFrame(textureContext, resources.colorCanvas, frameIndex);
+
+    // Scene Final Pass 读取线性字节；这里继续按 Unity 线性材质乘法绘制。
+    textureContext.globalCompositeOperation = 'multiply';
+    textureContext.fillStyle = `rgb(${scaledColor[0]}, ${scaledColor[1]}, ${
+      scaledColor[2]})`;
+    textureContext.fillRect(
+      0,
+      0,
+      TRIANGLE_TEXTURE_SIZE,
+      TRIANGLE_TEXTURE_SIZE,
+    );
+    textureContext.globalCompositeOperation = 'destination-in';
+    drawTriangleTextureFrame(textureContext, resources.alphaCanvas, frameIndex);
+    textureCanvas = resources.canvas;
   }
 
-  if (
-    transparentPayload &&
-    scaledColor.every((channel) => channel === 0)
-  )
+  if (transparentPayload && (!textureCanvas || payloadAlpha <= 0.00001))
   {
     // source-over 下黑色纹理仍会遮挡宿主；零能量必须完全跳过。
     return true;
   }
-
-  textureContext.setTransform(1, 0, 0, 1, 0, 0);
-  textureContext.globalAlpha = 1;
-  textureContext.globalCompositeOperation = 'source-over';
-  textureContext.imageSmoothingEnabled = true;
-  textureContext.clearRect(
-    0,
-    0,
-    TRIANGLE_TEXTURE_SIZE,
-    TRIANGLE_TEXTURE_SIZE,
-  );
-  drawTriangleTextureFrame(
-    textureContext,
-    outputCompositing === 'host-additive'
-      ? resources.srgbColorCanvas
-      : resources.colorCanvas,
-    frameIndex,
-  );
-
-  // 先给独立线性 RGB 着色，再应用 Alpha，保持 Unity 在双线性采样后相乘的顺序。
-  textureContext.globalCompositeOperation = 'multiply';
-  textureContext.fillStyle = `rgb(${scaledColor[0]}, ${scaledColor[1]}, ${
-    scaledColor[2]})`;
-  textureContext.fillRect(
-    0,
-    0,
-    TRIANGLE_TEXTURE_SIZE,
-    TRIANGLE_TEXTURE_SIZE,
-  );
-  textureContext.globalCompositeOperation = 'destination-in';
-  drawTriangleTextureFrame(
-    textureContext,
-    transparentPayload
-      ? resources.coverageCanvas
-      : resources.alphaCanvas,
-    frameIndex,
-  );
 
   context.save();
   context.translate(particle.x, particle.y);
@@ -2489,7 +2763,7 @@ function drawTexturedTriangle(
   context.globalAlpha = payloadAlpha;
   context.shadowColor = 'transparent';
   context.shadowBlur = 0;
-  context.drawImage(resources.canvas, -size * 0.5, -size * 0.5, size, size);
+  context.drawImage(textureCanvas, -size * 0.5, -size * 0.5, size, size);
   context.restore();
   return true;
 }
