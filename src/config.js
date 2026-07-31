@@ -855,7 +855,7 @@ export const FX_PARAM_SCHEMA = freezeFxParamMetadata(
     createFxParamDescriptor(
       'bloom.clamp',
       'number',
-      { min: 0, max: 65504, step: 1, unit: 'gamma-hdr' },
+      { min: 0, max: 65504, step: 1, unit: 'linear-hdr' },
     ),
     createFxParamDescriptor(
       'bloom.intensity',

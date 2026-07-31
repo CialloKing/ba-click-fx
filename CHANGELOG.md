@@ -10,6 +10,7 @@
 - `bright-core` 与 Alpha 策略正交，只按清晰发射和 Bloom 能量补偿高能核心，不整体混白 RGB 或提亮低能拖尾；所有 `source-over` 组合继续满足预乘约束 `RGB <= Alpha`
 - 旧 `unknownBackgroundAppearance` 仅作为颜色补偿的兼容镜像保留：`coverage` 对应 `none`，`bright` 对应 `bright-core`，不再承担 Alpha 策略选择
 - `plus-lighter` 改为独立 Add 载荷合同并忽略 Alpha 策略、颜色补偿与 Alpha 上限；CSS 合成仅作为 SDR DOM 近似，严格 Unity 加色仍要求宿主在线性 HDR 目标中执行 Add，已知背景继续使用 `scene + setCompositingReference()` 精确路径
+- 对照解包工程的 `BaGameBloomRendererFeature` 与 Shader 修正 Bloom 数值合同：Clamp 原值直传、Intensity 线性相乘、上采样使用高 mip 四点加低 mip 单点，并保留 soft-knee 无条件增加的误差项
 
 ## v1.2.15 — 参数契约与透明覆盖层收敛
 

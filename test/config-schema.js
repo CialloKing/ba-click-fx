@@ -152,8 +152,8 @@ const bloomClampDescriptor = FX_PARAM_SCHEMA.find(
 );
 
 assert.equal(bloomThresholdDescriptor?.unit, 'gamma-hdr');
-assert.equal(bloomClampDescriptor?.unit, 'gamma-hdr');
-check(true, 'Bloom Threshold 与 Clamp 明确使用 Unity Gamma 空间配置语义');
+assert.equal(bloomClampDescriptor?.unit, 'linear-hdr');
+check(true, 'Bloom Threshold 转 Linear，Clamp 按 Unity 原值直接传入 Shader');
 
 console.log('\nLegacy 基线与版本迁移');
 const legacyOverrides = FX_PARAM_SCHEMA.filter(
