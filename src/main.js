@@ -8,6 +8,7 @@ import {
   getThemeBackgroundCss,
   renderThemeSceneBackground,
 } from './theme-background.js';
+import { snapRangeValue } from './range-snap.js';
 
 function acceptDemoPointer(event)
 {
@@ -442,7 +443,14 @@ function applyCustomBackgroundFile(file)
 }
 
 // ── 控件绑定 ────────────────────────────────────────────────────────────
-function bindRange(id, outId, onChange, intOnly = false, applyEvent = 'input')
+function bindRange(
+  id,
+  outId,
+  onChange,
+  intOnly = false,
+  applyEvent = 'input',
+  pointerSnapValue = null,
+)
 {
   const el = document.getElementById(id);
   const out = document.getElementById(outId);
@@ -452,9 +460,38 @@ function bindRange(id, outId, onChange, intOnly = false, applyEvent = 'input')
     return;
   }
 
+  let isPointerAdjustment = false;
+
+  if (pointerSnapValue !== null)
+  {
+    const endPointerAdjustment = () =>
+    {
+      isPointerAdjustment = false;
+    };
+
+    el.addEventListener('pointerdown', () =>
+    {
+      isPointerAdjustment = true;
+    });
+    el.addEventListener('pointerup', endPointerAdjustment);
+    el.addEventListener('pointercancel', endPointerAdjustment);
+    el.addEventListener('lostpointercapture', endPointerAdjustment);
+    el.addEventListener('change', endPointerAdjustment);
+  }
+
   el.addEventListener('input', () =>
   {
-    const value = parseFloat(el.value);
+    const rawValue = parseFloat(el.value);
+    // 399 个 0.01 档位无法全部映射到窄侧栏的物理像素；只在拖动时
+    // 吸附默认速度一格，键盘、恢复设置和公开 API 仍保留完整精度。
+    const value = isPointerAdjustment
+      ? snapRangeValue(rawValue, pointerSnapValue, parseFloat(el.step))
+      : rawValue;
+
+    if (value !== rawValue)
+    {
+      el.value = String(value);
+    }
 
     out.textContent = intOnly ? String(Math.round(value)) : value.toFixed(2);
 
@@ -526,9 +563,9 @@ bindToggle('ctrlClick', (checked) => effect.updateConfig({ clickEnabled: checked
 bindToggle('ctrlTrail', (checked) => effect.updateConfig({ trailEnabled: checked }));
 bindToggle('ctrlTrailAlways', (checked) => effect.updateConfig({ trailAlways: checked }));
 bindRange('ctrlClickTimeScale', 'outClickTimeScale', (value) =>
-  effect.updateConfig({ clickTimeScale: value }));
+  effect.updateConfig({ clickTimeScale: value }), false, 'input', 1);
 bindRange('ctrlTrailTimeScale', 'outTrailTimeScale', (value) =>
-  effect.updateConfig({ trailTimeScale: value }));
+  effect.updateConfig({ trailTimeScale: value }), false, 'input', 1);
 
 // ── 宿主控制 API 演示 ───────────────────────────────────────────────────
 const ctrlInputSource = document.getElementById('ctrlInputSource');

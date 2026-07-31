@@ -15,6 +15,10 @@ const themeBackgroundJs = fs.readFileSync(
   path.join(root, 'src', 'theme-background.js'),
   'utf8',
 );
+const rangeSnapJs = fs.readFileSync(
+  path.join(root, 'src', 'range-snap.js'),
+  'utf8',
+);
 const styleCss = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 const engineJs = fs.readFileSync(path.join(root, 'src', 'fx.js'), 'utf8');
 const configJs = fs.readFileSync(path.join(root, 'src', 'config.js'), 'utf8');
@@ -186,6 +190,17 @@ verify(
   /bindRange\('ctrlClickTimeScale', 'outClickTimeScale',[\s\S]*?clickTimeScale: value/.test(mainJs) &&
     /bindRange\('ctrlTrailTimeScale', 'outTrailTimeScale',[\s\S]*?trailTimeScale: value/.test(mainJs),
   '展示页提供点击与拖尾独立时间倍率控件',
+);
+const bindRangeSource = getFunctionSource(mainJs, 'bindRange');
+verify(
+  /snapRangeValue/.test(rangeSnapJs) &&
+    /pointerSnapValue/.test(bindRangeSource) &&
+    /isPointerAdjustment/.test(bindRangeSource) &&
+    /snapRangeValue\(rawValue, pointerSnapValue, parseFloat\(el\.step\)\)/.test(
+      bindRangeSource,
+    ) &&
+    /'input', 1\);/.test(mainJs),
+  '时间倍率滑块在指针拖动时可吸附默认 1.00 倍率',
 );
 verify(
   /effect\.setPaused\(ctrlPaused\.checked,[\s\S]*?clear: ctrlPauseClear/.test(mainJs),

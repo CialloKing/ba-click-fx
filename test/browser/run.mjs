@@ -62,6 +62,7 @@ const metrics =
   trailContextLifecycle: {},
   trailTextureResourceLifecycle: {},
   iifeSmoke: null,
+  demoTimeScaleControls: null,
   demoBackgroundFile: null,
   demoPureWhiteIsolation: null,
 };
@@ -2286,6 +2287,169 @@ async function runIifeSmoke(browserInstance, baseUrl)
   }
 }
 
+async function runDemoTimeScaleControlSmoke(browserInstance, baseUrl)
+{
+  currentLabel = 'demo-time-scale-controls';
+  const context = await browserInstance.newContext(
+    {
+      colorScheme: 'dark',
+      deviceScaleFactor: 1,
+      viewport:
+      {
+        width: 1024,
+        height: 768,
+      },
+    },
+  );
+  const page = await context.newPage();
+
+  try
+  {
+    currentPage = page;
+    await page.goto(baseUrl, { waitUntil: 'load' });
+    await page.waitForFunction(
+      () => typeof window.BAClickFXDemo?.getConfig === 'function',
+    );
+    await page.locator('#panelToggle').click();
+    await page.waitForFunction(() =>
+    {
+      const panel = document.getElementById('panel');
+
+      return panel?.classList.contains('open') &&
+        Math.abs(panel.getBoundingClientRect().right - window.innerWidth) < 1;
+    });
+    const controls =
+    [
+      ['ctrlClickTimeScale', 'outClickTimeScale', 'clickTimeScale', 0.99],
+      ['ctrlTrailTimeScale', 'outTrailTimeScale', 'trailTimeScale', 1.01],
+    ];
+    const readState = async (id, outputId, configKey) => page.evaluate(
+      ({ controlId, outputId: stateOutputId, stateConfigKey }) =>
+      {
+        const control = document.getElementById(controlId);
+        const output = document.getElementById(stateOutputId);
+
+        return {
+          config: window.BAClickFXDemo.getConfig()[stateConfigKey],
+          output: output.textContent,
+          stored: localStorage.getItem(`bafx-${controlId}`),
+          value: control.value,
+        };
+      },
+      {
+        controlId: id,
+        outputId,
+        stateConfigKey: configKey,
+      },
+    );
+    const clickRangeValue = async (id, targetValue) =>
+    {
+      const control = page.locator(`#${id}`);
+      const point = await control.evaluate((element, value) =>
+      {
+        const range = element;
+        const bounds = range.getBoundingClientRect();
+        const thumbWidth = 14;
+        const min = Number(range.min);
+        const max = Number(range.max);
+        const progress = (value - min) / (max - min);
+
+        return {
+          x: bounds.x + thumbWidth / 2 +
+            (bounds.width - thumbWidth) * progress,
+          y: bounds.y + bounds.height / 2,
+        };
+      }, targetValue);
+
+      await page.mouse.click(point.x, point.y);
+    };
+
+    // 先离开默认值，避免点到已是 1.00 的位置时浏览器不派发 input。
+    for (const [id] of controls)
+    {
+      await clickRangeValue(id, 0.5);
+      const displacedState = await page.evaluate((controlId) =>
+      {
+        const control = document.getElementById(controlId);
+
+        return {
+          value: control?.value,
+        };
+      }, id);
+
+      assert(
+        Number(displacedState.value) < 0.8,
+        `${id} 的鼠标轨道点击没有离开默认倍率`,
+        displacedState,
+      );
+    }
+
+    // 这里使用真实鼠标轨道点击，覆盖浏览器原生 range 的 pointer/input
+    // 时序，而不是仅模拟 input 事件。
+    for (const [id, , , targetValue] of controls)
+    {
+      await clickRangeValue(id, targetValue);
+    }
+
+    const controlState =
+    {
+      clickSnapped: await readState(...controls[0].slice(0, 3)),
+      trailSnapped: await readState(...controls[1].slice(0, 3)),
+    };
+
+    for (const [name, state] of Object.entries(
+      {
+        clickSnapped: controlState.clickSnapped,
+        trailSnapped: controlState.trailSnapped,
+      },
+    ))
+    {
+      assert(
+        state.value === '1' &&
+          state.output === '1.00' &&
+          state.config === 1 &&
+          state.stored === '1',
+        `${name} 没有把相邻速度档吸附到 1.00`,
+        state,
+      );
+    }
+
+    await page.evaluate(() =>
+    {
+      const clickControl = document.getElementById('ctrlClickTimeScale');
+      const trailControl = document.getElementById('ctrlTrailTimeScale');
+
+      clickControl.value = '0.99';
+      clickControl.dispatchEvent(new Event('input', { bubbles: true }));
+      trailControl.value = '1.01';
+      trailControl.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    controlState.clickPrecise = await readState(...controls[0].slice(0, 3));
+    controlState.trailPrecise = await readState(...controls[1].slice(0, 3));
+
+    assert(
+      controlState.clickPrecise.value === '0.99' &&
+        controlState.clickPrecise.config === 0.99 &&
+        controlState.clickPrecise.stored === '0.99',
+      '点击速度在非指针路径丢失了 0.01 精度',
+      controlState.clickPrecise,
+    );
+    assert(
+      controlState.trailPrecise.value === '1.01' &&
+        controlState.trailPrecise.config === 1.01 &&
+        controlState.trailPrecise.stored === '1.01',
+      '拖尾速度在非指针路径丢失了 0.01 精度',
+      controlState.trailPrecise,
+    );
+    metrics.demoTimeScaleControls = controlState;
+  }
+  finally
+  {
+    await context.close();
+    currentPage = null;
+  }
+}
+
 async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
 {
   currentLabel = 'demo-local-background-file';
@@ -3943,6 +4107,7 @@ async function main()
   );
   const startedAt = performance.now();
   await runIifeSmoke(browser, baseUrl);
+  await runDemoTimeScaleControlSmoke(browser, baseUrl);
   await runDemoBackgroundFileSmoke(browser, baseUrl);
   await runDemoPureWhiteIsolationSmoke(browser, baseUrl);
   const calibration = await runMatrix(browser, baseUrl, baseline);

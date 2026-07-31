@@ -70,7 +70,7 @@
     "test:source": "node test/smoke.js --source",
     "test:themes": "node test/theme-background.js",
     "test:bloom": "node test/software-bloom.js",
-    "test:config": "node test/config-schema.js && node test/fx-param-patch.js",
+    "test:config": "node test/config-schema.js && node test/fx-param-patch.js && node test/range-snap.js",
     "test:browser:built": "node test/browser/run.mjs",
     "test:browser": "npm run build && npm run test:browser:built",
     "test:browser:optional": "npm run build && npm run test:browser:built -- --optional",
