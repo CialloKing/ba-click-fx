@@ -619,6 +619,10 @@ void main()
     float requestedAlpha = u_visualMaxAlpha
       ? max(sceneCoverage, bloomTransportAlpha)
       : sceneCoverage + bloomTransportAlpha;
+    // Canvas lighter 与默认帧缓冲都会先把累计 Alpha 饱和到 1。Bloom
+    // 强度较高时 requestedAlpha 可大于 1；继续用未饱和值归一化会在
+    // 预乘容量已经充足时额外压暗 RGB，并与 Canvas 回退产生跳变。
+    float transportCapacity = min(requestedAlpha, 1.0);
 
     if (u_hostAdditive)
     {
@@ -626,7 +630,7 @@ void main()
       // 仅承担浏览器预乘传输，至少覆盖 RGB，不能再反向限制发射能量。
       float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
       float transportAlpha = clamp(
-        max(maximumSrgb, min(requestedAlpha, 1.0)),
+        max(maximumSrgb, transportCapacity),
         0.0,
         1.0
       );
@@ -642,7 +646,7 @@ void main()
     }
 
     float alpha = min(
-      requestedAlpha,
+      transportCapacity,
       clamp(u_overlayAlphaLimit, 0.0, 1.0)
     );
 
@@ -657,7 +661,7 @@ void main()
     float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
     float capacityScale = u_visualMaxAlpha
       ? min(1.0, alpha / max(maximumSrgb, 0.000001))
-      : min(1.0, alpha / max(requestedAlpha, 0.000001));
+      : min(1.0, alpha / max(transportCapacity, 0.000001));
 
     vec3 premultiplied = srgb * capacityScale;
 

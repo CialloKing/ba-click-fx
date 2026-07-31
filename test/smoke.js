@@ -919,7 +919,10 @@ if (sourceMode)
         ': sceneCoverage + bloomTransportAlpha;',
       ) &&
       transparentFinalSource.includes(
-        'alpha / max(requestedAlpha, 0.000001)',
+        'float transportCapacity = min(requestedAlpha, 1.0);',
+      ) &&
+      transparentFinalSource.includes(
+        'alpha / max(transportCapacity, 0.000001)',
       ) &&
       transparentFinalSource.includes(
         'outColor = vec4(premultiplied, alpha);',
@@ -946,7 +949,7 @@ if (sourceMode)
         'alpha / max(maximumSrgb, 0.000001)',
       ) &&
       transparentFinalSource.includes(
-        ': min(1.0, alpha / max(requestedAlpha, 0.000001));',
+        ': min(1.0, alpha / max(transportCapacity, 0.000001));',
       ) &&
       webgl2EffectSourceText.includes(
         "settings.overlayAlphaPolicy === 'visual-max' ? 1 : 0",
