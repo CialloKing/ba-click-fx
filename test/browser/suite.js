@@ -11,6 +11,7 @@ const STRAIGHT_TRAIL_TRANSMISSION_X = 200;
 const STRAIGHT_TRAIL_HEAD_U = 0.08;
 const STRAIGHT_TRAIL_ASYMMETRY_U = 0.15;
 const STRAIGHT_TRAIL_EDGE_V = 0.05;
+const TRANSPARENT_CONTRACT_GUARD_RADIUS = 72;
 
 window.__BACLICKFX_PIXEL_PROGRESS__ = 'suite-started';
 
@@ -427,6 +428,50 @@ function sampleHorizontalAlpha(imageData, x, y, dpr, radius = 2)
   return alpha / Math.max(1, count);
 }
 
+function sampleHorizontalPremultipliedColor(
+  imageData,
+  x,
+  y,
+  dpr,
+  radius = 2,
+)
+{
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  let alpha = 0;
+  let count = 0;
+
+  for (let offset = -radius; offset <= radius; offset++)
+  {
+    const pixel = getPixel(imageData, x + offset, y, dpr);
+    const pixelAlpha = pixel[3] / 255;
+
+    // Canvas 回读会解预乘；乘回 Alpha 后才是 source-over 实际传输载荷。
+    red += pixel[0] / 255 * pixelAlpha;
+    green += pixel[1] / 255 * pixelAlpha;
+    blue += pixel[2] / 255 * pixelAlpha;
+    alpha += pixelAlpha;
+    count++;
+  }
+
+  const divisor = Math.max(1, count);
+  const channels = [red / divisor, green / divisor, blue / divisor];
+  const maximum = Math.max(...channels);
+  const minimum = Math.min(...channels);
+
+  return {
+    alpha: alpha / divisor,
+    blue: channels[2],
+    chroma: maximum - minimum,
+    energy: maximum,
+    green: channels[1],
+    neutralEnergy: minimum,
+    red: channels[0],
+    saturation: maximum > 0 ? (maximum - minimum) / maximum : 0,
+  };
+}
+
 function summarizeStraightTrail(imageData, effect)
 {
   const dpr = effect.dpr;
@@ -456,6 +501,12 @@ function summarizeStraightTrail(imageData, effect)
       STRAIGHT_TRAIL_Y,
       dpr,
     ),
+    tailColor: sampleHorizontalPremultipliedColor(
+      imageData,
+      tailX,
+      STRAIGHT_TRAIL_Y,
+      dpr,
+    ),
     upperEdgeEnergy: sampleHorizontalEnergy(
       imageData,
       asymmetryX,
@@ -468,6 +519,181 @@ function summarizeStraightTrail(imageData, effect)
       STRAIGHT_TRAIL_Y + edgeOffset,
       dpr,
     ),
+  };
+}
+
+function summarizeOutsideEffectGuard(imageData, effect)
+{
+  const specification = activeFixture?.specification ?? {};
+  const anchors = [];
+
+  if (specification.includeClick !== false)
+  {
+    anchors.push([CLICK_X, CLICK_Y]);
+  }
+
+  for (const stroke of effect.trailStrokes)
+  {
+    for (const point of stroke.points)
+    {
+      anchors.push([point.x, point.y]);
+    }
+  }
+
+  if (anchors.length === 0)
+  {
+    return {
+      bounds: null,
+      maximumAlpha: 0,
+      maximumEnergy: 0,
+      sampleCount: 0,
+      visiblePixelCount: 0,
+    };
+  }
+
+  // _getScale() 是 Unity 世界到参考像素的比例，不是 CSS 坐标倍率；
+  // 保护框必须使用夹具坐标中的固定余量，避免把合法 Bloom 误判为底色。
+  const padding = TRANSPARENT_CONTRACT_GUARD_RADIUS;
+  const minimumX = Math.max(
+    0,
+    Math.floor((Math.min(...anchors.map(([x]) => x)) - padding) * effect.dpr),
+  );
+  const minimumY = Math.max(
+    0,
+    Math.floor((Math.min(...anchors.map(([, y]) => y)) - padding) * effect.dpr),
+  );
+  const maximumX = Math.min(
+    imageData.width - 1,
+    Math.ceil((Math.max(...anchors.map(([x]) => x)) + padding) * effect.dpr),
+  );
+  const maximumY = Math.min(
+    imageData.height - 1,
+    Math.ceil((Math.max(...anchors.map(([, y]) => y)) + padding) * effect.dpr),
+  );
+  let maximumAlpha = 0;
+  let maximumEnergy = 0;
+  let sampleCount = 0;
+  let visiblePixelCount = 0;
+
+  for (let y = 0; y < imageData.height; y++)
+  {
+    for (let x = 0; x < imageData.width; x++)
+    {
+      if (
+        x >= minimumX && x <= maximumX &&
+        y >= minimumY && y <= maximumY
+      )
+      {
+        continue;
+      }
+
+      const offset = (y * imageData.width + x) * 4;
+      const alpha = imageData.data[offset + 3];
+      const straightEnergy = Math.max(
+        imageData.data[offset],
+        imageData.data[offset + 1],
+        imageData.data[offset + 2],
+      );
+      const energy = straightEnergy * alpha / 255;
+
+      maximumAlpha = Math.max(maximumAlpha, alpha);
+      maximumEnergy = Math.max(maximumEnergy, energy);
+      sampleCount++;
+
+      if (alpha > 1 || energy > 1)
+      {
+        visiblePixelCount++;
+      }
+    }
+  }
+
+  return {
+    bounds:
+    {
+      maximumX: maximumX / effect.dpr,
+      maximumY: maximumY / effect.dpr,
+      minimumX: minimumX / effect.dpr,
+      minimumY: minimumY / effect.dpr,
+    },
+    maximumAlpha: maximumAlpha / 255,
+    maximumEnergy: maximumEnergy / 255,
+    sampleCount,
+    visiblePixelCount,
+  };
+}
+
+function readWebGLTargetPixel(renderer, target, x, y)
+{
+  const gl = renderer?.gl;
+
+  if (!gl || !target?.framebuffer || target.width <= 0 || target.height <= 0)
+  {
+    return null;
+  }
+
+  const targetX = Math.max(
+    0,
+    Math.min(
+      target.width - 1,
+      Math.floor(x / renderer.displayWidth * target.width),
+    ),
+  );
+  // WebGL RenderTarget 以左下为原点，夹具坐标以左上为原点。
+  const targetY = Math.max(
+    0,
+    Math.min(
+      target.height - 1,
+      Math.floor((1 - y / renderer.displayHeight) * target.height),
+    ),
+  );
+  const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+  const pixel = new Float32Array(4);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+  gl.readPixels(targetX, targetY, 1, 1, gl.RGBA, gl.FLOAT, pixel);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
+
+  if (gl.getError() !== gl.NO_ERROR)
+  {
+    return null;
+  }
+
+  return Array.from(pixel);
+}
+
+function captureWebGLTransport(effect, x, y)
+{
+  const renderer = effect.webglEffectVisible
+    ? effect.webglEffectRenderer
+    : effect.webglBloomVisible
+      ? effect.webglBloomRenderer
+      : null;
+
+  if (!renderer?.available || !renderer.sourceTarget)
+  {
+    return null;
+  }
+
+  const bloomTarget = renderer.levels.length === 1
+    ? renderer.levels[0]?.down
+    : renderer.levels[0]?.up;
+  const diskConfig = effect.getFxConfig().disk;
+
+  return {
+    bloom: readWebGLTargetPixel(renderer, bloomTarget, x, y),
+    disk:
+    {
+      alphaKeys: diskConfig.alphaKeys,
+      lifetimeMs: diskConfig.lifetimeMs,
+    },
+    scene: readWebGLTargetPixel(renderer, renderer.sourceTarget, x, y),
+    sceneOverlay: readWebGLTargetPixel(
+      renderer,
+      renderer.sceneOverlayTarget,
+      x,
+      y,
+    ),
+    waveAges: effect.waves.map((wave) => wave.ageMs),
   };
 }
 
@@ -564,28 +790,44 @@ async function prepareEffect(specification)
   }
 
   const fixture = createFixture(specification);
-  const effect = new BAClickFX(
+  const effectOptions =
+  {
+    target: fixture.target,
+    inputSource: 'manual',
+    trailAlways: true,
+    outputCompositing: specification.outputCompositing ??
+      'browser-overlay',
+    hostCompositing: specification.hostCompositing,
+    opacity: specification.opacity,
+    scale: specification.scale ?? 1,
+    isolatedCompositing: specification.isolatedCompositing,
+    lightBackgroundContrastAlpha:
+      specification.lightBackgroundContrastAlpha ?? 0,
+    maxDpr: 2,
+    effectBackend: mode.effectBackend,
+    renderingMode: mode.renderingMode,
+    bloomBackend: mode.bloomBackend,
+  };
+
+  // 只把调用方实际提供的透明配置传入；传入 undefined 会让归一化器把
+  // 兼容字段误认为已被新字段覆盖，破坏 unknownBackgroundAppearance 映射。
+  for (const key of [
+    'unknownBackgroundAppearance',
+    'overlayAlphaPolicy',
+    'overlayAlphaLimit',
+    'overlayColorCompensation',
+  ])
+  {
+    if (
+      Object.hasOwn(specification, key) &&
+      specification[key] !== undefined
+    )
     {
-      target: fixture.target,
-      inputSource: 'manual',
-      trailAlways: true,
-      outputCompositing: specification.outputCompositing ??
-        'browser-overlay',
-      unknownBackgroundAppearance:
-        specification.unknownBackgroundAppearance,
-      overlayAlphaLimit: specification.overlayAlphaLimit,
-      hostCompositing: specification.hostCompositing,
-      opacity: specification.opacity,
-      scale: specification.scale ?? 1,
-      isolatedCompositing: specification.isolatedCompositing,
-      lightBackgroundContrastAlpha:
-        specification.lightBackgroundContrastAlpha ?? 0,
-      maxDpr: 2,
-      effectBackend: mode.effectBackend,
-      renderingMode: mode.renderingMode,
-      bloomBackend: mode.bloomBackend,
-    },
-  );
+      effectOptions[key] = specification[key];
+    }
+  }
+
+  const effect = new BAClickFX(effectOptions);
 
   if (specification.includeTrailShards === false)
   {
@@ -765,6 +1007,9 @@ async function runCase(specification)
     trailProfile: specification.straightTrailProbe
       ? summarizeStraightTrail(transparent, fixture.effect)
       : null,
+    webglTransport: specification.inspectWebGLTransport
+      ? captureWebGLTransport(fixture.effect, CLICK_X, CLICK_Y)
+      : null,
   };
 }
 
@@ -861,17 +1106,6 @@ function captureTransparentContractPhase(effect, target)
   const capture = captureCompositingPhases(effect, target);
   const snapshot = effect.getConfig();
   const transparent = capture.images.transparent;
-  const cornerPixels = [
-    getPixel(transparent, 0, 0, effect.dpr),
-    getPixel(transparent, FIXTURE_WIDTH - 1, 0, effect.dpr),
-    getPixel(transparent, 0, FIXTURE_HEIGHT - 1, effect.dpr),
-    getPixel(
-      transparent,
-      FIXTURE_WIDTH - 1,
-      FIXTURE_HEIGHT - 1,
-      effect.dpr,
-    ),
-  ];
 
   return {
     config:
@@ -879,7 +1113,9 @@ function captureTransparentContractPhase(effect, target)
       hostCompositing: snapshot.hostCompositing,
       opacity: snapshot.opacity,
       outputCompositing: snapshot.outputCompositing,
+      overlayAlphaPolicy: snapshot.overlayAlphaPolicy,
       overlayAlphaLimit: snapshot.overlayAlphaLimit,
+      overlayColorCompensation: snapshot.overlayColorCompensation,
       unknownBackgroundAppearance: snapshot.unknownBackgroundAppearance,
     },
     route:
@@ -902,14 +1138,11 @@ function captureTransparentContractPhase(effect, target)
       overlayRootBlendMode: effect.overlayRoot?.style.mixBlendMode ?? '',
       overlayRootConnected: effect.overlayRoot?.isConnected === true,
     },
-    outside:
-    {
-      maximumAlpha: Math.max(...cornerPixels.map((pixel) => pixel[3])) / 255,
-      maximumEnergy: Math.max(...cornerPixels.flatMap((pixel) =>
-        pixel.slice(0, 3))) / 255,
-      pixels: cornerPixels,
-    },
+    outside: capture.pixels.outside,
     pixels: capture.pixels,
+    trailProfile: activeFixture?.specification.straightTrailProbe
+      ? summarizeStraightTrail(transparent, effect)
+      : null,
   };
 }
 
@@ -944,11 +1177,16 @@ async function transitionTransparentContract(specification = {})
     'hostCompositing',
     'opacity',
     'outputCompositing',
+    'overlayAlphaPolicy',
     'overlayAlphaLimit',
+    'overlayColorCompensation',
     'unknownBackgroundAppearance',
   ])
   {
-    if (Object.hasOwn(specification, key))
+    if (
+      Object.hasOwn(specification, key) &&
+      specification[key] !== undefined
+    )
     {
       patch[key] = specification[key];
     }
@@ -1148,7 +1386,9 @@ function captureCompositingState(effect, target)
     hostCompositing: snapshot.hostCompositing,
     isolatedCompositing: snapshot.isolatedCompositing,
     outputCompositing: snapshot.outputCompositing,
+    overlayAlphaPolicy: snapshot.overlayAlphaPolicy,
     overlayAlphaLimit: snapshot.overlayAlphaLimit,
+    overlayColorCompensation: snapshot.overlayColorCompensation,
     overlayRootBlendMode: effect.overlayRoot?.style.mixBlendMode ?? '',
     unknownBackgroundAppearance: snapshot.unknownBackgroundAppearance,
     overlayParentIsTarget: effect.overlayParent === target,
@@ -1196,6 +1436,7 @@ function captureCompositingPhases(effect, target, transmissionCenter = null)
     STRAIGHT_TRAIL_Y,
     effect.dpr,
   );
+  pixels.outside = summarizeOutsideEffectGuard(images.transparent, effect);
   return (
     {
       compositing: captureCompositingState(effect, target),
@@ -1220,6 +1461,8 @@ async function runContextLifecycle(specification)
       isolatedCompositing,
       background: 'transparent',
       outputCompositing: 'browser-overlay',
+      overlayAlphaPolicy: options.overlayAlphaPolicy,
+      overlayColorCompensation: options.overlayColorCompensation,
       unknownBackgroundAppearance: options.unknownBackgroundAppearance,
       overlayAlphaLimit: options.overlayAlphaLimit,
       hostCompositing: options.hostCompositing,
@@ -1289,7 +1532,9 @@ async function runContextLifecycle(specification)
     {
       hostCompositing: beforeRoute.hostCompositing,
       outputCompositing: beforeRoute.outputCompositing,
+      overlayAlphaPolicy: beforeRoute.overlayAlphaPolicy,
       overlayAlphaLimit: beforeRoute.overlayAlphaLimit,
+      overlayColorCompensation: beforeRoute.overlayColorCompensation,
       unknownBackgroundAppearance:
         beforeRoute.unknownBackgroundAppearance,
     },
@@ -1577,6 +1822,10 @@ async function runBackendFailureChain(specification)
       isolatedCompositing,
       background: 'transparent',
       outputCompositing: 'browser-overlay',
+      overlayAlphaPolicy: specification.overlayAlphaPolicy,
+      overlayColorCompensation: specification.overlayColorCompensation,
+      overlayAlphaLimit: specification.overlayAlphaLimit,
+      hostCompositing: specification.hostCompositing,
       shadow: false,
       containStrict: false,
       includeClick: !trailOnly,
@@ -1722,6 +1971,14 @@ async function runBackendFailureChain(specification)
       opacity,
       isolatedCompositing,
       variant: trailOnly ? 'trail-only' : 'click-only',
+      contract:
+      {
+        hostCompositing: beforeRoute.hostCompositing,
+        outputCompositing: beforeRoute.outputCompositing,
+        overlayAlphaPolicy: beforeRoute.overlayAlphaPolicy,
+        overlayAlphaLimit: beforeRoute.overlayAlphaLimit,
+        overlayColorCompensation: beforeRoute.overlayColorCompensation,
+      },
       before: before.pixels,
       software: software.pixels,
       fault: fault.pixels,

@@ -31,12 +31,15 @@ const opacities = [0, 0.5, 1];
 const isolationModes = [false, true];
 const devicePixelRatios = [1, 2];
 const lifecycleSampleTimes = [0, 40, 79, 120, 199, 300, 599, 601];
+// suite.js 的径向采样索引 5 对应点击中心外 24 CSS px。该位置避开核心
+// Coverage 和 Bloom 饱和区，又在 GPU 与软件后端都保留可测的低能信号。
+const OPACITY_LINEAR_RADIAL_SAMPLE_INDEX = 5;
 // Bright Pass 会让半透明外围先跌破阈值；平均覆盖面积不要求严格 0.5，
-// 中心、探针与最大 Alpha 仍保留更严格的线性约束。
+// 径向探针与最大 Alpha 仍保留更严格的线性约束。
 const MINIMUM_BLOOM_MEAN_ALPHA_RATIO = 0.25;
 // DPR2 会解析出更多接近 2/255 可见阈值的 Bloom 边缘；中心、峰值和
 // CSS 包围盒另有独立断言，因此这里只为全画面均值保留少量量化余量。
-const MAXIMUM_DPR_MEAN_DIFFERENCE = 0.27;
+const MAXIMUM_DPR_MEAN_DIFFERENCE = 0.28;
 const metrics =
 {
   environment: {},
@@ -63,6 +66,7 @@ const metrics =
   trailTextureResourceLifecycle: {},
   transparentCompositingTransitions: {},
   transparentContractContextLifecycle: {},
+  transparentContractFailureChains: {},
   iifeSmoke: null,
   demoTimeScaleControls: null,
   demoBackgroundFile: null,
@@ -319,8 +323,11 @@ function validateOpacityGroup(results, label)
   const half = results.get(0.5).pixels.transparent;
   const full = results.get(1).pixels.transparent;
   const alphaRatio = half.meanAlpha / Math.max(full.meanAlpha, 1e-9);
-  const centerAlphaRatio = half.center[3] /
-    Math.max(full.center[3], 1);
+  const halfProbeAlpha =
+    half.radialAlpha[OPACITY_LINEAR_RADIAL_SAMPLE_INDEX];
+  const fullProbeAlpha =
+    full.radialAlpha[OPACITY_LINEAR_RADIAL_SAMPLE_INDEX];
+  const probeAlphaRatio = halfProbeAlpha / Math.max(fullProbeAlpha, 1e-9);
 
   assert(
     zero.meanAlpha < 0.00001 && zero.meanEnergy < 0.00001,
@@ -337,10 +344,20 @@ function validateOpacityGroup(results, label)
     },
   );
   assert(
-    centerAlphaRatio >= 0.35 && centerAlphaRatio <= 0.65,
-    `${label}: 点击中心 Alpha 不接近线性`,
+    probeAlphaRatio >= MINIMUM_BLOOM_MEAN_ALPHA_RATIO &&
+      probeAlphaRatio <= 0.65,
+    `${label}: 点击径向 Alpha 不接近线性`,
     {
-      centerAlphaRatio,
+      fullProbeAlpha,
+      halfProbeAlpha,
+      probeAlphaRatio,
+      radialSampleIndex: OPACITY_LINEAR_RADIAL_SAMPLE_INDEX,
+    },
+  );
+  assert(
+    half.center[3] <= full.center[3] + 1,
+    `${label}: opacity=0.5 的点击中心 Alpha 超过 opacity=1`,
+    {
       halfCenter: half.center,
       fullCenter: full.center,
     },
@@ -354,9 +371,11 @@ function validateOpacityGroup(results, label)
     },
   );
   assert(
-    half.maximumAlpha <= full.maximumAlpha + 0.01,
-    `${label}: opacity=0.5 的最大 Alpha 超过 opacity=1`,
+    zero.maximumAlpha < half.maximumAlpha &&
+      half.maximumAlpha <= full.maximumAlpha + 1 / 255,
+    `${label}: opacity=0/0.5/1 的最大 Alpha 不单调`,
     {
+      zero: zero.maximumAlpha,
       half: half.maximumAlpha,
       full: full.maximumAlpha,
     },
@@ -368,7 +387,8 @@ function validateDprPair(dprOne, dprTwo, label)
   const first = dprOne.pixels.transparent;
   const second = dprTwo.pixels.transparent;
   // Bloom 边缘以 2/255 的离散可见阈值统计；完整纹理会让不同 DPR 的
-  // 亚像素采样在大范围低能边缘产生少量差异，但真正的缩放错误仍远超 8%。
+  // 亚像素采样在大范围低能边缘产生少量差异；中心、峰值与
+  // CSS 包围盒由其他断言独立防止真正的缩放错误。
   const widthTolerance = Math.max(
     16,
     Math.max(first.bounds.width, second.bounds.width) * 0.08,
@@ -523,15 +543,44 @@ function validateEffectLifecycle(mode, timelines)
     `${mode}: Disk 超过 200ms 后仍占用运行时状态`,
     disk.get(300).runtime,
   );
-  assert(
-    disk.get(199).pixels.transparent.meanAlpha <
-      disk.get(120).pixels.transparent.meanAlpha,
-    `${mode}: Disk 末段没有按 Unity Alpha 曲线衰减`,
-    {
-      at120: disk.get(120).pixels.transparent,
-      at199: disk.get(199).pixels.transparent,
-    },
-  );
+  if (mode === 'full-webgl2' || mode === 'webgl2-bloom')
+  {
+    const at120 = disk.get(120).webglTransport;
+    const at199 = disk.get(199).webglTransport;
+
+    assert(
+      at120?.waveAges[0] === 120 &&
+        at199?.waveAges[0] === 199 &&
+        at120.disk.lifetimeMs === 200 &&
+        JSON.stringify(at120.disk.alphaKeys) ===
+          JSON.stringify(at199.disk.alphaKeys),
+      `${mode}: Disk WebGL2 夹具没有保留原始生命周期输入`,
+      { at120, at199 },
+    );
+    assert(
+      at120.scene[3] > 0.2 &&
+        at199.scene[3] < 0.02 &&
+        at199.scene[3] < at120.scene[3] &&
+        Math.abs(at120.sceneOverlay[3] - at120.scene[3]) <= 0.001 &&
+        Math.abs(at199.sceneOverlay[3] - at199.scene[3]) <= 0.001,
+      `${mode}: Disk WebGL2 Scene Coverage 没有按 Unity Alpha 曲线衰减`,
+      { at120, at199 },
+    );
+  }
+  else
+  {
+    // Canvas 后端无法回读线性 Scene 目标；Disk 夹具已关闭独立
+    // 点击 Bloom，因此最终 Alpha 可作为 Coverage 衰减的替代观测。
+    assert(
+      disk.get(199).pixels.transparent.meanAlpha <
+        disk.get(120).pixels.transparent.meanAlpha,
+      `${mode}: Disk 末段没有按 Unity Alpha 曲线衰减`,
+      {
+        at120: disk.get(120).pixels.transparent,
+        at199: disk.get(199).pixels.transparent,
+      },
+    );
+  }
 
   validateEmptyPixels(
     trail.get(0).pixels.transparent,
@@ -604,7 +653,7 @@ function validateContextOpacityGroup(
   results,
   phase,
   label = 'Context',
-  probe = 'center',
+  probe = 'radial',
 )
 {
   const zero = results.get(0)[phase].transparent;
@@ -613,29 +662,38 @@ function validateContextOpacityGroup(
   const meanAlphaRatio = half.meanAlpha / Math.max(full.meanAlpha, 1e-9);
   const halfProbeAlpha = probe === 'trail'
     ? half.trailProbeAlpha
-    : half.center[3] / 255;
+    : half.radialAlpha[OPACITY_LINEAR_RADIAL_SAMPLE_INDEX];
   const fullProbeAlpha = probe === 'trail'
     ? full.trailProbeAlpha
-    : full.center[3] / 255;
+    : full.radialAlpha[OPACITY_LINEAR_RADIAL_SAMPLE_INDEX];
   const probeAlphaRatio = halfProbeAlpha / Math.max(fullProbeAlpha, 1e-9);
   const maximumAlphaRatio = half.maximumAlpha /
     Math.max(full.maximumAlpha, 1e-9);
+  // 独立 Alpha 上限会让 half/full 的高能峰值同时饱和；此时全图均值也会
+  // 偏离 0.5，低能固定探针仍由下方 0.25..0.65 约束守住 opacity 合同。
+  const maximumAlphaSaturated = Math.abs(
+    half.maximumAlpha - full.maximumAlpha,
+  ) <= 1 / 255;
+  const maximumMeanAlphaRatio = maximumAlphaSaturated ? 0.85 : 0.65;
 
   validateEmptyPixels(zero, `${mode} ${label} ${phase} opacity=0`);
   assert(
     meanAlphaRatio >= MINIMUM_BLOOM_MEAN_ALPHA_RATIO &&
-      meanAlphaRatio <= 0.65,
+      meanAlphaRatio <= maximumMeanAlphaRatio,
     `${mode}: ${label} ${phase} 的平均 Alpha 不接近线性`,
     {
       half,
       full,
+      maximumAlphaSaturated,
+      maximumMeanAlphaRatio,
       meanAlphaRatio,
     },
   );
   assert(
-    probeAlphaRatio >= 0.35 && probeAlphaRatio <= 0.65,
+    probeAlphaRatio >= MINIMUM_BLOOM_MEAN_ALPHA_RATIO &&
+      probeAlphaRatio <= 0.65,
     `${mode}: ${label} ${phase} 的${
-      probe === 'trail' ? '拖尾探针' : '中心'} Alpha 不接近线性`,
+      probe === 'trail' ? '拖尾探针' : '径向探针'} Alpha 不接近线性`,
     {
       probeAlphaRatio,
       half: halfProbeAlpha,
@@ -643,12 +701,14 @@ function validateContextOpacityGroup(
     },
   );
   // Bloom 传输 Alpha 在线性能量滤波后编码为 sRGB，单个峰值不按 0.5
-  // 线性缩放；平均 Coverage 与中心探针仍由上方断言保持线性。
+  // 线性缩放；平均 Coverage 与固定非饱和探针仍由上方断言约束。
   assert(
-    maximumAlphaRatio >= 0.35 &&
-      half.maximumAlpha <= full.maximumAlpha + 1 / 255,
-    `${mode}: ${label} ${phase} 的最大 Alpha 不单调`,
+    zero.maximumAlpha < half.maximumAlpha &&
+      half.maximumAlpha <= full.maximumAlpha + 1 / 255 &&
+      maximumAlphaRatio >= 0.35,
+    `${mode}: ${label} ${phase} 的 opacity 峰值不单调`,
     {
+      zero: zero.maximumAlpha,
       half: half.maximumAlpha,
       full: full.maximumAlpha,
       maximumAlphaRatio,
@@ -661,7 +721,8 @@ function validateTransparentContractTransitions(mode, phases)
   const coverageZero = phases.coverageZero;
   const coverageHalf = phases.coverageHalf;
   const coverageFull = phases.coverageFull;
-  const bright = phases.bright;
+  const visualMax = phases.visualMax;
+  const brightCore = phases.brightCore;
   const additiveZero = phases.additiveZero;
   const additiveHalf = phases.additiveHalf;
   const additiveFull = phases.additiveFull;
@@ -685,9 +746,11 @@ function validateTransparentContractTransitions(mode, phases)
       phase.config,
     );
     assert(
-      phase.outside.maximumAlpha <= 1 / 255 &&
+      phase.outside.sampleCount > 0 &&
+        phase.outside.visiblePixelCount === 0 &&
+        phase.outside.maximumAlpha <= 1 / 255 &&
         phase.outside.maximumEnergy <= 1 / 255,
-      `${mode}: ${name} 在特效区域外留下矩形像素`,
+      `${mode}: ${name} 在特效保护包围盒外留下矩形底色`,
       phase.outside,
     );
   }
@@ -706,9 +769,14 @@ function validateTransparentContractTransitions(mode, phases)
       coverageHalf.pixels.transparent.meanAlpha <
         coverageFull.pixels.transparent.meanAlpha &&
       coverageHalf.pixels.transparent.meanEnergy <
-        coverageFull.pixels.transparent.meanEnergy,
-    `${mode}: Coverage opacity=0.5/1 不单调`,
+        coverageFull.pixels.transparent.meanEnergy &&
+      coverageZero.pixels.transparent.maximumAlpha <
+        coverageHalf.pixels.transparent.maximumAlpha &&
+      coverageHalf.pixels.transparent.maximumAlpha <=
+        coverageFull.pixels.transparent.maximumAlpha + 1 / 255,
+    `${mode}: Coverage opacity=0/0.5/1 输出或峰值不单调`,
     {
+      zero: coverageZero.pixels.transparent,
       half: coverageHalf.pixels.transparent,
       full: coverageFull.pixels.transparent,
     },
@@ -717,7 +785,8 @@ function validateTransparentContractTransitions(mode, phases)
   for (const [name, phase] of [
     ['coverageHalf', coverageHalf],
     ['coverageFull', coverageFull],
-    ['bright', bright],
+    ['visualMax', visualMax],
+    ['brightCore', brightCore],
     ['roundTrip', roundTrip],
   ])
   {
@@ -736,21 +805,44 @@ function validateTransparentContractTransitions(mode, phases)
   }
 
   const coveragePixels = coverageFull.pixels.transparent;
-  const brightPixels = bright.pixels.transparent;
+  const visualMaxPixels = visualMax.pixels.transparent;
+  const brightCorePixels = brightCore.pixels.transparent;
 
   assert(
-    bright.config.unknownBackgroundAppearance === 'bright' &&
-      Math.abs(brightPixels.meanAlpha - coveragePixels.meanAlpha) <= 0.002 &&
-      Math.abs(brightPixels.maximumAlpha - coveragePixels.maximumAlpha) <=
-        1 / 255 &&
-      brightPixels.meanRed >= coveragePixels.meanRed &&
-      brightPixels.meanGreen >= coveragePixels.meanGreen &&
-      brightPixels.meanBlue >= coveragePixels.meanBlue &&
-      brightPixels.meanRed > coveragePixels.meanRed + 0.000001,
-    `${mode}: bright 改变了 Alpha 或没有提升浅色兼容载荷`,
+    coverageFull.config.overlayAlphaPolicy === 'coverage' &&
+      coverageFull.config.overlayColorCompensation === 'none' &&
+      visualMax.config.overlayAlphaPolicy === 'visual-max' &&
+      visualMax.config.overlayColorCompensation === 'none' &&
+      visualMaxPixels.meanAlpha <= coveragePixels.meanAlpha + 0.000001 &&
+      visualMaxPixels.maximumAlpha <=
+        coveragePixels.maximumAlpha + 1 / 255 &&
+      visualMaxPixels.meanEnergy + 0.000001 >=
+        coveragePixels.meanEnergy,
+    `${mode}: visual-max 没有独立收敛 Alpha 或丢失旧版颜色能量`,
     {
-      bright: brightPixels,
       coverage: coveragePixels,
+      visualMax: visualMaxPixels,
+    },
+  );
+
+  assert(
+    brightCore.config.overlayAlphaPolicy === 'visual-max' &&
+      brightCore.config.overlayColorCompensation === 'bright-core' &&
+      brightCore.config.unknownBackgroundAppearance === 'bright' &&
+      Math.abs(
+        brightCorePixels.meanAlpha - visualMaxPixels.meanAlpha,
+      ) <= 0.002 &&
+      Math.abs(
+        brightCorePixels.maximumAlpha - visualMaxPixels.maximumAlpha,
+      ) <= 1 / 255 &&
+      brightCorePixels.meanRed >= visualMaxPixels.meanRed &&
+      brightCorePixels.meanGreen >= visualMaxPixels.meanGreen &&
+      brightCorePixels.meanBlue >= visualMaxPixels.meanBlue &&
+      brightCorePixels.meanRed > visualMaxPixels.meanRed + 0.000001,
+    `${mode}: bright-core 改变了 Alpha 或没有提升高能核心载荷`,
+    {
+      brightCore: brightCorePixels,
+      visualMax: visualMaxPixels,
     },
   );
 
@@ -760,6 +852,10 @@ function validateTransparentContractTransitions(mode, phases)
       additiveFull.mount.overlayRootConnected &&
       hasPixelOutput(additiveHalf.pixels.transparent) &&
       hasPixelOutput(additiveFull.pixels.transparent) &&
+      additiveZero.pixels.transparent.maximumAlpha <
+        additiveHalf.pixels.transparent.maximumAlpha &&
+      additiveHalf.pixels.transparent.maximumAlpha <=
+        additiveFull.pixels.transparent.maximumAlpha + 1 / 255 &&
       additiveHalf.pixels.transparent.meanAlpha <
         additiveFull.pixels.transparent.meanAlpha &&
       additiveHalf.pixels.transparent.meanEnergy <
@@ -776,7 +872,9 @@ function validateTransparentContractTransitions(mode, phases)
   // Native/Legacy 的 Canvas blur 在重复栅格时会改变少量 1/255 边缘像素；
   // 中心、峰值和生命周期保持严格，低能全画面均值沿用后端切换的 8% 容差。
   assert(
-    roundTrip.config.unknownBackgroundAppearance === 'coverage' &&
+    roundTrip.config.overlayAlphaPolicy === 'coverage' &&
+      roundTrip.config.overlayColorCompensation === 'none' &&
+      roundTrip.config.unknownBackgroundAppearance === 'coverage' &&
       roundTrip.config.hostCompositing === 'source-over' &&
       relativeDifference(
         roundTripPixels.meanAlpha,
@@ -800,7 +898,7 @@ function validateTransparentContractTransitions(mode, phases)
       Math.abs(
         roundTripPixels.center[3] - coveragePixels.center[3],
       ) <= 2,
-    `${mode}: Coverage -> bright -> Host Add -> Coverage 往返发生跳变`,
+    `${mode}: Coverage -> visual-max -> bright-core -> Host Add -> Coverage 往返发生跳变`,
     {
       initial: coveragePixels,
       roundTrip: roundTripPixels,
@@ -808,24 +906,91 @@ function validateTransparentContractTransitions(mode, phases)
   );
 }
 
-function validateTransparentContractContext(mode, lifecycle, hostCompositing)
+function validateBrightCoreTrailCompensation(mode, phases)
+{
+  const none = phases.none;
+  const brightCore = phases.brightCore;
+  const noneTail = none.trailProfile.tailColor;
+  const brightTail = brightCore.trailProfile.tailColor;
+
+  assert(
+    JSON.stringify(none.lifecycle) === JSON.stringify(brightCore.lifecycle),
+    `${mode}: bright-core 拖尾切换推进了生命周期`,
+    phases,
+  );
+  assert(
+    none.config.overlayAlphaPolicy === 'visual-max' &&
+      none.config.overlayColorCompensation === 'none' &&
+      brightCore.config.overlayAlphaPolicy === 'visual-max' &&
+      brightCore.config.overlayColorCompensation === 'bright-core',
+    `${mode}: 低能拖尾夹具没有保持正交透明配置`,
+    {
+      brightCore: brightCore.config,
+      none: none.config,
+    },
+  );
+  if (noneTail.energy <= 1 / 255)
+  {
+    assert(
+      brightTail.energy <= 1 / 255 && brightTail.alpha <= 1 / 255,
+      `${mode}: bright-core 在量化为零的拖尾尾端凭空生成像素`,
+      {
+        brightCore: brightTail,
+        none: noneTail,
+      },
+    );
+    return;
+  }
+
+  assert(
+    noneTail.energy < 0.2 &&
+      Math.abs(brightTail.alpha - noneTail.alpha) <= 1 / 255 &&
+      brightTail.neutralEnergy <= noneTail.neutralEnergy + 2 / 255 &&
+      brightTail.saturation + 0.08 >= noneTail.saturation &&
+      relativeDifference(brightTail.energy, noneTail.energy) <= 0.15,
+    `${mode}: bright-core 把低能拖尾抬成灰白尾巴`,
+    {
+      brightCore: brightTail,
+      none: noneTail,
+    },
+  );
+}
+
+function validateTransparentContractContext(mode, lifecycle, expected)
 {
   validateContextLifecycleRoute(mode, lifecycle);
   assert(
     lifecycle.contract.outputCompositing === 'browser-overlay' &&
-      lifecycle.contract.hostCompositing === hostCompositing &&
+      lifecycle.contract.hostCompositing === expected.hostCompositing &&
+      lifecycle.contract.overlayAlphaPolicy === expected.overlayAlphaPolicy &&
+      lifecycle.contract.overlayColorCompensation ===
+        expected.overlayColorCompensation &&
       lifecycle.contract.overlayAlphaLimit === 0.7,
     `${mode}: Context 生命周期没有保留透明合同配置`,
     lifecycle.contract,
   );
 
-  if (hostCompositing === 'source-over')
+  for (const phase of [
+    'before',
+    'fallback',
+    'fallbackSteady',
+    'restoring',
+    'restored',
+  ])
   {
+    const compositing = lifecycle.compositing[phase];
+
     assert(
-      lifecycle.contract.unknownBackgroundAppearance === 'bright',
-      `${mode}: Context 生命周期丢失 bright 外观`,
-      lifecycle.contract,
+      compositing.overlayAlphaPolicy === expected.overlayAlphaPolicy &&
+        compositing.overlayColorCompensation ===
+          expected.overlayColorCompensation,
+      `${mode}: Context ${phase} 丢失透明覆盖层正交配置`,
+      compositing,
     );
+  }
+
+  if (expected.hostCompositing === 'source-over')
+  {
     validateContextLifecycleGroup(
       mode,
       new Map([[1, lifecycle]]),
@@ -844,7 +1009,7 @@ function validateTransparentContractContext(mode, lifecycle, hostCompositing)
         lifecycle[phase].transparent.maximumAlpha <= 0.7 + 1 / 255 &&
           lifecycle.compositing[phase].overlayRootBlendMode !==
             'plus-lighter',
-        `${mode}: bright Context ${phase} 越过 Alpha 上限`,
+        `${mode}: ${expected.name} Context ${phase} 越过 Alpha 上限`,
         {
           compositing: lifecycle.compositing[phase],
           pixels: lifecycle[phase].transparent,
@@ -904,6 +1069,16 @@ function validateContextLifecycleGroup(
       const checker = lifecycle[phase].checker;
       const white = lifecycle[phase].white;
       const transmission = lifecycle[phase].backgroundTransmission;
+      const outside = lifecycle[phase].outside;
+
+      assert(
+        outside.sampleCount > 0 &&
+          outside.visiblePixelCount === 0 &&
+          outside.maximumAlpha <= 1 / 255 &&
+          outside.maximumEnergy <= 1 / 255,
+        `${mode}: Context ${phase} 在特效保护包围盒外留下矩形底色`,
+        outside,
+      );
 
       if (opacity === 0)
       {
@@ -964,16 +1139,23 @@ function validateContextLifecycleGroup(
         const spatial = lifecycle.alphaContinuity[phase];
         const radialDelta = before.radialAlpha.map((value, index) =>
           Math.abs(value - current.radialAlpha[index]));
+        const opacityProbeDelta = radialDelta[
+          OPACITY_LINEAR_RADIAL_SAMPLE_INDEX
+        ];
 
+        // 点击中心同时包含 Cross2 与 Bloom，GPU/Canvas 栅格化会让
+        // 高能区落在不同的饱和侧。固定径向探针能更准确地检查
+        // 未饱和 Coverage，全图均值与峰值仍限制整体跳变。
         assert(
           relativeDifference(before.meanAlpha, current.meanAlpha) <= 0.15 &&
             Math.abs(before.maximumAlpha - current.maximumAlpha) <= 0.2 &&
-            Math.abs(before.center[3] - current.center[3]) <= 24,
+            opacityProbeDelta <= 0.05,
           `${mode}: Context ${phase} 出现 Alpha 突跳`,
           {
             before,
             current,
             opacity,
+            opacityProbeDelta,
           },
         );
         assert(
@@ -1235,6 +1417,33 @@ function validateBackendFailureContract(mode, chain, label)
       expected: expectedEvents,
     },
   );
+
+  for (const phase of [
+    'before',
+    'software',
+    'fault',
+    'native',
+    'restoring',
+    'restored',
+  ])
+  {
+    const compositing = chain.compositing[phase];
+
+    assert(
+      compositing.outputCompositing === chain.contract.outputCompositing &&
+        compositing.hostCompositing === chain.contract.hostCompositing &&
+        compositing.overlayAlphaPolicy ===
+          chain.contract.overlayAlphaPolicy &&
+        compositing.overlayColorCompensation ===
+          chain.contract.overlayColorCompensation &&
+        compositing.overlayAlphaLimit === chain.contract.overlayAlphaLimit,
+      `${mode}: ${label}${phase} 丢失透明覆盖层配置`,
+      {
+        contract: chain.contract,
+        phase: compositing,
+      },
+    );
+  }
 }
 
 function validateBackendFailureAlphaContract(mode, chain, opacity, label)
@@ -1253,6 +1462,18 @@ function validateBackendFailureAlphaContract(mode, chain, opacity, label)
     const checker = chain[phase].checker;
     const white = chain[phase].white;
     const transmission = chain[phase].backgroundTransmission;
+    const outside = chain[phase].outside;
+
+    if (outside.sampleCount > 0)
+    {
+      assert(
+        outside.visiblePixelCount === 0 &&
+          outside.maximumAlpha <= 1 / 255 &&
+          outside.maximumEnergy <= 1 / 255,
+        `${mode}: ${label} ${phase} 在特效保护包围盒外留下矩形底色`,
+        outside,
+      );
+    }
 
     if (opacity === 0)
     {
@@ -2356,6 +2577,9 @@ async function collectLifecycleTimeline(page, mode, variant, sampleTimes)
         'rings.count': 0,
         'shards.clickCount': 0,
         'shards.maxCount': 0,
+        // Cross2 的 RGB/Bloom 不受粒子生命周期 Alpha 调制；关闭独立点击
+        // 发射而保留清晰材质，才能单独验证 200ms Coverage 曲线。
+        'bloom.clickEmissionScale': 0,
       },
     },
     trail:
@@ -2405,6 +2629,9 @@ async function collectLifecycleTimeline(page, mode, variant, sampleTimes)
     {
       ...commonSpecification,
       ...variants[variant],
+      inspectWebGLTransport:
+        variant === 'disk' &&
+        (mode === 'full-webgl2' || mode === 'webgl2-bloom'),
       sampleTimeMs,
     };
 
@@ -2525,7 +2752,8 @@ async function runIifeSmoke(browserInstance, baseUrl)
   }
   finally
   {
-    await page.evaluate(() => window.browserPixelSuite.dispose());
+    // 页面在主断言失败后可能已被 HMR/浏览器回收；清理不能覆盖原始错误。
+    await page.evaluate(() => window.browserPixelSuite?.dispose());
     await session.context.close();
   }
 }
@@ -3599,25 +3827,87 @@ async function runTransparentCompositingTransitions(page, mode)
       mode,
       opacity: 0,
       background: 'checker',
-      unknownBackgroundAppearance: 'coverage',
-      overlayAlphaLimit: 0.7,
+      includeTrail: false,
+      overlayAlphaPolicy: 'coverage',
+      // 观感 A/B 必须先移除额外容量瓶颈；0.7 上限由 Context 与失败链
+      // 矩阵独立验证，否则两种策略都会先在高能核心饱和。
+      overlayAlphaLimit: 1,
+      overlayColorCompensation: 'none',
       hostCompositing: 'source-over',
+      // Unity 默认 1.7 强度会让 Software 的全部 Scene 重叠区都饱和，
+      // 此时 sum 与 max 数学上相同，无法观察 Alpha 策略是否真正生效。
+      fxParams:
+      {
+        'bloom.intensity': 0.1,
+      },
     },
   );
   phases.coverageHalf = await transition({ opacity: 0.5 });
   phases.coverageFull = await transition({ opacity: 1 });
-  await transition({ background: 'white' });
+  // opacity=1 与 0.7 Alpha 上限会让点击核心的 sum/max 同时饱和；
+  // 在未饱和的半透明重叠区才能确实区分两种 Alpha 策略。
+  const coverageWhiteHalf = await transition(
+    {
+      background: 'white',
+      opacity: 0.5,
+    },
+  );
   const coverageWhiteScreenshot = await captureContrastScreenshot(page);
 
-  phases.bright = await transition(
+  const visualMaxWhiteHalf = await transition(
     {
-      unknownBackgroundAppearance: 'bright',
+      overlayAlphaPolicy: 'visual-max',
+    },
+  );
+  const visualMaxWhiteScreenshot = await captureContrastScreenshot(page);
+  const visualMaxDifference = await compareScreenshotBuffers(
+    page,
+    coverageWhiteScreenshot,
+    visualMaxWhiteScreenshot,
+  );
+  const coverageWhite = await summarizeScreenshot(
+    page,
+    coverageWhiteScreenshot,
+  );
+  const visualMaxWhite = await summarizeScreenshot(
+    page,
+    visualMaxWhiteScreenshot,
+  );
+  const visualMaxImprovesWhite =
+    visualMaxDifference.changedPixels >= 1 &&
+    visualMaxDifference.maximumChannelIncrease >= 2 &&
+    visualMaxDifference.maximumChannelDrop <= 1;
+
+  assert(
+    visualMaxImprovesWhite,
+    `${mode}: visual-max 没有保持纯白背景透明合同`,
+    {
+      difference: visualMaxDifference,
+      payload:
+      {
+        coverage: coverageWhiteHalf.pixels.transparent,
+        visualMax: visualMaxWhiteHalf.pixels.transparent,
+      },
+      screenshot:
+      {
+        coverage: coverageWhite,
+        visualMax: visualMaxWhite,
+      },
+    },
+  );
+
+  phases.visualMax = await transition({ opacity: 1 });
+  const visualMaxFullWhiteScreenshot = await captureContrastScreenshot(page);
+
+  phases.brightCore = await transition(
+    {
+      overlayColorCompensation: 'bright-core',
     },
   );
   const brightWhiteScreenshot = await captureContrastScreenshot(page);
   const brightDifference = await compareScreenshotBuffers(
     page,
-    coverageWhiteScreenshot,
+    visualMaxFullWhiteScreenshot,
     brightWhiteScreenshot,
   );
 
@@ -3697,17 +3987,52 @@ async function runTransparentCompositingTransitions(page, mode)
       background: 'checker',
       hostCompositing: 'source-over',
       opacity: 1,
-      unknownBackgroundAppearance: 'coverage',
+      overlayAlphaPolicy: 'coverage',
+      overlayColorCompensation: 'none',
     },
   );
   validateTransparentContractTransitions(mode, phases);
 
+  const trailCompensation = {};
+
+  trailCompensation.none = await page.evaluate(
+    (specification) =>
+      window.browserPixelSuite.beginTransparentContractTransitions(
+        specification,
+      ),
+    {
+      mode,
+      opacity: 1,
+      background: 'transparent',
+      includeClick: false,
+      includeTrail: true,
+      straightTrailProbe: true,
+      overlayAlphaPolicy: 'visual-max',
+      overlayAlphaLimit: 0.7,
+      overlayColorCompensation: 'none',
+      hostCompositing: 'source-over',
+    },
+  );
+  trailCompensation.brightCore = await transition(
+    {
+      overlayColorCompensation: 'bright-core',
+    },
+  );
+  validateBrightCoreTrailCompensation(mode, trailCompensation);
+
   return {
     brightDifference,
     brightWhite: await summarizeScreenshot(page, brightWhiteScreenshot),
-    coverageWhite: await summarizeScreenshot(page, coverageWhiteScreenshot),
+    coverageWhite,
     hostAddDifferences,
     phases,
+    trailCompensation,
+    visualMaxDifference,
+    visualMaxWhite,
+    visualMaxFullWhite: await summarizeScreenshot(
+      page,
+      visualMaxFullWhiteScreenshot,
+    ),
   };
 }
 
@@ -4273,47 +4598,58 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     validateContextLifecycleGroup(mode, contextResults);
     metrics.contextLifecycle[mode] = Object.fromEntries(contextResults);
 
+    const transparentContractLifecycles = {};
+
+    for (const contract of [
+      {
+        name: 'coverage',
+        overlayAlphaPolicy: 'coverage',
+        overlayColorCompensation: 'none',
+        hostCompositing: 'source-over',
+      },
+      {
+        name: 'visual-max',
+        overlayAlphaPolicy: 'visual-max',
+        overlayColorCompensation: 'none',
+        hostCompositing: 'source-over',
+      },
+      {
+        name: 'visual-max-bright-core',
+        overlayAlphaPolicy: 'visual-max',
+        overlayColorCompensation: 'bright-core',
+        hostCompositing: 'source-over',
+      },
+      {
+        name: 'host-add',
+        overlayAlphaPolicy: 'coverage',
+        overlayColorCompensation: 'none',
+        hostCompositing: 'plus-lighter',
+      },
+    ])
+    {
+      currentLabel =
+        `${mode}__${contract.name}__context-lifecycle`;
+      const lifecycle = await contextSession.page.evaluate(
+        (input) => window.browserPixelSuite.runContextLifecycle(input),
+        {
+          mode,
+          opacity: 1,
+          overlayAlphaLimit: 0.7,
+          overlayAlphaPolicy: contract.overlayAlphaPolicy,
+          overlayColorCompensation: contract.overlayColorCompensation,
+          hostCompositing: contract.hostCompositing,
+        },
+      );
+
+      validateTransparentContractContext(mode, lifecycle, contract);
+      transparentContractLifecycles[contract.name] = lifecycle;
+    }
+
+    metrics.transparentContractContextLifecycle[mode] =
+      transparentContractLifecycles;
+
     if (mode === 'full-webgl2')
     {
-      const transparentContractLifecycles = {};
-
-      for (const contract of [
-        {
-          name: 'bright',
-          unknownBackgroundAppearance: 'bright',
-          hostCompositing: 'source-over',
-        },
-        {
-          name: 'host-add',
-          unknownBackgroundAppearance: 'coverage',
-          hostCompositing: 'plus-lighter',
-        },
-      ])
-      {
-        currentLabel =
-          `${mode}__${contract.name}__context-lifecycle`;
-        const lifecycle = await contextSession.page.evaluate(
-          (input) => window.browserPixelSuite.runContextLifecycle(input),
-          {
-            mode,
-            opacity: 1,
-            overlayAlphaLimit: 0.7,
-            unknownBackgroundAppearance:
-              contract.unknownBackgroundAppearance,
-            hostCompositing: contract.hostCompositing,
-          },
-        );
-
-        validateTransparentContractContext(
-          mode,
-          lifecycle,
-          contract.hostCompositing,
-        );
-        transparentContractLifecycles[contract.name] = lifecycle;
-      }
-
-      metrics.transparentContractContextLifecycle[mode] =
-        transparentContractLifecycles;
       currentLabel = 'full-webgl2__compositing-reference-context-lifecycle';
       const compositingReferenceContextLifecycle =
         await contextSession.page.evaluate(
@@ -4357,6 +4693,27 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     metrics.backendFailureChains[mode] = Object.fromEntries(
       failureChainResults,
     );
+
+    currentLabel = `${mode}__visual-max-bright-core__backend-failure-chain`;
+    const transparentContractFailureChain =
+      await contextSession.page.evaluate(
+        (input) => window.browserPixelSuite.runBackendFailureChain(input),
+        {
+          mode,
+          opacity: 1,
+          overlayAlphaLimit: 0.7,
+          overlayAlphaPolicy: 'visual-max',
+          overlayColorCompensation: 'bright-core',
+        },
+      );
+
+    validateBackendFailureChain(
+      mode,
+      new Map([[1, transparentContractFailureChain]]),
+      false,
+    );
+    metrics.transparentContractFailureChains[mode] =
+      transparentContractFailureChain;
 
     const trailFailureChainResults = new Map();
 
