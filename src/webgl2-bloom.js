@@ -17,7 +17,6 @@ const DISK_COMPONENTS_PER_VERTEX = 8;
 const TRIANGLE_COMPONENTS_PER_VERTEX = 8;
 const INITIAL_VERTEX_CAPACITY = 4096;
 const MAX_PYRAMID_LEVELS = 16;
-const TRANSPARENT_OVERLAY_MAX_ALPHA = 250 / 255;
 
 const EMISSION_VERTEX_SHADER = `#version 300 es
 precision highp float;
@@ -196,7 +195,10 @@ uniform vec2 u_bloomTexel;
 uniform float u_sampleScale;
 uniform float u_intensity;
 uniform float u_overlayAlphaLimit;
+uniform float u_opacity;
 uniform bool u_transparentOverlay;
+uniform bool u_brightUnknownBackground;
+uniform bool u_hostAdditive;
 
 in vec2 v_uv;
 out vec4 outColor;
@@ -233,6 +235,28 @@ void main()
     float transportAlpha = linearToSrgb(
       max(0.0, filteredBloom.a) * max(0.0, u_intensity)
     );
+
+    if (u_hostAdditive)
+    {
+      // Unity Bloom 最终以 One/One 加回 Scene。宿主负责 Add 时，Alpha
+      // 只承担浏览器预乘传输，不能再用网页覆盖层上限压缩 Bloom 能量。
+      float maximumSrgb = max(max(srgb.r, srgb.g), srgb.b);
+      float payloadAlpha = clamp(
+        max(maximumSrgb, min(transportAlpha, 1.0)),
+        0.0,
+        1.0
+      );
+
+      if (payloadAlpha <= 0.00001)
+      {
+        outColor = vec4(0.0);
+        return;
+      }
+
+      outColor = vec4(srgb, payloadAlpha);
+      return;
+    }
+
     float alpha = min(
       transportAlpha,
       clamp(u_overlayAlphaLimit, 0.0, 1.0)
@@ -248,8 +272,34 @@ void main()
       1.0,
       alpha / max(transportAlpha, 0.000001)
     );
+    vec3 premultiplied = srgb * transportScale;
 
-    outColor = vec4(srgb * transportScale, alpha);
+    if (u_brightUnknownBackground)
+    {
+      // 以独立 Bloom 能量/传输上界门控补偿，并先消除全局 opacity，
+      // 避免生命周期变化让低能拖尾跨入灰白补偿区。
+      float safeOpacity = max(u_opacity, 0.000001);
+      float normalizedTransport = linearToSrgb(
+        max(0.0, filteredBloom.a) * max(0.0, u_intensity) / safeOpacity
+      );
+      float normalizedEnergy = linearToSrgb(
+        max(max(filteredBloom.r, filteredBloom.g), filteredBloom.b) *
+          max(0.0, u_intensity) / safeOpacity
+      );
+      float energyRatio = normalizedEnergy /
+        max(normalizedTransport, 0.000001);
+      float ratioGate = smoothstep(0.25, 0.75, energyRatio);
+      float energyGate = smoothstep(0.03125, 0.25, normalizedTransport);
+      float compensation = alpha * ratioGate * energyGate;
+
+      // 只抬升缺失通道，最终仍严格满足预乘 RGB <= Alpha。
+      premultiplied = min(
+        vec3(alpha),
+        max(premultiplied, vec3(compensation))
+      );
+    }
+
+    outColor = vec4(premultiplied, alpha);
     return;
   }
 
@@ -1940,12 +1990,23 @@ export class WebGL2BloomRenderer
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_overlayAlphaLimit'),
-      clamp(settings.opacity ?? 1, 0, 1) *
-        TRANSPARENT_OVERLAY_MAX_ALPHA,
+      clamp(settings.overlayAlphaLimit ?? 1, 0, 1),
+    );
+    gl.uniform1f(
+      gl.getUniformLocation(program, 'u_opacity'),
+      clamp(settings.opacity ?? 1, 0, 1),
     );
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_transparentOverlay'),
       settings.outputCompositing === 'browser-overlay' ? 1 : 0,
+    );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_brightUnknownBackground'),
+      settings.unknownBackgroundAppearance === 'bright' ? 1 : 0,
+    );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_hostAdditive'),
+      settings.hostCompositing === 'plus-lighter' ? 1 : 0,
     );
     gl.bindVertexArray(this.fullscreenVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
