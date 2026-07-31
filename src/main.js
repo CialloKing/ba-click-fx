@@ -27,6 +27,8 @@ const effect = new BAClickFX(
 window.BAClickFXDemo = effect;
 
 // ── 主题预设 ────────────────────────────────────────────────────────────
+const PURE_WHITE_THEME = '纯白';
+const PURE_WHITE_ISOLATED_CONTRAST_ALPHA = 0.35;
 let sceneBackgroundRequestId = 0;
 let themeSceneCanvas = null;
 let activeThemeScene = null;
@@ -202,6 +204,36 @@ function selectTheme(name)
   setCustomBackgroundControlsVisible(name === 'custom');
 }
 
+function resolvePureWhiteContrastAlpha(isolatedCompositing)
+{
+  // 库无法读取任意宿主背景；展示页只为已知的内置纯白主题自动补足轮廓。
+  return isolatedCompositing === true &&
+    document.body.classList.contains('theme-pure-white')
+    ? PURE_WHITE_ISOLATED_CONTRAST_ALPHA
+    : 0;
+}
+
+function syncPureWhiteIsolationContrast()
+{
+  effect.updateConfig(
+    {
+      lightBackgroundContrastAlpha: resolvePureWhiteContrastAlpha(
+        effect.getConfig().isolatedCompositing,
+      ),
+    },
+  );
+}
+
+function applyIsolatedCompositing(checked)
+{
+  effect.updateConfig(
+    {
+      isolatedCompositing: checked,
+      lightBackgroundContrastAlpha: resolvePureWhiteContrastAlpha(checked),
+    },
+  );
+}
+
 function applyTheme(name)
 {
   if (name === 'custom')
@@ -220,7 +252,8 @@ function applyTheme(name)
   revokeCustomBackgroundObjectUrl();
   document.body.style.background = bg;
   document.body.style.backgroundAttachment = 'fixed';
-  document.body.classList.toggle('theme-pure-white', name === '纯白');
+  document.body.classList.toggle('theme-pure-white', name === PURE_WHITE_THEME);
+  syncPureWhiteIsolationContrast();
   applyThemeSceneBackground(name);
   selectTheme(name);
   return true;
@@ -310,6 +343,7 @@ function applyCustomBackground(value, persist = true)
 
   document.body.style.background = resolved;
   document.body.classList.remove('theme-pure-white');
+  syncPureWhiteIsolationContrast();
   applySceneBackgroundImage(resolveSceneBackgroundUrl(rawValue));
   revokeCustomBackgroundObjectUrl(rawValue);
 
@@ -423,8 +457,7 @@ bindRange('ctrlDpr', 'outDpr', (value) =>
   );
 }, false, 'change');
 
-bindToggle('ctrlIsolatedCompositing', (checked) =>
-  effect.updateConfig({ isolatedCompositing: checked }));
+bindToggle('ctrlIsolatedCompositing', applyIsolatedCompositing);
 bindToggle('ctrlClick', (checked) => effect.updateConfig({ clickEnabled: checked }));
 bindToggle('ctrlTrail', (checked) => effect.updateConfig({ trailEnabled: checked }));
 bindToggle('ctrlTrailAlways', (checked) => effect.updateConfig({ trailAlways: checked }));
@@ -1184,7 +1217,7 @@ const I18N = {
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.15/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 展示页会用与 CSS 相同的色标把内置主题同步为场景纹理；已解码图片通过 <code>setSceneBackground(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；本地图片选择器会生成当前页面的 <code>blob:</code> URL，不需要 CORS，但刷新后需要重新选择。手输 <code>file://</code> 受浏览器安全限制，不能可靠读取。</p><p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>transparent-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应使用 <code>setSceneBackground()</code>。</p><p><strong>纯白背景下特效颜色太浅？</strong> 只使用 DOM 背景时，纯白会让直接加色丢失蓝青色和对比度，请开启“隔离合成”（<code>isolatedCompositing: true</code>）。需要更清晰的轮廓时，可再设置 <code>lightBackgroundContrastAlpha: 0.35</code>；它们是网页兼容选项，不代替 <code>setSceneBackground()</code> 的游戏式线性场景合成。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 展示页会用与 CSS 相同的色标把内置主题同步为场景纹理；已解码图片通过 <code>setSceneBackground(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；本地图片选择器会生成当前页面的 <code>blob:</code> URL，不需要 CORS，但刷新后需要重新选择。手输 <code>file://</code> 受浏览器安全限制，不能可靠读取。</p><p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>transparent-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应使用 <code>setSceneBackground()</code>。</p><p><strong>纯白背景下特效颜色太浅？</strong> 展示页在“纯白”主题并开启“隔离合成”（<code>isolatedCompositing: true</code>）时，会自动使用 <code>lightBackgroundContrastAlpha: 0.35</code> 增加不参与 Bloom 的淡青轮廓。其他宿主可按需显式设置；它们是网页兼容选项，不代替 <code>setSceneBackground()</code> 的游戏式线性场景合成。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
     introHostApiSummary: '宿主控制 API / Host Control API',
   },
   en: {
@@ -1278,7 +1311,7 @@ const I18N = {
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.15/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
-    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How do built-in themes and custom images join the game-style composite?</strong> The demo rasterizes every built-in theme from the same colour stops as its CSS preview; decoded images are passed to <code>setSceneBackground(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. The local-image picker creates a page-session <code>blob:</code> URL, so it needs no CORS but must be selected again after a reload. A typed <code>file://</code> URL cannot be read reliably because browsers block it for security.</p><p><strong>Which compositing mode should a transparent desktop use?</strong> The demo and strict game reproduction keep the default <code>scene</code>; transparent hosts such as BASpark, WebView2, and Electron select <code>transparent-overlay</code> explicitly. Over an unknown background, standard <code>source-over</code> cannot simultaneously provide strict Unity additive RGB, pure Coverage alpha, and no white-background darkening. Isolation cannot read desktop pixels; use <code>setSceneBackground()</code> for a known background.</p><p><strong>Effects look washed out on a pure white background?</strong> With a DOM-only background, direct additive output loses cyan-blue colour and contrast on pure white. Enable Isolated Compositing (<code>isolatedCompositing: true</code>) and optionally <code>lightBackgroundContrastAlpha: 0.35</code> for a sharper outline. These are web compatibility options, not replacements for <code>setSceneBackground()</code> linear Scene compositing.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How do built-in themes and custom images join the game-style composite?</strong> The demo rasterizes every built-in theme from the same colour stops as its CSS preview; decoded images are passed to <code>setSceneBackground(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. The local-image picker creates a page-session <code>blob:</code> URL, so it needs no CORS but must be selected again after a reload. A typed <code>file://</code> URL cannot be read reliably because browsers block it for security.</p><p><strong>Which compositing mode should a transparent desktop use?</strong> The demo and strict game reproduction keep the default <code>scene</code>; transparent hosts such as BASpark, WebView2, and Electron select <code>transparent-overlay</code> explicitly. Over an unknown background, standard <code>source-over</code> cannot simultaneously provide strict Unity additive RGB, pure Coverage alpha, and no white-background darkening. Isolation cannot read desktop pixels; use <code>setSceneBackground()</code> for a known background.</p><p><strong>Effects look washed out on a pure white background?</strong> When the demo uses its Pure White theme with Isolated Compositing (<code>isolatedCompositing: true</code>), it automatically sets <code>lightBackgroundContrastAlpha: 0.35</code> to add a pale-cyan outline outside Bloom. Other hosts can set it explicitly as needed; these are web compatibility options, not replacements for <code>setSceneBackground()</code> linear Scene compositing.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
     introHostApiSummary: 'Host Control API / 宿主控制 API',
   },
 };
@@ -1599,7 +1632,7 @@ switchLanguage(currentLang);
     const isolated = savedIsolatedCompositing === 'true';
 
     isolatedCompositingEl.checked = isolated;
-    effect.updateConfig({ isolatedCompositing: isolated });
+    applyIsolatedCompositing(isolated);
   }
 
   if (localStorage.getItem('bafx-ctrlTrail') === 'false')

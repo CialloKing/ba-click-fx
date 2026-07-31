@@ -63,6 +63,7 @@ const metrics =
   trailTextureResourceLifecycle: {},
   iifeSmoke: null,
   demoBackgroundFile: null,
+  demoPureWhiteIsolation: null,
 };
 
 let currentPage = null;
@@ -2414,6 +2415,278 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
   }
 }
 
+async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
+{
+  currentLabel = 'demo-pure-white-isolation';
+  const context = await browserInstance.newContext(
+    {
+      colorScheme: 'light',
+      deviceScaleFactor: 1,
+      viewport:
+      {
+        width: 1024,
+        height: 768,
+      },
+    },
+  );
+  const page = await context.newPage();
+
+  try
+  {
+    currentPage = page;
+    await page.goto(baseUrl, { waitUntil: 'load' });
+    await page.waitForFunction(
+      () => typeof window.BAClickFXDemo?.boom === 'function',
+    );
+    await page.locator('#panelToggle').click();
+    await page.locator('.theme-btn[data-theme="纯白"]').click();
+    await page.locator('#ctrlIsolatedCompositing + .toggle-track').click();
+    await page.waitForFunction(
+      () =>
+      {
+        const config = window.BAClickFXDemo?.getConfig();
+
+        return document.body.classList.contains('theme-pure-white') &&
+          config?.isolatedCompositing === true &&
+          config.lightBackgroundContrastAlpha === 0.35 &&
+          window.BAClickFXDemo.sceneBackgroundSource !== null;
+      },
+    );
+
+    const modeSamples = {};
+    const screenshotClip =
+    {
+      x: 220,
+      y: 180,
+      width: 300,
+      height: 300,
+    };
+    const modes = ['full-webgl2', 'webgl2-bloom', 'native-bloom'];
+
+    for (let modeIndex = 0; modeIndex < modes.length; modeIndex++)
+    {
+      const mode = modes[modeIndex];
+
+      currentLabel = `demo-pure-white-isolation-${mode}`;
+
+      if (modeIndex > 0)
+      {
+        await page.locator('#panelToggle').click();
+      }
+
+      await page.locator('#ctrlRenderMode').selectOption(mode);
+      await page.locator('#panelClose').click();
+      await page.waitForFunction(
+        () => !document.getElementById('panelOverlay').classList.contains('open'),
+      );
+      await page.evaluate(async () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        effect.setPaused(false);
+        effect.clear();
+
+        for (let frame = 0; frame < 2; frame++)
+        {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+      });
+      const beforeScreenshot = await page.screenshot(
+        {
+          animations: 'disabled',
+          clip: screenshotClip,
+          type: 'png',
+        },
+      );
+      const sample = await page.evaluate(async () =>
+      {
+        const effect = window.BAClickFXDemo;
+
+        effect.boom(370, 330);
+
+        for (let frame = 0; frame < 3; frame++)
+        {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+
+        const image = effect.contrastContext.getImageData(
+          0,
+          0,
+          effect.contrastCanvas.width,
+          effect.contrastCanvas.height,
+        );
+        let alphaSum = 0;
+        let maximumAlpha = 0;
+        let minimumX = image.width;
+        let minimumY = image.height;
+        let maximumX = -1;
+        let maximumY = -1;
+
+        for (let offset = 3; offset < image.data.length; offset += 4)
+        {
+          const alpha = image.data[offset];
+
+          alphaSum += alpha;
+          maximumAlpha = Math.max(maximumAlpha, alpha);
+
+          if (alpha > 0)
+          {
+            const pixelIndex = (offset - 3) / 4;
+            const x = pixelIndex % image.width;
+            const y = Math.floor(pixelIndex / image.width);
+
+            minimumX = Math.min(minimumX, x);
+            minimumY = Math.min(minimumY, y);
+            maximumX = Math.max(maximumX, x);
+            maximumY = Math.max(maximumY, y);
+          }
+        }
+
+        const result = {
+          alphaSum,
+          canvasSceneVisible: effect.canvasSceneVisible,
+          config: effect.getConfig(),
+          contrastDisplay: getComputedStyle(effect.contrastCanvas).display,
+          contrastVisibility:
+            getComputedStyle(effect.contrastCanvas).visibility,
+          contrastBounds:
+          {
+            maximumX,
+            maximumY,
+            minimumX,
+            minimumY,
+          },
+          contrastRect: effect.contrastCanvas.getBoundingClientRect().toJSON(),
+          maximumAlpha,
+        };
+
+        // 截图编码可能跨过完整生命周期；冻结当前已渲染帧后再比较。
+        effect.setPaused(true, { clear: false });
+        return result;
+      });
+      const afterScreenshot = await page.screenshot(
+        {
+          animations: 'disabled',
+          clip: screenshotClip,
+          type: 'png',
+        },
+      );
+      const visualDifference = await compareScreenshotBuffers(
+        page,
+        beforeScreenshot,
+        afterScreenshot,
+      );
+
+      assert(
+        sample.config.outputCompositing === 'scene' &&
+          sample.config.isolatedCompositing === true &&
+          sample.config.lightBackgroundContrastAlpha === 0.35,
+        `${mode}: 展示页没有保持纯白隔离的对比层配置`,
+        sample,
+      );
+      assert(
+        mode === 'full-webgl2'
+          ? sample.config.resolvedEffectBackend === 'webgl2'
+          : mode === 'webgl2-bloom'
+            ? sample.config.resolvedBloomBackend === 'webgl2'
+            : sample.config.resolvedBloomBackend === 'native' &&
+              sample.canvasSceneVisible === true,
+        `${mode}: 纯白隔离回归没有走到目标成功路径`,
+        sample,
+      );
+      assert(
+        sample.alphaSum > 0 &&
+          sample.maximumAlpha > 0 &&
+          sample.contrastDisplay !== 'none' &&
+          sample.contrastVisibility !== 'hidden',
+        `${mode}: 纯白隔离场景没有生成可见对比遮罩`,
+        sample,
+      );
+      assert(
+        visualDifference.changedPixels >= 8 &&
+          visualDifference.redDropSum > 0 &&
+          visualDifference.maximumRedDrop >= 4,
+        `${mode}: 纯白页面截图中点击特效仍然不可见`,
+        { sample, visualDifference },
+      );
+      modeSamples[mode] =
+      {
+        ...sample,
+        visualDifference,
+      };
+    }
+
+    await page.locator('#panelToggle').click();
+    await page.locator('#ctrlIsolatedCompositing + .toggle-track').click();
+    await page.waitForFunction(() =>
+    {
+      const config = window.BAClickFXDemo.getConfig();
+
+      return config.isolatedCompositing === false &&
+        config.lightBackgroundContrastAlpha === 0;
+    });
+    const disabledContrastAlpha = await page.evaluate(
+      () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha,
+    );
+
+    await page.locator('#ctrlIsolatedCompositing + .toggle-track').click();
+    await page.waitForFunction(
+      () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha ===
+        0.35,
+    );
+
+    await page.locator('.theme-btn[data-theme="深紫"]').click();
+    await page.waitForFunction(
+      () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha === 0,
+    );
+    const resetContrastAlpha = await page.evaluate(
+      () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha,
+    );
+
+    assert(
+      resetContrastAlpha === 0,
+      '离开纯白主题后展示页没有清除隔离对比遮罩',
+      { resetContrastAlpha },
+    );
+
+    await page.locator('.theme-btn[data-theme="纯白"]').click();
+    await page.waitForFunction(
+      () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha ===
+        0.35,
+    );
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() =>
+    {
+      const config = window.BAClickFXDemo?.getConfig();
+
+      return document.body.classList.contains('theme-pure-white') &&
+        config?.isolatedCompositing === true &&
+        config.lightBackgroundContrastAlpha === 0.35;
+    });
+    const restoredContrastAlpha = await page.evaluate(
+      () => window.BAClickFXDemo.getConfig().lightBackgroundContrastAlpha,
+    );
+
+    assert(
+      restoredContrastAlpha === 0.35,
+      '刷新后没有恢复纯白主题的隔离对比轮廓',
+      { restoredContrastAlpha },
+    );
+    metrics.demoPureWhiteIsolation =
+    {
+      disabledContrastAlpha,
+      modeSamples,
+      resetContrastAlpha,
+      restoredContrastAlpha,
+    };
+  }
+  finally
+  {
+    await context.close();
+    currentPage = null;
+  }
+}
+
 async function runMatrix(browserInstance, baseUrl, baseline)
 {
   const caseResults = new Map();
@@ -3259,6 +3532,7 @@ async function main()
   const startedAt = performance.now();
   await runIifeSmoke(browser, baseUrl);
   await runDemoBackgroundFileSmoke(browser, baseUrl);
+  await runDemoPureWhiteIsolationSmoke(browser, baseUrl);
   const calibration = await runMatrix(browser, baseUrl, baseline);
   const durationMs = performance.now() - startedAt;
 

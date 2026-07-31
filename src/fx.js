@@ -6170,28 +6170,21 @@ export class BAClickFX
         }
       }
 
-      if (canvasSceneRendered)
+      if (!legacy)
       {
-        this._clearLightBackgroundContrast();
-      }
-      else if (!legacy && !useWebGLClickEffects && !useWebGL2Bloom)
-      {
+        const hasDedicatedSceneOutput =
+          useWebGLClickEffects || useWebGL2Bloom || canvasSceneRendered;
+
+        // GPU 与场景 Final Pass 不会保留可复用的主 Canvas 遮罩；对比层
+        // 必须按同一帧几何重绘，否则纯白隔离合成会在成功后端上失去轮廓。
         this._renderLightBackgroundContrast(
           scale,
-          useSoftwareBloom || useWebGL2Bloom,
+          useSoftwareBloom && !hasDedicatedSceneOutput,
         );
       }
-      else if (useWebGLClickEffects && this.contrastContext)
+      else
       {
-        this.contrastContext.setTransform(
-          this.dpr,
-          0,
-          0,
-          this.dpr,
-          0,
-          0,
-        );
-        this.contrastContext.clearRect(0, 0, this.width, this.height);
+        this._clearLightBackgroundContrast();
       }
 
       if (reuseCachedSoftwareBloom)
@@ -7077,7 +7070,14 @@ export class BAClickFX
 
     if (this.contrastCanvas)
     {
-      this.contrastCanvas.style.visibility = visibility;
+      const contrastEnabled = !this._isLegacy &&
+        this.config.outputCompositing !== 'transparent-overlay' &&
+        this.config.lightBackgroundContrastAlpha > 0;
+
+      // 普通场景继续跟随主 Canvas 的输出所有权；启用淡青轮廓后则由
+      // 独立层保持可见，避免 GPU 或 Scene Final Pass 隐藏主层时一并消失。
+      this.contrastCanvas.style.visibility =
+        visible || contrastEnabled ? '' : 'hidden';
     }
   }
 

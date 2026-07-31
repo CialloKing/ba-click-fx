@@ -319,20 +319,22 @@ const staticFaqContent = indexHtml.match(
 verify(
   /纯白背景下特效颜色太浅/.test(staticFaqContent) &&
     /isolatedCompositing: true/.test(staticFaqContent) &&
+    /自动使用/.test(staticFaqContent) &&
     /纯白背景下特效颜色太浅/.test(mainJs) &&
     /Effects look washed out on a pure white background/.test(mainJs) &&
     /lightBackgroundContrastAlpha: 0\.35/.test(mainJs),
-  '静态与双语 FAQ 提示纯白背景启用隔离合成',
+  '静态与双语 FAQ 说明纯白隔离自动补足淡青轮廓',
 );
 verify(
-  /bindToggle\('ctrlIsolatedCompositing',[\s\S]*?effect\.updateConfig\(\{ isolatedCompositing: checked \}\)\)/.test(mainJs),
-  '展示页隔离合成开关通过公开 updateConfig API 生效并复用持久化绑定',
+  /function applyIsolatedCompositing\(checked\)[\s\S]*?isolatedCompositing: checked,[\s\S]*?lightBackgroundContrastAlpha: resolvePureWhiteContrastAlpha\(checked\)/.test(mainJs) &&
+    /bindToggle\('ctrlIsolatedCompositing', applyIsolatedCompositing\)/.test(mainJs),
+  '展示页隔离合成开关原子同步纯白对比层并复用持久化绑定',
 );
 verify(
   /localStorage\.getItem\('bafx-ctrlIsolatedCompositing'\)/.test(mainJs) &&
     /savedIsolatedCompositing !== null/.test(mainJs) &&
     /const isolated = savedIsolatedCompositing === 'true'/.test(mainJs) &&
-    /effect\.updateConfig\(\{ isolatedCompositing: isolated \}\)/.test(mainJs),
+    /applyIsolatedCompositing\(isolated\)/.test(mainJs),
   '展示页会恢复已持久化的隔离或直接合成选项',
 );
 verify(
@@ -345,9 +347,10 @@ verify(
   /body\.scene-background-source::before,[\s\S]*?body\.theme-pure-white::before[\s\S]*?display: none/.test(
     styleCss,
   ) &&
-    /classList\.toggle\('theme-pure-white', name === '纯白'\)/.test(mainJs) &&
-    /classList\.remove\('theme-pure-white'\)[\s\S]*?applySceneBackgroundImage/.test(mainJs),
-  '纯白主题关闭装饰网格，自定义栅格背景仍走原子 Scene 加载路径',
+    /const PURE_WHITE_THEME = '纯白'/.test(mainJs) &&
+    /classList\.toggle\('theme-pure-white', name === PURE_WHITE_THEME\)/.test(mainJs) &&
+    /classList\.remove\('theme-pure-white'\)[\s\S]*?syncPureWhiteIsolationContrast\(\)[\s\S]*?applySceneBackgroundImage/.test(mainJs),
+  '纯白主题关闭装饰网格，并在自定义背景切换时清除兼容轮廓',
 );
 const applyThemeSource = getFunctionSource(mainJs, 'applyTheme');
 const updateThemeSceneBackgroundSource = getFunctionSource(
@@ -366,9 +369,10 @@ verify(
 verify(
   /getThemeBackgroundCss\(name\)/.test(applyThemeSource) &&
     /document\.body\.style\.backgroundAttachment = 'fixed';/.test(applyThemeSource) &&
+    /syncPureWhiteIsolationContrast\(\)/.test(applyThemeSource) &&
     /applyThemeSceneBackground\(name\)/.test(applyThemeSource) &&
     !/clearSceneBackground\(\)/.test(applyThemeSource),
-  '内置主题进入固定视口的 Scene 背景同步路径',
+  '内置主题同时同步 Scene 背景与纯白隔离对比层',
 );
 verify(
   /renderThemeSceneBackground\([\s\S]*?themeSceneCanvas,[\s\S]*?activeThemeScene/.test(
@@ -419,6 +423,27 @@ verify(
   /typeof overrides\.isolatedCompositing === 'boolean'/.test(engineJs) &&
     /this\.config\.isolatedCompositing = isolated/.test(engineJs),
   '引擎支持运行时切换隔离与直接合成',
+);
+verify(
+  /const hasDedicatedSceneOutput =[\s\S]*?useWebGLClickEffects \|\| useWebGL2Bloom \|\| canvasSceneRendered/.test(engineJs) &&
+    /_renderLightBackgroundContrast\([\s\S]*?useSoftwareBloom && !hasDedicatedSceneOutput/.test(engineJs),
+  'GPU 与场景 Final Pass 成功时仍按几何重建纯白对比遮罩',
+);
+const canvasOutputVisibilitySource = engineJs.match(
+  /  _setCanvasOutputVisible\(visible\)[\s\S]*?\n  _invalidateSceneBackgroundOutputs\(\)/,
+)?.[0] ?? '';
+
+verify(
+  /this\.canvas\.style\.visibility = visibility/.test(
+    canvasOutputVisibilitySource,
+  ) &&
+    /const contrastEnabled =[\s\S]*?lightBackgroundContrastAlpha > 0/.test(
+      canvasOutputVisibilitySource,
+    ) &&
+    /visible \|\| contrastEnabled \? '' : 'hidden'/.test(
+      canvasOutputVisibilitySource,
+    ),
+  '纯白对比层仅在启用后脱离主 Canvas 的输出可见性',
 );
 verify(/UNITY_FX_TOUCH/.test(engineJs), '渲染引擎直接消费 Unity 参数源');
 verify(/pointerdown/.test(engineJs) && /pointerup/.test(engineJs), '按下、拖拽和松开共享同一输入生命周期');

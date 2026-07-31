@@ -3961,6 +3961,7 @@ console.log('\nBloom 后端 API');
 const unifiedWebGLBloomEffect = new BAClickFX(
   {
     bloomBackend: 'webgl2',
+    lightBackgroundContrastAlpha: 0.35,
   },
 );
 const unifiedWebGLBloomCanvas = document.createElement('canvas');
@@ -4012,8 +4013,9 @@ assert(
       unifiedCanvasCounts.strokes &&
     unifiedWebGLBloomEffect.context.drawImageCalls.length ===
       unifiedCanvasCounts.images &&
-    unifiedWebGLBloomEffect.canvas.style.visibility === 'hidden',
-  'WebGL2 Bloom 成功帧复用完整 Scene 且不重复栅格隐藏 Canvas',
+    unifiedWebGLBloomEffect.canvas.style.visibility === 'hidden' &&
+    unifiedWebGLBloomEffect.contrastCanvas.style.visibility !== 'hidden',
+  'WebGL2 Bloom 成功帧隐藏主 Canvas 但保留独立对比层',
 );
 
 const fallbackImageStart =
