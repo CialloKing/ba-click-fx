@@ -127,9 +127,11 @@ new BAClickFX(options?: {
   opacity?: number,              // default 1
   themeColor?: string,           // six-digit hex, default #4ca7ff
   outputCompositing?: 'scene' | 'browser-overlay', // default scene
-  unknownBackgroundAppearance?: 'coverage' | 'bright', // default coverage
+  overlayAlphaPolicy?: 'coverage' | 'visual-max', // default coverage
+  overlayColorCompensation?: 'none' | 'bright-core', // default none
   overlayAlphaLimit?: number,    // overlay alpha limit, default 250/255
   hostCompositing?: 'source-over' | 'plus-lighter', // default source-over
+  unknownBackgroundAppearance?: 'coverage' | 'bright', // legacy API mirror
   clickEnabled?: boolean,        // default true
   trailEnabled?: boolean,        // default true
   trailAlways?: boolean,         // default false
@@ -166,15 +168,19 @@ To preserve the already reviewed colour, transparency, and edge sampling, a succ
 
 `outputCompositing: 'scene'` is the default and preserves Unity's direct additive RGB semantics for a Scene render target. The demo and integrations that require strict game reproduction should use it together with a `setCompositingReference()` image that pixel-matches the displayed background; this is the contract under which the complete WebGL2 path evaluates Scene RGB precisely. `'browser-overlay'` is selected explicitly by transparent desktop hosts such as BASpark, WebView2, and Electron. HDR emission and Bloom energy remain independent, while final alpha is no longer inferred from the largest final RGB channel.
 
-Three options further define transparent output over an unknown background:
+Four orthogonal options further define transparent output over an unknown background. Alpha allocation and colour compensation never switch one another implicitly:
 
 | Configuration | Contract |
 |---|---|
-| `unknownBackgroundAppearance: 'coverage'` | Default transparent contract. Alpha comes only from geometry Coverage, lifetime alpha, `opacity`, and the final limit, while emission and Bloom energy remain independent. Use it when stable occlusion and cross-backend continuity matter most |
-| `unknownBackgroundAppearance: 'bright'` | A visual approximation for unknown light backgrounds. Compensation is gated by separate crisp-emission and Bloom energy instead of mixing all RGB towards white or deriving alpha from `maxRGB`. It preserves the premultiplied `RGB <= Alpha` constraint, but does not claim pixel equivalence with Unity |
+| `overlayAlphaPolicy: 'coverage'` | Default transparent contract. Requested alpha sums crisp Scene Coverage and independent Bloom transport alpha before lifetime, `opacity`, and the final limit are applied. Use it when stable occlusion and cross-backend continuity matter most |
+| `overlayAlphaPolicy: 'visual-max'` | A v1.2.15-style visual approximation. Requested alpha takes the larger of crisp Scene Coverage and Bloom transport alpha, preserving lower occlusion where they overlap. Alpha still comes only from those independent transport quantities and is never generated from final `maxRGB` |
+| `overlayColorCompensation: 'none'` | Default; preserves the transparent payload's colour relationships without compensation |
+| `overlayColorCompensation: 'bright-core'` | A visibility approximation for unknown light backgrounds. It compensates only high-energy cores, gated independently by crisp emission and Bloom energy. It neither mixes all RGB towards white nor turns low-energy trail tips grey-white. The premultiplied `RGB <= Alpha` constraint is preserved, but pixel equivalence with Unity is not claimed |
 | `overlayAlphaLimit` | Final alpha capacity for `browser-overlay + source-over`, default `250 / 255`, with finite values clamped to `0..1`. Premultiplied RGB contracts proportionally when capacity is insufficient. The option does not change effect `opacity`, HDR emission strength, or Bloom strength |
-| `hostCompositing: 'source-over'` | Default host contract; uses the Coverage/Bright appearance and alpha limit above |
-| `hostCompositing: 'plus-lighter'` | Independent Add-payload contract for unknown backgrounds. The renderer emits the complete additive payload for the host to composite once with `plus-lighter`, so `unknownBackgroundAppearance` and `overlayAlphaLimit` are ignored |
+| `hostCompositing: 'source-over'` | Default host contract; uses the alpha policy, colour compensation, and alpha limit above |
+| `hostCompositing: 'plus-lighter'` | Independent Add-payload contract for unknown backgrounds. The renderer emits the complete additive payload for the host to composite once with `plus-lighter`, so `overlayAlphaPolicy`, `overlayColorCompensation`, and `overlayAlphaLimit` are ignored |
+
+`unknownBackgroundAppearance` remains only as a legacy API mirror and should not be used by new integrations: the legacy input `'coverage'` maps to `overlayColorCompensation: 'none'`, while `'bright'` maps to `'bright-core'`; it never changes `overlayAlphaPolicy`. When one constructor call or `updateConfig()` patch supplies both old and new colour fields, `overlayColorCompensation` wins. `getConfig()` still exposes the legacy field only for old consumers; new code should read the two orthogonal fields.
 
 `plus-lighter` is only an SDR DOM-compositing approximation. It can saturate over white and varies with browser colour management and implementation details. Strict agreement with Unity's `Blend One One` and `Blend SrcAlpha One, One One` results requires the host to execute Add into a linear HDR render target; changing a CSS blend mode alone cannot provide that guarantee. When a compositing reference is active, the library returns to a normal `source-over` final output for the known Scene to avoid applying Add twice.
 
@@ -202,14 +208,15 @@ const fx = new BAClickFX(
   effectBackend: 'webgl2',
   bloomBackend: 'webgl2',
   outputCompositing: 'browser-overlay',
-  unknownBackgroundAppearance: 'coverage',
+  overlayAlphaPolicy: 'coverage',
+  overlayColorCompensation: 'none',
   overlayAlphaLimit: 250 / 255,
   hostCompositing: 'source-over',
   lightBackgroundContrastAlpha: 0,
 });
 ```
 
-For visibility over an unknown light desktop, change `unknownBackgroundAppearance` to `'bright'`. A host that supports DOM Add can instead select `hostCompositing: 'plus-lighter'`, but that contract ignores the appearance choice and alpha limit and should only be treated as an SDR additive approximation.
+For a transparent occlusion appearance closer to v1.2.15, change `overlayAlphaPolicy` to `'visual-max'`. This only changes alpha allocation between independent Coverage and Bloom transport quantities; it never generates alpha from `maxRGB`. When visibility of high-energy cores matters over an unknown light desktop, independently change `overlayColorCompensation` to `'bright-core'` without changing the alpha policy. A host that supports DOM Add can instead select `hostCompositing: 'plus-lighter'`, but that contract ignores the alpha policy, colour compensation, and alpha limit and should only be treated as an SDR additive approximation.
 
 These compatibility controls have separate responsibilities. `isolatedCompositing` only decides whether library-owned canvases first resolve inside one transparent group; it does not sample page or desktop pixels. `lightBackgroundContrastAlpha` adds a non-game `darken` silhouette only for `scene` output and is ignored by `browser-overlay`. Only `setCompositingReference()` supplies a known opaque raster reference to the rendering pipeline. None of these controls replaces another.
 
@@ -217,13 +224,13 @@ These compatibility controls have separate responsibilities. `isolatedCompositin
 
 `setCompositingReference()` supplies the renderer with a real opaque raster reference that pixel-matches the content beneath the effect; it does not set or modify the host page's CSS background. `scene + setCompositingReference()` is the precise known-background path. Strict final-RGB Scene equivalence may only be claimed when Full WebGL2, or WebGL2 Bloom successfully resolved to the GPU, receives that known reference. Native Glow and Legacy use a Canvas Final Pass; Software Bloom continues to use the normal DOM-background path. Those capability-limited fallback paths must not be treated as pixel-equivalent to the complete WebGL2 Scene or Unity.
 
-The real desktop is normally invisible to a transparent overlay. `setCompositingReference(null)` clears the reference and enters the unknown-background path; the renderer can then only emit an alpha-bearing overlay for the host or operating system to composite later. An unknown background cannot mathematically reproduce Unity's result over a known opaque HDR Scene. `browser-overlay` keeps Coverage, lifetime, and brightness relationships stable; it does not remove that information boundary.
+The real desktop is normally invisible to a transparent overlay. `setCompositingReference(null)` clears the reference and enters the unknown-background path; the renderer can then only emit an alpha-bearing overlay for the host or operating system to composite later. An unknown background cannot mathematically reproduce Unity's result over a known opaque HDR Scene. `browser-overlay` keeps alpha derived from independent Coverage and Bloom transport quantities and makes their allocation an explicit `overlayAlphaPolicy`; it does not remove that information boundary.
 
-Standard premultiplied `source-over` satisfies `Cout = Coverlay + Cbackground × (1 - A)`, while strict Unity additive output targets `Cbackground + E`. The required `Coverlay = E + A × Cbackground` therefore depends on background pixels that the library cannot read. For an unknown background, one transparent overlay cannot simultaneously guarantee strict Unity additive RGB, final alpha that represents only Coverage, and no darkening over pure white. `browser-overlay` explicitly prioritises Coverage alpha and cross-backend continuity. For strict Scene RGB, keep the default `scene` mode and provide a pixel-matched known reference through `setCompositingReference()`.
+Standard premultiplied `source-over` satisfies `Cout = Coverlay + Cbackground × (1 - A)`, while strict Unity additive output targets `Cbackground + E`. The required `Coverlay = E + A × Cbackground` therefore depends on background pixels that the library cannot read. For an unknown background, one transparent overlay cannot simultaneously guarantee strict Unity additive RGB, final alpha that represents only Coverage, and no darkening over pure white. `browser-overlay + overlayAlphaPolicy: 'coverage'` explicitly prioritises the Coverage transport sum and cross-backend continuity; `'visual-max'` only provides a lower-occlusion, v1.2.15-style visual approximation. For strict Scene RGB, keep the default `scene` mode and provide a pixel-matched known reference through `setCompositingReference()`.
 
 The implementation does not cap final alpha with `min(coverage, maxRGB)`. Although that approximation can hide some white-background darkening, it reinterprets emission brightness as occlusion, removes Coverage from black or low-energy trail regions, and breaks linear `opacity` and backend-transition continuity.
 
-The extracted Additive shader fixes target alpha to `1`, while Dissolve specifies separate alpha blend factors. Those values describe writes into the game's already opaque camera target; they are not occlusion coverage for a transparent desktop window. Copying them mechanically without a matching background would turn particle quads into opaque rectangles. The background-free `scene` Final Pass therefore uses transport alpha capable of carrying premultiplied RGB, while `browser-overlay` uses Coverage alpha. Neither claims to reproduce the Unity camera target's visually irrelevant final alpha. The strict-equivalence statement above applies only to final RGB under its stated conditions.
+The extracted Additive shader fixes target alpha to `1`, while Dissolve specifies separate alpha blend factors. Those values describe writes into the game's already opaque camera target; they are not occlusion coverage for a transparent desktop window. Copying them mechanically without a matching background would turn particle quads into opaque rectangles. The background-free `scene` Final Pass therefore uses transport alpha capable of carrying premultiplied RGB, while `browser-overlay` combines crisp Coverage and Bloom transport alpha according to the selected policy. Neither claims to reproduce the Unity camera target's visually irrelevant final alpha. The strict-equivalence statement above applies only to final RGB under its stated conditions.
 
 ```js
 const image = new Image();
@@ -545,11 +552,15 @@ No. Isolation only changes the CSS compositing boundary for multiple canvases. I
 
 ### Can an unknown background have strict Unity additive RGB, pure Coverage alpha, and no white-background darkening at the same time?
 
-No. `source-over` only receives overlay RGB and alpha, while the RGB needed for strict additive output depends on the background colour underneath; a transparent desktop does not expose those pixels to the library. Keep the default `scene` mode for the demo and strict reproduction, pass known backgrounds through `setCompositingReference()`, and select `browser-overlay` explicitly for transparent desktop hosts with the understanding that it prioritises Coverage and alpha continuity rather than claiming pixel equivalence over every background.
+No. `source-over` only receives overlay RGB and alpha, while the RGB needed for strict additive output depends on the background colour underneath; a transparent desktop does not expose those pixels to the library. Keep the default `scene` mode for the demo and strict reproduction, pass known backgrounds through `setCompositingReference()`, and select `browser-overlay` explicitly for transparent desktop hosts. Its default `overlayAlphaPolicy: 'coverage'` prioritises the Coverage transport sum and alpha continuity rather than claiming pixel equivalence over every background.
+
+### How can I restore the transparent-overlay appearance of v1.2.15?
+
+Use `overlayAlphaPolicy: 'visual-max'`. It takes the larger of crisp Scene Coverage and Bloom transport alpha, restoring the older lower-occlusion visual approximation. Final `maxRGB` is used only to contract premultiplied RGB into the available alpha capacity and never generates alpha. Colour remains an independent choice: keep `overlayColorCompensation: 'none'` to change only alpha allocation, or enable `'bright-core'` separately when high-energy cores need more visibility over an unknown light background. The latter does not whiten low-energy trail regions globally.
 
 ### Which configuration should a transparent desktop host use?
 
-The recommended default is `effectBackend: 'webgl2'`, `bloomBackend: 'webgl2'`, `outputCompositing: 'browser-overlay'`, `unknownBackgroundAppearance: 'coverage'`, `overlayAlphaLimit: 250 / 255`, `hostCompositing: 'source-over'`, and `lightBackgroundContrastAlpha: 0`. Switch the appearance to `'bright'` for an emission- and Bloom-gated visual approximation over unknown light backgrounds. A host with DOM Add support can select `'plus-lighter'`; appearance and alpha limit then do not participate in output. It remains an SDR approximation, and strict Unity Add requires the host to composite into a linear HDR target. The host should also listen for backend-resolution events because an unavailable or lost WebGL2 context enters a compatibility fallback. Fallbacks preserve the transparency contract but cannot promise the exact same Bloom as Full WebGL2.
+The recommended default is `effectBackend: 'webgl2'`, `bloomBackend: 'webgl2'`, `outputCompositing: 'browser-overlay'`, `overlayAlphaPolicy: 'coverage'`, `overlayColorCompensation: 'none'`, `overlayAlphaLimit: 250 / 255`, `hostCompositing: 'source-over'`, and `lightBackgroundContrastAlpha: 0`. Select only `'visual-max'` when a lower-occlusion, v1.2.15-style visual approximation is required. Independently enable `'bright-core'` over unknown light backgrounds to compensate only emission- and Bloom-gated high-energy cores. A host with DOM Add support can select `'plus-lighter'`; alpha policy, colour compensation, and alpha limit then do not participate in output. It remains an SDR approximation, and strict Unity Add requires the host to composite into a linear HDR target. The host should also listen for backend-resolution events because an unavailable or lost WebGL2 context enters a compatibility fallback. Fallbacks preserve the transparency contract but cannot promise the exact same Bloom as Full WebGL2.
 
 ---
 

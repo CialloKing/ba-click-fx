@@ -147,9 +147,11 @@ new BAClickFX(options?: {
   opacity?: number,                // 不透明度 0~1，默认 1
   themeColor?: string,             // 六位十六进制主题色，默认 #4ca7ff
   outputCompositing?: 'scene' | 'browser-overlay', // 输出合成，默认 scene
-  unknownBackgroundAppearance?: 'coverage' | 'bright', // 未知背景外观，默认 coverage
+  overlayAlphaPolicy?: 'coverage' | 'visual-max', // 覆盖层 Alpha 策略，默认 coverage
+  overlayColorCompensation?: 'none' | 'bright-core', // 覆盖层颜色补偿，默认 none
   overlayAlphaLimit?: number,      // 网页覆盖层 Alpha 上限，默认 250/255
   hostCompositing?: 'source-over' | 'plus-lighter', // 宿主合成，默认 source-over
+  unknownBackgroundAppearance?: 'coverage' | 'bright', // 旧 API 兼容镜像
   clickEnabled?: boolean,         // 启用点击特效，默认 true
   trailEnabled?: boolean,         // 启用拖尾，默认 true
   trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
@@ -186,15 +188,19 @@ new BAClickFX(options?: {
 
 `outputCompositing: 'scene'` 是默认值，保持 Unity 面向 Scene Render Target 的直接加色 RGB 语义。展示页和要求严格游戏还原的集成都应使用该模式，并通过 `setCompositingReference()` 提供与实际底图逐像素匹配的已知背景；这是完整 WebGL2 路径精确求值 Scene RGB 的合同。`'browser-overlay'` 供 BASpark、WebView2、Electron 等透明桌面宿主显式选择，HDR 发射和 Bloom 能量仍独立计算，最终 Alpha 不再由最终 RGB 最大通道决定。
 
-未知背景下的透明输出由下面三项继续细分：
+未知背景下的透明输出由四项正交配置继续细分。Alpha 分配与颜色补偿互不隐式切换：
 
 | 配置 | 合同 |
 |---|---|
-| `unknownBackgroundAppearance: 'coverage'` | 默认透明合同。Alpha 只由几何 Coverage、生命周期 Alpha、`opacity` 和最终上限决定，发射能量与 Bloom 能量保持独立；适合需要稳定遮挡率和跨后端连续性的宿主 |
-| `unknownBackgroundAppearance: 'bright'` | 未知浅色背景的视觉近似。实现按清晰发射能量与 Bloom 能量门控补偿，不会把全部 RGB 直接混白，也不会用 `maxRGB` 反推 Alpha；仍保持预乘约束 `RGB <= Alpha`，但不宣称逐像素还原 Unity |
+| `overlayAlphaPolicy: 'coverage'` | 默认透明合同。请求 Alpha 由清晰 Scene Coverage 与独立 Bloom 传输 Alpha 相加，再受生命周期、`opacity` 和最终上限约束；适合优先保证遮挡率和跨后端连续性的宿主 |
+| `overlayAlphaPolicy: 'visual-max'` | v1.2.15 风格的视觉近似。请求 Alpha 取清晰 Scene Coverage 与 Bloom 传输 Alpha 的较大值，使重叠区域保留更低遮挡率；Alpha 仍只来自这两种独立传输量，绝不会由最终 `maxRGB` 生成 |
+| `overlayColorCompensation: 'none'` | 默认不改写透明载荷的颜色关系 |
+| `overlayColorCompensation: 'bright-core'` | 未知浅色背景的可见性近似。只按独立的清晰发射能量与 Bloom 能量补偿高能核心，不会把全部 RGB 混向白色，也不会把低能拖尾尾端变成灰白色；仍保持预乘约束 `RGB <= Alpha`，但不宣称逐像素还原 Unity |
 | `overlayAlphaLimit` | `browser-overlay + source-over` 的最终 Alpha 容量，默认 `250 / 255`，有限值钳制到 `0..1`。容量不足时预乘 RGB 等比收敛；它不改变特效 `opacity`、HDR 发射强度或 Bloom 强度 |
-| `hostCompositing: 'source-over'` | 默认宿主合同，使用以上 Coverage/Bright 外观及 Alpha 上限 |
-| `hostCompositing: 'plus-lighter'` | 未知背景下的独立 Add 载荷合同。渲染器输出完整加色载荷并由宿主执行一次 `plus-lighter`，因此忽略 `unknownBackgroundAppearance` 与 `overlayAlphaLimit` |
+| `hostCompositing: 'source-over'` | 默认宿主合同，使用以上 Alpha 策略、颜色补偿和 Alpha 上限 |
+| `hostCompositing: 'plus-lighter'` | 未知背景下的独立 Add 载荷合同。渲染器输出完整加色载荷并由宿主执行一次 `plus-lighter`，因此忽略 `overlayAlphaPolicy`、`overlayColorCompensation` 与 `overlayAlphaLimit` |
+
+`unknownBackgroundAppearance` 仅作为旧 API 的兼容镜像保留，不应再用于新集成：旧输入 `'coverage'` 映射到 `overlayColorCompensation: 'none'`，`'bright'` 映射到 `'bright-core'`，它不会改变 `overlayAlphaPolicy`。同一次构造或 `updateConfig()` 同时提供新旧颜色字段时，以 `overlayColorCompensation` 为准；`getConfig()` 仍暴露旧字段只为兼容旧消费者，新代码应读取两个正交字段。
 
 `plus-lighter` 只是 SDR DOM 合成近似，可能在白底饱和，并受浏览器色彩管理和实现差异影响。要严格匹配 Unity 的 `Blend One One`、`Blend SrcAlpha One, One One` 等加色结果，宿主必须在线性 HDR Render Target 中执行 Add；仅切换 CSS 混合模式不能提供这项保证。若已激活合成参考，库会回到已知 Scene 的普通 `source-over` 最终输出，避免重复加色。
 
@@ -222,14 +228,15 @@ const fx = new BAClickFX(
   effectBackend: 'webgl2',
   bloomBackend: 'webgl2',
   outputCompositing: 'browser-overlay',
-  unknownBackgroundAppearance: 'coverage',
+  overlayAlphaPolicy: 'coverage',
+  overlayColorCompensation: 'none',
   overlayAlphaLimit: 250 / 255,
   hostCompositing: 'source-over',
   lightBackgroundContrastAlpha: 0,
 });
 ```
 
-未知浅色桌面若更重视可见性，可把 `unknownBackgroundAppearance` 改为 `'bright'`。支持 DOM Add 的宿主也可设置 `hostCompositing: 'plus-lighter'`，但该模式会忽略外观选择和 Alpha 上限，只应作为 SDR 加色近似。
+若要接近 v1.2.15 的透明遮挡观感，可把 `overlayAlphaPolicy` 改为 `'visual-max'`；这只改变独立 Coverage/Bloom 传输量之间的 Alpha 分配，不会从 `maxRGB` 生成 Alpha。未知浅色桌面若更重视高能核心可见性，可另行把 `overlayColorCompensation` 改为 `'bright-core'`，无需同时改变 Alpha 策略。支持 DOM Add 的宿主也可设置 `hostCompositing: 'plus-lighter'`，但该模式会忽略 Alpha 策略、颜色补偿和 Alpha 上限，只应作为 SDR 加色近似。
 
 这些兼容选项的职责彼此独立：`isolatedCompositing` 只决定多张库自有 Canvas 是否先在一个透明组内合成，不读取页面或桌面像素；`lightBackgroundContrastAlpha` 只在 `scene` 输出下增加非游戏的 `darken` 轮廓，在 `browser-overlay` 下会被忽略；`setCompositingReference()` 才会把一张已知的不透明栅格参考送入渲染管线。它们不能互相替代。
 
@@ -237,13 +244,13 @@ const fx = new BAClickFX(
 
 `setCompositingReference()` 可把特效下方真实且不透明的栅格参考交给渲染器；它不设置或修改宿主页面 CSS 背景。`scene + setCompositingReference()` 是已知背景的精确路径：只有纯 WebGL2，或成功解析到 GPU 的 WebGL2 Bloom，收到与实际显示内容逐像素匹配的已知参考时，才能在渲染合同内声明最终 RGB Scene 按 Unity 线性 HDR 管线严格求值。原生辉光和 Legacy 使用 Canvas Final Pass；软件 Bloom 仍使用普通 DOM 背景路径，这些能力受限的回退实现不能宣称与完整 WebGL2 Scene 或 Unity 逐像素等价。
 
-透明桌面下的真实桌面通常对库不可见。调用 `setCompositingReference(null)` 清除参考，或从未提供参考时，渲染器进入未知背景路径，只能输出带 Alpha 的覆盖层，再由操作系统或宿主合成；未知背景无法在数学上复现 Unity 对已知不透明 HDR Scene 的逐像素结果。`browser-overlay` 的目标是保持 Coverage、生命周期与亮度关系稳定，而不是绕过这一信息边界。
+透明桌面下的真实桌面通常对库不可见。调用 `setCompositingReference(null)` 清除参考，或从未提供参考时，渲染器进入未知背景路径，只能输出带 Alpha 的覆盖层，再由操作系统或宿主合成；未知背景无法在数学上复现 Unity 对已知不透明 HDR Scene 的逐像素结果。`browser-overlay` 的目标是让 Alpha 始终来自独立的 Coverage/Bloom 传输量，并通过 `overlayAlphaPolicy` 显式选择它们的分配方式，而不是绕过这一信息边界。
 
-标准预乘 `source-over` 满足 `Cout = Coverlay + Cbackground × (1 - A)`；严格 Unity 加色的目标则是 `Cbackground + E`。因此所需的 `Coverlay = E + A × Cbackground` 依赖库无法读取的背景。对未知背景，单张透明覆盖层不可能同时保证严格 Unity 加色、最终 Alpha 只表示 Coverage、以及在纯白背景上绝不变暗。`browser-overlay` 明确优先保持 Coverage Alpha 与跨后端连续性；需要严格 Scene RGB 时，应使用默认 `scene` 并通过 `setCompositingReference()` 提供逐像素匹配的已知参考。
+标准预乘 `source-over` 满足 `Cout = Coverlay + Cbackground × (1 - A)`；严格 Unity 加色的目标则是 `Cbackground + E`。因此所需的 `Coverlay = E + A × Cbackground` 依赖库无法读取的背景。对未知背景，单张透明覆盖层不可能同时保证严格 Unity 加色、最终 Alpha 只表示 Coverage、以及在纯白背景上绝不变暗。`browser-overlay + overlayAlphaPolicy: 'coverage'` 明确优先保持 Coverage 传输和与跨后端连续性；`'visual-max'` 只提供 v1.2.15 风格的低遮挡视觉近似。需要严格 Scene RGB 时，应使用默认 `scene` 并通过 `setCompositingReference()` 提供逐像素匹配的已知参考。
 
 实现不会用 `min(coverage, maxRGB)` 把最终 Alpha 限制到当前 RGB 亮度。该近似虽然能减少部分白底压暗，却会把发射亮度重新解释为遮挡率，使黑色或低能拖尾丢失 Coverage，并破坏 `opacity` 线性和后端切换连续性。
 
-解包 Shader 中 Additive 的目标 Alpha 固定为 `1`，Dissolve 也有独立的 Alpha 混合因子；这些值描述的是粒子写入游戏不透明相机目标时的缓冲合同，不是透明桌面窗口的遮挡率。未提供匹配背景时若机械复制这些 Alpha，粒子 Quad 会变成不透明矩形。因此无背景的 `scene` Final Pass 使用能承载预乘 RGB 的传输 Alpha，`browser-overlay` 使用 Coverage Alpha；两者都不宣称复现 Unity 相机目标中对最终画面无可见影响的 Alpha。严格一致声明只针对上一段限定条件下的最终 RGB。
+解包 Shader 中 Additive 的目标 Alpha 固定为 `1`，Dissolve 也有独立的 Alpha 混合因子；这些值描述的是粒子写入游戏不透明相机目标时的缓冲合同，不是透明桌面窗口的遮挡率。未提供匹配背景时若机械复制这些 Alpha，粒子 Quad 会变成不透明矩形。因此无背景的 `scene` Final Pass 使用能承载预乘 RGB 的传输 Alpha，`browser-overlay` 则按所选策略组合清晰 Coverage 与 Bloom 传输 Alpha；两者都不宣称复现 Unity 相机目标中对最终画面无可见影响的 Alpha。严格一致声明只针对上一段限定条件下的最终 RGB。
 
 ```js
 const image = new Image();
@@ -565,11 +572,15 @@ Unity 的点击特效使用加色混合；接近白色的目标已经没有足�
 
 ### 未知背景上能否同时得到严格 Unity 加色、纯 Coverage Alpha，并保证白底绝不变暗？
 
-不能。`source-over` 只有覆盖层 RGB 与 Alpha，严格加色所需的输出 RGB 又依赖底层背景颜色；库无法从透明桌面读取该颜色。展示与严格还原应保留默认 `scene`，已知背景通过 `setCompositingReference()` 交给渲染器；透明桌面宿主显式使用 `browser-overlay`，接受它优先保证 Coverage 和透明度连续性，而不宣称对任意背景逐像素等同 Unity。
+不能。`source-over` 只有覆盖层 RGB 与 Alpha，严格加色所需的输出 RGB 又依赖底层背景颜色；库无法从透明桌面读取该颜色。展示与严格还原应保留默认 `scene`，已知背景通过 `setCompositingReference()` 交给渲染器；透明桌面宿主显式使用 `browser-overlay`，默认以 `overlayAlphaPolicy: 'coverage'` 保证 Coverage 传输和与透明度连续性，而不宣称对任意背景逐像素等同 Unity。
+
+### 如何恢复接近 v1.2.15 的透明覆盖层观感？
+
+使用 `overlayAlphaPolicy: 'visual-max'`。它在清晰 Scene Coverage 与 Bloom 传输 Alpha 之间取较大值，恢复旧版较低遮挡率的视觉近似；最终 `maxRGB` 只用于把预乘 RGB 收敛到可用 Alpha 容量，绝不参与 Alpha 生成。颜色是独立选择：保持 `overlayColorCompensation: 'none'` 可只恢复 Alpha 观感；未知浅色背景需要更醒目的高能核心时，再单独启用 `'bright-core'`。后者不会整体提白低能拖尾。
 
 ### 透明桌面宿主应该使用什么配置？
 
-默认建议使用 `effectBackend: 'webgl2'`、`bloomBackend: 'webgl2'`、`outputCompositing: 'browser-overlay'`、`unknownBackgroundAppearance: 'coverage'`、`overlayAlphaLimit: 250 / 255`、`hostCompositing: 'source-over'` 和 `lightBackgroundContrastAlpha: 0`。未知浅色背景可将外观切换为 `'bright'`，这是受发射与 Bloom 能量门控的视觉近似。支持 DOM Add 的宿主可改用 `'plus-lighter'`，此时外观和 Alpha 上限不参与输出；它仍是 SDR 近似，严格 Unity 加色必须由宿主在线性 HDR 目标中执行。宿主还应监听解析状态事件，因为 WebGL2 不可用或 Context 丢失时会进入兼容回退；回退路径保持透明度合同，但不能承诺与完整 WebGL2 的 Bloom 完全相同。
+默认建议使用 `effectBackend: 'webgl2'`、`bloomBackend: 'webgl2'`、`outputCompositing: 'browser-overlay'`、`overlayAlphaPolicy: 'coverage'`、`overlayColorCompensation: 'none'`、`overlayAlphaLimit: 250 / 255`、`hostCompositing: 'source-over'` 和 `lightBackgroundContrastAlpha: 0`。需要 v1.2.15 风格的较低遮挡视觉近似时，仅切换 Alpha 策略为 `'visual-max'`；未知浅色背景可独立启用 `'bright-core'`，它只补偿受发射与 Bloom 能量门控的高能核心。支持 DOM Add 的宿主可改用 `'plus-lighter'`，此时 Alpha 策略、颜色补偿和 Alpha 上限都不参与输出；它仍是 SDR 近似，严格 Unity 加色必须由宿主在线性 HDR 目标中执行。宿主还应监听解析状态事件，因为 WebGL2 不可用或 Context 丢失时会进入兼容回退；回退路径保持透明度合同，但不能承诺与完整 WebGL2 的 Bloom 完全相同。
 
 ---
 
