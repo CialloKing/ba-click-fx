@@ -356,7 +356,7 @@ verify(
     ) &&
     JSON.stringify(hostCompositingValues) === JSON.stringify([
       'source-over',
-      'plus-lighter',
+      'screen',
     ]) &&
     /<option value="source-over" selected>/.test(hostCompositingSelect),
   '透明覆盖层提供相互独立的 Alpha、颜色与宿主合成选择',
@@ -396,7 +396,7 @@ verify(
   /outputCompositing === 'browser-overlay'/.test(
     syncTransparentControlsSource,
   ) &&
-    /hostCompositing !== 'plus-lighter'/.test(
+    /hostCompositing === 'source-over'/.test(
       syncTransparentControlsSource,
     ) &&
     /ctrlOverlayAlphaPolicy\.disabled = !sourceOverEnabled/.test(
@@ -413,8 +413,11 @@ verify(
     ) &&
     /syncTransparentCompositingControlState\([\s\S]*?resolved/.test(
       applyHostCompositingSource,
+    ) &&
+    /mode === 'plus-lighter' \? 'screen' : mode/.test(
+      applyHostCompositingSource,
     ),
-  '透明合成控件按输出模式与宿主 Add 的实际合同启用',
+  '透明合成控件按输出模式启用并迁移旧 DOM Add 值',
 );
 verify(
   /overlayAlphaPolicy: resolved/.test(
@@ -463,17 +466,17 @@ verify(
   '透明合成配置支持本地恢复与统一重置',
 );
 verify(
-  /DOM Add 使用独立完整载荷[\s\S]*?停用 Alpha 策略、颜色补偿和 Alpha 上限[\s\S]*?浏览器视觉近似/.test(
+  /DOM Add 使用 Screen 自适应亮底[\s\S]*?停用 Alpha 策略、颜色补偿和 Alpha 上限[\s\S]*?浏览器视觉近似/.test(
     indexHtml,
   ) &&
     /overlayAlphaPolicyVisualMax: '旧版视觉最大值'/.test(mainJs) &&
     /overlayColorCompensationBrightCore: 'Light-background Bright Core'/.test(
       mainJs,
     ) &&
-    /DOM Add uses an independent full payload and disables the Alpha policy, color compensation, and Alpha limit/.test(
+    /DOM Add uses Screen to adapt to light backdrops and disables the Alpha policy, color compensation, and Alpha limit/.test(
       mainJs,
     ),
-  '双语文案明确 DOM Add 的独立载荷与无效控制项',
+  '双语文案明确 DOM Add 的亮底适配与无效控制项',
 );
 verify(
   /BLOOM_BACKEND_CHANGE_EVENT/.test(mainJs) &&
