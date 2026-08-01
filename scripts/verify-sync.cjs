@@ -11,6 +11,8 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const mainJs = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8');
+const readmeZh = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+const readmeEn = fs.readFileSync(path.join(root, 'README.en.md'), 'utf8');
 const themeBackgroundJs = fs.readFileSync(
   path.join(root, 'src', 'theme-background.js'),
   'utf8',
@@ -295,6 +297,14 @@ verify(
     /renderWebGPUOutputExtended: 'Extended HDR \(preserves highlights above SDR white\)'/.test(mainJs) &&
     /snapshot\.resolvedWebGPUOutputMode/.test(mainJs),
   '展示页双语区分 WebGPU 后端与实际 HDR 输出协商结果',
+);
+verify(
+  /resolvedWebGPUOutputMode === \\'extended\\'/.test(mainJs) &&
+    /resolvedWebGPUOutputMode === 'extended'/.test(readmeZh) &&
+    /resolvedWebGPUOutputMode === 'extended'/.test(readmeEn) &&
+    /rgba16float \+ toneMapping: extended/.test(readmeZh) &&
+    /rgba16float \+ toneMapping: extended/.test(readmeEn),
+  '展示页与中英文文档明确只有 extended WebGPU Canvas 代表真实 HDR',
 );
 const outputCompositingSelect = indexHtml.match(
   /<select id="ctrlOutputCompositing"[\s\S]*?<\/select>/,

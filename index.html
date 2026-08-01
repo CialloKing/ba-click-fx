@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>蔚蓝档案网页点击特效与鼠标拖尾 | Blue Archive Click Effect | ba-click-fx</title>
-  <meta name="description" content="ba-click-fx 是一个默认使用纯 WebGL2、可自动回退 Canvas 2D 的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持鼠标、触摸、npm 和 CDN，零运行时依赖。" />
-  <meta name="keywords" content="ba-click-fx, Blue Archive, 蔚蓝档案, click effect, mouse click effect, cursor effect, cursor trail, touch effect, Canvas 2D, web animation" />
+  <meta name="description" content="ba-click-fx 是一个默认使用纯 WebGL2、可选 WebGPU 真实 HDR 并自动回退 Canvas 2D 的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持鼠标、触摸、npm 和 CDN，零运行时依赖。" />
+  <meta name="keywords" content="ba-click-fx, Blue Archive, 蔚蓝档案, click effect, mouse click effect, cursor effect, cursor trail, touch effect, Canvas 2D, WebGL2, WebGPU, HDR, web animation" />
   <link rel="canonical" href="https://ba-click-fx.cialloking.top/" />
   <meta property="og:title" content="蔚蓝档案网页点击特效与鼠标拖尾 | ba-click-fx" />
-  <meta property="og:description" content="默认使用纯 WebGL2、支持 Canvas 2D 与软件回退的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持 npm/CDN，零依赖。" />
+  <meta property="og:description" content="默认使用纯 WebGL2、可选 WebGPU 真实 HDR，并支持 Canvas 2D 与软件回退的蔚蓝档案网页点击特效与鼠标拖尾动画库。" />
   <meta property="og:image" content="https://github.com/CialloKing/ba-click-fx/releases/download/v1.2.12/ba-click-fx-demo.gif" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://ba-click-fx.cialloking.top/" />
@@ -47,8 +47,8 @@
       Click, drag, or move your mouse to preview the effect.
     </p>
     <p id="introP2">
-      ba-click-fx uses Full WebGL2 by default for mouse click effects, cursor
-      trails, glowing rings, and particle sparks, with safe Canvas 2D fallbacks.
+      ba-click-fx uses Full WebGL2 by default with an optional WebGPU HDR mode
+      for real highlights above SDR white and safe Canvas 2D fallbacks.
       Zero external dependencies.
     </p>
     <nav aria-label="Project links">
@@ -68,7 +68,8 @@
       <summary id="introFAQSummary">常见问题 / FAQ</summary>
       <div id="introFAQContent">
         <p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p>
-        <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要图片素材；默认使用纯 WebGL2，能力不足时自动回退 Canvas 2D、软件 Bloom 与原生辉光，零外部运行时依赖。</p>
+        <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要图片素材；默认使用纯 WebGL2，可选 WebGPU HDR，能力不足时自动回退 WebGL2、Canvas 2D、软件 Bloom 与原生辉光，零外部运行时依赖。</p>
+        <p><strong>WebGPU 一定会显示真实 HDR 吗？</strong> 不会。只有 <code>resolvedWebGPUOutputMode === 'extended'</code> 才表示 Canvas 保留超过 SDR 白色的线性高光；还需要 HDR 显示器、系统 HDR 和浏览器 WebGPU HDR Canvas 同时可用。</p>
         <p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 页面主题始终由 CSS 单独显示。特效背景参考可选择“匹配当前页面”或“未知透明背景”：前者把内置主题或已解码图片送入渲染器，后者不读取页面背景并保留透明宿主的 Coverage 合同。纯白主题在关闭“隔离合成”时保留接近游戏原始的低可见度；开启后会自动使用 <code>lightBackgroundContrastAlpha: 0.35</code> 补足网页白底可见性。本地图片选择器会创建当前页面有效的 <code>blob:</code> URL，不需要 CORS，但刷新后需重新选择；手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。任意自定义 CSS 渐变或多图层背景无法可靠自动上传，仍作为普通 DOM 背景显示。</p>
         <p><strong>纯白背景下特效颜色太浅？</strong> 关闭“隔离合成”时会保留游戏原始的低可见度表现；开启后，展示页自动叠加不参与 Bloom 的淡青对比轮廓，使效果在常见网页白底上保持可见。其他宿主也可按需显式设置 <code>lightBackgroundContrastAlpha</code>。</p>
         <p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>browser-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应通过 <code>setCompositingReference()</code> 提供给渲染器。</p>
