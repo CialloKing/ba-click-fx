@@ -267,6 +267,8 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     this.onStateChange = typeof options.onStateChange === 'function'
       ? options.onStateChange
       : null;
+    // SDR 路径必须能在支持 HDR 的浏览器上独立验证；宿主默认仍优先 HDR。
+    this.preferHdr = options.preferHdr !== false;
     this.device = null;
     this.context = null;
     this.geometryModule = null;
@@ -275,7 +277,6 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     this.geometryUniform = null;
     this.bloomGeometryUniform = null;
     this.backgroundUniform = null;
-    this.sceneOverlayUniform = null;
     this.prefilterUniform = null;
     this.finalUniform = null;
     this.vertexBuffers = {};
@@ -432,10 +433,6 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       );
       this.backgroundUniform = this._createUniformBuffer(
         'BA Click FX background uniforms',
-        PASS_UNIFORM_SIZE,
-      );
-      this.sceneOverlayUniform = this._createUniformBuffer(
-        'BA Click FX scene overlay uniforms',
         PASS_UNIFORM_SIZE,
       );
       this.prefilterUniform = this._createUniformBuffer(
@@ -819,12 +816,14 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     source3 = null,
   )
   {
-    const entries =
-    [
-      { binding: 0, resource: { buffer: uniform } },
-      { binding: 1, resource: this.sampler },
-    ];
+    const entries = [{ binding: 1, resource: this.sampler }];
     const sources = [source0, source1, source2, source3];
+
+    // 自动布局会剔除 WGSL 未读取的 uniform，不能提交不存在的 binding 0。
+    if (uniform)
+    {
+      entries.unshift({ binding: 0, resource: { buffer: uniform } });
+    }
 
     for (let index = 0; index < sources.length; index++)
     {
@@ -1103,7 +1102,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       this.canvas.height = sourceHeight;
     }
 
-    if (!this.deviceManager.configure({ preferHdr: true }))
+    if (!this.deviceManager.configure({ preferHdr: this.preferHdr }))
     {
       return false;
     }
@@ -1138,7 +1137,10 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
             height: this.sceneBackgroundHeight,
           },
           format: 'rgba8unorm-srgb',
-          usage: TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.TEXTURE_BINDING,
+          // copyExternalImageToTexture 在 Dawn 中要求目标也可作为渲染附件。
+          usage: TEXTURE_USAGE.COPY_DST |
+            TEXTURE_USAGE.TEXTURE_BINDING |
+            TEXTURE_USAGE.RENDER_ATTACHMENT,
         },
       );
       this.device.queue.copyExternalImageToTexture(
@@ -1278,14 +1280,11 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
         !isIndependentHostCompositing(settings.hostCompositing)
       )
       {
-        const uniforms = this._createPassUniform();
-
-        this.device.queue.writeBuffer(this.sceneOverlayUniform, 0, uniforms);
         this._drawFullscreen(
           encoder,
           this.pipelines.sceneOverlay,
           this.sceneOverlayTarget.view,
-          this.sceneOverlayUniform,
+          null,
           [this.sourceTarget.view],
           'BA Click FX WebGPU scene coverage',
         );
@@ -1543,7 +1542,6 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     this.geometryUniform?.destroy?.();
     this.bloomGeometryUniform?.destroy?.();
     this.backgroundUniform?.destroy?.();
-    this.sceneOverlayUniform?.destroy?.();
     this.prefilterUniform?.destroy?.();
     this.finalUniform?.destroy?.();
     this.deviceManager.destroy();
