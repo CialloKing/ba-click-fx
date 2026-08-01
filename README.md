@@ -534,6 +534,8 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 
 > 维护者注意：直接把 `1.7` 乘入 Final Pass 会将 Bloom 放大约 13.6 倍。修改 Intensity、Final Pass、Shader uniform 或像素基线前，必须阅读 [Bloom Intensity 13.6 倍过曝回归复盘](https://github.com/CialloKing/ba-click-fx/blob/main/docs/bloom-intensity-regression.md)。
 
+> 维护者注意：每轮上采样必须对“累计粗级”做四点扩散，再单点加入“当前细级”；两者反接会让近场偏硬、外晕层次异常。修改 mip 命名、纹理绑定、texelSize 或 Upsample Shader 前，必须阅读 [Bloom 上采样纹理反接回归复盘](https://github.com/CialloKing/ba-click-fx/blob/main/docs/bloom-upsample-order-regression.md)。
+
 可用性由运行时实际创建 WebGL2 上下文、检查 `EXT_color_buffer_float` 并验证 `RGBA16F` 帧缓冲决定。完整特效使用 `effectBackend` / `resolvedEffectBackend`，Bloom 使用 `bloomBackend` / `resolvedBloomBackend`；`auto` 在首次延迟探测或 Context 恢复验证前会短暂返回 `pending`。Context 丢失时当前可见输出立即回退 Canvas，恢复后只有完整资源链验证成功才重新接管。
 
 ### JavaScript 软件 Bloom
@@ -543,7 +545,7 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 1. 将 8 位遮罩解码到可复用的 Float32 RGB 缓冲区。
 2. 以 4-tap 预过滤执行阈值提取，生成 1/2 分辨率 mip0。
 3. 使用 Box4 下采样建立由 `bloom.diffusion` 决定层数的 mip 金字塔。
-4. 从最低分辨率 mip 开始，以 SampleScale 四点采样累加回每个细层。
+4. 从最低分辨率 mip 开始，对累计粗级以 SampleScale 四点采样，再单点加入当前细级；两张输入不可互换。
 5. 将 `bloom.intensity` 按游戏 CPU 的曝光刻度换算后线性乘入，再执行最终四点采样与 sRGB 加色合成。
 
 默认的 `isolatedCompositing: false` 让输出层直接与 DOM 背景合成；在纯白背景上，Unity 加色结果必然失去颜色和对比度。设为 `true` 后，各输出层会先在透明组内合成，再将带颜色与 Alpha 的结果覆盖到页面。这不会改变 Bloom 算法，只是用于纯白网页背景的非游戏兼容路径。需要按游戏方式让背景参与线性 Scene 计算时，应使用 `setCompositingReference()`，而不是把隔离合成当作背景采样替代品。

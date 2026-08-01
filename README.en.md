@@ -514,6 +514,8 @@ Both `bloom.threshold` and `bloom.clamp` are converted with Unity's `GammaToLine
 
 > Maintainer note: passing `1.7` directly to the Final Pass amplifies Bloom by about 13.6 times. Before changing Intensity, the Final Pass, shader uniforms, or pixel baselines, read the [Bloom Intensity 13.6x overexposure regression postmortem](https://github.com/CialloKing/ba-click-fx/blob/main/docs/bloom-intensity-regression.md) (Chinese).
 
+> Maintainer note: every upsample pass must four-tap the accumulated coarse level, then center-sample and add the current fine level. Reversing them hardens the near field and distorts the halo falloff. Before changing mip names, texture bindings, texel sizes, or the upsample shader, read the [Bloom upsample texture-order regression postmortem](https://github.com/CialloKing/ba-click-fx/blob/main/docs/bloom-upsample-order-regression.md) (Chinese).
+
 Availability is determined by actually creating a WebGL2 context, checking `EXT_color_buffer_float`, and validating the `RGBA16F` framebuffer. Full Effect state uses `effectBackend` / `resolvedEffectBackend`, while Bloom uses `bloomBackend` / `resolvedBloomBackend`; `auto` briefly reports `pending` before the first deferred probe and while a restored context is being validated. A visible context loss falls back to Canvas immediately and WebGL takes ownership again only after the complete restored resource chain succeeds.
 
 ### JavaScript Software Bloom
@@ -523,7 +525,7 @@ When `bloomBackend: 'software'` is selected explicitly or WebGL2 is unavailable,
 1. Decode the 8-bit mask into reusable Float32 RGB buffers.
 2. Run four-tap threshold prefiltering to produce half-resolution mip0.
 3. Build a Box4 mip pyramid whose level count is derived from `bloom.diffusion`.
-4. Accumulate from the coarsest mip upward with SampleScale four-tap sampling.
+4. Accumulate upward by four-tapping the accumulated coarse level, then center-sampling and adding the current fine level; the two inputs are not interchangeable.
 5. Convert `bloom.intensity` with the game's CPU exposure mapping, multiply by the resulting linear value, then perform final four-tap sampling and the additive sRGB composite.
 
 The default `isolatedCompositing: false` composites output layers directly against the DOM background; Unity's additive output necessarily loses colour and contrast on pure white. With `true`, the output layers first resolve inside a transparent group, then composite their coloured result and alpha over the page. This does not change the Bloom algorithm and exists only as a non-game compatibility path for pure-white web backgrounds. Use `setCompositingReference()` when the background must participate in the same linear Scene as it does in the game; isolation is not a substitute for background sampling.
