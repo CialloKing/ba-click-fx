@@ -37,14 +37,14 @@ export function gammaToLinear(value)
 }
 
 /**
- * MXFinalBloom 的 Clamp 由 Unity C# 直接传给 Shader；它不是 Threshold，
- * 因此不能经过 GammaToLinear，只需要遵守 Shader 的 half 精度上限。
+ * 游戏 CPU 与 Threshold 一样先把序列化 Clamp 换算到线性空间。
+ * 默认值换算后会超过 half 范围，因此还要模拟 Shader 参数上限。
  */
 export function resolveUnityBloomClamp(value = DEFAULT_BLOOM_CLAMP)
 {
-  const clampValue = Number.isFinite(value)
+  const gammaClamp = Number.isFinite(value)
     ? value
     : DEFAULT_BLOOM_CLAMP;
 
-  return Math.min(HALF_FLOAT_MAX, Math.max(0, clampValue));
+  return Math.min(HALF_FLOAT_MAX, gammaToLinear(gammaClamp));
 }

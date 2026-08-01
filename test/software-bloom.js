@@ -71,19 +71,19 @@ function arraysApproximatelyEqual(left, right, epsilon = 0.000001)
 
 console.log('\nSoftware Bloom 阈值与色彩空间');
 assert(
-  resolveUnityBloomClamp(DEFAULT_BLOOM_CLAMP) === DEFAULT_BLOOM_CLAMP,
-  '游戏 Clamp 直接传入 Shader，并保留默认 65472 值',
+  resolveUnityBloomClamp(DEFAULT_BLOOM_CLAMP) === HALF_FLOAT_MAX,
+  '游戏 Clamp 先转 Linear，再按 Shader half 上限限制为 65504',
 );
 assert(
   resolveUnityBloomClamp(1) === 1 &&
-    resolveUnityBloomClamp(0.5) === 0.5 &&
-    resolveUnityBloomClamp(2) === 2 &&
+    approximatelyEqual(resolveUnityBloomClamp(0.5), gammaToLinear(0.5)) &&
+    approximatelyEqual(resolveUnityBloomClamp(2), 2 ** 2.2) &&
     resolveUnityBloomClamp(-1) === 0,
-  '自定义 Clamp 不改变数值，只执行有限范围与 half 上限约束',
+  '自定义 Clamp 与 Unity 一样从 Gamma 配置换算到线性空间',
 );
 assert(
-  resolveUnityBloomClamp(Number.NaN) === DEFAULT_BLOOM_CLAMP,
-  '非法 Clamp 安全恢复游戏默认值',
+  resolveUnityBloomClamp(Number.NaN) === HALF_FLOAT_MAX,
+  '非法 Clamp 安全恢复游戏默认值后执行相同换算',
 );
 assert(
   approximatelyEqual(
