@@ -8,6 +8,7 @@ import { createServer as createViteServer } from 'vite';
 const rootDir = resolve(import.meta.dirname, '../..');
 const FIXTURE_WIDTH = 320;
 const FIXTURE_HEIGHT = 240;
+const OPTIONAL = process.argv.includes('--optional');
 const DIRECT_CASES = [1, 2].flatMap((dpr) =>
   ['scene', 'browser-overlay'].flatMap((outputCompositing) =>
     [true, false].map((preferHdr) =>
@@ -559,108 +560,174 @@ async function runIntegration(page)
   };
 }
 
-const executablePath = findExecutable();
-
-if (!executablePath)
+async function inspectWebGPUAvailability(page)
 {
-  throw new Error('找不到用于 WebGPU 测试的 Chrome 或 Edge');
-}
-
-const port = await getAvailablePort();
-const vite = await createViteServer(
+  return page.evaluate(async () =>
   {
-    appType: 'spa',
-    clearScreen: false,
-    logLevel: 'error',
-    root: rootDir,
-    server:
+    if (!navigator.gpu)
     {
-      host: '127.0.0.1',
-      port,
-      strictPort: true,
-    },
-  },
-);
-let browser = null;
+      return { available: false, reason: '浏览器未暴露 navigator.gpu' };
+    }
 
-try
-{
-  await vite.listen();
-  browser = await chromium.launch(
+    try
     {
-      executablePath,
-      headless: true,
-      args:
-      [
-        '--disable-background-networking',
-        '--disable-extensions',
-        '--enable-unsafe-webgpu',
-        '--ignore-gpu-blocklist',
-      ],
-    },
-  );
-  const page = await browser.newPage(
-    { viewport: { width: FIXTURE_WIDTH, height: FIXTURE_HEIGHT } },
-  );
-  const browserErrors = [];
+      const adapter = await navigator.gpu.requestAdapter(
+        { powerPreference: 'high-performance' },
+      );
 
-  page.on('console', (message) =>
-  {
-    const text = message.text();
-    const expectedAdapterWarning = text.includes(
-      'powerPreference option is currently ignored',
-    );
+      if (!adapter)
+      {
+        return { available: false, reason: '浏览器未返回 WebGPU Adapter' };
+      }
 
-    if (
-      message.type() === 'error' ||
-      (message.type() === 'warning' && !expectedAdapterWarning)
-    )
+      const device = await adapter.requestDevice();
+
+      if (!device)
+      {
+        return { available: false, reason: '浏览器未返回 WebGPU Device' };
+      }
+
+      device.destroy();
+      return { available: true, reason: '' };
+    }
+    catch (error)
     {
-      browserErrors.push(text);
+      return {
+        available: false,
+        reason: String(error?.message ?? error ?? 'WebGPU 预检失败'),
+      };
     }
   });
-  page.on('pageerror', (error) => browserErrors.push(error.message));
-  await page.goto(`http://127.0.0.1:${port}/test/browser/webgpu.html`);
-  const direct = [];
-
-  for (const specification of DIRECT_CASES)
-  {
-    direct.push(await runDirectCase(page, specification));
-  }
-
-  const integration = await runIntegration(page);
-
-  if (browserErrors.length > 0)
-  {
-    throw new Error(`WebGPU 浏览器错误:\n${browserErrors.join('\n')}`);
-  }
-
-  const preferredModes = [...new Set(direct
-    .filter((_, index) => DIRECT_CASES[index].preferHdr)
-    .map((result) => result.outputMode))];
-
-  console.log(`WebGPU 浏览器矩阵通过：${direct.length} 个直接渲染场景`);
-  console.log(JSON.stringify(
-    {
-      executablePath,
-      preferredModes,
-      direct: direct.map((result, index) =>
-      ({
-        id: DIRECT_CASES[index].id,
-        outputMode: result.outputMode,
-        format: result.format,
-        sourceSize: `${result.sourceWidth}x${result.sourceHeight}`,
-        levelCount: result.stats.levelCount,
-        pixels: result.pixels,
-      })),
-      integration,
-    },
-    null,
-    2,
-  ));
 }
-finally
+
+async function main()
 {
-  await browser?.close();
-  await vite.close();
+  const executablePath = findExecutable();
+
+  if (!executablePath)
+  {
+    if (OPTIONAL)
+    {
+      console.log('跳过可选 WebGPU 浏览器测试：找不到 Chrome 或 Edge');
+      return;
+    }
+
+    throw new Error('找不到用于 WebGPU 测试的 Chrome 或 Edge');
+  }
+
+  const port = await getAvailablePort();
+  const vite = await createViteServer(
+    {
+      appType: 'spa',
+      clearScreen: false,
+      logLevel: 'error',
+      root: rootDir,
+      server:
+      {
+        host: '127.0.0.1',
+        port,
+        strictPort: true,
+      },
+    },
+  );
+  let browser = null;
+
+  try
+  {
+    await vite.listen();
+    browser = await chromium.launch(
+      {
+        executablePath,
+        headless: true,
+        args:
+        [
+          '--disable-background-networking',
+          '--disable-extensions',
+          '--enable-unsafe-webgpu',
+          '--ignore-gpu-blocklist',
+        ],
+      },
+    );
+    const page = await browser.newPage(
+      { viewport: { width: FIXTURE_WIDTH, height: FIXTURE_HEIGHT } },
+    );
+    const browserErrors = [];
+
+    page.on('console', (message) =>
+    {
+      const text = message.text();
+      const expectedAdapterWarning = text.includes(
+        'powerPreference option is currently ignored',
+      );
+
+      if (
+        message.type() === 'error' ||
+        (message.type() === 'warning' && !expectedAdapterWarning)
+      )
+      {
+        browserErrors.push(text);
+      }
+    });
+    page.on('pageerror', (error) => browserErrors.push(error.message));
+    await page.goto(`http://127.0.0.1:${port}/test/browser/webgpu.html`);
+    const availability = await inspectWebGPUAvailability(page);
+
+    if (!availability.available)
+    {
+      if (OPTIONAL)
+      {
+        console.log(
+          `跳过可选 WebGPU 浏览器测试：${availability.reason}`,
+        );
+        return;
+      }
+
+      throw new Error(`WebGPU 预检失败：${availability.reason}`);
+    }
+
+    const direct = [];
+
+    for (const specification of DIRECT_CASES)
+    {
+      direct.push(await runDirectCase(page, specification));
+    }
+
+    const integration = await runIntegration(page);
+
+    if (browserErrors.length > 0)
+    {
+      throw new Error(`WebGPU 浏览器错误:\n${browserErrors.join('\n')}`);
+    }
+
+    const preferredModes = [...new Set(direct
+      .filter((_, index) => DIRECT_CASES[index].preferHdr)
+      .map((result) => result.outputMode))];
+
+    console.log(`WebGPU 浏览器矩阵通过：${direct.length} 个直接渲染场景`);
+    console.log(JSON.stringify(
+      {
+        executablePath,
+        preferredModes,
+        direct: direct.map((result, index) =>
+        ({
+          id: DIRECT_CASES[index].id,
+          outputMode: result.outputMode,
+          format: result.format,
+          sourceSize: `${result.sourceWidth}x${result.sourceHeight}`,
+          levelCount: result.stats.levelCount,
+          pixels: result.pixels,
+        })),
+        integration,
+      },
+      null,
+      2,
+    ));
+  }
+  finally
+  {
+    await browser?.close();
+    await vite.close();
+  }
 }
+
+await main();
