@@ -1,10 +1,15 @@
 ﻿# Changelog
 
+## v1.2.18 — Unity Bloom 曝光与亮底合成修复
+
+- 修复 Bloom 强度被直接按 `1.7` 乘入 Final Pass 导致的约 13.6 倍过曝白块；与解包工程 `BaGameBloomRendererFeature.ConvertIntensity()` 保持一致，先将序列化曝光刻度换算为 `2^(Intensity / 10) - 1`，再交给 Shader 合成。完整原因、修复步骤和防回归清单见 [Bloom Intensity 13.6 倍过曝回归复盘](docs/bloom-intensity-regression.md)。
+- 恢复 `Clamp` 与 `Threshold` 相同的 CPU `GammaToLinearSpace` 路径，并在换算后按 Shader `half` 上限截断；统一纯 WebGL2、WebGL2 Bloom 与软件 Bloom 的数值合同和浏览器像素基线。
+- 为未知中高亮背景新增 `hostCompositing: 'screen'` 完整载荷合同，并将展示页“DOM Add（近似）”迁移到 Screen，使新增亮度随背景变亮自动收敛，修复 `plus-lighter` 在亮底过早饱和造成的白核与过亮光晕。
+- 保留 `plus-lighter` 供已知黑色或暗色宿主使用，保留外部 Canvas 的样式所有权，并确保激活合成参考时恢复 `source-over`，避免重复混合。
+- 增加亮底 DOM 合成像素矩阵、旧配置迁移与跨后端回归门禁；修复过程和长期维护规则见 [DOM Add 亮底过曝回归复盘](docs/dom-add-light-background-regression.md)。
+
 ## v1.2.17 — 外部 Canvas 宿主样式与透明合成稳定性
 
-- 修复 Bloom 强度被直接按 `1.7` 乘入 Final Pass 导致的过曝白块；与解包工程 `BaGameBloomRendererFeature.ConvertIntensity()` 保持一致，先将序列化曝光刻度换算为 `2^(Intensity / 10) - 1`，再交给 Shader 合成。完整原因、修复步骤和防回归清单见 [Bloom Intensity 13.6 倍过曝回归复盘](docs/bloom-intensity-regression.md)。
-- 恢复 `Clamp` 与 `Threshold` 相同的 CPU `GammaToLinearSpace` 路径，并在换算后按 Shader `half` 上限截断，避免自定义 Clamp 偏离 Unity 数值合同。
-- 统一纯 WebGL2、WebGL2 Bloom 与软件 Bloom 的强度换算，并按修复后的真实 Chromium 输出重新校准中心颜色、径向衰减和覆盖边界回归。
 - 保留外部 Canvas 调用方对 `style.mixBlendMode` 的所有权；使用 `hostCompositing: 'plus-lighter'` 时继续输出完整 Add 载荷，不再静默改写宿主样式。
 - 补充构造、运行时切换和销毁路径的外部 Canvas 样式回归，确保宿主 CSS、WebView 或原生 Add 合成可以独立接管最终显示。
 - 通过完整源代码、打包和真实 Chromium 像素回归验证透明合成后端、DPR 与回退链在本版本保持稳定。
