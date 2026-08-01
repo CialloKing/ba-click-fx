@@ -150,7 +150,7 @@ new BAClickFX(options?: {
   overlayAlphaPolicy?: 'coverage' | 'visual-max', // 覆盖层 Alpha 策略，默认 coverage
   overlayColorCompensation?: 'none' | 'bright-core', // 覆盖层颜色补偿，默认 none
   overlayAlphaLimit?: number,      // 网页覆盖层 Alpha 上限，默认 250/255
-  hostCompositing?: 'source-over' | 'plus-lighter', // 宿主合成，默认 source-over
+  hostCompositing?: 'source-over' | 'screen' | 'plus-lighter', // 宿主合成，默认 source-over
   clickEnabled?: boolean,         // 启用点击特效，默认 true
   trailEnabled?: boolean,         // 启用拖尾，默认 true
   trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
@@ -197,15 +197,20 @@ new BAClickFX(options?: {
 | `overlayColorCompensation: 'bright-core'` | 未知浅色背景的可见性近似。只按独立的清晰发射能量与 Bloom 能量补偿高能核心，不会把全部 RGB 混向白色，也不会把低能拖尾尾端变成灰白色；仍保持预乘约束 `RGB <= Alpha`，但不宣称逐像素还原 Unity |
 | `overlayAlphaLimit` | `browser-overlay + source-over` 的最终 Alpha 容量，默认 `250 / 255`，有限值钳制到 `0..1`。容量不足时预乘 RGB 等比收敛；它不改变特效 `opacity`、HDR 发射强度或 Bloom 强度 |
 | `hostCompositing: 'source-over'` | 默认宿主合同，使用以上 Alpha 策略、颜色补偿和 Alpha 上限 |
+| `hostCompositing: 'screen'` | 未知中高亮背景的独立完整载荷合同。库自有图层组使用一次 CSS `screen`，背景越亮，新增亮度越自动收敛；忽略 Alpha 策略、颜色补偿和 Alpha 上限 |
 | `hostCompositing: 'plus-lighter'` | 未知背景下的独立 Add 载荷合同。渲染器输出完整加色载荷并由宿主执行一次 `plus-lighter`，因此忽略 `overlayAlphaPolicy`、`overlayColorCompensation` 与 `overlayAlphaLimit` |
 
 旧的 `unknownBackgroundAppearance` 已从构造参数、`updateConfig()`、`getConfig()` 和类型声明中删除。颜色补偿只由 `overlayColorCompensation` 控制，Alpha 分配只由 `overlayAlphaPolicy` 控制，两者不会再通过兼容镜像隐式联动。
 
-`plus-lighter` 只是 SDR DOM 合成近似，可能在白底饱和，并受浏览器色彩管理和实现差异影响。库创建覆盖层时会在完整图层组上执行一次 `plus-lighter`；若 `target` 是调用方传入的 `<canvas>`，库只输出独立 Add 载荷，不会修改该元素的 `mix-blend-mode`，最终 CSS、WebView 或原生合成由宿主负责。要严格匹配 Unity 的 `Blend One One`、`Blend SrcAlpha One, One One` 等加色结果，宿主必须在线性 HDR Render Target 中执行 Add；仅切换 CSS 混合模式不能提供这项保证。若已激活合成参考，库会回到已知 Scene 的普通 `source-over` 最终输出，避免重复加色。
+`screen` 和 `plus-lighter` 都只是 SDR DOM 合成近似，并受浏览器色彩管理和实现差异影响。Unity 的最终画面是把背景与特效在线性 HDR 中合成后统一编码；未知桌面像素不在覆盖层进程内，因此没有任何单张透明载荷能对所有背景逐像素等价。`screen` 在黑底保留完整载荷，并在背景接近白色时自动减少增量，是展示页“DOM Add（近似）”和未知中高亮背景的推荐选择。`plus-lighter` 保留给已知黑色或暗色宿主；它把 sRGB 载荷直接相加，在亮底会提前饱和。
 
-`isolatedCompositing` 默认是 `false`，各 Canvas 直接挂载到目标容器或页面。设为 `true` 后，库拥有的主特效层、WebGL2 层和浅色背景兼容层会先在透明隔离组内解析，再将整个组覆盖到页面上，避免浏览器分别把兼容层与纯白页面合成后丢失蓝青色对比。默认 `source-over` 合同不会在外层再次使用 CSS 加色；只有显式选择独立 Add 载荷时，完整图层组才执行一次 `plus-lighter`。隔离合成是非游戏的网页白底兼容选项，可通过 `updateConfig()` 在运行时切换。
+库创建覆盖层时会在完整图层组上执行一次所选宿主混合；若 `target` 是调用方传入的 `<canvas>`，库只输出独立完整载荷，不会修改该元素的 `mix-blend-mode`，最终 CSS、WebView 或原生合成由宿主负责。要严格匹配 Unity 的 `Blend One One`、`Blend SrcAlpha One, One One` 等结果，必须提供匹配背景参考让完整 WebGL2 在线性 HDR Scene 中求值，或由宿主在线性 HDR Render Target 中执行合成。若已激活合成参考，库会回到已知 Scene 的普通 `source-over` 最终输出，避免重复混合。
 
-纯 WebGL2、WebGL2 Bloom、场景背景 Final Pass 和隔离合成都需要库拥有 DOM 覆盖层。若 `target` 是一个已有的 `<canvas>`，库无法安全插入额外的 WebGL2、对比或隔离层，因此完整特效的 `'webgl2'` / `'auto'` 会回退 `canvas2d`，Bloom 的 `'webgl2'` / `'auto'` 会回退软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回降级后的实际配置。外部 Canvas 的 CSS 所有权始终属于调用方，包括 `hostCompositing: 'plus-lighter'` 所需的最终混合样式。默认全屏覆盖层不受此限制。普通容器也可以使用，但容器必须自行建立定位上下文（通常设置 `position: relative`），库不会静默修改宿主样式。
+> 维护者注意：不要用降低 Bloom 强度来修复亮底过曝。修改宿主合成、透明载荷或亮底像素基线前，必须阅读 [DOM Add 亮底过曝回归复盘](https://github.com/CialloKing/ba-click-fx/blob/main/docs/dom-add-light-background-regression.md)。
+
+`isolatedCompositing` 默认是 `false`，各 Canvas 直接挂载到目标容器或页面。设为 `true` 后，库拥有的主特效层、WebGL2 层和浅色背景兼容层会先在透明隔离组内解析，再将整个组覆盖到页面上，避免浏览器分别把兼容层与纯白页面合成后丢失蓝青色对比。默认 `source-over` 合同不会在外层再次混合；只有显式选择独立完整载荷时，完整图层组才执行一次所选的 `screen` 或 `plus-lighter`。隔离合成是非游戏的网页白底兼容选项，可通过 `updateConfig()` 在运行时切换。
+
+纯 WebGL2、WebGL2 Bloom、场景背景 Final Pass 和隔离合成都需要库拥有 DOM 覆盖层。若 `target` 是一个已有的 `<canvas>`，库无法安全插入额外的 WebGL2、对比或隔离层，因此完整特效的 `'webgl2'` / `'auto'` 会回退 `canvas2d`，Bloom 的 `'webgl2'` / `'auto'` 会回退软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回降级后的实际配置。外部 Canvas 的 CSS 所有权始终属于调用方，包括 `hostCompositing: 'screen'` 或 `'plus-lighter'` 所需的最终混合样式。默认全屏覆盖层不受此限制。普通容器也可以使用，但容器必须自行建立定位上下文（通常设置 `position: relative`），库不会静默修改宿主样式。
 
 隔离根按 `BAClickFX` 实例独立创建和销毁。同一页面的多个隔离实例不会跨根混合内部兼容层；一个实例切换模式或销毁也不会移动、删除其他实例的 Canvas。
 
@@ -235,7 +240,7 @@ const fx = new BAClickFX(
 });
 ```
 
-若要接近 v1.2.15 的透明遮挡观感，可把 `overlayAlphaPolicy` 改为 `'visual-max'`；这只改变独立 Coverage/Bloom 传输量之间的 Alpha 分配，不会从 `maxRGB` 生成 Alpha。未知浅色桌面若更重视高能核心可见性，可另行把 `overlayColorCompensation` 改为 `'bright-core'`，无需同时改变 Alpha 策略。支持 DOM Add 的宿主也可设置 `hostCompositing: 'plus-lighter'`，但该模式会忽略 Alpha 策略、颜色补偿和 Alpha 上限，只应作为 SDR 加色近似。
+若要接近 v1.2.15 的透明遮挡观感，可把 `overlayAlphaPolicy` 改为 `'visual-max'`；这只改变独立 Coverage/Bloom 传输量之间的 Alpha 分配，不会从 `maxRGB` 生成 Alpha。未知浅色桌面若更重视高能核心可见性，可另行把 `overlayColorCompensation` 改为 `'bright-core'`，无需同时改变 Alpha 策略。支持 DOM 混合的未知亮底宿主可设置 `hostCompositing: 'screen'`；已知黑色或暗色宿主才建议使用更激进的 `'plus-lighter'`。两者都忽略 Alpha 策略、颜色补偿和 Alpha 上限，且都只是 SDR 近似。
 
 这些兼容选项的职责彼此独立：`isolatedCompositing` 只决定多张库自有 Canvas 是否先在一个透明组内合成，不读取页面或桌面像素；`lightBackgroundContrastAlpha` 只在 `scene` 输出下增加非游戏的 `darken` 轮廓，在 `browser-overlay` 下会被忽略；`setCompositingReference()` 才会把一张已知的不透明栅格参考送入渲染管线。它们不能互相替代。
 
@@ -581,7 +586,7 @@ Unity 的点击特效使用加色混合；接近白色的目标已经没有足�
 
 ### 透明桌面宿主应该使用什么配置？
 
-默认建议使用 `effectBackend: 'webgl2'`、`bloomBackend: 'webgl2'`、`outputCompositing: 'browser-overlay'`、`overlayAlphaPolicy: 'coverage'`、`overlayColorCompensation: 'none'`、`overlayAlphaLimit: 250 / 255`、`hostCompositing: 'source-over'` 和 `lightBackgroundContrastAlpha: 0`。需要 v1.2.15 风格的较低遮挡视觉近似时，仅切换 Alpha 策略为 `'visual-max'`；未知浅色背景可独立启用 `'bright-core'`，它只补偿受发射与 Bloom 能量门控的高能核心。支持 DOM Add 的宿主可改用 `'plus-lighter'`，此时 Alpha 策略、颜色补偿和 Alpha 上限都不参与输出；它仍是 SDR 近似，严格 Unity 加色必须由宿主在线性 HDR 目标中执行。宿主还应监听解析状态事件，因为 WebGL2 不可用或 Context 丢失时会进入兼容回退；回退路径保持透明度合同，但不能承诺与完整 WebGL2 的 Bloom 完全相同。
+默认建议使用 `effectBackend: 'webgl2'`、`bloomBackend: 'webgl2'`、`outputCompositing: 'browser-overlay'`、`overlayAlphaPolicy: 'coverage'`、`overlayColorCompensation: 'none'`、`overlayAlphaLimit: 250 / 255`、`hostCompositing: 'source-over'` 和 `lightBackgroundContrastAlpha: 0`。需要 v1.2.15 风格的较低遮挡视觉近似时，仅切换 Alpha 策略为 `'visual-max'`；未知浅色背景可独立启用 `'bright-core'`，它只补偿受发射与 Bloom 能量门控的高能核心。需要不压暗背景的 DOM 近似时，中高亮或变化背景使用 `'screen'`，只有黑色/暗色背景使用 `'plus-lighter'`；两者都不使用 Alpha 策略、颜色补偿和 Alpha 上限。严格 Unity 一致必须提供匹配背景参考或由宿主在线性 HDR 目标中合成。宿主还应监听解析状态事件，因为 WebGL2 不可用或 Context 丢失时会进入兼容回退；回退路径保持透明度合同，但不能承诺与完整 WebGL2 的 Bloom 完全相同。
 
 ---
 
