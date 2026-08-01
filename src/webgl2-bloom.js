@@ -162,9 +162,9 @@ void main()
 const UPSAMPLE_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
-uniform sampler2D u_high;
-uniform sampler2D u_low;
-uniform vec2 u_highTexel;
+uniform sampler2D u_accumulatedCoarse;
+uniform sampler2D u_currentFine;
+uniform vec2 u_accumulatedCoarseTexel;
 uniform float u_sampleScale;
 
 in vec2 v_uv;
@@ -182,11 +182,12 @@ vec4 sampleBox(sampler2D source, vec2 uv, vec2 offset)
 
 void main()
 {
-  vec2 offset = u_highTexel * (u_sampleScale * 0.5);
-  vec4 high = sampleBox(u_high, v_uv, offset);
-  vec4 low = texture(u_low, v_uv);
+  vec2 offset = u_accumulatedCoarseTexel * (u_sampleScale * 0.5);
+  vec4 accumulatedCoarse = sampleBox(u_accumulatedCoarse, v_uv, offset);
+  vec4 currentFine = texture(u_currentFine, v_uv);
 
-  outColor = high + low;
+  // Unity 的 lastMip 是累计粗级；必须继续四点扩散，不能与当前细级反接。
+  outColor = accumulatedCoarse + currentFine;
 }
 `;
 
@@ -1940,18 +1941,27 @@ export class WebGL2BloomRenderer
     );
   }
 
-  _renderUpsample(highLevel, lowLevel, lowTexture)
+  _renderUpsample(
+    fineLevel,
+    accumulatedCoarseLevel,
+    accumulatedCoarseTexture,
+  )
   {
     const gl = this.gl;
     const program = this.programs.upsample;
 
     gl.useProgram(program);
-    this._bindTexture(program, 'u_high', highLevel.down.texture, 0);
-    this._bindTexture(program, 'u_low', lowTexture, 1);
+    this._bindTexture(
+      program,
+      'u_accumulatedCoarse',
+      accumulatedCoarseTexture,
+      0,
+    );
+    this._bindTexture(program, 'u_currentFine', fineLevel.down.texture, 1);
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_highTexel'),
-      1 / highLevel.width,
-      1 / highLevel.height,
+      gl.getUniformLocation(program, 'u_accumulatedCoarseTexel'),
+      1 / accumulatedCoarseLevel.width,
+      1 / accumulatedCoarseLevel.height,
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_sampleScale'),
@@ -1959,12 +1969,12 @@ export class WebGL2BloomRenderer
     );
     this._drawFullscreen(
       program,
-      highLevel.up,
-      highLevel.width,
-      highLevel.height,
+      fineLevel.up,
+      fineLevel.width,
+      fineLevel.height,
     );
 
-    return highLevel.up.texture;
+    return fineLevel.up.texture;
   }
 
   _renderFinal(texture, settings)

@@ -530,57 +530,51 @@ function filterBoxCoverage(
 }
 
 function upsampleTransportAndAdd(
-  high,
-  highWidth,
-  highHeight,
-  low,
-  lowWidth,
-  lowHeight,
+  currentFine,
+  fineWidth,
+  fineHeight,
+  accumulatedCoarse,
+  coarseWidth,
+  coarseHeight,
   output,
   sampleScale,
 )
 {
-  const scaleX = lowWidth / highWidth;
-  const scaleY = lowHeight / highHeight;
+  const scaleX = coarseWidth / fineWidth;
+  const scaleY = coarseHeight / fineHeight;
   const offset = Math.max(0, sampleScale) * 0.5;
 
   output.fill(0);
 
-  for (let y = 0; y < highHeight; y++)
+  for (let y = 0; y < fineHeight; y++)
   {
-    const lowY = (y + 0.5) * scaleY - 0.5;
+    const coarseY = (y + 0.5) * scaleY - 0.5;
 
-    for (let x = 0; x < highWidth; x++)
+    for (let x = 0; x < fineWidth; x++)
     {
-      const lowX = (x + 0.5) * scaleX - 0.5;
-      let highCoverage = 0;
+      const coarseX = (x + 0.5) * scaleX - 0.5;
+      let coarseCoverage = 0;
 
       for (const offsetX of [-offset, offset])
       {
         for (const offsetY of [-offset, offset])
         {
-          highCoverage += sampleBilinearScalar(
-            high,
-            highWidth,
-            highHeight,
-            x + offsetX,
-            y + offsetY,
+          coarseCoverage += sampleBilinearScalar(
+            accumulatedCoarse,
+            coarseWidth,
+            coarseHeight,
+            coarseX + offsetX,
+            coarseY + offsetY,
           ) * 0.25;
         }
       }
 
-      const outputIndex = y * highWidth + x;
+      const outputIndex = y * fineWidth + x;
 
-      // Unity FragUpsample 使用高 mip 四点加权、低 mip 单点采样。
+      // Unity 先继续扩散累计粗级，再单点加入当前细级 Coverage。
       output[outputIndex] = Math.max(
         0,
-        highCoverage + sampleBilinearScalar(
-          low,
-          lowWidth,
-          lowHeight,
-          lowX,
-          lowY,
-        ),
+        currentFine[outputIndex] + coarseCoverage,
       );
     }
   }
@@ -811,79 +805,73 @@ export function downsampleGaussian(
 }
 
 /**
- * MXFinalBloom 反向金字塔：细层 4-tap 加权值加上粗层中心值。
+ * MXFinalBloom 反向金字塔：累计粗级 4-tap 扩散后加上当前细级中心值。
  */
 function upsampleBoxAndAdd(
-  high,
-  highWidth,
-  highHeight,
-  low,
-  lowWidth,
-  lowHeight,
+  currentFine,
+  fineWidth,
+  fineHeight,
+  accumulatedCoarse,
+  coarseWidth,
+  coarseHeight,
   output,
   sampleScale,
 )
 {
-  const scaleX = lowWidth / highWidth;
-  const scaleY = lowHeight / highHeight;
+  const scaleX = coarseWidth / fineWidth;
+  const scaleY = coarseHeight / fineHeight;
   const offset = Math.max(0, sampleScale) * 0.5;
 
   output.fill(0);
 
-  for (let y = 0; y < highHeight; y++)
+  for (let y = 0; y < fineHeight; y++)
   {
-    const lowY = (y + 0.5) * scaleY - 0.5;
+    const coarseY = (y + 0.5) * scaleY - 0.5;
 
-    for (let x = 0; x < highWidth; x++)
+    for (let x = 0; x < fineWidth; x++)
     {
-      const lowX = (x + 0.5) * scaleX - 0.5;
-      const outputIndex = (y * highWidth + x) * RGB_CHANNELS;
+      const coarseX = (x + 0.5) * scaleX - 0.5;
+      const outputIndex = (y * fineWidth + x) * RGB_CHANNELS;
+
+      // 当前细级与输出同尺寸，中心采样应保持其原始清晰能量。
+      output[outputIndex] = currentFine[outputIndex];
+      output[outputIndex + 1] = currentFine[outputIndex + 1];
+      output[outputIndex + 2] = currentFine[outputIndex + 2];
 
       for (const offsetX of [-offset, offset])
       {
         for (const offsetY of [-offset, offset])
         {
           addBilinearRgb(
-            high,
-            highWidth,
-            highHeight,
-            x + offsetX,
-            y + offsetY,
+            accumulatedCoarse,
+            coarseWidth,
+            coarseHeight,
+            coarseX + offsetX,
+            coarseY + offsetY,
             0.25,
             output,
             outputIndex,
           );
         }
       }
-
-      addBilinearRgb(
-        low,
-        lowWidth,
-        lowHeight,
-        lowX,
-        lowY,
-        1,
-        output,
-        outputIndex,
-      );
     }
   }
 
   return {
     minimumX: 0,
     minimumY: 0,
-    maximumX: highWidth - 1,
-    maximumY: highHeight - 1,
+    maximumX: fineWidth - 1,
+    maximumY: fineHeight - 1,
   };
 }
 
 export function upsampleAndMixBloom(
-  high,
-  highWidth,
-  highHeight,
-  low,
-  lowWidth,
-  lowHeight,
+  currentFine,
+  fineWidth,
+  fineHeight,
+  accumulatedCoarse,
+  coarseWidth,
+  coarseHeight,
   output,
   scatter,
   highQualityFiltering = true,
@@ -893,12 +881,12 @@ export function upsampleAndMixBloom(
 {
   // 参数名 scatter 为兼容旧 API 保留；值现表示 MXFinalBloom SampleScale。
   return upsampleBoxAndAdd(
-    high,
-    highWidth,
-    highHeight,
-    low,
-    lowWidth,
-    lowHeight,
+    currentFine,
+    fineWidth,
+    fineHeight,
+    accumulatedCoarse,
+    coarseWidth,
+    coarseHeight,
     output,
     scatter,
   );
@@ -1917,40 +1905,40 @@ export class SoftwareBloomRenderer
 
     for (let level = this.levels.length - 2; level >= 0; level--)
     {
-      const current = this.levels[level];
-      const lower = this.levels[level + 1];
+      const fineLevel = this.levels[level];
+      const accumulatedCoarseLevel = this.levels[level + 1];
 
       bloomBounds = upsampleAndMixBloom(
-        current.down,
-        current.width,
-        current.height,
+        fineLevel.down,
+        fineLevel.width,
+        fineLevel.height,
         bloom,
-        lower.width,
-        lower.height,
-        current.up,
+        accumulatedCoarseLevel.width,
+        accumulatedCoarseLevel.height,
+        fineLevel.up,
         this.sampleScale,
         true,
         activeBounds[level],
         bloomBounds,
       );
-      bloom = current.up;
+      bloom = fineLevel.up;
 
       if (transparentOverlay)
       {
-        const currentCoverage = this.coverageLevels[level];
-        const lowerCoverage = this.coverageLevels[level + 1];
+        const fineCoverageLevel = this.coverageLevels[level];
+        const accumulatedCoarseCoverageLevel = this.coverageLevels[level + 1];
 
         upsampleTransportAndAdd(
-          currentCoverage.down,
-          currentCoverage.width,
-          currentCoverage.height,
+          fineCoverageLevel.down,
+          fineCoverageLevel.width,
+          fineCoverageLevel.height,
           bloomCoverage,
-          lowerCoverage.width,
-          lowerCoverage.height,
-          currentCoverage.up,
+          accumulatedCoarseCoverageLevel.width,
+          accumulatedCoarseCoverageLevel.height,
+          fineCoverageLevel.up,
           this.sampleScale,
         );
-        bloomCoverage = currentCoverage.up;
+        bloomCoverage = fineCoverageLevel.up;
       }
     }
 

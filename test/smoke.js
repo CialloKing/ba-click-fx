@@ -896,9 +896,25 @@ if (sourceMode)
     );
     assert(
       downsampleShaderSource.includes('outColor = filtered;') &&
-        upsampleShaderSource.includes('outColor = high + low;') &&
-        !upsampleShaderSource.includes('max(clamp(high.a'),
-      `${label} Bloom RGB 与传输 Alpha 共用同一 mip 加法链`,
+        upsampleShaderSource.includes(
+          'sampleBox(u_accumulatedCoarse, v_uv, offset)',
+        ) &&
+        upsampleShaderSource.includes('texture(u_currentFine, v_uv)') &&
+        upsampleShaderSource.includes(
+          'outColor = accumulatedCoarse + currentFine;',
+        ),
+      `${label} 对累计粗级四点扩散并单点加入当前细级`,
+    );
+    assert(
+      source.includes(
+        "'u_accumulatedCoarse',\n      accumulatedCoarseTexture,",
+      ) &&
+        source.includes(
+          "this._bindTexture(program, 'u_currentFine', fineLevel.down.texture, 1);",
+        ) &&
+        source.includes('1 / accumulatedCoarseLevel.width') &&
+        source.includes('1 / accumulatedCoarseLevel.height'),
+      `${label} 上采样纹理与 texel 尺寸不会再次反接`,
     );
   }
 

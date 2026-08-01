@@ -374,34 +374,34 @@ assert(
 );
 
 console.log('\nSoftware Bloom 金字塔上采样');
-const uniformHigh = new Float32Array(4 * 4 * 3);
-const uniformLow = new Float32Array(2 * 2 * 3);
+const uniformFine = new Float32Array(4 * 4 * 3);
+const uniformAccumulatedCoarse = new Float32Array(2 * 2 * 3);
 
 for (let pixel = 0; pixel < 16; pixel++)
 {
   const offset = pixel * 3;
 
-  uniformHigh[offset] = 2;
-  uniformHigh[offset + 1] = 1;
-  uniformHigh[offset + 2] = 0.5;
+  uniformFine[offset] = 2;
+  uniformFine[offset + 1] = 1;
+  uniformFine[offset + 2] = 0.5;
 }
 
 for (let pixel = 0; pixel < 4; pixel++)
 {
   const offset = pixel * 3;
 
-  uniformLow[offset] = 6;
-  uniformLow[offset + 1] = 3;
-  uniformLow[offset + 2] = 1.5;
+  uniformAccumulatedCoarse[offset] = 6;
+  uniformAccumulatedCoarse[offset + 1] = 3;
+  uniformAccumulatedCoarse[offset + 2] = 1.5;
 }
 
-const uniformMixed = new Float32Array(uniformHigh.length);
+const uniformMixed = new Float32Array(uniformFine.length);
 
 upsampleAndMixBloom(
-  uniformHigh,
+  uniformFine,
   4,
   4,
-  uniformLow,
+  uniformAccumulatedCoarse,
   2,
   2,
   uniformMixed,
@@ -414,16 +414,16 @@ assert(
     uniformMixed.slice(0, 3),
     [8, 4, 2],
   ),
-  '反向金字塔将粗层四点均值累加到细层中心值',
+  '反向金字塔将累计粗级四点扩散后加到当前细级中心值',
 );
 
-const reusedUniformMixed = new Float32Array(uniformHigh.length).fill(7);
+const reusedUniformMixed = new Float32Array(uniformFine.length).fill(7);
 
 upsampleAndMixBloom(
-  uniformHigh,
+  uniformFine,
   4,
   4,
-  uniformLow,
+  uniformAccumulatedCoarse,
   2,
   2,
   reusedUniformMixed,
@@ -435,21 +435,21 @@ assert(
   '上采样完整覆盖复用缓冲时不受上一帧脏值影响',
 );
 
-const cornerLow = new Float32Array([
+const coarseCornerImpulse = new Float32Array([
   4, 0, 0,
   0, 0, 0,
   0, 0, 0,
   0, 0, 0,
 ]);
-const zeroHigh = new Float32Array(4 * 4 * 3);
-const bicubicMixed = new Float32Array(zeroHigh.length);
-const bilinearMixed = new Float32Array(zeroHigh.length);
+const zeroFine = new Float32Array(4 * 4 * 3);
+const bicubicMixed = new Float32Array(zeroFine.length);
+const bilinearMixed = new Float32Array(zeroFine.length);
 
 upsampleAndMixBloom(
-  zeroHigh,
+  zeroFine,
   4,
   4,
-  cornerLow,
+  coarseCornerImpulse,
   2,
   2,
   bicubicMixed,
@@ -457,10 +457,10 @@ upsampleAndMixBloom(
   true,
 );
 upsampleAndMixBloom(
-  zeroHigh,
+  zeroFine,
   4,
   4,
-  cornerLow,
+  coarseCornerImpulse,
   2,
   2,
   bilinearMixed,
@@ -472,47 +472,46 @@ assert(
   arraysApproximatelyEqual(
     [bicubicMixed[0], bicubicMixed[3], bicubicMixed[6], bicubicMixed[9]],
     [
-      4,
-      3,
-      1,
-      0,
+      2.35736346244812,
+      1.589678168296814,
+      1.4810634851455688,
+      0.7133780717849731,
     ],
   ),
-  '上采样按 Unity 顺序使用高层四点与低层单点',
+  '累计粗级按 SampleScale 四点扩散到当前细级',
 );
 assert(
   arraysApproximatelyEqual(
     [bilinearMixed[0], bilinearMixed[3], bilinearMixed[6], bilinearMixed[9]],
     [
-      4,
-      3,
-      1,
-      0,
+      2.35736346244812,
+      1.589678168296814,
+      1.4810634851455688,
+      0.7133780717849731,
     ],
   ),
-  '两种兼容过滤选项都遵守 Unity 上采样核',
+  '兼容过滤选项不会改变累计粗级四点扩散合同',
 );
 
-const highImpulse = new Float32Array(4 * 4 * 3);
-highImpulse[0] = 8;
-const highImpulseMixed = new Float32Array(highImpulse.length);
+const fineCornerImpulse = new Float32Array(4 * 4 * 3);
+fineCornerImpulse[0] = 8;
+const fineImpulseMixed = new Float32Array(fineCornerImpulse.length);
 
 upsampleAndMixBloom(
-  highImpulse,
+  fineCornerImpulse,
   4,
   4,
   new Float32Array(2 * 2 * 3),
   2,
   2,
-  highImpulseMixed,
+  fineImpulseMixed,
   1.42925835,
   true,
 );
 
 assert(
-  approximatelyEqual(highImpulseMixed[0], 3.304356336593628) &&
-    approximatelyEqual(highImpulseMixed[3], 1.8371269702911377),
-  '高 mip 四点采样使用 SampleScale 偏移',
+  fineImpulseMixed[0] === 8 && fineImpulseMixed[3] === 0,
+  '当前细级只做中心采样，不会被误当作累计粗级再次扩散',
 );
 
 console.log('\nSoftware Bloom 加色编码');
