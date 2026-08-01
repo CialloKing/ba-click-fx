@@ -17,6 +17,7 @@ import {
   isEffectBackend,
   isInputSource,
   isHostCompositing,
+  isIndependentHostCompositing,
   isOverlayAlphaPolicy,
   isOverlayColorCompensation,
   isOutputCompositing,
@@ -5768,7 +5769,7 @@ export class BAClickFX
    * @param {'coverage'|'visual-max'} [options.overlayAlphaPolicy]
    * @param {'none'|'bright-core'} [options.overlayColorCompensation]
    * @param {number} [options.overlayAlphaLimit]
-   * @param {'source-over'|'plus-lighter'} [options.hostCompositing]
+   * @param {'source-over'|'screen'|'plus-lighter'} [options.hostCompositing]
    * @param {'canvas2d'|'webgl2'|'auto'} [options.effectBackend]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
@@ -6119,24 +6120,24 @@ export class BAClickFX
       !this._hasActiveCompositingReference();
   }
 
-  _usesHostAdditivePayload()
+  _usesIndependentHostPayload()
   {
     return this._usesUnknownBrowserOverlay() &&
-      this.config.hostCompositing === 'plus-lighter';
+      isIndependentHostCompositing(this.config.hostCompositing);
   }
 
   _getEffectiveHostCompositing()
   {
-    return this._usesHostAdditivePayload()
-      ? 'plus-lighter'
+    return this._usesIndependentHostPayload()
+      ? this.config.hostCompositing
       : 'source-over';
   }
 
   _getCanvasOutputCompositing()
   {
-    // Add 宿主需要完整发射载荷，但普通 Canvas 没有 Scene Final Pass；
-    // 独立内部合同会先完成 sRGB 编码，避免 Linear 数值被 CSS 当作 sRGB。
-    return this._usesHostAdditivePayload()
+    // 独立宿主混合需要完整发射载荷，但普通 Canvas 没有 Scene Final Pass；
+    // 内部合同先完成 sRGB 编码，避免 Linear 数值被 CSS 当作 sRGB。
+    return this._usesIndependentHostPayload()
       ? 'host-additive'
       : this.config.outputCompositing;
   }
@@ -6144,7 +6145,7 @@ export class BAClickFX
   _getOverlayColorCompensation()
   {
     return this._usesUnknownBrowserOverlay() &&
-      !this._usesHostAdditivePayload()
+      !this._usesIndependentHostPayload()
       ? this.config.overlayColorCompensation
       : 'none';
   }
@@ -6152,7 +6153,7 @@ export class BAClickFX
   _getOverlayAlphaPolicy()
   {
     return this._usesUnknownBrowserOverlay() &&
-      !this._usesHostAdditivePayload()
+      !this._usesIndependentHostPayload()
       ? this.config.overlayAlphaPolicy
       : 'coverage';
   }
@@ -6184,12 +6185,12 @@ export class BAClickFX
 
   _applyCompositingMount()
   {
-    const hostAdditive = this._usesHostAdditivePayload();
+    const hostIndependent = this._usesIndependentHostPayload();
 
     if (!this.ownsCanvas)
     {
       // 外部 Canvas 的样式归调用方所有。渲染器仍按 hostCompositing 输出
-      // 完整 Add 载荷，但 CSS、WebView 或原生宿主的最终混合由调用方执行。
+      // 完整独立载荷，但 CSS、WebView 或原生宿主的混合由调用方执行。
       return;
     }
 
@@ -6199,17 +6200,20 @@ export class BAClickFX
     }
 
     const isolated = this.config.isolatedCompositing;
-    const grouped = isolated || hostAdditive;
+    const grouped = isolated || hostIndependent;
     const parent = grouped ? this.overlayRoot : this.overlayMountParent;
 
-    // 子层始终先按普通 source-over 解析；宿主 Add 只允许在完整组上执行一次。
-    this.overlayRoot.style.mixBlendMode = hostAdditive
-      ? 'plus-lighter'
+    // 子层先按普通 source-over 解析；宿主混合只允许在完整组上执行一次。
+    this.overlayRoot.style.mixBlendMode = hostIndependent
+      ? this._getEffectiveHostCompositing()
       : '';
 
     for (const canvas of this._getOverlayLayers())
     {
-      canvas.style.mixBlendMode = canvas === this.contrastCanvas && !hostAdditive
+      const contrastBlend = canvas === this.contrastCanvas &&
+        !hostIndependent;
+
+      canvas.style.mixBlendMode = contrastBlend
         ? 'darken'
         : '';
     }
@@ -7020,7 +7024,7 @@ export class BAClickFX
       drawCanvasOutput &&
       useNativeBloom &&
       this._usesUnknownBrowserOverlay() &&
-      !this._usesHostAdditivePayload() &&
+      !this._usesIndependentHostPayload() &&
       this._getOverlayAlphaPolicy() === 'visual-max';
     const drawCanvasDuringUpdate =
       drawCanvasOutput && !deferNativeVisualMaxDraw;
@@ -8844,7 +8848,7 @@ export class BAClickFX
 
     if (
       !this._usesUnknownBrowserOverlay() ||
-      this._usesHostAdditivePayload() ||
+      this._usesIndependentHostPayload() ||
       (
         overlayAlphaPolicy === 'coverage' &&
         this.config.overlayAlphaLimit >= 1
@@ -9593,7 +9597,7 @@ export class BAClickFX
     if (
       useNativeBloom &&
       this._usesUnknownBrowserOverlay() &&
-      !this._usesHostAdditivePayload() &&
+      !this._usesIndependentHostPayload() &&
       this._getOverlayAlphaPolicy() === 'visual-max'
     )
     {

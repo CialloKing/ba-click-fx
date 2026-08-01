@@ -23,6 +23,7 @@ import {
   resolveUnityBloomClamp,
   resolveUnityBloomIntensity,
 } from './bloom-color-space.js';
+import { isIndependentHostCompositing } from './config.js';
 
 const COMPONENTS_PER_VERTEX = 6;
 const COMPONENTS_PER_DISK_VERTEX = 8;
@@ -2556,7 +2557,7 @@ export class WebGL2EffectRenderer
     const gl = this.gl;
     const needsCoverageOverlay =
       settings.outputCompositing === 'browser-overlay' &&
-      settings.hostCompositing !== 'plus-lighter';
+      !isIndependentHostCompositing(settings.hostCompositing);
 
     try
     {
@@ -4028,7 +4029,7 @@ export class WebGL2EffectRenderer
     );
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_hostAdditive'),
-      settings.hostCompositing === 'plus-lighter' ? 1 : 0,
+      isIndependentHostCompositing(settings.hostCompositing) ? 1 : 0,
     );
     gl.uniform2f(
       gl.getUniformLocation(program, 'u_bloomTexel'),
@@ -4076,7 +4077,7 @@ export class WebGL2EffectRenderer
     const hasSceneOverlay = hasScene &&
       !hasBackground &&
       settings.outputCompositing === 'browser-overlay' &&
-      settings.hostCompositing !== 'plus-lighter' &&
+      !isIndependentHostCompositing(settings.hostCompositing) &&
       this.sceneOverlayFrameReady;
 
     try

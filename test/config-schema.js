@@ -14,6 +14,7 @@ import {
   UNITY_FX_TOUCH,
   createConfig,
   isHostCompositing,
+  isIndependentHostCompositing,
   isOverlayAlphaPolicy,
   isOverlayColorCompensation,
   isOverlayAlphaLimit,
@@ -235,10 +236,17 @@ check(
 );
 check(
   isHostCompositing('source-over') &&
+    isHostCompositing('screen') &&
     isHostCompositing('plus-lighter') &&
-    !isHostCompositing('screen') &&
+    !isHostCompositing('overlay') &&
     normalizeHostCompositing('invalid') === 'source-over',
-  '宿主合成只接受 source-over 与 plus-lighter',
+  '宿主合成只接受 source-over、screen 与 plus-lighter',
+);
+check(
+  !isIndependentHostCompositing('source-over') &&
+    isIndependentHostCompositing('screen') &&
+    isIndependentHostCompositing('plus-lighter'),
+  'screen 与 plus-lighter 共享独立完整载荷合同',
 );
 check(
   isOverlayAlphaLimit(0) &&
@@ -262,14 +270,14 @@ const transparentCompositingConfig = createConfig(
     overlayAlphaPolicy: 'visual-max',
     overlayColorCompensation: 'bright-core',
     overlayAlphaLimit: 2,
-    hostCompositing: 'plus-lighter',
+    hostCompositing: 'screen',
   },
 );
 const invalidTransparentCompositingConfig = createConfig(
   {
     overlayColorCompensation: 'bright',
     overlayAlphaLimit: '0.5',
-    hostCompositing: 'screen',
+    hostCompositing: 'overlay',
   },
 );
 
@@ -277,7 +285,7 @@ check(
   transparentCompositingConfig.overlayAlphaPolicy === 'visual-max' &&
     transparentCompositingConfig.overlayColorCompensation === 'bright-core' &&
     transparentCompositingConfig.overlayAlphaLimit === 1 &&
-    transparentCompositingConfig.hostCompositing === 'plus-lighter',
+    transparentCompositingConfig.hostCompositing === 'screen',
   '构造配置保留合法透明合成选项并钳制 Alpha',
 );
 check(

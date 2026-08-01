@@ -12,6 +12,7 @@ import {
   resolveUnityBloomClamp,
   resolveUnityBloomIntensity,
 } from './bloom-color-space.js';
+import { isIndependentHostCompositing } from './config.js';
 
 const COMPONENTS_PER_VERTEX = 6;
 const DISK_COMPONENTS_PER_VERTEX = 8;
@@ -2008,7 +2009,7 @@ export class WebGL2BloomRenderer
     );
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_hostAdditive'),
-      settings.hostCompositing === 'plus-lighter' ? 1 : 0,
+      isIndependentHostCompositing(settings.hostCompositing) ? 1 : 0,
     );
     gl.bindVertexArray(this.fullscreenVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);

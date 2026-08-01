@@ -193,11 +193,11 @@ fx.setPaused(true, { clear: true });</code></pre>
           <span>宿主合成</span>
           <select id="ctrlHostCompositing" class="ctrl-select" disabled>
             <option value="source-over" selected>Source-over</option>
-            <option value="plus-lighter">DOM Add（近似）</option>
+            <option value="screen">DOM Add（近似）</option>
           </select>
         </label>
         <p id="transparentCompositingNote" class="compositing-mode-note">
-          DOM Add 使用独立完整载荷，会停用 Alpha 策略、颜色补偿和 Alpha 上限；透明覆盖层策略都是浏览器视觉近似。
+          DOM Add 使用 Screen 自适应亮底，并停用 Alpha 策略、颜色补偿和 Alpha 上限；透明覆盖层策略都是浏览器视觉近似。
         </p>
       </div>
       <label class="ctrl">

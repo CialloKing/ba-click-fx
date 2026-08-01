@@ -931,7 +931,7 @@ const OVERLAY_COLOR_COMPENSATIONS = new Set([
 ]);
 const HOST_COMPOSITING_MODES = new Set([
   'source-over',
-  'plus-lighter',
+  'screen',
 ]);
 
 function syncTransparentCompositingControlState(
@@ -940,7 +940,7 @@ function syncTransparentCompositingControlState(
 )
 {
   const enabled = outputCompositing === 'browser-overlay';
-  const sourceOverEnabled = enabled && hostCompositing !== 'plus-lighter';
+  const sourceOverEnabled = enabled && hostCompositing === 'source-over';
 
   transparentCompositingControls?.classList.toggle('is-inactive', !enabled);
   transparentCompositingControls?.setAttribute(
@@ -1028,8 +1028,11 @@ function applyOverlayAlphaLimit(value)
 
 function applyHostCompositing(mode)
 {
-  const resolved = HOST_COMPOSITING_MODES.has(mode)
-    ? mode
+  // 1.2.17 早期展示页曾把 DOM Add 保存为 plus-lighter。亮底修复后将
+  // 该展示项迁移到 screen；公共 API 仍保留 plus-lighter 给暗底宿主。
+  const migratedMode = mode === 'plus-lighter' ? 'screen' : mode;
+  const resolved = HOST_COMPOSITING_MODES.has(migratedMode)
+    ? migratedMode
     : DEFAULT_HOST_COMPOSITING;
 
   if (ctrlHostCompositing)
@@ -1491,7 +1494,7 @@ const I18N = {
     labelHostCompositing: '宿主合成',
     hostCompositingSourceOver: 'Source-over',
     hostCompositingDomAdd: 'DOM Add（近似）',
-    transparentCompositingNote: 'DOM Add 使用独立完整载荷，会停用 Alpha 策略、颜色补偿和 Alpha 上限；透明覆盖层策略都是浏览器视觉近似。',
+    transparentCompositingNote: 'DOM Add 使用 Screen 自适应亮底，并停用 Alpha 策略、颜色补偿和 Alpha 上限；透明覆盖层策略都是浏览器视觉近似。',
     labelCompositingReference: '特效背景参考',
     compositingReferenceMatchPage: '匹配当前页面（精确）',
     compositingReferenceUnknown: '未知透明背景（兼容）',
@@ -1602,7 +1605,7 @@ const I18N = {
     labelHostCompositing: 'Host Compositing',
     hostCompositingSourceOver: 'Source-over',
     hostCompositingDomAdd: 'DOM Add (Approximate)',
-    transparentCompositingNote: 'DOM Add uses an independent full payload and disables the Alpha policy, color compensation, and Alpha limit; transparent-overlay policies are browser approximations.',
+    transparentCompositingNote: 'DOM Add uses Screen to adapt to light backdrops and disables the Alpha policy, color compensation, and Alpha limit; transparent-overlay policies are browser approximations.',
     labelCompositingReference: 'Effect Reference',
     compositingReferenceMatchPage: 'Current Page (Exact)',
     compositingReferenceUnknown: 'Unknown Background',
@@ -1900,7 +1903,7 @@ function switchLanguage(lang)
 
   const hostCompositingOptions = {
     'source-over': d.hostCompositingSourceOver,
-    'plus-lighter': d.hostCompositingDomAdd,
+    screen: d.hostCompositingDomAdd,
   };
 
   document.querySelectorAll('#ctrlHostCompositing option').forEach((option) =>

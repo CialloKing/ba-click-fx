@@ -18,7 +18,11 @@ const OUTPUT_COMPOSITING_MODES = new Set([
 ]);
 const DEFAULT_OVERLAY_ALPHA_LIMIT = 250 / 255;
 const DEFAULT_HOST_COMPOSITING = 'source-over';
-const HOST_COMPOSITING_MODES = new Set(['source-over', 'plus-lighter']);
+const HOST_COMPOSITING_MODES = new Set([
+  'source-over',
+  'screen',
+  'plus-lighter',
+]);
 const DEFAULT_OVERLAY_ALPHA_POLICY = 'coverage';
 const DEFAULT_OVERLAY_COLOR_COMPENSATION = 'none';
 
@@ -1083,6 +1087,15 @@ export function normalizeOverlayAlphaLimit(
 export function isHostCompositing(value)
 {
   return HOST_COMPOSITING_MODES.has(value);
+}
+
+/**
+ * Screen 与 plus-lighter 都消费不受 Coverage Alpha 策略约束的完整载荷；
+ * 区别只发生在宿主背景参与的最后一次 CSS/原生合成。
+ */
+export function isIndependentHostCompositing(value)
+{
+  return value === 'screen' || value === 'plus-lighter';
 }
 
 export function normalizeHostCompositing(

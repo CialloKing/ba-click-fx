@@ -10,8 +10,11 @@ declare module 'ba-click-fx'
   export type BAClickFXOverlayAlphaPolicy = 'coverage' | 'visual-max';
   /** 未知背景颜色不补偿，或仅补偿高能核心。 */
   export type BAClickFXOverlayColorCompensation = 'none' | 'bright-core';
-  /** 宿主使用普通覆盖，或由 DOM 执行一次 SDR 加色近似。 */
-  export type BAClickFXHostCompositing = 'source-over' | 'plus-lighter';
+  /** 宿主使用普通覆盖，或由 DOM 执行一次 SDR 亮度近似。 */
+  export type BAClickFXHostCompositing =
+    | 'source-over'
+    | 'screen'
+    | 'plus-lighter';
   export type BAClickFXEffectBackend = 'canvas2d' | 'webgl2' | 'auto';
   export type BAClickFXResolvedEffectBackend =
     Exclude<BAClickFXEffectBackend, 'auto'> | 'pending';
@@ -83,14 +86,15 @@ declare module 'ba-click-fx'
     /**
      * browser-overlay + source-over 的最终 Alpha 上限。有限值钳制到 0..1，
      * 默认 250/255；与 opacity、HDR 发射和 Bloom 强度相互独立。
-     * hostCompositing 为 'plus-lighter' 时忽略此项。
+     * hostCompositing 为 'screen' 或 'plus-lighter' 时忽略此项。
      */
     overlayAlphaLimit?: number;
     /**
-     * 覆盖层与宿主的合成方式，默认 'source-over'。'plus-lighter' 使用独立
-     * Add 载荷；库自有覆盖层会由 DOM 执行 SDR 近似，外部 Canvas 的样式
-     * 不会被修改，调用方必须完成最终混合。严格 Unity 一致要求宿主在线性
-     * HDR 目标中执行 Add。已激活已知合成参考时实际输出恢复 source-over。
+     * 覆盖层与宿主的合成方式，默认 'source-over'。'screen' 与
+     * 'plus-lighter' 使用独立完整载荷；screen 会随亮底收敛，plus-lighter
+     * 保留暗底激进加色。库自有覆盖层会由 DOM 执行 SDR 近似，外部 Canvas
+     * 的样式不会被修改，调用方必须完成最终混合。严格 Unity 一致要求宿主
+     * 在线性 HDR 目标中执行 Add。已激活已知合成参考时恢复 source-over。
      */
     hostCompositing?: BAClickFXHostCompositing;
     clickEnabled?: boolean;

@@ -2783,6 +2783,13 @@ const additiveOverlayFrame = captureTransparentSoftwareFrame(
     overlayAlphaLimit: 0.2,
   },
 );
+const screenOverlayFrame = captureTransparentSoftwareFrame(
+  1,
+  {
+    hostCompositing: 'screen',
+    overlayAlphaLimit: 0.2,
+  },
+);
 
 assert(
   halfOverlayFrame.coverageModes.every((mode) =>
@@ -2843,7 +2850,18 @@ assert(
       operation === 'lighter') &&
     additiveOverlayFrame.clearPayloadPeak >
       limitedOverlayFrame.clearPayloadPeak,
-  '宿主 Add 在单一合成根执行一次并输出不受 Alpha 上限压缩的 sRGB 载荷',
+  'plus-lighter 在单一合成根执行一次并输出不受 Alpha 上限压缩的载荷',
+);
+assert(
+  screenOverlayFrame.compositeSettings?.hostCompositing === 'screen' &&
+    screenOverlayFrame.canvasOutputCompositing === 'host-additive' &&
+    screenOverlayFrame.rootBlendMode === 'screen' &&
+    screenOverlayFrame.canvasParentIsRoot &&
+    screenOverlayFrame.mainCompositeOperations.every((operation) =>
+      operation === 'lighter') &&
+    screenOverlayFrame.clearPayloadPeak ===
+      additiveOverlayFrame.clearPayloadPeak,
+  'screen 复用完整独立载荷并只在合成根改变亮底混合公式',
 );
 
 function captureHostAdditiveFallback(renderingMode)
@@ -2939,7 +2957,7 @@ compositingSwitchEffect.updateConfig(
   {
     overlayColorCompensation: 'bright',
     overlayAlphaLimit: Number.NaN,
-    hostCompositing: 'screen',
+    hostCompositing: 'multiply',
   },
 );
 assert(

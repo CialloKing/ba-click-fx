@@ -4,6 +4,7 @@ import {
   resolveUnityBloomClamp,
   resolveUnityBloomIntensity,
 } from './bloom-color-space.js';
+import { isIndependentHostCompositing } from './config.js';
 
 const RGB_CHANNELS = 3;
 const RGBA_CHANNELS = 4;
@@ -923,7 +924,7 @@ export function encodeAdditiveBloom(
   const transparentOverlay =
     options?.outputCompositing === 'browser-overlay';
   const hostAdditive = transparentOverlay &&
-    options?.hostCompositing === 'plus-lighter';
+    isIndependentHostCompositing(options?.hostCompositing);
   const brightUnknownBackground = transparentOverlay &&
     !hostAdditive &&
     options?.overlayColorCompensation === 'bright-core';
@@ -2033,7 +2034,7 @@ export class SoftwareBloomRenderer
 
     if (
       transparentOverlay &&
-      settings.hostCompositing !== 'plus-lighter' &&
+      !isIndependentHostCompositing(settings.hostCompositing) &&
       settings.enforceOverlayAlphaLimit === true
     )
     {
