@@ -408,6 +408,31 @@ fn fragmentFinal(input: FullscreenOutput) -> @location(0) vec4f
     0.0,
   ).rgb;
 
+  if (params.extendedOutput != 0u && params.hasBackground != 0u)
+  {
+    let difference = abs(linear - sampledBackground);
+
+    if (max(max(difference.r, difference.g), difference.b) <= 0.00001)
+    {
+      return vec4f(0.0);
+    }
+
+    let channelAlpha = vec3f(
+      solveOverlayAlpha(sampledBackground.r, linear.r),
+      solveOverlayAlpha(sampledBackground.g, linear.g),
+      solveOverlayAlpha(sampledBackground.b, linear.b),
+    );
+    let alpha = clamp(
+      max(max(channelAlpha.r, channelAlpha.g), channelAlpha.b),
+      0.0,
+      1.0,
+    );
+    let premultiplied = linear - sampledBackground * (1.0 - alpha);
+
+    // 扩展 Canvas 允许预乘 RGB 超过 1；这样已知背景反解也不会压掉 HDR 高光。
+    return vec4f(max(premultiplied, vec3f(0.0)), alpha);
+  }
+
   if (params.hasBackground != 0u)
   {
     let backgroundSrgb = linearToSrgb3(sampledBackground);

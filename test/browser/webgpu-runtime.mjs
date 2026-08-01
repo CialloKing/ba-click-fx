@@ -176,6 +176,7 @@ try
 
     canvas.width = 320;
     canvas.height = 240;
+    canvas.dataset.test = 'direct-webgpu';
     document.body.appendChild(canvas);
     const renderer = new WebGPUEffectRenderer(canvas);
     const ready = await renderer.ready;
@@ -258,12 +259,99 @@ try
   }
 
   await page.waitForTimeout(100);
-  const canvas = page.locator('canvas');
+  const canvas = page.locator('canvas[data-test="direct-webgpu"]');
   const pixels = await decodeScreenshot(page, await canvas.screenshot());
 
   if (pixels.visiblePixels < 100 || pixels.maximum < 32)
   {
     throw new Error(`WebGPU Canvas 像素为空: ${JSON.stringify(pixels)}`);
+  }
+
+  const integration = await page.evaluate(async () =>
+  {
+    const { BAClickFX } = await import('/src/fx.js');
+    const changes = [];
+    const effect = new BAClickFX(
+      {
+        effectBackend: 'webgpu',
+        inputSource: 'manual',
+        maxDpr: 1,
+      },
+    );
+
+    effect.canvas.addEventListener(
+      'baclickfxeffectbackendchange',
+      (event) => changes.push(event.detail.resolvedEffectBackend),
+    );
+    effect.boom(160, 120);
+    const deadline = performance.now() + 4000;
+
+    while (
+      effect.getConfig().resolvedEffectBackend === 'pending' &&
+      performance.now() < deadline
+    )
+    {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    }
+
+    const config = effect.getConfig();
+    const initial =
+    {
+      requested: config.effectBackend,
+      resolvedEffectBackend: config.resolvedEffectBackend,
+      resolvedBloomBackend: config.resolvedBloomBackend,
+      resolvedWebGPUOutputMode: config.resolvedWebGPUOutputMode,
+      outputMode: effect.webgpuEffectRenderer?.deviceManager.outputMode,
+      visible: effect.webgpuEffectVisible,
+      changes,
+    };
+
+    effect.webgpuEffectRenderer.device.destroy();
+    const fallbackDeadline = performance.now() + 4000;
+
+    while (
+      effect.getConfig().resolvedEffectBackend !== 'webgl2' &&
+      performance.now() < fallbackDeadline
+    )
+    {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    }
+
+    const fallbackConfig = effect.getConfig();
+    const fallback =
+    {
+      resolvedEffectBackend: fallbackConfig.resolvedEffectBackend,
+      resolvedBloomBackend: fallbackConfig.resolvedBloomBackend,
+      resolvedWebGPUOutputMode: fallbackConfig.resolvedWebGPUOutputMode,
+      webglVisible: effect.webglEffectVisible,
+      changes: [...changes],
+    };
+
+    effect.destroy();
+    return { initial, fallback };
+  });
+
+  if (
+    integration.initial.requested !== 'webgpu' ||
+    integration.initial.resolvedEffectBackend !== 'webgpu' ||
+    integration.initial.resolvedBloomBackend !== 'webgpu' ||
+    integration.initial.resolvedWebGPUOutputMode !==
+      integration.initial.outputMode ||
+    !integration.initial.visible
+  )
+  {
+    throw new Error(`BAClickFX WebGPU 路由错误: ${JSON.stringify(integration)}`);
+  }
+
+  if (
+    integration.fallback.resolvedEffectBackend !== 'webgl2' ||
+    integration.fallback.resolvedBloomBackend !== 'webgl2' ||
+    integration.fallback.resolvedWebGPUOutputMode !== 'unavailable' ||
+    !integration.fallback.webglVisible ||
+    integration.fallback.changes.join(',') !== 'webgpu,pending,webgl2'
+  )
+  {
+    throw new Error(`WebGPU Device 丢失回退错误: ${JSON.stringify(integration)}`);
   }
 
   if (browserErrors.length > 0)
@@ -272,7 +360,7 @@ try
   }
 
   console.log('WebGPU Chromium 运行测试通过');
-  console.log(JSON.stringify({ ...result, pixels }, null, 2));
+  console.log(JSON.stringify({ ...result, pixels, integration }, null, 2));
 }
 finally
 {

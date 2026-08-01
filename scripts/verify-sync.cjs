@@ -771,7 +771,7 @@ verify(
   '引擎支持运行时切换隔离与直接合成',
 );
 verify(
-  /const hasDedicatedSceneOutput =[\s\S]*?useWebGLClickEffects \|\| useWebGL2Bloom \|\| canvasSceneRendered/.test(engineJs) &&
+  /const hasDedicatedSceneOutput =[\s\S]*?useGpuClickEffects \|\| useWebGL2Bloom \|\| canvasSceneRendered/.test(engineJs) &&
     /_renderLightBackgroundContrast\([\s\S]*?useSoftwareBloom && !hasDedicatedSceneOutput/.test(engineJs),
   'GPU 与场景 Final Pass 成功时仍按几何重建纯白对比遮罩',
 );

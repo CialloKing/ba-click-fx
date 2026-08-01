@@ -37,6 +37,7 @@ export class WebGPUCanvasDevice
     this.status = 'pending';
     this.outputMode = 'unconfigured';
     this.canvasFormat = null;
+    this.preferHdr = null;
     this.failure = null;
     this.ready = this._initialize();
   }
@@ -126,6 +127,7 @@ export class WebGPUCanvasDevice
 
       this.outputMode = 'unconfigured';
       this.canvasFormat = null;
+      this.preferHdr = null;
       this._setStatus('lost', info ?? new Error('WebGPU Device 已丢失'));
     });
   }
@@ -169,11 +171,17 @@ export class WebGPUCanvasDevice
 
     const preferHdr = options.preferHdr !== false;
 
+    if (this.outputMode !== 'unconfigured' && this.preferHdr === preferHdr)
+    {
+      return true;
+    }
+
     if (preferHdr)
     {
       try
       {
         this._configureExtended();
+        this.preferHdr = preferHdr;
         return true;
       }
       catch
@@ -185,12 +193,14 @@ export class WebGPUCanvasDevice
     try
     {
       this._configureStandard();
+      this.preferHdr = preferHdr;
       return true;
     }
     catch (error)
     {
       this.outputMode = 'unconfigured';
       this.canvasFormat = null;
+      this.preferHdr = null;
       this.failure = error;
       return false;
     }
@@ -228,5 +238,6 @@ export class WebGPUCanvasDevice
     this.device = null;
     this.outputMode = 'unconfigured';
     this.canvasFormat = null;
+    this.preferHdr = null;
   }
 }

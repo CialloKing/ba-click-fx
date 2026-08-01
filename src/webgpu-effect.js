@@ -1513,8 +1513,9 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
 
   releaseFrameResources()
   {
-    this.beginFrame();
     this.clear();
+    this._deleteTargets();
+    this.beginFrame();
   }
 
   destroy()

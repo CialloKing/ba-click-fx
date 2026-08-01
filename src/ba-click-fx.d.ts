@@ -19,9 +19,13 @@ declare module 'ba-click-fx'
     'canvas2d' | 'webgl2' | 'webgpu' | 'auto';
   export type BAClickFXResolvedEffectBackend =
     Exclude<BAClickFXEffectBackend, 'auto'> | 'pending';
+  /** WebGPU Canvas 的实际输出协商结果；extended 才代表 HDR 超白输出。 */
+  export type BAClickFXWebGPUOutputMode =
+    'extended' | 'standard' | 'pending' | 'unavailable';
   export type BAClickFXBloomBackend = 'auto' | 'software' | 'webgl2' | 'native';
   export type BAClickFXResolvedBloomBackend =
-    Exclude<BAClickFXBloomBackend, 'auto'> | 'legacy' | 'pending';
+    Exclude<BAClickFXBloomBackend, 'auto'> |
+    'webgpu' | 'legacy' | 'pending';
   export type BAClickFXRenderingMode = 'enhanced' | 'legacy';
 
   export interface BAClickFXBackendChangeDetail
@@ -178,6 +182,8 @@ declare module 'ba-click-fx'
   {
     /** 最近一次解析的完整特效后端；首次 Scene 提交和恢复验证期间可为 'pending'。 */
     readonly resolvedEffectBackend: BAClickFXResolvedEffectBackend;
+    /** WebGPU 可用不等于 HDR；只有 extended 会保留超过 SDR 白色的线性值。 */
+    readonly resolvedWebGPUOutputMode: BAClickFXWebGPUOutputMode;
     /** 最近一次解析的实际后端；WebGL2/auto 首次延迟探测前为 'pending'。 */
     readonly resolvedBloomBackend: BAClickFXResolvedBloomBackend;
     readonly unity: UnityFxTouchConfig;

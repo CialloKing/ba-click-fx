@@ -117,6 +117,10 @@ check(
     extendedFixture.configureCalls[0]?.toneMapping?.mode === 'extended',
   '优先配置 rgba16float extended HDR 输出',
 );
+check(
+  extended.configure() && extendedFixture.configureCalls.length === 1,
+  '相同输出偏好不会每帧重复配置 Canvas',
+);
 
 console.log('\nWebGPU SDR 回退');
 const standardFixture = createFixture({ rejectExtended: true });

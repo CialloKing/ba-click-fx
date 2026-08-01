@@ -44,6 +44,7 @@ import {
   applyOverlayAlphaPolicyToImageData,
 } from './overlay-compositing.js';
 import { WebGL2EffectRenderer } from './webgl2-effect.js';
+import { WebGPUEffectRenderer } from './webgpu-effect.js';
 import { WebGL2CanvasSceneRenderer } from './webgl2-canvas-scene.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
 import {
@@ -5881,6 +5882,10 @@ export class BAClickFX
     this.webglEffectRenderer = null;
     this.webglEffectUnavailable = false;
     this.webglEffectVisible = false;
+    this.webgpuEffectCanvas = null;
+    this.webgpuEffectRenderer = null;
+    this.webgpuEffectUnavailable = false;
+    this.webgpuEffectVisible = false;
     this.canvasSceneCanvas = null;
     this.canvasSceneRenderer = null;
     this.canvasSceneUnavailable = false;
@@ -6089,6 +6094,7 @@ export class BAClickFX
       this.canvas,
       this.webglBloomCanvas,
       this.webglEffectCanvas,
+      this.webgpuEffectCanvas,
       this.canvasSceneCanvas,
       this.contrastCanvas,
     ]
@@ -6103,6 +6109,9 @@ export class BAClickFX
     }
 
     return (
+      this.webgpuEffectVisible &&
+      this.webgpuEffectRenderer?.hasSceneBackground === true
+    ) || (
       this.webglEffectVisible &&
       this.webglEffectRenderer?.hasSceneBackground === true
     ) || (
@@ -6976,17 +6985,18 @@ export class BAClickFX
     this._advanceTrailTime(now);
     const scale = this._getScale();
     const legacy = this._isLegacy;
-    let useWebGLClickEffects = this._prepareWebGLEffectBackend();
+    let effectBackend = this._prepareEffectBackend();
+    let useGpuClickEffects = effectBackend !== null;
     let bloomBackend = legacy
       ? 'legacy'
-      : useWebGLClickEffects
-        ? 'webgl2'
+      : useGpuClickEffects
+        ? effectBackend
         : this._resolveBloomBackend();
     this._setResolvedBloomBackend(bloomBackend);
 
     if (
       !legacy &&
-      !useWebGLClickEffects &&
+      !useGpuClickEffects &&
       this.resolvedBloomBackend !== bloomBackend
     )
     {
@@ -6999,13 +7009,13 @@ export class BAClickFX
     // Legacy 本身就是 Canvas 阴影路径，不能因不属于增强后端而关闭圆盘辉光。
     let useNativeBloom = legacy || bloomBackend === 'native';
     const useCanvasScene = this._prepareCanvasSceneBackend(
-      useWebGLClickEffects,
+      useGpuClickEffects,
       bloomBackend,
       legacy,
     );
     const reuseCachedSoftwareBloom =
       !legacy &&
-      !useWebGLClickEffects &&
+      !useGpuClickEffects &&
       bloomBackend === 'native' &&
       !useCanvasScene &&
       this._hasCachedSoftwareBloomFrame(scale);
@@ -7019,7 +7029,7 @@ export class BAClickFX
     // WebGL2 Bloom 已复用完整 Scene Renderer。成功路径无需先栅格一份
     // 随后会被隐藏的 Canvas；GPU 当帧失败时再由回退路径补画即可。
     const drawCanvasOutput =
-      !useWebGLClickEffects && !useCanvasScene && !useWebGL2Bloom;
+      !useGpuClickEffects && !useCanvasScene && !useWebGL2Bloom;
     const deferNativeVisualMaxDraw =
       drawCanvasOutput &&
       useNativeBloom &&
@@ -7032,9 +7042,10 @@ export class BAClickFX
 
     this.lastFrameTime = now;
 
-    if (!useWebGLClickEffects)
+    if (!useGpuClickEffects)
     {
       this._setWebGLEffectVisible(false);
+      this._setWebGPUEffectVisible(false);
     }
 
     if (!useCanvasScene)
@@ -7049,7 +7060,7 @@ export class BAClickFX
       }
     }
 
-    this._setWebGLBloomVisible(!useWebGLClickEffects && useWebGL2Bloom);
+    this._setWebGLBloomVisible(!useGpuClickEffects && useWebGL2Bloom);
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
     // 推入当前实例的主题色偏移，渲染完成后清空，保证多实例安全
@@ -7073,7 +7084,7 @@ export class BAClickFX
         useNativeBloom,
         legacy,
         drawCanvasDuringUpdate,
-        useWebGLClickEffects || useWebGL2Bloom,
+        useGpuClickEffects || useWebGL2Bloom,
       );
       this._updateWaves(
         this.clickTimeMs,
@@ -7088,13 +7099,19 @@ export class BAClickFX
         drawCanvasDuringUpdate,
       );
 
-      if (useWebGLClickEffects)
+      if (useGpuClickEffects)
       {
-        if (!this._renderWebGL2ClickEffects(scale))
+        if (!this._renderGPUClickEffects(effectBackend, scale))
         {
-          useWebGLClickEffects = false;
-          this._setResolvedEffectBackend('canvas2d');
+          const failedBackend = effectBackend;
+
+          useGpuClickEffects = false;
+          effectBackend = null;
+          this._setResolvedEffectBackend(
+            failedBackend === 'webgpu' ? 'pending' : 'canvas2d',
+          );
           this._setWebGLEffectVisible(false);
+          this._setWebGPUEffectVisible(false);
           bloomBackend = this._resolveBloomBackend();
           useSoftwareBloom = bloomBackend === 'software';
           useWebGL2Bloom = bloomBackend === 'webgl2';
@@ -7119,8 +7136,9 @@ export class BAClickFX
         {
           // Scene 与 Bloom 都成功写入默认帧缓冲后才切换可见层，
           // 避免初始化或失败回退时暴露空白、旧帧或半成品帧。
-          this._setWebGLEffectVisible(true);
-          this._setResolvedEffectBackend('webgl2');
+          this._setWebGLEffectVisible(effectBackend === 'webgl2');
+          this._setWebGPUEffectVisible(effectBackend === 'webgpu');
+          this._setResolvedEffectBackend(effectBackend);
         }
       }
       else
@@ -7161,7 +7179,7 @@ export class BAClickFX
       if (!legacy)
       {
         const hasDedicatedSceneOutput =
-          useWebGLClickEffects || useWebGL2Bloom || canvasSceneRendered;
+          useGpuClickEffects || useWebGL2Bloom || canvasSceneRendered;
 
         // GPU 与场景 Final Pass 不会保留可复用的主 Canvas 遮罩；对比层
         // 必须按同一帧几何重绘，否则纯白隔离合成会在成功后端上失去轮廓。
@@ -7185,7 +7203,7 @@ export class BAClickFX
         }
       }
       else if (
-        !useWebGLClickEffects &&
+        !useGpuClickEffects &&
         useSoftwareBloom &&
         this._hasVisibleEffects()
       )
@@ -7193,14 +7211,14 @@ export class BAClickFX
         this._renderSoftwareBloom(scale);
       }
       else if (
-        !useWebGLClickEffects &&
+        !useGpuClickEffects &&
         useWebGL2Bloom &&
         this._hasVisibleEffects()
       )
       {
         this._renderWebGL2Bloom(scale);
       }
-      else if (!useWebGLClickEffects && useWebGL2Bloom)
+      else if (!useGpuClickEffects && useWebGL2Bloom)
       {
         this.webglBloomRenderer?.clear();
       }
@@ -7246,11 +7264,33 @@ export class BAClickFX
       this.config.renderingMode === 'legacy' ||
       requested === 'canvas2d' ||
       !this.ownsCanvas ||
-      !this.overlayParent ||
-      this.webglEffectUnavailable
+      !this.overlayParent
     )
     {
       return 'canvas2d';
+    }
+
+    if (requested === 'webgpu' || requested === 'auto')
+    {
+      if (
+        this.webgpuEffectVisible &&
+        this.webgpuEffectRenderer?.available
+      )
+      {
+        return 'webgpu';
+      }
+
+      if (
+        !this.webgpuEffectUnavailable &&
+        (
+          !this.webgpuEffectRenderer ||
+          this.webgpuEffectRenderer.status === 'pending' ||
+          this.webgpuEffectRenderer.status === 'ready'
+        )
+      )
+      {
+        return 'pending';
+      }
     }
 
     if (
@@ -7262,6 +7302,7 @@ export class BAClickFX
     }
 
     if (
+      this.webglEffectUnavailable ||
       this.webglEffectRenderer &&
       (
         !this.webglEffectRenderer.available ||
@@ -7285,6 +7326,22 @@ export class BAClickFX
 
     const requested = normalizeBloomBackend(this.config.bloomBackend);
     const fallback = this.bloomRenderer?.available ? 'software' : 'native';
+
+    if (
+      this.webgpuEffectVisible &&
+      this.webgpuEffectRenderer?.available
+    )
+    {
+      return 'webgpu';
+    }
+
+    if (
+      this.webglEffectVisible &&
+      this.webglEffectRenderer?.available
+    )
+    {
+      return 'webgl2';
+    }
 
     if (requested === 'native')
     {
@@ -7396,6 +7453,238 @@ export class BAClickFX
     {
       // 状态通知不能中断特效渲染；极旧 DOM 实现仍可通过 getConfig() 查询。
     }
+  }
+
+  _handleWebGPUEffectStateChange(renderer, status)
+  {
+    if (this.destroyed || renderer !== this.webgpuEffectRenderer)
+    {
+      return;
+    }
+
+    const requested = normalizeEffectBackend(this.config.effectBackend);
+
+    if (status === 'ready')
+    {
+      this.webgpuEffectUnavailable = false;
+
+      if (
+        this.config.renderingMode !== 'legacy' &&
+        (requested === 'webgpu' || requested === 'auto')
+      )
+      {
+        // Device 就绪不等于首帧已提交；可见性仍由完整 Scene 成功后切换。
+        this._setResolvedEffectBackend('pending');
+        this._requestRender();
+      }
+
+      return;
+    }
+
+    if (status !== 'lost' && status !== 'unavailable')
+    {
+      return;
+    }
+
+    const wasVisible = this.webgpuEffectVisible;
+
+    this.webgpuEffectUnavailable = true;
+    this._setWebGPUEffectVisible(false);
+
+    if (wasVisible && (this.paused || !this.renderingFrame))
+    {
+      const fallbackBackend = this.bloomRenderer.available
+        ? 'software'
+        : 'native';
+
+      this._restoreCanvasOutputAfterContextLoss(fallbackBackend);
+    }
+    else
+    {
+      this._setCanvasOutputVisible(true);
+    }
+
+    // WebGPU 失败后仍有 WebGL2 探测阶段，不能提前宣称最终 Canvas 回退。
+    this._setResolvedEffectBackend(this._getRequestedEffectBackendState());
+    this._setResolvedBloomBackend(this._getRequestedBloomBackendState());
+    this._requestRender();
+  }
+
+  _ensureWebGPUEffectRenderer()
+  {
+    if (this.webgpuEffectRenderer)
+    {
+      return this.webgpuEffectRenderer.available;
+    }
+
+    if (
+      this.webgpuEffectUnavailable ||
+      !this.ownsCanvas ||
+      !this.overlayParent
+    )
+    {
+      return false;
+    }
+
+    const canvas = createCanvas();
+
+    setOverlayStyle(
+      canvas,
+      !this.host && !this.config.isolatedCompositing,
+      '2147483646',
+      '',
+    );
+    // Adapter/Device 初始化是异步的；旧输出必须保留到首个完整帧提交成功。
+    canvas.style.display = 'none';
+    this.overlayParent.appendChild(canvas);
+    let renderer = null;
+
+    try
+    {
+      renderer = new WebGPUEffectRenderer(
+        canvas,
+        {
+          onStateChange: (status, candidate) =>
+            this._handleWebGPUEffectStateChange(candidate, status),
+        },
+      );
+      const compositingReference = this.compositingReferenceSource;
+
+      if (
+        compositingReference !== null &&
+        !renderer.setCompositingReference(
+          compositingReference,
+          { fit: this.compositingReferenceFit },
+        )
+      )
+      {
+        throw new Error('WebGPU 无法接入当前合成参考');
+      }
+    }
+    catch (error)
+    {
+      console.warn('[BAClickFX] WebGPU 创建失败:', error);
+      this.webgpuEffectUnavailable = true;
+      renderer?.destroy();
+      canvas.remove();
+      return false;
+    }
+
+    this.webgpuEffectCanvas = canvas;
+    this.webgpuEffectRenderer = renderer;
+    return renderer.available;
+  }
+
+  _resizeWebGPUEffectRenderer()
+  {
+    return !!this.webgpuEffectRenderer?.resize(
+      this.width,
+      this.height,
+      this.dpr,
+      this.fxConfig.bloom.resolutionScale,
+      this.fxConfig.bloom.diffusion,
+    );
+  }
+
+  _prepareWebGPUEffectBackend()
+  {
+    const ready = this._ensureWebGPUEffectRenderer() &&
+      this._resizeWebGPUEffectRenderer();
+
+    if (ready)
+    {
+      if (this.resolvedEffectBackend !== 'webgpu')
+      {
+        this._setResolvedEffectBackend('pending');
+      }
+
+      return true;
+    }
+
+    if (
+      this.webgpuEffectRenderer?.status === 'pending' ||
+      this.webgpuEffectRenderer?.status === 'ready'
+    )
+    {
+      this._setResolvedEffectBackend('pending');
+    }
+
+    return false;
+  }
+
+  _prepareEffectBackend()
+  {
+    const requested = normalizeEffectBackend(this.config.effectBackend);
+
+    if (
+      this.config.renderingMode === 'legacy' ||
+      requested === 'canvas2d'
+    )
+    {
+      this._setResolvedEffectBackend('canvas2d');
+      return null;
+    }
+
+    if (requested === 'webgpu' || requested === 'auto')
+    {
+      if (this._prepareWebGPUEffectBackend())
+      {
+        return 'webgpu';
+      }
+
+      if (
+        !this.webgpuEffectUnavailable &&
+        this.webgpuEffectRenderer?.status === 'pending'
+      )
+      {
+        return null;
+      }
+    }
+
+    return this._prepareWebGLEffectBackend() ? 'webgl2' : null;
+  }
+
+  _setWebGPUEffectVisible(visible)
+  {
+    if (!this.webgpuEffectCanvas)
+    {
+      const changed = this.webgpuEffectVisible;
+
+      this.webgpuEffectVisible = false;
+
+      if (changed)
+      {
+        this._requestCompositingMountRefresh();
+      }
+
+      return;
+    }
+
+    if (this.webgpuEffectVisible === visible)
+    {
+      return;
+    }
+
+    this.webgpuEffectVisible = visible;
+    this.webgpuEffectCanvas.style.display = visible ? '' : 'none';
+
+    if (!visible)
+    {
+      this.webgpuEffectRenderer?.clear();
+    }
+
+    this._requestCompositingMountRefresh();
+  }
+
+  _destroyWebGPUEffectRenderer()
+  {
+    const renderer = this.webgpuEffectRenderer;
+
+    this.webgpuEffectRenderer = null;
+    this.webgpuEffectCanvas?.remove();
+    this.webgpuEffectCanvas = null;
+    this.webgpuEffectVisible = false;
+    renderer?.destroy();
   }
 
   _handleWebGLContextLost()
@@ -7848,10 +8137,10 @@ export class BAClickFX
     );
   }
 
-  _prepareCanvasSceneBackend(useWebGLClickEffects, bloomBackend, legacy)
+  _prepareCanvasSceneBackend(useGpuClickEffects, bloomBackend, legacy)
   {
     if (
-      useWebGLClickEffects ||
+      useGpuClickEffects ||
       (!legacy && bloomBackend !== 'native') ||
       !this._hasCompositingReference()
     )
@@ -8112,6 +8401,7 @@ export class BAClickFX
 
   _invalidateSceneBackgroundOutputs()
   {
+    this._setWebGPUEffectVisible(false);
     this._setWebGLEffectVisible(false);
     this._setWebGLBloomVisible(false);
     this._setCanvasSceneVisible(false);
@@ -8132,9 +8422,11 @@ export class BAClickFX
   {
     // 配置事务已经选择了新的渲染链；先撤下所有旧输出，再释放仅与
     // 画布尺寸绑定的目标。下一帧只会为实际接管输出的后端重新分配。
+    this._setWebGPUEffectVisible(false);
     this._setWebGLEffectVisible(false);
     this._setWebGLBloomVisible(false);
     this._setCanvasSceneVisible(false);
+    this.webgpuEffectRenderer?.releaseFrameResources();
     this.webglEffectRenderer?.releaseFrameResources();
     this.webglBloomRenderer?.releaseFrameResources();
     this.canvasSceneRenderer?.releaseFrameResources();
@@ -8143,14 +8435,14 @@ export class BAClickFX
 
   _releaseBloomBackendFrameResources()
   {
-    // 纯 WebGL2 已接管完整 Scene 时，Bloom 配置只是回退策略，不能
+    // 完整 GPU Scene 已接管时，Bloom 配置只是回退策略，不能
     // 为它释放当前 Effect 目标；这里只清理 Canvas 回退链的帧资源。
     this._setWebGLBloomVisible(false);
     this._setCanvasSceneVisible(false);
     this.webglBloomRenderer?.releaseFrameResources();
     this.canvasSceneRenderer?.releaseFrameResources();
 
-    if (!this.webglEffectVisible)
+    if (!this.webglEffectVisible && !this.webgpuEffectVisible)
     {
       this._setCanvasOutputVisible(true);
     }
@@ -8853,6 +9145,7 @@ export class BAClickFX
         overlayAlphaPolicy === 'coverage' &&
         this.config.overlayAlphaLimit >= 1
       ) ||
+      this.webgpuEffectVisible ||
       this.webglEffectVisible ||
       this.webglBloomVisible ||
       this.canvasSceneVisible ||
@@ -9468,6 +9761,17 @@ export class BAClickFX
   _renderWebGL2ClickEffects(scale)
   {
     return this._renderWebGL2Scene(this.webglEffectRenderer, scale);
+  }
+
+  _renderGPUClickEffects(backend, scale)
+  {
+    if (backend === 'webgl2')
+    {
+      // 保留既有故障注入和宿主诊断钩子，不改变 WebGL2 可观察调用面。
+      return this._renderWebGL2ClickEffects(scale);
+    }
+
+    return this._renderWebGL2Scene(this.webgpuEffectRenderer, scale);
   }
 
   _clearLightBackgroundContrast()
@@ -10373,11 +10677,30 @@ export class BAClickFX
 
     if (effectRouteChanged)
     {
+      if (
+        previousEffectBackend !== this.config.effectBackend &&
+        (this.config.effectBackend === 'webgpu' ||
+          this.config.effectBackend === 'auto') &&
+        (
+          this.webgpuEffectRenderer?.status === 'lost' ||
+          this.webgpuEffectRenderer?.status === 'unavailable'
+        )
+      )
+      {
+        // Device 丢失不可恢复；重新选择 WebGPU 时允许申请全新设备。
+        this._destroyWebGPUEffectRenderer();
+        this.webgpuEffectUnavailable = false;
+      }
+
       this._releaseBackendFrameResources();
       this._setResolvedEffectBackend(this._getRequestedEffectBackendState());
       this._setResolvedBloomBackend(this._getRequestedBloomBackendState());
     }
-    else if (bloomRouteChanged && this.resolvedEffectBackend !== 'webgl2')
+    else if (
+      bloomRouteChanged &&
+      this.resolvedEffectBackend !== 'webgl2' &&
+      this.resolvedEffectBackend !== 'webgpu'
+    )
     {
       this._releaseBloomBackendFrameResources();
       this._setResolvedBloomBackend(this._getRequestedBloomBackendState());
@@ -10538,6 +10861,7 @@ export class BAClickFX
     this.context.clearRect(0, 0, this.width, this.height);
     this.contrastContext?.clearRect(0, 0, this.width, this.height);
     this.webglBloomRenderer?.clear();
+    this.webgpuEffectRenderer?.clear();
     this.webglEffectRenderer?.clear();
     this.canvasSceneRenderer?.clear();
     this._flushCompositingMountRefresh();
@@ -10557,6 +10881,15 @@ export class BAClickFX
   )
   {
     const entries = [
+      {
+        name: 'WebGPU',
+        renderer: this.webgpuEffectRenderer,
+        discard: () =>
+        {
+          this._setWebGPUEffectVisible(false);
+          this._destroyWebGPUEffectRenderer();
+        },
+      },
       {
         name: '纯 WebGL2',
         renderer: this.webglEffectRenderer,
@@ -10656,7 +10989,7 @@ export class BAClickFX
   }
 
   /**
-   * 为 WebGL2 Scene 提供特效下方的真实不透明栅格参考；调用方负责解码与 CORS。
+   * 为 GPU Scene 提供特效下方的真实不透明栅格参考；调用方负责解码与 CORS。
    * 资源对象不进入 getConfig()，避免配置快照持有宿主 DOM 生命周期。
    */
   setCompositingReference(source, options = {})
@@ -10680,7 +11013,8 @@ export class BAClickFX
 
     const previousSource = this.compositingReferenceSource;
     const previousFit = this.compositingReferenceFit;
-    const invalidatesVisibleOutput = this.webglEffectVisible ||
+    const invalidatesVisibleOutput = this.webgpuEffectVisible ||
+      this.webglEffectVisible ||
       this.webglBloomVisible ||
       this.canvasSceneVisible;
 
@@ -10704,6 +11038,7 @@ export class BAClickFX
     if (source !== null)
     {
       // 显式提供新参考后，允许此前单次上传失败的候选后端重新尝试。
+      this.webgpuEffectUnavailable = false;
       this.webglEffectUnavailable = false;
       this.webglBloomUnavailable = false;
       this.canvasSceneUnavailable = false;
@@ -10732,8 +11067,44 @@ export class BAClickFX
       ...this.config,
       resolvedEffectBackend: this.resolvedEffectBackend,
       resolvedBloomBackend: this.resolvedBloomBackend,
+      resolvedWebGPUOutputMode: this._getResolvedWebGPUOutputMode(),
       unity: structuredClone(UNITY_FX_TOUCH),
     };
+  }
+
+  _getResolvedWebGPUOutputMode()
+  {
+    const renderer = this.webgpuEffectRenderer;
+
+    if (renderer?.deviceManager.outputMode === 'extended')
+    {
+      return 'extended';
+    }
+
+    if (renderer?.deviceManager.outputMode === 'standard')
+    {
+      return 'standard';
+    }
+
+    if (renderer?.status === 'pending' || renderer?.status === 'ready')
+    {
+      return 'pending';
+    }
+
+    const requested = normalizeEffectBackend(this.config.effectBackend);
+
+    if (
+      !this.webgpuEffectUnavailable &&
+      this.config.renderingMode !== 'legacy' &&
+      this.ownsCanvas &&
+      this.overlayParent &&
+      (requested === 'webgpu' || requested === 'auto')
+    )
+    {
+      return 'pending';
+    }
+
+    return 'unavailable';
   }
 
   destroy()
@@ -10762,6 +11133,7 @@ export class BAClickFX
     }
 
     this._destroyWebGLBloomRenderer();
+    this._destroyWebGPUEffectRenderer();
     this._destroyWebGLEffectRenderer();
     this._destroyCanvasSceneRenderer();
 
