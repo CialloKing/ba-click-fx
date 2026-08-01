@@ -3506,10 +3506,10 @@ async function runDemoPureWhiteIsolationSmoke(browserInstance, baseUrl)
 
         effect.boom(370, 330);
 
-        for (let frame = 0; frame < 3; frame++)
-        {
-          await new Promise((resolve) => requestAnimationFrame(resolve));
-        }
+        // boom() 会先登记引擎 RAF，因此探针 RAF 返回时首个完整帧已经提交。
+        // 不跨越更多帧：软件 WebGL 首帧较慢时，额外 RAF 的真实时间可能
+        // 已超过 600–700ms 的 Unity 粒子寿命，反而会把有效遮罩等到清空。
+        await new Promise((resolve) => requestAnimationFrame(resolve));
 
         const image = effect.contrastContext.getImageData(
           0,
