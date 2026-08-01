@@ -1436,7 +1436,8 @@ const explicitEffectBackendConfig = createConfig(
     bloomBackend: 'native',
   },
 );
-const invalidEffectBackendConfig = createConfig({ effectBackend: 'webgpu' });
+const webgpuEffectBackendConfig = createConfig({ effectBackend: 'webgpu' });
+const invalidEffectBackendConfig = createConfig({ effectBackend: 'metal' });
 const directCompositingConfig = createConfig({ isolatedCompositing: false });
 const invalidCompositingConfig = createConfig({ isolatedCompositing: 'yes' });
 const manualInputConfig = createConfig(
@@ -1479,8 +1480,9 @@ assert(
 );
 assert(
   explicitEffectBackendConfig.effectBackend === 'webgl2' &&
+    webgpuEffectBackendConfig.effectBackend === 'webgpu' &&
     invalidEffectBackendConfig.effectBackend === CONFIG.effectBackend,
-  'createConfig 保留显式纯 WebGL2 并忽略无效完整特效后端',
+  'createConfig 保留显式 WebGL2/WebGPU 并忽略无效完整特效后端',
 );
 assert(
   directCompositingConfig.isolatedCompositing === false &&

@@ -15,7 +15,8 @@ declare module 'ba-click-fx'
     | 'source-over'
     | 'screen'
     | 'plus-lighter';
-  export type BAClickFXEffectBackend = 'canvas2d' | 'webgl2' | 'auto';
+  export type BAClickFXEffectBackend =
+    'canvas2d' | 'webgl2' | 'webgpu' | 'auto';
   export type BAClickFXResolvedEffectBackend =
     Exclude<BAClickFXEffectBackend, 'auto'> | 'pending';
   export type BAClickFXBloomBackend = 'auto' | 'software' | 'webgl2' | 'native';
@@ -107,7 +108,7 @@ declare module 'ba-click-fx'
     clickTimeScale?: number;
     /** 拖尾衰减和拖尾碎片的时间倍率，必须有限且不小于 0.01。默认 1。 */
     trailTimeScale?: number;
-    /** 完整特效后端；默认 'webgl2'，未就绪或丢失时安全回退 Canvas2D。 */
+    /** 完整特效后端；默认 'webgl2'，WebGPU/WebGL2 不可用时安全回退 Canvas2D。 */
     effectBackend?: BAClickFXEffectBackend;
     /** 渲染模式：'enhanced'（默认，完整 Bloom）或 'legacy'（Unity 材质主体 + Canvas shadowBlur）。 */
     renderingMode?: BAClickFXRenderingMode;

@@ -5770,7 +5770,7 @@ export class BAClickFX
    * @param {'none'|'bright-core'} [options.overlayColorCompensation]
    * @param {number} [options.overlayAlphaLimit]
    * @param {'source-over'|'screen'|'plus-lighter'} [options.hostCompositing]
-   * @param {'canvas2d'|'webgl2'|'auto'} [options.effectBackend]
+   * @param {'canvas2d'|'webgl2'|'webgpu'|'auto'} [options.effectBackend]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
    * @param {boolean} [options.softwareBloomEnabled]

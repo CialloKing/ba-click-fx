@@ -7,7 +7,7 @@ const SHARD_UNIT_TO_REFERENCE_PIXELS =
   WORLD_TO_REFERENCE_PIXELS * SHARD_LOCAL_SCALE;
 const RING_MESH_OUTER_RADIUS = 1.0636684;
 const DEFAULT_EFFECT_BACKEND = 'webgl2';
-const EFFECT_BACKENDS = new Set(['canvas2d', 'webgl2', 'auto']);
+const EFFECT_BACKENDS = new Set(['canvas2d', 'webgl2', 'webgpu', 'auto']);
 const DEFAULT_BLOOM_BACKEND = 'webgl2';
 const BLOOM_BACKENDS = new Set(['auto', 'software', 'webgl2', 'native']);
 const INPUT_SOURCES = new Set(['dom', 'manual']);
