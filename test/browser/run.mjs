@@ -73,6 +73,7 @@ const metrics =
   trailContextLifecycle: {},
   trailTextureResourceLifecycle: {},
   transparentCompositingTransitions: {},
+  hostCompositingAccuracy: null,
   transparentContractContextLifecycle: {},
   transparentContractFailureChains: {},
   iifeSmoke: null,
@@ -882,8 +883,8 @@ function validateTransparentContractTransitions(mode, phases)
   );
 
   assert(
-    additiveFull.config.hostCompositing === 'plus-lighter' &&
-      additiveFull.mount.overlayRootBlendMode === 'plus-lighter' &&
+    additiveFull.config.hostCompositing === 'screen' &&
+      additiveFull.mount.overlayRootBlendMode === 'screen' &&
       additiveFull.mount.overlayRootConnected &&
       hasPixelOutput(additiveHalf.pixels.transparent) &&
       hasPixelOutput(additiveFull.pixels.transparent) &&
@@ -895,7 +896,7 @@ function validateTransparentContractTransitions(mode, phases)
         additiveFull.pixels.transparent.meanAlpha &&
       additiveHalf.pixels.transparent.meanEnergy <
         additiveFull.pixels.transparent.meanEnergy,
-    `${mode}: Host Add 没有保持透明度单调或挂载 plus-lighter`,
+    `${mode}: DOM Add 没有保持透明度单调或挂载 screen`,
     {
       half: additiveHalf,
       full: additiveFull,
@@ -1041,8 +1042,7 @@ function validateTransparentContractContext(mode, lifecycle, expected)
     {
       assert(
         lifecycle[phase].transparent.maximumAlpha <= 0.7 + 1 / 255 &&
-          lifecycle.compositing[phase].overlayRootBlendMode !==
-            'plus-lighter',
+          lifecycle.compositing[phase].overlayRootBlendMode === '',
         `${mode}: ${expected.name} Context ${phase} 越过 Alpha 上限`,
         {
           compositing: lifecycle.compositing[phase],
@@ -1068,11 +1068,11 @@ function validateTransparentContractContext(mode, lifecycle, expected)
 
     assert(
       hasPixelOutput(pixels) &&
-        compositing.hostCompositing === 'plus-lighter' &&
-        compositing.overlayRootBlendMode === 'plus-lighter' &&
+        compositing.hostCompositing === expected.hostCompositing &&
+        compositing.overlayRootBlendMode === expected.hostCompositing &&
         compositing.overlayRootConnected &&
         relativeDifference(before.meanEnergy, pixels.meanEnergy) <= 0.35,
-      `${mode}: Host Add Context ${phase} 出现空白或载荷突跳`,
+      `${mode}: ${expected.name} Context ${phase} 出现空白或载荷突跳`,
       {
         before,
         compositing,
@@ -2255,10 +2255,35 @@ async function compareScreenshotBuffers(page, left, right)
       let maximumRedDrop = 0;
       let redDropSum = 0;
       let chromaticChangedPixels = 0;
+      let rgbAbsoluteDeltaSum = 0;
+      let leftWhiteCorePixels = 0;
+      let rightWhiteCorePixels = 0;
+      let targetRgbAbsoluteDeltaSum = 0;
+      let targetPositiveRgbDeltaSum = 0;
+      let targetNegativeRgbDeltaSum = 0;
+      let targetChangedPixels = 0;
+      let targetHighDeltaPixels = 0;
+      let targetLeftWhiteCorePixels = 0;
+      let targetRightWhiteCorePixels = 0;
+      let targetLeftSaturatedPixels = 0;
+      let targetRightSaturatedPixels = 0;
+      const targetX = Math.round(leftImage.width * 16 / 352);
+      const targetY = Math.round(leftImage.height * 16 / 272);
+      const targetWidth = Math.round(leftImage.width * 320 / 352);
+      const targetHeight = Math.round(leftImage.height * 240 / 272);
+      const targetPixelCount = targetWidth * targetHeight;
 
       for (let offset = 0; offset < leftImage.data.length; offset += 4)
       {
         let pixelChanged = false;
+        let maximumPixelRgbDelta = 0;
+        const pixelIndex = offset / 4;
+        const pixelX = pixelIndex % leftImage.width;
+        const pixelY = Math.floor(pixelIndex / leftImage.width);
+        const insideTarget = pixelX >= targetX &&
+          pixelX < targetX + targetWidth &&
+          pixelY >= targetY &&
+          pixelY < targetY + targetHeight;
 
         for (let channel = 0; channel < 4; channel++)
         {
@@ -2271,6 +2296,22 @@ async function compareScreenshotBuffers(page, left, right)
 
           if (channel < 3)
           {
+            rgbAbsoluteDeltaSum += delta;
+            maximumPixelRgbDelta = Math.max(maximumPixelRgbDelta, delta);
+
+            if (insideTarget)
+            {
+              targetRgbAbsoluteDeltaSum += delta;
+              targetPositiveRgbDeltaSum += Math.max(
+                0,
+                rightValue - leftValue,
+              );
+              targetNegativeRgbDeltaSum += Math.max(
+                0,
+                leftValue - rightValue,
+              );
+            }
+
             const channelDrop = Math.max(0, leftValue - rightValue);
 
             maximumChannelDrop = Math.max(
@@ -2292,6 +2333,58 @@ async function compareScreenshotBuffers(page, left, right)
 
         maximumRedDrop = Math.max(maximumRedDrop, redDrop);
         redDropSum += redDrop;
+
+        if (
+          leftImage.data[offset] >= 250 &&
+          leftImage.data[offset + 1] >= 250 &&
+          leftImage.data[offset + 2] >= 250
+        )
+        {
+          leftWhiteCorePixels++;
+        }
+
+        if (
+          rightImage.data[offset] >= 250 &&
+          rightImage.data[offset + 1] >= 250 &&
+          rightImage.data[offset + 2] >= 250
+        )
+        {
+          rightWhiteCorePixels++;
+        }
+
+        if (insideTarget)
+        {
+          targetChangedPixels += pixelChanged ? 1 : 0;
+          targetHighDeltaPixels += maximumPixelRgbDelta >= 32 ? 1 : 0;
+          targetLeftWhiteCorePixels +=
+            leftImage.data[offset] >= 250 &&
+            leftImage.data[offset + 1] >= 250 &&
+            leftImage.data[offset + 2] >= 250
+              ? 1
+              : 0;
+          targetRightWhiteCorePixels +=
+            rightImage.data[offset] >= 250 &&
+            rightImage.data[offset + 1] >= 250 &&
+            rightImage.data[offset + 2] >= 250
+              ? 1
+              : 0;
+          targetLeftSaturatedPixels +=
+            Math.max(
+              leftImage.data[offset],
+              leftImage.data[offset + 1],
+              leftImage.data[offset + 2],
+            ) >= 250
+              ? 1
+              : 0;
+          targetRightSaturatedPixels +=
+            Math.max(
+              rightImage.data[offset],
+              rightImage.data[offset + 1],
+              rightImage.data[offset + 2],
+            ) >= 250
+              ? 1
+              : 0;
+        }
 
         if (pixelChanged)
         {
@@ -2354,9 +2447,35 @@ async function compareScreenshotBuffers(page, left, right)
           maximumChannelDrop,
           maximumChannelIncrease,
           maximumRedDrop,
+          meanAbsoluteRgbError:
+            rgbAbsoluteDeltaSum /
+            Math.max(1, leftImage.width * leftImage.height * 3),
           pixelCount: leftImage.width * leftImage.height,
+          rgbAbsoluteDeltaSum,
+          leftWhiteCorePixels,
+          rightWhiteCorePixels,
           channelDropSum,
           redDropSum,
+          target:
+          {
+            changedPixels: targetChangedPixels,
+            highDeltaPixels: targetHighDeltaPixels,
+            leftSaturatedPixels: targetLeftSaturatedPixels,
+            leftWhiteCorePixels: targetLeftWhiteCorePixels,
+            meanAbsoluteRgbError:
+              targetRgbAbsoluteDeltaSum /
+              Math.max(1, targetPixelCount * 3),
+            meanNegativeRgbDelta:
+              targetNegativeRgbDeltaSum /
+              Math.max(1, targetPixelCount * 3),
+            meanPositiveRgbDelta:
+              targetPositiveRgbDeltaSum /
+              Math.max(1, targetPixelCount * 3),
+            pixelCount: targetPixelCount,
+            rgbAbsoluteDeltaSum: targetRgbAbsoluteDeltaSum,
+            rightSaturatedPixels: targetRightSaturatedPixels,
+            rightWhiteCorePixels: targetRightWhiteCorePixels,
+          },
         }
       );
     },
@@ -3947,14 +4066,20 @@ async function runTransparentCompositingTransitions(page, mode)
 
   phases.additiveZero = await transition(
     {
-      hostCompositing: 'plus-lighter',
+      hostCompositing: 'screen',
       opacity: 0,
     },
   );
   const baselineScreenshots = {};
   const additiveScreenshots = {};
 
-  for (const background of ['black', 'white', 'color', 'checker'])
+  for (const background of [
+    'black',
+    'white',
+    'color',
+    'light-color',
+    'checker',
+  ])
   {
     await transition({ background });
     baselineScreenshots[background] = await captureContrastScreenshot(page);
@@ -3972,7 +4097,13 @@ async function runTransparentCompositingTransitions(page, mode)
     },
   );
 
-  for (const background of ['black', 'white', 'color', 'checker'])
+  for (const background of [
+    'black',
+    'white',
+    'color',
+    'light-color',
+    'checker',
+  ])
   {
     await transition({ background });
     additiveScreenshots[background] = await captureContrastScreenshot(page);
@@ -3980,7 +4111,13 @@ async function runTransparentCompositingTransitions(page, mode)
 
   const hostAddDifferences = {};
 
-  for (const background of ['black', 'white', 'color', 'checker'])
+  for (const background of [
+    'black',
+    'white',
+    'color',
+    'light-color',
+    'checker',
+  ])
   {
     const difference = await compareScreenshotBuffers(
       page,
@@ -4067,6 +4204,173 @@ async function runTransparentCompositingTransitions(page, mode)
       page,
       visualMaxFullWhiteScreenshot,
     ),
+  };
+}
+
+async function runHostCompositingAccuracy(page)
+{
+  const begin = (input) => page.evaluate(
+    (specification) =>
+      window.browserPixelSuite.beginTransparentContractTransitions(
+        specification,
+      ),
+    input,
+  );
+  const transition = (input) => page.evaluate(
+    (specification) =>
+      window.browserPixelSuite.transitionTransparentContract(specification),
+    input,
+  );
+  const unknownZeroPhase = await begin(
+    {
+      mode: 'full-webgl2',
+      opacity: 0,
+      background: 'light-color',
+      includeTrail: false,
+      isolatedCompositing: true,
+      overlayAlphaPolicy: 'coverage',
+      overlayAlphaLimit: 1,
+      overlayColorCompensation: 'none',
+      hostCompositing: 'screen',
+    },
+  );
+  const unknownZeroScreenshot = await captureContrastScreenshot(page);
+  const knownZeroPhase = await page.evaluate(
+    () => window.browserPixelSuite.setTransparentContractReference(
+      'light-color',
+    ),
+  );
+  const knownZeroScreenshot = await captureContrastScreenshot(page);
+  const zeroReferenceMatch = await compareScreenshotBuffers(
+    page,
+    unknownZeroScreenshot,
+    knownZeroScreenshot,
+  );
+
+  await page.evaluate(
+    () => window.browserPixelSuite.setTransparentContractReference(null),
+  );
+  const screenPhase = await transition(
+    {
+      hostCompositing: 'screen',
+      opacity: 1,
+    },
+  );
+  const screenScreenshot = await captureContrastScreenshot(page);
+  const plusLighterPhase = await transition(
+    { hostCompositing: 'plus-lighter' },
+  );
+  const plusLighterScreenshot = await captureContrastScreenshot(page);
+  const knownScenePhase = await page.evaluate(
+    () => window.browserPixelSuite.setTransparentContractReference(
+      'light-color',
+    ),
+  );
+  const knownSceneScreenshot = await captureContrastScreenshot(page);
+  const screenToScene = await compareScreenshotBuffers(
+    page,
+    knownSceneScreenshot,
+    screenScreenshot,
+  );
+  const plusLighterToScene = await compareScreenshotBuffers(
+    page,
+    knownSceneScreenshot,
+    plusLighterScreenshot,
+  );
+  const screenToPlusLighter = await compareScreenshotBuffers(
+    page,
+    screenScreenshot,
+    plusLighterScreenshot,
+  );
+  const screenIncrement = await compareScreenshotBuffers(
+    page,
+    unknownZeroScreenshot,
+    screenScreenshot,
+  );
+  const lifecycle = JSON.stringify(screenPhase.lifecycle);
+
+  assert(
+    unknownZeroPhase.config.opacity === 0 &&
+      knownZeroPhase.config.opacity === 0 &&
+      knownZeroPhase.reference.renderingActive &&
+      zeroReferenceMatch.maximumChannelDelta <= 1 &&
+      zeroReferenceMatch.target.meanAbsoluteRgbError <= 0.01,
+    '已知 Scene 参考与 CSS 亮灰基线不匹配',
+    {
+      knownZero: knownZeroPhase,
+      unknownZero: unknownZeroPhase,
+      zeroReferenceMatch,
+    },
+  );
+  assert(
+    screenPhase.config.hostCompositing === 'screen' &&
+      screenPhase.mount.overlayRootBlendMode === 'screen' &&
+      screenPhase.route.effect === 'webgl2' &&
+      !screenPhase.reference.sourceKnown &&
+      !screenPhase.reference.renderingActive &&
+      plusLighterPhase.config.hostCompositing === 'plus-lighter' &&
+      plusLighterPhase.mount.overlayRootBlendMode === 'plus-lighter' &&
+      !plusLighterPhase.reference.sourceKnown &&
+      !plusLighterPhase.reference.renderingActive &&
+      knownScenePhase.config.outputCompositing === 'scene' &&
+      knownScenePhase.mount.overlayRootBlendMode === '' &&
+      knownScenePhase.reference.active &&
+      knownScenePhase.reference.renderingActive &&
+      knownScenePhase.route.effect === 'webgl2' &&
+      lifecycle === JSON.stringify(plusLighterPhase.lifecycle) &&
+      lifecycle === JSON.stringify(knownScenePhase.lifecycle),
+    '亮底三路对照没有保持同一帧或正确合成合同',
+    {
+      knownScene: knownScenePhase,
+      plusLighter: plusLighterPhase,
+      screen: screenPhase,
+    },
+  );
+  assert(
+    screenToPlusLighter.maximumChannelDrop <= 1 &&
+      screenToPlusLighter.channelDropSum <= 4 &&
+      screenToPlusLighter.maximumChannelIncrease >= 8 &&
+      screenToPlusLighter.target.rightWhiteCorePixels >=
+        screenToPlusLighter.target.leftWhiteCorePixels * 2,
+    'Screen 没有抑制 plus-lighter 在亮底上的额外饱和',
+    screenToPlusLighter,
+  );
+  assert(
+    screenToScene.rgbAbsoluteDeltaSum <
+      plusLighterToScene.rgbAbsoluteDeltaSum * 0.4 &&
+      screenToScene.meanAbsoluteRgbError <
+        plusLighterToScene.meanAbsoluteRgbError * 0.4 &&
+      screenToScene.target.meanAbsoluteRgbError <= 0.35,
+    'Screen 在亮底上没有比 plus-lighter 更接近 Unity 已知 Scene',
+    {
+      plusLighterToScene,
+      screenToScene,
+    },
+  );
+  assert(
+    screenIncrement.target.meanPositiveRgbDelta >= 0.55 &&
+      screenIncrement.target.meanPositiveRgbDelta <= 0.85 &&
+      screenIncrement.target.highDeltaPixels >= 500 &&
+      screenIncrement.target.highDeltaPixels <= 700 &&
+      screenIncrement.target.rightWhiteCorePixels >= 60 &&
+      screenIncrement.target.rightWhiteCorePixels <= 130 &&
+      screenIncrement.target.rightSaturatedPixels >= 400 &&
+      screenIncrement.target.rightSaturatedPixels <= 560,
+    'Screen 亮底输出偏离已验收的强度与饱和面积',
+    screenIncrement.target,
+  );
+
+  return {
+    knownZero: await summarizeScreenshot(page, knownZeroScreenshot),
+    knownScene: await summarizeScreenshot(page, knownSceneScreenshot),
+    plusLighter: await summarizeScreenshot(page, plusLighterScreenshot),
+    plusLighterToScene,
+    screen: await summarizeScreenshot(page, screenScreenshot),
+    screenIncrement,
+    screenToPlusLighter,
+    screenToScene,
+    unknownZero: await summarizeScreenshot(page, unknownZeroScreenshot),
+    zeroReferenceMatch,
   };
 }
 
@@ -4229,6 +4533,10 @@ async function runMatrix(browserInstance, baseUrl, baseline)
         metrics.transparentCompositingTransitions[mode] =
           await runTransparentCompositingTransitions(page, mode);
       }
+
+      currentLabel = 'full-webgl2__host-compositing-accuracy';
+      metrics.hostCompositingAccuracy =
+        await runHostCompositingAccuracy(page);
 
       for (const mode of modeNames)
       {
@@ -4654,7 +4962,13 @@ async function runMatrix(browserInstance, baseUrl, baseline)
         hostCompositing: 'source-over',
       },
       {
-        name: 'host-add',
+        name: 'dom-add',
+        overlayAlphaPolicy: 'coverage',
+        overlayColorCompensation: 'none',
+        hostCompositing: 'screen',
+      },
+      {
+        name: 'host-plus-lighter',
         overlayAlphaPolicy: 'coverage',
         overlayColorCompensation: 'none',
         hostCompositing: 'plus-lighter',

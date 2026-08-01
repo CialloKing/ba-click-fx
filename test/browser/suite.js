@@ -191,6 +191,11 @@ function applyBackground(target, background)
   {
     target.style.backgroundColor = '#4a7f62';
   }
+  else if (background === 'light-color')
+  {
+    // 接近用户截图中桌面的中高亮灰，用于暴露 SDR Add 提前饱和。
+    target.style.backgroundColor = '#b8b8b8';
+  }
   else if (background === 'checker')
   {
     target.style.backgroundColor = '#fff';
@@ -320,6 +325,13 @@ function paintCaptureBackground(context, background, width, height, dpr)
   if (background === 'color')
   {
     context.fillStyle = '#4a7f62';
+    context.fillRect(0, 0, width, height);
+    return;
+  }
+
+  if (background === 'light-color')
+  {
+    context.fillStyle = '#b8b8b8';
     context.fillRect(0, 0, width, height);
     return;
   }
@@ -761,14 +773,14 @@ function summarizePixels(imageData, dpr)
   };
 }
 
-function createCompositingReference()
+function createCompositingReference(background = 'checker')
 {
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
 
   canvas.width = 32;
   canvas.height = 32;
-  paintCaptureBackground(context, 'checker', 32, 32, 1);
+  paintCaptureBackground(context, background, 32, 32, 1);
   return canvas;
 }
 
@@ -1135,6 +1147,11 @@ function captureTransparentContractPhase(effect, target)
       overlayRootBlendMode: effect.overlayRoot?.style.mixBlendMode ?? '',
       overlayRootConnected: effect.overlayRoot?.isConnected === true,
     },
+    reference:
+    {
+      renderingActive: effect._hasActiveCompositingReference(),
+      sourceKnown: effect.compositingReferenceSource !== null,
+    },
     outside: capture.pixels.outside,
     pixels: capture.pixels,
     trailProfile: activeFixture?.specification.straightTrailProbe
@@ -1201,6 +1218,46 @@ async function transitionTransparentContract(specification = {})
   // 使用相同虚拟时间重绘，模式切换不能借生命周期推进掩盖亮度跳变。
   await runAnimationFrame(activeFixture.sampleTimeMs);
   return captureTransparentContractPhase(effect, activeFixture.target);
+}
+
+async function setTransparentContractReference(background = null)
+{
+  if (!activeFixture)
+  {
+    throw new Error('透明合同热切换夹具尚未建立');
+  }
+
+  const effect = activeFixture.effect;
+  const reference = background === null
+    ? null
+    : createCompositingReference(background);
+  const accepted = effect.setCompositingReference(
+    reference,
+    { fit: 'cover' },
+  );
+
+  // 已知参考真值使用游戏 Scene 合同；相同虚拟时间保证三路截图只改变合成。
+  effect.updateConfig(
+    {
+      outputCompositing: background === null
+        ? 'browser-overlay'
+        : 'scene',
+    },
+  );
+  await runAnimationFrame(activeFixture.sampleTimeMs);
+
+  return {
+    ...captureTransparentContractPhase(effect, activeFixture.target),
+    reference:
+    {
+      accepted,
+      active: reference !== null &&
+        effect.compositingReferenceSource === reference,
+      renderingActive: reference !== null &&
+        effect._hasActiveCompositingReference(),
+      sourceKnown: effect.compositingReferenceSource !== null,
+    },
+  };
 }
 
 function waitForCanvasEvent(canvas, eventName, timeoutMs = 5000)
@@ -2479,6 +2536,7 @@ window.browserPixelSuite = Object.freeze(
     runBackendReentrantNative,
     runTrailTextureResourceLifecycle,
     runTrailContextLifecycle,
+    setTransparentContractReference,
     transitionTransparentContract,
     waitForCompositorFrame,
     getStageClip,
