@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## v1.2.19 — Bloom 上采样纹理反接修复
+
+- 修复 MXFinalBloom 反向金字塔的两张纹理角色接反：恢复游戏的“累计粗级按 `SampleScale` 四点扩散，再单点加入当前细级”顺序，并使用累计粗级的 `texelSize`；同步完整 WebGL2、WebGL2 Bloom、Software Bloom RGB 与透明 Coverage 传输链。
+- 将含糊的 high/low mip 命名替换为 `accumulatedCoarse` / `currentFine`，加入粗级和细级非对称脉冲数值门禁及两份 WebGL2 绑定源码门禁，确保加法交换律和均匀场测试无法再次掩盖纹理反接。
+- 依据权威 `UnityMouseFxLab` 的机器码审计与五级 Up 中间缓冲复核实现：正确式全通道 MAE 仅为半浮点量化级，反接式误差高出 `142–394` 倍；更新修复后的 Chromium 像素基线。
+- 记录问题症状、旧 Unity 重建工程误导风险、修复步骤、EXR 数值证据和长期检查清单，详见 [Bloom 上采样纹理反接回归复盘](docs/bloom-upsample-order-regression.md)。
+
 ## v1.2.18 — Unity Bloom 曝光与亮底合成修复
 
 - 修复 Bloom 强度被直接按 `1.7` 乘入 Final Pass 导致的约 13.6 倍过曝白块；与解包工程 `BaGameBloomRendererFeature.ConvertIntensity()` 保持一致，先将序列化曝光刻度换算为 `2^(Intensity / 10) - 1`，再交给 Shader 合成。完整原因、修复步骤和防回归清单见 [Bloom Intensity 13.6 倍过曝回归复盘](docs/bloom-intensity-regression.md)。
