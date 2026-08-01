@@ -10,6 +10,7 @@ import {
 import {
   gammaToLinear,
   resolveUnityBloomClamp,
+  resolveUnityBloomIntensity,
 } from './bloom-color-space.js';
 
 const COMPONENTS_PER_VERTEX = 6;
@@ -1987,8 +1988,7 @@ export class WebGL2BloomRenderer
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_intensity'),
-      // Unity BaGameBloom Composite 直接乘 _Bloom_Settings.y。
-      Math.max(0, settings.intensity),
+      resolveUnityBloomIntensity(settings.intensity),
     );
     gl.uniform1f(
       gl.getUniformLocation(program, 'u_overlayAlphaLimit'),

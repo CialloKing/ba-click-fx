@@ -2,6 +2,19 @@ export const HALF_FLOAT_MAX = 65504;
 export const DEFAULT_BLOOM_CLAMP = 65472;
 
 /**
+ * 游戏把 Bloom 面板强度当作曝光刻度，并在绑定 Shader 前完成换算。
+ * Shader 里的乘法虽然是线性的，但接收到的并不是序列化原值。
+ */
+export function resolveUnityBloomIntensity(value)
+{
+  const intensity = Number.isFinite(value)
+    ? Math.max(0, value)
+    : 0;
+
+  return Math.expm1(intensity / 10 * Math.LN2);
+}
+
+/**
  * Unity 在把 Bloom 设置传给线性 HDR Shader 前调用 GammaToLinearSpace。
  */
 export function gammaToLinear(value)

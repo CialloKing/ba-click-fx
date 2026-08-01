@@ -2,6 +2,7 @@ import {
   HALF_FLOAT_MAX,
   gammaToLinear,
   resolveUnityBloomClamp,
+  resolveUnityBloomIntensity,
 } from './bloom-color-space.js';
 
 const RGB_CHANNELS = 3;
@@ -918,8 +919,7 @@ export function encodeAdditiveBloom(
   options = null,
 )
 {
-  // Unity BaGameBloom 直接把 Intensity 乘到 Composite Bloom，不是曝光档位。
-  const safeIntensity = Math.max(0, intensity);
+  const safeIntensity = resolveUnityBloomIntensity(intensity);
   const transparentOverlay =
     options?.outputCompositing === 'browser-overlay';
   const hostAdditive = transparentOverlay &&

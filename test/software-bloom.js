@@ -30,6 +30,7 @@ import {
   HALF_FLOAT_MAX,
   gammaToLinear,
   resolveUnityBloomClamp,
+  resolveUnityBloomIntensity,
 } from '../src/bloom-color-space.js';
 
 let passed = 0;
@@ -83,6 +84,16 @@ assert(
 assert(
   resolveUnityBloomClamp(Number.NaN) === DEFAULT_BLOOM_CLAMP,
   '非法 Clamp 安全恢复游戏默认值',
+);
+assert(
+  approximatelyEqual(
+    resolveUnityBloomIntensity(1.7),
+    0.1250584846888116,
+  ) &&
+    resolveUnityBloomIntensity(0) === 0 &&
+    resolveUnityBloomIntensity(-1) === 0 &&
+    resolveUnityBloomIntensity(Number.NaN) === 0,
+  '游戏 Bloom 面板强度在绑定 Shader 前换算为曝光倍率',
 );
 const belowKnee = calculateBloomContribution(0.4, 1, 0.5);
 const insideKnee = calculateBloomContribution(0.75, 1, 0.5);
@@ -519,14 +530,14 @@ assert(
   arraysApproximatelyEqual(
     rgba,
     [
-      255, 255, 255, 255,
+      255, 186, 135, 188,
       0, 0, 0, 0,
-      174, 255, 255, 255,
-      255, 134, 0, 174,
+      77, 153, 255, 165,
+      255, 111, 0, 49,
     ],
     0,
   ),
-  '线性 HDR 经过 Unity 直接强度和 sRGB 编码后得到确定的 RGBA8',
+  '线性 HDR 经过游戏曝光强度和 sRGB 编码后得到确定的 RGBA8',
 );
 assert(
   rgba[4] === 0 &&
@@ -694,7 +705,7 @@ const overlayHdr = new Float32Array([
 ]);
 const overlayCoverage = new Float32Array([0, 0.25, 0.5, 1]);
 const overlayRgba = new Uint8ClampedArray(16);
-const overlayExposure = 1.7;
+const overlayExposure = resolveUnityBloomIntensity(1.7);
 const overlayAlphaLimit = 250 / 255;
 const expectedTransportAlpha = (value) => Math.min(
   overlayAlphaLimit,
@@ -945,7 +956,7 @@ assert(
     additiveHostWithSceneRgba[3] / 255,
     linearToSrgb(0.2 * overlayExposure),
     1 / 255,
-  ) && additiveHostWithSceneRgba[3] < 200,
+  ) && additiveHostWithSceneRgba[3] < 128,
   '宿主 Add 的 Software Bloom Alpha 不重复累计清晰层 Coverage',
 );
 
