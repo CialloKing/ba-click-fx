@@ -37,6 +37,9 @@ const OPACITY_LINEAR_RADIAL_SAMPLE_INDEX = 5;
 // Bright Pass 会让半透明外围先跌破阈值；平均覆盖面积不要求严格 0.5，
 // 径向探针与最大 Alpha 仍保留更严格的线性约束。
 const MINIMUM_BLOOM_MEAN_ALPHA_RATIO = 0.25;
+// 游戏曝光倍率恢复后，24px 探针在 opacity=0.5 时会落到 Threshold
+// 膝部下方；保留独立下限以检查连续性，但不能再把它当线性区。
+const MINIMUM_BLOOM_PROBE_ALPHA_RATIO = 0.125;
 // Unity 按物理渲染尺寸计算 Bloom 迭代数；DPR2 可能比 DPR1 多一个 mip，
 // 因此默认配置的全画面均值不要求逐像素相等。
 const MAXIMUM_DPR_MEAN_DIFFERENCE = 0.27;
@@ -349,7 +352,7 @@ function validateOpacityGroup(results, label)
     },
   );
   assert(
-    probeAlphaRatio >= MINIMUM_BLOOM_MEAN_ALPHA_RATIO &&
+    probeAlphaRatio >= MINIMUM_BLOOM_PROBE_ALPHA_RATIO &&
       probeAlphaRatio <= 0.65,
     `${label}: 点击径向 Alpha 不接近线性`,
     {
@@ -723,7 +726,7 @@ function validateContextOpacityGroup(
     },
   );
   assert(
-    probeAlphaRatio >= MINIMUM_BLOOM_MEAN_ALPHA_RATIO &&
+    probeAlphaRatio >= MINIMUM_BLOOM_PROBE_ALPHA_RATIO &&
       probeAlphaRatio <= 0.65,
     `${mode}: ${label} ${phase} 的${
       probe === 'trail' ? '拖尾探针' : '径向探针'} Alpha 不接近线性`,
