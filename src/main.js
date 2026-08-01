@@ -777,6 +777,12 @@ const ctrlRenderMode = document.getElementById('ctrlRenderMode');
 const DEFAULT_RENDER_MODE = 'full-webgl2';
 const RENDER_MODE_CONFIGS = Object.freeze(
   {
+    'full-webgpu':
+    {
+      effectBackend: 'webgpu',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    },
     'full-webgl2':
     {
       effectBackend: 'webgl2',
@@ -824,6 +830,7 @@ function updateRenderBackendStatus()
     canvas2d: d.renderCanvas2D,
     auto: d.renderAutoBloom,
     software: d.renderSoftwareBloom,
+    webgpu: d.renderFullWebGPU,
     webgl2: d.renderWebGL2Bloom,
     native: d.renderNativeBloom,
     legacy: d.renderLegacy,
@@ -849,6 +856,22 @@ function updateRenderBackendStatus()
   if (resolved === 'pending')
   {
     status.textContent = d.renderBackendPending.replace('{requested}', requestedLabel);
+    return;
+  }
+
+  if (resolved === 'webgpu')
+  {
+    const outputMode = snapshot.resolvedWebGPUOutputMode;
+    const outputLabel = outputMode === 'extended'
+      ? d.renderWebGPUOutputExtended
+      : outputMode === 'standard'
+        ? d.renderWebGPUOutputStandard
+        : d.renderWebGPUOutputPending;
+
+    // 后端可用与 HDR 输出是两个独立能力，状态行必须同时公开两者。
+    status.textContent = d.renderWebGPUActive
+      .replace('{backend}', resolvedLabel)
+      .replace('{output}', outputLabel);
     return;
   }
 
@@ -1514,6 +1537,7 @@ const I18N = {
     hostApiManual: '手动模式：展示页通过公开 pointer API 注入输入。',
     hostApiPaused: '已暂停：输入和 RAF 已停止。',
     renderCanvas2D: 'Canvas 2D',
+    renderFullWebGPU: 'WebGPU HDR（实验）',
     renderFullWebGL2: '纯 WebGL2',
     renderSoftwareBloom: '软件 Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
@@ -1523,6 +1547,10 @@ const I18N = {
     renderBackendActive: '实际后端：{backend}',
     renderBackendPending: '正在检测 {requested}…',
     renderBackendFallback: '实际后端：{resolved}（{requested} 不可用，已自动回退）',
+    renderWebGPUActive: '实际后端：{backend} · 输出：{output}',
+    renderWebGPUOutputExtended: 'Extended HDR（可保留超白高光）',
+    renderWebGPUOutputStandard: '标准 SDR（HDR Canvas 不可用）',
+    renderWebGPUOutputPending: '正在协商',
     labelClickEnabled: '启用点击特效',
     labelRingHdr: '圆环 HDR 强度',
     labelRingRadMin: '圆环起始半径',
@@ -1625,6 +1653,7 @@ const I18N = {
     hostApiManual: 'Manual mode: the demo injects input through the public pointer API.',
     hostApiPaused: 'Paused: input and RAF scheduling are stopped.',
     renderCanvas2D: 'Canvas 2D',
+    renderFullWebGPU: 'WebGPU HDR (Experimental)',
     renderFullWebGL2: 'Full WebGL2',
     renderSoftwareBloom: 'Software Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
@@ -1634,6 +1663,10 @@ const I18N = {
     renderBackendActive: 'Active backend: {backend}',
     renderBackendPending: 'Detecting {requested}…',
     renderBackendFallback: 'Active backend: {resolved} ({requested} unavailable; fell back automatically)',
+    renderWebGPUActive: 'Active backend: {backend} · Output: {output}',
+    renderWebGPUOutputExtended: 'Extended HDR (preserves highlights above SDR white)',
+    renderWebGPUOutputStandard: 'Standard SDR (HDR Canvas unavailable)',
+    renderWebGPUOutputPending: 'Negotiating',
     labelClickEnabled: 'Enable Click',
     labelRingHdr: 'Ring HDR Intensity',
     labelRingRadMin: 'Ring Radius Min',
@@ -1843,6 +1876,7 @@ function switchLanguage(lang)
 
   // 渲染模式下拉选项文本
   const renderModeOptions = {
+    'full-webgpu': d.renderFullWebGPU,
     'full-webgl2': d.renderFullWebGL2,
     'software-bloom': d.renderSoftwareBloom,
     'webgl2-bloom': d.renderWebGL2Bloom,

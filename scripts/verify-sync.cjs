@@ -236,13 +236,14 @@ function hasRenderModeConfig(mode, expected)
 
 verify(
   JSON.stringify(renderModeValues) === JSON.stringify([
+    'full-webgpu',
     'full-webgl2',
     'webgl2-bloom',
     'software-bloom',
     'native-bloom',
     'legacy',
   ]),
-  '展示页按纯 WebGL2、WebGL2 Bloom、Software、Native 与 Legacy 排列五档渲染开关',
+  '展示页按 WebGPU HDR、纯 WebGL2、WebGL2 Bloom、Software、Native 与 Legacy 排列六档渲染开关',
 );
 verify(
   /<option value="full-webgl2" selected>/.test(renderModeSelect) &&
@@ -250,7 +251,13 @@ verify(
   '展示页 HTML、恢复与重置路径统一默认使用纯 WebGL2',
 );
 verify(
-  hasRenderModeConfig('full-webgl2',
+  hasRenderModeConfig('full-webgpu',
+    {
+      effectBackend: 'webgpu',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    }) &&
+    hasRenderModeConfig('full-webgl2',
     {
       effectBackend: 'webgl2',
       renderingMode: 'enhanced',
@@ -279,7 +286,15 @@ verify(
         effectBackend: 'canvas2d',
         renderingMode: 'legacy',
       }),
-  '展示页五档开关映射到对应的完整特效、渲染模式与 Bloom API',
+  '展示页六档开关映射到对应的完整特效、渲染模式与 Bloom API',
+);
+verify(
+  /renderWebGPUActive: '实际后端：\{backend\} · 输出：\{output\}'/.test(mainJs) &&
+    /renderWebGPUOutputExtended: 'Extended HDR（可保留超白高光）'/.test(mainJs) &&
+    /renderWebGPUActive: 'Active backend: \{backend\} · Output: \{output\}'/.test(mainJs) &&
+    /renderWebGPUOutputExtended: 'Extended HDR \(preserves highlights above SDR white\)'/.test(mainJs) &&
+    /snapshot\.resolvedWebGPUOutputMode/.test(mainJs),
+  '展示页双语区分 WebGPU 后端与实际 HDR 输出协商结果',
 );
 const outputCompositingSelect = indexHtml.match(
   /<select id="ctrlOutputCompositing"[\s\S]*?<\/select>/,
