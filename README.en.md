@@ -447,8 +447,8 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `shards.trailSpacing` | 108 | Trail shard spacing |
 | `bloom.threshold` | 1.0 | Unity-serialized Gamma-space bright-pass threshold; converted to Linear before prefiltering |
 | `bloom.softKnee` | 0 | Soft transition around the threshold |
-| `bloom.clamp` | 65472 | Linear-HDR prefilter limit passed directly from Unity to the shader; capped only to the half-float maximum of 65504 |
-| `bloom.intensity` | 1.7 | In-game MXFinalBloom intensity |
+| `bloom.clamp` | 65472 | Unity-serialized Gamma-space prefilter limit; CPU-converted and capped to the half-float maximum of 65504 |
+| `bloom.intensity` | 1.7 | Serialized in-game MXFinalBloom exposure; converted by the CPU before reaching the shader |
 | `bloom.diffusion` | 7 | Diffusion parameter used to derive mip count and SampleScale |
 | `bloom.resolutionScale` | 0.5 | Bloom buffer scale (internally clamped to 0.1–0.75) |
 | `bloom.clickEmissionScale` | 1.0 | Independent glow scale for click rings and the center disk, recommended range `0–4`; does not affect crisp geometry or the trail |
@@ -503,9 +503,9 @@ Shards scatter along the trail at distance intervals.
 
 ### Bloom Rendering Backends
 
-Full WebGL2 and WebGL2 Bloom share `WebGL2EffectRenderer`, HDR emission parameters, and Bloom settings, and both build ring, disk, trail, and shard geometry directly on the GPU. They then follow the game's `Hidden/MXFinalBloom` path — four-tap prefiltering, Box4 mips, cumulative upsampling, and direct linear intensity multiplication — and output the crisp Scene, Coverage, and Bloom in one Final Pass. WebGL2 Bloom remains a compatibility selector with separate backend state and a Canvas fallback chain, but successful frames no longer build or upload an 8-bit Canvas Scene.
+Full WebGL2 and WebGL2 Bloom share `WebGL2EffectRenderer`, HDR emission parameters, and Bloom settings, and both build ring, disk, trail, and shard geometry directly on the GPU. They then follow the game's `Hidden/MXFinalBloom` path — four-tap prefiltering, Box4 mips, cumulative upsampling, and linear multiplication by the CPU-converted exposure — and output the crisp Scene, Coverage, and Bloom in one Final Pass. WebGL2 Bloom remains a compatibility selector with separate backend state and a Canvas fallback chain, but successful frames no longer build or upload an 8-bit Canvas Scene.
 
-`bloom.threshold` is converted with Unity's `GammaToLinearSpace` before the linear-HDR prefilter. Unity C# passes `bloom.clamp` to the shader unchanged, so it receives no colour-space conversion and is only limited to the `half` maximum of `65504`; both the default configuration snapshot and effective runtime value remain the asset value `65472`.
+Both `bloom.threshold` and `bloom.clamp` are converted with Unity's `GammaToLinearSpace` before the linear-HDR prefilter. Clamp is then limited to the shader `half` maximum of `65504`, so the serialized default `65472` resolves to `65504`. `bloom.intensity` is a serialized exposure scale: the CPU first evaluates `2^(Intensity / 10) - 1` (about `0.125058` for the default `1.7`), then the shader multiplies Bloom by that linear value.
 
 Availability is determined by actually creating a WebGL2 context, checking `EXT_color_buffer_float`, and validating the `RGBA16F` framebuffer. Full Effect state uses `effectBackend` / `resolvedEffectBackend`, while Bloom uses `bloomBackend` / `resolvedBloomBackend`; `auto` briefly reports `pending` before the first deferred probe and while a restored context is being validated. A visible context loss falls back to Canvas immediately and WebGL takes ownership again only after the complete restored resource chain succeeds.
 
@@ -517,13 +517,13 @@ When `bloomBackend: 'software'` is selected explicitly or WebGL2 is unavailable,
 2. Run four-tap threshold prefiltering to produce half-resolution mip0.
 3. Build a Box4 mip pyramid whose level count is derived from `bloom.diffusion`.
 4. Accumulate from the coarsest mip upward with SampleScale four-tap sampling.
-5. Multiply by the game's direct linear `bloom.intensity`, then perform final four-tap sampling and the additive sRGB composite.
+5. Convert `bloom.intensity` with the game's CPU exposure mapping, multiply by the resulting linear value, then perform final four-tap sampling and the additive sRGB composite.
 
 The default `isolatedCompositing: false` composites output layers directly against the DOM background; Unity's additive output necessarily loses colour and contrast on pure white. With `true`, the output layers first resolve inside a transparent group, then composite their coloured result and alpha over the page. This does not change the Bloom algorithm and exists only as a non-game compatibility path for pure-white web backgrounds. Use `setCompositingReference()` when the background must participate in the same linear Scene as it does in the game; isolation is not a substitute for background sampling.
 
 `lightBackgroundContrastAlpha` defaults to `0`, so no visible silhouette outside the game resource is added. Setting it to `0.35` gives a library-owned overlay an independent pale-cyan `darken` mask above the main FX layer. The mask neither receives nor generates Bloom and exists only to recover a crisp silhouette on pure white. It and isolated compositing are both non-game web compatibility options. An existing Canvas supplied as the target can receive neither this separate backdrop-compositing layer nor isolated compositing.
 
-The software backend uses one full-viewport mip pyramid and reuses its Float32 buffers between frames while limiting emission readback to the geometry's actual subregion. It shares the WebGL2 backend's mip-count formula, SampleScale, four-tap sampling, and direct linear intensity multiplier, but its input first passes through an 8-bit Canvas encoding and transparent output is constrained by premultiplied alpha. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`, while trail emission is blurred once in a local offscreen buffer.
+The software backend uses one full-viewport mip pyramid and reuses its Float32 buffers between frames while limiting emission readback to the geometry's actual subregion. It shares the WebGL2 backend's mip-count formula, SampleScale, four-tap sampling, and CPU-converted linear intensity multiplier, but its input first passes through an 8-bit Canvas encoding and transparent output is constrained by premultiplied alpha. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`, while trail emission is blurred once in a local offscreen buffer.
 
 ### Backend Capability Boundaries
 

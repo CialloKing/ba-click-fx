@@ -467,8 +467,8 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `shards.trailSpacing` | 108 | 拖尾碎片间距 |
 | `bloom.threshold` | 1.0 | Unity 序列化的 Gamma 空间高亮阈值；预过滤前转换到 Linear |
 | `bloom.softKnee` | 0 | 阈值过渡柔和度 |
-| `bloom.clamp` | 65472 | Unity 直接传入 Shader 的线性 HDR 预过滤上限；仅受 half 上限 65504 约束 |
-| `bloom.intensity` | 1.7 | 游戏 MXFinalBloom 强度 |
+| `bloom.clamp` | 65472 | Unity 序列化的 Gamma 空间预过滤上限；CPU 换算后受 half 上限 65504 约束 |
+| `bloom.intensity` | 1.7 | 游戏 MXFinalBloom 的序列化曝光强度；CPU 换算后传给 Shader |
 | `bloom.diffusion` | 7 | 决定 mip 层数与 SampleScale 的扩散参数 |
 | `bloom.resolutionScale` | 0.5 | Bloom 缓冲区相对分辨率（内部限制为 0.1~0.75） |
 | `bloom.clickEmissionScale` | 1.0 | 点击圆环与中心光盘的独立辉光倍率，推荐 `0~4`；不影响清晰几何或轨迹 |
@@ -523,9 +523,9 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 
 ### Bloom 渲染后端
 
-纯 WebGL2 与 WebGL2 Bloom 共用 `WebGL2EffectRenderer`、HDR 发射参数和 Bloom 配置，并都直接在 GPU 中构建圆环、光盘、拖尾与碎片 Scene。两者随后按游戏 `Hidden/MXFinalBloom` 的 4-tap 预过滤、Box4 mip、累积式上采样和线性强度倍率，在一次 Final Pass 中输出清晰层、Coverage 与 Bloom。WebGL2 Bloom 作为兼容选择器保留独立的后端状态与 Canvas 回退链，但成功帧不再生成或上传 8 位 Canvas Scene。
+纯 WebGL2 与 WebGL2 Bloom 共用 `WebGL2EffectRenderer`、HDR 发射参数和 Bloom 配置，并都直接在 GPU 中构建圆环、光盘、拖尾与碎片 Scene。两者随后按游戏 `Hidden/MXFinalBloom` 的 4-tap 预过滤、Box4 mip、累积式上采样和 CPU 曝光换算后的线性强度倍率，在一次 Final Pass 中输出清晰层、Coverage 与 Bloom。WebGL2 Bloom 作为兼容选择器保留独立的后端状态与 Canvas 回退链，但成功帧不再生成或上传 8 位 Canvas Scene。
 
-`bloom.threshold` 在进入线性 HDR 预过滤前按 Unity `GammaToLinearSpace` 换算。`bloom.clamp` 则由 Unity C# 原值直接传给 Shader，不执行颜色空间转换，只受 `half` 的 `65504` 上限约束；默认配置快照和运行时有效值均为资源中的 `65472`。
+`bloom.threshold` 与 `bloom.clamp` 在进入线性 HDR 预过滤前都按 Unity `GammaToLinearSpace` 换算；Clamp 换算后还受 Shader `half` 的 `65504` 上限约束，因此默认序列值 `65472` 的有效值为 `65504`。`bloom.intensity` 是序列化的曝光刻度，CPU 先按 `2^(Intensity / 10) - 1` 换算（默认 `1.7` 得到约 `0.125058`），Shader 再线性乘入 Bloom。
 
 可用性由运行时实际创建 WebGL2 上下文、检查 `EXT_color_buffer_float` 并验证 `RGBA16F` 帧缓冲决定。完整特效使用 `effectBackend` / `resolvedEffectBackend`，Bloom 使用 `bloomBackend` / `resolvedBloomBackend`；`auto` 在首次延迟探测或 Context 恢复验证前会短暂返回 `pending`。Context 丢失时当前可见输出立即回退 Canvas，恢复后只有完整资源链验证成功才重新接管。
 
@@ -537,7 +537,7 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 2. 以 4-tap 预过滤执行阈值提取，生成 1/2 分辨率 mip0。
 3. 使用 Box4 下采样建立由 `bloom.diffusion` 决定层数的 mip 金字塔。
 4. 从最低分辨率 mip 开始，以 SampleScale 四点采样累加回每个细层。
-5. 按游戏的线性倍率直接乘 `bloom.intensity`，再执行最终四点采样与 sRGB 加色合成。
+5. 将 `bloom.intensity` 按游戏 CPU 的曝光刻度换算后线性乘入，再执行最终四点采样与 sRGB 加色合成。
 
 默认的 `isolatedCompositing: false` 让输出层直接与 DOM 背景合成；在纯白背景上，Unity 加色结果必然失去颜色和对比度。设为 `true` 后，各输出层会先在透明组内合成，再将带颜色与 Alpha 的结果覆盖到页面。这不会改变 Bloom 算法，只是用于纯白网页背景的非游戏兼容路径。需要按游戏方式让背景参与线性 Scene 计算时，应使用 `setCompositingReference()`，而不是把隔离合成当作背景采样替代品。
 

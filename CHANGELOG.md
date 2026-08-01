@@ -2,6 +2,9 @@
 
 ## v1.2.17 — 外部 Canvas 宿主样式与透明合成稳定性
 
+- 修复 Bloom 强度被直接按 `1.7` 乘入 Final Pass 导致的过曝白块；与解包工程 `BaGameBloomRendererFeature.ConvertIntensity()` 保持一致，先将序列化曝光刻度换算为 `2^(Intensity / 10) - 1`，再交给 Shader 合成。
+- 恢复 `Clamp` 与 `Threshold` 相同的 CPU `GammaToLinearSpace` 路径，并在换算后按 Shader `half` 上限截断，避免自定义 Clamp 偏离 Unity 数值合同。
+- 统一纯 WebGL2、WebGL2 Bloom 与软件 Bloom 的强度换算，并按修复后的真实 Chromium 输出重新校准中心颜色、径向衰减和覆盖边界回归。
 - 保留外部 Canvas 调用方对 `style.mixBlendMode` 的所有权；使用 `hostCompositing: 'plus-lighter'` 时继续输出完整 Add 载荷，不再静默改写宿主样式。
 - 补充构造、运行时切换和销毁路径的外部 Canvas 样式回归，确保宿主 CSS、WebView 或原生 Add 合成可以独立接管最终显示。
 - 通过完整源代码、打包和真实 Chromium 像素回归验证透明合成后端、DPR 与回退链在本版本保持稳定。
@@ -16,7 +19,7 @@
 - `bright-core` 与 Alpha 策略正交，只按清晰发射和 Bloom 能量补偿高能核心，不整体混白 RGB 或提亮低能拖尾；所有 `source-over` 组合继续满足预乘约束 `RGB <= Alpha`
 - 删除旧 `unknownBackgroundAppearance` 兼容镜像；构造参数、`updateConfig()`、`getConfig()` 与类型声明只保留彼此正交的 `overlayAlphaPolicy` 和 `overlayColorCompensation`
 - `plus-lighter` 改为独立 Add 载荷合同并忽略 Alpha 策略、颜色补偿与 Alpha 上限；CSS 合成仅作为 SDR DOM 近似，严格 Unity 加色仍要求宿主在线性 HDR 目标中执行 Add，已知背景继续使用 `scene + setCompositingReference()` 精确路径
-- 对照解包工程的 `BaGameBloomRendererFeature` 与 Shader 修正 Bloom 数值合同：Clamp 原值直传、Intensity 线性相乘、上采样使用高 mip 四点加低 mip 单点，并保留 soft-knee 无条件增加的误差项
+- 对照解包工程的 `BaGameBloomRendererFeature` 与 Shader 修正 Bloom 数值合同：Threshold 与 Clamp 均经 CPU `GammaToLinearSpace` 换算、Intensity 经 CPU 曝光刻度换算后线性乘入、上采样使用高 mip 四点加低 mip 单点，并保留 soft-knee 无条件增加的误差项
 
 ## v1.2.15 — 参数契约与透明覆盖层收敛
 
