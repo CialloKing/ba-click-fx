@@ -58,6 +58,8 @@ Math.expm1(intensity / 10 * Math.LN2)
 | 阶段 | 提交 | 结果 |
 |---|---|---|
 | 首次处理 | `59bd4ec` | 已识别浏览器 Final Pass 缺少 Unity 相机后续 HDR 输出，恢复曝光换算 |
+| 建立门禁 | `4b86643` | 提取共享曝光函数，并加入 `1.7 -> 0.125058` 的独立数值断言 |
+| 门禁削弱 | `6fc391c` | 保留内联换算，但删除共享函数和独立数值断言，使后续语义改写更难被发现 |
 | 再次引入 | `83d3488` | 三个后端改为直接使用 `1.7`，Bloom 能量增加约 13.6 倍 |
 | 错误固化 | `44f2259` | 在过曝实现上重新校准 Chromium 基线，白色饱和被误记为正常输出 |
 | 正式修复 | `9c61953` | 新增统一换算函数，三后端恢复 CPU 曝光合同 |
@@ -157,8 +159,7 @@ resolveUnityBloomIntensity(1.7) ≈ 0.12505848468881
 
 ```powershell
 npm run test:bloom
-npm run check
-npm run test:browser:built
+npm run check:release
 ```
 
 需要重新校准时，只能在上述检查完成后执行：
@@ -181,6 +182,8 @@ rg -n "settings\.intensity|bloom\.intensity|u_intensity|resolveUnityBloomIntensi
 
 ```powershell
 git show 83d3488
+git show 4b86643
+git show 6fc391c
 git show 9c61953
 git show 8ca8e57
 ```

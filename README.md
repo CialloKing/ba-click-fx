@@ -527,6 +527,8 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 
 `bloom.threshold` 与 `bloom.clamp` 在进入线性 HDR 预过滤前都按 Unity `GammaToLinearSpace` 换算；Clamp 换算后还受 Shader `half` 的 `65504` 上限约束，因此默认序列值 `65472` 的有效值为 `65504`。`bloom.intensity` 是序列化的曝光刻度，CPU 先按 `2^(Intensity / 10) - 1` 换算（默认 `1.7` 得到约 `0.125058`），Shader 再线性乘入 Bloom。
 
+> 维护者注意：直接把 `1.7` 乘入 Final Pass 会将 Bloom 放大约 13.6 倍。修改 Intensity、Final Pass、Shader uniform 或像素基线前，必须阅读 [Bloom Intensity 13.6 倍过曝回归复盘](https://github.com/CialloKing/ba-click-fx/blob/main/docs/bloom-intensity-regression.md)。
+
 可用性由运行时实际创建 WebGL2 上下文、检查 `EXT_color_buffer_float` 并验证 `RGBA16F` 帧缓冲决定。完整特效使用 `effectBackend` / `resolvedEffectBackend`，Bloom 使用 `bloomBackend` / `resolvedBloomBackend`；`auto` 在首次延迟探测或 Context 恢复验证前会短暂返回 `pending`。Context 丢失时当前可见输出立即回退 Canvas，恢复后只有完整资源链验证成功才重新接管。
 
 ### JavaScript 软件 Bloom

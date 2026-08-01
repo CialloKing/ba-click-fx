@@ -2,7 +2,7 @@
 
 ## v1.2.17 — 外部 Canvas 宿主样式与透明合成稳定性
 
-- 修复 Bloom 强度被直接按 `1.7` 乘入 Final Pass 导致的过曝白块；与解包工程 `BaGameBloomRendererFeature.ConvertIntensity()` 保持一致，先将序列化曝光刻度换算为 `2^(Intensity / 10) - 1`，再交给 Shader 合成。
+- 修复 Bloom 强度被直接按 `1.7` 乘入 Final Pass 导致的过曝白块；与解包工程 `BaGameBloomRendererFeature.ConvertIntensity()` 保持一致，先将序列化曝光刻度换算为 `2^(Intensity / 10) - 1`，再交给 Shader 合成。完整原因、修复步骤和防回归清单见 [Bloom Intensity 13.6 倍过曝回归复盘](docs/bloom-intensity-regression.md)。
 - 恢复 `Clamp` 与 `Threshold` 相同的 CPU `GammaToLinearSpace` 路径，并在换算后按 Shader `half` 上限截断，避免自定义 Clamp 偏离 Unity 数值合同。
 - 统一纯 WebGL2、WebGL2 Bloom 与软件 Bloom 的强度换算，并按修复后的真实 Chromium 输出重新校准中心颜色、径向衰减和覆盖边界回归。
 - 保留外部 Canvas 调用方对 `style.mixBlendMode` 的所有权；使用 `hostCompositing: 'plus-lighter'` 时继续输出完整 Add 载荷，不再静默改写宿主样式。

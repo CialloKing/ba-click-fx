@@ -507,6 +507,8 @@ Full WebGL2 and WebGL2 Bloom share `WebGL2EffectRenderer`, HDR emission paramete
 
 Both `bloom.threshold` and `bloom.clamp` are converted with Unity's `GammaToLinearSpace` before the linear-HDR prefilter. Clamp is then limited to the shader `half` maximum of `65504`, so the serialized default `65472` resolves to `65504`. `bloom.intensity` is a serialized exposure scale: the CPU first evaluates `2^(Intensity / 10) - 1` (about `0.125058` for the default `1.7`), then the shader multiplies Bloom by that linear value.
 
+> Maintainer note: passing `1.7` directly to the Final Pass amplifies Bloom by about 13.6 times. Before changing Intensity, the Final Pass, shader uniforms, or pixel baselines, read the [Bloom Intensity 13.6x overexposure regression postmortem](https://github.com/CialloKing/ba-click-fx/blob/main/docs/bloom-intensity-regression.md) (Chinese).
+
 Availability is determined by actually creating a WebGL2 context, checking `EXT_color_buffer_float`, and validating the `RGBA16F` framebuffer. Full Effect state uses `effectBackend` / `resolvedEffectBackend`, while Bloom uses `bloomBackend` / `resolvedBloomBackend`; `auto` briefly reports `pending` before the first deferred probe and while a restored context is being validated. A visible context loss falls back to Canvas immediately and WebGL takes ownership again only after the complete restored resource chain succeeds.
 
 ### JavaScript Software Bloom
