@@ -372,6 +372,7 @@ if (
   type BAClickFXPointerType,
   type BAClickFXResolvedBloomBackend,
   type BAClickFXResolvedEffectBackend,
+  type BAClickFXWebGPUOutputMode,
   type BAClickFXCompositingReferenceOptions,
   type BAClickFXStandalonePatchOptions,
   type BAClickFXUpdateOptions,
@@ -392,7 +393,7 @@ const options: BAClickFXOptions =
   inputSource: 'manual',
   clickTimeScale: 1.5,
   trailTimeScale: 0.8,
-  effectBackend: 'webgl2',
+  effectBackend: 'webgpu',
   renderingMode: 'enhanced',
   bloomBackend: 'webgl2',
   softwareBloomEnabled: true,
@@ -427,6 +428,9 @@ const effectBackend: BAClickFXEffectBackend = config.effectBackend;
 const resolvedEffectBackend: BAClickFXResolvedEffectBackend =
   configSnapshot.resolvedEffectBackend;
 const pendingEffectBackend: BAClickFXResolvedEffectBackend = 'pending';
+const resolvedWebGPUOutputMode: BAClickFXWebGPUOutputMode =
+  configSnapshot.resolvedWebGPUOutputMode;
+const pendingWebGPUOutputMode: BAClickFXWebGPUOutputMode = 'pending';
 const resolvedBloomBackend: BAClickFXResolvedBloomBackend =
   configSnapshot.resolvedBloomBackend;
 const pendingBloomBackend: BAClickFXResolvedBloomBackend = 'pending';
@@ -614,8 +618,8 @@ const invalidOptions: BAClickFXOptions =
   isolatedCompositing: 'isolate',
   // @ts-expect-error Bloom 后端只接受公开的四种取值。
   bloomBackend: 'webgpu',
-  // @ts-expect-error 完整特效后端只接受 canvas2d、webgl2 或 auto。
-  effectBackend: 'webgpu',
+  // @ts-expect-error 完整特效后端只接受四种公开取值。
+  effectBackend: 'metal',
   // @ts-expect-error renderingMode 只接受 enhanced 或 legacy。
   renderingMode: 'native-bloom',
   // @ts-expect-error inputSource 只接受 dom 或 manual。
@@ -639,6 +643,8 @@ void [
   effectBackend,
   resolvedEffectBackend,
   pendingEffectBackend,
+  resolvedWebGPUOutputMode,
+  pendingWebGPUOutputMode,
   resolvedBloomBackend,
   pendingBloomBackend,
   softwareBloomEnabled,
