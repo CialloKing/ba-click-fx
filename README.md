@@ -679,6 +679,20 @@ ba-click-fx/
 
 本项目主要通过 AI 生成和迭代完成（**绝无手写代码**），并经过实际运行测试、参数调校和效果校准。项目目标是尽可能还原《蔚蓝档案》风格的网页点击特效与拖尾轨迹，同时保持 WebGL2 默认加速、软件 Bloom 自动回退、零外部运行时依赖和易集成的特性。
 
+### Unity 资源真值门禁
+
+新版 `UnityMouseFxLab` 是固定 UI Pass 的唯一基线：`Matrix4x4.Ortho(-aspect, aspect, -1, 1)` 等价于 `orthographicSize = 1.0`。旧 `提取资产2` 的 `1.35` 只是早期预览相机值，不能覆盖新版机器码与序列化资源证据。Prefab 数量固定为 2 个圆环、4 个点击碎片，以及每次按下实例最多 50 个拖尾碎片。
+
+修改 Unity 参数、投影换算或粒子创建逻辑前，必须先阅读 [Unity 固定 UI Pass 真值与验证合同](https://github.com/CialloKing/ba-click-fx/blob/main/docs/unity-reference-baseline.md)，并依次执行：
+
+```powershell
+npm run verify:unity-reference -- --project "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab"
+npm run build
+npm run test:browser:built
+```
+
+若资源审计和跨后端数量断言均未暴露偏差，应继续检查像素换算、DPR、时序、颜色空间、合成和 Bloom，不得为了迎合视觉现象改写已经确认的 Unity 数值。
+
 发布前统一执行：
 
 ```bash

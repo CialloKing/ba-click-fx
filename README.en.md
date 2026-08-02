@@ -654,6 +654,20 @@ ba-click-fx/
 
 ## Development
 
+### Unity source-of-truth gate
+
+The current `UnityMouseFxLab` is the only fixed UI Pass baseline: `Matrix4x4.Ortho(-aspect, aspect, -1, 1)` is equivalent to `orthographicSize = 1.0`. The `1.35` camera in the old `提取资产2` project belongs to an earlier preview scene and cannot override the newer machine-code and serialized-resource evidence. The Prefab contract is 2 rings, 4 click shards, and at most 50 trail shards per press instance.
+
+Before changing Unity-derived parameters, projection conversion, or particle creation, read the [Unity fixed UI Pass source-of-truth and verification contract](https://github.com/CialloKing/ba-click-fx/blob/main/docs/unity-reference-baseline.md), then run:
+
+```powershell
+npm run verify:unity-reference -- --project "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab"
+npm run build
+npm run test:browser:built
+```
+
+If the resource audit and cross-backend count assertions both pass, investigate pixel conversion, DPR, timing, colour space, compositing, and Bloom. Do not rewrite confirmed Unity values to match a visual symptom.
+
 ```bash
 git clone https://github.com/CialloKing/ba-click-fx.git
 cd ba-click-fx
