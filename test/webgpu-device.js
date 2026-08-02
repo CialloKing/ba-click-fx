@@ -121,6 +121,28 @@ check(
   extended.configure() && extendedFixture.configureCalls.length === 1,
   '相同输出偏好不会每帧重复配置 Canvas',
 );
+check(extended.unconfigure(), '可暂停 Canvas 展示而不销毁 Device');
+check(
+  extended.status === 'ready' &&
+    extended.outputMode === 'unconfigured' &&
+    extended.canvasFormat === null &&
+    extended.preferHdr === null &&
+    extendedFixture.context.unconfigureCalls === 1,
+  '暂停后清除 HDR 输出状态并保持 Device 就绪',
+);
+check(
+  extended.unconfigure() &&
+    extendedFixture.context.unconfigureCalls === 1,
+  '重复暂停 Canvas 展示保持幂等',
+);
+check(
+  extended.configure() &&
+    extended.hdrOutput &&
+    extendedFixture.configureCalls.length === 2 &&
+    extendedFixture.gpu.requestAdapterCalls.length === 1 &&
+    extendedFixture.adapter.requestDeviceCalls === 1,
+  '恢复 Canvas 展示时复用 Adapter 与 Device 并重新协商 HDR',
+);
 
 console.log('\nWebGPU SDR 回退');
 const standardFixture = createFixture({ rejectExtended: true });
@@ -161,9 +183,9 @@ extended.destroy();
 await Promise.resolve();
 check(extended.status === 'destroyed', 'destroy 幂等并保持终止状态');
 check(
-  extendedFixture.context.unconfigureCalls === 1 &&
+  extendedFixture.context.unconfigureCalls === 2 &&
     extendedFixture.device.destroyCalls === 1,
-  'Canvas 与 Device 只释放一次',
+  '恢复后的 Canvas 与 Device 在销毁时只再释放一次',
 );
 
 console.log(`\nWebGPU 设备测试完成：${passed} 项通过。`);

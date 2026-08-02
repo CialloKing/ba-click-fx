@@ -206,6 +206,37 @@ export class WebGPUCanvasDevice
     }
   }
 
+  /**
+   * 解除 Canvas 的展示配置，但保留 Adapter 与 Device，供再次选择 WebGPU
+   * 时重新协商 HDR/SDR。隐藏的 Extended Surface 不能继续参与页面合成。
+   */
+  unconfigure()
+  {
+    if (
+      this.outputMode === 'unconfigured' &&
+      this.canvasFormat === null &&
+      this.preferHdr === null
+    )
+    {
+      return true;
+    }
+
+    try
+    {
+      this.context?.unconfigure?.();
+    }
+    catch (error)
+    {
+      this.failure = error;
+      return false;
+    }
+
+    this.outputMode = 'unconfigured';
+    this.canvasFormat = null;
+    this.preferHdr = null;
+    return true;
+  }
+
   destroy()
   {
     if (this.status === 'destroyed')
@@ -214,15 +245,7 @@ export class WebGPUCanvasDevice
     }
 
     this._setStatus('destroyed');
-
-    try
-    {
-      this.context?.unconfigure?.();
-    }
-    catch
-    {
-      // 销毁必须幂等；已丢失的上下文可能拒绝再次取消配置。
-    }
+    this.unconfigure();
 
     try
     {
