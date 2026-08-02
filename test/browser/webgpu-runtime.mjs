@@ -1065,6 +1065,207 @@ async function setDemoHdrUiEnabled(page, enabled)
   }, enabled);
 }
 
+async function runDemoHdrUiEffectIsolation(page)
+{
+  const originalViewport = page.viewportSize();
+  const original = await page.evaluate(() =>
+  {
+    const panel = document.getElementById('panel');
+    const intro = document.getElementById('introSection');
+    const hint = document.getElementById('hintBar');
+
+    return {
+      effectBrightness: document.getElementById(
+        'ctrlWebGPUHdrBrightness',
+      ).value,
+      uiBrightness: document.getElementById('ctrlHdrUiBrightness').value,
+      panelOpen: panel?.classList.contains('open') ?? false,
+      introDisplay: intro?.style.display ?? '',
+      hintDisplay: hint?.style.display ?? '',
+    };
+  });
+
+  await page.setViewportSize({ width: 800, height: 600 });
+  await page.fill('#ctrlWebGPUHdrBrightness', '8');
+  await page.fill('#ctrlHdrUiBrightness', '16');
+  await page.evaluate(() =>
+  {
+    document.activeElement?.blur?.();
+    document.getElementById('panel')?.classList.remove('open');
+    const intro = document.getElementById('introSection');
+    const hint = document.getElementById('hintBar');
+
+    if (intro)
+    {
+      intro.style.display = 'none';
+    }
+
+    if (hint)
+    {
+      hint.style.display = 'none';
+    }
+
+    window.dispatchEvent(new Event('resize'));
+  });
+  await page.mouse.move(400, 300);
+  await page.waitForTimeout(400);
+  const fixedFrame = await page.evaluate(() =>
+  {
+    const effect = window.BAClickFXDemo;
+
+    effect.setPaused(true, { clear: true });
+    effect.setPaused(false);
+
+    if (effect.animationFrame !== null)
+    {
+      cancelAnimationFrame(effect.animationFrame);
+      effect.animationFrame = null;
+    }
+
+    effect.clickTimeMs = 0;
+    effect.trailTimeMs = 0;
+    effect.lastClickTimeSource = null;
+    effect.lastTrailTimeSource = null;
+    effect._spawnClick(400, 300);
+    effect.lastClickTimeSource = 0;
+    effect.lastTrailTimeSource = 0;
+    effect._renderFrame(120);
+
+    if (effect.animationFrame !== null)
+    {
+      cancelAnimationFrame(effect.animationFrame);
+      effect.animationFrame = null;
+    }
+
+    // 保留刚提交的同一帧，后续只改变独立 UI Surface 的可见性。
+    effect.paused = true;
+    effect.lastClickTimeSource = null;
+    effect.lastTrailTimeSource = null;
+    const hdrUiCanvas = document.getElementById('hdrUiCanvas');
+    const effectCanvas = effect.webgpuEffectCanvas;
+
+    return {
+      effectZIndex: Number(getComputedStyle(effectCanvas).zIndex),
+      hdrUiZIndex: Number(getComputedStyle(hdrUiCanvas).zIndex),
+      waveAges: effect.waves.map((wave) => wave.ageMs),
+      waveCount: effect.waves.length,
+      shardCount: effect.shards.length,
+      fxConfig: JSON.stringify(effect.getFxConfig()),
+      webgpuHdrBrightness: effect.getConfig().webgpuHdrBrightness,
+    };
+  });
+
+  await page.evaluate(() =>
+    window.BAClickFXDemo.webgpuEffectRenderer.device.queue.onSubmittedWorkDone());
+  const clickClip = { x: 280, y: 180, width: 240, height: 240 };
+  const uiClip = { x: 0, y: 0, width: 360, height: 150 };
+  const enabledClick = await page.screenshot({ clip: clickClip });
+  const enabledUi = await page.screenshot({ clip: uiClip });
+
+  await setDemoHdrUiEnabled(page, false);
+  await page.waitForFunction(() =>
+    document.body.dataset.hdrUiState === 'disabled');
+  const disabledClick = await page.screenshot({ clip: clickClip });
+  const disabledUi = await page.screenshot({ clip: uiClip });
+  const disabledFrame = await page.evaluate(() =>
+  {
+    const effect = window.BAClickFXDemo;
+
+    return {
+      waveAges: effect.waves.map((wave) => wave.ageMs),
+      waveCount: effect.waves.length,
+      shardCount: effect.shards.length,
+      fxConfig: JSON.stringify(effect.getFxConfig()),
+      webgpuHdrBrightness: effect.getConfig().webgpuHdrBrightness,
+    };
+  });
+  const clickDifference = await measureScreenshotDifference(
+    page,
+    enabledClick,
+    disabledClick,
+  );
+  const uiDifference = await measureScreenshotDifference(
+    page,
+    enabledUi,
+    disabledUi,
+  );
+
+  assert.ok(
+    fixedFrame.hdrUiZIndex < fixedFrame.effectZIndex,
+    `HDR UI 层覆盖了点击特效层: ${JSON.stringify(fixedFrame)}`,
+  );
+  assert.deepEqual(
+    fixedFrame.waveAges,
+    [120],
+    `没有生成固定 120 ms 点击帧: ${JSON.stringify(fixedFrame)}`,
+  );
+  assert.deepEqual(
+    disabledFrame,
+    {
+      waveAges: fixedFrame.waveAges,
+      waveCount: fixedFrame.waveCount,
+      shardCount: fixedFrame.shardCount,
+      fxConfig: fixedFrame.fxConfig,
+      webgpuHdrBrightness: fixedFrame.webgpuHdrBrightness,
+    },
+    '关闭 HDR UI 不得修改点击特效状态或参数',
+  );
+  assert.ok(
+    !clickDifference.sizeMismatch &&
+      clickDifference.changedPixels === 0 &&
+      clickDifference.maximumDifference <= 3,
+    `HDR UI 改变了远端点击特效像素: ${JSON.stringify(clickDifference)}`,
+  );
+  assert.ok(
+    !uiDifference.sizeMismatch &&
+      uiDifference.changedPixels >= 20 &&
+      uiDifference.maximumDifference >= 4,
+    `HDR UI 对照区域没有可见贡献: ${JSON.stringify(uiDifference)}`,
+  );
+
+  await setDemoHdrUiEnabled(page, true);
+  await page.fill('#ctrlWebGPUHdrBrightness', original.effectBrightness);
+  await page.fill('#ctrlHdrUiBrightness', original.uiBrightness);
+  await page.evaluate((saved) =>
+  {
+    const effect = window.BAClickFXDemo;
+    const panel = document.getElementById('panel');
+    const intro = document.getElementById('introSection');
+    const hint = document.getElementById('hintBar');
+
+    effect.clear();
+    effect.setPaused(false);
+    panel?.classList.toggle('open', saved.panelOpen);
+
+    if (intro)
+    {
+      intro.style.display = saved.introDisplay;
+    }
+
+    if (hint)
+    {
+      hint.style.display = saved.hintDisplay;
+    }
+
+    window.dispatchEvent(new Event('resize'));
+  }, original);
+  await page.setViewportSize(originalViewport);
+
+  return {
+    clickDifference,
+    fixedFrame:
+    {
+      effectZIndex: fixedFrame.effectZIndex,
+      hdrUiZIndex: fixedFrame.hdrUiZIndex,
+      waveAges: fixedFrame.waveAges,
+      waveCount: fixedFrame.waveCount,
+      shardCount: fixedFrame.shardCount,
+      webgpuHdrBrightness: fixedFrame.webgpuHdrBrightness,
+    },
+    uiDifference,
+  };
+}
+
 async function runDemoHdrUiIntegration(page, origin)
 {
   await page.goto(origin);
@@ -1180,6 +1381,8 @@ async function runDemoHdrUiIntegration(page, origin)
       adjusted.storedBrightness === '8',
     `UI HDR 亮度调整或持久化错误: ${adjustedDetail}`,
   );
+  const effectIsolation = await runDemoHdrUiEffectIsolation(page);
+
   await page.evaluate(() =>
   {
     window.__BACLICKFX_DEMO_HDR_UI_DEVICE__ =
@@ -1239,6 +1442,7 @@ async function runDemoHdrUiIntegration(page, origin)
     extended,
     disabled,
     adjusted,
+    effectIsolation,
     switched,
     resumed,
     reset,

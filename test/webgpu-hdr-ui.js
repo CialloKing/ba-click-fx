@@ -43,6 +43,30 @@ assert.ok(
     Math.abs(value - expectedPrimitive[index]) <= 1e-6),
   '圆角边框图元保持稳定的三个 vec4 布局',
 );
+const brightnessFixture = {
+  width: 320,
+  height: 240,
+  primitives:
+  [{
+    rect: { x: 10, y: 20, width: 30, height: 40 },
+    color: [0.2, 0.7, 1],
+    intensity: 1.25,
+  }],
+};
+const minimumBrightnessPacked = packHdrUiUniforms(
+  { ...brightnessFixture, brightness: 1 },
+);
+const maximumBrightnessPacked = packHdrUiUniforms(
+  { ...brightnessFixture, brightness: 16 },
+);
+
+assert.equal(minimumBrightnessPacked[2], 1, 'UI HDR 最低亮度写入独立 Uniform');
+assert.equal(maximumBrightnessPacked[2], 16, 'UI HDR 最高亮度写入独立 Uniform');
+assert.ok(
+  minimumBrightnessPacked.every((value, index) =>
+    index === 2 || value === maximumBrightnessPacked[index]),
+  'UI HDR 亮度只能改变自身 Uniform，不能改写图元数据',
+);
 
 const overflowPacked = packHdrUiUniforms(
   {
