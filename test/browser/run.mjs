@@ -72,6 +72,7 @@ const metrics =
   },
   trailContextLifecycle: {},
   trailTextureResourceLifecycle: {},
+  prefabCountContracts: {},
   transparentCompositingTransitions: {},
   hostCompositingAccuracy: null,
   transparentContractContextLifecycle: {},
@@ -750,6 +751,41 @@ function validateContextOpacityGroup(
       full: full.maximumAlpha,
       maximumAlphaRatio,
     },
+  );
+}
+
+function validatePrefabCountContract(result)
+{
+  const runtime = result.runtime;
+
+  assert(
+    runtime.configuredRingCount === 2 &&
+      runtime.configuredClickShardCount === 4 &&
+      runtime.configuredTrailShardLimit === 50,
+    `${currentLabel}: Unity Prefab 数量真值发生变化`,
+    runtime,
+  );
+  assert(
+    runtime.waveCount === 1 &&
+      runtime.ringCount === runtime.configuredRingCount,
+    `${currentLabel}: 单次点击没有生成 Prefab 定义的 2 个圆环`,
+    runtime,
+  );
+  assert(
+    runtime.clickShardCount === runtime.configuredClickShardCount,
+    `${currentLabel}: 单次点击没有生成 Prefab 定义的 4 个点击碎片`,
+    runtime,
+  );
+  assert(
+    runtime.trailShardCount === runtime.configuredTrailShardLimit,
+    `${currentLabel}: 单个拖尾实例没有在 Prefab 定义的 50 个碎片处封顶`,
+    runtime,
+  );
+  assert(
+    runtime.shardCount ===
+      runtime.clickShardCount + runtime.trailShardCount,
+    `${currentLabel}: 碎片分类计数未覆盖全部运行时粒子`,
+    runtime,
   );
 }
 
@@ -4527,6 +4563,33 @@ async function runMatrix(browserInstance, baseUrl, baseline)
 
     if (dpr === 1)
     {
+      for (const mode of modeNames)
+      {
+        const label = `${mode}__unity-prefab-count-contract`;
+
+        currentLabel = label;
+        const result = await page.evaluate(
+          (input) => window.browserPixelSuite.runCase(input),
+          {
+            mode,
+            opacity: 1,
+            isolatedCompositing: true,
+            background: 'transparent',
+            shadow: false,
+            containStrict: false,
+            prefabCountContract: true,
+            sampleTimeMs: 1,
+          },
+        );
+
+        validatePrefabCountContract(result);
+        metrics.prefabCountContracts[mode] =
+        {
+          route: result.route,
+          runtime: result.runtime,
+        };
+      }
+
       for (const mode of modeNames)
       {
         currentLabel = `${mode}__transparent-contract-transitions`;
