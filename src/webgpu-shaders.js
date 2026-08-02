@@ -229,7 +229,8 @@ struct PassUniforms
   hdrWhiteCore: f32,
   hdrWhiteStart: f32,
   hdrWhiteEnd: f32,
-  _padding: vec2f,
+  hdrBrightness: f32,
+  _padding: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: PassUniforms;
@@ -436,8 +437,24 @@ fn fragmentFinal(input: FullscreenOutput) -> @location(0) vec4f
     params.visualMaxAlpha != 0u,
   );
 
-  // Extended 输出需要独立展示映射；Unity 线性能量和 SDR 路径保持原样。
-  let extendedDisplayLinear = mapExtendedHdrPresentation(linear);
+  let backgroundUv = (input.uv - vec2f(0.5)) *
+    params.backgroundUvScale + vec2f(0.5);
+  let sampledBackground = textureSampleLevel(
+    source3,
+    linearSampler,
+    backgroundUv,
+    0.0,
+  ).rgb;
+  // Extended 输出需要独立展示映射；整体增益只放大背景上方的特效增量。
+  let mappedExtendedLinear = mapExtendedHdrPresentation(linear);
+  let presentationBackground = select(
+    vec3f(0.0),
+    sampledBackground,
+    params.hasBackground != 0u,
+  );
+  let extendedDisplayLinear = presentationBackground +
+    max(mappedExtendedLinear - presentationBackground, vec3f(0.0)) *
+    clamp(params.hdrBrightness, 0.0, 32.0);
   let extendedSrgb = linearToExtendedSrgb3(extendedDisplayLinear);
 
   if (params.extendedOutput != 0u && params.hasBackground == 0u)
@@ -466,14 +483,6 @@ fn fragmentFinal(input: FullscreenOutput) -> @location(0) vec4f
   }
 
   let srgb = linearToSrgb3(linear);
-  let backgroundUv = (input.uv - vec2f(0.5)) *
-    params.backgroundUvScale + vec2f(0.5);
-  let sampledBackground = textureSampleLevel(
-    source3,
-    linearSampler,
-    backgroundUv,
-    0.0,
-  ).rgb;
 
   if (params.extendedOutput != 0u && params.hasBackground != 0u)
   {

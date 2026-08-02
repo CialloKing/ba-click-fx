@@ -1720,6 +1720,7 @@ assert(
 effect.updateConfig(
   {
     webgpuHdrPeak: 3.5,
+    webgpuHdrBrightness: 24,
     webgpuHdrWhiteCore: 0.8,
     webgpuHdrWhiteStart: 6,
     webgpuHdrWhiteEnd: 2,
@@ -1729,6 +1730,7 @@ let hdrPresentationConfig = effect.getConfig();
 
 assert(
   hdrPresentationConfig.webgpuHdrPeak === 3.5 &&
+    hdrPresentationConfig.webgpuHdrBrightness === 24 &&
     hdrPresentationConfig.webgpuHdrWhiteCore === 0.8 &&
     hdrPresentationConfig.webgpuHdrWhiteStart === 6 &&
     hdrPresentationConfig.webgpuHdrWhiteEnd === 6.01,
@@ -1737,6 +1739,7 @@ assert(
 effect.updateConfig(
   {
     webgpuHdrPeak: CONFIG.webgpuHdrPeak,
+    webgpuHdrBrightness: CONFIG.webgpuHdrBrightness,
     webgpuHdrWhiteCore: CONFIG.webgpuHdrWhiteCore,
     webgpuHdrWhiteStart: CONFIG.webgpuHdrWhiteStart,
     webgpuHdrWhiteEnd: CONFIG.webgpuHdrWhiteEnd,
@@ -1745,6 +1748,8 @@ effect.updateConfig(
 hdrPresentationConfig = effect.getConfig();
 assert(
   hdrPresentationConfig.webgpuHdrPeak === CONFIG.webgpuHdrPeak &&
+    hdrPresentationConfig.webgpuHdrBrightness ===
+      CONFIG.webgpuHdrBrightness &&
     hdrPresentationConfig.webgpuHdrWhiteCore ===
       CONFIG.webgpuHdrWhiteCore &&
     hdrPresentationConfig.webgpuHdrWhiteStart ===

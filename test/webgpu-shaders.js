@@ -40,10 +40,13 @@ assert.ok(
 
 assert.ok(
   WEBGPU_FULLSCREEN_SHADER.includes(
-    'let extendedDisplayLinear = mapExtendedHdrPresentation(linear);',
+      'let mappedExtendedLinear = mapExtendedHdrPresentation(linear);',
   ) &&
     WEBGPU_FULLSCREEN_SHADER.includes(
       'let extendedSrgb = linearToExtendedSrgb3(extendedDisplayLinear);',
+    ) &&
+    WEBGPU_FULLSCREEN_SHADER.includes(
+      'clamp(params.hdrBrightness, 0.0, 32.0);',
     ) &&
     WEBGPU_FULLSCREEN_SHADER.includes(
       'return vec4f(extendedSrgb, alpha);',
@@ -126,6 +129,33 @@ assert.ok(
     sourceExcess[1] / sourceExcess[2],
   ),
   '关闭白核后仅压缩峰值，额外 HDR 能量的色相比率保持不变',
+);
+
+const brighterMapped = mapWebGPUHdrPresentation(
+  unityBlue,
+  {
+    ...WEBGPU_HDR_PRESENTATION_DEFAULTS,
+    brightness: 16,
+  },
+);
+const mappedBackground = mapWebGPUHdrPresentation(
+  [0.2, 0.4, 0.8],
+  {
+    ...WEBGPU_HDR_PRESENTATION_DEFAULTS,
+    brightness: 32,
+  },
+  [0.2, 0.4, 0.8],
+);
+
+assert.ok(
+  brighterMapped.every((value, index) =>
+    approximatelyEqual(value, mappedUnityBlue[index] * 16)),
+  '整体亮度按线性倍率放大映射后的特效能量',
+);
+assert.deepEqual(
+  mappedBackground,
+  [0.2, 0.4, 0.8],
+  '已知背景不随 HDR 特效整体亮度一起提升',
 );
 
 console.log('WebGPU Shader tests passed.');

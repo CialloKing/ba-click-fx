@@ -624,6 +624,8 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteStart;
     floats[21] = values.hdrWhiteEnd ??
       WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteEnd;
+    floats[22] = values.hdrBrightness ??
+      WEBGPU_HDR_PRESENTATION_DEFAULTS.brightness;
     return data;
   }
 
@@ -1442,6 +1444,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
           ),
           extendedOutput: this.hdrOutput,
           hdrPeak: settings.webgpuHdrPeak,
+          hdrBrightness: settings.webgpuHdrBrightness,
           hdrWhiteCore: settings.webgpuHdrWhiteCore,
           hdrWhiteStart: settings.webgpuHdrWhiteStart,
           hdrWhiteEnd: settings.webgpuHdrWhiteEnd,

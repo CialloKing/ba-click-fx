@@ -42,6 +42,7 @@ import { WEBGPU_HDR_PRESENTATION_DEFAULTS } from './webgpu-hdr-presentation.js';
 
 const WEBGPU_HDR_PEAK_MIN = 2;
 const WEBGPU_HDR_PEAK_MAX = 4;
+const WEBGPU_HDR_BRIGHTNESS_MAX = 32;
 const WEBGPU_HDR_WHITE_THRESHOLD_MIN = 0;
 const WEBGPU_HDR_WHITE_START_MAX = 15.99;
 const WEBGPU_HDR_WHITE_END_MAX = 16;
@@ -1009,6 +1010,7 @@ export const CONFIG = Object.freeze(
     effectBackend: DEFAULT_EFFECT_BACKEND,
     // 仅 WebGPU Extended 最终展示使用；不改变 Unity 发射和 Bloom 真值。
     webgpuHdrPeak: WEBGPU_HDR_PRESENTATION_DEFAULTS.peak,
+    webgpuHdrBrightness: WEBGPU_HDR_PRESENTATION_DEFAULTS.brightness,
     webgpuHdrWhiteCore: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteCore,
     webgpuHdrWhiteStart: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteStart,
     webgpuHdrWhiteEnd: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteEnd,
@@ -1238,6 +1240,12 @@ export function normalizeWebGPUHdrPresentation(
     0,
     1,
   );
+  const brightness = normalizeFiniteRange(
+    overrides.webgpuHdrBrightness,
+    fallback.webgpuHdrBrightness ?? fallback.brightness,
+    0,
+    WEBGPU_HDR_BRIGHTNESS_MAX,
+  );
   const whiteStart = normalizeFiniteRange(
     overrides.webgpuHdrWhiteStart,
     fallback.webgpuHdrWhiteStart ?? fallback.whiteStart,
@@ -1253,6 +1261,7 @@ export function normalizeWebGPUHdrPresentation(
 
   return {
     webgpuHdrPeak: peak,
+    webgpuHdrBrightness: brightness,
     webgpuHdrWhiteCore: whiteCore,
     webgpuHdrWhiteStart: whiteStart,
     webgpuHdrWhiteEnd: Math.max(

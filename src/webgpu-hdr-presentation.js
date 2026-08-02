@@ -1,6 +1,7 @@
 export const WEBGPU_HDR_PRESENTATION_DEFAULTS = Object.freeze(
   {
     peak: 3,
+    brightness: 1,
     whiteCore: 0.6,
     whiteStart: 1,
     whiteEnd: 5,
@@ -31,9 +32,11 @@ function smoothstep(edge0, edge1, value)
 export function mapWebGPUHdrPresentation(
   rgb,
   settings = WEBGPU_HDR_PRESENTATION_DEFAULTS,
+  background = [0, 0, 0],
 )
 {
   const peak = Math.max(1, settings.peak);
+  const brightness = clamp(settings.brightness ?? 1, 0, 32);
   const whiteCore = clamp(settings.whiteCore, 0, 1);
   const whiteStart = Math.max(0, settings.whiteStart);
   const whiteEnd = Math.max(whiteStart, settings.whiteEnd);
@@ -44,7 +47,9 @@ export function mapWebGPUHdrPresentation(
 
   if (excessPeak <= 0)
   {
-    return base;
+    return base.map((value, index) =>
+      background[index] + Math.max(0, value - background[index]) *
+        brightness);
   }
 
   const capacity = peak - 1;
@@ -53,7 +58,7 @@ export function mapWebGPUHdrPresentation(
   const whiteMix = smoothstep(whiteStart, whiteEnd, excessPeak) *
     whiteCore;
 
-  return base.map((value, index) =>
+  const mapped = base.map((value, index) =>
   {
     const coloredExtra = excess[index] * mappedPeak / excessPeak;
     const displayExtra = coloredExtra +
@@ -61,4 +66,8 @@ export function mapWebGPUHdrPresentation(
 
     return value + displayExtra;
   });
+
+  return mapped.map((value, index) =>
+    background[index] + Math.max(0, value - background[index]) *
+      brightness);
 }
