@@ -5,6 +5,10 @@ import {
   linearToExtendedSrgb,
   WEBGPU_FULLSCREEN_SHADER,
 } from '../src/webgpu-shaders.js';
+import {
+  mapWebGPUHdrPresentation,
+  WEBGPU_HDR_PRESENTATION_DEFAULTS,
+} from '../src/webgpu-hdr-presentation.js';
 
 function approximatelyEqual(left, right, epsilon = 1e-12)
 {
@@ -36,8 +40,11 @@ assert.ok(
 
 assert.ok(
   WEBGPU_FULLSCREEN_SHADER.includes(
-    'let extendedSrgb = linearToExtendedSrgb3(linear);',
+    'let extendedDisplayLinear = mapExtendedHdrPresentation(linear);',
   ) &&
+    WEBGPU_FULLSCREEN_SHADER.includes(
+      'let extendedSrgb = linearToExtendedSrgb3(extendedDisplayLinear);',
+    ) &&
     WEBGPU_FULLSCREEN_SHADER.includes(
       'return vec4f(extendedSrgb, alpha);',
     ) &&
@@ -51,6 +58,74 @@ assert.ok(
       'return vec4f(max(linear, vec3f(0.0)), alpha);',
     ),
   'Extended 最终输出和已知背景反解统一使用扩展 sRGB 编码域',
+);
+
+console.log('WebGPU HDR 展示映射');
+
+for (const rgb of [
+  [0, 0, 0],
+  [0.1, 0.5, 1],
+  [1, 1, 1],
+])
+{
+  assert.deepEqual(
+    mapWebGPUHdrPresentation(rgb),
+    rgb,
+    'SDR 范围内的线性颜色必须保持不变',
+  );
+}
+
+let previousGray = 0;
+
+for (const energy of [0, 0.25, 1, 1.5, 2, 4, 8, 64])
+{
+  const mapped = mapWebGPUHdrPresentation([energy, energy, energy]);
+
+  assert.ok(
+    mapped.every((value) => value >= previousGray - 1e-12),
+    'HDR 肩部必须保持灰阶能量单调',
+  );
+  assert.ok(
+    mapped.every((value) =>
+      value <= WEBGPU_HDR_PRESENTATION_DEFAULTS.peak + 1e-12),
+    '映射结果不能超过配置的线性峰值',
+  );
+  previousGray = mapped[0];
+}
+
+const unityBlue = [0.431, 2.303, 5.992];
+const mappedUnityBlue = mapWebGPUHdrPresentation(unityBlue);
+const sourceChroma = Math.max(...unityBlue) - Math.min(...unityBlue);
+const mappedChroma = Math.max(...mappedUnityBlue) -
+  Math.min(...mappedUnityBlue);
+
+assert.ok(
+  mappedChroma < sourceChroma,
+  '高能蓝色必须获得更中性的白色核心',
+);
+assert.ok(
+  mappedUnityBlue[2] > mappedUnityBlue[1] &&
+    mappedUnityBlue[1] > mappedUnityBlue[0],
+  '白核映射不能抹掉 Unity 蓝色的通道顺序',
+);
+
+const coloredOnly = mapWebGPUHdrPresentation(
+  unityBlue,
+  {
+    ...WEBGPU_HDR_PRESENTATION_DEFAULTS,
+    whiteCore: 0,
+  },
+);
+const sourceExcess = unityBlue.map((value) => Math.max(0, value - 1));
+const mappedExcess = coloredOnly.map((value, index) =>
+  value - Math.min(unityBlue[index], 1));
+
+assert.ok(
+  approximatelyEqual(
+    mappedExcess[1] / mappedExcess[2],
+    sourceExcess[1] / sourceExcess[2],
+  ),
+  '关闭白核后仅压缩峰值，额外 HDR 能量的色相比率保持不变',
 );
 
 console.log('WebGPU Shader tests passed.');

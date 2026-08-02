@@ -225,7 +225,11 @@ struct PassUniforms
   brightUnknownBackground: u32,
   hostAdditive: u32,
   extendedOutput: u32,
-  _padding: u32,
+  hdrPeak: f32,
+  hdrWhiteCore: f32,
+  hdrWhiteStart: f32,
+  hdrWhiteEnd: f32,
+  _padding: vec2f,
 }
 
 @group(0) @binding(0) var<uniform> params: PassUniforms;
@@ -356,6 +360,29 @@ fn linearToExtendedSrgb3(value: vec3f) -> vec3f
   );
 }
 
+fn mapExtendedHdrPresentation(linear: vec3f) -> vec3f
+{
+  let sdrBase = clamp(linear, vec3f(0.0), vec3f(1.0));
+  let excess = max(linear - sdrBase, vec3f(0.0));
+  let excessPeak = max(max(excess.r, excess.g), excess.b);
+
+  if (excessPeak <= 0.0)
+  {
+    return sdrBase;
+  }
+
+  let capacity = max(params.hdrPeak - 1.0, 0.0);
+  let mappedPeak = capacity * excessPeak /
+    max(capacity + excessPeak, 0.000001);
+  let coloredExtra = excess * mappedPeak / excessPeak;
+  let whiteStart = max(params.hdrWhiteStart, 0.0);
+  let whiteEnd = max(params.hdrWhiteEnd, whiteStart + 0.000001);
+  let whiteMix = smoothstep(whiteStart, whiteEnd, excessPeak) *
+    clamp(params.hdrWhiteCore, 0.0, 1.0);
+
+  return sdrBase + mix(coloredExtra, vec3f(mappedPeak), whiteMix);
+}
+
 fn solveOverlayAlpha(background: f32, desired: f32) -> f32
 {
   if (desired > background)
@@ -409,7 +436,9 @@ fn fragmentFinal(input: FullscreenOutput) -> @location(0) vec4f
     params.visualMaxAlpha != 0u,
   );
 
-  let extendedSrgb = linearToExtendedSrgb3(linear);
+  // Extended 输出需要独立展示映射；Unity 线性能量和 SDR 路径保持原样。
+  let extendedDisplayLinear = mapExtendedHdrPresentation(linear);
+  let extendedSrgb = linearToExtendedSrgb3(extendedDisplayLinear);
 
   if (params.extendedOutput != 0u && params.hasBackground == 0u)
   {

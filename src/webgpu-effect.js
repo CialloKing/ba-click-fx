@@ -32,13 +32,14 @@ import {
   WEBGPU_FULLSCREEN_SHADER,
   WEBGPU_GEOMETRY_SHADER,
 } from './webgpu-shaders.js';
+import { WEBGPU_HDR_PRESENTATION_DEFAULTS } from './webgpu-hdr-presentation.js';
 
 const FLOAT_SIZE = Float32Array.BYTES_PER_ELEMENT;
 const COMPONENTS_PER_VERTEX = 6;
 const COMPONENTS_PER_DISK_VERTEX = 8;
 const COMPONENTS_PER_RING_VERTEX = 9;
 const COMPONENTS_PER_TEXTURED_VERTEX = 9;
-const PASS_UNIFORM_SIZE = 80;
+const PASS_UNIFORM_SIZE = 96;
 const GEOMETRY_UNIFORM_SIZE = 32;
 const HDR_FORMAT = 'rgba16float';
 const TEXTURE_USAGE = globalThis.GPUTextureUsage ??
@@ -616,6 +617,13 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     integers[15] = values.brightUnknownBackground ? 1 : 0;
     integers[16] = values.hostAdditive ? 1 : 0;
     integers[17] = values.extendedOutput ? 1 : 0;
+    floats[18] = values.hdrPeak ?? WEBGPU_HDR_PRESENTATION_DEFAULTS.peak;
+    floats[19] = values.hdrWhiteCore ??
+      WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteCore;
+    floats[20] = values.hdrWhiteStart ??
+      WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteStart;
+    floats[21] = values.hdrWhiteEnd ??
+      WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteEnd;
     return data;
   }
 
@@ -1433,6 +1441,10 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
             settings.hostCompositing,
           ),
           extendedOutput: this.hdrOutput,
+          hdrPeak: settings.webgpuHdrPeak,
+          hdrWhiteCore: settings.webgpuHdrWhiteCore,
+          hdrWhiteStart: settings.webgpuHdrWhiteStart,
+          hdrWhiteEnd: settings.webgpuHdrWhiteEnd,
         },
       );
 
