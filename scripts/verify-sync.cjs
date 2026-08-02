@@ -53,7 +53,13 @@ function getFunctionSource(source, name)
     return '';
   }
 
-  const openingBrace = source.indexOf('{', start);
+  // 参数默认值可能包含对象字面量；函数体花括号固定独占下一行。
+  const openingBrace = source.indexOf('\n{', start) + 1;
+
+  if (openingBrace <= 0)
+  {
+    return '';
+  }
   let depth = 0;
 
   for (let index = openingBrace; index < source.length; index++)
@@ -344,6 +350,64 @@ verify(
     /bafx-ctrlHdrPresentationPreset/.test(mainJs) &&
     /\.\.\.HDR_PRESENTATION_PRESETS\.balanced/.test(mainJs),
   'HDR 展示控件覆盖整体亮度、预设、Extended 启用、持久化与重置',
+);
+const syncHdrUiOverlaySource = getFunctionSource(
+  mainJs,
+  'syncHdrUiOverlay',
+);
+const applyHdrUiSettingsSource = getFunctionSource(
+  mainJs,
+  'applyHdrUiSettings',
+);
+const renderHdrUiOverlaySource = getFunctionSource(
+  mainJs,
+  'renderHdrUiOverlay',
+);
+const hdrUiCanvasTag = indexHtml.match(
+  /<canvas[\s\S]*?id="hdrUiCanvas"[\s\S]*?<\/canvas>/,
+)?.[0] ?? '';
+const hdrUiBrightnessControl = indexHtml.match(
+  /<input[^>]*id="ctrlHdrUiBrightness"[^>]*>/,
+)?.[0] ?? '';
+const renderModePosition = indexHtml.indexOf('id="ctrlRenderMode"');
+const hdrUiControlsPosition = indexHtml.indexOf('id="hdrUiControls"');
+const outputCompositingPosition = indexHtml.indexOf(
+  'id="ctrlOutputCompositing"',
+);
+
+verify(
+  /aria-hidden="true"/.test(hdrUiCanvasTag) &&
+    /id="ctrlHdrUiEnabled" checked disabled/.test(indexHtml) &&
+    /min="1"/.test(hdrUiBrightnessControl) &&
+    /max="16"/.test(hdrUiBrightnessControl) &&
+    /step="0\.25"/.test(hdrUiBrightnessControl) &&
+    /value="4"/.test(hdrUiBrightnessControl) &&
+    /const DEFAULT_HDR_UI_BRIGHTNESS = 4;/.test(mainJs) &&
+    renderModePosition < hdrUiControlsPosition &&
+    hdrUiControlsPosition < outputCompositingPosition,
+  '展示页在渲染模式后直接提供默认 4 倍的 UI HDR 亮度控制',
+);
+verify(
+  /resolvedEffectBackend === 'webgpu'/.test(syncHdrUiOverlaySource) &&
+    /resolvedWebGPUOutputMode === 'extended'/.test(syncHdrUiOverlaySource) &&
+    /effect\.webgpuEffectRenderer\?\.device/.test(syncHdrUiOverlaySource) &&
+    /renderer\.configure\(device\)/.test(syncHdrUiOverlaySource) &&
+    /hdrUiRenderer\.suspend\(\)/.test(syncHdrUiOverlaySource) &&
+    /Math\.max\(1, Math\.min\(16, settings\.brightness\)\)/.test(
+      applyHdrUiSettingsSource,
+    ) &&
+    /bafx-ctrlHdrUiEnabled/.test(applyHdrUiSettingsSource) &&
+    /bafx-ctrlHdrUiBrightness/.test(applyHdrUiSettingsSource) &&
+    /brightness: hdrUiBrightness/.test(renderHdrUiOverlaySource) &&
+    /dpr: Math\.min\(1\.5, Math\.max\(1, effect\.dpr \|\| 1\)\)/.test(
+      renderHdrUiOverlaySource,
+    ) &&
+    /collectHdrUiPrimitives\(\)/.test(renderHdrUiOverlaySource) &&
+    /\.hdr-ui-canvas\s*\{[\s\S]*?position: fixed;[\s\S]*?inset: 0;[\s\S]*?pointer-events: none;[\s\S]*?mix-blend-mode: plus-lighter;/.test(
+      styleCss,
+    ) &&
+    !/hdrUi/i.test(typeDefinitions),
+  'UI HDR 严格依赖 Extended、共享主 Device 且保持为展示页私有能力',
 );
 const outputCompositingSelect = indexHtml.match(
   /<select id="ctrlOutputCompositing"[\s\S]*?<\/select>/,

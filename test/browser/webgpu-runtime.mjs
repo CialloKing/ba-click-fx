@@ -941,6 +941,312 @@ async function runIntegration(page)
   };
 }
 
+async function measureScreenshotDifference(page, before, after)
+{
+  return page.evaluate(async ({ beforeBase64, afterBase64 }) =>
+  {
+    async function decode(base64)
+    {
+      const image = new Image();
+
+      image.src = `data:image/png;base64,${base64}`;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+
+      context.drawImage(image, 0, 0);
+      return {
+        width: image.width,
+        height: image.height,
+        pixels: context.getImageData(0, 0, image.width, image.height).data,
+      };
+    }
+
+    const left = await decode(beforeBase64);
+    const right = await decode(afterBase64);
+    let changedPixels = 0;
+    let maximumDifference = 0;
+
+    if (left.width !== right.width || left.height !== right.height)
+    {
+      return { changedPixels: 0, maximumDifference: 0, sizeMismatch: true };
+    }
+
+    for (let index = 0; index < left.pixels.length; index += 4)
+    {
+      const difference = Math.max(
+        Math.abs(left.pixels[index] - right.pixels[index]),
+        Math.abs(left.pixels[index + 1] - right.pixels[index + 1]),
+        Math.abs(left.pixels[index + 2] - right.pixels[index + 2]),
+      );
+
+      if (difference >= 4)
+      {
+        changedPixels++;
+      }
+
+      maximumDifference = Math.max(maximumDifference, difference);
+    }
+
+    return { changedPixels, maximumDifference, sizeMismatch: false };
+  },
+  {
+    beforeBase64: before.toString('base64'),
+    afterBase64: after.toString('base64'),
+  });
+}
+
+async function readDemoHdrUiState(page)
+{
+  return page.evaluate(() =>
+  {
+    const canvas = document.getElementById('hdrUiCanvas');
+    const config = window.BAClickFXDemo?.getConfig?.();
+
+    return {
+      requestedBackend: config?.effectBackend,
+      resolvedBackend: config?.resolvedEffectBackend,
+      outputMode: config?.resolvedWebGPUOutputMode,
+      bodyState: document.body.dataset.hdrUiState,
+      canvasOutput: canvas?.dataset.hdrUiOutput,
+      primitives: Number(canvas?.dataset.hdrUiPrimitives ?? 0),
+      display: canvas ? getComputedStyle(canvas).display : 'missing',
+      width: canvas?.width ?? 0,
+      height: canvas?.height ?? 0,
+      enabled: document.getElementById('ctrlHdrUiEnabled')?.checked,
+      enabledDisabled: document.getElementById('ctrlHdrUiEnabled')?.disabled,
+      brightness: document.getElementById('ctrlHdrUiBrightness')?.value,
+      brightnessOutput:
+        document.getElementById('outHdrUiBrightness')?.textContent,
+      brightnessDisabled:
+        document.getElementById('ctrlHdrUiBrightness')?.disabled,
+      storedEnabled: localStorage.getItem('bafx-ctrlHdrUiEnabled'),
+      storedBrightness: localStorage.getItem('bafx-ctrlHdrUiBrightness'),
+    };
+  });
+}
+
+async function selectDemoRenderMode(page, mode)
+{
+  await page.selectOption('#ctrlRenderMode', mode);
+  await page.waitForFunction((expectedMode) =>
+  {
+    const config = window.BAClickFXDemo?.getConfig?.();
+
+    if (!config || document.getElementById('ctrlRenderMode')?.value !== expectedMode)
+    {
+      return false;
+    }
+
+    if (expectedMode === 'full-webgpu')
+    {
+      return config.resolvedEffectBackend === 'webgpu' &&
+        (
+          config.resolvedWebGPUOutputMode === 'extended' ||
+          config.resolvedWebGPUOutputMode === 'standard'
+        );
+    }
+
+    return config.resolvedEffectBackend !== 'pending';
+  }, mode);
+}
+
+async function setDemoHdrUiEnabled(page, enabled)
+{
+  await page.evaluate((nextEnabled) =>
+  {
+    const control = document.getElementById('ctrlHdrUiEnabled');
+
+    control.checked = nextEnabled;
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+  }, enabled);
+}
+
+async function runDemoHdrUiIntegration(page, origin)
+{
+  await page.goto(origin);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForFunction(() => window.BAClickFXDemo?.getConfig?.());
+  await page.waitForFunction(() =>
+    window.BAClickFXDemo.getConfig().resolvedEffectBackend !== 'pending');
+  const initial = await readDemoHdrUiState(page);
+  const initialDetail = JSON.stringify(initial);
+
+  assert.equal(initial.requestedBackend, 'webgl2', `展示页默认后端错误: ${initialDetail}`);
+  assert.equal(initial.bodyState, 'inactive', `默认 UI HDR 状态错误: ${initialDetail}`);
+  assert.equal(initial.display, 'none', `默认 UI HDR Canvas 未隐藏: ${initialDetail}`);
+  assert.ok(
+    initial.enabledDisabled && initial.brightnessDisabled,
+    `默认 UI HDR 控件不应可用: ${initialDetail}`,
+  );
+
+  await selectDemoRenderMode(page, 'full-webgpu');
+  const negotiated = await readDemoHdrUiState(page);
+  const negotiatedDetail = JSON.stringify(negotiated);
+
+  if (negotiated.outputMode !== 'extended')
+  {
+    assert.equal(
+      negotiated.outputMode,
+      'standard',
+      `展示页 WebGPU 输出状态错误: ${negotiatedDetail}`,
+    );
+    assert.ok(
+      negotiated.bodyState === 'inactive' &&
+        negotiated.display === 'none' &&
+        negotiated.enabledDisabled &&
+        negotiated.brightnessDisabled,
+      `WebGPU SDR 不应启用 UI HDR: ${negotiatedDetail}`,
+    );
+    return { initial, negotiated, extendedCovered: false };
+  }
+
+  await page.waitForFunction(() =>
+  {
+    const canvas = document.getElementById('hdrUiCanvas');
+
+    return document.body.dataset.hdrUiState === 'extended' &&
+      Number(canvas?.dataset.hdrUiPrimitives ?? 0) > 0 &&
+      getComputedStyle(canvas).display !== 'none';
+  });
+  await page.evaluate(() =>
+    window.BAClickFXDemo.webgpuEffectRenderer.device.queue.onSubmittedWorkDone());
+  const extended = await readDemoHdrUiState(page);
+  const extendedDetail = JSON.stringify(extended);
+
+  assert.ok(
+    extended.canvasOutput === 'extended' &&
+      extended.primitives > 0 &&
+      extended.display !== 'none' &&
+      extended.width > 0 &&
+      extended.height > 0,
+    `UI HDR Canvas 未完成可见提交: ${extendedDetail}`,
+  );
+  assert.ok(
+    extended.enabled &&
+      !extended.enabledDisabled &&
+      extended.brightness === '4' &&
+      extended.brightnessOutput === '4.00' &&
+      !extended.brightnessDisabled,
+    `UI HDR 默认控制状态错误: ${extendedDetail}`,
+  );
+
+  const enabledScreenshot = await page.screenshot();
+
+  await setDemoHdrUiEnabled(page, false);
+  await page.waitForFunction(() =>
+    document.body.dataset.hdrUiState === 'disabled');
+  const disabledScreenshot = await page.screenshot();
+  const disabled = await readDemoHdrUiState(page);
+  const disabledDetail = JSON.stringify(disabled);
+
+  assert.ok(
+    !disabled.enabled &&
+      disabled.canvasOutput === 'inactive' &&
+      disabled.primitives === 0 &&
+      disabled.display === 'none' &&
+      disabled.storedEnabled === 'false',
+    `关闭 UI HDR 后 Surface 仍然活动: ${disabledDetail}`,
+  );
+  const screenshotDifference = await measureScreenshotDifference(
+    page,
+    enabledScreenshot,
+    disabledScreenshot,
+  );
+
+  assert.ok(
+    !screenshotDifference.sizeMismatch &&
+      screenshotDifference.changedPixels >= 100 &&
+      screenshotDifference.maximumDifference >= 16,
+    `UI HDR 没有产生可检测的页面像素贡献: ${JSON.stringify(screenshotDifference)}`,
+  );
+
+  await setDemoHdrUiEnabled(page, true);
+  await page.fill('#ctrlHdrUiBrightness', '8');
+  await page.waitForFunction(() =>
+    document.getElementById('outHdrUiBrightness')?.textContent === '8.00');
+  const adjusted = await readDemoHdrUiState(page);
+  const adjustedDetail = JSON.stringify(adjusted);
+
+  assert.ok(
+    adjusted.bodyState === 'extended' &&
+      adjusted.brightness === '8' &&
+      adjusted.brightnessOutput === '8.00' &&
+      adjusted.storedEnabled === 'true' &&
+      adjusted.storedBrightness === '8',
+    `UI HDR 亮度调整或持久化错误: ${adjustedDetail}`,
+  );
+  await page.evaluate(() =>
+  {
+    window.__BACLICKFX_DEMO_HDR_UI_DEVICE__ =
+      window.BAClickFXDemo.webgpuEffectRenderer.device;
+  });
+
+  await selectDemoRenderMode(page, 'full-webgl2');
+  const switched = await readDemoHdrUiState(page);
+  const switchedDetail = JSON.stringify(switched);
+
+  assert.ok(
+    switched.bodyState === 'inactive' &&
+      switched.canvasOutput === 'inactive' &&
+      switched.primitives === 0 &&
+      switched.display === 'none' &&
+      switched.brightnessDisabled,
+    `切出 WebGPU 后 UI HDR Surface 仍然活动: ${switchedDetail}`,
+  );
+
+  await selectDemoRenderMode(page, 'full-webgpu');
+  await page.waitForFunction(() =>
+    document.body.dataset.hdrUiState === 'extended' &&
+      Number(document.getElementById('hdrUiCanvas')?.dataset.hdrUiPrimitives ?? 0) > 0);
+  const resumed = await page.evaluate(() =>
+  ({
+    state: document.body.dataset.hdrUiState,
+    sameDevice: window.BAClickFXDemo.webgpuEffectRenderer.device ===
+      window.__BACLICKFX_DEMO_HDR_UI_DEVICE__,
+  }));
+
+  assert.ok(
+    resumed.state === 'extended' && resumed.sameDevice,
+    `恢复 WebGPU 后 UI HDR 未复用主 Device: ${JSON.stringify(resumed)}`,
+  );
+
+  await page.evaluate(() => document.getElementById('btnReset').click());
+  await page.waitForFunction(() =>
+    window.BAClickFXDemo.getConfig().resolvedEffectBackend !== 'pending');
+  const reset = await readDemoHdrUiState(page);
+  const resetDetail = JSON.stringify(reset);
+
+  assert.ok(
+    reset.requestedBackend === 'webgl2' &&
+      reset.bodyState === 'inactive' &&
+      reset.display === 'none' &&
+      reset.enabled &&
+      reset.brightness === '4' &&
+      reset.brightnessOutput === '4.00' &&
+      reset.storedEnabled === null &&
+      reset.storedBrightness === null,
+    `重置未恢复 UI HDR 展示页默认值: ${resetDetail}`,
+  );
+
+  return {
+    initial,
+    negotiated,
+    extended,
+    disabled,
+    adjusted,
+    switched,
+    resumed,
+    reset,
+    screenshotDifference,
+    extendedCovered: true,
+  };
+}
+
 async function inspectWebGPUAvailability(page)
 {
   return page.evaluate(async () =>
@@ -1082,6 +1388,10 @@ async function main()
     assertSdrColorParity(colorProbes.preferred, colorProbes.standard);
 
     const integration = await runIntegration(page);
+    const demoHdrUi = await runDemoHdrUiIntegration(
+      page,
+      `http://127.0.0.1:${port}/`,
+    );
 
     if (browserErrors.length > 0)
     {
@@ -1108,6 +1418,7 @@ async function main()
         })),
         colorProbes,
         integration,
+        demoHdrUi,
       },
       null,
       2,
