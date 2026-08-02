@@ -1130,6 +1130,7 @@ function validateTransparentContractContext(mode, lifecycle, expected)
   }
 
   const before = lifecycle.before.transparent;
+  const fallbackIsNative = lifecycle.fallbackRoute.bloom === 'native';
 
   for (const phase of [
     'before',
@@ -1141,18 +1142,52 @@ function validateTransparentContractContext(mode, lifecycle, expected)
   {
     const pixels = lifecycle[phase].transparent;
     const compositing = lifecycle.compositing[phase];
+    const nativeFallbackPhase = fallbackIsNative &&
+      (phase === 'fallback' || phase === 'fallbackSteady');
 
     assert(
       hasPixelOutput(pixels) &&
         compositing.hostCompositing === expected.hostCompositing &&
         compositing.overlayRootBlendMode === expected.hostCompositing &&
         compositing.overlayRootConnected &&
-        relativeDifference(before.meanEnergy, pixels.meanEnergy) <= 0.35,
+        (
+          nativeFallbackPhase
+            ? pixels.meanEnergy <= before.meanEnergy + 1 / 255
+            : relativeDifference(before.meanEnergy, pixels.meanEnergy) <= 0.35
+        ),
       `${mode}: ${expected.name} Context ${phase} 出现空白或载荷突跳`,
       {
         before,
         compositing,
         pixels,
+      },
+    );
+  }
+
+  if (fallbackIsNative)
+  {
+    const fallback = lifecycle.fallback.transparent;
+    const fallbackSteady = lifecycle.fallbackSteady.transparent;
+    const fallbackToSteady = lifecycle.alphaContinuity.fallbackToSteady;
+
+    assert(
+      fallback.meanAlpha <= before.meanAlpha + 1 / 255 &&
+        fallback.maximumAlpha <= before.maximumAlpha + 1 / 255 &&
+        fallbackSteady.meanAlpha <= before.meanAlpha + 1 / 255 &&
+        fallbackSteady.maximumAlpha <= before.maximumAlpha + 1 / 255 &&
+        relativeDifference(
+          fallback.meanEnergy,
+          fallbackSteady.meanEnergy,
+        ) <= 0.05 &&
+        fallbackToSteady.meanAbsoluteDelta <= 0.003 &&
+        fallbackToSteady.visibleMeanAbsoluteDelta <= 0.08 &&
+        fallbackToSteady.maximumAbsoluteDelta <= 0.35,
+      `${mode}: ${expected.name} Native Context 回退不稳定或产生增亮闪烁`,
+      {
+        before,
+        fallback,
+        fallbackSteady,
+        fallbackToSteady,
       },
     );
   }
@@ -1237,13 +1272,13 @@ function validateContextLifecycleGroup(
     if (opacity > 0)
     {
       const before = lifecycle.before.transparent;
+      const fallbackIsNative =
+        lifecycle.fallbackRoute.bloom === 'native';
+      const continuityPhases = fallbackIsNative
+        ? ['restoring', 'restored']
+        : ['fallback', 'fallbackSteady', 'restoring', 'restored'];
 
-      for (const phase of [
-        'fallback',
-        'fallbackSteady',
-        'restoring',
-        'restored',
-      ])
+      for (const phase of continuityPhases)
       {
         const current = lifecycle[phase].transparent;
         const spatial = lifecycle.alphaContinuity[phase];
@@ -1290,6 +1325,35 @@ function validateContextLifecycleGroup(
         );
       }
 
+      if (fallbackIsNative)
+      {
+        const fallback = lifecycle.fallback.transparent;
+        const fallbackSteady = lifecycle.fallbackSteady.transparent;
+        const fallbackToSteady = lifecycle.alphaContinuity.fallbackToSteady;
+
+        // Native 是 GPU 故障时的低成本降级，不能复制 MXFinalBloom 的宽
+        // 光晕；它必须保持透明、稳定且不能产生比故障前更实的 Alpha 闪烁。
+        assert(
+          fallback.meanAlpha <= before.meanAlpha + 1 / 255 &&
+            fallback.maximumAlpha <= before.maximumAlpha + 1 / 255 &&
+            fallbackSteady.meanAlpha <= before.meanAlpha + 1 / 255 &&
+            fallbackSteady.maximumAlpha <= before.maximumAlpha + 1 / 255,
+          `${mode}: Native Context 回退产生 Alpha 增亮闪烁`,
+          {
+            before,
+            fallback,
+            fallbackSteady,
+          },
+        );
+        assert(
+          fallbackToSteady.meanAbsoluteDelta <= 0.003 &&
+            fallbackToSteady.visibleMeanAbsoluteDelta <= 0.08 &&
+            fallbackToSteady.maximumAbsoluteDelta <= 0.35,
+          `${mode}: Native Context 回退首帧与稳定帧不一致`,
+          fallbackToSteady,
+        );
+      }
+
       const restoringToRestored =
         lifecycle.alphaContinuity.restoringToRestored;
 
@@ -1328,14 +1392,17 @@ function validateContextLifecycleRoute(mode, lifecycle)
   const expectedEffect = mode === 'full-webgl2'
     ? 'webgl2'
     : 'canvas2d';
+  const expectedFallbackBloom = mode === 'full-webgl2'
+    ? 'software'
+    : 'native';
 
   assert(
     lifecycle.beforeRoute.effect === expectedEffect &&
       lifecycle.beforeRoute.bloom === 'webgl2' &&
       lifecycle.fallbackRoute.effect === 'canvas2d' &&
-      lifecycle.fallbackRoute.bloom === 'software' &&
+      lifecycle.fallbackRoute.bloom === expectedFallbackBloom &&
       lifecycle.fallbackSteadyRoute.effect === 'canvas2d' &&
-      lifecycle.fallbackSteadyRoute.bloom === 'software' &&
+      lifecycle.fallbackSteadyRoute.bloom === expectedFallbackBloom &&
       lifecycle.restoringRoute.effect === expectedEffect &&
       lifecycle.restoringRoute.bloom === 'webgl2' &&
       lifecycle.restoredRoute.effect === expectedEffect &&
@@ -1467,8 +1534,9 @@ function validateBackendFailureContract(mode, chain, label)
         ['effect', 'webgl2', 'webgl2'],
       ]
     : [
-        ['bloom', 'webgl2', 'software'],
         ['bloom', 'webgl2', 'native'],
+        ['bloom', 'software', 'software'],
+        ['bloom', 'software', 'native'],
         ['bloom', 'webgl2', 'pending'],
         ['bloom', 'webgl2', 'webgl2'],
       ];
@@ -1759,12 +1827,10 @@ function validateBackendReentrantNative(mode, result)
   const expectedEvents = mode === 'full-webgl2'
     ? [
         ['effect', 'webgl2', 'canvas2d'],
-        ['bloom', 'webgl2', 'software'],
-        ['bloom', 'native', 'native'],
+        ['bloom', 'webgl2', 'native'],
       ]
     : [
-        ['bloom', 'webgl2', 'software'],
-        ['bloom', 'native', 'native'],
+        ['bloom', 'webgl2', 'native'],
       ];
 
   assert(
@@ -1884,14 +1950,14 @@ function validateTrailContextRoutes(mode, lifecycle)
     : 'canvas2d';
   const expectedFallbackSteadyBloom = mode === 'full-webgl2'
     ? 'webgl2'
-    : 'software';
+    : 'native';
   const routes = lifecycle.routes;
 
   assert(
     routes.before.effect === expectedEffect &&
       routes.before.bloom === 'webgl2' &&
       routes.fallback.effect === 'canvas2d' &&
-      routes.fallback.bloom === 'software' &&
+      routes.fallback.bloom === 'native' &&
       routes.fallbackSteady.effect === 'canvas2d' &&
       routes.fallbackSteady.bloom === expectedFallbackSteadyBloom &&
       routes.restoring.effect === expectedEffect &&

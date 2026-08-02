@@ -1630,6 +1630,10 @@ async function runContextLifecycle(specification)
         before.images.transparent,
         fallbackSteady.images.transparent,
       ),
+      fallbackToSteady: compareAlphaImages(
+        fallback.images.transparent,
+        fallbackSteady.images.transparent,
+      ),
       restoring: compareAlphaImages(
         before.images.transparent,
         restoring.images.transparent,
@@ -1974,6 +1978,15 @@ async function runBackendFailureChain(specification)
 
   extension.loseContext();
   await lostEvent;
+
+  if (mode === 'webgl2-bloom')
+  {
+    // GPU 故障只能自动回退 Native；这里显式选择 Software，才能继续验证
+    // 回读故障后的永久 Native 回退，而不把高成本路径伪装成自动回退。
+    effect.updateConfig({ bloomBackend: 'software' });
+    await runAnimationFrame(SAMPLE_TIME_MS);
+  }
+
   const softwareRoute = effect.getConfig();
   const software = capturePhase();
   let sourceContext = softwareRenderer.sourceContext;
@@ -2027,6 +2040,13 @@ async function runBackendFailureChain(specification)
   coverageProbe.restore();
   const unavailableAfterFailure = softwareRenderer.available === false;
   const restoredEvent = waitForCanvasEvent(canvas, 'webglcontextrestored');
+
+  if (mode === 'webgl2-bloom')
+  {
+    // Software 是测试显式选择的临时路径；恢复前重新请求 WebGL2，确保
+    // Context 恢复仍验证真实产品路由。
+    effect.updateConfig({ bloomBackend: 'webgl2' });
+  }
 
   // Chromium 会忽略紧跟 loseContext() 的同步恢复请求。
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -2201,7 +2221,10 @@ async function runBackendReentrantNative(specification)
   let softwareRenderCalls = 0;
   const switchToNative = (event) =>
   {
-    if (event.detail.resolvedBloomBackend === 'software')
+    if (
+      event.detail.resolvedBloomBackend === 'native' &&
+      event.detail.requestedBloomBackend !== 'native'
+    )
     {
       effect.updateConfig({ bloomBackend: 'native' });
     }
