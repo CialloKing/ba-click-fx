@@ -1,5 +1,14 @@
 ﻿# Changelog
 
+## v1.2.20 — WebGPU 真实 HDR 与高亮色相控制
+
+- 新增完整 WebGPU 特效后端：使用 `rgba16float` Scene、多级 MXFinalBloom 和 `toneMapping: extended` 输出真实超白 HDR 高光；Extended Canvas 不可用时保留 WebGPU Standard SDR，设备不可用或丢失时回退完整 WebGL2。
+- 新增 WebGPU HDR 展示校准 API 与控制面板：支持线性峰值、`0..32` 整体亮度、渐进白核和 `0..1` 高亮色相保持；这些选项仅作用于 Extended 最终展示，不修改 Unity 参数、粒子数量、几何或 Bloom 算法。
+- 增加分层 HDR 诊断状态，分别报告实际特效后端、Canvas 输出模式、浏览器动态范围与最终 HDR 判断；只有 `resolvedWebGPUOutputMode === 'extended'` 才声明浏览器侧 HDR 已就绪。
+- 新增宿主合成表面能力合同及请求值/解析值诊断；透明 WebView2、Electron 等窗口不能执行 DOM Screen/Add 时自动回退 `source-over`，避免将独立高 Alpha Add 载荷误送入普通窗口合成。
+- Software Bloom 改为仅在调用方显式请求时启用，不再作为 WebGL2 或 WebGPU 失败后的自动回退，降低透明桌面和低性能设备的意外 CPU、内存开销。
+- 对照解包 Unity 工程锁定跨后端数量与投影基线：每次点击保持 2 个圆环、4 个点击碎片，每个拖尾实例最多 50 个碎片；浏览器矩阵继续验证 WebGPU、WebGL2 与回退链不会改写这些游戏参数。
+
 ## v1.2.19 — Bloom 上采样纹理反接修复
 
 - 修复 MXFinalBloom 反向金字塔的两张纹理角色接反：恢复游戏的“累计粗级按 `SampleScale` 四点扩散，再单点加入当前细级”顺序，并使用累计粗级的 `texelSize`；同步完整 WebGL2、WebGL2 Bloom、Software Bloom RGB 与透明 Coverage 传输链。
