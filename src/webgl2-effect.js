@@ -774,7 +774,7 @@ function getTexImageSourceDimensions(source)
   };
 }
 
-function calculatePyramidSettings(
+export function calculatePyramidSettings(
   displayWidth,
   displayHeight,
   resolutionScale,
@@ -883,7 +883,7 @@ export class WebGL2EffectRenderer
     return this.sceneBackgroundSource !== null;
   }
 
-  constructor(canvas)
+  constructor(canvas, options = {})
   {
     this.canvas = canvas;
     // 两种 WebGL2 模式共享完整 Scene，避免清晰层和 Bloom 分层输出产生色差。
@@ -973,9 +973,15 @@ export class WebGL2EffectRenderer
 
     this._onContextLost = this._handleContextLost.bind(this);
     this._onContextRestored = this._handleContextRestored.bind(this);
-    this.canvas?.addEventListener?.('webglcontextlost', this._onContextLost);
-    this.canvas?.addEventListener?.('webglcontextrestored', this._onContextRestored);
-    this._initialize();
+    if (options.initialize !== false)
+    {
+      this.canvas?.addEventListener?.('webglcontextlost', this._onContextLost);
+      this.canvas?.addEventListener?.(
+        'webglcontextrestored',
+        this._onContextRestored,
+      );
+      this._initialize();
+    }
   }
 
   _initialize()

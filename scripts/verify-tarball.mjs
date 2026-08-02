@@ -25,6 +25,7 @@ const requiredRuntimeMethods = [
   'pointerCancel',
   'setPaused',
   'setCompositingReference',
+  'getEffectiveHostCompositing',
   'updateConfig',
   'setThemeColor',
   'setFxParam',
@@ -74,11 +75,13 @@ function verifyRuntimeApi(moduleExports, bundleName)
     moduleExports.CONFIG?.effectBackend === 'webgl2' &&
       moduleExports.CONFIG?.bloomBackend === 'webgl2' &&
       moduleExports.CONFIG?.outputCompositing === 'scene' &&
+      moduleExports.CONFIG?.hostCompositingSurface === 'dom-backdrop' &&
       moduleExports.CONFIG?.themeColor === '#4ca7ff',
     `${bundleName} bundle does not expose the Full WebGL2 defaults`,
   );
   verify(
     moduleExports.CONFIG?.isolatedCompositing === false &&
+      moduleExports.CONFIG?.softwareBloomEnabled === false &&
       moduleExports.CONFIG?.lightBackgroundContrastAlpha === 0,
     `${bundleName} bundle does not expose the strict compositing defaults`,
   );
@@ -101,8 +104,10 @@ function verifyRuntimeApi(moduleExports, bundleName)
   verify(
     moduleExports.BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange' &&
       moduleExports.EFFECT_BACKEND_CHANGE_EVENT ===
-        'baclickfxeffectbackendchange',
-    `${bundleName} bundle does not expose both backend event names`,
+        'baclickfxeffectbackendchange' &&
+      moduleExports.HOST_COMPOSITING_CHANGE_EVENT ===
+        'baclickfxhostcompositingchange',
+    `${bundleName} bundle does not expose runtime state event names`,
   );
   verify(
     moduleExports.FX_PARAM_SCHEMA_VERSION === 1 &&
@@ -185,6 +190,8 @@ if (
   moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' ||
   moduleExports.EFFECT_BACKEND_CHANGE_EVENT !==
     'baclickfxeffectbackendchange' ||
+  moduleExports.HOST_COMPOSITING_CHANGE_EVENT !==
+    'baclickfxhostcompositingchange' ||
   moduleExports.DEFAULT_THEME_COLOR !== '#4ca7ff' ||
   moduleExports.FX_PARAM_SCHEMA_VERSION !== 1 ||
   !Array.isArray(moduleExports.FX_PARAM_SCHEMA) ||
@@ -209,7 +216,9 @@ if (
   moduleExports.CONFIG?.effectBackend !== 'webgl2' ||
   moduleExports.CONFIG?.bloomBackend !== 'webgl2' ||
   moduleExports.CONFIG?.outputCompositing !== 'scene' ||
+  moduleExports.CONFIG?.hostCompositingSurface !== 'dom-backdrop' ||
   moduleExports.CONFIG?.themeColor !== '#4ca7ff' ||
+  moduleExports.CONFIG?.softwareBloomEnabled !== false ||
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
   moduleExports.CONFIG?.inputSource !== 'dom' ||
@@ -245,6 +254,8 @@ if (
   moduleExports.BLOOM_BACKEND_CHANGE_EVENT !== 'baclickfxbackendchange' ||
   moduleExports.EFFECT_BACKEND_CHANGE_EVENT !==
     'baclickfxeffectbackendchange' ||
+  moduleExports.HOST_COMPOSITING_CHANGE_EVENT !==
+    'baclickfxhostcompositingchange' ||
   moduleExports.DEFAULT_THEME_COLOR !== '#4ca7ff' ||
   moduleExports.FX_PARAM_SCHEMA_VERSION !== 1 ||
   !Array.isArray(moduleExports.FX_PARAM_SCHEMA) ||
@@ -269,7 +280,9 @@ if (
   moduleExports.CONFIG?.effectBackend !== 'webgl2' ||
   moduleExports.CONFIG?.bloomBackend !== 'webgl2' ||
   moduleExports.CONFIG?.outputCompositing !== 'scene' ||
+  moduleExports.CONFIG?.hostCompositingSurface !== 'dom-backdrop' ||
   moduleExports.CONFIG?.themeColor !== '#4ca7ff' ||
+  moduleExports.CONFIG?.softwareBloomEnabled !== false ||
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
   moduleExports.CONFIG?.inputSource !== 'dom' ||
@@ -346,6 +359,7 @@ if (
   CONFIG,
   DEFAULT_THEME_COLOR,
   EFFECT_BACKEND_CHANGE_EVENT,
+  HOST_COMPOSITING_CHANGE_EVENT,
   FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
@@ -358,6 +372,9 @@ if (
   type BAClickFXConfigSnapshot,
   type BAClickFXEffectBackend,
   type BAClickFXEffectBackendChangeEvent,
+  type BAClickFXHostCompositing,
+  type BAClickFXHostCompositingChangeEvent,
+  type BAClickFXHostCompositingSurface,
   type BAClickFXInputFilter,
   type BAClickFXInputSource,
   type BAClickFXOptions,
@@ -372,6 +389,7 @@ if (
   type BAClickFXPointerType,
   type BAClickFXResolvedBloomBackend,
   type BAClickFXResolvedEffectBackend,
+  type BAClickFXWebGPUOutputMode,
   type BAClickFXCompositingReferenceOptions,
   type BAClickFXStandalonePatchOptions,
   type BAClickFXUpdateOptions,
@@ -387,12 +405,14 @@ const options: BAClickFXOptions =
   opacity: 1,
   themeColor: '#4ca7ff',
   outputCompositing: 'browser-overlay',
+  hostCompositing: 'screen',
+  hostCompositingSurface: 'native',
   clickEnabled: true,
   trailEnabled: true,
   inputSource: 'manual',
   clickTimeScale: 1.5,
   trailTimeScale: 0.8,
-  effectBackend: 'webgl2',
+  effectBackend: 'webgpu',
   renderingMode: 'enhanced',
   bloomBackend: 'webgl2',
   softwareBloomEnabled: true,
@@ -427,6 +447,9 @@ const effectBackend: BAClickFXEffectBackend = config.effectBackend;
 const resolvedEffectBackend: BAClickFXResolvedEffectBackend =
   configSnapshot.resolvedEffectBackend;
 const pendingEffectBackend: BAClickFXResolvedEffectBackend = 'pending';
+const resolvedWebGPUOutputMode: BAClickFXWebGPUOutputMode =
+  configSnapshot.resolvedWebGPUOutputMode;
+const pendingWebGPUOutputMode: BAClickFXWebGPUOutputMode = 'pending';
 const resolvedBloomBackend: BAClickFXResolvedBloomBackend =
   configSnapshot.resolvedBloomBackend;
 const pendingBloomBackend: BAClickFXResolvedBloomBackend = 'pending';
@@ -435,6 +458,10 @@ const isolatedCompositing: boolean = config.isolatedCompositing;
 const renderingMode: BAClickFXConfig['renderingMode'] = config.renderingMode;
 const outputCompositing: BAClickFXOutputCompositing =
   config.outputCompositing;
+const hostCompositing: BAClickFXHostCompositing =
+  configSnapshot.resolvedHostCompositing;
+const hostCompositingSurface: BAClickFXHostCompositingSurface =
+  config.hostCompositingSurface;
 const lightBackgroundContrastAlpha: number =
   config.lightBackgroundContrastAlpha;
 const inputSource: BAClickFXInputSource = config.inputSource;
@@ -523,8 +550,22 @@ namedInstance.canvas.addEventListener(EFFECT_BACKEND_CHANGE_EVENT, event =>
 
   void [requested, resolved];
 });
+namedInstance.canvas.addEventListener(HOST_COMPOSITING_CHANGE_EVENT, event =>
+{
+  const compositingEvent = event as BAClickFXHostCompositingChangeEvent;
+  const requested: BAClickFXHostCompositing =
+    compositingEvent.detail.requestedHostCompositing;
+  const resolved: BAClickFXHostCompositing =
+    compositingEvent.detail.resolvedHostCompositing;
+  const surface: BAClickFXHostCompositingSurface =
+    compositingEvent.detail.hostCompositingSurface;
+
+  void [requested, resolved, surface, compositingEvent.detail.compositingWarning];
+});
 
 namedInstance.boom(300, 200);
+const effectiveHostCompositing: BAClickFXHostCompositing =
+  namedInstance.getEffectiveHostCompositing();
 const pointerDownAccepted: boolean = namedInstance.pointerDown(pointerInput);
 const pointerMoveAccepted: boolean = namedInstance.pointerMove(
   {
@@ -568,6 +609,7 @@ const updateOptions: BAClickFXUpdateOptions =
 {
   themeColor: '#4ca7ff',
   outputCompositing: 'scene',
+  hostCompositingSurface: 'dom-backdrop',
   effectBackend: 'auto',
   renderingMode: 'enhanced',
   bloomBackend: 'auto',
@@ -614,12 +656,14 @@ const invalidOptions: BAClickFXOptions =
   isolatedCompositing: 'isolate',
   // @ts-expect-error Bloom 后端只接受公开的四种取值。
   bloomBackend: 'webgpu',
-  // @ts-expect-error 完整特效后端只接受 canvas2d、webgl2 或 auto。
-  effectBackend: 'webgpu',
+  // @ts-expect-error 完整特效后端只接受四种公开取值。
+  effectBackend: 'metal',
   // @ts-expect-error renderingMode 只接受 enhanced 或 legacy。
   renderingMode: 'native-bloom',
   // @ts-expect-error inputSource 只接受 dom 或 manual。
   inputSource: 'host',
+  // @ts-expect-error 宿主表面只接受三个公开取值。
+  hostCompositingSurface: 'webview',
 };
 
 void [
@@ -639,12 +683,17 @@ void [
   effectBackend,
   resolvedEffectBackend,
   pendingEffectBackend,
+  resolvedWebGPUOutputMode,
+  pendingWebGPUOutputMode,
   resolvedBloomBackend,
   pendingBloomBackend,
   softwareBloomEnabled,
   isolatedCompositing,
   renderingMode,
   outputCompositing,
+  hostCompositing,
+  hostCompositingSurface,
+  effectiveHostCompositing,
   lightBackgroundContrastAlpha,
   inputSource,
   clickTimeScale,

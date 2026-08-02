@@ -20,6 +20,7 @@ const baselinePath = join(rootDir, 'test', 'browser', 'baseline.json');
 const artifactDir = join(rootDir, 'test-results', 'browser-pixels');
 const optional = process.argv.includes('--optional');
 const calibrate = process.argv.includes('--calibrate');
+const unityCountsOnly = process.argv.includes('--unity-counts-only');
 const modeNames = [
   'full-webgl2',
   'webgl2-bloom',
@@ -72,6 +73,7 @@ const metrics =
   },
   trailContextLifecycle: {},
   trailTextureResourceLifecycle: {},
+  prefabCountContracts: {},
   transparentCompositingTransitions: {},
   hostCompositingAccuracy: null,
   transparentContractContextLifecycle: {},
@@ -751,6 +753,80 @@ function validateContextOpacityGroup(
       maximumAlphaRatio,
     },
   );
+}
+
+function validatePrefabCountContract(result)
+{
+  const runtime = result.runtime;
+
+  assert(
+    result.route.resolvedEffectBackend === result.expectedRoute.effectBackend &&
+      result.route.resolvedBloomBackend === result.expectedRoute.bloomBackend,
+    `${currentLabel}: 长拖尾数量夹具没有停留在请求的渲染后端`,
+    {
+      expected: result.expectedRoute,
+      route: result.route,
+    },
+  );
+  assert(
+    runtime.configuredRingCount === 2 &&
+      runtime.configuredClickShardCount === 4 &&
+      runtime.configuredTrailShardLimit === 50,
+    `${currentLabel}: Unity Prefab 数量真值发生变化`,
+    runtime,
+  );
+  assert(
+    runtime.waveCount === 1 &&
+      runtime.ringCount === runtime.configuredRingCount,
+    `${currentLabel}: 单次点击没有生成 Prefab 定义的 2 个圆环`,
+    runtime,
+  );
+  assert(
+    runtime.clickShardCount === runtime.configuredClickShardCount,
+    `${currentLabel}: 单次点击没有生成 Prefab 定义的 4 个点击碎片`,
+    runtime,
+  );
+  assert(
+    runtime.trailShardCount === runtime.configuredTrailShardLimit,
+    `${currentLabel}: 单个拖尾实例没有在 Prefab 定义的 50 个碎片处封顶`,
+    runtime,
+  );
+  assert(
+    runtime.shardCount ===
+      runtime.clickShardCount + runtime.trailShardCount,
+    `${currentLabel}: 碎片分类计数未覆盖全部运行时粒子`,
+    runtime,
+  );
+}
+
+async function runPrefabCountContracts(page)
+{
+  for (const mode of modeNames)
+  {
+    const label = `${mode}__unity-prefab-count-contract`;
+
+    currentLabel = label;
+    const result = await page.evaluate(
+      (input) => window.browserPixelSuite.runCase(input),
+      {
+        mode,
+        opacity: 1,
+        isolatedCompositing: true,
+        background: 'transparent',
+        shadow: false,
+        containStrict: false,
+        prefabCountContract: true,
+        sampleTimeMs: 1,
+      },
+    );
+
+    validatePrefabCountContract(result);
+    metrics.prefabCountContracts[mode] =
+    {
+      route: result.route,
+      runtime: result.runtime,
+    };
+  }
 }
 
 function validateTransparentContractTransitions(mode, phases)
@@ -4527,6 +4603,8 @@ async function runMatrix(browserInstance, baseUrl, baseline)
 
     if (dpr === 1)
     {
+      await runPrefabCountContracts(page);
+
       for (const mode of modeNames)
       {
         currentLabel = `${mode}__transparent-contract-transitions`;
@@ -5219,6 +5297,35 @@ async function runMatrix(browserInstance, baseUrl, baseline)
   return calibration;
 }
 
+async function runUnityCountGate(browserInstance, baseUrl)
+{
+  currentLabel = 'unity-prefab-count-fixture-startup';
+  const session = await openFixture(browserInstance, baseUrl, 1);
+
+  currentPage = session.page;
+  metrics.environment.dpr1 = session.capabilities;
+
+  try
+  {
+    await runPrefabCountContracts(session.page);
+    assert(
+      session.pageErrors.length === 0 && session.consoleErrors.length === 0,
+      'Unity Prefab 数量门禁出现未处理的浏览器异常',
+      {
+        consoleErrors: session.consoleErrors,
+        pageErrors: session.pageErrors,
+      },
+    );
+  }
+  finally
+  {
+    await session.page.evaluate(
+      () => window.browserPixelSuite.dispose(),
+    ).catch(() => {});
+    await session.context.close();
+  }
+}
+
 async function writeFailureArtifacts(error)
 {
   mkdirSync(artifactDir, { recursive: true });
@@ -5281,14 +5388,17 @@ async function main()
     throw new Error(message);
   }
 
-  assert(
-    existsSync(baselinePath) || calibrate,
-    `缺少数值特征基线: ${baselinePath}`,
-  );
-  assert(
-    existsSync(iifeBundlePath),
-    `缺少构建后 IIFE: ${iifeBundlePath}；请先运行 npm run build`,
-  );
+  if (!unityCountsOnly)
+  {
+    assert(
+      existsSync(baselinePath) || calibrate,
+      `缺少数值特征基线: ${baselinePath}`,
+    );
+    assert(
+      existsSync(iifeBundlePath),
+      `缺少构建后 IIFE: ${iifeBundlePath}；请先运行 npm run build`,
+    );
+  }
   const baseline = existsSync(baselinePath)
     ? JSON.parse(readFileSync(baselinePath, 'utf8'))
     : null;
@@ -5331,6 +5441,20 @@ async function main()
     },
   );
   const startedAt = performance.now();
+
+  if (unityCountsOnly)
+  {
+    await runUnityCountGate(browser, baseUrl);
+    const durationMs = performance.now() - startedAt;
+
+    console.log(
+      `\nUnity Prefab 五后端数量门禁完成：${assertionCount} 项断言，` +
+        `${(durationMs / 1000).toFixed(2)} 秒。`,
+    );
+    console.log(`浏览器：${browserVersion}`);
+    return;
+  }
+
   await runIifeSmoke(browser, baseUrl);
   await runDemoTimeScaleControlSmoke(browser, baseUrl);
   await runDemoBackgroundFileSmoke(browser, baseUrl);

@@ -11,12 +11,18 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const mainJs = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8');
+const readmeZh = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+const readmeEn = fs.readFileSync(path.join(root, 'README.en.md'), 'utf8');
 const themeBackgroundJs = fs.readFileSync(
   path.join(root, 'src', 'theme-background.js'),
   'utf8',
 );
 const rangeSnapJs = fs.readFileSync(
   path.join(root, 'src', 'range-snap.js'),
+  'utf8',
+);
+const hdrPresentationStatusJs = fs.readFileSync(
+  path.join(root, 'src', 'hdr-presentation-status.js'),
   'utf8',
 );
 const styleCss = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
@@ -236,13 +242,14 @@ function hasRenderModeConfig(mode, expected)
 
 verify(
   JSON.stringify(renderModeValues) === JSON.stringify([
+    'full-webgpu',
     'full-webgl2',
     'webgl2-bloom',
     'software-bloom',
     'native-bloom',
     'legacy',
   ]),
-  '展示页按纯 WebGL2、WebGL2 Bloom、Software、Native 与 Legacy 排列五档渲染开关',
+  '展示页按 WebGPU HDR、纯 WebGL2、WebGL2 Bloom、Software、Native 与 Legacy 排列六档渲染开关',
 );
 verify(
   /<option value="full-webgl2" selected>/.test(renderModeSelect) &&
@@ -250,7 +257,13 @@ verify(
   '展示页 HTML、恢复与重置路径统一默认使用纯 WebGL2',
 );
 verify(
-  hasRenderModeConfig('full-webgl2',
+  hasRenderModeConfig('full-webgpu',
+    {
+      effectBackend: 'webgpu',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    }) &&
+    hasRenderModeConfig('full-webgl2',
     {
       effectBackend: 'webgl2',
       renderingMode: 'enhanced',
@@ -279,7 +292,58 @@ verify(
         effectBackend: 'canvas2d',
         renderingMode: 'legacy',
       }),
-  '展示页五档开关映射到对应的完整特效、渲染模式与 Bloom API',
+  '展示页六档开关映射到对应的完整特效、渲染模式与 Bloom API',
+);
+verify(
+  /renderWebGPUOutputExtended: 'Extended HDR · rgba16float'/.test(mainJs) &&
+    /renderHdrVerdictReady: '浏览器侧 HDR 已就绪'/.test(mainJs) &&
+    /renderHdrVerdictReady: 'Browser-side HDR ready'/.test(mainJs) &&
+    /matchMedia\('\(dynamic-range: high\)'\)/.test(mainJs) &&
+    /dynamicRangeQuery\.addEventListener\('change'/.test(mainJs) &&
+    /snapshot\.resolvedWebGPUOutputMode/.test(mainJs) &&
+    /id="renderCanvasOutputValue"/.test(indexHtml) &&
+    /id="renderDynamicRangeValue"/.test(indexHtml) &&
+    /id="renderHdrVerdictValue"/.test(indexHtml) &&
+    /'ready'/.test(hdrPresentationStatusJs) &&
+    /'display-unconfirmed'/.test(hdrPresentationStatusJs) &&
+    /'standard'/.test(hdrPresentationStatusJs) &&
+    /'pending'/.test(hdrPresentationStatusJs) &&
+    /'unavailable'/.test(hdrPresentationStatusJs) &&
+    /'inactive'/.test(hdrPresentationStatusJs),
+  '展示页分层报告 WebGPU 后端、Canvas 输出、显示环境与 HDR 判断',
+);
+verify(
+  /resolvedWebGPUOutputMode === \\'extended\\'/.test(mainJs) &&
+    /resolvedWebGPUOutputMode === 'extended'/.test(readmeZh) &&
+    /resolvedWebGPUOutputMode === 'extended'/.test(readmeEn) &&
+    /rgba16float \+ toneMapping: extended/.test(readmeZh) &&
+    /rgba16float \+ toneMapping: extended/.test(readmeEn),
+  '展示页与中英文文档明确只有 extended WebGPU Canvas 代表真实 HDR',
+);
+const hdrPresentationPresetSelect = indexHtml.match(
+  /<select id="ctrlHdrPresentationPreset"[\s\S]*?<\/select>/,
+)?.[0] ?? '';
+const hdrPresentationPresetValues = [
+  ...hdrPresentationPresetSelect.matchAll(/<option value="([^"]+)"/g),
+].map((match) => match[1]);
+
+verify(
+  JSON.stringify(hdrPresentationPresetValues) === JSON.stringify([
+    'balanced',
+    'bright',
+    'color',
+    'custom',
+  ]) &&
+    /id="ctrlWebGPUHdrBrightness" min="0" max="32" step="0\.1" value="1" disabled/.test(indexHtml) &&
+    /id="ctrlWebGPUHdrColorPreservation" min="0" max="1" step="0\.01" value="0" disabled/.test(indexHtml) &&
+    /webgpuHdrBrightness: CONFIG\.webgpuHdrBrightness/.test(mainJs) &&
+    /webgpuHdrColorPreservation: CONFIG\.webgpuHdrColorPreservation/.test(mainJs) &&
+    /webgpuHdrColorPreservation: 1/.test(mainJs) &&
+    /snapshot\.resolvedEffectBackend === 'webgpu'/.test(mainJs) &&
+    /snapshot\.resolvedWebGPUOutputMode === 'extended'/.test(mainJs) &&
+    /bafx-ctrlHdrPresentationPreset/.test(mainJs) &&
+    /\.\.\.HDR_PRESENTATION_PRESETS\.balanced/.test(mainJs),
+  'HDR 展示控件覆盖整体亮度、预设、Extended 启用、持久化与重置',
 );
 const outputCompositingSelect = indexHtml.match(
   /<select id="ctrlOutputCompositing"[\s\S]*?<\/select>/,
@@ -771,7 +835,7 @@ verify(
   '引擎支持运行时切换隔离与直接合成',
 );
 verify(
-  /const hasDedicatedSceneOutput =[\s\S]*?useWebGLClickEffects \|\| useWebGL2Bloom \|\| canvasSceneRendered/.test(engineJs) &&
+  /const hasDedicatedSceneOutput =[\s\S]*?useGpuClickEffects \|\| useWebGL2Bloom \|\| canvasSceneRendered/.test(engineJs) &&
     /_renderLightBackgroundContrast\([\s\S]*?useSoftwareBloom && !hasDedicatedSceneOutput/.test(engineJs),
   'GPU 与场景 Final Pass 成功时仍按几何重建纯白对比遮罩',
 );

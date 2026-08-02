@@ -14,15 +14,19 @@ import {
   UNITY_FX_TOUCH,
   createConfig,
   isHostCompositing,
+  isHostCompositingSurface,
   isIndependentHostCompositing,
   isOverlayAlphaPolicy,
   isOverlayColorCompensation,
   isOverlayAlphaLimit,
   normalizeHostCompositing,
+  normalizeHostCompositingSurface,
   normalizeOverlayAlphaLimit,
   normalizeOverlayAlphaPolicyConfig,
   normalizeOverlayColorCompensationConfig,
   normalizeThemeColor,
+  normalizeWebGPUHdrPresentation,
+  resolveHostCompositing,
 } from '../src/config.js';
 
 let passed = 0;
@@ -212,13 +216,88 @@ check(
   '构造配置保存合法主题色并拒绝非十六进制颜色',
 );
 
+console.log('\nWebGPU HDR 展示配置合同');
+check(
+  CONFIG.webgpuHdrPeak === 3 &&
+    CONFIG.webgpuHdrBrightness === 1 &&
+    CONFIG.webgpuHdrColorPreservation === 0 &&
+    CONFIG.webgpuHdrWhiteCore === 0.6 &&
+    CONFIG.webgpuHdrWhiteStart === 1 &&
+    CONFIG.webgpuHdrWhiteEnd === 5,
+  '默认 HDR 展示映射使用受限峰值与渐进白核',
+);
+
+const normalizedHdrPresentation = normalizeWebGPUHdrPresentation(
+  {
+    webgpuHdrPeak: 8,
+    webgpuHdrBrightness: 64,
+    webgpuHdrColorPreservation: 2,
+    webgpuHdrWhiteCore: -1,
+    webgpuHdrWhiteStart: 7,
+    webgpuHdrWhiteEnd: 2,
+  },
+);
+
+check(
+  normalizedHdrPresentation.webgpuHdrPeak === 4 &&
+    normalizedHdrPresentation.webgpuHdrBrightness === 32 &&
+    normalizedHdrPresentation.webgpuHdrColorPreservation === 1 &&
+    normalizedHdrPresentation.webgpuHdrWhiteCore === 0 &&
+    normalizedHdrPresentation.webgpuHdrWhiteStart === 7 &&
+    normalizedHdrPresentation.webgpuHdrWhiteEnd === 7.01,
+  'HDR 展示配置钳制范围并维持有效白核阈值顺序',
+);
+
+const configuredHdrPresentation = createConfig(
+  {
+    webgpuHdrPeak: 2.5,
+    webgpuHdrBrightness: 12,
+    webgpuHdrColorPreservation: 0.75,
+    webgpuHdrWhiteCore: 0.75,
+    webgpuHdrWhiteStart: 0.5,
+    webgpuHdrWhiteEnd: 4,
+  },
+);
+const invalidHdrPresentation = createConfig(
+  {
+    webgpuHdrPeak: '4',
+    webgpuHdrBrightness: Number.POSITIVE_INFINITY,
+    webgpuHdrColorPreservation: Number.NaN,
+    webgpuHdrWhiteCore: Number.NaN,
+  },
+);
+
+check(
+  configuredHdrPresentation.webgpuHdrPeak === 2.5 &&
+    configuredHdrPresentation.webgpuHdrBrightness === 12 &&
+    configuredHdrPresentation.webgpuHdrColorPreservation === 0.75 &&
+    configuredHdrPresentation.webgpuHdrWhiteCore === 0.75 &&
+    configuredHdrPresentation.webgpuHdrWhiteStart === 0.5 &&
+    configuredHdrPresentation.webgpuHdrWhiteEnd === 4 &&
+    invalidHdrPresentation.webgpuHdrPeak === CONFIG.webgpuHdrPeak &&
+    invalidHdrPresentation.webgpuHdrBrightness ===
+      CONFIG.webgpuHdrBrightness &&
+    invalidHdrPresentation.webgpuHdrColorPreservation ===
+      CONFIG.webgpuHdrColorPreservation &&
+    invalidHdrPresentation.webgpuHdrWhiteCore === CONFIG.webgpuHdrWhiteCore,
+  '构造配置保留合法 HDR 校准并让非法值恢复默认值',
+);
+
 console.log('\n透明合成配置合同');
 check(
   CONFIG.overlayAlphaPolicy === 'coverage' &&
     CONFIG.overlayColorCompensation === 'none' &&
     CONFIG.overlayAlphaLimit === 250 / 255 &&
-    CONFIG.hostCompositing === 'source-over',
-  '透明合成配置使用 Coverage、250/255 与 source-over 默认值',
+    CONFIG.hostCompositing === 'source-over' &&
+    CONFIG.hostCompositingSurface === 'dom-backdrop',
+  '透明合成配置默认使用 Coverage、source-over 与 DOM 背景表面',
+);
+check(
+  CONFIG.bloomBackend === 'webgl2' &&
+    CONFIG.softwareBloomEnabled === false &&
+    createConfig({ bloomBackend: 'auto' }).softwareBloomEnabled === false &&
+    createConfig({ bloomBackend: 'software' }).softwareBloomEnabled === true,
+  'Software Bloom 仅在显式请求时启用',
 );
 check(
   isOverlayAlphaPolicy('coverage') &&
@@ -241,6 +320,14 @@ check(
     !isHostCompositing('overlay') &&
     normalizeHostCompositing('invalid') === 'source-over',
   '宿主合成只接受 source-over、screen 与 plus-lighter',
+);
+check(
+  isHostCompositingSurface('dom-backdrop') &&
+    isHostCompositingSurface('transparent-window') &&
+    isHostCompositingSurface('native') &&
+    !isHostCompositingSurface('webview') &&
+    normalizeHostCompositingSurface('invalid') === 'dom-backdrop',
+  '宿主表面只接受 DOM 背景、透明窗口与原生合成器',
 );
 check(
   !isIndependentHostCompositing('source-over') &&
@@ -271,6 +358,7 @@ const transparentCompositingConfig = createConfig(
     overlayColorCompensation: 'bright-core',
     overlayAlphaLimit: 2,
     hostCompositing: 'screen',
+    hostCompositingSurface: 'native',
   },
 );
 const invalidTransparentCompositingConfig = createConfig(
@@ -278,6 +366,7 @@ const invalidTransparentCompositingConfig = createConfig(
     overlayColorCompensation: 'bright',
     overlayAlphaLimit: '0.5',
     hostCompositing: 'overlay',
+    hostCompositingSurface: 'webview',
   },
 );
 
@@ -285,7 +374,8 @@ check(
   transparentCompositingConfig.overlayAlphaPolicy === 'visual-max' &&
     transparentCompositingConfig.overlayColorCompensation === 'bright-core' &&
     transparentCompositingConfig.overlayAlphaLimit === 1 &&
-    transparentCompositingConfig.hostCompositing === 'screen',
+    transparentCompositingConfig.hostCompositing === 'screen' &&
+    transparentCompositingConfig.hostCompositingSurface === 'native',
   '构造配置保留合法透明合成选项并钳制 Alpha',
 );
 check(
@@ -294,8 +384,74 @@ check(
     invalidTransparentCompositingConfig.overlayAlphaLimit ===
       CONFIG.overlayAlphaLimit &&
     invalidTransparentCompositingConfig.hostCompositing ===
-      CONFIG.hostCompositing,
+      CONFIG.hostCompositing &&
+    invalidTransparentCompositingConfig.hostCompositingSurface ===
+      CONFIG.hostCompositingSurface,
   '构造配置拒绝非法透明合成选项和非数值 Alpha',
+);
+
+const domScreenResolution = resolveHostCompositing(
+  {
+    outputCompositing: 'browser-overlay',
+    requestedHostCompositing: 'screen',
+    hostCompositingSurface: 'dom-backdrop',
+  },
+);
+const nativeAddResolution = resolveHostCompositing(
+  {
+    outputCompositing: 'browser-overlay',
+    requestedHostCompositing: 'plus-lighter',
+    hostCompositingSurface: 'native',
+  },
+);
+const transparentScreenResolution = resolveHostCompositing(
+  {
+    outputCompositing: 'browser-overlay',
+    requestedHostCompositing: 'screen',
+    hostCompositingSurface: 'transparent-window',
+  },
+);
+const transparentAddResolution = resolveHostCompositing(
+  {
+    outputCompositing: 'browser-overlay',
+    requestedHostCompositing: 'plus-lighter',
+    hostCompositingSurface: 'transparent-window',
+  },
+);
+
+check(
+  domScreenResolution.resolvedHostCompositing === 'screen' &&
+    domScreenResolution.compositingWarning === null &&
+    nativeAddResolution.resolvedHostCompositing === 'plus-lighter' &&
+    nativeAddResolution.compositingWarning === null,
+  'DOM 背景与原生合成器保留独立 Screen/Add 载荷',
+);
+check(
+  transparentScreenResolution.resolvedHostCompositing === 'source-over' &&
+    transparentScreenResolution.compositingWarning ===
+      'screen-requires-visible-backdrop' &&
+    transparentAddResolution.resolvedHostCompositing === 'source-over' &&
+    transparentAddResolution.compositingWarning ===
+      'plus-lighter-requires-visible-backdrop',
+  '透明窗口自动回退 source-over 并报告缺少可见背景',
+);
+check(
+  resolveHostCompositing(
+    {
+      outputCompositing: 'scene',
+      requestedHostCompositing: 'screen',
+      hostCompositingSurface: 'transparent-window',
+    },
+  ).compositingWarning === null &&
+    resolveHostCompositing(
+      {
+        outputCompositing: 'browser-overlay',
+        requestedHostCompositing: 'plus-lighter',
+        hostCompositingSurface: 'transparent-window',
+        hasCompositingReference: true,
+      },
+    ).compositingWarning === null,
+  'Scene 与活动合成参考直接解析为 source-over 且不产生误导警告',
 );
 
 const removedAppearanceConfig = createConfig(

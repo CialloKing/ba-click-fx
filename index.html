@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>蔚蓝档案网页点击特效与鼠标拖尾 | Blue Archive Click Effect | ba-click-fx</title>
-  <meta name="description" content="ba-click-fx 是一个默认使用纯 WebGL2、可自动回退 Canvas 2D 的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持鼠标、触摸、npm 和 CDN，零运行时依赖。" />
-  <meta name="keywords" content="ba-click-fx, Blue Archive, 蔚蓝档案, click effect, mouse click effect, cursor effect, cursor trail, touch effect, Canvas 2D, web animation" />
+  <meta name="description" content="ba-click-fx 是一个默认使用纯 WebGL2、可选 WebGPU 真实 HDR 并自动回退 Canvas 2D 的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持鼠标、触摸、npm 和 CDN，零运行时依赖。" />
+  <meta name="keywords" content="ba-click-fx, Blue Archive, 蔚蓝档案, click effect, mouse click effect, cursor effect, cursor trail, touch effect, Canvas 2D, WebGL2, WebGPU, HDR, web animation" />
   <link rel="canonical" href="https://ba-click-fx.cialloking.top/" />
   <meta property="og:title" content="蔚蓝档案网页点击特效与鼠标拖尾 | ba-click-fx" />
-  <meta property="og:description" content="默认使用纯 WebGL2、支持 Canvas 2D 与软件回退的蔚蓝档案网页点击特效与鼠标拖尾动画库，支持 npm/CDN，零依赖。" />
+  <meta property="og:description" content="默认使用纯 WebGL2、可选 WebGPU 真实 HDR，并支持 Canvas 2D 与软件回退的蔚蓝档案网页点击特效与鼠标拖尾动画库。" />
   <meta property="og:image" content="https://github.com/CialloKing/ba-click-fx/releases/download/v1.2.12/ba-click-fx-demo.gif" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://ba-click-fx.cialloking.top/" />
@@ -47,8 +47,8 @@
       Click, drag, or move your mouse to preview the effect.
     </p>
     <p id="introP2">
-      ba-click-fx uses Full WebGL2 by default for mouse click effects, cursor
-      trails, glowing rings, and particle sparks, with safe Canvas 2D fallbacks.
+      ba-click-fx uses Full WebGL2 by default with an optional WebGPU HDR mode
+      for real highlights above SDR white and safe Canvas 2D fallbacks.
       Zero external dependencies.
     </p>
     <nav aria-label="Project links">
@@ -68,7 +68,8 @@
       <summary id="introFAQSummary">常见问题 / FAQ</summary>
       <div id="introFAQContent">
         <p><strong>ba-click-fx 和蔚蓝档案有关吗？</strong> 这是一个受蔚蓝档案 UI 点击和拖尾效果启发的粉丝向视觉特效库。</p>
-        <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要图片素材；默认使用纯 WebGL2，能力不足时自动回退 Canvas 2D、软件 Bloom 与原生辉光，零外部运行时依赖。</p>
+        <p><strong>需要图片素材或 WebGL 吗？</strong> 不需要图片素材；默认使用纯 WebGL2，可选 WebGPU HDR，能力不足时自动回退 WebGL2、Canvas 2D、软件 Bloom 与原生辉光，零外部运行时依赖。</p>
+        <p><strong>WebGPU 一定会显示真实 HDR 吗？</strong> 不会。只有 <code>resolvedWebGPUOutputMode === 'extended'</code> 才表示 Canvas 会以扩展 sRGB 编码保留超过 SDR 白色的高光；还需要 HDR 显示器、系统 HDR 和浏览器 WebGPU HDR Canvas 同时可用。</p>
         <p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 页面主题始终由 CSS 单独显示。特效背景参考可选择“匹配当前页面”或“未知透明背景”：前者把内置主题或已解码图片送入渲染器，后者不读取页面背景并保留透明宿主的 Coverage 合同。纯白主题在关闭“隔离合成”时保留接近游戏原始的低可见度；开启后会自动使用 <code>lightBackgroundContrastAlpha: 0.35</code> 补足网页白底可见性。本地图片选择器会创建当前页面有效的 <code>blob:</code> URL，不需要 CORS，但刷新后需重新选择；手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。任意自定义 CSS 渐变或多图层背景无法可靠自动上传，仍作为普通 DOM 背景显示。</p>
         <p><strong>纯白背景下特效颜色太浅？</strong> 关闭“隔离合成”时会保留游戏原始的低可见度表现；开启后，展示页自动叠加不参与 Bloom 的淡青对比轮廓，使效果在常见网页白底上保持可见。其他宿主也可按需显式设置 <code>lightBackgroundContrastAlpha</code>。</p>
         <p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>browser-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应通过 <code>setCompositingReference()</code> 提供给渲染器。</p>
@@ -136,6 +137,7 @@ fx.setPaused(true, { clear: true });</code></pre>
       <label class="ctrl">
         <span>渲染模式</span>
         <select id="ctrlRenderMode" class="ctrl-select">
+          <option value="full-webgpu">WebGPU HDR（实验）</option>
           <option value="full-webgl2" selected>纯 WebGL2</option>
           <option value="webgl2-bloom">WebGL2 Bloom</option>
           <option value="software-bloom">软件 Bloom</option>
@@ -213,7 +215,67 @@ fx.setPaused(true, { clear: true });</code></pre>
         <input type="checkbox" id="ctrlIsolatedCompositing" />
         <span class="toggle-track"></span>
       </label>
-      <p id="renderBackendStatus" class="render-backend-status" aria-live="polite">正在检测纯 WebGL2…</p>
+      <div id="renderBackendStatus" class="render-backend-status" data-hdr-state="inactive" aria-live="polite">
+        <dl class="render-status-list">
+          <div class="render-status-row">
+            <dt id="renderBackendLabel">实际后端</dt>
+            <dd id="renderBackendValue">正在检测纯 WebGL2…</dd>
+          </div>
+          <div class="render-status-row">
+            <dt id="renderCanvasOutputLabel">Canvas 输出</dt>
+            <dd id="renderCanvasOutputValue">未启用</dd>
+          </div>
+          <div class="render-status-row">
+            <dt id="renderDynamicRangeLabel">显示环境</dt>
+            <dd id="renderDynamicRangeValue">正在检测…</dd>
+          </div>
+          <div class="render-status-row render-status-verdict-row">
+            <dt id="renderHdrVerdictLabel">HDR 判断</dt>
+            <dd id="renderHdrVerdictValue">未启用 WebGPU HDR</dd>
+          </div>
+        </dl>
+        <p id="renderHdrStatusNote" class="render-status-note">浏览器侧判断；实际峰值亮度由系统和屏幕决定。</p>
+      </div>
+      <p id="hdrPresentationHeading" class="sub-heading">HDR 显示映射</p>
+      <div
+        id="hdrPresentationControls"
+        class="hdr-presentation-controls is-inactive"
+        aria-disabled="true"
+      >
+        <label class="ctrl">
+          <span>高光预设</span>
+          <select id="ctrlHdrPresentationPreset" class="ctrl-select" disabled>
+            <option value="balanced" selected>平衡白核（默认）</option>
+            <option value="bright">明亮白核</option>
+            <option value="color">保留原始色相</option>
+            <option value="custom">自定义</option>
+          </select>
+        </label>
+        <label class="ctrl">
+          <span>线性峰值 <output id="outWebGPUHdrPeak">3.00</output></span>
+          <input type="range" id="ctrlWebGPUHdrPeak" min="2" max="4" step="0.01" value="3" disabled />
+        </label>
+        <label class="ctrl">
+          <span>HDR 整体亮度 <output id="outWebGPUHdrBrightness">1.00</output>×</span>
+          <input type="range" id="ctrlWebGPUHdrBrightness" min="0" max="32" step="0.1" value="1" disabled />
+        </label>
+        <label class="ctrl">
+          <span>HDR 色相保持 <output id="outWebGPUHdrColorPreservation">0.00</output></span>
+          <input type="range" id="ctrlWebGPUHdrColorPreservation" min="0" max="1" step="0.01" value="0" disabled />
+        </label>
+        <label class="ctrl">
+          <span>白核强度 <output id="outWebGPUHdrWhiteCore">0.60</output></span>
+          <input type="range" id="ctrlWebGPUHdrWhiteCore" min="0" max="1" step="0.01" value="0.6" disabled />
+        </label>
+        <label class="ctrl">
+          <span>白核起点 <output id="outWebGPUHdrWhiteStart">1.00</output></span>
+          <input type="range" id="ctrlWebGPUHdrWhiteStart" min="0" max="8" step="0.01" value="1" disabled />
+        </label>
+        <label class="ctrl">
+          <span>白核终点 <output id="outWebGPUHdrWhiteEnd">5.00</output></span>
+          <input type="range" id="ctrlWebGPUHdrWhiteEnd" min="0.01" max="8" step="0.01" value="5" disabled />
+        </label>
+      </div>
       </details>
       <details open>
       <summary id="hostApiSummary">宿主控制 API</summary>

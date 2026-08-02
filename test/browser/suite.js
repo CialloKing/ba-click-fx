@@ -12,6 +12,7 @@ const STRAIGHT_TRAIL_HEAD_U = 0.08;
 const STRAIGHT_TRAIL_ASYMMETRY_U = 0.15;
 const STRAIGHT_TRAIL_EDGE_V = 0.05;
 const TRANSPARENT_CONTRACT_GUARD_RADIUS = 72;
+const PREFAB_COUNT_TRAIL_SEGMENTS = 24;
 
 window.__BACLICKFX_PIXEL_PROGRESS__ = 'suite-started';
 
@@ -153,6 +154,22 @@ function resetVirtualRuntime()
   nextAnimationFrameId = 1;
   animationFrames.clear();
   setRandomSeed(0x4ba5f17);
+}
+
+function createPrefabCountTrailSamples()
+{
+  const samples = [[0, 8, FIXTURE_HEIGHT / 2]];
+
+  // 往返总距离故意高于 50 个粒子的间距，证明运行时确实在 Prefab
+  // 的单实例上限处截断，而不是只碰巧生成了 50 个粒子。
+  for (let index = 0; index < PREFAB_COUNT_TRAIL_SEGMENTS; index++)
+  {
+    samples.push(
+      [0, index % 2 === 0 ? FIXTURE_WIDTH - 8 : 8, FIXTURE_HEIGHT / 2],
+    );
+  }
+
+  return samples;
 }
 
 async function runAnimationFrame(timeMs)
@@ -889,7 +906,9 @@ async function prepareEffect(specification)
 
   if (specification.includeTrail !== false)
   {
-    const trailSamples = specification.straightTrailProbe
+    const trailSamples = specification.prefabCountContract
+      ? createPrefabCountTrailSamples()
+      : specification.straightTrailProbe
       ? [
           [20, STRAIGHT_TRAIL_START_X, STRAIGHT_TRAIL_Y],
           [40, 112, STRAIGHT_TRAIL_Y],
@@ -988,10 +1007,19 @@ async function runCase(specification)
         0,
       ),
       shardCount: fixture.effect.shards.length,
+      clickShardCount: fixture.effect.shards.filter(
+        (shard) => shard.kind === 'click',
+      ).length,
+      trailShardCount: fixture.effect.shards.filter(
+        (shard) => shard.kind === 'trail',
+      ).length,
       trailPointCount: fixture.effect.trailStrokes.reduce(
         (count, stroke) => count + stroke.points.length,
         0,
       ),
+      configuredRingCount: snapshot.unity.rings.count,
+      configuredClickShardCount: snapshot.unity.shards.clickCount,
+      configuredTrailShardLimit: snapshot.unity.shards.maxCount,
       hasVisibleEffects: fixture.effect._hasVisibleEffects(),
     },
     dpr: fixture.effect.dpr,

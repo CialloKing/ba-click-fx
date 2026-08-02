@@ -9,6 +9,7 @@ import {
   getThemeBackgroundCss,
   renderThemeSceneBackground,
 } from './theme-background.js';
+import { resolveHdrPresentationState } from './hdr-presentation-status.js';
 import { snapRangeValue } from './range-snap.js';
 
 function acceptDemoPointer(event)
@@ -775,8 +776,17 @@ window.addEventListener('blur', () =>
 // ── 渲染模式 → effectBackend + renderingMode + bloomBackend ─────────
 const ctrlRenderMode = document.getElementById('ctrlRenderMode');
 const DEFAULT_RENDER_MODE = 'full-webgl2';
+const dynamicRangeQuery = typeof window.matchMedia === 'function'
+  ? window.matchMedia('(dynamic-range: high)')
+  : null;
 const RENDER_MODE_CONFIGS = Object.freeze(
   {
+    'full-webgpu':
+    {
+      effectBackend: 'webgpu',
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    },
     'full-webgl2':
     {
       effectBackend: 'webgl2',
@@ -808,6 +818,143 @@ const RENDER_MODE_CONFIGS = Object.freeze(
     },
   },
 );
+const HDR_PRESENTATION_PRESETS = Object.freeze(
+  {
+    balanced:
+    {
+      webgpuHdrPeak: CONFIG.webgpuHdrPeak,
+      webgpuHdrBrightness: CONFIG.webgpuHdrBrightness,
+      webgpuHdrColorPreservation: CONFIG.webgpuHdrColorPreservation,
+      webgpuHdrWhiteCore: CONFIG.webgpuHdrWhiteCore,
+      webgpuHdrWhiteStart: CONFIG.webgpuHdrWhiteStart,
+      webgpuHdrWhiteEnd: CONFIG.webgpuHdrWhiteEnd,
+    },
+    bright:
+    {
+      webgpuHdrPeak: 3.5,
+      webgpuHdrBrightness: 1,
+      webgpuHdrColorPreservation: 0,
+      webgpuHdrWhiteCore: 0.8,
+      webgpuHdrWhiteStart: 0.75,
+      webgpuHdrWhiteEnd: 4,
+    },
+    color:
+    {
+      webgpuHdrPeak: 3,
+      webgpuHdrBrightness: 1,
+      webgpuHdrColorPreservation: 1,
+      webgpuHdrWhiteCore: 0,
+      webgpuHdrWhiteStart: 1,
+      webgpuHdrWhiteEnd: 5,
+    },
+  },
+);
+const HDR_PRESENTATION_CONTROLS = Object.freeze(
+  [
+    ['ctrlWebGPUHdrPeak', 'outWebGPUHdrPeak', 'webgpuHdrPeak'],
+    [
+      'ctrlWebGPUHdrBrightness',
+      'outWebGPUHdrBrightness',
+      'webgpuHdrBrightness',
+    ],
+    [
+      'ctrlWebGPUHdrColorPreservation',
+      'outWebGPUHdrColorPreservation',
+      'webgpuHdrColorPreservation',
+    ],
+    [
+      'ctrlWebGPUHdrWhiteCore',
+      'outWebGPUHdrWhiteCore',
+      'webgpuHdrWhiteCore',
+    ],
+    [
+      'ctrlWebGPUHdrWhiteStart',
+      'outWebGPUHdrWhiteStart',
+      'webgpuHdrWhiteStart',
+    ],
+    [
+      'ctrlWebGPUHdrWhiteEnd',
+      'outWebGPUHdrWhiteEnd',
+      'webgpuHdrWhiteEnd',
+    ],
+  ],
+);
+
+function findHdrPresentationPreset(snapshot)
+{
+  for (const [name, preset] of Object.entries(HDR_PRESENTATION_PRESETS))
+  {
+    if (Object.entries(preset).every(([key, value]) =>
+      Math.abs(snapshot[key] - value) <= 0.000001))
+    {
+      return name;
+    }
+  }
+
+  return 'custom';
+}
+
+function persistHdrPresentation(snapshot)
+{
+  for (const [controlId, , configKey] of HDR_PRESENTATION_CONTROLS)
+  {
+    localStorage.setItem('bafx-' + controlId, String(snapshot[configKey]));
+  }
+
+  localStorage.setItem(
+    'bafx-ctrlHdrPresentationPreset',
+    findHdrPresentationPreset(snapshot),
+  );
+}
+
+function syncHdrPresentationControls(snapshot = effect.getConfig())
+{
+  const container = document.getElementById('hdrPresentationControls');
+  const presetControl = document.getElementById(
+    'ctrlHdrPresentationPreset',
+  );
+  const active = snapshot.resolvedEffectBackend === 'webgpu' &&
+    snapshot.resolvedWebGPUOutputMode === 'extended';
+
+  container?.classList.toggle('is-inactive', !active);
+  container?.setAttribute('aria-disabled', String(!active));
+
+  if (presetControl)
+  {
+    presetControl.disabled = !active;
+    presetControl.value = findHdrPresentationPreset(snapshot);
+  }
+
+  for (const [controlId, outputId, configKey] of HDR_PRESENTATION_CONTROLS)
+  {
+    const control = document.getElementById(controlId);
+    const output = document.getElementById(outputId);
+
+    if (control)
+    {
+      control.disabled = !active;
+      control.value = String(snapshot[configKey]);
+    }
+
+    if (output)
+    {
+      output.textContent = snapshot[configKey].toFixed(2);
+    }
+  }
+}
+
+function applyHdrPresentation(overrides, persist = true)
+{
+  effect.updateConfig(overrides);
+  const snapshot = effect.getConfig();
+
+  syncHdrPresentationControls(snapshot);
+
+  if (persist)
+  {
+    persistHdrPresentation(snapshot);
+  }
+}
 
 function updateRenderBackendStatus()
 {
@@ -824,6 +971,7 @@ function updateRenderBackendStatus()
     canvas2d: d.renderCanvas2D,
     auto: d.renderAutoBloom,
     software: d.renderSoftwareBloom,
+    webgpu: d.renderFullWebGPU,
     webgl2: d.renderWebGL2Bloom,
     native: d.renderNativeBloom,
     legacy: d.renderLegacy,
@@ -845,22 +993,110 @@ function updateRenderBackendStatus()
   backendLabels.webgl2 = webGL2Label;
   const resolvedLabel = backendLabels[resolved] || resolved;
   const requestedLabel = backendLabels[expected] || expected;
+  const webgpuRequested = expected === 'webgpu' || expected === 'auto';
+  const outputMode = snapshot.resolvedWebGPUOutputMode;
+  const dynamicRangeHigh = dynamicRangeQuery?.matches ?? null;
+  const presentationState = resolveHdrPresentationState(
+    {
+      webgpuRequested,
+      resolvedBackend: resolved,
+      outputMode,
+      dynamicRangeHigh,
+    },
+  );
+  let backendValue;
 
   if (resolved === 'pending')
   {
-    status.textContent = d.renderBackendPending.replace('{requested}', requestedLabel);
-    return;
+    backendValue = d.renderBackendPending.replace('{requested}', requestedLabel);
   }
-
-  if (resolved !== expected && expected !== 'auto')
+  else if (resolved !== expected && expected !== 'auto')
   {
-    status.textContent = d.renderBackendFallback
+    backendValue = d.renderBackendFallback
       .replace('{resolved}', resolvedLabel)
       .replace('{requested}', requestedLabel);
-    return;
+  }
+  else
+  {
+    backendValue = d.renderBackendActive.replace('{backend}', resolvedLabel);
   }
 
-  status.textContent = d.renderBackendActive.replace('{backend}', resolvedLabel);
+  let canvasOutputValue = webgpuRequested
+    ? d.renderWebGPUOutputPending
+    : d.renderWebGPUOutputInactive;
+
+  // 渲染器会被保留供后续复用；未选择 WebGPU 时不能把它缓存的协商结果
+  // 当作当前 Canvas 的输出能力展示。
+  if (webgpuRequested && outputMode === 'extended')
+  {
+    canvasOutputValue = d.renderWebGPUOutputExtended;
+  }
+  else if (webgpuRequested && outputMode === 'standard')
+  {
+    let standardFormat = d.renderWebGPUPreferredFormat;
+
+    try
+    {
+      standardFormat = navigator.gpu?.getPreferredCanvasFormat?.() ??
+        standardFormat;
+    }
+    catch
+    {
+      // 状态展示不能影响已经成功的 SDR 回退。
+    }
+
+    canvasOutputValue = d.renderWebGPUOutputStandard.replace(
+      '{format}',
+      standardFormat,
+    );
+  }
+  else if (presentationState === 'unavailable')
+  {
+    canvasOutputValue = d.renderWebGPUOutputUnavailable;
+  }
+
+  const dynamicRangeValue = dynamicRangeHigh === true
+    ? d.renderDynamicRangeHigh
+    : dynamicRangeHigh === false
+      ? d.renderDynamicRangeStandard
+      : d.renderDynamicRangeUnknown;
+  const verdictValues = {
+    ready: d.renderHdrVerdictReady,
+    'display-unconfirmed': d.renderHdrVerdictDisplayUnconfirmed,
+    standard: d.renderHdrVerdictStandard,
+    pending: d.renderHdrVerdictPending,
+    unavailable: d.renderHdrVerdictUnavailable,
+    inactive: d.renderHdrVerdictInactive,
+  };
+  const values = {
+    renderBackendValue: backendValue,
+    renderCanvasOutputValue: canvasOutputValue,
+    renderDynamicRangeValue: dynamicRangeValue,
+    renderHdrVerdictValue: verdictValues[presentationState],
+  };
+
+  for (const [id, value] of Object.entries(values))
+  {
+    const element = document.getElementById(id);
+
+    if (element)
+    {
+      element.textContent = value;
+    }
+  }
+
+  document.getElementById('renderBackendLabel').textContent =
+    d.renderBackendLabel;
+  document.getElementById('renderCanvasOutputLabel').textContent =
+    d.renderCanvasOutputLabel;
+  document.getElementById('renderDynamicRangeLabel').textContent =
+    d.renderDynamicRangeLabel;
+  document.getElementById('renderHdrVerdictLabel').textContent =
+    d.renderHdrVerdictLabel;
+  document.getElementById('renderHdrStatusNote').textContent =
+    d.renderHdrStatusNote;
+  status.dataset.hdrState = presentationState;
+  syncHdrPresentationControls(snapshot);
 }
 
 function applyRenderMode(mode)
@@ -883,6 +1119,16 @@ effect.canvas.addEventListener(
   updateRenderBackendStatus,
 );
 
+if (typeof dynamicRangeQuery?.addEventListener === 'function')
+{
+  dynamicRangeQuery.addEventListener('change', updateRenderBackendStatus);
+}
+else if (typeof dynamicRangeQuery?.addListener === 'function')
+{
+  // 兼容仍只实现旧 MediaQueryList 监听接口的浏览器。
+  dynamicRangeQuery.addListener(updateRenderBackendStatus);
+}
+
 if (ctrlRenderMode)
 {
   ctrlRenderMode.addEventListener('change', () =>
@@ -891,6 +1137,31 @@ if (ctrlRenderMode)
 
     applyRenderMode(mode);
     localStorage.setItem('bafx-ctrlRenderMode', mode);
+  });
+}
+
+const ctrlHdrPresentationPreset = document.getElementById(
+  'ctrlHdrPresentationPreset',
+);
+
+if (ctrlHdrPresentationPreset)
+{
+  ctrlHdrPresentationPreset.addEventListener('change', () =>
+  {
+    const preset = HDR_PRESENTATION_PRESETS[ctrlHdrPresentationPreset.value];
+
+    if (preset)
+    {
+      applyHdrPresentation(preset);
+    }
+  });
+}
+
+for (const [controlId, outputId, configKey] of HDR_PRESENTATION_CONTROLS)
+{
+  bindRange(controlId, outputId, (value) =>
+  {
+    applyHdrPresentation({ [configKey]: value });
   });
 }
 
@@ -1218,6 +1489,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlDpr').value = '2';
   document.getElementById('outDpr').textContent = '2.00';
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
+  document.getElementById('ctrlHdrPresentationPreset').value = 'balanced';
   document.getElementById('ctrlOutputCompositing').value =
     DEFAULT_OUTPUT_COMPOSITING;
   document.getElementById('ctrlOverlayAlphaPolicy').value =
@@ -1325,6 +1597,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
       trailEnabled: true,
       trailAlways: false,
       ...RENDER_MODE_CONFIGS[DEFAULT_RENDER_MODE],
+      ...HDR_PRESENTATION_PRESETS.balanced,
       outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
       overlayAlphaPolicy: DEFAULT_OVERLAY_ALPHA_POLICY,
       overlayColorCompensation: DEFAULT_OVERLAY_COLOR_COMPENSATION,
@@ -1338,6 +1611,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   manualPointerId = null;
   updateHostApiStatus();
   requestAnimationFrame(updateRenderBackendStatus);
+  syncHdrPresentationControls(effect.getConfig());
   applyTheme('蔚蓝');
 
   for (const key of Object.keys(localStorage))
@@ -1514,15 +1788,48 @@ const I18N = {
     hostApiManual: '手动模式：展示页通过公开 pointer API 注入输入。',
     hostApiPaused: '已暂停：输入和 RAF 已停止。',
     renderCanvas2D: 'Canvas 2D',
+    renderFullWebGPU: 'WebGPU HDR（实验）',
     renderFullWebGL2: '纯 WebGL2',
     renderSoftwareBloom: '软件 Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: '原生辉光',
     renderLegacy: 'Legacy',
     renderAutoBloom: '自动选择',
-    renderBackendActive: '实际后端：{backend}',
+    renderBackendLabel: '实际后端',
+    renderCanvasOutputLabel: 'Canvas 输出',
+    renderDynamicRangeLabel: '显示环境',
+    renderHdrVerdictLabel: 'HDR 判断',
+    renderBackendActive: '{backend}',
     renderBackendPending: '正在检测 {requested}…',
-    renderBackendFallback: '实际后端：{resolved}（{requested} 不可用，已自动回退）',
+    renderBackendFallback: '{resolved}（{requested} 不可用，已自动回退）',
+    renderWebGPUOutputExtended: 'Extended HDR · rgba16float',
+    renderWebGPUOutputStandard: 'Standard SDR · {format}',
+    renderWebGPUOutputPending: '正在协商',
+    renderWebGPUOutputUnavailable: 'HDR Canvas 不可用',
+    renderWebGPUOutputInactive: '未启用',
+    renderWebGPUPreferredFormat: '浏览器首选格式',
+    renderDynamicRangeHigh: 'High（浏览器报告）',
+    renderDynamicRangeStandard: 'Standard（未报告 HDR）',
+    renderDynamicRangeUnknown: '浏览器未提供',
+    renderHdrVerdictReady: '浏览器侧 HDR 已就绪',
+    renderHdrVerdictDisplayUnconfirmed: 'Canvas Extended；显示环境未确认',
+    renderHdrVerdictStandard: '当前为 SDR 输出',
+    renderHdrVerdictPending: '正在判断',
+    renderHdrVerdictUnavailable: 'WebGPU HDR 不可用',
+    renderHdrVerdictInactive: '未启用 WebGPU HDR',
+    renderHdrStatusNote: '浏览器侧判断；实际峰值亮度由系统和屏幕决定。',
+    hdrPresentationHeading: 'HDR 显示映射',
+    labelHdrPresentationPreset: '高光预设',
+    hdrPresentationPresetBalanced: '平衡白核（默认）',
+    hdrPresentationPresetBright: '明亮白核',
+    hdrPresentationPresetColor: '保留原始色相',
+    hdrPresentationPresetCustom: '自定义',
+    labelWebGPUHdrPeak: '线性峰值',
+    labelWebGPUHdrBrightness: 'HDR 整体亮度',
+    labelWebGPUHdrColorPreservation: 'HDR 色相保持',
+    labelWebGPUHdrWhiteCore: '白核强度',
+    labelWebGPUHdrWhiteStart: '白核起点',
+    labelWebGPUHdrWhiteEnd: '白核终点',
     labelClickEnabled: '启用点击特效',
     labelRingHdr: '圆环 HDR 强度',
     labelRingRadMin: '圆环起始半径',
@@ -1565,10 +1872,11 @@ const I18N = {
     btnApplyBg: '应用背景',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
-    introP2: '从 Unity FX_Touch.prefab 逐参数移植，默认使用纯 WebGL2，并提供 WebGL2 Bloom、软件 Bloom、原生辉光和 Legacy 回退路径——溶解圆环、点击碎片、拖尾轨迹。零外部运行时依赖。',
+    introP2: '从 Unity FX_Touch.prefab 逐参数移植，默认使用纯 WebGL2，可选 WebGPU 真实 HDR，并提供 WebGL2 Bloom、软件 Bloom、原生辉光和 Legacy 回退路径。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.19/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
+    introWebGPUFAQContent: '<p><strong>WebGPU 一定会显示真实 HDR 吗？</strong> 不会。只有 <code>resolvedWebGPUOutputMode === \'extended\'</code> 才表示 Canvas 会以扩展 sRGB 编码保留超过 SDR 白色的高光；还需要 HDR 显示器、系统 HDR 和浏览器 WebGPU HDR Canvas 同时可用。</p>',
     introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 页面主题始终由 CSS 单独显示。“特效背景参考”可选“匹配当前页面”或“未知透明背景”：前者把内置主题或已解码图片传入渲染器，后者调用 <code>setCompositingReference(null)</code> 并保留透明宿主的 Coverage 合同。纯白主题在关闭“隔离合成”时保留接近游戏原始的低可见度；开启后会自动使用 <code>lightBackgroundContrastAlpha: 0.35</code> 补足网页白底可见性。已解码图片通过 <code>setCompositingReference(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；本地图片选择器会生成当前页面的 <code>blob:</code> URL，不需要 CORS，但刷新后需要重新选择。手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。</p><p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；BASpark、WebView2、Electron 等透明宿主显式使用 <code>browser-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应通过 <code>setCompositingReference()</code> 提供给渲染器。</p><p><strong>纯白背景下特效颜色太浅？</strong> 关闭“隔离合成”时会保留游戏原始的低可见度表现；开启后，展示页自动叠加不参与 Bloom 的淡青对比轮廓，使效果在常见网页白底上保持可见。其他宿主也可按需显式设置 <code>lightBackgroundContrastAlpha</code>。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
     introHostApiSummary: '宿主控制 API / Host Control API',
   },
@@ -1625,15 +1933,48 @@ const I18N = {
     hostApiManual: 'Manual mode: the demo injects input through the public pointer API.',
     hostApiPaused: 'Paused: input and RAF scheduling are stopped.',
     renderCanvas2D: 'Canvas 2D',
+    renderFullWebGPU: 'WebGPU HDR (Experimental)',
     renderFullWebGL2: 'Full WebGL2',
     renderSoftwareBloom: 'Software Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: 'Native Glow',
     renderLegacy: 'Legacy',
     renderAutoBloom: 'Auto',
-    renderBackendActive: 'Active backend: {backend}',
+    renderBackendLabel: 'Active Backend',
+    renderCanvasOutputLabel: 'Canvas Output',
+    renderDynamicRangeLabel: 'Display Range',
+    renderHdrVerdictLabel: 'HDR Verdict',
+    renderBackendActive: '{backend}',
     renderBackendPending: 'Detecting {requested}…',
-    renderBackendFallback: 'Active backend: {resolved} ({requested} unavailable; fell back automatically)',
+    renderBackendFallback: '{resolved} ({requested} unavailable; fell back automatically)',
+    renderWebGPUOutputExtended: 'Extended HDR · rgba16float',
+    renderWebGPUOutputStandard: 'Standard SDR · {format}',
+    renderWebGPUOutputPending: 'Negotiating',
+    renderWebGPUOutputUnavailable: 'HDR Canvas unavailable',
+    renderWebGPUOutputInactive: 'Inactive',
+    renderWebGPUPreferredFormat: 'Browser preferred format',
+    renderDynamicRangeHigh: 'High (reported by browser)',
+    renderDynamicRangeStandard: 'Standard (HDR not reported)',
+    renderDynamicRangeUnknown: 'Not exposed by browser',
+    renderHdrVerdictReady: 'Browser-side HDR ready',
+    renderHdrVerdictDisplayUnconfirmed: 'Canvas Extended; display unconfirmed',
+    renderHdrVerdictStandard: 'Currently SDR output',
+    renderHdrVerdictPending: 'Evaluating',
+    renderHdrVerdictUnavailable: 'WebGPU HDR unavailable',
+    renderHdrVerdictInactive: 'WebGPU HDR not enabled',
+    renderHdrStatusNote: 'Browser-side verdict; peak luminance depends on the system and display.',
+    hdrPresentationHeading: 'HDR Presentation Mapping',
+    labelHdrPresentationPreset: 'Highlight Preset',
+    hdrPresentationPresetBalanced: 'Balanced White Core (Default)',
+    hdrPresentationPresetBright: 'Bright White Core',
+    hdrPresentationPresetColor: 'Preserve Original Hue',
+    hdrPresentationPresetCustom: 'Custom',
+    labelWebGPUHdrPeak: 'Linear Peak',
+    labelWebGPUHdrBrightness: 'HDR Overall Brightness',
+    labelWebGPUHdrColorPreservation: 'HDR Hue Preservation',
+    labelWebGPUHdrWhiteCore: 'White-core Strength',
+    labelWebGPUHdrWhiteStart: 'White-core Start',
+    labelWebGPUHdrWhiteEnd: 'White-core End',
     labelClickEnabled: 'Enable Click',
     labelRingHdr: 'Ring HDR Intensity',
     labelRingRadMin: 'Ring Radius Min',
@@ -1676,10 +2017,11 @@ const I18N = {
     btnApplyBg: 'Apply',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
-    introP2: 'Ported from Unity FX_Touch.prefab with Full WebGL2 by default plus WebGL2 Bloom, Software Bloom, Native Glow, and Legacy fallback paths — dissolve rings, click shards, and drag trails. Zero runtime dependencies.',
+    introP2: 'Ported from Unity FX_Touch.prefab with Full WebGL2 by default, optional real WebGPU HDR, and WebGL2 Bloom, Software Bloom, Native Glow, and Legacy fallbacks. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.19/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
+    introWebGPUFAQContent: '<p><strong>Does WebGPU always produce real HDR?</strong> No. Only <code>resolvedWebGPUOutputMode === \'extended\'</code> means the Canvas preserves highlights above SDR white in extended sRGB; an HDR display, system HDR, and browser WebGPU HDR Canvas support are also required.</p>',
     introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How do built-in themes and custom images join the game-style composite?</strong> The page theme always remains a separate CSS concern. Effect Reference offers Current Page or Unknown Background: the former supplies a built-in theme or decoded image to the renderer, while the latter calls <code>setCompositingReference(null)</code> and preserves the Coverage contract for a transparent host. With Isolated Compositing off, Pure White keeps the lower-visibility result closest to the game original. With it on, the demo automatically uses <code>lightBackgroundContrastAlpha: 0.35</code> to keep the effect visible on ordinary web white backgrounds. Decoded images are passed to <code>setCompositingReference(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. The local-image picker creates a page-session <code>blob:</code> URL, so it needs no CORS but must be selected again after a reload. A typed <code>file://</code> URL is passed through for desktop hosts that permit both local-protocol reads and Canvas/WebGL texture use; regular HTTP/HTTPS pages remain subject to browser local-resource permissions and should use the local-image picker.</p><p><strong>Which compositing mode should a transparent desktop use?</strong> The demo and strict game reproduction keep the default <code>scene</code>; transparent hosts such as BASpark, WebView2, and Electron select <code>browser-overlay</code> explicitly. Over an unknown background, standard <code>source-over</code> cannot simultaneously provide strict Unity additive RGB, pure Coverage alpha, and no white-background darkening. Isolation cannot read desktop pixels; provide a known background with <code>setCompositingReference()</code>.</p><p><strong>Effects look washed out on a pure white background?</strong> With Isolated Compositing off, the demo preserves the game-original lower-visibility result. With it on, the demo adds a pale-cyan contrast outline outside Bloom so the effect remains visible on ordinary web white backgrounds. Other hosts can set <code>lightBackgroundContrastAlpha</code> explicitly as needed.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
     introHostApiSummary: 'Host Control API / 宿主控制 API',
   },
@@ -1756,6 +2098,13 @@ function switchLanguage(lang)
     ctrlOpacity: d.labelOpacity,
     ctrlDpr: d.labelDpr,
     ctrlRenderMode: d.labelRenderMode,
+    ctrlHdrPresentationPreset: d.labelHdrPresentationPreset,
+    ctrlWebGPUHdrPeak: d.labelWebGPUHdrPeak,
+    ctrlWebGPUHdrBrightness: d.labelWebGPUHdrBrightness,
+    ctrlWebGPUHdrColorPreservation: d.labelWebGPUHdrColorPreservation,
+    ctrlWebGPUHdrWhiteCore: d.labelWebGPUHdrWhiteCore,
+    ctrlWebGPUHdrWhiteStart: d.labelWebGPUHdrWhiteStart,
+    ctrlWebGPUHdrWhiteEnd: d.labelWebGPUHdrWhiteEnd,
     ctrlOutputCompositing: d.labelOutputCompositing,
     ctrlOverlayAlphaPolicy: d.labelOverlayAlphaPolicy,
     ctrlOverlayColorCompensation: d.labelOverlayColorCompensation,
@@ -1843,6 +2192,7 @@ function switchLanguage(lang)
 
   // 渲染模式下拉选项文本
   const renderModeOptions = {
+    'full-webgpu': d.renderFullWebGPU,
     'full-webgl2': d.renderFullWebGL2,
     'software-bloom': d.renderSoftwareBloom,
     'webgl2-bloom': d.renderWebGL2Bloom,
@@ -1855,6 +2205,23 @@ function switchLanguage(lang)
     if (renderModeOptions[opt.value])
     {
       opt.textContent = renderModeOptions[opt.value];
+    }
+  });
+
+  const hdrPresentationPresetOptions = {
+    balanced: d.hdrPresentationPresetBalanced,
+    bright: d.hdrPresentationPresetBright,
+    color: d.hdrPresentationPresetColor,
+    custom: d.hdrPresentationPresetCustom,
+  };
+
+  document.querySelectorAll(
+    '#ctrlHdrPresentationPreset option',
+  ).forEach((option) =>
+  {
+    if (hdrPresentationPresetOptions[option.value])
+    {
+      option.textContent = hdrPresentationPresetOptions[option.value];
     }
   });
 
@@ -1945,6 +2312,8 @@ function switchLanguage(lang)
 
   // 按钮
   document.getElementById('hostApiSummary').textContent = d.hostApiSummary;
+  document.getElementById('hdrPresentationHeading').textContent =
+    d.hdrPresentationHeading;
   document.getElementById('btnReset').textContent = d.btnReset;
   document.getElementById('customBgCtrl')?.querySelector('span') && (document.getElementById('customBgCtrl').querySelector('span').textContent = d.customBgLabel);
   document.getElementById('customBgFileCtrl')?.querySelector('span') && (document.getElementById('customBgFileCtrl').querySelector('span').textContent = d.customBgFileLabel);
@@ -1958,7 +2327,8 @@ function switchLanguage(lang)
   document.getElementById('introInstallSummary').textContent = d.introInstallSummary;
   document.getElementById('introInstallContent').innerHTML = d.introInstallContent;
   document.getElementById('introFAQSummary').textContent = d.introFAQSummary;
-  document.getElementById('introFAQContent').innerHTML = d.introFAQContent;
+  document.getElementById('introFAQContent').innerHTML =
+    d.introFAQContent + d.introWebGPUFAQContent;
   document.getElementById('introHostApiSummary').textContent = d.introHostApiSummary;
   updateRenderBackendStatus();
   updateCompositingReferenceStatus();
@@ -2050,6 +2420,28 @@ switchLanguage(currentLang);
 
   // 默认值也走同一条路径，确保首次打开即可显示能力探测后的实际后端。
   applyRenderMode(initialRenderMode);
+
+  const savedHdrPresentation = {};
+
+  for (const [controlId, , configKey] of HDR_PRESENTATION_CONTROLS)
+  {
+    const savedValue = localStorage.getItem('bafx-' + controlId);
+
+    if (savedValue !== null && Number.isFinite(Number(savedValue)))
+    {
+      savedHdrPresentation[configKey] = Number(savedValue);
+    }
+  }
+
+  const savedHdrPreset = localStorage.getItem(
+    'bafx-ctrlHdrPresentationPreset',
+  );
+  const restoredHdrPresentation = Object.keys(savedHdrPresentation).length > 0
+    ? savedHdrPresentation
+    : HDR_PRESENTATION_PRESETS[savedHdrPreset] ??
+      HDR_PRESENTATION_PRESETS.balanced;
+
+  applyHdrPresentation(restoredHdrPresentation, false);
 
   const savedOutputCompositing = localStorage.getItem(
     'bafx-ctrlOutputCompositing',

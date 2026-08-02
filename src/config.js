@@ -7,7 +7,7 @@ const SHARD_UNIT_TO_REFERENCE_PIXELS =
   WORLD_TO_REFERENCE_PIXELS * SHARD_LOCAL_SCALE;
 const RING_MESH_OUTER_RADIUS = 1.0636684;
 const DEFAULT_EFFECT_BACKEND = 'webgl2';
-const EFFECT_BACKENDS = new Set(['canvas2d', 'webgl2', 'auto']);
+const EFFECT_BACKENDS = new Set(['canvas2d', 'webgl2', 'webgpu', 'auto']);
 const DEFAULT_BLOOM_BACKEND = 'webgl2';
 const BLOOM_BACKENDS = new Set(['auto', 'software', 'webgl2', 'native']);
 const INPUT_SOURCES = new Set(['dom', 'manual']);
@@ -23,6 +23,12 @@ const HOST_COMPOSITING_MODES = new Set([
   'screen',
   'plus-lighter',
 ]);
+const DEFAULT_HOST_COMPOSITING_SURFACE = 'dom-backdrop';
+const HOST_COMPOSITING_SURFACES = new Set([
+  'dom-backdrop',
+  'transparent-window',
+  'native',
+]);
 const DEFAULT_OVERLAY_ALPHA_POLICY = 'coverage';
 const DEFAULT_OVERLAY_COLOR_COMPENSATION = 'none';
 
@@ -32,6 +38,15 @@ import {
   normalizeOverlayAlphaPolicy,
   normalizeOverlayColorCompensation,
 } from './overlay-compositing.js';
+import { WEBGPU_HDR_PRESENTATION_DEFAULTS } from './webgpu-hdr-presentation.js';
+
+const WEBGPU_HDR_PEAK_MIN = 2;
+const WEBGPU_HDR_PEAK_MAX = 4;
+const WEBGPU_HDR_BRIGHTNESS_MAX = 32;
+const WEBGPU_HDR_WHITE_THRESHOLD_MIN = 0;
+const WEBGPU_HDR_WHITE_START_MAX = 15.99;
+const WEBGPU_HDR_WHITE_END_MAX = 16;
+const WEBGPU_HDR_WHITE_THRESHOLD_STEP = 0.01;
 
 // 极低倍率会让每帧逻辑时间几乎停滞；保留可预期的最小有效速度。
 export const MIN_TIME_SCALE = 0.01;
@@ -989,14 +1004,24 @@ export const CONFIG = Object.freeze(
     overlayAlphaLimit: DEFAULT_OVERLAY_ALPHA_LIMIT,
     // 普通 source-over 不假定宿主可见背景；网页加色必须显式启用。
     hostCompositing: DEFAULT_HOST_COMPOSITING,
+    // 省略能力声明时保留 1.x 的网页 DOM 合成行为。
+    hostCompositingSurface: DEFAULT_HOST_COMPOSITING_SURFACE,
     // 默认由纯 WebGL2 接管完整 Scene；能力不足时运行时安全回退 Canvas2D。
     effectBackend: DEFAULT_EFFECT_BACKEND,
+    // 仅 WebGPU Extended 最终展示使用；不改变 Unity 发射和 Bloom 真值。
+    webgpuHdrPeak: WEBGPU_HDR_PRESENTATION_DEFAULTS.peak,
+    webgpuHdrBrightness: WEBGPU_HDR_PRESENTATION_DEFAULTS.brightness,
+    webgpuHdrColorPreservation:
+      WEBGPU_HDR_PRESENTATION_DEFAULTS.colorPreservation,
+    webgpuHdrWhiteCore: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteCore,
+    webgpuHdrWhiteStart: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteStart,
+    webgpuHdrWhiteEnd: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteEnd,
     // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
     // 替换为兼容性更高的 Canvas shadowBlur，并保留旧版拖尾合成风格。
     renderingMode: 'enhanced',
-    // 默认使用 GPU Bloom；能力不足时依次回退软件 Bloom 与原生辉光。
+    // 默认使用 GPU Bloom；能力不足时回退原生辉光，Software 只允许显式选择。
     bloomBackend: DEFAULT_BLOOM_BACKEND,
-    softwareBloomEnabled: true,
+    softwareBloomEnabled: false,
     // 游戏把 UI 粒子直接加到同一 HDR 目标；透明隔离组仅作为网页兼容选项。
     isolatedCompositing: false,
     // 淡青 darken 轮廓不是游戏管线的一部分，浅色页面需要时再显式开启。
@@ -1106,6 +1131,62 @@ export function normalizeHostCompositing(
   return isHostCompositing(value) ? value : fallback;
 }
 
+export function isHostCompositingSurface(value)
+{
+  return HOST_COMPOSITING_SURFACES.has(value);
+}
+
+export function normalizeHostCompositingSurface(
+  value,
+  fallback = DEFAULT_HOST_COMPOSITING_SURFACE,
+)
+{
+  return isHostCompositingSurface(value) ? value : fallback;
+}
+
+/**
+ * 将调用方的混合请求与最终宿主表面的能力分开解析。透明窗口后方的
+ * 桌面不属于 DOM backdrop，CSS Screen/Add 无法跨越窗口合成边界。
+ */
+export function resolveHostCompositing(
+  {
+    outputCompositing = DEFAULT_OUTPUT_COMPOSITING,
+    requestedHostCompositing = DEFAULT_HOST_COMPOSITING,
+    hostCompositingSurface = DEFAULT_HOST_COMPOSITING_SURFACE,
+    hasCompositingReference = false,
+  } = {},
+)
+{
+  const requested = normalizeHostCompositing(requestedHostCompositing);
+  const surface = normalizeHostCompositingSurface(hostCompositingSurface);
+  const independentRequested = isIndependentHostCompositing(requested);
+
+  if (
+    outputCompositing !== 'browser-overlay' ||
+    hasCompositingReference ||
+    !independentRequested
+  )
+  {
+    return {
+      resolvedHostCompositing: 'source-over',
+      compositingWarning: null,
+    };
+  }
+
+  if (surface === 'transparent-window')
+  {
+    return {
+      resolvedHostCompositing: 'source-over',
+      compositingWarning: `${requested}-requires-visible-backdrop`,
+    };
+  }
+
+  return {
+    resolvedHostCompositing: requested,
+    compositingWarning: null,
+  };
+}
+
 export function isTimeScale(value)
 {
   return Number.isFinite(value) && value >= MIN_TIME_SCALE;
@@ -1124,6 +1205,79 @@ export function normalizeThemeColor(value, fallback = DEFAULT_THEME_COLOR)
   }
 
   return value.toLowerCase();
+}
+
+function normalizeFiniteRange(value, fallback, minimum, maximum)
+{
+  const safeFallback = Number.isFinite(fallback)
+    ? Math.max(minimum, Math.min(maximum, fallback))
+    : minimum;
+
+  if (!Number.isFinite(value))
+  {
+    return safeFallback;
+  }
+
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+/**
+ * HDR 展示校准是 WebGPU 输出合同，不属于 Unity FX 参数树。
+ * 起止阈值始终保留一个滑块步长，避免 WGSL 出现退化 smoothstep。
+ */
+export function normalizeWebGPUHdrPresentation(
+  overrides = {},
+  fallback = WEBGPU_HDR_PRESENTATION_DEFAULTS,
+)
+{
+  const peak = normalizeFiniteRange(
+    overrides.webgpuHdrPeak,
+    fallback.webgpuHdrPeak ?? fallback.peak,
+    WEBGPU_HDR_PEAK_MIN,
+    WEBGPU_HDR_PEAK_MAX,
+  );
+  const whiteCore = normalizeFiniteRange(
+    overrides.webgpuHdrWhiteCore,
+    fallback.webgpuHdrWhiteCore ?? fallback.whiteCore,
+    0,
+    1,
+  );
+  const brightness = normalizeFiniteRange(
+    overrides.webgpuHdrBrightness,
+    fallback.webgpuHdrBrightness ?? fallback.brightness,
+    0,
+    WEBGPU_HDR_BRIGHTNESS_MAX,
+  );
+  const colorPreservation = normalizeFiniteRange(
+    overrides.webgpuHdrColorPreservation,
+    fallback.webgpuHdrColorPreservation ?? fallback.colorPreservation,
+    0,
+    1,
+  );
+  const whiteStart = normalizeFiniteRange(
+    overrides.webgpuHdrWhiteStart,
+    fallback.webgpuHdrWhiteStart ?? fallback.whiteStart,
+    WEBGPU_HDR_WHITE_THRESHOLD_MIN,
+    WEBGPU_HDR_WHITE_START_MAX,
+  );
+  const requestedWhiteEnd = normalizeFiniteRange(
+    overrides.webgpuHdrWhiteEnd,
+    fallback.webgpuHdrWhiteEnd ?? fallback.whiteEnd,
+    WEBGPU_HDR_WHITE_THRESHOLD_MIN + WEBGPU_HDR_WHITE_THRESHOLD_STEP,
+    WEBGPU_HDR_WHITE_END_MAX,
+  );
+
+  return {
+    webgpuHdrPeak: peak,
+    webgpuHdrBrightness: brightness,
+    webgpuHdrColorPreservation: colorPreservation,
+    webgpuHdrWhiteCore: whiteCore,
+    webgpuHdrWhiteStart: whiteStart,
+    webgpuHdrWhiteEnd: Math.max(
+      whiteStart + WEBGPU_HDR_WHITE_THRESHOLD_STEP,
+      requestedWhiteEnd,
+    ),
+  };
 }
 
 /**
@@ -1189,9 +1343,17 @@ export function createConfig(overrides = {})
     overrides.hostCompositing,
     CONFIG.hostCompositing,
   );
+  const hostCompositingSurface = normalizeHostCompositingSurface(
+    overrides.hostCompositingSurface,
+    CONFIG.hostCompositingSurface,
+  );
   const themeColor = normalizeThemeColor(
     overrides.themeColor,
     CONFIG.themeColor,
+  );
+  const webgpuHdrPresentation = normalizeWebGPUHdrPresentation(
+    overrides,
+    CONFIG,
   );
 
   return {
@@ -1206,9 +1368,11 @@ export function createConfig(overrides = {})
     overlayColorCompensation,
     overlayAlphaLimit,
     hostCompositing,
+    hostCompositingSurface,
     themeColor,
+    ...webgpuHdrPresentation,
     bloomBackend,
-    softwareBloomEnabled: bloomBackend !== 'native',
+    softwareBloomEnabled: bloomBackend === 'software',
     isolatedCompositing: typeof overrides.isolatedCompositing === 'boolean'
       ? overrides.isolatedCompositing
       : CONFIG.isolatedCompositing,
