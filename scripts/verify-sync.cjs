@@ -335,7 +335,10 @@ verify(
     'custom',
   ]) &&
     /id="ctrlWebGPUHdrBrightness" min="0" max="32" step="0\.1" value="1" disabled/.test(indexHtml) &&
+    /id="ctrlWebGPUHdrColorPreservation" min="0" max="1" step="0\.01" value="0" disabled/.test(indexHtml) &&
     /webgpuHdrBrightness: CONFIG\.webgpuHdrBrightness/.test(mainJs) &&
+    /webgpuHdrColorPreservation: CONFIG\.webgpuHdrColorPreservation/.test(mainJs) &&
+    /webgpuHdrColorPreservation: 1/.test(mainJs) &&
     /snapshot\.resolvedEffectBackend === 'webgpu'/.test(mainJs) &&
     /snapshot\.resolvedWebGPUOutputMode === 'extended'/.test(mainJs) &&
     /bafx-ctrlHdrPresentationPreset/.test(mainJs) &&

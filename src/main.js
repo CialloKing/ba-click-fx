@@ -824,6 +824,7 @@ const HDR_PRESENTATION_PRESETS = Object.freeze(
     {
       webgpuHdrPeak: CONFIG.webgpuHdrPeak,
       webgpuHdrBrightness: CONFIG.webgpuHdrBrightness,
+      webgpuHdrColorPreservation: CONFIG.webgpuHdrColorPreservation,
       webgpuHdrWhiteCore: CONFIG.webgpuHdrWhiteCore,
       webgpuHdrWhiteStart: CONFIG.webgpuHdrWhiteStart,
       webgpuHdrWhiteEnd: CONFIG.webgpuHdrWhiteEnd,
@@ -832,6 +833,7 @@ const HDR_PRESENTATION_PRESETS = Object.freeze(
     {
       webgpuHdrPeak: 3.5,
       webgpuHdrBrightness: 1,
+      webgpuHdrColorPreservation: 0,
       webgpuHdrWhiteCore: 0.8,
       webgpuHdrWhiteStart: 0.75,
       webgpuHdrWhiteEnd: 4,
@@ -840,6 +842,7 @@ const HDR_PRESENTATION_PRESETS = Object.freeze(
     {
       webgpuHdrPeak: 3,
       webgpuHdrBrightness: 1,
+      webgpuHdrColorPreservation: 1,
       webgpuHdrWhiteCore: 0,
       webgpuHdrWhiteStart: 1,
       webgpuHdrWhiteEnd: 5,
@@ -853,6 +856,11 @@ const HDR_PRESENTATION_CONTROLS = Object.freeze(
       'ctrlWebGPUHdrBrightness',
       'outWebGPUHdrBrightness',
       'webgpuHdrBrightness',
+    ],
+    [
+      'ctrlWebGPUHdrColorPreservation',
+      'outWebGPUHdrColorPreservation',
+      'webgpuHdrColorPreservation',
     ],
     [
       'ctrlWebGPUHdrWhiteCore',
@@ -1818,6 +1826,7 @@ const I18N = {
     hdrPresentationPresetCustom: '自定义',
     labelWebGPUHdrPeak: '线性峰值',
     labelWebGPUHdrBrightness: 'HDR 整体亮度',
+    labelWebGPUHdrColorPreservation: 'HDR 色相保持',
     labelWebGPUHdrWhiteCore: '白核强度',
     labelWebGPUHdrWhiteStart: '白核起点',
     labelWebGPUHdrWhiteEnd: '白核终点',
@@ -1962,6 +1971,7 @@ const I18N = {
     hdrPresentationPresetCustom: 'Custom',
     labelWebGPUHdrPeak: 'Linear Peak',
     labelWebGPUHdrBrightness: 'HDR Overall Brightness',
+    labelWebGPUHdrColorPreservation: 'HDR Hue Preservation',
     labelWebGPUHdrWhiteCore: 'White-core Strength',
     labelWebGPUHdrWhiteStart: 'White-core Start',
     labelWebGPUHdrWhiteEnd: 'White-core End',
@@ -2091,6 +2101,7 @@ function switchLanguage(lang)
     ctrlHdrPresentationPreset: d.labelHdrPresentationPreset,
     ctrlWebGPUHdrPeak: d.labelWebGPUHdrPeak,
     ctrlWebGPUHdrBrightness: d.labelWebGPUHdrBrightness,
+    ctrlWebGPUHdrColorPreservation: d.labelWebGPUHdrColorPreservation,
     ctrlWebGPUHdrWhiteCore: d.labelWebGPUHdrWhiteCore,
     ctrlWebGPUHdrWhiteStart: d.labelWebGPUHdrWhiteStart,
     ctrlWebGPUHdrWhiteEnd: d.labelWebGPUHdrWhiteEnd,
