@@ -320,6 +320,28 @@ verify(
     /rgba16float \+ toneMapping: extended/.test(readmeEn),
   '展示页与中英文文档明确只有 extended WebGPU Canvas 代表真实 HDR',
 );
+const hdrPresentationPresetSelect = indexHtml.match(
+  /<select id="ctrlHdrPresentationPreset"[\s\S]*?<\/select>/,
+)?.[0] ?? '';
+const hdrPresentationPresetValues = [
+  ...hdrPresentationPresetSelect.matchAll(/<option value="([^"]+)"/g),
+].map((match) => match[1]);
+
+verify(
+  JSON.stringify(hdrPresentationPresetValues) === JSON.stringify([
+    'balanced',
+    'bright',
+    'color',
+    'custom',
+  ]) &&
+    /id="ctrlWebGPUHdrBrightness" min="0" max="32" step="0\.1" value="1" disabled/.test(indexHtml) &&
+    /webgpuHdrBrightness: CONFIG\.webgpuHdrBrightness/.test(mainJs) &&
+    /snapshot\.resolvedEffectBackend === 'webgpu'/.test(mainJs) &&
+    /snapshot\.resolvedWebGPUOutputMode === 'extended'/.test(mainJs) &&
+    /bafx-ctrlHdrPresentationPreset/.test(mainJs) &&
+    /\.\.\.HDR_PRESENTATION_PRESETS\.balanced/.test(mainJs),
+  'HDR 展示控件覆盖整体亮度、预设、Extended 启用、持久化与重置',
+);
 const outputCompositingSelect = indexHtml.match(
   /<select id="ctrlOutputCompositing"[\s\S]*?<\/select>/,
 )?.[0] ?? '';
