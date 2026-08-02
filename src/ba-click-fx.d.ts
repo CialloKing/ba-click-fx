@@ -143,6 +143,8 @@ declare module 'ba-click-fx'
     webgpuHdrPeak?: number;
     /** WebGPU Extended 映射后特效增量的整体倍率，范围 0..32，默认 1。 */
     webgpuHdrBrightness?: number;
+    /** 高亮增量保持原始线性 RGB 色度方向的程度，范围 0..1，默认 0。 */
+    webgpuHdrColorPreservation?: number;
     /** 高能颜色向中性白核混合的强度，范围 0..1，默认 0.6。 */
     webgpuHdrWhiteCore?: number;
     /** 白核混合开始的 SDR 超额线性能量，范围 0..15.99，默认 1。 */
@@ -194,6 +196,7 @@ declare module 'ba-click-fx'
     effectBackend: BAClickFXEffectBackend;
     webgpuHdrPeak: number;
     webgpuHdrBrightness: number;
+    webgpuHdrColorPreservation: number;
     webgpuHdrWhiteCore: number;
     webgpuHdrWhiteStart: number;
     webgpuHdrWhiteEnd: number;

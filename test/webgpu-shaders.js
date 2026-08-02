@@ -49,6 +49,9 @@ assert.ok(
       'clamp(params.hdrBrightness, 0.0, 32.0);',
     ) &&
     WEBGPU_FULLSCREEN_SHADER.includes(
+      'clamp(params.hdrColorPreservation, 0.0, 1.0)',
+    ) &&
+    WEBGPU_FULLSCREEN_SHADER.includes(
       'return vec4f(extendedSrgb, alpha);',
     ) &&
     WEBGPU_FULLSCREEN_SHADER.includes(
@@ -146,6 +149,16 @@ const mappedBackground = mapWebGPUHdrPresentation(
   },
   [0.2, 0.4, 0.8],
 );
+const preservedUnityBlue = mapWebGPUHdrPresentation(
+  unityBlue,
+  {
+    ...WEBGPU_HDR_PRESENTATION_DEFAULTS,
+    brightness: 16,
+    colorPreservation: 1,
+  },
+);
+const preservedPeak = Math.max(...preservedUnityBlue);
+const sourcePeak = Math.max(...unityBlue);
 
 assert.ok(
   brighterMapped.every((value, index) =>
@@ -156,6 +169,16 @@ assert.deepEqual(
   mappedBackground,
   [0.2, 0.4, 0.8],
   '已知背景不随 HDR 特效整体亮度一起提升',
+);
+assert.ok(
+  preservedUnityBlue.every((value, index) =>
+    approximatelyEqual(value / preservedPeak, unityBlue[index] / sourcePeak)),
+  '完全色相保持在高亮倍率下维持原始线性 RGB 通道比例',
+);
+assert.ok(
+  preservedUnityBlue[0] / preservedPeak <
+    brighterMapped[0] / Math.max(...brighterMapped),
+  '色相保持会抵消默认白核和 SDR 基底造成的高倍率偏白',
 );
 
 console.log('WebGPU Shader tests passed.');

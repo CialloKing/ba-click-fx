@@ -1721,6 +1721,7 @@ effect.updateConfig(
   {
     webgpuHdrPeak: 3.5,
     webgpuHdrBrightness: 24,
+    webgpuHdrColorPreservation: 0.85,
     webgpuHdrWhiteCore: 0.8,
     webgpuHdrWhiteStart: 6,
     webgpuHdrWhiteEnd: 2,
@@ -1731,6 +1732,7 @@ let hdrPresentationConfig = effect.getConfig();
 assert(
   hdrPresentationConfig.webgpuHdrPeak === 3.5 &&
     hdrPresentationConfig.webgpuHdrBrightness === 24 &&
+    hdrPresentationConfig.webgpuHdrColorPreservation === 0.85 &&
     hdrPresentationConfig.webgpuHdrWhiteCore === 0.8 &&
     hdrPresentationConfig.webgpuHdrWhiteStart === 6 &&
     hdrPresentationConfig.webgpuHdrWhiteEnd === 6.01,
@@ -1740,6 +1742,7 @@ effect.updateConfig(
   {
     webgpuHdrPeak: CONFIG.webgpuHdrPeak,
     webgpuHdrBrightness: CONFIG.webgpuHdrBrightness,
+    webgpuHdrColorPreservation: CONFIG.webgpuHdrColorPreservation,
     webgpuHdrWhiteCore: CONFIG.webgpuHdrWhiteCore,
     webgpuHdrWhiteStart: CONFIG.webgpuHdrWhiteStart,
     webgpuHdrWhiteEnd: CONFIG.webgpuHdrWhiteEnd,
@@ -1750,6 +1753,8 @@ assert(
   hdrPresentationConfig.webgpuHdrPeak === CONFIG.webgpuHdrPeak &&
     hdrPresentationConfig.webgpuHdrBrightness ===
       CONFIG.webgpuHdrBrightness &&
+    hdrPresentationConfig.webgpuHdrColorPreservation ===
+      CONFIG.webgpuHdrColorPreservation &&
     hdrPresentationConfig.webgpuHdrWhiteCore ===
       CONFIG.webgpuHdrWhiteCore &&
     hdrPresentationConfig.webgpuHdrWhiteStart ===

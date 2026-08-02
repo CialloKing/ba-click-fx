@@ -5780,6 +5780,7 @@ export class BAClickFX
    * @param {'canvas2d'|'webgl2'|'webgpu'|'auto'} [options.effectBackend]
    * @param {number} [options.webgpuHdrPeak]
    * @param {number} [options.webgpuHdrBrightness]
+   * @param {number} [options.webgpuHdrColorPreservation]
    * @param {number} [options.webgpuHdrWhiteCore]
    * @param {number} [options.webgpuHdrWhiteStart]
    * @param {number} [options.webgpuHdrWhiteEnd]
@@ -5863,6 +5864,7 @@ export class BAClickFX
         ),
         webgpuHdrPeak: options.webgpuHdrPeak,
         webgpuHdrBrightness: options.webgpuHdrBrightness,
+        webgpuHdrColorPreservation: options.webgpuHdrColorPreservation,
         webgpuHdrWhiteCore: options.webgpuHdrWhiteCore,
         webgpuHdrWhiteStart: options.webgpuHdrWhiteStart,
         webgpuHdrWhiteEnd: options.webgpuHdrWhiteEnd,
@@ -9827,6 +9829,8 @@ export class BAClickFX
           hostCompositing: this._getEffectiveHostCompositing(),
           webgpuHdrPeak: this.config.webgpuHdrPeak,
           webgpuHdrBrightness: this.config.webgpuHdrBrightness,
+          webgpuHdrColorPreservation:
+            this.config.webgpuHdrColorPreservation,
           webgpuHdrWhiteCore: this.config.webgpuHdrWhiteCore,
           webgpuHdrWhiteStart: this.config.webgpuHdrWhiteStart,
           webgpuHdrWhiteEnd: this.config.webgpuHdrWhiteEnd,
@@ -10712,6 +10716,7 @@ export class BAClickFX
     if (
       overrides.webgpuHdrPeak !== undefined ||
       overrides.webgpuHdrBrightness !== undefined ||
+      overrides.webgpuHdrColorPreservation !== undefined ||
       overrides.webgpuHdrWhiteCore !== undefined ||
       overrides.webgpuHdrWhiteStart !== undefined ||
       overrides.webgpuHdrWhiteEnd !== undefined

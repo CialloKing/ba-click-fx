@@ -230,7 +230,7 @@ struct PassUniforms
   hdrWhiteStart: f32,
   hdrWhiteEnd: f32,
   hdrBrightness: f32,
-  _padding: u32,
+  hdrColorPreservation: f32,
 }
 
 @group(0) @binding(0) var<uniform> params: PassUniforms;
@@ -399,6 +399,31 @@ fn solveOverlayAlpha(background: f32, desired: f32) -> f32
   return 0.0;
 }
 
+fn preserveHdrEffectHue(
+  mapped: vec3f,
+  source: vec3f,
+  background: vec3f,
+) -> vec3f
+{
+  let mappedDelta = max(mapped - background, vec3f(0.0));
+  let sourceDelta = max(source - background, vec3f(0.0));
+  let sourcePeak = max(max(sourceDelta.r, sourceDelta.g), sourceDelta.b);
+  let targetPeak = max(max(mappedDelta.r, mappedDelta.g), mappedDelta.b);
+
+  if (sourcePeak <= 0.000001 || targetPeak <= 0.000001)
+  {
+    return mappedDelta;
+  }
+
+  // 峰值仍来自 HDR shoulder，只把高亮增量拉回原始线性 RGB 色度方向。
+  let preservedDelta = sourceDelta * targetPeak / sourcePeak;
+  return mix(
+    mappedDelta,
+    preservedDelta,
+    clamp(params.hdrColorPreservation, 0.0, 1.0),
+  );
+}
+
 @fragment
 fn fragmentFinal(input: FullscreenOutput) -> @location(0) vec4f
 {
@@ -452,8 +477,13 @@ fn fragmentFinal(input: FullscreenOutput) -> @location(0) vec4f
     sampledBackground,
     params.hasBackground != 0u,
   );
+  let extendedEffectDelta = preserveHdrEffectHue(
+    mappedExtendedLinear,
+    linear,
+    presentationBackground,
+  );
   let extendedDisplayLinear = presentationBackground +
-    max(mappedExtendedLinear - presentationBackground, vec3f(0.0)) *
+    extendedEffectDelta *
     clamp(params.hdrBrightness, 0.0, 32.0);
   let extendedSrgb = linearToExtendedSrgb3(extendedDisplayLinear);
 

@@ -220,6 +220,7 @@ console.log('\nWebGPU HDR 展示配置合同');
 check(
   CONFIG.webgpuHdrPeak === 3 &&
     CONFIG.webgpuHdrBrightness === 1 &&
+    CONFIG.webgpuHdrColorPreservation === 0 &&
     CONFIG.webgpuHdrWhiteCore === 0.6 &&
     CONFIG.webgpuHdrWhiteStart === 1 &&
     CONFIG.webgpuHdrWhiteEnd === 5,
@@ -230,6 +231,7 @@ const normalizedHdrPresentation = normalizeWebGPUHdrPresentation(
   {
     webgpuHdrPeak: 8,
     webgpuHdrBrightness: 64,
+    webgpuHdrColorPreservation: 2,
     webgpuHdrWhiteCore: -1,
     webgpuHdrWhiteStart: 7,
     webgpuHdrWhiteEnd: 2,
@@ -239,6 +241,7 @@ const normalizedHdrPresentation = normalizeWebGPUHdrPresentation(
 check(
   normalizedHdrPresentation.webgpuHdrPeak === 4 &&
     normalizedHdrPresentation.webgpuHdrBrightness === 32 &&
+    normalizedHdrPresentation.webgpuHdrColorPreservation === 1 &&
     normalizedHdrPresentation.webgpuHdrWhiteCore === 0 &&
     normalizedHdrPresentation.webgpuHdrWhiteStart === 7 &&
     normalizedHdrPresentation.webgpuHdrWhiteEnd === 7.01,
@@ -249,6 +252,7 @@ const configuredHdrPresentation = createConfig(
   {
     webgpuHdrPeak: 2.5,
     webgpuHdrBrightness: 12,
+    webgpuHdrColorPreservation: 0.75,
     webgpuHdrWhiteCore: 0.75,
     webgpuHdrWhiteStart: 0.5,
     webgpuHdrWhiteEnd: 4,
@@ -258,6 +262,7 @@ const invalidHdrPresentation = createConfig(
   {
     webgpuHdrPeak: '4',
     webgpuHdrBrightness: Number.POSITIVE_INFINITY,
+    webgpuHdrColorPreservation: Number.NaN,
     webgpuHdrWhiteCore: Number.NaN,
   },
 );
@@ -265,12 +270,15 @@ const invalidHdrPresentation = createConfig(
 check(
   configuredHdrPresentation.webgpuHdrPeak === 2.5 &&
     configuredHdrPresentation.webgpuHdrBrightness === 12 &&
+    configuredHdrPresentation.webgpuHdrColorPreservation === 0.75 &&
     configuredHdrPresentation.webgpuHdrWhiteCore === 0.75 &&
     configuredHdrPresentation.webgpuHdrWhiteStart === 0.5 &&
     configuredHdrPresentation.webgpuHdrWhiteEnd === 4 &&
     invalidHdrPresentation.webgpuHdrPeak === CONFIG.webgpuHdrPeak &&
     invalidHdrPresentation.webgpuHdrBrightness ===
       CONFIG.webgpuHdrBrightness &&
+    invalidHdrPresentation.webgpuHdrColorPreservation ===
+      CONFIG.webgpuHdrColorPreservation &&
     invalidHdrPresentation.webgpuHdrWhiteCore === CONFIG.webgpuHdrWhiteCore,
   '构造配置保留合法 HDR 校准并让非法值恢复默认值',
 );
