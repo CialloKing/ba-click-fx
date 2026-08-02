@@ -687,12 +687,13 @@ ba-click-fx/
 
 ```powershell
 npm run verify:unity-reference -- --project "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab"
+npm run test:browser:unity-counts
 npm run build
 npm run test:browser:built
 npm run test:browser:webgpu:optional
 ```
 
-标准浏览器矩阵验证 WebGL2、Canvas 和 Legacy 路径，独立的可选 WebGPU 运行时门禁在设备可用时验证同一数量合同。若资源审计和跨后端数量断言均未暴露偏差，应继续检查像素换算、DPR、时序、颜色空间、合成和 Bloom，不得为了迎合视觉现象改写已经确认的 Unity 数值。
+聚焦数量门禁与完整浏览器矩阵复用同一断言，可不受其他像素用例的前置成败影响。标准矩阵验证 WebGL2、Canvas 和 Legacy 路径，独立的可选 WebGPU 运行时门禁在设备可用时验证同一数量合同。若资源审计和跨后端数量断言均未暴露偏差，应继续检查像素换算、DPR、时序、颜色空间、合成和 Bloom，不得为了迎合视觉现象改写已经确认的 Unity 数值。
 
 发布前统一执行：
 

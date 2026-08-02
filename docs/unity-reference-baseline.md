@@ -58,7 +58,13 @@ npm run verify:unity-reference -- --project "D:\WebProjects\BA鼠标输入与点
 
 ## 跨后端数量断言
 
-资源审计通过后，再构建并运行浏览器后端矩阵：
+资源审计通过后，先运行可独立执行的五后端数量门禁：
+
+```powershell
+npm run test:browser:unity-counts
+```
+
+该命令与完整浏览器矩阵复用同一数量断言函数，因此不会因 IIFE、像素基线或其他透明合成用例先失败而跳过数量验证。完整构建后像素回归仍应另行执行：
 
 ```powershell
 npm run build
