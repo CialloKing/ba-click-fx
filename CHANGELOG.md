@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## v1.2.21 — HDR UI 与 WebGPU 输出生命周期修复
+
+- 展示页新增独立 WebGPU HDR UI 高光和 `1..16` 亮度控制；仅在实际协商为 `rgba16float + toneMapping: extended` 时启用，与主特效共享 `GPUDevice`，且不进入公共 API。
+- HDR UI 改用局部实例化四边形和受限 DPR，只光栅化控件边缘及光晕区域；后端切换或输出暂停时解除独立 Surface 配置，避免隐藏 Canvas 保留 Extended 输出。
+- 修复 WebGPU、WebGL2 往返切换时旧 HDR Surface 和公开输出状态残留，并补充 Device 复用、暂停恢复及后端回退浏览器门禁。
+- 将全屏 HDR UI `plus-lighter` Surface 固定在点击特效层下方，避免同时提高 UI HDR 与特效 HDR 亮度时钳制或叠加点击高光；固定 120 ms 点击帧回归验证 UI 设置不修改 Unity 参数、粒子状态或远端特效像素。
+
 ## v1.2.20 — WebGPU 真实 HDR 与高亮色相控制
 
 - 新增完整 WebGPU 特效后端：使用 `rgba16float` Scene、多级 MXFinalBloom 和 `toneMapping: extended` 输出真实超白 HDR 高光；Extended Canvas 不可用时保留 WebGPU Standard SDR，设备不可用或丢失时回退完整 WebGL2。
