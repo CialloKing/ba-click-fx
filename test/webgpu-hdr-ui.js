@@ -136,7 +136,7 @@ assert.ok(
 assert.ok(
   fixture.canvas.width === 640 &&
     fixture.canvas.height === 480 &&
-    fixture.canvas.style.display === '' &&
+    fixture.canvas.style.display === 'block' &&
     fixture.canvas.dataset.hdrUiPrimitives === '1' &&
     fixture.calls.includes('draw:3'),
   'Canvas 尺寸、可见性和全屏绘制同步更新',

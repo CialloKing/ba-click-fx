@@ -41,6 +41,18 @@ body.theme-pure-white::before {
   display: none;
 }
 
+.hdr-ui-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: none;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  mix-blend-mode: plus-lighter;
+  contain: strict;
+}
+
 /* ── Floating Hero ──────────────────────────────────────────────────────── */
 
 .hero-float {
@@ -518,6 +530,11 @@ kbd {
 #ctrlHdrPresentationPreset
 {
   width: 164px;
+}
+
+#ctrlHdrUiBrightness
+{
+  accent-color: rgb(123, 225, 177);
 }
 
 .transparent-compositing-controls

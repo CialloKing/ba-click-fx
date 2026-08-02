@@ -374,7 +374,8 @@ export class WebGPUHdrUiRenderer
       pass.draw(3);
       pass.end();
       this.device.queue.submit([encoder.finish()]);
-      this.canvas.style.display = '';
+      // 样式表默认隐藏未协商的 HDR Surface，成功提交后必须显式覆盖它。
+      this.canvas.style.display = 'block';
       this.canvas.dataset.hdrUiPrimitives = String(uniforms[3]);
       return true;
     }

@@ -11,6 +11,7 @@ import {
 } from './theme-background.js';
 import { resolveHdrPresentationState } from './hdr-presentation-status.js';
 import { snapRangeValue } from './range-snap.js';
+import { WebGPUHdrUiRenderer } from './webgpu-hdr-ui.js';
 
 function acceptDemoPointer(event)
 {
@@ -28,6 +29,15 @@ const effect = new BAClickFX(
 );
 
 window.BAClickFXDemo = effect;
+
+const DEFAULT_HDR_UI_BRIGHTNESS = 4;
+let hdrUiEnabled = true;
+let hdrUiBrightness = DEFAULT_HDR_UI_BRIGHTNESS;
+let hdrUiRenderer = null;
+let hdrUiRenderFrame = 0;
+let hdrUiHoverTarget = null;
+let hdrUiFocusTarget = null;
+let hdrUiResizeObserver = null;
 
 // ── 主题预设 ────────────────────────────────────────────────────────────
 const PURE_WHITE_THEME = '纯白';
@@ -880,6 +890,347 @@ const HDR_PRESENTATION_CONTROLS = Object.freeze(
   ],
 );
 
+function srgbChannelToLinear(value)
+{
+  const channel = Math.max(0, Math.min(1, value));
+
+  return channel <= 0.04045
+    ? channel / 12.92
+    : Math.pow((channel + 0.055) / 1.055, 2.4);
+}
+
+function hexToLinearRgb(value)
+{
+  const match = /^#([0-9a-f]{6})$/i.exec(value ?? '');
+
+  if (!match)
+  {
+    return [0.205, 0.863, 1];
+  }
+
+  return [0, 2, 4].map((offset) =>
+    srgbChannelToLinear(parseInt(match[1].slice(offset, offset + 2), 16) / 255));
+}
+
+function mixLinearRgb(left, right, amount)
+{
+  return left.map((value, index) =>
+    value + (right[index] - value) * amount);
+}
+
+function ensureHdrUiRenderer()
+{
+  if (hdrUiRenderer)
+  {
+    return hdrUiRenderer;
+  }
+
+  let canvas = document.getElementById('hdrUiCanvas');
+
+  if (!canvas)
+  {
+    canvas = document.createElement('canvas');
+    canvas.id = 'hdrUiCanvas';
+    canvas.className = 'hdr-ui-canvas';
+    canvas.setAttribute('aria-hidden', 'true');
+    document.body.insertBefore(canvas, effect.overlayRoot ?? null);
+  }
+
+  hdrUiRenderer = new WebGPUHdrUiRenderer(canvas);
+  return hdrUiRenderer;
+}
+
+function isVisibleHdrUiElement(element)
+{
+  if (!element?.isConnected)
+  {
+    return false;
+  }
+
+  const style = window.getComputedStyle(element);
+  const rect = element.getBoundingClientRect();
+
+  return style.display !== 'none' &&
+    style.visibility !== 'hidden' &&
+    Number(style.opacity) > 0 &&
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.right >= 0 &&
+    rect.bottom >= 0 &&
+    rect.left <= window.innerWidth &&
+    rect.top <= window.innerHeight;
+}
+
+function createElementHdrUiPrimitive(element, options = {})
+{
+  if (!isVisibleHdrUiElement(element))
+  {
+    return null;
+  }
+
+  const rect = element.getBoundingClientRect();
+  const paddingX = options.paddingX ?? options.padding ?? 0;
+  const paddingY = options.paddingY ?? options.padding ?? 0;
+
+  return {
+    rect:
+    {
+      x: rect.left - paddingX,
+      y: rect.top - paddingY,
+      width: rect.width + paddingX * 2,
+      height: rect.height + paddingY * 2,
+    },
+    color: options.color,
+    radius: options.radius ?? 6,
+    borderWidth: options.borderWidth ?? 1,
+    glowWidth: options.glowWidth ?? 10,
+    intensity: options.intensity ?? 1,
+  };
+}
+
+function collectHdrUiPrimitives()
+{
+  const theme = hexToLinearRgb(
+    document.getElementById('ctrlColor')?.value ?? '#4ca7ff',
+  );
+  const cyan = [
+    srgbChannelToLinear(125 / 255),
+    srgbChannelToLinear(239 / 255),
+    1,
+  ];
+  const green = [
+    srgbChannelToLinear(123 / 255),
+    srgbChannelToLinear(225 / 255),
+    srgbChannelToLinear(177 / 255),
+  ];
+  const primary = mixLinearRgb(theme, cyan, 0.68);
+  const primitives = [];
+  const heroTitle = document.querySelector('.hero-float h1');
+
+  if (isVisibleHdrUiElement(heroTitle))
+  {
+    const rect = heroTitle.getBoundingClientRect();
+
+    primitives.push(
+      {
+        rect: { x: rect.left, y: rect.bottom - 1, width: rect.width, height: 2 },
+        color: primary,
+        radius: 1,
+        borderWidth: 0.75,
+        glowWidth: 12,
+        intensity: 0.8,
+      },
+    );
+  }
+
+  const targets =
+  [
+    [
+      document.getElementById('panelToggle'),
+      { padding: 4, radius: 25, borderWidth: 1.25, glowWidth: 14, intensity: 1.25 },
+    ],
+    [
+      document.getElementById('renderBackendStatus'),
+      { padding: 4, color: green, radius: 6, borderWidth: 0.75, glowWidth: 9, intensity: 0.95 },
+    ],
+    [
+      document.getElementById('introSection'),
+      { padding: 2, radius: 12, borderWidth: 0.5, glowWidth: 10, intensity: 0.45 },
+    ],
+  ];
+
+  for (const [element, options] of targets)
+  {
+    const primitive = createElementHdrUiPrimitive(
+      element,
+      { color: primary, ...options },
+    );
+
+    if (primitive)
+    {
+      primitives.push(primitive);
+    }
+  }
+
+  const hintBar = document.getElementById('hintBar');
+
+  if (isVisibleHdrUiElement(hintBar))
+  {
+    const rect = hintBar.getBoundingClientRect();
+
+    primitives.push(
+      {
+        rect: { x: rect.left, y: rect.top - 1, width: rect.width, height: 2 },
+        color: primary,
+        radius: 1,
+        borderWidth: 0.75,
+        glowWidth: 9,
+        intensity: 0.65,
+      },
+    );
+  }
+
+  const panel = document.getElementById('panel');
+
+  if (panel?.classList.contains('open') && isVisibleHdrUiElement(panel))
+  {
+    const rect = panel.getBoundingClientRect();
+
+    primitives.push(
+      {
+        rect: { x: rect.left - 1, y: rect.top, width: 2, height: rect.height },
+        color: primary,
+        radius: 1,
+        borderWidth: 0.75,
+        glowWidth: 12,
+        intensity: 0.7,
+      },
+    );
+  }
+
+  const interactiveTarget = hdrUiFocusTarget ?? hdrUiHoverTarget;
+  const interactivePrimitive = createElementHdrUiPrimitive(
+    interactiveTarget,
+    {
+      padding: 3,
+      color: primary,
+      radius: 6,
+      borderWidth: 0.75,
+      glowWidth: 10,
+      intensity: 1,
+    },
+  );
+
+  if (interactivePrimitive)
+  {
+    primitives.push(interactivePrimitive);
+  }
+
+  return primitives;
+}
+
+function renderHdrUiOverlay()
+{
+  hdrUiRenderFrame = 0;
+
+  if (!hdrUiRenderer?.configured)
+  {
+    return false;
+  }
+
+  const rendered = hdrUiRenderer.render(
+    {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      dpr: Math.min(4, Math.max(1, window.devicePixelRatio || 1)),
+      brightness: hdrUiBrightness,
+      primitives: collectHdrUiPrimitives(),
+    },
+  );
+
+  document.body.dataset.hdrUiState = rendered ? 'extended' : 'error';
+  return rendered;
+}
+
+function requestHdrUiRender()
+{
+  if (!hdrUiRenderer?.configured || hdrUiRenderFrame !== 0)
+  {
+    return;
+  }
+
+  hdrUiRenderFrame = window.requestAnimationFrame(renderHdrUiOverlay);
+}
+
+function syncHdrUiControls(extendedActive)
+{
+  const enabledControl = document.getElementById('ctrlHdrUiEnabled');
+  const brightnessControl = document.getElementById('ctrlHdrUiBrightness');
+  const brightnessOutput = document.getElementById('outHdrUiBrightness');
+
+  if (enabledControl)
+  {
+    enabledControl.disabled = !extendedActive;
+    enabledControl.checked = hdrUiEnabled;
+  }
+
+  if (brightnessControl)
+  {
+    brightnessControl.disabled = !extendedActive || !hdrUiEnabled;
+    brightnessControl.value = String(hdrUiBrightness);
+  }
+
+  if (brightnessOutput)
+  {
+    brightnessOutput.textContent = hdrUiBrightness.toFixed(2);
+  }
+}
+
+function syncHdrUiOverlay(snapshot = effect.getConfig())
+{
+  const extendedActive = snapshot.resolvedEffectBackend === 'webgpu' &&
+    snapshot.resolvedWebGPUOutputMode === 'extended';
+
+  syncHdrUiControls(extendedActive);
+
+  if (!extendedActive || !hdrUiEnabled)
+  {
+    if (hdrUiRenderFrame !== 0)
+    {
+      window.cancelAnimationFrame(hdrUiRenderFrame);
+      hdrUiRenderFrame = 0;
+    }
+
+    if (hdrUiRenderer && !hdrUiRenderer.suspend())
+    {
+      // 无法解除 Surface 时移除 Canvas，确保它不再进入页面合成。
+      hdrUiRenderer.canvas?.remove();
+      hdrUiRenderer.destroy();
+      hdrUiRenderer = null;
+    }
+
+    document.body.dataset.hdrUiState = extendedActive ? 'disabled' : 'inactive';
+    return false;
+  }
+
+  const device = effect.webgpuEffectRenderer?.device;
+  const renderer = ensureHdrUiRenderer();
+
+  if (!device || !renderer.available || !renderer.configure(device))
+  {
+    document.body.dataset.hdrUiState = 'unavailable';
+    return false;
+  }
+
+  document.body.dataset.hdrUiState = 'extended';
+  requestHdrUiRender();
+  return true;
+}
+
+function applyHdrUiSettings(settings = {}, persist = true)
+{
+  if (typeof settings.enabled === 'boolean')
+  {
+    hdrUiEnabled = settings.enabled;
+  }
+
+  if (Number.isFinite(settings.brightness))
+  {
+    hdrUiBrightness = Math.max(1, Math.min(16, settings.brightness));
+  }
+
+  if (persist)
+  {
+    localStorage.setItem('bafx-ctrlHdrUiEnabled', String(hdrUiEnabled));
+    localStorage.setItem(
+      'bafx-ctrlHdrUiBrightness',
+      String(hdrUiBrightness),
+    );
+  }
+
+  syncHdrUiOverlay(effect.getConfig());
+}
+
 function findHdrPresentationPreset(snapshot)
 {
   for (const [name, preset] of Object.entries(HDR_PRESENTATION_PRESETS))
@@ -941,6 +1292,7 @@ function syncHdrPresentationControls(snapshot = effect.getConfig())
       output.textContent = snapshot[configKey].toFixed(2);
     }
   }
+
 }
 
 function applyHdrPresentation(overrides, persist = true)
@@ -1097,6 +1449,7 @@ function updateRenderBackendStatus()
     d.renderHdrStatusNote;
   status.dataset.hdrState = presentationState;
   syncHdrPresentationControls(snapshot);
+  syncHdrUiOverlay(snapshot);
 }
 
 function applyRenderMode(mode)
@@ -1164,6 +1517,69 @@ for (const [controlId, outputId, configKey] of HDR_PRESENTATION_CONTROLS)
     applyHdrPresentation({ [configKey]: value });
   });
 }
+
+const ctrlHdrUiEnabled = document.getElementById('ctrlHdrUiEnabled');
+const ctrlHdrUiBrightness = document.getElementById('ctrlHdrUiBrightness');
+
+ctrlHdrUiEnabled?.addEventListener('change', () =>
+{
+  applyHdrUiSettings({ enabled: ctrlHdrUiEnabled.checked });
+});
+ctrlHdrUiBrightness?.addEventListener('input', () =>
+{
+  applyHdrUiSettings({ brightness: Number(ctrlHdrUiBrightness.value) });
+});
+
+function findInteractiveHdrUiTarget(target)
+{
+  const interactive = target?.closest?.('button, a, select, input');
+
+  return interactive?.disabled ? null : interactive;
+}
+
+document.addEventListener('pointerover', (event) =>
+{
+  const target = findInteractiveHdrUiTarget(event.target);
+
+  if (target !== hdrUiHoverTarget)
+  {
+    hdrUiHoverTarget = target;
+    requestHdrUiRender();
+  }
+});
+document.addEventListener('pointerout', (event) =>
+{
+  if (
+    hdrUiHoverTarget &&
+    !hdrUiHoverTarget.contains(event.relatedTarget)
+  )
+  {
+    hdrUiHoverTarget = null;
+    requestHdrUiRender();
+  }
+});
+document.addEventListener('focusin', (event) =>
+{
+  hdrUiFocusTarget = findInteractiveHdrUiTarget(event.target);
+  requestHdrUiRender();
+});
+document.addEventListener('focusout', (event) =>
+{
+  if (!hdrUiFocusTarget?.contains(event.relatedTarget))
+  {
+    hdrUiFocusTarget = null;
+    requestHdrUiRender();
+  }
+});
+window.addEventListener('resize', requestHdrUiRender);
+window.addEventListener('scroll', requestHdrUiRender, true);
+document.addEventListener('visibilitychange', () =>
+{
+  if (!document.hidden)
+  {
+    requestHdrUiRender();
+  }
+});
 
 // ── 输出合成 → outputCompositing ───────────────────────────────────────
 const ctrlOutputCompositing = document.getElementById('ctrlOutputCompositing');
@@ -1474,6 +1890,7 @@ if (ctrlColor)
   {
     effect.setThemeColor(ctrlColor.value);
     localStorage.setItem('bafx-ctrlColor', ctrlColor.value);
+    requestHdrUiRender();
   });
   // HTML 默认值不会触发 input；显式应用可让持久化恢复共用同一入口。
   effect.setThemeColor(ctrlColor.value);
@@ -1490,6 +1907,11 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('outDpr').textContent = '2.00';
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
   document.getElementById('ctrlHdrPresentationPreset').value = 'balanced';
+  document.getElementById('ctrlHdrUiEnabled').checked = true;
+  document.getElementById('ctrlHdrUiBrightness').value =
+    String(DEFAULT_HDR_UI_BRIGHTNESS);
+  document.getElementById('outHdrUiBrightness').textContent =
+    DEFAULT_HDR_UI_BRIGHTNESS.toFixed(2);
   document.getElementById('ctrlOutputCompositing').value =
     DEFAULT_OUTPUT_COMPOSITING;
   document.getElementById('ctrlOverlayAlphaPolicy').value =
@@ -1608,6 +2030,10 @@ document.getElementById('btnReset').addEventListener('click', () =>
       maxDpr: 2,
     },
   );
+  applyHdrUiSettings(
+    { enabled: true, brightness: DEFAULT_HDR_UI_BRIGHTNESS },
+    false,
+  );
   manualPointerId = null;
   updateHostApiStatus();
   requestAnimationFrame(updateRenderBackendStatus);
@@ -1672,6 +2098,7 @@ function openPanel()
   panel.classList.add('open');
   panelOverlay.classList.add('open');
   panelToggle.style.right = '356px';
+  requestHdrUiRender();
 }
 
 function closePanel()
@@ -1684,11 +2111,13 @@ function closePanel()
   panel.classList.remove('open');
   panelOverlay.classList.remove('open');
   panelToggle.style.right = '';
+  requestHdrUiRender();
 }
 
 panelToggle.addEventListener('click', openPanel);
 panelClose.addEventListener('click', closePanel);
 panelOverlay.addEventListener('click', closePanel);
+panel.addEventListener('transitionend', requestHdrUiRender);
 
 panelPin.addEventListener('click', () =>
 {
@@ -1830,6 +2259,8 @@ const I18N = {
     labelWebGPUHdrWhiteCore: '白核强度',
     labelWebGPUHdrWhiteStart: '白核起点',
     labelWebGPUHdrWhiteEnd: '白核终点',
+    labelHdrUiEnabled: 'HDR UI 高光',
+    labelHdrUiBrightness: 'UI HDR 亮度',
     labelClickEnabled: '启用点击特效',
     labelRingHdr: '圆环 HDR 强度',
     labelRingRadMin: '圆环起始半径',
@@ -1975,6 +2406,8 @@ const I18N = {
     labelWebGPUHdrWhiteCore: 'White-core Strength',
     labelWebGPUHdrWhiteStart: 'White-core Start',
     labelWebGPUHdrWhiteEnd: 'White-core End',
+    labelHdrUiEnabled: 'HDR UI Highlights',
+    labelHdrUiBrightness: 'UI HDR Brightness',
     labelClickEnabled: 'Enable Click',
     labelRingHdr: 'Ring HDR Intensity',
     labelRingRadMin: 'Ring Radius Min',
@@ -2105,6 +2538,8 @@ function switchLanguage(lang)
     ctrlWebGPUHdrWhiteCore: d.labelWebGPUHdrWhiteCore,
     ctrlWebGPUHdrWhiteStart: d.labelWebGPUHdrWhiteStart,
     ctrlWebGPUHdrWhiteEnd: d.labelWebGPUHdrWhiteEnd,
+    ctrlHdrUiEnabled: d.labelHdrUiEnabled,
+    ctrlHdrUiBrightness: d.labelHdrUiBrightness,
     ctrlOutputCompositing: d.labelOutputCompositing,
     ctrlOverlayAlphaPolicy: d.labelOverlayAlphaPolicy,
     ctrlOverlayColorCompensation: d.labelOverlayColorCompensation,
@@ -2333,6 +2768,7 @@ function switchLanguage(lang)
   updateRenderBackendStatus();
   updateCompositingReferenceStatus();
   updateHostApiStatus();
+  requestHdrUiRender();
 }
 
 document.getElementById('langToggle').addEventListener('click', () =>
@@ -2442,6 +2878,21 @@ switchLanguage(currentLang);
       HDR_PRESENTATION_PRESETS.balanced;
 
   applyHdrPresentation(restoredHdrPresentation, false);
+
+  const savedHdrUiBrightness = Number(
+    localStorage.getItem('bafx-ctrlHdrUiBrightness'),
+  );
+
+  applyHdrUiSettings(
+    {
+      enabled: localStorage.getItem('bafx-ctrlHdrUiEnabled') !== 'false',
+      brightness: Number.isFinite(savedHdrUiBrightness) &&
+        savedHdrUiBrightness > 0
+        ? savedHdrUiBrightness
+        : DEFAULT_HDR_UI_BRIGHTNESS,
+    },
+    false,
+  );
 
   const savedOutputCompositing = localStorage.getItem(
     'bafx-ctrlOutputCompositing',
@@ -2642,7 +3093,31 @@ switchLanguage(currentLang);
   {
     applyTheme('蔚蓝');
   }
+
+  hdrUiResizeObserver = typeof ResizeObserver === 'function'
+    ? new ResizeObserver(requestHdrUiRender)
+    : null;
+
+  for (const element of [
+    document.querySelector('.hero-float'),
+    document.getElementById('panel'),
+    document.getElementById('renderBackendStatus'),
+    document.getElementById('introSection'),
+    document.getElementById('hintBar'),
+  ])
+  {
+    if (element)
+    {
+      hdrUiResizeObserver?.observe(element);
+    }
+  }
 })();
+
+window.addEventListener('beforeunload', () =>
+{
+  hdrUiResizeObserver?.disconnect();
+  hdrUiRenderer?.destroy();
+});
 
 // 页面销毁时清理
 window.addEventListener('beforeunload', () =>
