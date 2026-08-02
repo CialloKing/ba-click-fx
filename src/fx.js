@@ -7729,6 +7729,28 @@ export class BAClickFX
 
   _setWebGPUEffectVisible(visible)
   {
+    if (
+      !visible &&
+      this.webgpuEffectRenderer &&
+      !this.webgpuEffectRenderer.suspendPresentation()
+    )
+    {
+      const changed = this.webgpuEffectVisible;
+
+      // 无法解除 Extended Surface 时必须释放 Device，避免隐藏 Canvas
+      // 继续影响浏览器对后续 SDR Canvas 的页面合成判断。
+      console.warn('[BAClickFX] WebGPU Canvas 暂停失败，已释放该 Renderer');
+      this._destroyWebGPUEffectRenderer();
+      this.webgpuEffectUnavailable = false;
+
+      if (changed)
+      {
+        this._requestCompositingMountRefresh();
+      }
+
+      return;
+    }
+
     if (!this.webgpuEffectCanvas)
     {
       const changed = this.webgpuEffectVisible;
@@ -7750,11 +7772,6 @@ export class BAClickFX
 
     this.webgpuEffectVisible = visible;
     this.webgpuEffectCanvas.style.display = visible ? '' : 'none';
-
-    if (!visible)
-    {
-      this.webgpuEffectRenderer?.clear();
-    }
 
     this._requestCompositingMountRefresh();
   }
@@ -11194,6 +11211,18 @@ export class BAClickFX
 
   _getResolvedWebGPUOutputMode()
   {
+    const requested = normalizeEffectBackend(this.config.effectBackend);
+
+    if (
+      this.config.renderingMode === 'legacy' ||
+      (requested !== 'webgpu' && requested !== 'auto') ||
+      !this.ownsCanvas ||
+      !this.overlayParent
+    )
+    {
+      return 'unavailable';
+    }
+
     const renderer = this.webgpuEffectRenderer;
 
     if (renderer?.deviceManager.outputMode === 'extended')
@@ -11211,13 +11240,8 @@ export class BAClickFX
       return 'pending';
     }
 
-    const requested = normalizeEffectBackend(this.config.effectBackend);
-
     if (
       !this.webgpuEffectUnavailable &&
-      this.config.renderingMode !== 'legacy' &&
-      this.ownsCanvas &&
-      this.overlayParent &&
       (requested === 'webgpu' || requested === 'auto')
     )
     {

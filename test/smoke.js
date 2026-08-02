@@ -4375,6 +4375,80 @@ assert(
 secondIsolatedEffect.destroy();
 assert(dom.body.children.length === 0, '全部实例销毁后不残留隔离合成节点');
 
+console.log('\nWebGPU 展示暂停合同');
+const dormantWebGPUEffect = new BAClickFX(
+  {
+    effectBackend: 'webgpu',
+    bloomBackend: 'webgl2',
+  },
+);
+const dormantWebGPUCanvas = document.createElement('canvas');
+let dormantWebGPUSuspendCount = 0;
+let dormantWebGPUReleaseCount = 0;
+let dormantWebGPUDestroyCount = 0;
+const dormantWebGPURenderer =
+{
+  available: true,
+  status: 'ready',
+  deviceManager: { outputMode: 'extended' },
+  suspendPresentation()
+  {
+    dormantWebGPUSuspendCount++;
+    this.deviceManager.outputMode = 'unconfigured';
+    return true;
+  },
+  releaseFrameResources()
+  {
+    dormantWebGPUReleaseCount++;
+  },
+  clear()
+  {
+  },
+  destroy()
+  {
+    dormantWebGPUDestroyCount++;
+  },
+};
+
+dormantWebGPUEffect.overlayParent.appendChild(dormantWebGPUCanvas);
+dormantWebGPUEffect.webgpuEffectCanvas = dormantWebGPUCanvas;
+dormantWebGPUEffect.webgpuEffectRenderer = dormantWebGPURenderer;
+dormantWebGPUCanvas.style.display = 'none';
+dormantWebGPUEffect._setWebGPUEffectVisible(false);
+assert(
+  dormantWebGPUSuspendCount === 1 &&
+    dormantWebGPURenderer.deviceManager.outputMode === 'unconfigured',
+  '从未显示的 WebGPU Canvas 也会解除 Extended 输出配置',
+);
+
+dormantWebGPURenderer.deviceManager.outputMode = 'extended';
+dormantWebGPUEffect.webgpuEffectVisible = true;
+dormantWebGPUCanvas.style.display = '';
+dormantWebGPUEffect.updateConfig({ effectBackend: 'webgl2' });
+assert(
+  dormantWebGPUSuspendCount === 2 &&
+    dormantWebGPUReleaseCount === 1 &&
+    dormantWebGPUCanvas.style.display === 'none' &&
+    dormantWebGPURenderer.deviceManager.outputMode === 'unconfigured' &&
+    dormantWebGPUEffect.getConfig().resolvedWebGPUOutputMode === 'unavailable',
+  '切换到 WebGL2 时暂停 HDR Surface 并停止公开缓存 Extended 状态',
+);
+dormantWebGPURenderer.deviceManager.outputMode = 'extended';
+dormantWebGPURenderer.suspendPresentation = () => false;
+dormantWebGPUEffect._setWebGPUEffectVisible(false);
+assert(
+  dormantWebGPUEffect.webgpuEffectRenderer === null &&
+    dormantWebGPUEffect.webgpuEffectCanvas === null &&
+    dormantWebGPUCanvas.removed &&
+    dormantWebGPUDestroyCount === 1,
+  '无法暂停 HDR Surface 时释放 Renderer，避免隐藏 Extended Canvas 残留',
+);
+dormantWebGPUEffect.destroy();
+assert(
+  dormantWebGPUDestroyCount === 1,
+  '提前释放的 WebGPU Renderer 不会在实例销毁时重复释放',
+);
+
 console.log('\n完整特效后端 API');
 const fullWebGLEffect = new BAClickFX(
   {

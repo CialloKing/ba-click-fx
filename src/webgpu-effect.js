@@ -1528,11 +1528,22 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     }
   }
 
+  suspendPresentation()
+  {
+    this.sceneFrameReady = false;
+    this.bloomSourceFrameReady = false;
+    this.sceneOverlayFrameReady = false;
+    this.sceneBackgroundFrameReady = false;
+    return this.deviceManager.unconfigure();
+  }
+
   releaseFrameResources()
   {
-    this.clear();
+    const suspended = this.suspendPresentation();
+
     this._deleteTargets();
     this.beginFrame();
+    return suspended;
   }
 
   destroy()
