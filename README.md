@@ -191,6 +191,8 @@ new BAClickFX(options?: {
 
 WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 已协商扩展动态范围，并会把线性 HDR 结果编码为扩展 sRGB、保留超过 SDR 白色的高光；`'standard'` 表示 WebGPU Scene 与 Bloom 正常运行，但最终 Canvas 仍是 SDR；`'pending'` 表示正在申请设备或提交首帧；`'unavailable'` 表示当前没有可用的 WebGPU 输出。真正看到超白高光还需要 HDR 显示器、系统已开启 HDR、浏览器实现 WebGPU HDR Canvas，以及 `rgba16float + toneMapping: extended` 配置成功。
 
+展示页的“UI HDR”是演示站点私有功能。除特效实际解析为 WebGPU Extended 外，浏览器还必须支持 `color(srgb-linear ...)` 扩展色和 `dynamic-range-limit: no-limit`；否则控件会自动禁用。它直接给标题、状态区、面板边缘和交互控件应用 CSS HDR 描边与光晕，不创建第二个全屏 Canvas，也不经过 `mix-blend-mode`。范围 `1..16` 的“UI HDR 亮度”不属于 `BAClickFX` 公共 API，不会修改 `webgpuHdrBrightness`、Unity 特效参数或点击特效像素。
+
 `webgpuHdrPeak`、`webgpuHdrBrightness`、`webgpuHdrColorPreservation`、`webgpuHdrWhiteCore`、`webgpuHdrWhiteStart` 和 `webgpuHdrWhiteEnd` 只校准 WebGPU Extended Canvas 的最终 HDR 展示映射；WebGPU Standard、WebGL2 和 Canvas 2D 输出不受影响，也不会修改 Unity 特效参数、粒子数量、几何或 Bloom 算法。其中 `webgpuHdrBrightness` 是范围 `0..32` 的线性倍率：存在匹配的合成参考时只放大背景上方的特效增量，不会增亮参考背景本身。较高倍率允许高级用户利用更大的显示高光余量，但可能被浏览器、系统或显示器裁剪、压缩或色调映射，因而不代表固定尼特值。
 
 `webgpuHdrColorPreservation` 控制高亮增量恢复原始线性 RGB 色度方向的程度，范围 `0..1`，默认 `0` 保持现有渐进白核外观；设为 `1` 时，HDR shoulder 仍决定峰值，但高倍率不会继续放大项目自身产生的白核偏色。展示页“保留原始色相”预设会同时将该值设为 `1`、将 `webgpuHdrWhiteCore` 设为 `0`。这能消除渲染器自身的高倍率偏白，但不能阻止浏览器、系统或显示器在超出实际 HDR 色彩体积时降低饱和度。

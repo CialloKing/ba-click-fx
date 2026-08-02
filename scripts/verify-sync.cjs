@@ -418,8 +418,12 @@ verify(
     !/effect\.updateConfig|setFxParams?|webgpuHdrBrightness/.test(
       applyHdrUiSettingsSource,
     ) &&
+    /展示页的“UI HDR”是演示站点私有功能/.test(readmeZh) &&
+    /The demo's UI HDR controls are demo-only/.test(readmeEn) &&
+    /dynamic-range-limit: no-limit/.test(readmeZh) &&
+    /dynamic-range-limit: no-limit/.test(readmeEn) &&
     !/hdrUi/i.test(typeDefinitions),
-  'UI HDR 严格依赖 Extended、位于特效层下方且保持为展示页私有能力',
+  'UI HDR 严格依赖 Extended 与 CSS HDR，且保持为展示页私有能力',
 );
 const outputCompositingSelect = indexHtml.match(
   /<select id="ctrlOutputCompositing"[\s\S]*?<\/select>/,
