@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { LanguageVariant, SyntaxKind } from 'typescript/unstable/ast';
+import { createScanner } from 'typescript/unstable/ast/scanner';
 
 import { UNITY_FX_TOUCH } from '../src/config.js';
 
 const FLOAT_TOLERANCE = 1e-5;
+const CURRENT_UI_ORTHOGRAPHIC_SIZE = 1;
+// 历史值只用于明确拒绝错误基线；审计输入始终是新版工程。
+const HISTORICAL_PREVIEW_ORTHOGRAPHIC_SIZE = 1.35;
 
 function parseArguments(argv)
 {
@@ -179,6 +184,36 @@ function readParticleSystem(documents, gameObjectNames, name)
   return document.source;
 }
 
+function readNamedUnityComponent(
+  documents,
+  gameObjectNames,
+  classId,
+  componentType,
+  gameObjectName,
+)
+{
+  const matches = documents.filter((candidate) =>
+  {
+    if (candidate.classId !== classId)
+    {
+      return false;
+    }
+
+    const gameObjectId = readInlineFileId(candidate.source, 'm_GameObject');
+
+    return gameObjectNames.get(gameObjectId) === gameObjectName;
+  });
+
+  if (matches.length !== 1)
+  {
+    throw new Error(
+      `预期 ${gameObjectName} 有且仅有一个 ${componentType}，实际为 ${matches.length}`,
+    );
+  }
+
+  return matches[0].source;
+}
+
 function readTransformScale(documents, gameObjectNames, name)
 {
   const document = documents.find((candidate) =>
@@ -242,6 +277,16 @@ function assertClose(actual, expected, label)
   );
 }
 
+function assertCurrentUiProjection(actual, expected, label)
+{
+  assert.ok(
+    Math.abs(actual - expected) <= FLOAT_TOLERANCE,
+    `${label}: 当前值=${actual}，新版固定 UI Pass 基线必须为 ${expected}。` +
+      `旧“提取资产2”的 ${HISTORICAL_PREVIEW_ORTHOGRAPHIC_SIZE} ` +
+      '仅是较早预览相机值，不是新版候选基线',
+  );
+}
+
 function readCSharpConstant(source, type, name)
 {
   const match = source.match(
@@ -253,6 +298,123 @@ function readCSharpConstant(source, type, name)
   if (!match)
   {
     throw new Error(`捕获脚本缺少常量 ${name}`);
+  }
+
+  return Number(match[1]);
+}
+
+function readCSharpInvocationArguments(source, callee)
+{
+  // 复用现有词法扫描器跳过注释和字符串，只在代码令牌中匹配调用。
+  const scanner = createScanner(true, LanguageVariant.Standard, source);
+  const tokens = [];
+
+  for (let kind = scanner.scan();
+    kind !== SyntaxKind.EndOfFile;
+    kind = scanner.scan())
+  {
+    if (scanner.isUnterminated())
+    {
+      throw new Error('C# 源码包含未闭合令牌');
+    }
+
+    tokens.push({ kind, text: scanner.getTokenText() });
+  }
+
+  const calleeTokens = callee.split('.').flatMap((part, index) =>
+    index === 0 ? [part] : ['.', part]);
+  const invocationIndexes = [];
+
+  for (let index = 0; index < tokens.length; index++)
+  {
+    const matchesCallee = calleeTokens.every(
+      (expected, offset) => tokens[index + offset]?.text === expected,
+    );
+
+    if (matchesCallee &&
+        tokens[index + calleeTokens.length]?.kind === SyntaxKind.OpenParenToken)
+    {
+      invocationIndexes.push(index + calleeTokens.length);
+    }
+  }
+
+  if (invocationIndexes.length !== 1)
+  {
+    throw new Error(
+      `预期有且仅有一个 ${callee} 调用，实际为 ${invocationIndexes.length}`,
+    );
+  }
+
+  const closingByOpening = new Map([
+    [SyntaxKind.OpenParenToken, SyntaxKind.CloseParenToken],
+    [SyntaxKind.OpenBracketToken, SyntaxKind.CloseBracketToken],
+    [SyntaxKind.OpenBraceToken, SyntaxKind.CloseBraceToken],
+  ]);
+  const closingTokens = new Set(closingByOpening.values());
+  const closingStack = [SyntaxKind.CloseParenToken];
+  const argumentsList = [];
+  let argument = '';
+
+  for (let index = invocationIndexes[0] + 1; index < tokens.length; index++)
+  {
+    const token = tokens[index];
+
+    if (closingByOpening.has(token.kind))
+    {
+      closingStack.push(closingByOpening.get(token.kind));
+      argument += token.text;
+      continue;
+    }
+
+    if (closingTokens.has(token.kind))
+    {
+      if (closingStack.pop() !== token.kind)
+      {
+        throw new Error(`${callee} 参数括号不匹配`);
+      }
+
+      if (closingStack.length === 0)
+      {
+        argumentsList.push(argument);
+        break;
+      }
+
+      argument += token.text;
+      continue;
+    }
+
+    if (token.kind === SyntaxKind.CommaToken && closingStack.length === 1)
+    {
+      argumentsList.push(argument);
+      argument = '';
+      continue;
+    }
+
+    argument += token.text;
+  }
+
+  if (closingStack.length !== 0)
+  {
+    throw new Error(`${callee} 调用括号未闭合`);
+  }
+
+  if (argumentsList.some((item) => !item))
+  {
+    throw new Error(`${callee} 存在空参数`);
+  }
+
+  return argumentsList;
+}
+
+function readCSharpNumberLiteral(source, label)
+{
+  const match = source.match(
+    /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(?:[fFdDmM])?$/i,
+  );
+
+  if (!match)
+  {
+    throw new Error(`${label} 必须是可直接审计的 C# 数值字面量，实际为 ${source}`);
   }
 
   return Number(match[1]);
@@ -297,13 +459,35 @@ async function main()
     'Editor',
     'BaFxTouchPreviewCapture.cs',
   );
+  const baselineScenePath = path.join(
+    projectPath,
+    'Assets',
+    'Scenes',
+    'BundleBaseline.unity',
+  );
+  const bloomRendererPath = path.join(
+    projectPath,
+    'Assets',
+    'Scripts',
+    'BaGameBloomRendererFeature.cs',
+  );
   const bloomAuditPath = path.join(projectPath, 'Reference', '光晕还原审计.md');
-  const [prefab, mesh, trailSource, captureSource, bloomAudit] =
+  const [
+    prefab,
+    mesh,
+    trailSource,
+    captureSource,
+    baselineScene,
+    bloomRendererSource,
+    bloomAudit,
+  ] =
     await Promise.all([
       readFile(prefabPath, 'utf8'),
       readFile(meshPath, 'utf8'),
       readFile(trailPath, 'utf8'),
       readFile(capturePath, 'utf8'),
+      readFile(baselineScenePath, 'utf8'),
+      readFile(bloomRendererPath, 'utf8'),
       readFile(bloomAuditPath, 'utf8'),
     ]);
   const documents = splitUnityDocuments(prefab);
@@ -344,6 +528,71 @@ async function main()
     'float',
     'CaptureOrthographicSize',
   );
+  const sceneDocuments = splitUnityDocuments(baselineScene);
+  const sceneGameObjectNames = new Map(
+    sceneDocuments
+      .filter((document) => document.classId === 1)
+      .map((document) => [document.fileId, readString(document.source, 'm_Name')]),
+  );
+  const baselineCamera = readNamedUnityComponent(
+    sceneDocuments,
+    sceneGameObjectNames,
+    20,
+    'Camera',
+    'Main Camera',
+  );
+  const sceneOrthographicMode = readNumber(baselineCamera, 'orthographic');
+  const sceneOrthographicSize = readNumber(
+    baselineCamera,
+    'orthographic size',
+  );
+  const uiProjectionArguments = readCSharpInvocationArguments(
+    bloomRendererSource,
+    'Matrix4x4.Ortho',
+  );
+
+  if (uiProjectionArguments.length !== 6)
+  {
+    throw new Error(
+      `Matrix4x4.Ortho 应有 6 个参数，实际为 ${uiProjectionArguments.length}`,
+    );
+  }
+
+  const uiProjectionBottom = readCSharpNumberLiteral(
+    uiProjectionArguments[2],
+    '固定 UI Pass 正交投影下边界',
+  );
+  const uiProjectionTop = readCSharpNumberLiteral(
+    uiProjectionArguments[3],
+    '固定 UI Pass 正交投影上边界',
+  );
+
+  assertCurrentUiProjection(
+    captureOrthographicSize,
+    CURRENT_UI_ORTHOGRAPHIC_SIZE,
+    'BaFxTouchPreviewCapture 捕获正交高度',
+  );
+  assertCurrentUiProjection(
+    sceneOrthographicMode,
+    1,
+    'BundleBaseline Main Camera 必须启用正交投影',
+  );
+  assertCurrentUiProjection(
+    sceneOrthographicSize,
+    CURRENT_UI_ORTHOGRAPHIC_SIZE,
+    'BundleBaseline Main Camera 正交高度',
+  );
+  assertCurrentUiProjection(
+    uiProjectionBottom,
+    -CURRENT_UI_ORTHOGRAPHIC_SIZE,
+    'BaGameBloomRendererFeature 固定 UI Pass 下边界',
+  );
+  assertCurrentUiProjection(
+    uiProjectionTop,
+    CURRENT_UI_ORTHOGRAPHIC_SIZE,
+    'BaGameBloomRendererFeature 固定 UI Pass 上边界',
+  );
+
   const worldToReferencePixels = UNITY_FX_TOUCH.referenceHeight /
     (captureOrthographicSize * 2);
   const meshExtent = readVector(mesh, 'm_Extent').x;
@@ -514,15 +763,30 @@ async function main()
     );
   }
 
-  console.log('Unity 外部资源审计通过：33 项共享渲染参数与游戏工程一致');
+  console.log(
+    'Unity 外部资源审计通过：共享渲染参数与新版固定 UI Pass 基线一致',
+  );
   console.log(JSON.stringify(
     {
       project: projectPath,
       projection:
       {
+        baseline: 'UnityMouseFxLab 新版固定 UI Pass',
         orthographicSize: captureOrthographicSize,
+        sceneOrthographicSize,
+        uiPassVerticalBounds:
+        {
+          bottom: uiProjectionBottom,
+          top: uiProjectionTop,
+        },
         referenceHeight: UNITY_FX_TOUCH.referenceHeight,
         worldToReferencePixels,
+        excludedHistoricalPreview:
+        {
+          source: '提取资产2',
+          orthographicSize: HISTORICAL_PREVIEW_ORTHOGRAPHIC_SIZE,
+          reason: '较早预览相机，不参与新版机器码基线验证',
+        },
       },
       particles:
       {
