@@ -1144,9 +1144,13 @@ function requestHdrUiRender()
 
 function syncHdrUiControls(extendedActive)
 {
+  const container = document.getElementById('hdrUiControls');
   const enabledControl = document.getElementById('ctrlHdrUiEnabled');
   const brightnessControl = document.getElementById('ctrlHdrUiBrightness');
   const brightnessOutput = document.getElementById('outHdrUiBrightness');
+
+  container?.classList.toggle('is-inactive', !extendedActive);
+  container?.setAttribute('aria-disabled', String(!extendedActive));
 
   if (enabledControl)
   {

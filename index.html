@@ -151,6 +151,22 @@ fx.setPaused(true, { clear: true });</code></pre>
           <option value="legacy">Legacy</option>
         </select>
       </label>
+      <p class="sub-heading">UI HDR</p>
+      <div
+        id="hdrUiControls"
+        class="hdr-ui-controls is-inactive"
+        aria-disabled="true"
+      >
+        <label class="ctrl toggle">
+          <span>HDR UI 高光</span>
+          <input type="checkbox" id="ctrlHdrUiEnabled" checked disabled />
+          <span class="toggle-track"></span>
+        </label>
+        <label class="ctrl">
+          <span>UI HDR 亮度 <output id="outHdrUiBrightness">4.00</output>×</span>
+          <input type="range" id="ctrlHdrUiBrightness" min="1" max="16" step="0.25" value="4" disabled />
+        </label>
+      </div>
       <label class="ctrl">
         <span>输出合成</span>
         <select id="ctrlOutputCompositing" class="ctrl-select">
@@ -280,15 +296,6 @@ fx.setPaused(true, { clear: true });</code></pre>
         <label class="ctrl">
           <span>白核终点 <output id="outWebGPUHdrWhiteEnd">5.00</output></span>
           <input type="range" id="ctrlWebGPUHdrWhiteEnd" min="0.01" max="8" step="0.01" value="5" disabled />
-        </label>
-        <label class="ctrl toggle">
-          <span>HDR UI 高光</span>
-          <input type="checkbox" id="ctrlHdrUiEnabled" checked disabled />
-          <span class="toggle-track"></span>
-        </label>
-        <label class="ctrl">
-          <span>UI HDR 亮度 <output id="outHdrUiBrightness">4.00</output>×</span>
-          <input type="range" id="ctrlHdrUiBrightness" min="1" max="16" step="0.25" value="4" disabled />
         </label>
       </div>
       </details>

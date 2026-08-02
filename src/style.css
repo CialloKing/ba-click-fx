@@ -532,6 +532,19 @@ kbd {
   width: 164px;
 }
 
+.hdr-ui-controls
+{
+  margin: -2px 0 10px;
+  padding-left: 10px;
+  border-left: 2px solid rgba(123, 225, 177, 0.48);
+  transition: opacity 0.18s ease;
+}
+
+.hdr-ui-controls.is-inactive
+{
+  opacity: 0.42;
+}
+
 #ctrlHdrUiBrightness
 {
   accent-color: rgb(123, 225, 177);
