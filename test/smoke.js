@@ -1339,7 +1339,11 @@ assert(
   '严格默认不加入游戏管线之外的浅色背景对比层',
 );
 assert(CONFIG.effectBackend === 'webgl2', '默认由纯 WebGL2 接管完整特效');
-assert(CONFIG.bloomBackend === 'webgl2', '默认使用 WebGL2 Bloom 后端');
+assert(
+  CONFIG.bloomBackend === 'webgl2' &&
+    CONFIG.softwareBloomEnabled === false,
+  '默认使用 WebGL2 Bloom，且不会隐式启用 Software',
+);
 assert(CONFIG.isolatedCompositing === false, '默认直接与页面加色，保持游戏合成顺序');
 assert(CONFIG.inputSource === 'dom', '默认由 DOM 指针事件驱动输入');
 assert(
@@ -1479,7 +1483,7 @@ assert(
 );
 assert(
   explicitBackendConfig.bloomBackend === 'webgl2' &&
-    explicitBackendConfig.softwareBloomEnabled === true &&
+    explicitBackendConfig.softwareBloomEnabled === false &&
     explicitBackendConfig.effectBackend === 'canvas2d',
   'createConfig 中显式 Bloom 后端优先于旧别名并保留原路径',
 );
@@ -1702,17 +1706,17 @@ const effect = new BAClickFX(
   {
     // 该实例同时覆盖网页白底兼容层的显式启用和运行时切换。
     effectBackend: 'canvas2d',
+    bloomBackend: 'software',
     isolatedCompositing: true,
     lightBackgroundContrastAlpha: 0.35,
   },
 );
 assert(
   effect.getConfig().effectBackend === 'canvas2d' &&
-  effect.getConfig().bloomBackend === 'webgl2' &&
-    effect.getConfig().resolvedBloomBackend === 'pending',
-  'Canvas2D 实例在延迟能力探测前请求 WebGL2 Bloom 并公开 pending',
+  effect.getConfig().bloomBackend === 'software' &&
+    effect.getConfig().resolvedBloomBackend === 'software',
+  'Canvas2D 实例只在显式请求时直接启用 Software Bloom',
 );
-effect.updateConfig({ bloomBackend: 'software' });
 const originalBloomBeginFrame = effect.bloomRenderer.beginFrame.bind(
   effect.bloomRenderer,
 );
@@ -4536,13 +4540,13 @@ unifiedWebGLBloomEffect._renderWebGL2Scene = () => false;
 unifiedWebGLBloomEffect._requestRender();
 unifiedWebGLNow = flushFrames(dom, unifiedWebGLNow, 1);
 assert(
-  unifiedWebGLBloomEffect.getConfig().resolvedBloomBackend === 'software' &&
+  unifiedWebGLBloomEffect.getConfig().resolvedBloomBackend === 'native' &&
     unifiedWebGLBloomEffect.canvas.style.visibility === '' &&
-    unifiedWebGLBloomEffect.context.drawImageCalls
+    !unifiedWebGLBloomEffect.context.drawImageCalls
       .slice(fallbackImageStart)
       .some((call) =>
         call.args[0] === unifiedWebGLBloomEffect.bloomRenderer.outputCanvas),
-  'WebGL2 Bloom 当帧失败后才补画 Canvas 并完成软件 Bloom 回退',
+  'WebGL2 Bloom 当帧失败后直接回退 Native，不执行 Software 回读',
 );
 unifiedWebGLBloomEffect.destroy();
 
@@ -4609,30 +4613,21 @@ reentrantWebGLBloomEffect.canvas.addEventListener(
   (event) =>
   {
     reentrantWebGLBloomEvents.push(event.detail);
-
-    if (event.detail.resolvedBloomBackend === 'software')
-    {
-      reentrantWebGLBloomEffect.updateConfig({ bloomBackend: 'native' });
-    }
   },
 );
 
 reentrantWebGLBloomEffect.boom(960, 540);
-let reentrantWebGLBloomNow = flushFrames(dom, performance.now(), 1);
-const reentrantWebGLBloomEventCount = reentrantWebGLBloomEvents.length;
-
-reentrantWebGLBloomNow = flushFrames(dom, reentrantWebGLBloomNow, 1);
+flushFrames(dom, performance.now(), 1);
 assert(
-  reentrantWebGLBloomEffect.getConfig().bloomBackend === 'native' &&
+  reentrantWebGLBloomEffect.getConfig().bloomBackend === 'webgl2' &&
     reentrantWebGLBloomEffect.getConfig().resolvedBloomBackend === 'native' &&
     reentrantWebGLBloomEvents.slice(-2)
       .map((event) =>
         `${event.requestedBloomBackend}/${event.resolvedBloomBackend}`)
-      .join(',') === 'webgl2/software,native/native' &&
+      .join(',') === 'webgl2/webgl2,webgl2/native' &&
     reentrantWebGLBloomSoftwareCount === 0 &&
-    reentrantWebGLBloomNativeCount >= 1 &&
-    reentrantWebGLBloomEvents.length === reentrantWebGLBloomEventCount,
-  'WebGL2 Bloom 失败事件内切换 Native 会跳过同帧 Software 回读',
+    reentrantWebGLBloomNativeCount >= 1,
+  'WebGL2 Bloom 失败直接使用 Native 且不执行 Software 回读',
 );
 reentrantWebGLBloomEffect.destroy();
 
@@ -4697,33 +4692,26 @@ reentrantFullWebGLEffect.canvas.addEventListener(
   (event) =>
   {
     reentrantFullWebGLEvents.push(event.detail);
-
-    if (event.detail.resolvedBloomBackend === 'software')
-    {
-      reentrantFullWebGLEffect.updateConfig({ bloomBackend: 'native' });
-    }
   },
 );
 
 reentrantFullWebGLEffect.boom(960, 540);
-let reentrantFullWebGLNow = flushFrames(dom, performance.now(), 1);
+flushFrames(dom, performance.now(), 1);
 const reentrantFullWebGLFirstRoute = reentrantFullWebGLEvents.slice(-2)
   .map((event) =>
     `${event.requestedBloomBackend}/${event.resolvedBloomBackend}`)
   .join(',');
-
-reentrantFullWebGLNow = flushFrames(dom, reentrantFullWebGLNow, 1);
 assert(
-  reentrantFullWebGLEffect.getConfig().bloomBackend === 'native' &&
+  reentrantFullWebGLEffect.getConfig().bloomBackend === 'webgl2' &&
     reentrantFullWebGLEffect.getConfig().resolvedBloomBackend === 'native' &&
     reentrantFullWebGLFirstRoute ===
-      'webgl2/software,native/native' &&
+      'webgl2/webgl2,webgl2/native' &&
     reentrantFullWebGLSoftwareCount === 0 &&
     reentrantFullWebGLNativeCount >= 1 &&
     reentrantFullWebGLCompositeOperations.includes('lighter') &&
     reentrantFullWebGLEvents.filter((event) =>
-      event.resolvedBloomBackend === 'software').length === 1,
-  '完整 WebGL2 失败事件内切换 Native 会按新路由重画当前帧',
+      event.resolvedBloomBackend === 'software').length === 0,
+  '完整 WebGL2 失败直接按 Native 路由重画当前帧',
 );
 reentrantFullWebGLEffect.destroy();
 
@@ -4749,7 +4737,9 @@ webglEffect.boom(960, 540);
 const webglFirstFrameTime = flushFrames(dom, performance.now(), 1);
 
 const webglFallbackConfig = webglEffect.getConfig();
-const attemptedWebGLCanvas = dom.createdCanvases.at(-1);
+const attemptedWebGLCanvas = dom.createdCanvases
+  .slice(canvasCountBeforeWebGLAttempt)
+  .find((canvas) => dom.canvasMounts.some((mount) => mount.canvas === canvas));
 const attemptedWebGLMount = dom.canvasMounts.find(
   (mount) => mount.canvas === attemptedWebGLCanvas,
 );
@@ -4758,7 +4748,7 @@ const canvasCountAfterWebGLAttempt = dom.createdCanvases.length;
 flushFrames(dom, webglFirstFrameTime, 1);
 
 assert(
-  dom.createdCanvases.length === canvasCountBeforeWebGLAttempt + 1 &&
+  dom.createdCanvases.length > canvasCountBeforeWebGLAttempt &&
     dom.appendedCanvases.includes(attemptedWebGLCanvas) &&
     attemptedWebGLCanvas.removed,
   '请求 WebGL2 时延迟创建独立画布，不可用后立即移除',
@@ -4776,27 +4766,27 @@ assert(
 );
 assert(
   webglFallbackConfig.bloomBackend === 'webgl2' &&
-    webglFallbackConfig.softwareBloomEnabled === true &&
-    webglFallbackConfig.resolvedBloomBackend === 'software',
-  'getConfig() 同时保留请求的 WebGL2 后端与实际的软件 Bloom 回退结果',
+    webglFallbackConfig.softwareBloomEnabled === false &&
+    webglFallbackConfig.resolvedBloomBackend === 'native',
+  'getConfig() 保留 WebGL2 请求并公开实际 Native 回退结果',
 );
 assert(
   webglBackendEvents.length === 1 &&
     webglBackendEvents[0].requestedBloomBackend === 'webgl2' &&
-    webglBackendEvents[0].resolvedBloomBackend === 'software',
+    webglBackendEvents[0].resolvedBloomBackend === 'native',
   'WebGL2 首帧回退时在主 Canvas 派发后端解析状态事件',
 );
 assert(
-  webglEffect.context.drawImageCalls.some((call) =>
+  !webglEffect.context.drawImageCalls.some((call) =>
     call.args[0] === webglEffect.bloomRenderer.outputCanvas),
-  'WebGL2 不可用时当前帧仍由软件 Bloom 完成绘制',
+  'WebGL2 不可用时当前帧不执行 Software Bloom 回读',
 );
 const webglEventCountAfterFallback = webglBackendEvents.length;
 
 webglEffect.updateConfig({ opacity: 0.8 });
 flushFrames(dom, webglFirstFrameTime, 1);
 assert(
-  webglEffect.getConfig().resolvedBloomBackend === 'software' &&
+  webglEffect.getConfig().resolvedBloomBackend === 'native' &&
     webglBackendEvents.length === webglEventCountAfterFallback,
   '非后端配置更新不会把已解析结果重置为 pending 或重复派发事件',
 );
@@ -4862,13 +4852,15 @@ const canvasCountBeforeDirectAttempt = dom.createdCanvases.length;
 
 directWebGLEffect.boom(960, 540);
 flushFrames(dom, performance.now(), 1);
-const directAttemptedCanvas = dom.createdCanvases.at(-1);
+const directAttemptedCanvas = dom.createdCanvases
+  .slice(canvasCountBeforeDirectAttempt)
+  .find((canvas) => dom.canvasMounts.some((mount) => mount.canvas === canvas));
 const directAttemptedMount = dom.canvasMounts.find(
   (mount) => mount.canvas === directAttemptedCanvas,
 );
 
 assert(
-  dom.createdCanvases.length === canvasCountBeforeDirectAttempt + 1 &&
+  dom.createdCanvases.length > canvasCountBeforeDirectAttempt &&
     directAttemptedMount?.parent === dom.body &&
     directAttemptedCanvas.style.position === 'fixed' &&
     directAttemptedCanvas.removed,
@@ -4889,7 +4881,7 @@ const externalWebGLEffect = new BAClickFX(
 const canvasMountCountBeforeExternalFallback = dom.canvasMounts.length;
 
 assert(
-  externalWebGLEffect.getConfig().resolvedBloomBackend === 'software',
+  externalWebGLEffect.getConfig().resolvedBloomBackend === 'native',
   '已有 Canvas target 无法承载独立 WebGL 层时同步给出已知回退后端',
 );
 assert(
@@ -4953,8 +4945,8 @@ const externalFallbackConfig = externalWebGLEffect.getConfig();
 assert(
   dom.canvasMounts.length === canvasMountCountBeforeExternalFallback &&
     externalWebGLEffect.webglBloomCanvas === null &&
-    externalFallbackConfig.resolvedBloomBackend === 'software',
-  '已有 Canvas target 无法插入独立 GPU 层时直接回退软件 Bloom',
+    externalFallbackConfig.resolvedBloomBackend === 'native',
+  '已有 Canvas target 无法插入独立 GPU 层时直接回退 Native',
 );
 externalWebGLEffect.destroy();
 assert(
@@ -5002,7 +4994,7 @@ compatibilityEffect.updateConfig(
 compatibilityConfig = compatibilityEffect.getConfig();
 assert(
   compatibilityConfig.bloomBackend === 'webgl2' &&
-    compatibilityConfig.softwareBloomEnabled === true &&
+    compatibilityConfig.softwareBloomEnabled === false &&
     compatibilityConfig.resolvedBloomBackend === 'pending',
   '新 bloomBackend 优先于旧别名，并在延迟探测前同步进入 pending',
 );
@@ -5015,12 +5007,12 @@ flushFrames(dom, performance.now(), 1);
 compatibilityConfig = compatibilityEffect.getConfig();
 assert(
   compatibilityConfig.bloomBackend === 'auto' &&
-    compatibilityConfig.resolvedBloomBackend === 'software',
-  'auto 会优先尝试 WebGL2，并在当前环境自动回退软件 Bloom',
+    compatibilityConfig.resolvedBloomBackend === 'native',
+  'auto 会优先尝试 WebGL2，并在当前环境回退 Native',
 );
 assert(
-  compatibilityBackendEvents.join(',') === 'software,pending,software',
-  '运行时后端 API 按 Software、pending、回退结果依次派发状态变化',
+  compatibilityBackendEvents.join(',') === 'software,pending,native',
+  '运行时后端 API 按显式 Software、pending、Native 回退依次派发状态',
 );
 compatibilityEffect.destroy();
 
@@ -5055,8 +5047,8 @@ contextLifecycleEffect._handleWebGLContextRestored();
 flushFrames(dom, performance.now(), 1);
 assert(
   contextLifecycleEvents.slice(0, 4).join(',') ===
-    'webgl2,software,pending,webgl2',
-  'WebGL Context 丢失与恢复按 WebGL2、Software、pending、WebGL2 更新状态',
+    'webgl2,native,pending,webgl2',
+  'WebGL Context 丢失与恢复按 WebGL2、Native、pending、WebGL2 更新状态',
 );
 
 contextLifecycleEffect.updateConfig({ bloomBackend: 'native' });
@@ -5133,30 +5125,21 @@ reentrantContextLossEffect.canvas.addEventListener(
   (event) =>
   {
     reentrantContextLossEvents.push(event.detail);
-
-    if (event.detail.resolvedBloomBackend === 'software')
-    {
-      reentrantContextLossEffect.updateConfig({ bloomBackend: 'native' });
-    }
   },
 );
 
 reentrantContextLossEffect.boom(120, 80);
 reentrantContextLossEffect._handleWebGLContextLost();
-const reentrantContextLossEventCount = reentrantContextLossEvents.length;
-
-flushFrames(dom, performance.now(), 1);
 assert(
-  reentrantContextLossEffect.getConfig().bloomBackend === 'native' &&
+  reentrantContextLossEffect.getConfig().bloomBackend === 'webgl2' &&
     reentrantContextLossEffect.getConfig().resolvedBloomBackend === 'native' &&
     reentrantContextLossEvents
       .map((event) =>
         `${event.requestedBloomBackend}/${event.resolvedBloomBackend}`)
-      .join(',') === 'webgl2/software,native/native' &&
+      .join(',') === 'webgl2/native' &&
     reentrantContextLossSoftwareCount === 0 &&
-    reentrantContextLossNativeCount >= 1 &&
-    reentrantContextLossEvents.length === reentrantContextLossEventCount,
-  'Context 丢失事件内切换 Native 会跳过同步 Software 回读',
+    reentrantContextLossNativeCount >= 1,
+  'Context 丢失直接同步重画 Native 且不执行 Software 回读',
 );
 reentrantContextLossEffect.destroy();
 
@@ -5225,17 +5208,17 @@ resizeRecoveryEffect.canvas.addEventListener(
 let resizeRecoveryNow = flushFrames(dom, performance.now(), 1);
 
 assert(
-  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'software' &&
-    resizeRecoveryEvents.join(',') === 'software' &&
+  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'native' &&
+    resizeRecoveryEvents.join(',') === 'native' &&
     resizeRecoveryEffect.webglBloomRenderer === resizeRecoveryRenderer &&
     resizeRecoveryEffect.webglBloomCanvas === resizeRecoveryCanvas &&
     !resizeRecoveryEffect.webglBloomUnavailable,
-  'WebGL2 当前尺寸失败时稳定回退 Software，并保留可恢复的 renderer',
+  'WebGL2 当前尺寸失败时稳定回退 Native，并保留可恢复的 renderer',
 );
 resizeRecoveryEffect._requestRender();
 resizeRecoveryNow = flushFrames(dom, resizeRecoveryNow, 1);
 assert(
-  resizeRecoveryEvents.join(',') === 'software' &&
+  resizeRecoveryEvents.join(',') === 'native' &&
     resizeCallCount === 2,
   'WebGL2 尺寸持续失败时不重复派发后端状态事件',
 );
@@ -5246,8 +5229,8 @@ resizeRecoveryEffect.updateConfig(
   },
 );
 assert(
-  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'software' &&
-    resizeRecoveryEvents.join(',') === 'software',
+  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'native' &&
+    resizeRecoveryEvents.join(',') === 'native',
   '配置切换不会仅凭可用 Context 把空目标误报为 WebGL2',
 );
 resizeRecoveryNow = flushFrames(dom, resizeRecoveryNow, 1);
@@ -5259,8 +5242,8 @@ resizeRecoveryEffect.updateConfig(
   },
 );
 assert(
-  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'software' &&
-    resizeRecoveryEvents.join(',') === 'software',
+  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'native' &&
+    resizeRecoveryEvents.join(',') === 'native',
   '缺少 Bloom 金字塔时仍公开实际回退后端',
 );
 resizeRecoveryNow = flushFrames(dom, resizeRecoveryNow, 1);
@@ -5275,9 +5258,9 @@ resizeRecoveryEffect.updateConfig(
   },
 );
 assert(
-  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'software' &&
-    resizeRecoveryEvents.join(',') === 'software,legacy,software',
-  'Legacy 往返后仍按目标完整性公开 Software 回退',
+  resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'native' &&
+    resizeRecoveryEvents.join(',') === 'native,legacy,native',
+  'Legacy 往返后仍按目标完整性公开 Native 回退',
 );
 resizeRecoveryNow = flushFrames(dom, resizeRecoveryNow, 1);
 
@@ -5288,7 +5271,7 @@ resizeRecoveryEffect._requestRender();
 flushFrames(dom, resizeRecoveryNow, 1);
 assert(
   resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'webgl2' &&
-    resizeRecoveryEvents.join(',') === 'software,legacy,software,webgl2' &&
+    resizeRecoveryEvents.join(',') === 'native,legacy,native,webgl2' &&
     resizeRecoveryRenderer.sourceTarget &&
     resizeRecoveryRenderer.levels.length === 1,
   'WebGL2 尺寸恢复后只派发一次 WebGL2 恢复状态',

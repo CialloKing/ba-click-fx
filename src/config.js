@@ -1002,9 +1002,9 @@ export const CONFIG = Object.freeze(
     // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
     // 替换为兼容性更高的 Canvas shadowBlur，并保留旧版拖尾合成风格。
     renderingMode: 'enhanced',
-    // 默认使用 GPU Bloom；能力不足时依次回退软件 Bloom 与原生辉光。
+    // 默认使用 GPU Bloom；能力不足时回退原生辉光，Software 只允许显式选择。
     bloomBackend: DEFAULT_BLOOM_BACKEND,
-    softwareBloomEnabled: true,
+    softwareBloomEnabled: false,
     // 游戏把 UI 粒子直接加到同一 HDR 目标；透明隔离组仅作为网页兼容选项。
     isolatedCompositing: false,
     // 淡青 darken 轮廓不是游戏管线的一部分，浅色页面需要时再显式开启。
@@ -1277,7 +1277,7 @@ export function createConfig(overrides = {})
     hostCompositingSurface,
     themeColor,
     bloomBackend,
-    softwareBloomEnabled: bloomBackend !== 'native',
+    softwareBloomEnabled: bloomBackend === 'software',
     isolatedCompositing: typeof overrides.isolatedCompositing === 'boolean'
       ? overrides.isolatedCompositing
       : CONFIG.isolatedCompositing,

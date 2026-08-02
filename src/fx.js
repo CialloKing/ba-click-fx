@@ -5857,8 +5857,8 @@ export class BAClickFX
         ),
         renderingMode: options.renderingMode === 'legacy' ? 'legacy' : CONFIG.renderingMode,
         bloomBackend,
-        // 保留旧布尔字段作为兼容别名；WebGL2 同样属于增强 Bloom。
-        softwareBloomEnabled: bloomBackend !== 'native',
+        // 保留旧布尔字段作为显式 Software 兼容别名。
+        softwareBloomEnabled: bloomBackend === 'software',
         isolatedCompositing: typeof options.isolatedCompositing === 'boolean'
           ? options.isolatedCompositing
           : CONFIG.isolatedCompositing,
@@ -7397,7 +7397,7 @@ export class BAClickFX
     }
 
     const requested = normalizeBloomBackend(this.config.bloomBackend);
-    const fallback = this.bloomRenderer?.available ? 'software' : 'native';
+    const fallback = this._resolveCanvasFallbackBloomBackend();
 
     if (
       this.webgpuEffectVisible &&
@@ -7565,9 +7565,7 @@ export class BAClickFX
 
     if (wasVisible && (this.paused || !this.renderingFrame))
     {
-      const fallbackBackend = this.bloomRenderer.available
-        ? 'software'
-        : 'native';
+      const fallbackBackend = this._resolveCanvasFallbackBloomBackend();
 
       this._restoreCanvasOutputAfterContextLoss(fallbackBackend);
     }
@@ -7766,9 +7764,7 @@ export class BAClickFX
       return;
     }
 
-    const fallbackBackend = this.bloomRenderer.available
-      ? 'software'
-      : 'native';
+    const fallbackBackend = this._resolveCanvasFallbackBloomBackend();
 
     this._setWebGLBloomVisible(false);
 
@@ -7832,9 +7828,7 @@ export class BAClickFX
 
     this._setWebGLEffectVisible(false);
     this._setResolvedEffectBackend('canvas2d');
-    const fallbackBackend = this.bloomRenderer.available
-      ? 'software'
-      : 'native';
+    const fallbackBackend = this._resolveCanvasFallbackBloomBackend();
 
     if (this.paused || !this.renderingFrame)
     {
@@ -8403,7 +8397,17 @@ export class BAClickFX
       return 'webgl2';
     }
 
-    return this.bloomRenderer.available ? 'software' : 'native';
+    return 'native';
+  }
+
+  _resolveCanvasFallbackBloomBackend()
+  {
+    // Software 会分配全视口 Float32 金字塔并触发像素回读，只有调用方
+    // 明确请求时才允许进入；GPU 自动/故障链统一回退低成本 Native。
+    return normalizeBloomBackend(this.config.bloomBackend) === 'software' &&
+      this.bloomRenderer?.available
+      ? 'software'
+      : 'native';
   }
 
   _setWebGLBloomVisible(visible)
@@ -10215,24 +10219,19 @@ export class BAClickFX
   _fallbackFromWebGL2(scale)
   {
     this._setWebGLBloomVisible(false);
+    let fallbackBackend = this._resolveCanvasFallbackBloomBackend();
 
-    if (this.bloomRenderer.available)
+    this._setResolvedBloomBackend(fallbackBackend);
+    // 状态监听器可以同步显式选择 Software 或 Native；当前失败帧必须服从
+    // 更新后的请求，但绝不自行把 GPU 故障升级为 Software。
+    fallbackBackend = this._resolveCanvasFallbackBloomBackend();
+
+    if (fallbackBackend === 'software')
     {
-      // 成功路径不再预画隐藏 Canvas；GPU 失败后才建立同帧软件回退输入。
       this._drawCanvasFallbackFrame(scale, false, false);
       this._renderLightBackgroundContrast(scale, true);
       this._setResolvedBloomBackend('software');
-
-      if (this.resolvedBloomBackend === 'native')
-      {
-        // 宿主在回退事件内选择 Native 时，同帧重画阴影并跳过 Software。
-        this._drawCanvasFallbackFrame(scale, true, false);
-        this._renderLightBackgroundContrast(scale, false);
-        return;
-      }
-
       this._renderSoftwareBloom(scale);
-
       return;
     }
 
@@ -10741,7 +10740,7 @@ export class BAClickFX
     if (isBloomBackend(overrides.bloomBackend))
     {
       this.config.bloomBackend = overrides.bloomBackend;
-      this.config.softwareBloomEnabled = overrides.bloomBackend !== 'native';
+      this.config.softwareBloomEnabled = overrides.bloomBackend === 'software';
     }
     else if (typeof overrides.softwareBloomEnabled === 'boolean')
     {

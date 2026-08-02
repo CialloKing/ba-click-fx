@@ -81,6 +81,7 @@ function verifyRuntimeApi(moduleExports, bundleName)
   );
   verify(
     moduleExports.CONFIG?.isolatedCompositing === false &&
+      moduleExports.CONFIG?.softwareBloomEnabled === false &&
       moduleExports.CONFIG?.lightBackgroundContrastAlpha === 0,
     `${bundleName} bundle does not expose the strict compositing defaults`,
   );
@@ -217,6 +218,7 @@ if (
   moduleExports.CONFIG?.outputCompositing !== 'scene' ||
   moduleExports.CONFIG?.hostCompositingSurface !== 'dom-backdrop' ||
   moduleExports.CONFIG?.themeColor !== '#4ca7ff' ||
+  moduleExports.CONFIG?.softwareBloomEnabled !== false ||
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
   moduleExports.CONFIG?.inputSource !== 'dom' ||
@@ -280,6 +282,7 @@ if (
   moduleExports.CONFIG?.outputCompositing !== 'scene' ||
   moduleExports.CONFIG?.hostCompositingSurface !== 'dom-backdrop' ||
   moduleExports.CONFIG?.themeColor !== '#4ca7ff' ||
+  moduleExports.CONFIG?.softwareBloomEnabled !== false ||
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
   moduleExports.CONFIG?.inputSource !== 'dom' ||

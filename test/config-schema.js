@@ -225,6 +225,13 @@ check(
   '透明合成配置默认使用 Coverage、source-over 与 DOM 背景表面',
 );
 check(
+  CONFIG.bloomBackend === 'webgl2' &&
+    CONFIG.softwareBloomEnabled === false &&
+    createConfig({ bloomBackend: 'auto' }).softwareBloomEnabled === false &&
+    createConfig({ bloomBackend: 'software' }).softwareBloomEnabled === true,
+  'Software Bloom 仅在显式请求时启用',
+);
+check(
   isOverlayAlphaPolicy('coverage') &&
     isOverlayAlphaPolicy('visual-max') &&
     !isOverlayAlphaPolicy('maxRGB') &&

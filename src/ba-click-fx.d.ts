@@ -141,7 +141,7 @@ declare module 'ba-click-fx'
     effectBackend?: BAClickFXEffectBackend;
     /** 渲染模式：'enhanced'（默认，完整 Bloom）或 'legacy'（Unity 材质主体 + Canvas shadowBlur）。 */
     renderingMode?: BAClickFXRenderingMode;
-    /** Bloom 后端。默认 'webgl2'；不可用时会自动回退软件 Bloom 与原生辉光。 */
+    /** Bloom 后端。默认 'webgl2'；GPU 不可用时回退原生辉光，Software 仅显式选择。 */
     bloomBackend?: BAClickFXBloomBackend;
     /** 兼容旧 API：true 等价于 'software'，false 等价于 'native'。 */
     softwareBloomEnabled?: boolean;
@@ -184,7 +184,7 @@ declare module 'ba-click-fx'
     effectBackend: BAClickFXEffectBackend;
     renderingMode: BAClickFXRenderingMode;
     bloomBackend: BAClickFXBloomBackend;
-    /** 兼容旧 API；WebGL2 与软件 Bloom 后端均为 true。 */
+    /** 兼容旧 API；仅显式选择软件 Bloom 时为 true。 */
     softwareBloomEnabled: boolean;
     isolatedCompositing: boolean;
     lightBackgroundContrastAlpha: number;
