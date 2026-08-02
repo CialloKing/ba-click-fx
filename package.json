@@ -70,7 +70,7 @@
     "test:source": "node test/smoke.js --source",
     "test:themes": "node test/theme-background.js",
     "test:bloom": "node test/software-bloom.js",
-    "test:webgpu": "node test/webgpu-device.js && node test/webgpu-shaders.js",
+    "test:webgpu": "node test/webgpu-device.js && node test/webgpu-shaders.js && node test/webgpu-hdr-ui.js",
     "test:config": "node test/config-schema.js && node test/fx-param-patch.js && node test/range-snap.js",
     "test:browser:built": "node test/browser/run.mjs",
     "test:browser:unity-counts": "node test/browser/run.mjs --unity-counts-only",
