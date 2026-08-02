@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { resolveHdrPresentationState } from '../src/hdr-presentation-status.js';
 import { linearToSrgb } from '../src/software-bloom.js';
 import {
   linearToExtendedSrgb,
@@ -53,3 +54,80 @@ assert.ok(
 );
 
 console.log('WebGPU Shader tests passed.');
+
+console.log('WebGPU HDR 展示状态');
+
+assert.equal(
+  resolveHdrPresentationState(
+    {
+      webgpuRequested: true,
+      resolvedBackend: 'webgpu',
+      outputMode: 'extended',
+      dynamicRangeHigh: true,
+    },
+  ),
+  'ready',
+  'Extended Canvas 与 High 显示环境形成浏览器侧 HDR 就绪状态',
+);
+assert.equal(
+  resolveHdrPresentationState(
+    {
+      webgpuRequested: true,
+      resolvedBackend: 'webgpu',
+      outputMode: 'extended',
+      dynamicRangeHigh: false,
+    },
+  ),
+  'display-unconfirmed',
+  'Extended Canvas 不会把未报告 HDR 的显示环境误报为就绪',
+);
+assert.equal(
+  resolveHdrPresentationState(
+    {
+      webgpuRequested: true,
+      resolvedBackend: 'webgpu',
+      outputMode: 'standard',
+      dynamicRangeHigh: true,
+    },
+  ),
+  'standard',
+  'High 显示环境不能把 Standard Canvas 误报为 HDR',
+);
+assert.equal(
+  resolveHdrPresentationState(
+    {
+      webgpuRequested: true,
+      resolvedBackend: 'pending',
+      outputMode: 'pending',
+      dynamicRangeHigh: true,
+    },
+  ),
+  'pending',
+  '异步协商期间保持 pending',
+);
+assert.equal(
+  resolveHdrPresentationState(
+    {
+      webgpuRequested: true,
+      resolvedBackend: 'webgl2',
+      outputMode: 'unavailable',
+      dynamicRangeHigh: true,
+    },
+  ),
+  'unavailable',
+  'WebGPU 请求回退后明确报告 HDR 不可用',
+);
+assert.equal(
+  resolveHdrPresentationState(
+    {
+      webgpuRequested: false,
+      resolvedBackend: 'webgpu',
+      outputMode: 'extended',
+      dynamicRangeHigh: true,
+    },
+  ),
+  'inactive',
+  '未选择 WebGPU 时不把缓存的 Extended 协商结果误报为已启用',
+);
+
+console.log('WebGPU HDR status tests passed.');

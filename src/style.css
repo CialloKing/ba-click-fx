@@ -418,12 +418,86 @@ kbd {
   font-size: 12px;
 }
 
-.render-backend-status,
 .compositing-reference-status
 {
   margin: -4px 0 10px;
   color: rgba(125, 239, 255, 0.68);
   font-size: 11px;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.render-backend-status
+{
+  margin: 2px 0 12px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.render-status-list
+{
+  margin: 0;
+}
+
+.render-status-row
+{
+  display: grid;
+  grid-template-columns: minmax(78px, 0.8fr) minmax(0, 1.5fr);
+  gap: 12px;
+  align-items: start;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.render-status-row dt,
+.render-status-row dd
+{
+  min-width: 0;
+  margin: 0;
+}
+
+.render-status-row dt
+{
+  color: rgba(255, 255, 255, 0.48);
+}
+
+.render-status-row dd
+{
+  color: rgba(185, 225, 245, 0.82);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.render-status-verdict-row
+{
+  grid-template-columns: 1fr;
+  gap: 3px;
+  border-bottom: 0;
+  font-weight: 600;
+}
+
+.render-status-verdict-row dd
+{
+  text-align: left;
+}
+
+.render-backend-status[data-hdr-state='ready'] .render-status-verdict-row dd
+{
+  color: rgb(123, 225, 177);
+}
+
+.render-backend-status[data-hdr-state='display-unconfirmed'] .render-status-verdict-row dd,
+.render-backend-status[data-hdr-state='standard'] .render-status-verdict-row dd,
+.render-backend-status[data-hdr-state='unavailable'] .render-status-verdict-row dd
+{
+  color: rgb(245, 198, 105);
+}
+
+.render-status-note
+{
+  margin: 3px 0 0;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 10px;
   line-height: 1.45;
   text-align: right;
 }
