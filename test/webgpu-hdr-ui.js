@@ -62,8 +62,9 @@ assert.equal(
 assert.ok(
   WEBGPU_HDR_UI_SHADER.includes('toneMapping') === false &&
     WEBGPU_HDR_UI_SHADER.includes('linearToExtendedSrgb') &&
-    WEBGPU_HDR_UI_SHADER.includes('return vec4f(encoded, alpha);'),
-  'Shader 输出扩展 sRGB，Canvas 协商仍由生命周期类负责',
+    WEBGPU_HDR_UI_SHADER.includes('@builtin(instance_index)') &&
+    WEBGPU_HDR_UI_SHADER.includes('return vec4f(encoded, 1.0);'),
+  'Shader 用局部实例输出扩展 sRGB，Canvas 协商仍由生命周期类负责',
 );
 
 console.log('WebGPU HDR UI 生命周期');
@@ -74,12 +75,17 @@ function createFixture()
   const pass = {
     setPipeline: () => calls.push('setPipeline'),
     setBindGroup: () => calls.push('setBindGroup'),
-    draw: (count) => calls.push(`draw:${count}`),
+    draw: (count, instances) => calls.push(`draw:${count}:${instances}`),
     end: () => calls.push('end'),
   };
   const context = {
     configure: (configuration) => calls.push(
-      `configure:${configuration.format}:${configuration.toneMapping.mode}`,
+      [
+        'configure',
+        configuration.format,
+        configuration.toneMapping.mode,
+        configuration.alphaMode,
+      ].join(':'),
     ),
     unconfigure: () => calls.push('unconfigure'),
     getCurrentTexture: () => ({ createView: () => ({}) }),
@@ -93,6 +99,7 @@ function createFixture()
   };
   const buffer = { destroy: () => calls.push('destroyBuffer') };
   const device = {
+    limits: { maxTextureDimension2D: 8192 },
     createShaderModule: () => ({}),
     createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
     createBuffer: () => buffer,
@@ -117,7 +124,7 @@ const renderer = new WebGPUHdrUiRenderer(fixture.canvas);
 assert.ok(renderer.available, 'WebGPU Canvas Context 可用');
 assert.ok(renderer.configure(fixture.device), 'Extended UI Canvas 配置成功');
 assert.ok(
-  fixture.calls.includes('configure:rgba16float:extended') &&
+  fixture.calls.includes('configure:rgba16float:extended:opaque') &&
     fixture.canvas.dataset.hdrUiOutput === 'extended',
   'UI Canvas 只使用 rgba16float Extended 输出',
 );
@@ -138,8 +145,24 @@ assert.ok(
     fixture.canvas.height === 480 &&
     fixture.canvas.style.display === 'block' &&
     fixture.canvas.dataset.hdrUiPrimitives === '1' &&
-    fixture.calls.includes('draw:3'),
-  'Canvas 尺寸、可见性和全屏绘制同步更新',
+    fixture.calls.includes('draw:6:1'),
+  'Canvas 尺寸、可见性和局部实例绘制同步更新',
+);
+fixture.device.limits.maxTextureDimension2D = 512;
+assert.ok(
+  renderer.render(
+    {
+      width: 400,
+      height: 300,
+      dpr: 2,
+      primitives:
+      [{ rect: { x: 10, y: 10, width: 20, height: 20 } }],
+    },
+  ) &&
+    fixture.canvas.width === 512 &&
+    fixture.canvas.height === 384 &&
+    fixture.canvas.dataset.hdrUiDpr === '1.280',
+  'UI Surface DPR 遵守共享 Device 的纹理尺寸上限',
 );
 assert.ok(renderer.suspend(), '切出 WebGPU 时解除 UI Canvas 配置');
 assert.ok(

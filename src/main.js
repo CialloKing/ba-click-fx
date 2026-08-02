@@ -1034,6 +1034,10 @@ function collectHdrUiPrimitives()
       { padding: 4, color: green, radius: 6, borderWidth: 0.75, glowWidth: 9, intensity: 0.95 },
     ],
     [
+      document.getElementById('hdrUiControls'),
+      { padding: 4, color: green, radius: 6, borderWidth: 0.75, glowWidth: 9, intensity: 0.9 },
+    ],
+    [
       document.getElementById('introSection'),
       { padding: 2, radius: 12, borderWidth: 0.5, glowWidth: 10, intensity: 0.45 },
     ],
@@ -1122,7 +1126,8 @@ function renderHdrUiOverlay()
     {
       width: window.innerWidth,
       height: window.innerHeight,
-      dpr: Math.min(4, Math.max(1, window.devicePixelRatio || 1)),
+      // UI 高光复用展示页实际 DPR，并限制模糊边缘不必要的过采样成本。
+      dpr: Math.min(1.5, Math.max(1, effect.dpr || 1)),
       brightness: hdrUiBrightness,
       primitives: collectHdrUiPrimitives(),
     },
@@ -3106,6 +3111,7 @@ switchLanguage(currentLang);
     document.querySelector('.hero-float'),
     document.getElementById('panel'),
     document.getElementById('renderBackendStatus'),
+    document.getElementById('hdrUiControls'),
     document.getElementById('introSection'),
     document.getElementById('hintBar'),
   ])

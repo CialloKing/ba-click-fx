@@ -22,24 +22,43 @@ struct HdrUiUniforms
 
 @group(0) @binding(0) var<uniform> params: HdrUiUniforms;
 
-struct FullscreenOutput
+struct HdrUiOutput
 {
   @builtin(position) position: vec4f,
-  @location(0) uv: vec2f,
+  @location(0) pixel: vec2f,
+  @location(1) @interpolate(flat) primitiveIndex: u32,
 }
 
 @vertex
-fn vertexFullscreen(@builtin(vertex_index) index: u32) -> FullscreenOutput
+fn vertexHdrUi(
+  @builtin(vertex_index) vertexIndex: u32,
+  @builtin(instance_index) primitiveIndex: u32,
+) -> HdrUiOutput
 {
-  var positions = array<vec2f, 3>(
-    vec2f(-1.0, -1.0),
-    vec2f(3.0, -1.0),
-    vec2f(-1.0, 3.0),
+  var corners = array<vec2f, 6>(
+    vec2f(0.0, 0.0),
+    vec2f(1.0, 0.0),
+    vec2f(0.0, 1.0),
+    vec2f(0.0, 1.0),
+    vec2f(1.0, 0.0),
+    vec2f(1.0, 1.0),
   );
-  let position = positions[index];
-  var output: FullscreenOutput;
-  output.position = vec4f(position, 0.0, 1.0);
-  output.uv = vec2f(position.x * 0.5 + 0.5, 0.5 - position.y * 0.5);
+  let base = primitiveIndex * 3u;
+  let rect = params.primitives[base];
+  let style = params.primitives[base + 2u];
+  let margin = max(style.y + 1.0, style.z * 4.0);
+  let boundsMinimum = rect.xy - vec2f(margin);
+  let boundsSize = rect.zw + vec2f(margin * 2.0);
+  let pixel = boundsMinimum + corners[vertexIndex] * boundsSize;
+  let clip = vec2f(
+    pixel.x / params.viewport.x * 2.0 - 1.0,
+    1.0 - pixel.y / params.viewport.y * 2.0,
+  );
+  var output: HdrUiOutput;
+
+  output.position = vec4f(clip, 0.0, 1.0);
+  output.pixel = pixel;
+  output.primitiveIndex = primitiveIndex;
   return output;
 }
 
@@ -61,56 +80,31 @@ fn linearToExtendedSrgb(value: f32) -> f32
 }
 
 @fragment
-fn fragmentHdrUi(input: FullscreenOutput) -> @location(0) vec4f
+fn fragmentHdrUi(input: HdrUiOutput) -> @location(0) vec4f
 {
-  let pixel = input.uv * params.viewport.xy;
-  var emission = vec3f(0.0);
-
-  for (var index = 0u; index < MAX_PRIMITIVES; index = index + 1u)
-  {
-    if (f32(index) >= params.viewport.w)
-    {
-      break;
-    }
-
-    let base = index * 3u;
-    let rect = params.primitives[base];
-    let color = params.primitives[base + 1u];
-    let style = params.primitives[base + 2u];
-
-    if (rect.z <= 0.0 || rect.w <= 0.0 || style.w <= 0.0)
-    {
-      continue;
-    }
-
-    let halfSize = rect.zw * 0.5;
-    let center = rect.xy + halfSize;
-    let radius = clamp(style.x, 0.0, min(halfSize.x, halfSize.y));
-    let distance = roundedRectDistance(pixel - center, halfSize, radius);
-    let edgeDistance = abs(distance);
-    let borderWidth = max(style.y, 0.25);
-    let glowWidth = max(style.z, 0.5);
-    let core = 1.0 - smoothstep(borderWidth, borderWidth + 1.0, edgeDistance);
-    let halo = exp2(-edgeDistance * 4.0 / glowWidth);
-    let energy = max(core, halo * 0.32) * style.w * params.viewport.z;
-
-    emission = emission + max(color.rgb, vec3f(0.0)) * energy;
-  }
+  let base = input.primitiveIndex * 3u;
+  let rect = params.primitives[base];
+  let color = params.primitives[base + 1u];
+  let style = params.primitives[base + 2u];
+  let halfSize = rect.zw * 0.5;
+  let center = rect.xy + halfSize;
+  let radius = clamp(style.x, 0.0, min(halfSize.x, halfSize.y));
+  let distance = roundedRectDistance(input.pixel - center, halfSize, radius);
+  let edgeDistance = abs(distance);
+  let borderWidth = max(style.y, 0.25);
+  let glowWidth = max(style.z, 0.5);
+  let core = 1.0 - smoothstep(borderWidth, borderWidth + 1.0, edgeDistance);
+  let halo = exp2(-edgeDistance * 4.0 / glowWidth);
+  let energy = max(core, halo * 0.32) * style.w * params.viewport.z;
+  let emission = max(color.rgb, vec3f(0.0)) * energy;
 
   let encoded = vec3f(
     linearToExtendedSrgb(emission.r),
     linearToExtendedSrgb(emission.g),
     linearToExtendedSrgb(emission.b),
   );
-  let alpha = clamp(max(max(encoded.r, encoded.g), encoded.b), 0.0, 1.0);
-
-  if (alpha <= 0.00001)
-  {
-    return vec4f(0.0);
-  }
-
-  // plus-lighter 在 DOM 合成边界执行最终加色；Alpha 只承载扩展 RGB。
-  return vec4f(encoded, alpha);
+  // Opaque Canvas 避免可见 Surface 上未定义的超色域预乘 Alpha。
+  return vec4f(encoded, 1.0);
 }
 `;
 
@@ -246,12 +240,30 @@ export class WebGPUHdrUiRenderer
       {
         label: 'BA Click FX demo HDR UI',
         layout: 'auto',
-        vertex: { module, entryPoint: 'vertexFullscreen' },
+        vertex: { module, entryPoint: 'vertexHdrUi' },
         fragment:
         {
           module,
           entryPoint: 'fragmentHdrUi',
-          targets: [{ format: 'rgba16float' }],
+          targets:
+          [{
+            format: 'rgba16float',
+            blend:
+            {
+              color:
+              {
+                operation: 'add',
+                srcFactor: 'one',
+                dstFactor: 'one',
+              },
+              alpha:
+              {
+                operation: 'max',
+                srcFactor: 'one',
+                dstFactor: 'one',
+              },
+            },
+          }],
         },
         primitive: { topology: 'triangle-list' },
       },
@@ -307,7 +319,7 @@ export class WebGPUHdrUiRenderer
         {
           device,
           format: 'rgba16float',
-          alphaMode: 'premultiplied',
+          alphaMode: 'opaque',
           toneMapping: { mode: 'extended' },
         },
       );
@@ -339,9 +351,27 @@ export class WebGPUHdrUiRenderer
 
     const width = Math.max(1, finiteOr(options.width, 1));
     const height = Math.max(1, finiteOr(options.height, 1));
-    const dpr = clamp(finiteOr(options.dpr, 1), 1, 4);
-    const pixelWidth = Math.max(1, Math.round(width * dpr));
-    const pixelHeight = Math.max(1, Math.round(height * dpr));
+    const requestedDpr = clamp(finiteOr(options.dpr, 1), 0.25, 2);
+    const maximumDimension = Math.max(
+      1,
+      Math.floor(finiteOr(this.device.limits?.maxTextureDimension2D, 8192)),
+    );
+    const dpr = Math.max(
+      0.01,
+      Math.min(
+        requestedDpr,
+        maximumDimension / width,
+        maximumDimension / height,
+      ),
+    );
+    const pixelWidth = Math.min(
+      maximumDimension,
+      Math.max(1, Math.round(width * dpr)),
+    );
+    const pixelHeight = Math.min(
+      maximumDimension,
+      Math.max(1, Math.round(height * dpr)),
+    );
 
     if (this.canvas.width !== pixelWidth || this.canvas.height !== pixelHeight)
     {
@@ -363,7 +393,7 @@ export class WebGPUHdrUiRenderer
             view: this.context.getCurrentTexture().createView(),
             loadOp: 'clear',
             storeOp: 'store',
-            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
           }],
         },
       );
@@ -371,11 +401,12 @@ export class WebGPUHdrUiRenderer
       this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
       pass.setPipeline(this.pipeline);
       pass.setBindGroup(0, this.bindGroup);
-      pass.draw(3);
+      pass.draw(6, Math.trunc(uniforms[3]));
       pass.end();
       this.device.queue.submit([encoder.finish()]);
       // 样式表默认隐藏未协商的 HDR Surface，成功提交后必须显式覆盖它。
       this.canvas.style.display = 'block';
+      this.canvas.dataset.hdrUiDpr = dpr.toFixed(3);
       this.canvas.dataset.hdrUiPrimitives = String(uniforms[3]);
       return true;
     }
@@ -410,8 +441,9 @@ export class WebGPUHdrUiRenderer
 
     this.configured = false;
     this.canvas.style.display = 'none';
-    this.canvas.dataset.hdrUiOutput = 'inactive';
-    this.canvas.dataset.hdrUiPrimitives = '0';
+      this.canvas.dataset.hdrUiOutput = 'inactive';
+      this.canvas.dataset.hdrUiPrimitives = '0';
+      this.canvas.dataset.hdrUiDpr = '0';
     return true;
   }
 
