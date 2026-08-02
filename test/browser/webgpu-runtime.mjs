@@ -131,12 +131,18 @@ async function decodeScreenshot(page, screenshot)
       maximum = Math.max(maximum, energy);
     }
 
+    const centerOffset = (
+      Math.floor(image.height / 2) * image.width +
+      Math.floor(image.width / 2)
+    ) * 4;
+
     return {
       width: image.width,
       height: image.height,
       visiblePixels,
       alphaPixels,
       maximum,
+      center: Array.from(pixels.slice(centerOffset, centerOffset + 4)),
     };
   }, screenshot.toString('base64'));
 }
@@ -402,6 +408,133 @@ async function runDirectCase(page, specification)
   return { ...result, pixels };
 }
 
+async function runSdrColorProbe(page, preferHdr)
+{
+  const result = await page.evaluate(async (preferHdrInPage) =>
+  {
+    const { WebGPUEffectRenderer } = await import('/src/webgpu-effect.js');
+    const canvas = document.createElement('canvas');
+
+    canvas.dataset.test = preferHdrInPage
+      ? 'sdr-color-extended'
+      : 'sdr-color-standard';
+    canvas.style.width = '96px';
+    canvas.style.height = '96px';
+    document.body.appendChild(canvas);
+    const renderer = new WebGPUEffectRenderer(canvas, { preferHdr: preferHdrInPage });
+    const ready = await renderer.ready;
+
+    if (!ready)
+    {
+      return {
+        ready,
+        status: renderer.status,
+        failure: String(renderer.failure?.message ?? renderer.failure ?? ''),
+      };
+    }
+
+    const resized = renderer.resize(96, 96, 1, 0.5, 7);
+
+    renderer.beginFrame();
+    renderer.addSolidDisk(48, 48, 36, [0.18, 0.08, 0.5], 1, 48);
+    const scene = renderer.renderScene(
+      {
+        outputCompositing: 'scene',
+        hostCompositing: 'source-over',
+        diskEmissionScale: 1,
+        ringEmissionScale: 1,
+      },
+    );
+
+    renderer.beginFrame({ preserveSceneStats: true });
+    const rendered = renderer.render(
+      {
+        threshold: 65504,
+        softKnee: 0,
+        clamp: 65504,
+        intensity: 0,
+        opacity: 1,
+        outputCompositing: 'scene',
+        overlayAlphaPolicy: 'coverage',
+        overlayColorCompensation: 'none',
+        overlayAlphaLimit: 1,
+        hostCompositing: 'source-over',
+      },
+      { preserveCanvas: true },
+    );
+
+    await renderer.device.queue.onSubmittedWorkDone();
+    window.__BACLICKFX_WEBGPU_COLOR_PROBE__ ??= new Map();
+    window.__BACLICKFX_WEBGPU_COLOR_PROBE__.set(
+      preferHdrInPage,
+      { renderer, canvas },
+    );
+    return {
+      ready,
+      resized,
+      scene,
+      rendered,
+      status: renderer.status,
+      outputMode: renderer.deviceManager.outputMode,
+    };
+  }, preferHdr);
+
+  assert.ok(
+    result.ready && result.resized && result.scene && result.rendered,
+    `WebGPU SDR 颜色探针提交失败: ${JSON.stringify(result)}`,
+  );
+  const selector = preferHdr
+    ? 'canvas[data-test="sdr-color-extended"]'
+    : 'canvas[data-test="sdr-color-standard"]';
+  const canvas = page.locator(selector);
+  const screenshot = await canvas.screenshot();
+  const pixels = await decodeScreenshot(page, screenshot);
+
+  await page.evaluate((preferHdrInPage) =>
+  {
+    const entry = window.__BACLICKFX_WEBGPU_COLOR_PROBE__?.get(preferHdrInPage);
+
+    entry?.renderer.destroy();
+    entry?.canvas.remove();
+    window.__BACLICKFX_WEBGPU_COLOR_PROBE__?.delete(preferHdrInPage);
+  }, preferHdr);
+  return { ...result, pixels };
+}
+
+function assertSdrColorParity(preferred, standard)
+{
+  assert.equal(
+    standard.outputMode,
+    'standard',
+    `SDR 颜色探针没有使用 standard: ${JSON.stringify(standard)}`,
+  );
+
+  if (preferred.outputMode !== 'extended')
+  {
+    return;
+  }
+
+  const expected = [0.461356, 0.313304, 0.735357].map((value) =>
+    Math.round(value * 255));
+  const standardDelta = standard.pixels.center
+    .slice(0, 3)
+    .map((value, channel) => Math.abs(value - expected[channel]));
+  const modeDelta = preferred.pixels.center
+    .slice(0, 3)
+    .map((value, channel) =>
+      Math.abs(value - standard.pixels.center[channel]));
+  const detail = JSON.stringify({ preferred, standard, expected });
+
+  assert.ok(
+    Math.max(...standardDelta) <= 3,
+    `Standard/WebGL2 SDR 编码基线错误: ${detail}`,
+  );
+  assert.ok(
+    Math.max(...modeDelta) <= 3,
+    `Extended 的 SDR 中间调颜色比 Standard 更深: ${detail}`,
+  );
+}
+
 async function startIntegration(page)
 {
   return page.evaluate(async () =>
@@ -433,6 +566,19 @@ async function startIntegration(page)
 
     await effect.webgpuEffectRenderer?.device.queue.onSubmittedWorkDone();
     const config = effect.getConfig();
+    const runtimeGeometry =
+    {
+      waves: effect.waves.length,
+      rings: effect.waves.reduce(
+        (count, wave) => count + wave.rings.length,
+        0,
+      ),
+      clickShards: effect.shards.filter((shard) => shard.kind === 'click').length,
+      sceneRingVertexCount:
+        effect.webgpuEffectRenderer?.stats.sceneRingVertexCount,
+      sceneTriangleVertexCount:
+        effect.webgpuEffectRenderer?.stats.sceneTriangleVertexCount,
+    };
 
     effect.webgpuEffectCanvas.dataset.test = 'integration-webgpu';
     window.__BACLICKFX_WEBGPU_INTEGRATION__ = { effect, changes };
@@ -445,6 +591,7 @@ async function startIntegration(page)
       format: effect.webgpuEffectRenderer?.deviceManager.canvasFormat,
       visible: effect.webgpuEffectVisible,
       changes: [...changes],
+      runtimeGeometry,
     };
   });
 }
@@ -455,6 +602,11 @@ async function loseIntegrationDevice(page)
   {
     const { effect, changes } = window.__BACLICKFX_WEBGPU_INTEGRATION__;
 
+    // 初始截图解码耗时不稳定；故障注入前重建一组首帧点击，确保测试的是
+    // Device lost 当帧重画能力，而不是 700ms 粒子自然结束后的空画布。
+    effect.clear();
+    effect.boom(160, 120);
+    await new Promise((resolvePromise) => requestAnimationFrame(resolvePromise));
     effect.webgpuEffectRenderer.device.destroy();
     const deadline = performance.now() + 4000;
 
@@ -505,6 +657,17 @@ async function runIntegration(page)
     `WebGPU 输出状态没有透传: ${initialDetail}`,
   );
   assert.ok(initial.visible, `WebGPU Canvas 不可见: ${initialDetail}`);
+  assert.deepEqual(
+    initial.runtimeGeometry,
+    {
+      waves: 1,
+      rings: 2,
+      clickShards: 4,
+      sceneRingVertexCount: 9216,
+      sceneTriangleVertexCount: 24,
+    },
+    `WebGPU 必须复用 Unity 点击几何合同: ${initialDetail}`,
+  );
 
   const webgpuCanvas = page.locator(
     'canvas[data-test="integration-webgpu"]',
@@ -692,6 +855,14 @@ async function main()
       direct.push(await runDirectCase(page, specification));
     }
 
+    const colorProbes =
+    {
+      preferred: await runSdrColorProbe(page, true),
+      standard: await runSdrColorProbe(page, false),
+    };
+
+    assertSdrColorParity(colorProbes.preferred, colorProbes.standard);
+
     const integration = await runIntegration(page);
 
     if (browserErrors.length > 0)
@@ -717,6 +888,7 @@ async function main()
           levelCount: result.stats.levelCount,
           pixels: result.pixels,
         })),
+        colorProbes,
         integration,
       },
       null,

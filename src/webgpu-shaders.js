@@ -1,3 +1,18 @@
+/**
+ * 将线性亮度编码到 extended sRGB；与普通 sRGB 的区别仅是不截断超白值。
+ */
+export function linearToExtendedSrgb(value)
+{
+  const linear = Math.max(0, value);
+
+  if (linear <= 0.0031308)
+  {
+    return linear * 12.92;
+  }
+
+  return 1.055 * Math.pow(linear, 1 / 2.4) - 0.055;
+}
+
 export const WEBGPU_GEOMETRY_SHADER = /* wgsl */ `
 struct GeometryUniforms
 {
@@ -308,14 +323,19 @@ fn fragmentUpsample(input: FullscreenOutput) -> @location(0) vec4f
   return coarse + fine;
 }
 
-fn linearToSrgb(value: f32) -> f32
+fn linearToExtendedSrgb(value: f32) -> f32
 {
-  let linear = clamp(value, 0.0, 1.0);
+  let linear = max(value, 0.0);
   return select(
     1.055 * pow(linear, 1.0 / 2.4) - 0.055,
     linear * 12.92,
     linear <= 0.0031308,
   );
+}
+
+fn linearToSrgb(value: f32) -> f32
+{
+  return min(linearToExtendedSrgb(value), 1.0);
 }
 
 fn linearToSrgb3(value: vec3f) -> vec3f
@@ -324,6 +344,15 @@ fn linearToSrgb3(value: vec3f) -> vec3f
     linearToSrgb(value.r),
     linearToSrgb(value.g),
     linearToSrgb(value.b),
+  );
+}
+
+fn linearToExtendedSrgb3(value: vec3f) -> vec3f
+{
+  return vec3f(
+    linearToExtendedSrgb(value.r),
+    linearToExtendedSrgb(value.g),
+    linearToExtendedSrgb(value.b),
   );
 }
 
@@ -380,9 +409,18 @@ fn fragmentFinal(input: FullscreenOutput) -> @location(0) vec4f
     params.visualMaxAlpha != 0u,
   );
 
+  let extendedSrgb = linearToExtendedSrgb3(linear);
+
   if (params.extendedOutput != 0u && params.hasBackground == 0u)
   {
-    var alpha = clamp(max(requestedCoverage, max(max(linear.r, linear.g), linear.b)), 0.0, 1.0);
+    var alpha = clamp(
+      max(
+        requestedCoverage,
+        max(max(extendedSrgb.r, extendedSrgb.g), extendedSrgb.b),
+      ),
+      0.0,
+      1.0,
+    );
 
     if (params.transparentOverlay != 0u && params.hostAdditive == 0u)
     {
@@ -394,8 +432,8 @@ fn fragmentFinal(input: FullscreenOutput) -> @location(0) vec4f
       return vec4f(0.0);
     }
 
-    // extended Canvas 保留线性超白数值；Alpha 只描述透明覆盖范围。
-    return vec4f(max(linear, vec3f(0.0)), alpha);
+    // rgba16float Canvas 仍按 sRGB 编码解释；extended 只扩展可显示范围。
+    return vec4f(extendedSrgb, alpha);
   }
 
   let srgb = linearToSrgb3(linear);
@@ -410,7 +448,8 @@ fn fragmentFinal(input: FullscreenOutput) -> @location(0) vec4f
 
   if (params.extendedOutput != 0u && params.hasBackground != 0u)
   {
-    let difference = abs(linear - sampledBackground);
+    let backgroundExtendedSrgb = linearToExtendedSrgb3(sampledBackground);
+    let difference = abs(extendedSrgb - backgroundExtendedSrgb);
 
     if (max(max(difference.r, difference.g), difference.b) <= 0.00001)
     {
@@ -418,18 +457,19 @@ fn fragmentFinal(input: FullscreenOutput) -> @location(0) vec4f
     }
 
     let channelAlpha = vec3f(
-      solveOverlayAlpha(sampledBackground.r, linear.r),
-      solveOverlayAlpha(sampledBackground.g, linear.g),
-      solveOverlayAlpha(sampledBackground.b, linear.b),
+      solveOverlayAlpha(backgroundExtendedSrgb.r, extendedSrgb.r),
+      solveOverlayAlpha(backgroundExtendedSrgb.g, extendedSrgb.g),
+      solveOverlayAlpha(backgroundExtendedSrgb.b, extendedSrgb.b),
     );
     let alpha = clamp(
       max(max(channelAlpha.r, channelAlpha.g), channelAlpha.b),
       0.0,
       1.0,
     );
-    let premultiplied = linear - sampledBackground * (1.0 - alpha);
+    let premultiplied = extendedSrgb -
+      backgroundExtendedSrgb * (1.0 - alpha);
 
-    // 扩展 Canvas 允许预乘 RGB 超过 1；这样已知背景反解也不会压掉 HDR 高光。
+    // 在 Canvas 的 sRGB 编码域反解，避免 SDR 中间调在最终合成时变深。
     return vec4f(max(premultiplied, vec3f(0.0)), alpha);
   }
 

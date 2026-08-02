@@ -50,7 +50,7 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 - 所有粒子参数锁定为游戏原始值：颜色渐变、大小曲线、旋转速度、溶解阈值、HDR 强度
 - Canvas 2D、纯 WebGL2 与 WebGPU 共用已经验证的特效几何，无外部运行时依赖
 - 六种展示页渲染选择：WebGPU HDR（实验）、纯 WebGL2（默认）、WebGL2 Bloom、软件 Bloom、原生辉光、Legacy
-- WebGPU 使用 `rgba16float` Scene 与多级 Bloom；`extended` 输出可保留超过 SDR 白色的线性高光
+- WebGPU 使用 `rgba16float` Scene 与多级 Bloom；`extended` 输出把线性 HDR 结果编码为扩展 sRGB，并保留超过 SDR 白色的高光
 - WebGPU 不可用或 Device 丢失时自动回退完整 WebGL2，再沿 Canvas 2D、软件 Bloom、原生辉光链降级
 - 支持浏览器插件、npm、CDN、直接下载四种接入方式
 - 演示默认主题色 `#4ca7ff`，支持自定义 HSL hue 偏移
@@ -183,7 +183,7 @@ new BAClickFX(options?: {
 
 展示页在六档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与渲染后端正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
 
-WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 已协商扩展动态范围并会保留超过 SDR 白色的线性值；`'standard'` 表示 WebGPU Scene 与 Bloom 正常运行，但最终 Canvas 仍是 SDR；`'pending'` 表示正在申请设备或提交首帧；`'unavailable'` 表示当前没有可用的 WebGPU 输出。真正看到超白高光还需要 HDR 显示器、系统已开启 HDR、浏览器实现 WebGPU HDR Canvas，以及 `rgba16float + toneMapping: extended` 配置成功。
+WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 已协商扩展动态范围，并会把线性 HDR 结果编码为扩展 sRGB、保留超过 SDR 白色的高光；`'standard'` 表示 WebGPU Scene 与 Bloom 正常运行，但最终 Canvas 仍是 SDR；`'pending'` 表示正在申请设备或提交首帧；`'unavailable'` 表示当前没有可用的 WebGPU 输出。真正看到超白高光还需要 HDR 显示器、系统已开启 HDR、浏览器实现 WebGPU HDR Canvas，以及 `rgba16float + toneMapping: extended` 配置成功。
 
 显式 `effectBackend: 'webgpu'` 和 `'auto'` 都按 WebGPU → WebGL2 → Canvas 2D 的顺序解析完整特效后端。默认值仍为稳定的 `'webgl2'`，因此升级不会自动改变现有页面的渲染后端。
 
@@ -537,7 +537,7 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 
 ### Bloom 渲染后端
 
-WebGPU 后端使用独立 WGSL Scene、`rgba16float` 发射目标和多级 Bloom 金字塔，并复用 WebGL2 已经验证的 CPU 粒子网格构建逻辑。它不会创建 WebGL Context，也不会上传一份 Canvas 2D 中间图；Scene、预过滤、下采样、累积上采样和 Final Pass 都由 WebGPU 提交。Final Pass 在 `extended` 模式保留大于 `1.0` 的线性 RGB，在 `standard` 模式执行 SDR 编码和现有透明输出合同。
+WebGPU 后端使用独立 WGSL Scene、`rgba16float` 发射目标和多级 Bloom 金字塔，并复用 WebGL2 已经验证的 CPU 粒子网格构建逻辑。它不会创建 WebGL Context，也不会上传一份 Canvas 2D 中间图；Scene、预过滤、下采样、累积上采样和 Final Pass 都由 WebGPU 提交。Final Pass 在 `extended` 模式把线性 RGB 编码为扩展 sRGB 且不截断超白值，在 `standard` 模式执行限制到 SDR 范围的同一编码和现有透明输出合同。
 
 纯 WebGL2 与 WebGL2 Bloom 共用 `WebGL2EffectRenderer`、HDR 发射参数和 Bloom 配置，并都直接在 GPU 中构建圆环、光盘、拖尾与碎片 Scene。两者随后按游戏 `Hidden/MXFinalBloom` 的 4-tap 预过滤、Box4 mip、累积式上采样和 CPU 曝光换算后的线性强度倍率，在一次 Final Pass 中输出清晰层、Coverage 与 Bloom。WebGL2 Bloom 作为兼容选择器保留独立的后端状态与 Canvas 回退链，但成功帧不再生成或上传 8 位 Canvas Scene。
 
@@ -585,7 +585,7 @@ WebGPU 可用性由实际申请 Adapter/Device、创建 `webgpu` Canvas Context 
 
 ### WebGPU 模式一定会显示真实 HDR 吗？
 
-不会。WebGPU 后端可能协商到 `standard` SDR 输出；只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 会保留超过 SDR 白色的线性高光。显示器、系统 HDR、浏览器 WebGPU HDR Canvas 和 `rgba16float + extended` 缺一不可。截图、Canvas 像素回读和普通 SDR 屏幕也不能证明最终面板实际输出了多少尼特。
+不会。WebGPU 后端可能协商到 `standard` SDR 输出；只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 会以扩展 sRGB 编码保留超过 SDR 白色的高光。显示器、系统 HDR、浏览器 WebGPU HDR Canvas 和 `rgba16float + extended` 缺一不可。截图、Canvas 像素回读和普通 SDR 屏幕也不能证明最终面板实际输出了多少尼特。
 
 ### 为什么纯白背景上的颜色变淡？
 

@@ -213,7 +213,7 @@ declare module 'ba-click-fx'
     readonly compositingWarning: BAClickFXCompositingWarning | null;
     /** 最近一次解析的完整特效后端；首次 Scene 提交和恢复验证期间可为 'pending'。 */
     readonly resolvedEffectBackend: BAClickFXResolvedEffectBackend;
-    /** WebGPU 可用不等于 HDR；只有 extended 会保留超过 SDR 白色的线性值。 */
+    /** WebGPU 可用不等于 HDR；只有 extended 会以扩展 sRGB 保留超白高光。 */
     readonly resolvedWebGPUOutputMode: BAClickFXWebGPUOutputMode;
     /** 最近一次解析的实际后端；WebGL2/auto 首次延迟探测前为 'pending'。 */
     readonly resolvedBloomBackend: BAClickFXResolvedBloomBackend;
