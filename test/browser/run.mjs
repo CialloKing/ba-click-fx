@@ -3111,6 +3111,10 @@ async function runDemoTimeScaleControlSmoke(browserInstance, baseUrl)
     const clickRangeValue = async (id, targetValue) =>
     {
       const control = page.locator(`#${id}`);
+
+      // HDR 诊断项会把宿主控件推到面板首屏之外；真实鼠标坐标必须先
+      // 基于滚入视口后的布局计算，否则点击会落到浏览器视口外。
+      await control.scrollIntoViewIfNeeded();
       const point = await control.evaluate((element, value) =>
       {
         const range = element;
