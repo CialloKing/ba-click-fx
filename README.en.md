@@ -139,6 +139,11 @@ new BAClickFX(options?: {
   clickTimeScale?: number,       // minimum 0.01, default 1
   trailTimeScale?: number,       // minimum 0.01, default 1
   effectBackend?: 'canvas2d' | 'webgl2' | 'webgpu' | 'auto', // default webgl2
+  webgpuHdrPeak?: number,        // Extended linear peak 2..4, default 3
+  webgpuHdrBrightness?: number,  // Extended effect brightness multiplier 0..32, default 1
+  webgpuHdrWhiteCore?: number,   // Extended white-core strength 0..1, default 0.6
+  webgpuHdrWhiteStart?: number,  // Extended white-core start 0..15.99, default 1
+  webgpuHdrWhiteEnd?: number,    // Extended white-core end 0.01..16, default 5
   renderingMode?: 'enhanced' | 'legacy', // default enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // default webgl2
   softwareBloomEnabled?: boolean, // compatibility alias: true = software, false = native
@@ -164,6 +169,8 @@ new BAClickFX(options?: {
 The demo exposes Isolated Compositing as a separate switch beside the six rendering choices. It is disabled by default and orthogonal to the rendering backend: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
 
 WebGPU availability does not imply HDR display output. Only `getConfig().resolvedWebGPUOutputMode === 'extended'` means that the Canvas negotiated extended dynamic range, encodes the linear HDR result as extended sRGB, and preserves highlights above SDR white. `'standard'` means the WebGPU Scene and Bloom are running but the final Canvas remains SDR, `'pending'` means device or first-frame work is in progress, and `'unavailable'` means no WebGPU output is active. Visible super-white highlights additionally require an HDR display, system HDR enabled, browser support for WebGPU HDR Canvas, and successful `rgba16float + toneMapping: extended` configuration.
+
+`webgpuHdrPeak`, `webgpuHdrBrightness`, `webgpuHdrWhiteCore`, `webgpuHdrWhiteStart`, and `webgpuHdrWhiteEnd` calibrate only the final HDR presentation mapping of a WebGPU Extended Canvas. WebGPU Standard, WebGL2, and Canvas 2D output are unaffected, and these options do not change Unity FX parameters, particle counts, geometry, or the Bloom algorithm. `webgpuHdrBrightness` is a linear multiplier in the `0..32` range. When a matching compositing reference is present, it amplifies only the effect increment above that background and does not brighten the reference itself. High values let advanced users target more display highlight headroom, but the browser, operating system, or display may clip, compress, or tone-map them, so the value is not a fixed nit target.
 
 Explicit `effectBackend: 'webgpu'` and `'auto'` both resolve the complete-effect backend in WebGPU → WebGL2 → Canvas 2D order. The default remains the stable `'webgl2'`, so upgrading does not silently switch existing pages to WebGPU.
 

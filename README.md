@@ -159,6 +159,11 @@ new BAClickFX(options?: {
   clickTimeScale?: number,        // 点击时间倍率，不小于 0.01，默认 1
   trailTimeScale?: number,        // 拖尾时间倍率，不小于 0.01，默认 1
   effectBackend?: 'canvas2d' | 'webgl2' | 'webgpu' | 'auto', // 完整特效后端，默认 webgl2
+  webgpuHdrPeak?: number,         // Extended 线性峰值 2~4，默认 3
+  webgpuHdrBrightness?: number,   // Extended 特效整体亮度倍率 0~32，默认 1
+  webgpuHdrWhiteCore?: number,    // Extended 白核强度 0~1，默认 0.6
+  webgpuHdrWhiteStart?: number,   // Extended 白核起点 0~15.99，默认 1
+  webgpuHdrWhiteEnd?: number,     // Extended 白核终点 0.01~16，默认 5
   renderingMode?: 'enhanced' | 'legacy', // 渲染模式，默认 enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // Bloom 后端，默认 webgl2
   softwareBloomEnabled?: boolean, // 兼容旧 API：true 等同 software，false 等同 native
@@ -184,6 +189,8 @@ new BAClickFX(options?: {
 展示页在六档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与渲染后端正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
 
 WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 已协商扩展动态范围，并会把线性 HDR 结果编码为扩展 sRGB、保留超过 SDR 白色的高光；`'standard'` 表示 WebGPU Scene 与 Bloom 正常运行，但最终 Canvas 仍是 SDR；`'pending'` 表示正在申请设备或提交首帧；`'unavailable'` 表示当前没有可用的 WebGPU 输出。真正看到超白高光还需要 HDR 显示器、系统已开启 HDR、浏览器实现 WebGPU HDR Canvas，以及 `rgba16float + toneMapping: extended` 配置成功。
+
+`webgpuHdrPeak`、`webgpuHdrBrightness`、`webgpuHdrWhiteCore`、`webgpuHdrWhiteStart` 和 `webgpuHdrWhiteEnd` 只校准 WebGPU Extended Canvas 的最终 HDR 展示映射；WebGPU Standard、WebGL2 和 Canvas 2D 输出不受影响，也不会修改 Unity 特效参数、粒子数量、几何或 Bloom 算法。其中 `webgpuHdrBrightness` 是范围 `0..32` 的线性倍率：存在匹配的合成参考时只放大背景上方的特效增量，不会增亮参考背景本身。较高倍率允许高级用户利用更大的显示高光余量，但可能被浏览器、系统或显示器裁剪、压缩或色调映射，因而不代表固定尼特值。
 
 显式 `effectBackend: 'webgpu'` 和 `'auto'` 都按 WebGPU → WebGL2 → Canvas 2D 的顺序解析完整特效后端。默认值仍为稳定的 `'webgl2'`，因此升级不会自动改变现有页面的渲染后端。
 
