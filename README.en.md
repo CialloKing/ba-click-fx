@@ -664,9 +664,10 @@ Before changing Unity-derived parameters, projection conversion, or particle cre
 npm run verify:unity-reference -- --project "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab"
 npm run build
 npm run test:browser:built
+npm run test:browser:webgpu:optional
 ```
 
-If the resource audit and cross-backend count assertions both pass, investigate pixel conversion, DPR, timing, colour space, compositing, and Bloom. Do not rewrite confirmed Unity values to match a visual symptom.
+The standard browser matrix covers the WebGL2, Canvas, and Legacy paths; the separate optional WebGPU runtime gate checks the same count contract whenever a device is available. If the resource audit and cross-backend count assertions all pass, investigate pixel conversion, DPR, timing, colour space, compositing, and Bloom. Do not rewrite confirmed Unity values to match a visual symptom.
 
 ```bash
 git clone https://github.com/CialloKing/ba-click-fx.git

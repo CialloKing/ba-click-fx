@@ -63,14 +63,17 @@ npm run verify:unity-reference -- --project "D:\WebProjects\BA鼠标输入与点
 ```powershell
 npm run build
 npm run test:browser:built
+npm run test:browser:webgpu:optional
 ```
 
-数量夹具在 `full-webgl2`、`webgl2-bloom`、`software-bloom`、`native` 和 `legacy` 中使用同一输入，并精确断言：
+标准数量夹具在 `full-webgl2`、`webgl2-bloom`、`software-bloom`、`native` 和 `legacy` 中使用同一输入，并精确断言：
 
 - 配置仍为 2 个圆环、4 个点击碎片、拖尾上限 50；
 - 单次点击的运行时圆环和点击碎片数量与 Prefab 一致；
 - 单个足够长的拖尾确实达到 50，并在该处封顶；
 - 点击碎片与拖尾碎片的分类计数覆盖全部运行时碎片。
+
+独立的 WebGPU 运行时门禁在 WebGPU 可用时验证同一合同，还会检查单个 owner 的实际计数和跟踪表均为 50，并确认点击与拖尾碎片合计生成 `(4 + 50) × 6 = 324` 个三角顶点。使用 `--optional` 只允许机器缺少可用 WebGPU 设备时跳过，不会放宽已成功启动 WebGPU 后的断言。
 
 这些断言验证各后端消费同一份 Prefab 数量真值。生命周期、透明合成和像素基线测试仍有各自职责，不能替代数量合同。
 
