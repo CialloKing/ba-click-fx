@@ -403,11 +403,14 @@ verify(
       renderHdrUiOverlaySource,
     ) &&
     /collectHdrUiPrimitives\(\)/.test(renderHdrUiOverlaySource) &&
-    /\.hdr-ui-canvas\s*\{[\s\S]*?position: fixed;[\s\S]*?inset: 0;[\s\S]*?pointer-events: none;[\s\S]*?mix-blend-mode: plus-lighter;/.test(
+    /\.hdr-ui-canvas\s*\{[\s\S]*?position: fixed;[\s\S]*?inset: 0;[\s\S]*?z-index: 2147483645;[\s\S]*?pointer-events: none;[\s\S]*?mix-blend-mode: plus-lighter;/.test(
       styleCss,
     ) &&
+    !/effect\.updateConfig|setFxParams?|webgpuHdrBrightness/.test(
+      applyHdrUiSettingsSource,
+    ) &&
     !/hdrUi/i.test(typeDefinitions),
-  'UI HDR 严格依赖 Extended、共享主 Device 且保持为展示页私有能力',
+  'UI HDR 严格依赖 Extended、位于特效层下方且保持为展示页私有能力',
 );
 const outputCompositingSelect = indexHtml.match(
   /<select id="ctrlOutputCompositing"[\s\S]*?<\/select>/,

@@ -44,7 +44,8 @@ body.theme-pure-white::before {
 .hdr-ui-canvas {
   position: fixed;
   inset: 0;
-  z-index: 2147483647;
+  /* 全屏 plus-lighter Surface 必须位于特效层下方，避免钳制 HDR 特效高光。 */
+  z-index: 2147483645;
   display: none;
   width: 100vw;
   height: 100vh;
