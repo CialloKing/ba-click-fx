@@ -32,6 +32,7 @@ import {
   normalizeOverlayColorCompensationConfig,
   normalizeThemeColor,
   normalizeTimeScale,
+  normalizeWebGPUHdrPresentation,
   resolveHostCompositing,
   SIZE_CORRECTION,
 } from './config.js';
@@ -5777,6 +5778,10 @@ export class BAClickFX
    * @param {'source-over'|'screen'|'plus-lighter'} [options.hostCompositing]
    * @param {'dom-backdrop'|'transparent-window'|'native'} [options.hostCompositingSurface]
    * @param {'canvas2d'|'webgl2'|'webgpu'|'auto'} [options.effectBackend]
+   * @param {number} [options.webgpuHdrPeak]
+   * @param {number} [options.webgpuHdrWhiteCore]
+   * @param {number} [options.webgpuHdrWhiteStart]
+   * @param {number} [options.webgpuHdrWhiteEnd]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
    * @param {boolean} [options.softwareBloomEnabled]
@@ -5855,6 +5860,10 @@ export class BAClickFX
           options.effectBackend,
           compatibilityEffectBackend,
         ),
+        webgpuHdrPeak: options.webgpuHdrPeak,
+        webgpuHdrWhiteCore: options.webgpuHdrWhiteCore,
+        webgpuHdrWhiteStart: options.webgpuHdrWhiteStart,
+        webgpuHdrWhiteEnd: options.webgpuHdrWhiteEnd,
         renderingMode: options.renderingMode === 'legacy' ? 'legacy' : CONFIG.renderingMode,
         bloomBackend,
         // 保留旧布尔字段作为显式 Software 兼容别名。
@@ -9814,6 +9823,10 @@ export class BAClickFX
           overlayAlphaPolicy: this._getOverlayAlphaPolicy(),
           overlayAlphaLimit: this.config.overlayAlphaLimit,
           hostCompositing: this._getEffectiveHostCompositing(),
+          webgpuHdrPeak: this.config.webgpuHdrPeak,
+          webgpuHdrWhiteCore: this.config.webgpuHdrWhiteCore,
+          webgpuHdrWhiteStart: this.config.webgpuHdrWhiteStart,
+          webgpuHdrWhiteEnd: this.config.webgpuHdrWhiteEnd,
         },
         { preserveCanvas: true },
       );
@@ -10691,6 +10704,19 @@ export class BAClickFX
     if (isEffectBackend(overrides.effectBackend))
     {
       this.config.effectBackend = overrides.effectBackend;
+    }
+
+    if (
+      overrides.webgpuHdrPeak !== undefined ||
+      overrides.webgpuHdrWhiteCore !== undefined ||
+      overrides.webgpuHdrWhiteStart !== undefined ||
+      overrides.webgpuHdrWhiteEnd !== undefined
+    )
+    {
+      Object.assign(
+        this.config,
+        normalizeWebGPUHdrPresentation(overrides, this.config),
+      );
     }
 
     if (overrides.renderingMode === 'enhanced' || overrides.renderingMode === 'legacy')

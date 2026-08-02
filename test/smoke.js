@@ -1717,6 +1717,41 @@ assert(
     effect.getConfig().resolvedBloomBackend === 'software',
   'Canvas2D 实例只在显式请求时直接启用 Software Bloom',
 );
+effect.updateConfig(
+  {
+    webgpuHdrPeak: 3.5,
+    webgpuHdrWhiteCore: 0.8,
+    webgpuHdrWhiteStart: 6,
+    webgpuHdrWhiteEnd: 2,
+  },
+);
+let hdrPresentationConfig = effect.getConfig();
+
+assert(
+  hdrPresentationConfig.webgpuHdrPeak === 3.5 &&
+    hdrPresentationConfig.webgpuHdrWhiteCore === 0.8 &&
+    hdrPresentationConfig.webgpuHdrWhiteStart === 6 &&
+    hdrPresentationConfig.webgpuHdrWhiteEnd === 6.01,
+  '运行时 HDR 展示配置使用与构造配置相同的范围和阈值合同',
+);
+effect.updateConfig(
+  {
+    webgpuHdrPeak: CONFIG.webgpuHdrPeak,
+    webgpuHdrWhiteCore: CONFIG.webgpuHdrWhiteCore,
+    webgpuHdrWhiteStart: CONFIG.webgpuHdrWhiteStart,
+    webgpuHdrWhiteEnd: CONFIG.webgpuHdrWhiteEnd,
+  },
+);
+hdrPresentationConfig = effect.getConfig();
+assert(
+  hdrPresentationConfig.webgpuHdrPeak === CONFIG.webgpuHdrPeak &&
+    hdrPresentationConfig.webgpuHdrWhiteCore ===
+      CONFIG.webgpuHdrWhiteCore &&
+    hdrPresentationConfig.webgpuHdrWhiteStart ===
+      CONFIG.webgpuHdrWhiteStart &&
+    hdrPresentationConfig.webgpuHdrWhiteEnd === CONFIG.webgpuHdrWhiteEnd,
+  '运行时 HDR 展示配置可以恢复公共默认值',
+);
 const originalBloomBeginFrame = effect.bloomRenderer.beginFrame.bind(
   effect.bloomRenderer,
 );

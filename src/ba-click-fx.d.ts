@@ -139,6 +139,14 @@ declare module 'ba-click-fx'
     trailTimeScale?: number;
     /** 完整特效后端；默认 'webgl2'，WebGPU/WebGL2 不可用时安全回退 Canvas2D。 */
     effectBackend?: BAClickFXEffectBackend;
+    /** WebGPU Extended 输出的线性峰值，范围 2..4，默认 3。 */
+    webgpuHdrPeak?: number;
+    /** 高能颜色向中性白核混合的强度，范围 0..1，默认 0.6。 */
+    webgpuHdrWhiteCore?: number;
+    /** 白核混合开始的 SDR 超额线性能量，范围 0..15.99，默认 1。 */
+    webgpuHdrWhiteStart?: number;
+    /** 白核混合完成的 SDR 超额线性能量，范围 0.01..16，默认 5。 */
+    webgpuHdrWhiteEnd?: number;
     /** 渲染模式：'enhanced'（默认，完整 Bloom）或 'legacy'（Unity 材质主体 + Canvas shadowBlur）。 */
     renderingMode?: BAClickFXRenderingMode;
     /** Bloom 后端。默认 'webgl2'；GPU 不可用时回退原生辉光，Software 仅显式选择。 */
@@ -182,6 +190,10 @@ declare module 'ba-click-fx'
     clickTimeScale: number;
     trailTimeScale: number;
     effectBackend: BAClickFXEffectBackend;
+    webgpuHdrPeak: number;
+    webgpuHdrWhiteCore: number;
+    webgpuHdrWhiteStart: number;
+    webgpuHdrWhiteEnd: number;
     renderingMode: BAClickFXRenderingMode;
     bloomBackend: BAClickFXBloomBackend;
     /** 兼容旧 API；仅显式选择软件 Bloom 时为 true。 */

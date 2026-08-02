@@ -38,6 +38,14 @@ import {
   normalizeOverlayAlphaPolicy,
   normalizeOverlayColorCompensation,
 } from './overlay-compositing.js';
+import { WEBGPU_HDR_PRESENTATION_DEFAULTS } from './webgpu-hdr-presentation.js';
+
+const WEBGPU_HDR_PEAK_MIN = 2;
+const WEBGPU_HDR_PEAK_MAX = 4;
+const WEBGPU_HDR_WHITE_THRESHOLD_MIN = 0;
+const WEBGPU_HDR_WHITE_START_MAX = 15.99;
+const WEBGPU_HDR_WHITE_END_MAX = 16;
+const WEBGPU_HDR_WHITE_THRESHOLD_STEP = 0.01;
 
 // 极低倍率会让每帧逻辑时间几乎停滞；保留可预期的最小有效速度。
 export const MIN_TIME_SCALE = 0.01;
@@ -999,6 +1007,11 @@ export const CONFIG = Object.freeze(
     hostCompositingSurface: DEFAULT_HOST_COMPOSITING_SURFACE,
     // 默认由纯 WebGL2 接管完整 Scene；能力不足时运行时安全回退 Canvas2D。
     effectBackend: DEFAULT_EFFECT_BACKEND,
+    // 仅 WebGPU Extended 最终展示使用；不改变 Unity 发射和 Bloom 真值。
+    webgpuHdrPeak: WEBGPU_HDR_PRESENTATION_DEFAULTS.peak,
+    webgpuHdrWhiteCore: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteCore,
+    webgpuHdrWhiteStart: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteStart,
+    webgpuHdrWhiteEnd: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteEnd,
     // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
     // 替换为兼容性更高的 Canvas shadowBlur，并保留旧版拖尾合成风格。
     renderingMode: 'enhanced',
@@ -1190,6 +1203,65 @@ export function normalizeThemeColor(value, fallback = DEFAULT_THEME_COLOR)
   return value.toLowerCase();
 }
 
+function normalizeFiniteRange(value, fallback, minimum, maximum)
+{
+  const safeFallback = Number.isFinite(fallback)
+    ? Math.max(minimum, Math.min(maximum, fallback))
+    : minimum;
+
+  if (!Number.isFinite(value))
+  {
+    return safeFallback;
+  }
+
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+/**
+ * HDR 展示校准是 WebGPU 输出合同，不属于 Unity FX 参数树。
+ * 起止阈值始终保留一个滑块步长，避免 WGSL 出现退化 smoothstep。
+ */
+export function normalizeWebGPUHdrPresentation(
+  overrides = {},
+  fallback = WEBGPU_HDR_PRESENTATION_DEFAULTS,
+)
+{
+  const peak = normalizeFiniteRange(
+    overrides.webgpuHdrPeak,
+    fallback.webgpuHdrPeak ?? fallback.peak,
+    WEBGPU_HDR_PEAK_MIN,
+    WEBGPU_HDR_PEAK_MAX,
+  );
+  const whiteCore = normalizeFiniteRange(
+    overrides.webgpuHdrWhiteCore,
+    fallback.webgpuHdrWhiteCore ?? fallback.whiteCore,
+    0,
+    1,
+  );
+  const whiteStart = normalizeFiniteRange(
+    overrides.webgpuHdrWhiteStart,
+    fallback.webgpuHdrWhiteStart ?? fallback.whiteStart,
+    WEBGPU_HDR_WHITE_THRESHOLD_MIN,
+    WEBGPU_HDR_WHITE_START_MAX,
+  );
+  const requestedWhiteEnd = normalizeFiniteRange(
+    overrides.webgpuHdrWhiteEnd,
+    fallback.webgpuHdrWhiteEnd ?? fallback.whiteEnd,
+    WEBGPU_HDR_WHITE_THRESHOLD_MIN + WEBGPU_HDR_WHITE_THRESHOLD_STEP,
+    WEBGPU_HDR_WHITE_END_MAX,
+  );
+
+  return {
+    webgpuHdrPeak: peak,
+    webgpuHdrWhiteCore: whiteCore,
+    webgpuHdrWhiteStart: whiteStart,
+    webgpuHdrWhiteEnd: Math.max(
+      whiteStart + WEBGPU_HDR_WHITE_THRESHOLD_STEP,
+      requestedWhiteEnd,
+    ),
+  };
+}
+
 /**
  * 每个引擎实例持有独立的运行配置；Unity 参数本身保持只读。
  * @param {object} [overrides]
@@ -1261,6 +1333,10 @@ export function createConfig(overrides = {})
     overrides.themeColor,
     CONFIG.themeColor,
   );
+  const webgpuHdrPresentation = normalizeWebGPUHdrPresentation(
+    overrides,
+    CONFIG,
+  );
 
   return {
     ...CONFIG,
@@ -1276,6 +1352,7 @@ export function createConfig(overrides = {})
     hostCompositing,
     hostCompositingSurface,
     themeColor,
+    ...webgpuHdrPresentation,
     bloomBackend,
     softwareBloomEnabled: bloomBackend === 'software',
     isolatedCompositing: typeof overrides.isolatedCompositing === 'boolean'

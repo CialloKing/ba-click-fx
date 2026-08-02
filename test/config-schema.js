@@ -25,6 +25,7 @@ import {
   normalizeOverlayAlphaPolicyConfig,
   normalizeOverlayColorCompensationConfig,
   normalizeThemeColor,
+  normalizeWebGPUHdrPresentation,
   resolveHostCompositing,
 } from '../src/config.js';
 
@@ -213,6 +214,57 @@ check(
   createConfig({ themeColor: '#FF6969' }).themeColor === '#ff6969' &&
     createConfig({ themeColor: 'red' }).themeColor === DEFAULT_THEME_COLOR,
   '构造配置保存合法主题色并拒绝非十六进制颜色',
+);
+
+console.log('\nWebGPU HDR 展示配置合同');
+check(
+  CONFIG.webgpuHdrPeak === 3 &&
+    CONFIG.webgpuHdrWhiteCore === 0.6 &&
+    CONFIG.webgpuHdrWhiteStart === 1 &&
+    CONFIG.webgpuHdrWhiteEnd === 5,
+  '默认 HDR 展示映射使用受限峰值与渐进白核',
+);
+
+const normalizedHdrPresentation = normalizeWebGPUHdrPresentation(
+  {
+    webgpuHdrPeak: 8,
+    webgpuHdrWhiteCore: -1,
+    webgpuHdrWhiteStart: 7,
+    webgpuHdrWhiteEnd: 2,
+  },
+);
+
+check(
+  normalizedHdrPresentation.webgpuHdrPeak === 4 &&
+    normalizedHdrPresentation.webgpuHdrWhiteCore === 0 &&
+    normalizedHdrPresentation.webgpuHdrWhiteStart === 7 &&
+    normalizedHdrPresentation.webgpuHdrWhiteEnd === 7.01,
+  'HDR 展示配置钳制范围并维持有效白核阈值顺序',
+);
+
+const configuredHdrPresentation = createConfig(
+  {
+    webgpuHdrPeak: 2.5,
+    webgpuHdrWhiteCore: 0.75,
+    webgpuHdrWhiteStart: 0.5,
+    webgpuHdrWhiteEnd: 4,
+  },
+);
+const invalidHdrPresentation = createConfig(
+  {
+    webgpuHdrPeak: '4',
+    webgpuHdrWhiteCore: Number.NaN,
+  },
+);
+
+check(
+  configuredHdrPresentation.webgpuHdrPeak === 2.5 &&
+    configuredHdrPresentation.webgpuHdrWhiteCore === 0.75 &&
+    configuredHdrPresentation.webgpuHdrWhiteStart === 0.5 &&
+    configuredHdrPresentation.webgpuHdrWhiteEnd === 4 &&
+    invalidHdrPresentation.webgpuHdrPeak === CONFIG.webgpuHdrPeak &&
+    invalidHdrPresentation.webgpuHdrWhiteCore === CONFIG.webgpuHdrWhiteCore,
+  '构造配置保留合法 HDR 校准并让非法值恢复默认值',
 );
 
 console.log('\n透明合成配置合同');
