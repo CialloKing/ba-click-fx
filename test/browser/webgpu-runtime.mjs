@@ -615,7 +615,12 @@ async function startIntegration(page)
     };
 
     effect.webgpuEffectCanvas.dataset.test = 'integration-webgpu';
-    window.__BACLICKFX_WEBGPU_INTEGRATION__ = { effect, changes };
+    window.__BACLICKFX_WEBGPU_INTEGRATION__ =
+    {
+      effect,
+      changes,
+      device: effect.webgpuEffectRenderer?.device,
+    };
     return {
       requested: config.effectBackend,
       resolvedEffectBackend: config.resolvedEffectBackend,
@@ -628,6 +633,90 @@ async function startIntegration(page)
       runtimeGeometry,
     };
   }, TRAIL_SHARD_LIMIT_SEGMENTS);
+}
+
+async function switchIntegrationToWebGL2(page)
+{
+  return page.evaluate(async () =>
+  {
+    const state = window.__BACLICKFX_WEBGPU_INTEGRATION__;
+    const { effect, changes, device } = state;
+
+    effect.clear();
+    effect.updateConfig({ effectBackend: 'webgl2' });
+    effect.boom(160, 120);
+    const deadline = performance.now() + 4000;
+
+    while (
+      (
+        effect.getConfig().resolvedEffectBackend !== 'webgl2' ||
+        !effect.webglEffectVisible
+      ) &&
+      performance.now() < deadline
+    )
+    {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    }
+
+    await new Promise((resolvePromise) => requestAnimationFrame(resolvePromise));
+    const config = effect.getConfig();
+
+    effect.webglEffectCanvas.dataset.test = 'integration-webgl2-switch';
+    return {
+      resolvedEffectBackend: config.resolvedEffectBackend,
+      resolvedBloomBackend: config.resolvedBloomBackend,
+      resolvedWebGPUOutputMode: config.resolvedWebGPUOutputMode,
+      webgpuOutputMode: effect.webgpuEffectRenderer?.deviceManager.outputMode,
+      webgpuVisible: effect.webgpuEffectVisible,
+      webgpuDisplay: effect.webgpuEffectCanvas?.style.display,
+      webglVisible: effect.webglEffectVisible,
+      webglDisplay: effect.webglEffectCanvas?.style.display,
+      sameDevice: effect.webgpuEffectRenderer?.device === device,
+      changes: [...changes],
+    };
+  });
+}
+
+async function switchIntegrationBackToWebGPU(page)
+{
+  return page.evaluate(async () =>
+  {
+    const state = window.__BACLICKFX_WEBGPU_INTEGRATION__;
+    const { effect, changes, device } = state;
+
+    effect.clear();
+    effect.updateConfig({ effectBackend: 'webgpu' });
+    effect.boom(160, 120);
+    const deadline = performance.now() + 4000;
+
+    while (
+      (
+        effect.getConfig().resolvedEffectBackend !== 'webgpu' ||
+        !effect.webgpuEffectVisible
+      ) &&
+      performance.now() < deadline
+    )
+    {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    }
+
+    await effect.webgpuEffectRenderer?.device.queue.onSubmittedWorkDone();
+    const config = effect.getConfig();
+
+    effect.webgpuEffectCanvas.dataset.test = 'integration-webgpu-resumed';
+    return {
+      resolvedEffectBackend: config.resolvedEffectBackend,
+      resolvedBloomBackend: config.resolvedBloomBackend,
+      resolvedWebGPUOutputMode: config.resolvedWebGPUOutputMode,
+      outputMode: effect.webgpuEffectRenderer?.deviceManager.outputMode,
+      webgpuVisible: effect.webgpuEffectVisible,
+      webgpuDisplay: effect.webgpuEffectCanvas?.style.display,
+      webglVisible: effect.webglEffectVisible,
+      webglDisplay: effect.webglEffectCanvas?.style.display,
+      sameDevice: effect.webgpuEffectRenderer?.device === device,
+      changes: [...changes],
+    };
+  });
 }
 
 async function loseIntegrationDevice(page)
@@ -716,6 +805,95 @@ async function runIntegration(page)
   );
 
   assertVisiblePixels('BAClickFX WebGPU 首帧', webgpuPixels);
+  const switched = await switchIntegrationToWebGL2(page);
+  const switchedDetail = JSON.stringify(switched);
+
+  assert.equal(
+    switched.resolvedEffectBackend,
+    'webgl2',
+    `主动切换后没有进入 WebGL2: ${switchedDetail}`,
+  );
+  assert.equal(
+    switched.resolvedBloomBackend,
+    'webgl2',
+    `主动切换后的 Bloom 路由错误: ${switchedDetail}`,
+  );
+  assert.equal(
+    switched.resolvedWebGPUOutputMode,
+    'unavailable',
+    `WebGL2 模式仍公开缓存 HDR 状态: ${switchedDetail}`,
+  );
+  assert.equal(
+    switched.webgpuOutputMode,
+    'unconfigured',
+    `隐藏 WebGPU Canvas 未解除输出配置: ${switchedDetail}`,
+  );
+  assert.ok(
+    !switched.webgpuVisible &&
+      switched.webgpuDisplay === 'none' &&
+      switched.webglVisible &&
+      switched.webglDisplay !== 'none',
+    `WebGPU 与 WebGL2 可见层没有原子切换: ${switchedDetail}`,
+  );
+  assert.ok(switched.sameDevice, `切出 WebGPU 时不应销毁 Device: ${switchedDetail}`);
+  assert.equal(
+    switched.changes.join(','),
+    'webgpu,pending,webgl2',
+    `主动切出 WebGPU 的事件顺序错误: ${switchedDetail}`,
+  );
+  const switchedCanvas = page.locator(
+    'canvas[data-test="integration-webgl2-switch"]',
+  );
+  const switchedPixels = await decodeScreenshot(
+    page,
+    await switchedCanvas.screenshot(),
+  );
+
+  assertVisiblePixels('WebGPU 切出后的 WebGL2', switchedPixels);
+  const resumed = await switchIntegrationBackToWebGPU(page);
+  const resumedDetail = JSON.stringify(resumed);
+
+  assert.equal(
+    resumed.resolvedEffectBackend,
+    'webgpu',
+    `恢复后没有重新进入 WebGPU: ${resumedDetail}`,
+  );
+  assert.equal(
+    resumed.resolvedBloomBackend,
+    'webgpu',
+    `恢复后的 Bloom 路由错误: ${resumedDetail}`,
+  );
+  assert.ok(
+    resumed.outputMode === 'extended' || resumed.outputMode === 'standard',
+    `恢复后没有重新配置 Canvas 输出: ${resumedDetail}`,
+  );
+  assert.equal(
+    resumed.resolvedWebGPUOutputMode,
+    resumed.outputMode,
+    `恢复后的公开 HDR 状态错误: ${resumedDetail}`,
+  );
+  assert.ok(
+    resumed.webgpuVisible &&
+      resumed.webgpuDisplay !== 'none' &&
+      !resumed.webglVisible &&
+      resumed.webglDisplay === 'none',
+    `恢复 WebGPU 时存在重复可见 GPU 层: ${resumedDetail}`,
+  );
+  assert.ok(resumed.sameDevice, `恢复 WebGPU 应复用原 Device: ${resumedDetail}`);
+  assert.equal(
+    resumed.changes.join(','),
+    'webgpu,pending,webgl2,pending,webgpu',
+    `WebGPU 往返事件顺序错误: ${resumedDetail}`,
+  );
+  const resumedCanvas = page.locator(
+    'canvas[data-test="integration-webgpu-resumed"]',
+  );
+  const resumedPixels = await decodeScreenshot(
+    page,
+    await resumedCanvas.screenshot(),
+  );
+
+  assertVisiblePixels('恢复后的 WebGPU', resumedPixels);
   const fallback = await loseIntegrationDevice(page);
   const fallbackDetail = JSON.stringify(fallback);
 
@@ -737,7 +915,7 @@ async function runIntegration(page)
   assert.ok(fallback.webglVisible, `WebGL2 回退 Canvas 不可见: ${fallbackDetail}`);
   assert.equal(
     fallback.changes.join(','),
-    'webgpu,pending,webgl2',
+    'webgpu,pending,webgl2,pending,webgpu,pending,webgl2',
     `Device lost 事件顺序错误: ${fallbackDetail}`,
   );
 
@@ -757,6 +935,8 @@ async function runIntegration(page)
   });
   return {
     initial: { ...initial, pixels: webgpuPixels },
+    switched: { ...switched, pixels: switchedPixels },
+    resumed: { ...resumed, pixels: resumedPixels },
     fallback: { ...fallback, pixels: fallbackPixels },
   };
 }

@@ -1499,7 +1499,11 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     this.sceneOverlayFrameReady = false;
     this.sceneBackgroundFrameReady = false;
 
-    if (!this.available || !this.finalPipeline)
+    if (
+      !this.available ||
+      !this.finalPipeline ||
+      this.deviceManager.outputMode === 'unconfigured'
+    )
     {
       return;
     }
