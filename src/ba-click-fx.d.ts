@@ -15,6 +15,14 @@ declare module 'ba-click-fx'
     | 'source-over'
     | 'screen'
     | 'plus-lighter';
+  /** 最终混合发生在网页背景、透明窗口边界或宿主原生合成器。 */
+  export type BAClickFXHostCompositingSurface =
+    | 'dom-backdrop'
+    | 'transparent-window'
+    | 'native';
+  export type BAClickFXCompositingWarning =
+    | 'screen-requires-visible-backdrop'
+    | 'plus-lighter-requires-visible-backdrop';
   export type BAClickFXEffectBackend =
     'canvas2d' | 'webgl2' | 'webgpu' | 'auto';
   export type BAClickFXResolvedEffectBackend =
@@ -45,6 +53,17 @@ declare module 'ba-click-fx'
 
   export type BAClickFXEffectBackendChangeEvent =
     CustomEvent<BAClickFXEffectBackendChangeDetail>;
+
+  export interface BAClickFXHostCompositingChangeDetail
+  {
+    readonly requestedHostCompositing: BAClickFXHostCompositing;
+    readonly resolvedHostCompositing: BAClickFXHostCompositing;
+    readonly hostCompositingSurface: BAClickFXHostCompositingSurface;
+    readonly compositingWarning: BAClickFXCompositingWarning | null;
+  }
+
+  export type BAClickFXHostCompositingChangeEvent =
+    CustomEvent<BAClickFXHostCompositingChangeDetail>;
 
   export interface BAClickFXPointerInput
   {
@@ -102,6 +121,12 @@ declare module 'ba-click-fx'
      * 在线性 HDR 目标中执行 Add。已激活已知合成参考时恢复 source-over。
      */
     hostCompositing?: BAClickFXHostCompositing;
+    /**
+     * 最终宿主表面，默认 'dom-backdrop' 以保持 1.x 网页行为。透明
+     * WebView2/Electron 窗口应显式使用 'transparent-window'；原生合成器
+     * 能执行 Screen/Add 时使用 'native'。
+     */
+    hostCompositingSurface?: BAClickFXHostCompositingSurface;
     clickEnabled?: boolean;
     trailEnabled?: boolean;
     /** 无需按下鼠标，移动即显示拖尾。默认 false。 */
@@ -149,6 +174,7 @@ declare module 'ba-click-fx'
     overlayColorCompensation: BAClickFXOverlayColorCompensation;
     overlayAlphaLimit: number;
     hostCompositing: BAClickFXHostCompositing;
+    hostCompositingSurface: BAClickFXHostCompositingSurface;
     clickEnabled: boolean;
     trailEnabled: boolean;
     trailAlways: boolean;
@@ -180,6 +206,11 @@ declare module 'ba-click-fx'
 
   export interface BAClickFXConfigSnapshot extends BAClickFXConfig
   {
+    /** 保留兼容字段 hostCompositing，并显式标出调用方请求值。 */
+    readonly requestedHostCompositing: BAClickFXHostCompositing;
+    /** 根据输出路径、活动参考和宿主表面解析出的实际载荷/混合合同。 */
+    readonly resolvedHostCompositing: BAClickFXHostCompositing;
+    readonly compositingWarning: BAClickFXCompositingWarning | null;
     /** 最近一次解析的完整特效后端；首次 Scene 提交和恢复验证期间可为 'pending'。 */
     readonly resolvedEffectBackend: BAClickFXResolvedEffectBackend;
     /** WebGPU 可用不等于 HDR；只有 extended 会保留超过 SDR 白色的线性值。 */
@@ -359,6 +390,8 @@ declare module 'ba-click-fx'
   export const BLOOM_BACKEND_CHANGE_EVENT: 'baclickfxbackendchange';
   /** 主 Canvas 在完整特效后端解析状态变化时派发的事件名。 */
   export const EFFECT_BACKEND_CHANGE_EVENT: 'baclickfxeffectbackendchange';
+  /** 主 Canvas 在宿主合成解析状态变化时派发的事件名。 */
+  export const HOST_COMPOSITING_CHANGE_EVENT: 'baclickfxhostcompositingchange';
   export const UNITY_FX_TOUCH: UnityFxTouchConfig;
   export const SIZE_CORRECTION: number;
   export function createConfig(overrides?: Partial<BAClickFXConfig>): BAClickFXConfig;
@@ -411,6 +444,9 @@ declare module 'ba-click-fx'
       source: TexImageSource | null,
       options?: BAClickFXCompositingReferenceOptions,
     ): boolean;
+
+    /** 返回当前实际生效的宿主合成模式。 */
+    getEffectiveHostCompositing(): BAClickFXHostCompositing;
 
     /** 运行时更新合成合同、输入来源、时间倍率、渲染后端、DPR 与触摸行为。 */
     updateConfig(overrides: BAClickFXUpdateOptions): void;

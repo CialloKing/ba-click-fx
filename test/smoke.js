@@ -57,6 +57,7 @@ const {
   FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
+  HOST_COMPOSITING_CHANGE_EVENT,
   UNITY_FX_TOUCH,
   applyFxParamPatch,
   createConfig,
@@ -1346,6 +1347,10 @@ assert(
   '点击与拖尾的默认时间倍率均为 1',
 );
 assert(
+  CONFIG.hostCompositingSurface === 'dom-backdrop',
+  '未声明宿主表面时保留 1.x 的网页 DOM 背景合同',
+);
+assert(
   DEFAULT_THEME_COLOR === '#4ca7ff' &&
     CONFIG.themeColor === DEFAULT_THEME_COLOR,
   '正式入口导出默认游戏蓝并纳入基础配置',
@@ -1357,6 +1362,10 @@ assert(
 assert(
   EFFECT_BACKEND_CHANGE_EVENT === 'baclickfxeffectbackendchange',
   '导出完整特效后端解析状态事件名，调用方无需硬编码字符串',
+);
+assert(
+  HOST_COMPOSITING_CHANGE_EVENT === 'baclickfxhostcompositingchange',
+  '导出宿主合成解析状态事件名，调用方无需硬编码字符串',
 );
 assert(
   FX_PARAM_SCHEMA_VERSION === 1 &&
@@ -2942,12 +2951,23 @@ const compositingSwitchEffect = new BAClickFX(
     inputSource: 'manual',
   },
 );
+const hostCompositingEvents = [];
+
+compositingSwitchEffect.canvas.addEventListener(
+  HOST_COMPOSITING_CHANGE_EVENT,
+  (event) =>
+  {
+    hostCompositingEvents.push(event.detail);
+  },
+);
 
 assert(
   compositingSwitchEffect.overlayRoot.style.mixBlendMode ===
       'plus-lighter' &&
     compositingSwitchEffect.canvas.parentElement ===
-      compositingSwitchEffect.overlayRoot,
+      compositingSwitchEffect.overlayRoot &&
+    compositingSwitchEffect.getEffectiveHostCompositing() ===
+      'plus-lighter',
   '构造时宿主 Add 即挂载完整覆盖层组而不是单独混合内部 Canvas',
 );
 
@@ -2965,6 +2985,9 @@ assert(
   switchedCompositingConfig.overlayColorCompensation === 'bright-core' &&
     switchedCompositingConfig.overlayAlphaLimit === 0.7 &&
     switchedCompositingConfig.hostCompositing === 'source-over' &&
+    switchedCompositingConfig.requestedHostCompositing === 'source-over' &&
+    switchedCompositingConfig.resolvedHostCompositing === 'source-over' &&
+    switchedCompositingConfig.compositingWarning === null &&
     compositingSwitchEffect.lastSoftwareBloomFrame === null &&
     compositingSwitchEffect.overlayRoot.style.mixBlendMode === '' &&
     compositingSwitchEffect.canvas.parentElement === dom.body,
@@ -2976,13 +2999,16 @@ compositingSwitchEffect.updateConfig(
     overlayColorCompensation: 'bright',
     overlayAlphaLimit: Number.NaN,
     hostCompositing: 'multiply',
+    hostCompositingSurface: 'webview',
   },
 );
 assert(
   compositingSwitchEffect.getConfig().overlayColorCompensation ===
       'bright-core' &&
     compositingSwitchEffect.getConfig().overlayAlphaLimit === 0.7 &&
-    compositingSwitchEffect.getConfig().hostCompositing === 'source-over',
+    compositingSwitchEffect.getConfig().hostCompositing === 'source-over' &&
+    compositingSwitchEffect.getConfig().hostCompositingSurface ===
+      'dom-backdrop',
   'updateConfig 忽略非法透明合同值并保留上一份有效配置',
 );
 
@@ -2993,7 +3019,9 @@ assert(
   compositingSwitchEffect.setCompositingReference(knownReference) &&
     compositingSwitchEffect.overlayRoot.style.mixBlendMode === 'plus-lighter' &&
     compositingSwitchEffect.canvas.parentElement ===
-      compositingSwitchEffect.overlayRoot,
+      compositingSwitchEffect.overlayRoot &&
+    compositingSwitchEffect.getConfig().resolvedHostCompositing ===
+      'plus-lighter',
   '没有可消费参考的回退链继续保持未知背景宿主 Add',
 );
 
@@ -3005,7 +3033,8 @@ compositingSwitchEffect._requestCompositingMountRefresh();
 
 assert(
   compositingSwitchEffect.overlayRoot.style.mixBlendMode === '' &&
-    compositingSwitchEffect.canvas.parentElement === dom.body,
+    compositingSwitchEffect.canvas.parentElement === dom.body &&
+    compositingSwitchEffect.getEffectiveHostCompositing() === 'source-over',
   '活动 WebGL2 参考路径撤销宿主 Add，避免精确差值被二次增亮',
 );
 compositingSwitchEffect.webglEffectVisible = false;
@@ -3015,8 +3044,56 @@ assert(
     compositingSwitchEffect.overlayRoot.style.mixBlendMode ===
       'plus-lighter' &&
     compositingSwitchEffect.canvas.parentElement ===
-      compositingSwitchEffect.overlayRoot,
+      compositingSwitchEffect.overlayRoot &&
+    compositingSwitchEffect.getEffectiveHostCompositing() ===
+      'plus-lighter',
   '清除背景参考后立即恢复未知背景宿主 Add 合同',
+);
+
+compositingSwitchEffect.updateConfig(
+  { hostCompositingSurface: 'transparent-window' },
+);
+const transparentWindowConfig = compositingSwitchEffect.getConfig();
+
+assert(
+  transparentWindowConfig.hostCompositing === 'plus-lighter' &&
+    transparentWindowConfig.requestedHostCompositing === 'plus-lighter' &&
+    transparentWindowConfig.resolvedHostCompositing === 'source-over' &&
+    transparentWindowConfig.compositingWarning ===
+      'plus-lighter-requires-visible-backdrop' &&
+    compositingSwitchEffect.getEffectiveHostCompositing() === 'source-over' &&
+    compositingSwitchEffect.overlayRoot.style.mixBlendMode === '' &&
+    compositingSwitchEffect.canvas.parentElement === dom.body &&
+    hostCompositingEvents.at(-1)?.compositingWarning ===
+      'plus-lighter-requires-visible-backdrop',
+  '透明窗口保留请求值但解析为 source-over，并同步状态事件',
+);
+
+compositingSwitchEffect.updateConfig({ hostCompositing: 'screen' });
+assert(
+  compositingSwitchEffect.getConfig().compositingWarning ===
+      'screen-requires-visible-backdrop' &&
+    hostCompositingEvents.at(-1)?.requestedHostCompositing === 'screen',
+  '透明窗口切换 Screen 时更新可诊断警告',
+);
+
+compositingSwitchEffect.updateConfig({ hostCompositingSurface: 'native' });
+assert(
+  compositingSwitchEffect.getEffectiveHostCompositing() === 'screen' &&
+    compositingSwitchEffect.overlayRoot.style.mixBlendMode === '' &&
+    compositingSwitchEffect.canvas.parentElement ===
+      compositingSwitchEffect.overlayRoot &&
+    hostCompositingEvents.at(-1)?.hostCompositingSurface === 'native',
+  '原生合成器接收完整独立载荷，但库不会误加 CSS 混合',
+);
+
+compositingSwitchEffect.updateConfig(
+  { hostCompositingSurface: 'dom-backdrop' },
+);
+assert(
+  compositingSwitchEffect.overlayRoot.style.mixBlendMode === 'screen' &&
+    compositingSwitchEffect.getConfig().compositingWarning === null,
+  '恢复 DOM 背景表面后由内部根节点执行 Screen',
 );
 compositingSwitchEffect.destroy();
 
@@ -4829,6 +4906,22 @@ externalWebGLEffect.updateConfig({ hostCompositing: 'plus-lighter' });
 assert(
   externalCanvas.style.mixBlendMode === 'screen',
   '运行时切换宿主合成不会修改外部 Canvas 样式',
+);
+externalWebGLEffect.updateConfig(
+  { hostCompositingSurface: 'transparent-window' },
+);
+assert(
+  externalWebGLEffect._getCanvasOutputCompositing() === 'browser-overlay' &&
+    externalWebGLEffect.getEffectiveHostCompositing() === 'source-over' &&
+    externalCanvas.style.mixBlendMode === 'screen',
+  '透明窗口让外部 Canvas 回退普通覆盖载荷且不篡改调用方样式',
+);
+externalWebGLEffect.updateConfig({ hostCompositingSurface: 'native' });
+assert(
+  externalWebGLEffect._getCanvasOutputCompositing() === 'host-additive' &&
+    externalWebGLEffect.getEffectiveHostCompositing() === 'plus-lighter' &&
+    externalCanvas.style.mixBlendMode === 'screen',
+  '原生合成器继续从外部 Canvas 接收完整 Add 载荷',
 );
 externalWebGLEffect.updateConfig({ isolatedCompositing: true });
 assert(

@@ -17,6 +17,7 @@ import {
   isEffectBackend,
   isInputSource,
   isHostCompositing,
+  isHostCompositingSurface,
   isIndependentHostCompositing,
   isOverlayAlphaPolicy,
   isOverlayColorCompensation,
@@ -25,11 +26,13 @@ import {
   normalizeBloomBackend,
   normalizeEffectBackend,
   normalizeHostCompositing,
+  normalizeHostCompositingSurface,
   normalizeOverlayAlphaLimit,
   normalizeOverlayAlphaPolicyConfig,
   normalizeOverlayColorCompensationConfig,
   normalizeThemeColor,
   normalizeTimeScale,
+  resolveHostCompositing,
   SIZE_CORRECTION,
 } from './config.js';
 import { applyFxParamPatch as prepareFxParamPatch } from './fx-param-patch.js';
@@ -67,6 +70,7 @@ const TAU = Math.PI * 2;
 const LIGHT_BACKGROUND_CONTRAST_COLOR = [76, 255, 255];
 const BLOOM_BACKEND_CHANGE_EVENT = 'baclickfxbackendchange';
 const EFFECT_BACKEND_CHANGE_EVENT = 'baclickfxeffectbackendchange';
+const HOST_COMPOSITING_CHANGE_EVENT = 'baclickfxhostcompositingchange';
 const MAX_SCALED_TIME_DELTA_MS = Number.MAX_SAFE_INTEGER;
 const MAX_TRAIL_INNER_MITER_RATIO = 4;
 const MIN_TRAIL_SEGMENT_LENGTH = 0.000001;
@@ -5771,6 +5775,7 @@ export class BAClickFX
    * @param {'none'|'bright-core'} [options.overlayColorCompensation]
    * @param {number} [options.overlayAlphaLimit]
    * @param {'source-over'|'screen'|'plus-lighter'} [options.hostCompositing]
+   * @param {'dom-backdrop'|'transparent-window'|'native'} [options.hostCompositingSurface]
    * @param {'canvas2d'|'webgl2'|'webgpu'|'auto'} [options.effectBackend]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
@@ -5842,6 +5847,10 @@ export class BAClickFX
           options.hostCompositing,
           CONFIG.hostCompositing,
         ),
+        hostCompositingSurface: normalizeHostCompositingSurface(
+          options.hostCompositingSurface,
+          CONFIG.hostCompositingSurface,
+        ),
         effectBackend: normalizeEffectBackend(
           options.effectBackend,
           compatibilityEffectBackend,
@@ -5893,6 +5902,7 @@ export class BAClickFX
     this.compositingReferenceSource = null;
     this.compositingReferenceFit = 'cover';
     this.compositingMountPending = false;
+    this.hostCompositingState = this._resolveHostCompositingState();
 
     if (!this.canvas)
     {
@@ -6131,15 +6141,73 @@ export class BAClickFX
 
   _usesIndependentHostPayload()
   {
-    return this._usesUnknownBrowserOverlay() &&
-      isIndependentHostCompositing(this.config.hostCompositing);
+    return isIndependentHostCompositing(
+      this._getEffectiveHostCompositing(),
+    );
   }
 
   _getEffectiveHostCompositing()
   {
-    return this._usesIndependentHostPayload()
-      ? this.config.hostCompositing
-      : 'source-over';
+    return this._resolveHostCompositingState().resolvedHostCompositing;
+  }
+
+  getEffectiveHostCompositing()
+  {
+    return this._getEffectiveHostCompositing();
+  }
+
+  _resolveHostCompositingState()
+  {
+    const resolution = resolveHostCompositing(
+      {
+        outputCompositing: this.config.outputCompositing,
+        requestedHostCompositing: this.config.hostCompositing,
+        hostCompositingSurface: this.config.hostCompositingSurface,
+        hasCompositingReference: this._hasActiveCompositingReference(),
+      },
+    );
+
+    return {
+      requestedHostCompositing: this.config.hostCompositing,
+      hostCompositingSurface: this.config.hostCompositingSurface,
+      ...resolution,
+    };
+  }
+
+  _syncHostCompositingState()
+  {
+    const previous = this.hostCompositingState;
+    const next = this._resolveHostCompositingState();
+    const unchanged = previous &&
+      previous.requestedHostCompositing === next.requestedHostCompositing &&
+      previous.resolvedHostCompositing === next.resolvedHostCompositing &&
+      previous.hostCompositingSurface === next.hostCompositingSurface &&
+      previous.compositingWarning === next.compositingWarning;
+
+    this.hostCompositingState = next;
+
+    if (
+      unchanged ||
+      typeof CustomEvent !== 'function' ||
+      typeof this.canvas?.dispatchEvent !== 'function'
+    )
+    {
+      return;
+    }
+
+    try
+    {
+      this.canvas.dispatchEvent(
+        new CustomEvent(
+          HOST_COMPOSITING_CHANGE_EVENT,
+          { detail: { ...next } },
+        ),
+      );
+    }
+    catch
+    {
+      // 状态通知不能中断渲染；旧 DOM 环境仍可通过 getConfig() 查询。
+    }
   }
 
   _getCanvasOutputCompositing()
@@ -6169,6 +6237,8 @@ export class BAClickFX
 
   _requestCompositingMountRefresh()
   {
+    this._syncHostCompositingState();
+
     // 只要还有可见对象，就必须让当前像素先按新合同重绘，再改变根节点
     // 的混合模式；否则暂停帧或 Context 回退会被错误的 CSS 重新解释。
     if (this._hasVisibleEffects())
@@ -6195,6 +6265,8 @@ export class BAClickFX
   _applyCompositingMount()
   {
     const hostIndependent = this._usesIndependentHostPayload();
+    const usesDomBackdrop = this.config.hostCompositingSurface ===
+      'dom-backdrop';
 
     if (!this.ownsCanvas)
     {
@@ -6213,7 +6285,7 @@ export class BAClickFX
     const parent = grouped ? this.overlayRoot : this.overlayMountParent;
 
     // 子层先按普通 source-over 解析；宿主混合只允许在完整组上执行一次。
-    this.overlayRoot.style.mixBlendMode = hostIndependent
+    this.overlayRoot.style.mixBlendMode = hostIndependent && usesDomBackdrop
       ? this._getEffectiveHostCompositing()
       : '';
 
@@ -10476,6 +10548,8 @@ export class BAClickFX
     const previousBloomBackend = this.config.bloomBackend;
     const previousOutputCompositing = this.config.outputCompositing;
     const previousHostCompositing = this.config.hostCompositing;
+    const previousHostCompositingSurface =
+      this.config.hostCompositingSurface;
     let transparentContractChanged = false;
 
     if (
@@ -10575,6 +10649,14 @@ export class BAClickFX
       transparentContractChanged = transparentContractChanged ||
         overrides.hostCompositing !== this.config.hostCompositing;
       this.config.hostCompositing = overrides.hostCompositing;
+    }
+
+    if (isHostCompositingSurface(overrides.hostCompositingSurface))
+    {
+      transparentContractChanged = transparentContractChanged ||
+        overrides.hostCompositingSurface !==
+          this.config.hostCompositingSurface;
+      this.config.hostCompositingSurface = overrides.hostCompositingSurface;
     }
 
     if (typeof overrides.clickEnabled === 'boolean')
@@ -10725,7 +10807,8 @@ export class BAClickFX
 
     if (
       previousOutputCompositing !== this.config.outputCompositing ||
-      previousHostCompositing !== this.config.hostCompositing
+      previousHostCompositing !== this.config.hostCompositing ||
+      previousHostCompositingSurface !== this.config.hostCompositingSurface
     )
     {
       this._requestCompositingMountRefresh();
@@ -11063,8 +11146,11 @@ export class BAClickFX
 
   getConfig()
   {
+    const hostCompositingState = this._resolveHostCompositingState();
+
     return {
       ...this.config,
+      ...hostCompositingState,
       resolvedEffectBackend: this.resolvedEffectBackend,
       resolvedBloomBackend: this.resolvedBloomBackend,
       resolvedWebGPUOutputMode: this._getResolvedWebGPUOutputMode(),
@@ -11207,6 +11293,7 @@ export {
   FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
+  HOST_COMPOSITING_CHANGE_EVENT,
   UNITY_FX_TOUCH,
   createConfig,
   SIZE_CORRECTION,
