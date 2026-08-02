@@ -73,6 +73,7 @@
     "test:webgpu": "node test/webgpu-device.js && node test/webgpu-shaders.js",
     "test:config": "node test/config-schema.js && node test/fx-param-patch.js && node test/range-snap.js",
     "test:browser:built": "node test/browser/run.mjs",
+    "test:browser:unity-counts": "node test/browser/run.mjs --unity-counts-only",
     "test:browser:webgpu": "node test/browser/webgpu-runtime.mjs",
     "test:browser:webgpu:optional": "node test/browser/webgpu-runtime.mjs --optional",
     "test:browser": "npm run build && npm run test:browser:built",
