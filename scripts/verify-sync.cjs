@@ -759,7 +759,8 @@ verify(
   /getThemeBackgroundCss\(name\)/.test(applyThemeSource) &&
     /document\.body\.style\.backgroundAttachment = 'fixed';/.test(applyThemeSource) &&
     /syncPureWhiteIsolationContrast\(\)/.test(applyThemeSource) &&
-    /applyThemeCompositingReference\(name\)/.test(applyThemeSource),
+    /applyThemeCompositingReference\(name\)/.test(applyThemeSource) &&
+    !/revokeCustomBackgroundObjectUrl/.test(applyThemeSource),
   '内置主题统一进入对应的页面合成参考选择路径',
 );
 verify(
@@ -808,8 +809,11 @@ verify(
     ) &&
     /pageBackgroundRasterSource = null/.test(
       applyPageCompositingReferenceImageSource,
+    ) &&
+    /revokeCustomBackgroundObjectUrl\(rawValue\)/.test(
+      applyCustomBackgroundSource,
     ),
-  '自定义背景独立显示，已解码图片才会作为 CORS 合规的合成参考上传',
+  '自定义背景保留可重用的本地 URL，并只上传已解码的合成参考',
 );
 verify(
   /const source = compositingReferenceMode === 'match-page'[\s\S]*?\? pageBackgroundRasterSource[\s\S]*?: null/.test(

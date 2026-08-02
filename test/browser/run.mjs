@@ -3428,7 +3428,6 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
     await page.locator('.theme-btn[data-theme="深紫"]').click();
     await page.waitForFunction(
       (sourceUrl) =>
-        window.__BACLICKFX_REVOKED_OBJECT_URLS__.includes(sourceUrl) &&
         !document.body.style.background.includes(sourceUrl),
       firstBackground.sourceUrl,
     );
@@ -3442,19 +3441,66 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
             'match-page';
       },
     );
-    const releasedOnThemeChange = await page.evaluate(
+    const retainedOnThemeChange = await page.evaluate(
       (sourceUrl) =>
-        window.__BACLICKFX_REVOKED_OBJECT_URLS__.includes(sourceUrl),
+        !window.__BACLICKFX_REVOKED_OBJECT_URLS__.includes(sourceUrl) &&
+          document.getElementById('ctrlCustomBg').value === sourceUrl,
       firstBackground.sourceUrl,
     );
 
     await page.locator('.theme-btn[data-theme="custom"]').click();
+    await page.locator('#btnApplyBg').click();
+    await page.waitForFunction(
+      (sourceUrl) =>
+      {
+        const effect = window.BAClickFXDemo;
+        const source = effect?.compositingReferenceSource;
+
+        return source instanceof HTMLImageElement &&
+          source.src === sourceUrl &&
+          document.body.style.background.includes(sourceUrl) &&
+          document.body.classList.contains('compositing-reference-matched');
+      },
+      firstBackground.sourceUrl,
+    );
+    const reappliedBackground = await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+
+      return {
+        background: document.body.style.background,
+        referenceSource: effect.compositingReferenceSource?.src ?? null,
+        sourceKnown: effect.compositingReferenceSource !== null,
+        matched:
+          document.body.classList.contains('compositing-reference-matched'),
+      };
+    });
+
+    assert(
+      reappliedBackground.sourceKnown &&
+        reappliedBackground.matched &&
+        reappliedBackground.referenceSource === firstBackground.sourceUrl &&
+        reappliedBackground.background.includes(firstBackground.sourceUrl),
+      '本地图片经过预设主题往返后无法再次建立匹配页面的合成参考',
+      { firstBackground, reappliedBackground },
+    );
+
     await page.locator('#ctrlCustomBgFile').setInputFiles(
       {
         name: 'demo-background-reload.png',
         mimeType: 'image/png',
         buffer: Buffer.from(localImage, 'base64'),
       },
+    );
+    await page.waitForFunction(
+      (sourceUrl) =>
+        window.__BACLICKFX_REVOKED_OBJECT_URLS__.includes(sourceUrl),
+      firstBackground.sourceUrl,
+    );
+    const releasedOnReplacement = await page.evaluate(
+      (sourceUrl) =>
+        window.__BACLICKFX_REVOKED_OBJECT_URLS__.includes(sourceUrl),
+      firstBackground.sourceUrl,
     );
     await page.waitForFunction(
       () =>
@@ -3494,8 +3540,13 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
     });
 
     assert(
-      releasedOnThemeChange,
-      '展示页切换背景后没有释放旧的本地图片 object URL',
+      retainedOnThemeChange,
+      '展示页切换预设主题时提前撤销了仍可重新应用的本地图片 object URL',
+      firstBackground,
+    );
+    assert(
+      releasedOnReplacement,
+      '展示页替换本地图片后没有释放旧的 object URL',
       firstBackground,
     );
     assert(
@@ -3508,9 +3559,11 @@ async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
     );
     metrics.demoBackgroundFile =
     {
-      releasedOnThemeChange,
+      retainedOnThemeChange,
+      releasedOnReplacement,
       firstBackground,
       unknownBackground,
+      reappliedBackground,
       restoredMatchedBackground,
       restoredBackground,
       typedFileBackground,

@@ -59,7 +59,8 @@ function revokeCustomBackgroundObjectUrl(except = null)
     return;
   }
 
-  // Blob URL 只在当前页面持有的文件会话中有效；离开背景后立即归还内存。
+  // 输入框会保留当前 blob: 值供主题往返后再次应用；只在替换文件或
+  // 页面销毁时撤销，避免 UI 指向已经失效的对象 URL。
   URL.revokeObjectURL(customBackgroundObjectUrl);
   customBackgroundObjectUrl = null;
 }
@@ -303,7 +304,6 @@ function applyTheme(name)
     return false;
   }
 
-  revokeCustomBackgroundObjectUrl();
   document.body.style.background = bg;
   document.body.style.backgroundAttachment = 'fixed';
   document.body.classList.toggle('theme-pure-white', name === PURE_WHITE_THEME);
