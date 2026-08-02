@@ -8,6 +8,7 @@ import { createServer as createViteServer } from 'vite';
 const rootDir = resolve(import.meta.dirname, '../..');
 const FIXTURE_WIDTH = 320;
 const FIXTURE_HEIGHT = 240;
+const TRAIL_SHARD_LIMIT_SEGMENTS = 24;
 const OPTIONAL = process.argv.includes('--optional');
 const DIRECT_CASES = [1, 2].flatMap((dpr) =>
   ['scene', 'browser-overlay'].flatMap((outputCompositing) =>
@@ -537,7 +538,7 @@ function assertSdrColorParity(preferred, standard)
 
 async function startIntegration(page)
 {
-  return page.evaluate(async () =>
+  return page.evaluate(async (trailSegmentCount) =>
   {
     const { BAClickFX } = await import('/src/fx.js');
     const changes = [];
@@ -546,6 +547,7 @@ async function startIntegration(page)
         effectBackend: 'webgpu',
         inputSource: 'manual',
         maxDpr: 1,
+        trailAlways: true,
       },
     );
 
@@ -565,7 +567,31 @@ async function startIntegration(page)
     }
 
     await effect.webgpuEffectRenderer?.device.queue.onSubmittedWorkDone();
+
+    // 后端初始化耗时不属于粒子生命周期合同；就绪后重建同一帧输入，确保
+    // WebGPU 提交和 owner 计数观察的是完整的 4 + 50 个碎片。
+    effect.clear();
+    effect.boom(160, 120);
+
+    for (let index = 0; index <= trailSegmentCount; index++)
+    {
+      effect.pointerMove(
+        {
+          x: index % 2 === 0 ? 8 : effect.width - 8,
+          y: effect.height / 2,
+          pointerId: 17,
+          pointerType: 'mouse',
+        },
+      );
+    }
+
+    await new Promise((resolvePromise) => requestAnimationFrame(resolvePromise));
+    await effect.webgpuEffectRenderer?.device.queue.onSubmittedWorkDone();
     const config = effect.getConfig();
+    const trailOwnerId = effect.activeTrailOwnerId;
+    const trailShards = effect.shards.filter(
+      (shard) => shard.kind === 'trail',
+    );
     const runtimeGeometry =
     {
       waves: effect.waves.length,
@@ -574,6 +600,14 @@ async function startIntegration(page)
         0,
       ),
       clickShards: effect.shards.filter((shard) => shard.kind === 'click').length,
+      trailShards: trailShards.length,
+      trailOwnerCount: new Set(
+        trailShards.map((shard) => shard.ownerId),
+      ).size,
+      trailOwnerShards: trailShards.filter(
+        (shard) => shard.ownerId === trailOwnerId,
+      ).length,
+      trackedTrailOwnerShards: effect.trailShardCounts.get(trailOwnerId) ?? 0,
       sceneRingVertexCount:
         effect.webgpuEffectRenderer?.stats.sceneRingVertexCount,
       sceneTriangleVertexCount:
@@ -593,7 +627,7 @@ async function startIntegration(page)
       changes: [...changes],
       runtimeGeometry,
     };
-  });
+  }, TRAIL_SHARD_LIMIT_SEGMENTS);
 }
 
 async function loseIntegrationDevice(page)
@@ -663,10 +697,14 @@ async function runIntegration(page)
       waves: 1,
       rings: 2,
       clickShards: 4,
+      trailShards: 50,
+      trailOwnerCount: 1,
+      trailOwnerShards: 50,
+      trackedTrailOwnerShards: 50,
       sceneRingVertexCount: 9216,
-      sceneTriangleVertexCount: 24,
+      sceneTriangleVertexCount: 324,
     },
-    `WebGPU 必须复用 Unity 点击几何合同: ${initialDetail}`,
+    `WebGPU 必须复用 Unity 点击与单实例拖尾几何合同: ${initialDetail}`,
   );
 
   const webgpuCanvas = page.locator(
