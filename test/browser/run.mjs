@@ -760,6 +760,15 @@ function validatePrefabCountContract(result)
   const runtime = result.runtime;
 
   assert(
+    result.route.resolvedEffectBackend === result.expectedRoute.effectBackend &&
+      result.route.resolvedBloomBackend === result.expectedRoute.bloomBackend,
+    `${currentLabel}: 长拖尾数量夹具没有停留在请求的渲染后端`,
+    {
+      expected: result.expectedRoute,
+      route: result.route,
+    },
+  );
+  assert(
     runtime.configuredRingCount === 2 &&
       runtime.configuredClickShardCount === 4 &&
       runtime.configuredTrailShardLimit === 50,
