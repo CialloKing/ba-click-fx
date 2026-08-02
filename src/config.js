@@ -23,6 +23,12 @@ const HOST_COMPOSITING_MODES = new Set([
   'screen',
   'plus-lighter',
 ]);
+const DEFAULT_HOST_COMPOSITING_SURFACE = 'dom-backdrop';
+const HOST_COMPOSITING_SURFACES = new Set([
+  'dom-backdrop',
+  'transparent-window',
+  'native',
+]);
 const DEFAULT_OVERLAY_ALPHA_POLICY = 'coverage';
 const DEFAULT_OVERLAY_COLOR_COMPENSATION = 'none';
 
@@ -989,6 +995,8 @@ export const CONFIG = Object.freeze(
     overlayAlphaLimit: DEFAULT_OVERLAY_ALPHA_LIMIT,
     // 普通 source-over 不假定宿主可见背景；网页加色必须显式启用。
     hostCompositing: DEFAULT_HOST_COMPOSITING,
+    // 省略能力声明时保留 1.x 的网页 DOM 合成行为。
+    hostCompositingSurface: DEFAULT_HOST_COMPOSITING_SURFACE,
     // 默认由纯 WebGL2 接管完整 Scene；能力不足时运行时安全回退 Canvas2D。
     effectBackend: DEFAULT_EFFECT_BACKEND,
     // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
@@ -1106,6 +1114,62 @@ export function normalizeHostCompositing(
   return isHostCompositing(value) ? value : fallback;
 }
 
+export function isHostCompositingSurface(value)
+{
+  return HOST_COMPOSITING_SURFACES.has(value);
+}
+
+export function normalizeHostCompositingSurface(
+  value,
+  fallback = DEFAULT_HOST_COMPOSITING_SURFACE,
+)
+{
+  return isHostCompositingSurface(value) ? value : fallback;
+}
+
+/**
+ * 将调用方的混合请求与最终宿主表面的能力分开解析。透明窗口后方的
+ * 桌面不属于 DOM backdrop，CSS Screen/Add 无法跨越窗口合成边界。
+ */
+export function resolveHostCompositing(
+  {
+    outputCompositing = DEFAULT_OUTPUT_COMPOSITING,
+    requestedHostCompositing = DEFAULT_HOST_COMPOSITING,
+    hostCompositingSurface = DEFAULT_HOST_COMPOSITING_SURFACE,
+    hasCompositingReference = false,
+  } = {},
+)
+{
+  const requested = normalizeHostCompositing(requestedHostCompositing);
+  const surface = normalizeHostCompositingSurface(hostCompositingSurface);
+  const independentRequested = isIndependentHostCompositing(requested);
+
+  if (
+    outputCompositing !== 'browser-overlay' ||
+    hasCompositingReference ||
+    !independentRequested
+  )
+  {
+    return {
+      resolvedHostCompositing: 'source-over',
+      compositingWarning: null,
+    };
+  }
+
+  if (surface === 'transparent-window')
+  {
+    return {
+      resolvedHostCompositing: 'source-over',
+      compositingWarning: `${requested}-requires-visible-backdrop`,
+    };
+  }
+
+  return {
+    resolvedHostCompositing: requested,
+    compositingWarning: null,
+  };
+}
+
 export function isTimeScale(value)
 {
   return Number.isFinite(value) && value >= MIN_TIME_SCALE;
@@ -1189,6 +1253,10 @@ export function createConfig(overrides = {})
     overrides.hostCompositing,
     CONFIG.hostCompositing,
   );
+  const hostCompositingSurface = normalizeHostCompositingSurface(
+    overrides.hostCompositingSurface,
+    CONFIG.hostCompositingSurface,
+  );
   const themeColor = normalizeThemeColor(
     overrides.themeColor,
     CONFIG.themeColor,
@@ -1206,6 +1274,7 @@ export function createConfig(overrides = {})
     overlayColorCompensation,
     overlayAlphaLimit,
     hostCompositing,
+    hostCompositingSurface,
     themeColor,
     bloomBackend,
     softwareBloomEnabled: bloomBackend !== 'native',
