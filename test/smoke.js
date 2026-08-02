@@ -907,8 +907,8 @@ if (sourceMode)
       `${label} 对累计粗级四点扩散并单点加入当前细级`,
     );
     assert(
-      source.includes(
-        "'u_accumulatedCoarse',\n      accumulatedCoarseTexture,",
+      /'u_accumulatedCoarse',\r?\n\s+accumulatedCoarseTexture,/.test(
+        source,
       ) &&
         source.includes(
           "this._bindTexture(program, 'u_currentFine', fineLevel.down.texture, 1);",
