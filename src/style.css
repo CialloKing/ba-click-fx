@@ -502,6 +502,24 @@ kbd {
   text-align: right;
 }
 
+.hdr-presentation-controls
+{
+  margin: -2px 0 10px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(123, 225, 177, 0.28);
+  transition: opacity 0.18s ease;
+}
+
+.hdr-presentation-controls.is-inactive
+{
+  opacity: 0.42;
+}
+
+#ctrlHdrPresentationPreset
+{
+  width: 164px;
+}
+
 .transparent-compositing-controls
 {
   margin: -2px 0 10px;

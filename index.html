@@ -236,6 +236,38 @@ fx.setPaused(true, { clear: true });</code></pre>
         </dl>
         <p id="renderHdrStatusNote" class="render-status-note">浏览器侧判断；实际峰值亮度由系统和屏幕决定。</p>
       </div>
+      <p id="hdrPresentationHeading" class="sub-heading">HDR 显示映射</p>
+      <div
+        id="hdrPresentationControls"
+        class="hdr-presentation-controls is-inactive"
+        aria-disabled="true"
+      >
+        <label class="ctrl">
+          <span>高光预设</span>
+          <select id="ctrlHdrPresentationPreset" class="ctrl-select" disabled>
+            <option value="balanced" selected>平衡白核（默认）</option>
+            <option value="bright">明亮白核</option>
+            <option value="color">保留原始色相</option>
+            <option value="custom">自定义</option>
+          </select>
+        </label>
+        <label class="ctrl">
+          <span>线性峰值 <output id="outWebGPUHdrPeak">3.00</output></span>
+          <input type="range" id="ctrlWebGPUHdrPeak" min="2" max="4" step="0.01" value="3" disabled />
+        </label>
+        <label class="ctrl">
+          <span>白核强度 <output id="outWebGPUHdrWhiteCore">0.60</output></span>
+          <input type="range" id="ctrlWebGPUHdrWhiteCore" min="0" max="1" step="0.01" value="0.6" disabled />
+        </label>
+        <label class="ctrl">
+          <span>白核起点 <output id="outWebGPUHdrWhiteStart">1.00</output></span>
+          <input type="range" id="ctrlWebGPUHdrWhiteStart" min="0" max="8" step="0.01" value="1" disabled />
+        </label>
+        <label class="ctrl">
+          <span>白核终点 <output id="outWebGPUHdrWhiteEnd">5.00</output></span>
+          <input type="range" id="ctrlWebGPUHdrWhiteEnd" min="0.01" max="8" step="0.01" value="5" disabled />
+        </label>
+      </div>
       </details>
       <details open>
       <summary id="hostApiSummary">宿主控制 API</summary>

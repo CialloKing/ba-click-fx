@@ -818,6 +818,127 @@ const RENDER_MODE_CONFIGS = Object.freeze(
     },
   },
 );
+const HDR_PRESENTATION_PRESETS = Object.freeze(
+  {
+    balanced:
+    {
+      webgpuHdrPeak: CONFIG.webgpuHdrPeak,
+      webgpuHdrWhiteCore: CONFIG.webgpuHdrWhiteCore,
+      webgpuHdrWhiteStart: CONFIG.webgpuHdrWhiteStart,
+      webgpuHdrWhiteEnd: CONFIG.webgpuHdrWhiteEnd,
+    },
+    bright:
+    {
+      webgpuHdrPeak: 3.5,
+      webgpuHdrWhiteCore: 0.8,
+      webgpuHdrWhiteStart: 0.75,
+      webgpuHdrWhiteEnd: 4,
+    },
+    color:
+    {
+      webgpuHdrPeak: 3,
+      webgpuHdrWhiteCore: 0,
+      webgpuHdrWhiteStart: 1,
+      webgpuHdrWhiteEnd: 5,
+    },
+  },
+);
+const HDR_PRESENTATION_CONTROLS = Object.freeze(
+  [
+    ['ctrlWebGPUHdrPeak', 'outWebGPUHdrPeak', 'webgpuHdrPeak'],
+    [
+      'ctrlWebGPUHdrWhiteCore',
+      'outWebGPUHdrWhiteCore',
+      'webgpuHdrWhiteCore',
+    ],
+    [
+      'ctrlWebGPUHdrWhiteStart',
+      'outWebGPUHdrWhiteStart',
+      'webgpuHdrWhiteStart',
+    ],
+    [
+      'ctrlWebGPUHdrWhiteEnd',
+      'outWebGPUHdrWhiteEnd',
+      'webgpuHdrWhiteEnd',
+    ],
+  ],
+);
+
+function findHdrPresentationPreset(snapshot)
+{
+  for (const [name, preset] of Object.entries(HDR_PRESENTATION_PRESETS))
+  {
+    if (Object.entries(preset).every(([key, value]) =>
+      Math.abs(snapshot[key] - value) <= 0.000001))
+    {
+      return name;
+    }
+  }
+
+  return 'custom';
+}
+
+function persistHdrPresentation(snapshot)
+{
+  for (const [controlId, , configKey] of HDR_PRESENTATION_CONTROLS)
+  {
+    localStorage.setItem('bafx-' + controlId, String(snapshot[configKey]));
+  }
+
+  localStorage.setItem(
+    'bafx-ctrlHdrPresentationPreset',
+    findHdrPresentationPreset(snapshot),
+  );
+}
+
+function syncHdrPresentationControls(snapshot = effect.getConfig())
+{
+  const container = document.getElementById('hdrPresentationControls');
+  const presetControl = document.getElementById(
+    'ctrlHdrPresentationPreset',
+  );
+  const active = snapshot.resolvedEffectBackend === 'webgpu' &&
+    snapshot.resolvedWebGPUOutputMode === 'extended';
+
+  container?.classList.toggle('is-inactive', !active);
+  container?.setAttribute('aria-disabled', String(!active));
+
+  if (presetControl)
+  {
+    presetControl.disabled = !active;
+    presetControl.value = findHdrPresentationPreset(snapshot);
+  }
+
+  for (const [controlId, outputId, configKey] of HDR_PRESENTATION_CONTROLS)
+  {
+    const control = document.getElementById(controlId);
+    const output = document.getElementById(outputId);
+
+    if (control)
+    {
+      control.disabled = !active;
+      control.value = String(snapshot[configKey]);
+    }
+
+    if (output)
+    {
+      output.textContent = snapshot[configKey].toFixed(2);
+    }
+  }
+}
+
+function applyHdrPresentation(overrides, persist = true)
+{
+  effect.updateConfig(overrides);
+  const snapshot = effect.getConfig();
+
+  syncHdrPresentationControls(snapshot);
+
+  if (persist)
+  {
+    persistHdrPresentation(snapshot);
+  }
+}
 
 function updateRenderBackendStatus()
 {
@@ -959,6 +1080,7 @@ function updateRenderBackendStatus()
   document.getElementById('renderHdrStatusNote').textContent =
     d.renderHdrStatusNote;
   status.dataset.hdrState = presentationState;
+  syncHdrPresentationControls(snapshot);
 }
 
 function applyRenderMode(mode)
@@ -999,6 +1121,31 @@ if (ctrlRenderMode)
 
     applyRenderMode(mode);
     localStorage.setItem('bafx-ctrlRenderMode', mode);
+  });
+}
+
+const ctrlHdrPresentationPreset = document.getElementById(
+  'ctrlHdrPresentationPreset',
+);
+
+if (ctrlHdrPresentationPreset)
+{
+  ctrlHdrPresentationPreset.addEventListener('change', () =>
+  {
+    const preset = HDR_PRESENTATION_PRESETS[ctrlHdrPresentationPreset.value];
+
+    if (preset)
+    {
+      applyHdrPresentation(preset);
+    }
+  });
+}
+
+for (const [controlId, outputId, configKey] of HDR_PRESENTATION_CONTROLS)
+{
+  bindRange(controlId, outputId, (value) =>
+  {
+    applyHdrPresentation({ [configKey]: value });
   });
 }
 
@@ -1326,6 +1473,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlDpr').value = '2';
   document.getElementById('outDpr').textContent = '2.00';
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
+  document.getElementById('ctrlHdrPresentationPreset').value = 'balanced';
   document.getElementById('ctrlOutputCompositing').value =
     DEFAULT_OUTPUT_COMPOSITING;
   document.getElementById('ctrlOverlayAlphaPolicy').value =
@@ -1433,6 +1581,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
       trailEnabled: true,
       trailAlways: false,
       ...RENDER_MODE_CONFIGS[DEFAULT_RENDER_MODE],
+      ...HDR_PRESENTATION_PRESETS.balanced,
       outputCompositing: DEFAULT_OUTPUT_COMPOSITING,
       overlayAlphaPolicy: DEFAULT_OVERLAY_ALPHA_POLICY,
       overlayColorCompensation: DEFAULT_OVERLAY_COLOR_COMPENSATION,
@@ -1446,6 +1595,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   manualPointerId = null;
   updateHostApiStatus();
   requestAnimationFrame(updateRenderBackendStatus);
+  syncHdrPresentationControls(effect.getConfig());
   applyTheme('蔚蓝');
 
   for (const key of Object.keys(localStorage))
@@ -1652,6 +1802,16 @@ const I18N = {
     renderHdrVerdictUnavailable: 'WebGPU HDR 不可用',
     renderHdrVerdictInactive: '未启用 WebGPU HDR',
     renderHdrStatusNote: '浏览器侧判断；实际峰值亮度由系统和屏幕决定。',
+    hdrPresentationHeading: 'HDR 显示映射',
+    labelHdrPresentationPreset: '高光预设',
+    hdrPresentationPresetBalanced: '平衡白核（默认）',
+    hdrPresentationPresetBright: '明亮白核',
+    hdrPresentationPresetColor: '保留原始色相',
+    hdrPresentationPresetCustom: '自定义',
+    labelWebGPUHdrPeak: '线性峰值',
+    labelWebGPUHdrWhiteCore: '白核强度',
+    labelWebGPUHdrWhiteStart: '白核起点',
+    labelWebGPUHdrWhiteEnd: '白核终点',
     labelClickEnabled: '启用点击特效',
     labelRingHdr: '圆环 HDR 强度',
     labelRingRadMin: '圆环起始半径',
@@ -1785,6 +1945,16 @@ const I18N = {
     renderHdrVerdictUnavailable: 'WebGPU HDR unavailable',
     renderHdrVerdictInactive: 'WebGPU HDR not enabled',
     renderHdrStatusNote: 'Browser-side verdict; peak luminance depends on the system and display.',
+    hdrPresentationHeading: 'HDR Presentation Mapping',
+    labelHdrPresentationPreset: 'Highlight Preset',
+    hdrPresentationPresetBalanced: 'Balanced White Core (Default)',
+    hdrPresentationPresetBright: 'Bright White Core',
+    hdrPresentationPresetColor: 'Preserve Original Hue',
+    hdrPresentationPresetCustom: 'Custom',
+    labelWebGPUHdrPeak: 'Linear Peak',
+    labelWebGPUHdrWhiteCore: 'White-core Strength',
+    labelWebGPUHdrWhiteStart: 'White-core Start',
+    labelWebGPUHdrWhiteEnd: 'White-core End',
     labelClickEnabled: 'Enable Click',
     labelRingHdr: 'Ring HDR Intensity',
     labelRingRadMin: 'Ring Radius Min',
@@ -1908,6 +2078,11 @@ function switchLanguage(lang)
     ctrlOpacity: d.labelOpacity,
     ctrlDpr: d.labelDpr,
     ctrlRenderMode: d.labelRenderMode,
+    ctrlHdrPresentationPreset: d.labelHdrPresentationPreset,
+    ctrlWebGPUHdrPeak: d.labelWebGPUHdrPeak,
+    ctrlWebGPUHdrWhiteCore: d.labelWebGPUHdrWhiteCore,
+    ctrlWebGPUHdrWhiteStart: d.labelWebGPUHdrWhiteStart,
+    ctrlWebGPUHdrWhiteEnd: d.labelWebGPUHdrWhiteEnd,
     ctrlOutputCompositing: d.labelOutputCompositing,
     ctrlOverlayAlphaPolicy: d.labelOverlayAlphaPolicy,
     ctrlOverlayColorCompensation: d.labelOverlayColorCompensation,
@@ -2011,6 +2186,23 @@ function switchLanguage(lang)
     }
   });
 
+  const hdrPresentationPresetOptions = {
+    balanced: d.hdrPresentationPresetBalanced,
+    bright: d.hdrPresentationPresetBright,
+    color: d.hdrPresentationPresetColor,
+    custom: d.hdrPresentationPresetCustom,
+  };
+
+  document.querySelectorAll(
+    '#ctrlHdrPresentationPreset option',
+  ).forEach((option) =>
+  {
+    if (hdrPresentationPresetOptions[option.value])
+    {
+      option.textContent = hdrPresentationPresetOptions[option.value];
+    }
+  });
+
   const outputCompositingOptions = {
     scene: d.outputCompositingScene,
     'browser-overlay': d.outputCompositingTransparentOverlay,
@@ -2098,6 +2290,8 @@ function switchLanguage(lang)
 
   // 按钮
   document.getElementById('hostApiSummary').textContent = d.hostApiSummary;
+  document.getElementById('hdrPresentationHeading').textContent =
+    d.hdrPresentationHeading;
   document.getElementById('btnReset').textContent = d.btnReset;
   document.getElementById('customBgCtrl')?.querySelector('span') && (document.getElementById('customBgCtrl').querySelector('span').textContent = d.customBgLabel);
   document.getElementById('customBgFileCtrl')?.querySelector('span') && (document.getElementById('customBgFileCtrl').querySelector('span').textContent = d.customBgFileLabel);
@@ -2204,6 +2398,28 @@ switchLanguage(currentLang);
 
   // 默认值也走同一条路径，确保首次打开即可显示能力探测后的实际后端。
   applyRenderMode(initialRenderMode);
+
+  const savedHdrPresentation = {};
+
+  for (const [controlId, , configKey] of HDR_PRESENTATION_CONTROLS)
+  {
+    const savedValue = localStorage.getItem('bafx-' + controlId);
+
+    if (savedValue !== null && Number.isFinite(Number(savedValue)))
+    {
+      savedHdrPresentation[configKey] = Number(savedValue);
+    }
+  }
+
+  const savedHdrPreset = localStorage.getItem(
+    'bafx-ctrlHdrPresentationPreset',
+  );
+  const restoredHdrPresentation = Object.keys(savedHdrPresentation).length > 0
+    ? savedHdrPresentation
+    : HDR_PRESENTATION_PRESETS[savedHdrPreset] ??
+      HDR_PRESENTATION_PRESETS.balanced;
+
+  applyHdrPresentation(restoredHdrPresentation, false);
 
   const savedOutputCompositing = localStorage.getItem(
     'bafx-ctrlOutputCompositing',
