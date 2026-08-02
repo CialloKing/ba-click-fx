@@ -41,19 +41,6 @@ body.theme-pure-white::before {
   display: none;
 }
 
-.hdr-ui-canvas {
-  position: fixed;
-  inset: 0;
-  /* 全屏 plus-lighter Surface 必须位于特效层下方，避免钳制 HDR 特效高光。 */
-  z-index: 2147483645;
-  display: none;
-  width: 100vw;
-  height: 100vh;
-  pointer-events: none;
-  mix-blend-mode: plus-lighter;
-  contain: strict;
-}
-
 /* ── Floating Hero ──────────────────────────────────────────────────────── */
 
 .hero-float {
@@ -1008,4 +995,111 @@ kbd {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.6);
   overflow-wrap: anywhere;
+}
+
+/* ── CSS HDR UI ─────────────────────────────────────────────────────────── */
+
+:root {
+  /* 脚本会用内联扩展色覆盖这些回退值；变量本身不会改变 SDR 外观。 */
+  --hdr-ui-primary-core: color(srgb-linear 0.3 1.6 3.2 / 0.82);
+  --hdr-ui-primary-glow: color(srgb-linear 0.05 0.4 1 / 0.28);
+  --hdr-ui-green-core: color(srgb-linear 0.35 2 1.05 / 0.82);
+  --hdr-ui-green-glow: color(srgb-linear 0.06 0.5 0.24 / 0.26);
+}
+
+body[data-hdr-ui-state='extended'] .hero-float h1,
+body[data-hdr-ui-state='extended'] .panel-toggle,
+body[data-hdr-ui-state='extended'] .render-backend-status,
+body[data-hdr-ui-state='extended'] .hdr-ui-controls,
+body[data-hdr-ui-state='extended'] .intro-section,
+body[data-hdr-ui-state='extended'] .hint-bar,
+body[data-hdr-ui-state='extended'] .panel.open {
+  dynamic-range-limit: no-limit;
+}
+
+body[data-hdr-ui-state='extended'] .hero-float h1 {
+  position: relative;
+}
+
+body[data-hdr-ui-state='extended'] .hero-float h1::after {
+  position: absolute;
+  right: 0;
+  bottom: -5px;
+  left: 0;
+  height: 1px;
+  background: var(--hdr-ui-primary-core);
+  box-shadow:
+    0 0 3px var(--hdr-ui-primary-core),
+    0 0 12px var(--hdr-ui-primary-glow);
+  content: '';
+  dynamic-range-limit: no-limit;
+  pointer-events: none;
+}
+
+body[data-hdr-ui-state='extended'] .panel-toggle {
+  border-color: var(--hdr-ui-primary-core);
+  box-shadow:
+    inset 0 0 0 1px var(--hdr-ui-primary-glow),
+    0 0 12px var(--hdr-ui-primary-glow);
+}
+
+body[data-hdr-ui-state='extended'] .render-backend-status {
+  box-shadow:
+    inset 1px 0 0 var(--hdr-ui-green-core),
+    -5px 0 12px -6px var(--hdr-ui-green-glow);
+}
+
+body[data-hdr-ui-state='extended'] .hdr-ui-controls {
+  border-left-color: var(--hdr-ui-green-core);
+  box-shadow: -5px 0 12px -6px var(--hdr-ui-green-glow);
+}
+
+body[data-hdr-ui-state='extended'] .intro-section {
+  box-shadow:
+    inset 0 0 0 1px var(--hdr-ui-primary-core),
+    0 0 14px -4px var(--hdr-ui-primary-glow);
+}
+
+body[data-hdr-ui-state='extended'] .hint-bar {
+  box-shadow:
+    inset 0 1px 0 var(--hdr-ui-primary-core),
+    0 -5px 14px -8px var(--hdr-ui-primary-glow);
+}
+
+body[data-hdr-ui-state='extended'] .panel.open {
+  box-shadow:
+    inset 1px 0 0 var(--hdr-ui-primary-core),
+    -6px 0 16px -8px var(--hdr-ui-primary-glow);
+}
+
+body[data-hdr-ui-state='extended'] :is(
+  .hero-link,
+  .lang-toggle,
+  button,
+  .ctrl-select,
+  .ctrl input[type='range'],
+  .ctrl input[type='color'],
+  .custom-bg-input,
+  .panel-section summary,
+  .intro-section summary,
+  .intro-section nav a
+) {
+  dynamic-range-limit: no-limit;
+}
+
+body[data-hdr-ui-state='extended'] :is(
+  .hero-link,
+  .lang-toggle,
+  button,
+  .ctrl-select,
+  .ctrl input[type='range'],
+  .ctrl input[type='color'],
+  .custom-bg-input,
+  .panel-section summary,
+  .intro-section summary,
+  .intro-section nav a
+):not(:disabled):is(:hover, :focus-visible) {
+  outline: 1px solid var(--hdr-ui-primary-core);
+  outline-offset: 2px;
+  box-shadow: 0 0 8px var(--hdr-ui-primary-glow);
 }

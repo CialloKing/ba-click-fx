@@ -1003,19 +1003,33 @@ async function readDemoHdrUiState(page)
 {
   return page.evaluate(() =>
   {
-    const canvas = document.getElementById('hdrUiCanvas');
     const config = window.BAClickFXDemo?.getConfig?.();
+    const rootStyle = getComputedStyle(document.documentElement);
+    const statusStyle = getComputedStyle(
+      document.getElementById('renderBackendStatus'),
+    );
 
     return {
       requestedBackend: config?.effectBackend,
       resolvedBackend: config?.resolvedEffectBackend,
       outputMode: config?.resolvedWebGPUOutputMode,
       bodyState: document.body.dataset.hdrUiState,
-      canvasOutput: canvas?.dataset.hdrUiOutput,
-      primitives: Number(canvas?.dataset.hdrUiPrimitives ?? 0),
-      display: canvas ? getComputedStyle(canvas).display : 'missing',
-      width: canvas?.width ?? 0,
-      height: canvas?.height ?? 0,
+      cssExtendedColor: CSS.supports(
+        'color',
+        'color(srgb-linear 0.25 1 2)',
+      ),
+      cssDynamicRangeLimit: CSS.supports(
+        'dynamic-range-limit',
+        'no-limit',
+      ),
+      surfaceCount: document.querySelectorAll(
+        '#hdrUiCanvas, .hdr-ui-canvas',
+      ).length,
+      primaryCore: rootStyle.getPropertyValue('--hdr-ui-primary-core').trim(),
+      statusDynamicRangeLimit: statusStyle.getPropertyValue(
+        'dynamic-range-limit',
+      ),
+      statusBoxShadow: statusStyle.boxShadow,
       enabled: document.getElementById('ctrlHdrUiEnabled')?.checked,
       enabledDisabled: document.getElementById('ctrlHdrUiEnabled')?.disabled,
       brightness: document.getElementById('ctrlHdrUiBrightness')?.value,
@@ -1141,12 +1155,13 @@ async function runDemoHdrUiEffectIsolation(page)
     effect.paused = true;
     effect.lastClickTimeSource = null;
     effect.lastTrailTimeSource = null;
-    const hdrUiCanvas = document.getElementById('hdrUiCanvas');
     const effectCanvas = effect.webgpuEffectCanvas;
 
     return {
       effectZIndex: Number(getComputedStyle(effectCanvas).zIndex),
-      hdrUiZIndex: Number(getComputedStyle(hdrUiCanvas).zIndex),
+      hdrUiSurfaceCount: document.querySelectorAll(
+        '#hdrUiCanvas, .hdr-ui-canvas',
+      ).length,
       waveAges: effect.waves.map((wave) => wave.ageMs),
       waveCount: effect.waves.length,
       shardCount: effect.shards.length,
@@ -1191,8 +1206,8 @@ async function runDemoHdrUiEffectIsolation(page)
   );
 
   assert.ok(
-    fixedFrame.hdrUiZIndex < fixedFrame.effectZIndex,
-    `HDR UI 层覆盖了点击特效层: ${JSON.stringify(fixedFrame)}`,
+    fixedFrame.hdrUiSurfaceCount === 0,
+    `CSS HDR UI 不应保留独立全屏 Surface: ${JSON.stringify(fixedFrame)}`,
   );
   assert.deepEqual(
     fixedFrame.waveAges,
@@ -1256,7 +1271,7 @@ async function runDemoHdrUiEffectIsolation(page)
     fixedFrame:
     {
       effectZIndex: fixedFrame.effectZIndex,
-      hdrUiZIndex: fixedFrame.hdrUiZIndex,
+      hdrUiSurfaceCount: fixedFrame.hdrUiSurfaceCount,
       waveAges: fixedFrame.waveAges,
       waveCount: fixedFrame.waveCount,
       shardCount: fixedFrame.shardCount,
@@ -1279,7 +1294,7 @@ async function runDemoHdrUiIntegration(page, origin)
 
   assert.equal(initial.requestedBackend, 'webgl2', `展示页默认后端错误: ${initialDetail}`);
   assert.equal(initial.bodyState, 'inactive', `默认 UI HDR 状态错误: ${initialDetail}`);
-  assert.equal(initial.display, 'none', `默认 UI HDR Canvas 未隐藏: ${initialDetail}`);
+  assert.equal(initial.surfaceCount, 0, `默认不应创建 HDR UI Surface: ${initialDetail}`);
   assert.ok(
     initial.enabledDisabled && initial.brightnessDisabled,
     `默认 UI HDR 控件不应可用: ${initialDetail}`,
@@ -1298,7 +1313,7 @@ async function runDemoHdrUiIntegration(page, origin)
     );
     assert.ok(
       negotiated.bodyState === 'inactive' &&
-        negotiated.display === 'none' &&
+        negotiated.surfaceCount === 0 &&
         negotiated.enabledDisabled &&
         negotiated.brightnessDisabled,
       `WebGPU SDR 不应启用 UI HDR: ${negotiatedDetail}`,
@@ -1306,26 +1321,31 @@ async function runDemoHdrUiIntegration(page, origin)
     return { initial, negotiated, extendedCovered: false };
   }
 
-  await page.waitForFunction(() =>
+  if (!negotiated.cssExtendedColor || !negotiated.cssDynamicRangeLimit)
   {
-    const canvas = document.getElementById('hdrUiCanvas');
+    assert.ok(
+      negotiated.bodyState === 'unavailable' &&
+        negotiated.surfaceCount === 0 &&
+        negotiated.enabledDisabled &&
+        negotiated.brightnessDisabled,
+      `CSS HDR 不可用时必须禁用 UI HDR: ${negotiatedDetail}`,
+    );
+    return { initial, negotiated, extendedCovered: false };
+  }
 
-    return document.body.dataset.hdrUiState === 'extended' &&
-      Number(canvas?.dataset.hdrUiPrimitives ?? 0) > 0 &&
-      getComputedStyle(canvas).display !== 'none';
-  });
+  await page.waitForFunction(() =>
+    document.body.dataset.hdrUiState === 'extended');
   await page.evaluate(() =>
     window.BAClickFXDemo.webgpuEffectRenderer.device.queue.onSubmittedWorkDone());
   const extended = await readDemoHdrUiState(page);
   const extendedDetail = JSON.stringify(extended);
 
   assert.ok(
-    extended.canvasOutput === 'extended' &&
-      extended.primitives > 0 &&
-      extended.display !== 'none' &&
-      extended.width > 0 &&
-      extended.height > 0,
-    `UI HDR Canvas 未完成可见提交: ${extendedDetail}`,
+    extended.surfaceCount === 0 &&
+      extended.primaryCore.startsWith('color(srgb-linear') &&
+      extended.statusDynamicRangeLimit === 'no-limit' &&
+      extended.statusBoxShadow !== 'none',
+    `CSS HDR UI 未完成可见样式应用: ${extendedDetail}`,
   );
   assert.ok(
     extended.enabled &&
@@ -1347,11 +1367,10 @@ async function runDemoHdrUiIntegration(page, origin)
 
   assert.ok(
     !disabled.enabled &&
-      disabled.canvasOutput === 'inactive' &&
-      disabled.primitives === 0 &&
-      disabled.display === 'none' &&
+      disabled.surfaceCount === 0 &&
+      disabled.statusBoxShadow === 'none' &&
       disabled.storedEnabled === 'false',
-    `关闭 UI HDR 后 Surface 仍然活动: ${disabledDetail}`,
+    `关闭 UI HDR 后扩展样式仍然活动: ${disabledDetail}`,
   );
   const screenshotDifference = await measureScreenshotDifference(
     page,
@@ -1383,39 +1402,32 @@ async function runDemoHdrUiIntegration(page, origin)
   );
   const effectIsolation = await runDemoHdrUiEffectIsolation(page);
 
-  await page.evaluate(() =>
-  {
-    window.__BACLICKFX_DEMO_HDR_UI_DEVICE__ =
-      window.BAClickFXDemo.webgpuEffectRenderer.device;
-  });
-
   await selectDemoRenderMode(page, 'full-webgl2');
   const switched = await readDemoHdrUiState(page);
   const switchedDetail = JSON.stringify(switched);
 
   assert.ok(
     switched.bodyState === 'inactive' &&
-      switched.canvasOutput === 'inactive' &&
-      switched.primitives === 0 &&
-      switched.display === 'none' &&
+      switched.surfaceCount === 0 &&
+      switched.statusBoxShadow === 'none' &&
       switched.brightnessDisabled,
-    `切出 WebGPU 后 UI HDR Surface 仍然活动: ${switchedDetail}`,
+    `切出 WebGPU 后 CSS HDR UI 仍然活动: ${switchedDetail}`,
   );
 
   await selectDemoRenderMode(page, 'full-webgpu');
   await page.waitForFunction(() =>
-    document.body.dataset.hdrUiState === 'extended' &&
-      Number(document.getElementById('hdrUiCanvas')?.dataset.hdrUiPrimitives ?? 0) > 0);
+    document.body.dataset.hdrUiState === 'extended');
   const resumed = await page.evaluate(() =>
   ({
     state: document.body.dataset.hdrUiState,
-    sameDevice: window.BAClickFXDemo.webgpuEffectRenderer.device ===
-      window.__BACLICKFX_DEMO_HDR_UI_DEVICE__,
+    surfaceCount: document.querySelectorAll(
+      '#hdrUiCanvas, .hdr-ui-canvas',
+    ).length,
   }));
 
   assert.ok(
-    resumed.state === 'extended' && resumed.sameDevice,
-    `恢复 WebGPU 后 UI HDR 未复用主 Device: ${JSON.stringify(resumed)}`,
+    resumed.state === 'extended' && resumed.surfaceCount === 0,
+    `恢复 WebGPU 后 CSS HDR UI 状态错误: ${JSON.stringify(resumed)}`,
   );
 
   await page.evaluate(() => document.getElementById('btnReset').click());
@@ -1427,7 +1439,8 @@ async function runDemoHdrUiIntegration(page, origin)
   assert.ok(
     reset.requestedBackend === 'webgl2' &&
       reset.bodyState === 'inactive' &&
-      reset.display === 'none' &&
+      reset.surfaceCount === 0 &&
+      reset.primaryCore === extended.primaryCore &&
       reset.enabled &&
       reset.brightness === '4' &&
       reset.brightnessOutput === '4.00' &&

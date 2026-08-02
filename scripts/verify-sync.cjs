@@ -359,13 +359,14 @@ const applyHdrUiSettingsSource = getFunctionSource(
   mainJs,
   'applyHdrUiSettings',
 );
-const renderHdrUiOverlaySource = getFunctionSource(
+const supportsHdrUiCssSource = getFunctionSource(
   mainJs,
-  'renderHdrUiOverlay',
+  'supportsHdrUiCss',
 );
-const hdrUiCanvasTag = indexHtml.match(
-  /<canvas[\s\S]*?id="hdrUiCanvas"[\s\S]*?<\/canvas>/,
-)?.[0] ?? '';
+const updateHdrUiCssColorsSource = getFunctionSource(
+  mainJs,
+  'updateHdrUiCssColors',
+);
 const hdrUiBrightnessControl = indexHtml.match(
   /<input[^>]*id="ctrlHdrUiBrightness"[^>]*>/,
 )?.[0] ?? '';
@@ -376,7 +377,7 @@ const outputCompositingPosition = indexHtml.indexOf(
 );
 
 verify(
-  /aria-hidden="true"/.test(hdrUiCanvasTag) &&
+  !/hdrUiCanvas|hdr-ui-canvas/.test(indexHtml) &&
     /id="ctrlHdrUiEnabled" checked disabled/.test(indexHtml) &&
     /min="1"/.test(hdrUiBrightnessControl) &&
     /max="16"/.test(hdrUiBrightnessControl) &&
@@ -390,22 +391,30 @@ verify(
 verify(
   /resolvedEffectBackend === 'webgpu'/.test(syncHdrUiOverlaySource) &&
     /resolvedWebGPUOutputMode === 'extended'/.test(syncHdrUiOverlaySource) &&
-    /effect\.webgpuEffectRenderer\?\.device/.test(syncHdrUiOverlaySource) &&
-    /renderer\.configure\(device\)/.test(syncHdrUiOverlaySource) &&
-    /hdrUiRenderer\.suspend\(\)/.test(syncHdrUiOverlaySource) &&
+    /supportsHdrUiCss\(\)/.test(syncHdrUiOverlaySource) &&
+    /updateHdrUiCssColors\(\)/.test(syncHdrUiOverlaySource) &&
+    /dataset\.hdrUiState = 'unavailable'/.test(syncHdrUiOverlaySource) &&
+    /dataset\.hdrUiState = hdrUiEnabled \? 'extended' : 'disabled'/.test(
+      syncHdrUiOverlaySource,
+    ) &&
+    /CSS\.supports\('color', 'color\(srgb-linear 0\.25 1 2\)'\)/.test(
+      supportsHdrUiCssSource,
+    ) &&
+    /CSS\.supports\('dynamic-range-limit', 'no-limit'\)/.test(
+      supportsHdrUiCssSource,
+    ) &&
     /Math\.max\(1, Math\.min\(16, settings\.brightness\)\)/.test(
       applyHdrUiSettingsSource,
     ) &&
     /bafx-ctrlHdrUiEnabled/.test(applyHdrUiSettingsSource) &&
     /bafx-ctrlHdrUiBrightness/.test(applyHdrUiSettingsSource) &&
-    /brightness: hdrUiBrightness/.test(renderHdrUiOverlaySource) &&
-    /dpr: Math\.min\(1\.5, Math\.max\(1, effect\.dpr \|\| 1\)\)/.test(
-      renderHdrUiOverlaySource,
-    ) &&
-    /collectHdrUiPrimitives\(\)/.test(renderHdrUiOverlaySource) &&
-    /\.hdr-ui-canvas\s*\{[\s\S]*?position: fixed;[\s\S]*?inset: 0;[\s\S]*?z-index: 2147483645;[\s\S]*?pointer-events: none;[\s\S]*?mix-blend-mode: plus-lighter;/.test(
+    /--hdr-ui-primary-core/.test(updateHdrUiCssColorsSource) &&
+    /--hdr-ui-green-glow/.test(updateHdrUiCssColorsSource) &&
+    /body\[data-hdr-ui-state='extended'\][\s\S]*?dynamic-range-limit: no-limit;/.test(
       styleCss,
     ) &&
+    !/hdr-ui-canvas|mix-blend-mode: plus-lighter/.test(styleCss) &&
+    !/WebGPUHdrUiRenderer|webgpu-hdr-ui/.test(mainJs) &&
     !/effect\.updateConfig|setFxParams?|webgpuHdrBrightness/.test(
       applyHdrUiSettingsSource,
     ) &&

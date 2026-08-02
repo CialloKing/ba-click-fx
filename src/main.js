@@ -11,7 +11,6 @@ import {
 } from './theme-background.js';
 import { resolveHdrPresentationState } from './hdr-presentation-status.js';
 import { snapRangeValue } from './range-snap.js';
-import { WebGPUHdrUiRenderer } from './webgpu-hdr-ui.js';
 
 function acceptDemoPointer(event)
 {
@@ -33,11 +32,6 @@ window.BAClickFXDemo = effect;
 const DEFAULT_HDR_UI_BRIGHTNESS = 4;
 let hdrUiEnabled = true;
 let hdrUiBrightness = DEFAULT_HDR_UI_BRIGHTNESS;
-let hdrUiRenderer = null;
-let hdrUiRenderFrame = 0;
-let hdrUiHoverTarget = null;
-let hdrUiFocusTarget = null;
-let hdrUiResizeObserver = null;
 
 // ── 主题预设 ────────────────────────────────────────────────────────────
 const PURE_WHITE_THEME = '纯白';
@@ -918,77 +912,23 @@ function mixLinearRgb(left, right, amount)
     value + (right[index] - value) * amount);
 }
 
-function ensureHdrUiRenderer()
+function supportsHdrUiCss()
 {
-  if (hdrUiRenderer)
-  {
-    return hdrUiRenderer;
-  }
-
-  let canvas = document.getElementById('hdrUiCanvas');
-
-  if (!canvas)
-  {
-    canvas = document.createElement('canvas');
-    canvas.id = 'hdrUiCanvas';
-    canvas.className = 'hdr-ui-canvas';
-    canvas.setAttribute('aria-hidden', 'true');
-    document.body.insertBefore(canvas, effect.overlayRoot ?? null);
-  }
-
-  hdrUiRenderer = new WebGPUHdrUiRenderer(canvas);
-  return hdrUiRenderer;
+  return typeof CSS !== 'undefined' &&
+    typeof CSS.supports === 'function' &&
+    CSS.supports('color', 'color(srgb-linear 0.25 1 2)') &&
+    CSS.supports('dynamic-range-limit', 'no-limit');
 }
 
-function isVisibleHdrUiElement(element)
+function formatHdrUiCssColor(linearColor, intensity, alpha)
 {
-  if (!element?.isConnected)
-  {
-    return false;
-  }
+  const channels = linearColor.map((value) =>
+    Math.max(0, value * intensity).toFixed(6));
 
-  const style = window.getComputedStyle(element);
-  const rect = element.getBoundingClientRect();
-
-  return style.display !== 'none' &&
-    style.visibility !== 'hidden' &&
-    Number(style.opacity) > 0 &&
-    rect.width > 0 &&
-    rect.height > 0 &&
-    rect.right >= 0 &&
-    rect.bottom >= 0 &&
-    rect.left <= window.innerWidth &&
-    rect.top <= window.innerHeight;
+  return `color(srgb-linear ${channels.join(' ')} / ${alpha})`;
 }
 
-function createElementHdrUiPrimitive(element, options = {})
-{
-  if (!isVisibleHdrUiElement(element))
-  {
-    return null;
-  }
-
-  const rect = element.getBoundingClientRect();
-  const paddingX = options.paddingX ?? options.padding ?? 0;
-  const paddingY = options.paddingY ?? options.padding ?? 0;
-
-  return {
-    rect:
-    {
-      x: rect.left - paddingX,
-      y: rect.top - paddingY,
-      width: rect.width + paddingX * 2,
-      height: rect.height + paddingY * 2,
-    },
-    color: options.color,
-    radius: options.radius ?? 6,
-    borderWidth: options.borderWidth ?? 1,
-    glowWidth: options.glowWidth ?? 10,
-    intensity: options.intensity ?? 1,
-  };
-}
-
-function collectHdrUiPrimitives()
+function updateHdrUiCssColors()
 {
   const theme = hexToLinearRgb(
     document.getElementById('ctrlColor')?.value ?? '#4ca7ff',
@@ -1004,147 +944,24 @@ function collectHdrUiPrimitives()
     srgbChannelToLinear(177 / 255),
   ];
   const primary = mixLinearRgb(theme, cyan, 0.68);
-  const primitives = [];
-  const heroTitle = document.querySelector('.hero-float h1');
+  const root = document.documentElement;
 
-  if (isVisibleHdrUiElement(heroTitle))
-  {
-    const rect = heroTitle.getBoundingClientRect();
-
-    primitives.push(
-      {
-        rect: { x: rect.left, y: rect.bottom - 1, width: rect.width, height: 2 },
-        color: primary,
-        radius: 1,
-        borderWidth: 0.75,
-        glowWidth: 12,
-        intensity: 0.8,
-      },
-    );
-  }
-
-  const targets =
-  [
-    [
-      document.getElementById('panelToggle'),
-      { padding: 4, radius: 25, borderWidth: 1.25, glowWidth: 14, intensity: 1.25 },
-    ],
-    [
-      document.getElementById('renderBackendStatus'),
-      { padding: 4, color: green, radius: 6, borderWidth: 0.75, glowWidth: 9, intensity: 0.95 },
-    ],
-    [
-      document.getElementById('hdrUiControls'),
-      { padding: 4, color: green, radius: 6, borderWidth: 0.75, glowWidth: 9, intensity: 0.9 },
-    ],
-    [
-      document.getElementById('introSection'),
-      { padding: 2, radius: 12, borderWidth: 0.5, glowWidth: 10, intensity: 0.45 },
-    ],
-  ];
-
-  for (const [element, options] of targets)
-  {
-    const primitive = createElementHdrUiPrimitive(
-      element,
-      { color: primary, ...options },
-    );
-
-    if (primitive)
-    {
-      primitives.push(primitive);
-    }
-  }
-
-  const hintBar = document.getElementById('hintBar');
-
-  if (isVisibleHdrUiElement(hintBar))
-  {
-    const rect = hintBar.getBoundingClientRect();
-
-    primitives.push(
-      {
-        rect: { x: rect.left, y: rect.top - 1, width: rect.width, height: 2 },
-        color: primary,
-        radius: 1,
-        borderWidth: 0.75,
-        glowWidth: 9,
-        intensity: 0.65,
-      },
-    );
-  }
-
-  const panel = document.getElementById('panel');
-
-  if (panel?.classList.contains('open') && isVisibleHdrUiElement(panel))
-  {
-    const rect = panel.getBoundingClientRect();
-
-    primitives.push(
-      {
-        rect: { x: rect.left - 1, y: rect.top, width: 2, height: rect.height },
-        color: primary,
-        radius: 1,
-        borderWidth: 0.75,
-        glowWidth: 12,
-        intensity: 0.7,
-      },
-    );
-  }
-
-  const interactiveTarget = hdrUiFocusTarget ?? hdrUiHoverTarget;
-  const interactivePrimitive = createElementHdrUiPrimitive(
-    interactiveTarget,
-    {
-      padding: 3,
-      color: primary,
-      radius: 6,
-      borderWidth: 0.75,
-      glowWidth: 10,
-      intensity: 1,
-    },
+  root.style.setProperty(
+    '--hdr-ui-primary-core',
+    formatHdrUiCssColor(primary, hdrUiBrightness * 1.2, 0.96),
   );
-
-  if (interactivePrimitive)
-  {
-    primitives.push(interactivePrimitive);
-  }
-
-  return primitives;
-}
-
-function renderHdrUiOverlay()
-{
-  hdrUiRenderFrame = 0;
-
-  if (!hdrUiRenderer?.configured)
-  {
-    return false;
-  }
-
-  const rendered = hdrUiRenderer.render(
-    {
-      width: window.innerWidth,
-      height: window.innerHeight,
-      // UI 高光复用展示页实际 DPR，并限制模糊边缘不必要的过采样成本。
-      dpr: Math.min(1.5, Math.max(1, effect.dpr || 1)),
-      brightness: hdrUiBrightness,
-      primitives: collectHdrUiPrimitives(),
-    },
+  root.style.setProperty(
+    '--hdr-ui-primary-glow',
+    formatHdrUiCssColor(primary, hdrUiBrightness * 0.42, 0.72),
   );
-
-  document.body.dataset.hdrUiState = rendered ? 'extended' : 'error';
-  return rendered;
-}
-
-function requestHdrUiRender()
-{
-  if (!hdrUiRenderer?.configured || hdrUiRenderFrame !== 0)
-  {
-    return;
-  }
-
-  hdrUiRenderFrame = window.requestAnimationFrame(renderHdrUiOverlay);
+  root.style.setProperty(
+    '--hdr-ui-green-core',
+    formatHdrUiCssColor(green, hdrUiBrightness, 0.92),
+  );
+  root.style.setProperty(
+    '--hdr-ui-green-glow',
+    formatHdrUiCssColor(green, hdrUiBrightness * 0.34, 0.68),
+  );
 }
 
 function syncHdrUiControls(extendedActive)
@@ -1179,41 +996,27 @@ function syncHdrUiOverlay(snapshot = effect.getConfig())
 {
   const extendedActive = snapshot.resolvedEffectBackend === 'webgpu' &&
     snapshot.resolvedWebGPUOutputMode === 'extended';
+  const cssAvailable = supportsHdrUiCss();
+  const available = extendedActive && cssAvailable;
 
-  syncHdrUiControls(extendedActive);
+  syncHdrUiControls(available);
+  // 变量始终跟随滑块和主题，重新进入 Extended 时无需等待额外事件。
+  updateHdrUiCssColors();
 
-  if (!extendedActive || !hdrUiEnabled)
+  if (!extendedActive)
   {
-    if (hdrUiRenderFrame !== 0)
-    {
-      window.cancelAnimationFrame(hdrUiRenderFrame);
-      hdrUiRenderFrame = 0;
-    }
-
-    if (hdrUiRenderer && !hdrUiRenderer.suspend())
-    {
-      // 无法解除 Surface 时移除 Canvas，确保它不再进入页面合成。
-      hdrUiRenderer.canvas?.remove();
-      hdrUiRenderer.destroy();
-      hdrUiRenderer = null;
-    }
-
-    document.body.dataset.hdrUiState = extendedActive ? 'disabled' : 'inactive';
+    document.body.dataset.hdrUiState = 'inactive';
     return false;
   }
 
-  const device = effect.webgpuEffectRenderer?.device;
-  const renderer = ensureHdrUiRenderer();
-
-  if (!device || !renderer.available || !renderer.configure(device))
+  if (!cssAvailable)
   {
     document.body.dataset.hdrUiState = 'unavailable';
     return false;
   }
 
-  document.body.dataset.hdrUiState = 'extended';
-  requestHdrUiRender();
-  return true;
+  document.body.dataset.hdrUiState = hdrUiEnabled ? 'extended' : 'disabled';
+  return hdrUiEnabled;
 }
 
 function applyHdrUiSettings(settings = {}, persist = true)
@@ -1539,57 +1342,6 @@ ctrlHdrUiBrightness?.addEventListener('input', () =>
   applyHdrUiSettings({ brightness: Number(ctrlHdrUiBrightness.value) });
 });
 
-function findInteractiveHdrUiTarget(target)
-{
-  const interactive = target?.closest?.('button, a, select, input');
-
-  return interactive?.disabled ? null : interactive;
-}
-
-document.addEventListener('pointerover', (event) =>
-{
-  const target = findInteractiveHdrUiTarget(event.target);
-
-  if (target !== hdrUiHoverTarget)
-  {
-    hdrUiHoverTarget = target;
-    requestHdrUiRender();
-  }
-});
-document.addEventListener('pointerout', (event) =>
-{
-  if (
-    hdrUiHoverTarget &&
-    !hdrUiHoverTarget.contains(event.relatedTarget)
-  )
-  {
-    hdrUiHoverTarget = null;
-    requestHdrUiRender();
-  }
-});
-document.addEventListener('focusin', (event) =>
-{
-  hdrUiFocusTarget = findInteractiveHdrUiTarget(event.target);
-  requestHdrUiRender();
-});
-document.addEventListener('focusout', (event) =>
-{
-  if (!hdrUiFocusTarget?.contains(event.relatedTarget))
-  {
-    hdrUiFocusTarget = null;
-    requestHdrUiRender();
-  }
-});
-window.addEventListener('resize', requestHdrUiRender);
-window.addEventListener('scroll', requestHdrUiRender, true);
-document.addEventListener('visibilitychange', () =>
-{
-  if (!document.hidden)
-  {
-    requestHdrUiRender();
-  }
-});
-
 // ── 输出合成 → outputCompositing ───────────────────────────────────────
 const ctrlOutputCompositing = document.getElementById('ctrlOutputCompositing');
 const transparentCompositingControls = document.getElementById(
@@ -1899,7 +1651,7 @@ if (ctrlColor)
   {
     effect.setThemeColor(ctrlColor.value);
     localStorage.setItem('bafx-ctrlColor', ctrlColor.value);
-    requestHdrUiRender();
+    syncHdrUiOverlay(effect.getConfig());
   });
   // HTML 默认值不会触发 input；显式应用可让持久化恢复共用同一入口。
   effect.setThemeColor(ctrlColor.value);
@@ -2107,7 +1859,6 @@ function openPanel()
   panel.classList.add('open');
   panelOverlay.classList.add('open');
   panelToggle.style.right = '356px';
-  requestHdrUiRender();
 }
 
 function closePanel()
@@ -2120,13 +1871,11 @@ function closePanel()
   panel.classList.remove('open');
   panelOverlay.classList.remove('open');
   panelToggle.style.right = '';
-  requestHdrUiRender();
 }
 
 panelToggle.addEventListener('click', openPanel);
 panelClose.addEventListener('click', closePanel);
 panelOverlay.addEventListener('click', closePanel);
-panel.addEventListener('transitionend', requestHdrUiRender);
 
 panelPin.addEventListener('click', () =>
 {
@@ -2777,7 +2526,6 @@ function switchLanguage(lang)
   updateRenderBackendStatus();
   updateCompositingReferenceStatus();
   updateHostApiStatus();
-  requestHdrUiRender();
 }
 
 document.getElementById('langToggle').addEventListener('click', () =>
@@ -3103,31 +2851,7 @@ switchLanguage(currentLang);
     applyTheme('蔚蓝');
   }
 
-  hdrUiResizeObserver = typeof ResizeObserver === 'function'
-    ? new ResizeObserver(requestHdrUiRender)
-    : null;
-
-  for (const element of [
-    document.querySelector('.hero-float'),
-    document.getElementById('panel'),
-    document.getElementById('renderBackendStatus'),
-    document.getElementById('hdrUiControls'),
-    document.getElementById('introSection'),
-    document.getElementById('hintBar'),
-  ])
-  {
-    if (element)
-    {
-      hdrUiResizeObserver?.observe(element);
-    }
-  }
 })();
-
-window.addEventListener('beforeunload', () =>
-{
-  hdrUiResizeObserver?.disconnect();
-  hdrUiRenderer?.destroy();
-});
 
 // 页面销毁时清理
 window.addEventListener('beforeunload', () =>
