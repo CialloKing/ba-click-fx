@@ -783,6 +783,9 @@ const DEFAULT_RENDER_MODE = 'full-webgl2';
 const dynamicRangeQuery = typeof window.matchMedia === 'function'
   ? window.matchMedia('(dynamic-range: high)')
   : null;
+const videoDynamicRangeQuery = typeof window.matchMedia === 'function'
+  ? window.matchMedia('(video-dynamic-range: high)')
+  : null;
 const RENDER_MODE_CONFIGS = Object.freeze(
   {
     'full-webgpu':
@@ -918,6 +921,230 @@ function supportsHdrUiCss()
     typeof CSS.supports === 'function' &&
     CSS.supports('color', 'color(srgb-linear 0.25 1 2)') &&
     CSS.supports('dynamic-range-limit', 'no-limit');
+}
+
+function formatDiagnosticError(error)
+{
+  if (!error)
+  {
+    return '';
+  }
+
+  const name = typeof error.name === 'string' && error.name !== 'Error'
+    ? error.name
+    : '';
+  const message = typeof error.message === 'string'
+    ? error.message
+    : typeof error.reason === 'string'
+      ? error.reason
+      : String(error);
+
+  return name && message ? `${name}: ${message}` : name || message;
+}
+
+function getDiagnosticStageValue(stage, requested, dictionary)
+{
+  if (!requested)
+  {
+    return dictionary.diagnosticNotTested;
+  }
+
+  if (!stage)
+  {
+    return dictionary.diagnosticNotTested;
+  }
+
+  const values = {
+    failed: dictionary.diagnosticFailed,
+    idle: dictionary.diagnosticNotTested,
+    lost: dictionary.diagnosticLost,
+    pending: dictionary.diagnosticPending,
+    skipped: dictionary.diagnosticSkipped,
+    succeeded: dictionary.diagnosticReady,
+  };
+
+  return values[stage?.status] ?? dictionary.diagnosticUnavailable;
+}
+
+function updateWebGPUDiagnosticDetails(
+  snapshot,
+  dictionary,
+  dynamicRangeHigh,
+)
+{
+  const requested = snapshot.renderingMode !== 'legacy' &&
+    (snapshot.effectBackend === 'webgpu' || snapshot.effectBackend === 'auto');
+  const renderer = requested ? effect.webgpuEffectRenderer : null;
+  const manager = renderer?.deviceManager ?? null;
+  const diagnostics = manager?.diagnostics ?? null;
+  const stages = diagnostics?.stages ?? {};
+  const videoDynamicRangeHigh = videoDynamicRangeQuery?.matches ?? null;
+  const preferredFormat = manager?.canvasFormat ?? (() =>
+  {
+    try
+    {
+      return navigator.gpu?.getPreferredCanvasFormat?.() ??
+        dictionary.renderWebGPUPreferredFormat;
+    }
+    catch
+    {
+      return dictionary.renderWebGPUPreferredFormat;
+    }
+  })();
+  let extendedValue = getDiagnosticStageValue(
+    stages.extendedConfigure,
+    requested,
+    dictionary,
+  );
+  let sdrValue = requested
+    ? dictionary.diagnosticInactive
+    : dictionary.diagnosticNotTested;
+  let pipelineValue = dictionary.diagnosticNotTested;
+  const resolvedBackend = snapshot.resolvedEffectBackend;
+  const rendererFallback = requested &&
+    renderer?.status === 'ready' &&
+    resolvedBackend !== 'pending' &&
+    resolvedBackend !== 'webgpu';
+
+  if (manager?.outputMode === 'extended')
+  {
+    extendedValue = dictionary.diagnosticExtendedActive;
+    sdrValue = dictionary.diagnosticNotNeeded;
+  }
+  else if (manager?.outputMode === 'standard')
+  {
+    extendedValue = stages.extendedConfigure?.status === 'failed'
+      ? dictionary.diagnosticExtendedRejected
+      : dictionary.diagnosticSkipped;
+    sdrValue = dictionary.diagnosticSdrActive.replace(
+      '{format}',
+      preferredFormat,
+    );
+  }
+  else if (requested && stages.extendedConfigure?.status === 'failed')
+  {
+    extendedValue = dictionary.diagnosticExtendedRejected;
+  }
+
+  if (requested)
+  {
+    if (
+      resolvedBackend === 'webgpu' &&
+      renderer?.status === 'ready'
+    )
+    {
+      pipelineValue = dictionary.diagnosticPipelineActive;
+    }
+    else if (rendererFallback)
+    {
+      pipelineValue = dictionary.diagnosticPipelineFallback.replace(
+        '{backend}',
+        resolvedBackend,
+      );
+    }
+    else if (renderer?.status === 'ready')
+    {
+      pipelineValue = dictionary.diagnosticPipelineWaiting;
+    }
+    else if (renderer?.status === 'lost')
+    {
+      pipelineValue = dictionary.diagnosticLost;
+    }
+    else if (renderer?.status === 'unavailable')
+    {
+      pipelineValue = dictionary.diagnosticUnavailable;
+    }
+    else
+    {
+      pipelineValue = dictionary.diagnosticPending;
+    }
+  }
+
+  const values = {
+    diagnosticSecureContextValue: window.isSecureContext
+      ? dictionary.diagnosticSecure
+      : dictionary.diagnosticInsecure,
+    diagnosticWebGPUApiValue:
+      typeof navigator.gpu?.requestAdapter === 'function'
+        ? dictionary.diagnosticAvailable
+        : dictionary.diagnosticUnavailable,
+    diagnosticCanvasContextValue: getDiagnosticStageValue(
+      stages.context,
+      requested,
+      dictionary,
+    ),
+    diagnosticAdapterValue: getDiagnosticStageValue(
+      stages.adapter,
+      requested,
+      dictionary,
+    ),
+    diagnosticDeviceValue: getDiagnosticStageValue(
+      stages.device,
+      requested,
+      dictionary,
+    ),
+    diagnosticExtendedCanvasValue: extendedValue,
+    diagnosticSdrFallbackValue: sdrValue,
+    diagnosticPipelineValue: pipelineValue,
+    diagnosticGraphicsRangeValue: dynamicRangeHigh === true
+      ? dictionary.diagnosticRangeHigh
+      : dynamicRangeHigh === false
+        ? dictionary.diagnosticRangeNotHigh
+        : dictionary.diagnosticUnknown,
+    diagnosticVideoRangeValue: videoDynamicRangeHigh === true
+      ? dictionary.diagnosticRangeHigh
+      : videoDynamicRangeHigh === false
+        ? dictionary.diagnosticRangeNotHigh
+        : dictionary.diagnosticUnknown,
+    diagnosticCssHdrValue: supportsHdrUiCss()
+      ? dictionary.diagnosticSupported
+      : dictionary.diagnosticUnsupported,
+  };
+
+  for (const [id, value] of Object.entries(values))
+  {
+    const element = document.getElementById(id);
+
+    if (element)
+    {
+      element.textContent = value;
+    }
+  }
+
+  const failureElement = document.getElementById('webgpuDiagnosticFailure');
+  const failureStage = requested
+    ? (
+        rendererFallback
+          ? renderer?.failureStage ?? diagnostics?.failureStage ??
+            'renderer-frame-failed'
+          : renderer?.failureStage ?? diagnostics?.failureStage
+      ) ?? (
+        renderer?.status === 'unavailable'
+          ? 'renderer-unavailable'
+          : renderer?.status === 'lost'
+            ? 'device-lost'
+            : null
+      )
+    : null;
+  const failedStage = failureStage
+    ? Object.values(stages).find(
+      (stage) => stage?.failureStage === failureStage,
+    )
+    : null;
+  const failure = renderer?.failure ?? failedStage?.error ?? manager?.failure;
+
+  if (failureElement)
+  {
+    failureElement.hidden = failureStage === null;
+    failureElement.textContent = failureStage === null
+      ? ''
+      : dictionary.diagnosticFailure
+        .replace('{stage}', failureStage)
+        .replace(
+          '{message}',
+          formatDiagnosticError(failure) || dictionary.diagnosticFailureUnknown,
+        );
+  }
 }
 
 function formatHdrUiCssColor(linearColor, intensity, alpha)
@@ -1259,6 +1486,7 @@ function updateRenderBackendStatus()
     d.renderHdrVerdictLabel;
   document.getElementById('renderHdrStatusNote').textContent =
     d.renderHdrStatusNote;
+  updateWebGPUDiagnosticDetails(snapshot, d, dynamicRangeHigh);
   status.dataset.hdrState = presentationState;
   syncHdrPresentationControls(snapshot);
   syncHdrUiOverlay(snapshot);
@@ -1284,14 +1512,17 @@ effect.canvas.addEventListener(
   updateRenderBackendStatus,
 );
 
-if (typeof dynamicRangeQuery?.addEventListener === 'function')
+for (const query of [dynamicRangeQuery, videoDynamicRangeQuery])
 {
-  dynamicRangeQuery.addEventListener('change', updateRenderBackendStatus);
-}
-else if (typeof dynamicRangeQuery?.addListener === 'function')
-{
-  // 兼容仍只实现旧 MediaQueryList 监听接口的浏览器。
-  dynamicRangeQuery.addListener(updateRenderBackendStatus);
+  if (typeof query?.addEventListener === 'function')
+  {
+    query.addEventListener('change', updateRenderBackendStatus);
+  }
+  else if (typeof query?.addListener === 'function')
+  {
+    // 兼容仍只实现旧 MediaQueryList 监听接口的浏览器。
+    query.addListener(updateRenderBackendStatus);
+  }
 }
 
 if (ctrlRenderMode)
@@ -2005,6 +2236,44 @@ const I18N = {
     renderHdrVerdictUnavailable: 'WebGPU HDR 不可用',
     renderHdrVerdictInactive: '未启用 WebGPU HDR',
     renderHdrStatusNote: '浏览器侧判断；实际峰值亮度由系统和屏幕决定。',
+    webgpuDiagnosticSummary: 'WebGPU HDR 诊断详情',
+    diagnosticSecureContextLabel: '页面环境',
+    diagnosticWebGPUApiLabel: 'WebGPU API',
+    diagnosticCanvasContextLabel: 'Canvas Context',
+    diagnosticAdapterLabel: 'Adapter',
+    diagnosticDeviceLabel: 'Device',
+    diagnosticExtendedCanvasLabel: 'Extended Canvas',
+    diagnosticSdrFallbackLabel: 'SDR 回退',
+    diagnosticPipelineLabel: '渲染管线',
+    diagnosticGraphicsRangeLabel: '图形动态范围',
+    diagnosticVideoRangeLabel: '视频动态范围',
+    diagnosticCssHdrLabel: 'CSS HDR UI',
+    diagnosticSecure: '安全上下文',
+    diagnosticInsecure: '非安全上下文',
+    diagnosticAvailable: '可用',
+    diagnosticReady: '就绪',
+    diagnosticPending: '正在检测',
+    diagnosticFailed: '失败',
+    diagnosticLost: '设备已丢失',
+    diagnosticSkipped: '未请求',
+    diagnosticNotTested: '尚未检测',
+    diagnosticInactive: '未启用',
+    diagnosticUnavailable: '不可用',
+    diagnosticExtendedActive: '已启用 · rgba16float',
+    diagnosticExtendedRejected: '配置被拒绝',
+    diagnosticNotNeeded: '无需回退',
+    diagnosticSdrActive: '已启用 · {format}',
+    diagnosticPipelineActive: '就绪 · 首帧已提交',
+    diagnosticPipelineWaiting: '资源就绪 · 等待首帧',
+    diagnosticPipelineFallback: '已回退 · {backend}',
+    diagnosticRangeHigh: 'High（浏览器报告）',
+    diagnosticRangeNotHigh: '未报告 High',
+    diagnosticUnknown: '浏览器未提供',
+    diagnosticSupported: '支持',
+    diagnosticUnsupported: '不支持',
+    diagnosticFailure: '最近失败：{stage} · {message}',
+    diagnosticFailureUnknown: '浏览器未提供详细原因',
+    diagnosticNote: '视频动态范围报告 High 不代表 WebGPU Canvas HDR 可用。',
     hdrPresentationHeading: 'HDR 显示映射',
     labelHdrPresentationPreset: '高光预设',
     hdrPresentationPresetBalanced: '平衡白核（默认）',
@@ -2152,6 +2421,44 @@ const I18N = {
     renderHdrVerdictUnavailable: 'WebGPU HDR unavailable',
     renderHdrVerdictInactive: 'WebGPU HDR not enabled',
     renderHdrStatusNote: 'Browser-side verdict; peak luminance depends on the system and display.',
+    webgpuDiagnosticSummary: 'WebGPU HDR Diagnostics',
+    diagnosticSecureContextLabel: 'Page Context',
+    diagnosticWebGPUApiLabel: 'WebGPU API',
+    diagnosticCanvasContextLabel: 'Canvas Context',
+    diagnosticAdapterLabel: 'Adapter',
+    diagnosticDeviceLabel: 'Device',
+    diagnosticExtendedCanvasLabel: 'Extended Canvas',
+    diagnosticSdrFallbackLabel: 'SDR Fallback',
+    diagnosticPipelineLabel: 'Render Pipeline',
+    diagnosticGraphicsRangeLabel: 'Graphics Range',
+    diagnosticVideoRangeLabel: 'Video Range',
+    diagnosticCssHdrLabel: 'CSS HDR UI',
+    diagnosticSecure: 'Secure context',
+    diagnosticInsecure: 'Insecure context',
+    diagnosticAvailable: 'Available',
+    diagnosticReady: 'Ready',
+    diagnosticPending: 'Detecting',
+    diagnosticFailed: 'Failed',
+    diagnosticLost: 'Device lost',
+    diagnosticSkipped: 'Not requested',
+    diagnosticNotTested: 'Not tested',
+    diagnosticInactive: 'Inactive',
+    diagnosticUnavailable: 'Unavailable',
+    diagnosticExtendedActive: 'Active · rgba16float',
+    diagnosticExtendedRejected: 'Configuration rejected',
+    diagnosticNotNeeded: 'Not needed',
+    diagnosticSdrActive: 'Active · {format}',
+    diagnosticPipelineActive: 'Ready · first frame submitted',
+    diagnosticPipelineWaiting: 'Resources ready · awaiting first frame',
+    diagnosticPipelineFallback: 'Fell back · {backend}',
+    diagnosticRangeHigh: 'High (reported by browser)',
+    diagnosticRangeNotHigh: 'High not reported',
+    diagnosticUnknown: 'Not exposed by browser',
+    diagnosticSupported: 'Supported',
+    diagnosticUnsupported: 'Unsupported',
+    diagnosticFailure: 'Latest failure: {stage} · {message}',
+    diagnosticFailureUnknown: 'No detailed reason exposed by browser',
+    diagnosticNote: 'Video range reporting High does not imply HDR WebGPU Canvas availability.',
     hdrPresentationHeading: 'HDR Presentation Mapping',
     labelHdrPresentationPreset: 'Highlight Preset',
     hdrPresentationPresetBalanced: 'Balanced White Core (Default)',
@@ -2476,6 +2783,35 @@ function switchLanguage(lang)
 
   document.getElementById('transparentCompositingNote').textContent =
     d.transparentCompositingNote;
+
+  const diagnosticLabels = {
+    diagnosticSecureContextLabel: d.diagnosticSecureContextLabel,
+    diagnosticWebGPUApiLabel: d.diagnosticWebGPUApiLabel,
+    diagnosticCanvasContextLabel: d.diagnosticCanvasContextLabel,
+    diagnosticAdapterLabel: d.diagnosticAdapterLabel,
+    diagnosticDeviceLabel: d.diagnosticDeviceLabel,
+    diagnosticExtendedCanvasLabel: d.diagnosticExtendedCanvasLabel,
+    diagnosticSdrFallbackLabel: d.diagnosticSdrFallbackLabel,
+    diagnosticPipelineLabel: d.diagnosticPipelineLabel,
+    diagnosticGraphicsRangeLabel: d.diagnosticGraphicsRangeLabel,
+    diagnosticVideoRangeLabel: d.diagnosticVideoRangeLabel,
+    diagnosticCssHdrLabel: d.diagnosticCssHdrLabel,
+  };
+
+  for (const [id, text] of Object.entries(diagnosticLabels))
+  {
+    const element = document.getElementById(id);
+
+    if (element)
+    {
+      element.textContent = text;
+    }
+  }
+
+  document.getElementById('webgpuDiagnosticSummary').textContent =
+    d.webgpuDiagnosticSummary;
+  document.getElementById('webgpuDiagnosticNote').textContent =
+    d.diagnosticNote;
 
   const compositingReferenceOptions = {
     'match-page': d.compositingReferenceMatchPage,

@@ -502,6 +502,39 @@ kbd {
   text-align: right;
 }
 
+.webgpu-diagnostic-details
+{
+  margin: -4px 0 12px;
+}
+
+.webgpu-diagnostic-details > summary
+{
+  margin-bottom: 0;
+}
+
+.webgpu-diagnostic-details[open] > summary
+{
+  margin-bottom: 6px;
+}
+
+.webgpu-diagnostic-list .render-status-row
+{
+  grid-template-columns: minmax(92px, 0.9fr) minmax(0, 1.35fr);
+  padding: 4px 0;
+}
+
+.webgpu-diagnostic-failure
+{
+  margin: 7px 0 3px;
+  padding-left: 8px;
+  border-left: 2px solid rgba(245, 198, 105, 0.48);
+  color: rgba(245, 198, 105, 0.82);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .hdr-presentation-controls
 {
   margin: -2px 0 10px;

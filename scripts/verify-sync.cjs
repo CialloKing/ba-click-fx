@@ -28,6 +28,10 @@ const hdrPresentationStatusJs = fs.readFileSync(
 const styleCss = fs.readFileSync(path.join(root, 'src', 'style.css'), 'utf8');
 const engineJs = fs.readFileSync(path.join(root, 'src', 'fx.js'), 'utf8');
 const configJs = fs.readFileSync(path.join(root, 'src', 'config.js'), 'utf8');
+const webgpuDeviceJs = fs.readFileSync(
+  path.join(root, 'src', 'webgpu-device.js'),
+  'utf8',
+);
 const typeDefinitions = fs.readFileSync(
   path.join(root, 'src', 'ba-click-fx.d.ts'),
   'utf8',
@@ -305,7 +309,9 @@ verify(
     /renderHdrVerdictReady: '浏览器侧 HDR 已就绪'/.test(mainJs) &&
     /renderHdrVerdictReady: 'Browser-side HDR ready'/.test(mainJs) &&
     /matchMedia\('\(dynamic-range: high\)'\)/.test(mainJs) &&
-    /dynamicRangeQuery\.addEventListener\('change'/.test(mainJs) &&
+    /matchMedia\('\(video-dynamic-range: high\)'\)/.test(mainJs) &&
+    /\[dynamicRangeQuery, videoDynamicRangeQuery\]/.test(mainJs) &&
+    /query\.addEventListener\('change'/.test(mainJs) &&
     /snapshot\.resolvedWebGPUOutputMode/.test(mainJs) &&
     /id="renderCanvasOutputValue"/.test(indexHtml) &&
     /id="renderDynamicRangeValue"/.test(indexHtml) &&
@@ -317,6 +323,44 @@ verify(
     /'unavailable'/.test(hdrPresentationStatusJs) &&
     /'inactive'/.test(hdrPresentationStatusJs),
   '展示页分层报告 WebGPU 后端、Canvas 输出、显示环境与 HDR 判断',
+);
+const updateWebGPUDiagnosticDetailsSource = getFunctionSource(
+  mainJs,
+  'updateWebGPUDiagnosticDetails',
+);
+const diagnosticValueIds = [
+  'diagnosticSecureContextValue',
+  'diagnosticWebGPUApiValue',
+  'diagnosticCanvasContextValue',
+  'diagnosticAdapterValue',
+  'diagnosticDeviceValue',
+  'diagnosticExtendedCanvasValue',
+  'diagnosticSdrFallbackValue',
+  'diagnosticPipelineValue',
+  'diagnosticGraphicsRangeValue',
+  'diagnosticVideoRangeValue',
+  'diagnosticCssHdrValue',
+];
+
+verify(
+  /id="webgpuDiagnosticDetails"/.test(indexHtml) &&
+    /id="webgpuDiagnosticFailure"[^>]*hidden/.test(indexHtml) &&
+    diagnosticValueIds.every((id) => indexHtml.includes(`id="${id}"`)) &&
+    /manager\?\.diagnostics/.test(updateWebGPUDiagnosticDetailsSource) &&
+    /window\.isSecureContext/.test(updateWebGPUDiagnosticDetailsSource) &&
+    /navigator\.gpu\?\.requestAdapter/.test(
+      updateWebGPUDiagnosticDetailsSource,
+    ) &&
+    /videoDynamicRangeQuery\?\.matches/.test(
+      updateWebGPUDiagnosticDetailsSource,
+    ) &&
+    /supportsHdrUiCss\(\)/.test(updateWebGPUDiagnosticDetailsSource) &&
+    /extended-configure-failed/.test(webgpuDeviceJs) &&
+    /standard-configure-failed/.test(webgpuDeviceJs) &&
+    /device-lost/.test(webgpuDeviceJs) &&
+    /get diagnostics\(\)/.test(webgpuDeviceJs) &&
+    /\.webgpu-diagnostic-failure/.test(styleCss),
+  '展示页折叠报告 WebGPU 初始化、输出协商、动态范围与失败阶段',
 );
 verify(
   /resolvedWebGPUOutputMode === \\'extended\\'/.test(mainJs) &&

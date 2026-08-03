@@ -1008,6 +1008,28 @@ async function readDemoHdrUiState(page)
     const statusStyle = getComputedStyle(
       document.getElementById('renderBackendStatus'),
     );
+    const diagnosticValueIds = [
+      'diagnosticSecureContextValue',
+      'diagnosticWebGPUApiValue',
+      'diagnosticCanvasContextValue',
+      'diagnosticAdapterValue',
+      'diagnosticDeviceValue',
+      'diagnosticExtendedCanvasValue',
+      'diagnosticSdrFallbackValue',
+      'diagnosticPipelineValue',
+      'diagnosticGraphicsRangeValue',
+      'diagnosticVideoRangeValue',
+      'diagnosticCssHdrValue',
+    ];
+    const diagnosticValues = Object.fromEntries(
+      diagnosticValueIds.map((id) => [
+        id,
+        document.getElementById(id)?.textContent ?? '',
+      ]),
+    );
+    const diagnosticFailure = document.getElementById(
+      'webgpuDiagnosticFailure',
+    );
 
     return {
       requestedBackend: config?.effectBackend,
@@ -1039,6 +1061,18 @@ async function readDemoHdrUiState(page)
         document.getElementById('ctrlHdrUiBrightness')?.disabled,
       storedEnabled: localStorage.getItem('bafx-ctrlHdrUiEnabled'),
       storedBrightness: localStorage.getItem('bafx-ctrlHdrUiBrightness'),
+      diagnostics:
+      {
+        detailsOpen: document.getElementById(
+          'webgpuDiagnosticDetails',
+        )?.open ?? null,
+        failureHidden: diagnosticFailure?.hidden ?? null,
+        failureText: diagnosticFailure?.textContent ?? '',
+        summary: document.getElementById(
+          'webgpuDiagnosticSummary',
+        )?.textContent ?? '',
+        values: diagnosticValues,
+      },
     };
   });
 }
@@ -1299,10 +1333,94 @@ async function runDemoHdrUiIntegration(page, origin)
     initial.enabledDisabled && initial.brightnessDisabled,
     `默认 UI HDR 控件不应可用: ${initialDetail}`,
   );
+  assert.ok(
+    initial.diagnostics.detailsOpen === false &&
+      initial.diagnostics.summary === 'WebGPU HDR 诊断详情' &&
+      initial.diagnostics.values.diagnosticSecureContextValue ===
+        '安全上下文' &&
+      initial.diagnostics.values.diagnosticWebGPUApiValue === '可用' &&
+      initial.diagnostics.values.diagnosticCanvasContextValue ===
+        '尚未检测' &&
+      initial.diagnostics.values.diagnosticPipelineValue === '尚未检测' &&
+      initial.diagnostics.failureHidden,
+    `默认 WebGPU 诊断详情状态错误: ${initialDetail}`,
+  );
 
-  await selectDemoRenderMode(page, 'full-webgpu');
+  await page.evaluate(() => window.BAClickFXDemo.setPaused(true));
+  await page.selectOption('#ctrlRenderMode', 'full-webgpu');
+  await page.waitForFunction(() =>
+  {
+    const config = window.BAClickFXDemo?.getConfig?.();
+
+    return config?.effectBackend === 'webgpu' &&
+      config.resolvedEffectBackend === 'pending';
+  });
+  const pausedProbe = await readDemoHdrUiState(page);
+  const pausedProbeDetail = JSON.stringify(pausedProbe);
+
+  assert.ok(
+    pausedProbe.diagnostics.values.diagnosticCanvasContextValue ===
+      '尚未检测' &&
+      pausedProbe.diagnostics.values.diagnosticAdapterValue === '尚未检测' &&
+      pausedProbe.diagnostics.values.diagnosticDeviceValue === '尚未检测' &&
+      pausedProbe.diagnostics.values.diagnosticPipelineValue === '正在检测' &&
+      pausedProbe.diagnostics.failureHidden,
+    `暂停状态下未开始的 WebGPU 探测被误报: ${pausedProbeDetail}`,
+  );
+
+  await page.evaluate(() =>
+  {
+    window.BAClickFXDemo.setPaused(false);
+    // 展示页按需渲染；无活动特效时恢复不会为能力探测单独开帧。
+    window.BAClickFXDemo.boom(24, 24);
+  });
+  await page.waitForFunction(() =>
+  {
+    const config = window.BAClickFXDemo?.getConfig?.();
+
+    return config?.resolvedEffectBackend === 'webgpu' &&
+      (
+        config.resolvedWebGPUOutputMode === 'extended' ||
+        config.resolvedWebGPUOutputMode === 'standard'
+      );
+  });
   const negotiated = await readDemoHdrUiState(page);
   const negotiatedDetail = JSON.stringify(negotiated);
+
+  await page.evaluate(() =>
+    window.BAClickFXDemo._setResolvedEffectBackend('webgl2'));
+  const rendererFallback = await readDemoHdrUiState(page);
+  const rendererFallbackDetail = JSON.stringify(rendererFallback);
+
+  assert.ok(
+    rendererFallback.diagnostics.values.diagnosticPipelineValue ===
+      '已回退 · webgl2' &&
+      !rendererFallback.diagnostics.failureHidden &&
+      rendererFallback.diagnostics.failureText.includes(
+        'renderer-frame-failed',
+      ),
+    `WebGPU 已回退时仍误报等待首帧: ${rendererFallbackDetail}`,
+  );
+
+  await page.evaluate(() =>
+    window.BAClickFXDemo._setResolvedEffectBackend('webgpu'));
+
+  await page.evaluate(() => document.getElementById('langToggle').click());
+  const englishDiagnostics = await readDemoHdrUiState(page);
+  const englishDiagnosticsDetail = JSON.stringify(englishDiagnostics);
+
+  assert.ok(
+    englishDiagnostics.diagnostics.summary === 'WebGPU HDR Diagnostics' &&
+      englishDiagnostics.diagnostics.values.diagnosticSecureContextValue ===
+        'Secure context' &&
+      englishDiagnostics.diagnostics.values.diagnosticWebGPUApiValue ===
+        'Available' &&
+      englishDiagnostics.diagnostics.values.diagnosticPipelineValue ===
+        'Ready · first frame submitted',
+    `WebGPU 诊断英文文案不完整: ${englishDiagnosticsDetail}`,
+  );
+
+  await page.evaluate(() => document.getElementById('langToggle').click());
 
   if (negotiated.outputMode !== 'extended')
   {
@@ -1318,8 +1436,39 @@ async function runDemoHdrUiIntegration(page, origin)
         negotiated.brightnessDisabled,
       `WebGPU SDR 不应启用 UI HDR: ${negotiatedDetail}`,
     );
-    return { initial, negotiated, extendedCovered: false };
+    assert.ok(
+      negotiated.diagnostics.values.diagnosticCanvasContextValue === '就绪' &&
+        negotiated.diagnostics.values.diagnosticAdapterValue === '就绪' &&
+        negotiated.diagnostics.values.diagnosticDeviceValue === '就绪' &&
+        negotiated.diagnostics.values.diagnosticExtendedCanvasValue ===
+          '配置被拒绝' &&
+        negotiated.diagnostics.values.diagnosticSdrFallbackValue.startsWith(
+          '已启用 · ',
+        ) &&
+        negotiated.diagnostics.values.diagnosticPipelineValue ===
+          '就绪 · 首帧已提交' &&
+        !negotiated.diagnostics.failureHidden &&
+        negotiated.diagnostics.failureText.includes(
+          'extended-configure-failed',
+        ),
+      `WebGPU SDR 回退诊断不完整: ${negotiatedDetail}`,
+    );
+    return { initial, pausedProbe, negotiated, extendedCovered: false };
   }
+
+  assert.ok(
+    negotiated.diagnostics.values.diagnosticCanvasContextValue === '就绪' &&
+      negotiated.diagnostics.values.diagnosticAdapterValue === '就绪' &&
+      negotiated.diagnostics.values.diagnosticDeviceValue === '就绪' &&
+      negotiated.diagnostics.values.diagnosticExtendedCanvasValue ===
+        '已启用 · rgba16float' &&
+      negotiated.diagnostics.values.diagnosticSdrFallbackValue ===
+        '无需回退' &&
+      negotiated.diagnostics.values.diagnosticPipelineValue ===
+        '就绪 · 首帧已提交' &&
+      negotiated.diagnostics.failureHidden,
+    `WebGPU Extended 诊断不完整: ${negotiatedDetail}`,
+  );
 
   if (!negotiated.cssExtendedColor || !negotiated.cssDynamicRangeLimit)
   {
@@ -1451,6 +1600,7 @@ async function runDemoHdrUiIntegration(page, origin)
 
   return {
     initial,
+    pausedProbe,
     negotiated,
     extended,
     disabled,
