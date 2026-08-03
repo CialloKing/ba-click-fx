@@ -11,6 +11,11 @@ import {
 } from './theme-background.js';
 import { resolveHdrPresentationState } from './hdr-presentation-status.js';
 import { snapRangeValue } from './range-snap.js';
+import {
+  formatDiagnosticError,
+  getDiagnosticStageValue,
+  getWebGPUFailureStage,
+} from './webgpu-diagnostics.js';
 
 function acceptDemoPointer(event)
 {
@@ -786,6 +791,8 @@ const dynamicRangeQuery = typeof window.matchMedia === 'function'
 const videoDynamicRangeQuery = typeof window.matchMedia === 'function'
   ? window.matchMedia('(video-dynamic-range: high)')
   : null;
+const WEBGPU_DIAGNOSTIC_REFRESH_MS = 250;
+let webgpuDiagnosticRefreshTimer = null;
 const RENDER_MODE_CONFIGS = Object.freeze(
   {
     'full-webgpu':
@@ -923,47 +930,37 @@ function supportsHdrUiCss()
     CSS.supports('dynamic-range-limit', 'no-limit');
 }
 
-function formatDiagnosticError(error)
+function syncWebGPUDiagnosticRefresh(requested, renderer, manager)
 {
-  if (!error)
+  const detailsOpen = document.getElementById(
+    'webgpuDiagnosticDetails',
+  )?.open === true;
+  const pending = detailsOpen && requested && renderer !== null &&
+    (renderer.status === 'pending' || manager?.status === 'pending');
+
+  if (!pending)
   {
-    return '';
+    if (webgpuDiagnosticRefreshTimer !== null)
+    {
+      window.clearTimeout(webgpuDiagnosticRefreshTimer);
+      webgpuDiagnosticRefreshTimer = null;
+    }
+
+    return;
   }
 
-  const name = typeof error.name === 'string' && error.name !== 'Error'
-    ? error.name
-    : '';
-  const message = typeof error.message === 'string'
-    ? error.message
-    : typeof error.reason === 'string'
-      ? error.reason
-      : String(error);
-
-  return name && message ? `${name}: ${message}` : name || message;
-}
-
-function getDiagnosticStageValue(stage, requested, dictionary)
-{
-  if (!requested)
+  if (webgpuDiagnosticRefreshTimer !== null)
   {
-    return dictionary.diagnosticNotTested;
+    return;
   }
 
-  if (!stage)
+  // Adapter and Device requests have no intermediate public event. Poll only
+  // while an actual Renderer is pending so a paused, unstarted request stays idle.
+  webgpuDiagnosticRefreshTimer = window.setTimeout(() =>
   {
-    return dictionary.diagnosticNotTested;
-  }
-
-  const values = {
-    failed: dictionary.diagnosticFailed,
-    idle: dictionary.diagnosticNotTested,
-    lost: dictionary.diagnosticLost,
-    pending: dictionary.diagnosticPending,
-    skipped: dictionary.diagnosticSkipped,
-    succeeded: dictionary.diagnosticReady,
-  };
-
-  return values[stage?.status] ?? dictionary.diagnosticUnavailable;
+    webgpuDiagnosticRefreshTimer = null;
+    updateRenderBackendStatus();
+  }, WEBGPU_DIAGNOSTIC_REFRESH_MS);
 }
 
 function updateWebGPUDiagnosticDetails(
@@ -1005,6 +1002,8 @@ function updateWebGPUDiagnosticDetails(
     renderer?.status === 'ready' &&
     resolvedBackend !== 'pending' &&
     resolvedBackend !== 'webgpu';
+
+  syncWebGPUDiagnosticRefresh(requested, renderer, manager);
 
   if (manager?.outputMode === 'extended')
   {
@@ -1113,17 +1112,11 @@ function updateWebGPUDiagnosticDetails(
 
   const failureElement = document.getElementById('webgpuDiagnosticFailure');
   const failureStage = requested
-    ? (
-        rendererFallback
-          ? renderer?.failureStage ?? diagnostics?.failureStage ??
-            'renderer-frame-failed'
-          : renderer?.failureStage ?? diagnostics?.failureStage
-      ) ?? (
-        renderer?.status === 'unavailable'
-          ? 'renderer-unavailable'
-          : renderer?.status === 'lost'
-            ? 'device-lost'
-            : null
+    ? getWebGPUFailureStage(
+        renderer,
+        manager,
+        diagnostics,
+        rendererFallback,
       )
     : null;
   const failedStage = failureStage
@@ -1131,7 +1124,11 @@ function updateWebGPUDiagnosticDetails(
       (stage) => stage?.failureStage === failureStage,
     )
     : null;
-  const failure = renderer?.failure ?? failedStage?.error ?? manager?.failure;
+  const rendererFailure = failureStage === 'renderer-unavailable' ||
+    failureStage === 'renderer-frame-failed';
+  const failure = rendererFailure
+    ? renderer?.failure
+    : failedStage?.error ?? manager?.failure ?? renderer?.failure;
 
   if (failureElement)
   {
@@ -1524,6 +1521,11 @@ for (const query of [dynamicRangeQuery, videoDynamicRangeQuery])
     query.addListener(updateRenderBackendStatus);
   }
 }
+
+document.getElementById('webgpuDiagnosticDetails')?.addEventListener(
+  'toggle',
+  updateRenderBackendStatus,
+);
 
 if (ctrlRenderMode)
 {
@@ -2247,7 +2249,7 @@ const I18N = {
     diagnosticPipelineLabel: '渲染管线',
     diagnosticGraphicsRangeLabel: '图形动态范围',
     diagnosticVideoRangeLabel: '视频动态范围',
-    diagnosticCssHdrLabel: 'CSS HDR UI',
+    diagnosticCssHdrLabel: 'CSS HDR 语法',
     diagnosticSecure: '安全上下文',
     diagnosticInsecure: '非安全上下文',
     diagnosticAvailable: '可用',
@@ -2432,7 +2434,7 @@ const I18N = {
     diagnosticPipelineLabel: 'Render Pipeline',
     diagnosticGraphicsRangeLabel: 'Graphics Range',
     diagnosticVideoRangeLabel: 'Video Range',
-    diagnosticCssHdrLabel: 'CSS HDR UI',
+    diagnosticCssHdrLabel: 'CSS HDR Syntax',
     diagnosticSecure: 'Secure context',
     diagnosticInsecure: 'Insecure context',
     diagnosticAvailable: 'Available',

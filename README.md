@@ -191,7 +191,7 @@ new BAClickFX(options?: {
 
 WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 已协商扩展动态范围，并会把线性 HDR 结果编码为扩展 sRGB、保留超过 SDR 白色的高光；`'standard'` 表示 WebGPU Scene 与 Bloom 正常运行，但最终 Canvas 仍是 SDR；`'pending'` 表示正在申请设备或提交首帧；`'unavailable'` 表示当前没有可用的 WebGPU 输出。真正看到超白高光还需要 HDR 显示器、系统已开启 HDR、浏览器实现 WebGPU HDR Canvas，以及 `rgba16float + toneMapping: extended` 配置成功。
 
-展示页在 HDR 摘要下提供默认折叠的“WebGPU HDR 诊断详情”，分别报告安全上下文、WebGPU API、Canvas Context、Adapter、Device、Extended Canvas、Standard SDR 回退、首帧管线、图形/视频动态范围和 CSS HDR UI，并保留稳定的失败阶段代码与浏览器异常文本。`(video-dynamic-range: high)` 只是视频输出环境提示，不参与 WebGPU HDR 成功判定。网页无法可靠读取操作系统 HDR 开关或显示器尼特；最终浏览器侧判据仍是 `resolvedWebGPUOutputMode === 'extended'`。
+展示页在 HDR 摘要下提供默认折叠的“WebGPU HDR 诊断详情”，分别报告安全上下文、WebGPU API、Canvas Context、Adapter、Device、Extended Canvas、Standard SDR 回退、首帧管线、图形/视频动态范围和 CSS HDR 语法支持，并保留稳定的失败阶段代码与浏览器异常文本。`(video-dynamic-range: high)` 只是视频输出环境提示，不参与 WebGPU HDR 成功判定。`CSS.supports()` 也只证明浏览器接受相关语法，不证明当前屏幕正在输出 HDR。网页无法可靠读取操作系统 HDR 开关或显示器尼特；最终浏览器侧判据仍是 `resolvedWebGPUOutputMode === 'extended'`。
 
 展示页的“UI HDR”是演示站点私有功能。除特效实际解析为 WebGPU Extended 外，浏览器还必须支持 `color(srgb-linear ...)` 扩展色和 `dynamic-range-limit: no-limit`；否则控件会自动禁用。它直接给标题、状态区、面板边缘和交互控件应用 CSS HDR 描边与光晕，不创建第二个全屏 Canvas，也不经过 `mix-blend-mode`。范围 `1..16` 的“UI HDR 亮度”不属于 `BAClickFX` 公共 API，不会修改 `webgpuHdrBrightness`、Unity 特效参数或点击特效像素。
 

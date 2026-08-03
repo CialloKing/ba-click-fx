@@ -1387,24 +1387,6 @@ async function runDemoHdrUiIntegration(page, origin)
   const negotiated = await readDemoHdrUiState(page);
   const negotiatedDetail = JSON.stringify(negotiated);
 
-  await page.evaluate(() =>
-    window.BAClickFXDemo._setResolvedEffectBackend('webgl2'));
-  const rendererFallback = await readDemoHdrUiState(page);
-  const rendererFallbackDetail = JSON.stringify(rendererFallback);
-
-  assert.ok(
-    rendererFallback.diagnostics.values.diagnosticPipelineValue ===
-      '已回退 · webgl2' &&
-      !rendererFallback.diagnostics.failureHidden &&
-      rendererFallback.diagnostics.failureText.includes(
-        'renderer-frame-failed',
-      ),
-    `WebGPU 已回退时仍误报等待首帧: ${rendererFallbackDetail}`,
-  );
-
-  await page.evaluate(() =>
-    window.BAClickFXDemo._setResolvedEffectBackend('webgpu'));
-
   await page.evaluate(() => document.getElementById('langToggle').click());
   const englishDiagnostics = await readDemoHdrUiState(page);
   const englishDiagnosticsDetail = JSON.stringify(englishDiagnostics);
@@ -1598,6 +1580,29 @@ async function runDemoHdrUiIntegration(page, origin)
     `重置未恢复 UI HDR 展示页默认值: ${resetDetail}`,
   );
 
+  await selectDemoRenderMode(page, 'full-webgpu');
+  await page.evaluate(() =>
+    window.BAClickFXDemo.webgpuEffectRenderer.device.destroy());
+  await page.waitForFunction(() =>
+  {
+    const effect = window.BAClickFXDemo;
+
+    return effect.webgpuEffectRenderer?.status === 'lost' &&
+      effect.getConfig().resolvedEffectBackend !== 'pending';
+  });
+  const deviceLost = await readDemoHdrUiState(page);
+  const deviceLostDetail = JSON.stringify(deviceLost);
+
+  assert.ok(
+    deviceLost.resolvedBackend === 'webgl2' &&
+      deviceLost.outputMode === 'unavailable' &&
+      deviceLost.diagnostics.values.diagnosticDeviceValue === '设备已丢失' &&
+      deviceLost.diagnostics.values.diagnosticPipelineValue === '设备已丢失' &&
+      !deviceLost.diagnostics.failureHidden &&
+      deviceLost.diagnostics.failureText.includes('device-lost'),
+    `Device Lost 诊断没有跟随真实回退链: ${deviceLostDetail}`,
+  );
+
   return {
     initial,
     pausedProbe,
@@ -1609,6 +1614,7 @@ async function runDemoHdrUiIntegration(page, origin)
     switched,
     resumed,
     reset,
+    deviceLost,
     screenshotDifference,
     extendedCovered: true,
   };

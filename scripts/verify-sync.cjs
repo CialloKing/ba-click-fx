@@ -328,6 +328,10 @@ const updateWebGPUDiagnosticDetailsSource = getFunctionSource(
   mainJs,
   'updateWebGPUDiagnosticDetails',
 );
+const syncWebGPUDiagnosticRefreshSource = getFunctionSource(
+  mainJs,
+  'syncWebGPUDiagnosticRefresh',
+);
 const diagnosticValueIds = [
   'diagnosticSecureContextValue',
   'diagnosticWebGPUApiValue',
@@ -359,6 +363,12 @@ verify(
     /standard-configure-failed/.test(webgpuDeviceJs) &&
     /device-lost/.test(webgpuDeviceJs) &&
     /get diagnostics\(\)/.test(webgpuDeviceJs) &&
+    /manager\?\.status === 'pending'/.test(
+      syncWebGPUDiagnosticRefreshSource,
+    ) &&
+    /webgpuDiagnosticDetails/.test(syncWebGPUDiagnosticRefreshSource) &&
+    /\.open === true/.test(syncWebGPUDiagnosticRefreshSource) &&
+    /window\.setTimeout/.test(syncWebGPUDiagnosticRefreshSource) &&
     /\.webgpu-diagnostic-failure/.test(styleCss),
   '展示页折叠报告 WebGPU 初始化、输出协商、动态范围与失败阶段',
 );
