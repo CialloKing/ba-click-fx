@@ -262,7 +262,15 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       canvas,
       {
         gpu: options.gpu,
-        onStateChange: (status) => this._handleDeviceState(status),
+        onStateChange: (status, manager) =>
+        {
+          // GPU API 与 Context 会在 DeviceManager 构造期间同步失败；此时
+          // 成员尚未完成赋值，交给 ready 的失败分支在构造结束后补报。
+          if (manager === this.deviceManager)
+          {
+            this._handleDeviceState(status, manager);
+          }
+        },
       },
     );
     this.onStateChange = typeof options.onStateChange === 'function'
@@ -291,7 +299,18 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     this.placeholderTexture = null;
     this.placeholderView = null;
     this.ready = this.deviceManager.ready.then((ready) =>
-      ready ? this._initializeWebGPU() : false);
+    {
+      if (!ready)
+      {
+        this._handleDeviceState(
+          this.deviceManager.status,
+          this.deviceManager,
+        );
+        return false;
+      }
+
+      return this._initializeWebGPU();
+    });
   }
 
   get hdrOutput()
@@ -311,17 +330,17 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     this.onStateChange?.(status, this);
   }
 
-  _handleDeviceState(status)
+  _handleDeviceState(status, manager = this.deviceManager)
   {
     if (status === 'lost')
     {
       this.available = false;
       this.contextLost = true;
-      this._setRendererStatus('lost', this.deviceManager.failure);
+      this._setRendererStatus('lost', manager.failure);
     }
     else if (status === 'unavailable')
     {
-      this._setRendererStatus('unavailable', this.deviceManager.failure);
+      this._setRendererStatus('unavailable', manager.failure);
     }
   }
 
