@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## v1.2.22 — 三角碎片圆角与展示交互修复
+
+- 修复浅色背景下使用覆盖层颜色补偿 `bright-core` 时，点击特效高能核心异常偏白、偏亮的问题。
+- HDR 显示映射区域默认折叠，仅在选择 WebGPU 模式后自动展开；后端状态刷新不会覆盖用户的手动折叠选择。
+- 新增 `setTriangleRoundness(value)`、`shards.roundness` 和展示页圆角滑块，使用真实图集边界的直边与相切圆弧从原三角连续调整到同尺寸圆形，并重映射纹理以消除内部尖三角；点击、拖尾和现存粒子即时响应，并纳入 Schema 2 的校验与迁移合同。
+
 ## v1.2.21 — HDR UI 与 WebGPU 输出生命周期修复
 
 - 展示页新增 CSS HDR UI 高光和 `1..16` 亮度控制；仅在主特效实际协商为 `rgba16float + toneMapping: extended`，且浏览器支持扩展 `color(srgb-linear ...)` 与 `dynamic-range-limit: no-limit` 时启用，不进入公共 API。

@@ -376,6 +376,7 @@ fx.setPaused(false);
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |
 | `updateConfig({...})` | 运行时更新基础配置、输入来源、时间倍率、完整特效/Bloom 后端、DPR 与触摸行为 |
 | `setThemeColor('#4ca7ff')` | 设置并保存主题色；非法值恢复默认游戏蓝 |
+| `setTriangleRoundness(value)` | 设置三角碎片圆角比例；与 `setFxParam('shards.roundness', value)` 等价 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 修改单个点号路径；成功返回 `true`，拒绝时返回 `false` |
 | `setFxParams(patch, options?)` | 按 Schema 验证并批量应用点号路径补丁，返回逐项处理结果 |
 | `getFxConfig()` | 返回当前完整特效配置深拷贝 |
@@ -415,7 +416,7 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 
 库导出只读的 `FX_PARAM_SCHEMA`、当前 `FX_PARAM_SCHEMA_VERSION` 和 `FX_PARAM_MIGRATIONS`。Schema 描述每个公开标量路径的类型、硬边界、默认值、单位、分组、稳定展示顺序、本地化键、推荐控件范围、关联参数和 Enhanced/Legacy 模式基线，宿主无需再手抄控件清单。`step` 与 `display.step` 只指导宿主 UI；`setFxParam()` / `setFxParams()` 不按步进量化或取整，只校验类型、有限值和 `min` / `max` 硬边界。需要整数控件的宿主应在提交前自行取整。
 
-当前 `FX_PARAM_SCHEMA_VERSION` 为 `1`。旧版 `bloom.scatter` 与 MXFinalBloom 的 `bloom.diffusion` 不存在可证明的视觉等价换算；从版本 `0` 迁移到 `1` 时，路径会改为 `bloom.diffusion`，旧值则明确恢复为 Unity 默认值 `7`，并在 `normalized` 中分别报告 `renamed` 与 `defaulted`。持久化补丁应把原始版本传给 `schemaVersion`，由库按 `FX_PARAM_MIGRATIONS` 顺序迁移。高于当前版本、缺失迁移链或迁移后冲突的补丁会被明确拒绝，而不是静默丢弃。
+当前 `FX_PARAM_SCHEMA_VERSION` 为 `2`。旧版 `bloom.scatter` 与 MXFinalBloom 的 `bloom.diffusion` 不存在可证明的视觉等价换算；从版本 `0` 迁移到 `1` 时，路径会改为 `bloom.diffusion`，旧值则明确恢复为 Unity 默认值 `7`，并在 `normalized` 中分别报告 `renamed` 与 `defaulted`。版本 `1` 到 `2` 是不改写既有路径的空迁移，并为新增的 `shards.roundness` 使用默认值 `0`。持久化补丁应把原始版本传给 `schemaVersion`，由库按 `FX_PARAM_MIGRATIONS` 顺序迁移。高于当前版本、缺失迁移链或迁移后冲突的补丁会被明确拒绝，而不是静默丢弃。
 
 ```js
 import {
@@ -471,6 +472,13 @@ if (migrated.committed)
 
 `themeColor` 也是实例配置状态：可在构造参数或 `updateConfig()` 中设置，`setThemeColor()` 使用同一规范化路径，`getConfig()` 会返回当前值。只接受六位十六进制颜色；空字符串或非法值恢复导出的 `DEFAULT_THEME_COLOR`（`#4ca7ff`）。主题色改变的是宿主可配置的色相状态，不会改写 `UNITY_FX_TOUCH` 或 `FX_PARAM_SCHEMA` 的 Unity 参数基线。
 
+`setTriangleRoundness(value)` 是 `setFxParam('shards.roundness', value)` 的便捷 API。默认值 `0` 完全保留当前三角图集；`0..1` 基于原图集三角边界，用与直边相切的圆弧连续磨平尖角，并同步重映射纹理以避免出现内部尖三角；`1` 会把所有点击和拖尾三角碎片变成同尺寸圆形。运行时修改会让现存粒子在下一帧即时响应。有限的越界值由 Schema 钳制到 `0..1`，非有限值会被拒绝。
+
+```js
+fx.setTriangleRoundness(0.5);
+fx.setFxParam('shards.roundness', 0.5);
+```
+
 点击辉光可独立于轨迹调节。该倍率只改变增强模式下圆环和中心光盘的
 Bloom 发射；原生辉光使用保持单调的有界 Alpha 映射，Legacy 保持兼容输出：
 
@@ -490,6 +498,7 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `rings.widthEnd` | 1 | 生命周期终点的资源环宽倍率，不是独立像素宽度 |
 | `rings.lifetimeMs` | 600 | 圆环寿命 (ms) |
 | `shards.hdrIntensity` | 5.992157 | 碎片材质 HDR 强度；渲染时还会乘资源起始色 |
+| `shards.roundness` | 0 | 三角碎片圆角比例；`0` 保留原图集，`1` 变为同尺寸圆形 |
 | `shards.clickCount` | 4 | 点击碎片数量 |
 | `shards.maxCount` | 50 | 每次按下实例的拖尾碎片上限；点击碎片和旧实例不占用额度 |
 | `shards.trailSpacing` | 108 | 拖尾碎片间距 |

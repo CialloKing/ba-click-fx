@@ -356,6 +356,7 @@ Pausing cancels the active pointer, ignores `boom()` and every automatic or manu
 | `destroy()` | Destroy instance, remove listeners and canvas |
 | `updateConfig({...})` | Update base config, input source, time scales, Full Effect/Bloom backends, DPR, and touch behaviour at runtime |
 | `setThemeColor('#4ca7ff')` | Set and persist the theme colour; invalid input restores the default game blue |
+| `setTriangleRoundness(value)` | Set the triangle-shard roundness ratio; equivalent to `setFxParam('shards.roundness', value)` |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify one dot-path; returns `true` on success and `false` when rejected |
 | `setFxParams(patch, options?)` | Validate and batch-apply a dot-path patch through the public Schema, returning per-entry results |
 | `getFxConfig()` | Deep copy of current FX configuration |
@@ -395,7 +396,7 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 
 The library exports the read-only `FX_PARAM_SCHEMA`, the current `FX_PARAM_SCHEMA_VERSION`, and `FX_PARAM_MIGRATIONS`. Each public scalar path describes its type, hard bounds, default, unit, group, stable display order, localisation keys, recommended control range, linked parameters, and Enhanced/Legacy mode baselines. Hosts can build settings UIs without copying an independent control list. `step` and `display.step` only guide host UI controls. `setFxParam()` / `setFxParams()` do not quantise or round to those steps; they validate type, finiteness, and the hard `min` / `max` bounds. Hosts that require integer controls should round before submission.
 
-The current `FX_PARAM_SCHEMA_VERSION` is `1`. The old `bloom.scatter` value has no proven visual equivalence to MXFinalBloom's `bloom.diffusion`. Migrating from version `0` to `1` therefore renames the path to `bloom.diffusion`, explicitly restores the Unity default value `7`, and reports both `renamed` and `defaulted` in `normalized`. Persisted patches should pass their original `schemaVersion`, allowing the library to apply `FX_PARAM_MIGRATIONS` in order. A future version, a missing migration chain, or a post-migration conflict is rejected explicitly rather than being dropped silently.
+The current `FX_PARAM_SCHEMA_VERSION` is `2`. The old `bloom.scatter` value has no proven visual equivalence to MXFinalBloom's `bloom.diffusion`. Migrating from version `0` to `1` therefore renames the path to `bloom.diffusion`, explicitly restores the Unity default value `7`, and reports both `renamed` and `defaulted` in `normalized`. Version `1` to `2` is an empty migration that does not rewrite existing paths and uses the default value `0` for the new `shards.roundness` path. Persisted patches should pass their original `schemaVersion`, allowing the library to apply `FX_PARAM_MIGRATIONS` in order. A future version, a missing migration chain, or a post-migration conflict is rejected explicitly rather than being dropped silently.
 
 ```js
 import {
@@ -451,6 +452,13 @@ The result contains `applied`, `normalized`, `rejected`, `committed`, and `schem
 
 `themeColor` is also instance configuration state. It can be supplied to the constructor or `updateConfig()`; `setThemeColor()` uses the same normalisation path; and `getConfig()` returns the current value. Only six-digit hexadecimal colours are accepted. An empty string or invalid value restores the exported `DEFAULT_THEME_COLOR` (`#4ca7ff`). Theme state does not mutate the Unity parameter baseline in `UNITY_FX_TOUCH` or `FX_PARAM_SCHEMA`.
 
+`setTriangleRoundness(value)` is a convenience API for `setFxParam('shards.roundness', value)`. The default `0` preserves the current triangle atlas exactly; values from `0..1` continuously trim its corners with arcs tangent to the original straight sides and remap the texture so no sharp inner triangle remains; `1` turns every click and trail triangle shard into a same-size circle. Runtime changes affect existing particles on the next frame. Finite out-of-range values are clamped to `0..1` by the Schema, while non-finite values are rejected.
+
+```js
+fx.setTriangleRoundness(0.5);
+fx.setFxParam('shards.roundness', 0.5);
+```
+
 Click glow can be tuned independently from the trail. This scale changes only
 the ring and center-disk Bloom emission in enhanced mode; Native Glow uses the
 same scale through a monotonic bounded-alpha mapping, while Legacy keeps its
@@ -470,6 +478,7 @@ fx.setFxParam('bloom.clickEmissionScale', 1.25);
 | `rings.widthStart` / `rings.widthEnd` | 1 / 1 | Source ring-width multipliers, not independent pixel widths |
 | `rings.lifetimeMs` | 600 | Ring lifetime (ms) |
 | `shards.hdrIntensity` | 5.992157 | Shard material HDR intensity; the source Start Color is also applied during rendering |
+| `shards.roundness` | 0 | Triangle-shard roundness ratio; `0` preserves the source atlas and `1` produces same-size circles |
 | `shards.clickCount` | 4 | Click shard count |
 | `shards.maxCount` | 50 | Trail-shard limit per press; click shards and older instances do not consume it |
 | `shards.trailSpacing` | 108 | Trail shard spacing |
