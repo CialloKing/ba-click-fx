@@ -386,6 +386,18 @@ const hdrPresentationPresetSelect = indexHtml.match(
 const hdrPresentationPresetValues = [
   ...hdrPresentationPresetSelect.matchAll(/<option value="([^"]+)"/g),
 ].map((match) => match[1]);
+const hdrPresentationDetails = indexHtml.match(
+  /<details id="hdrPresentationDetails"[^>]*>[\s\S]*?<\/details>/,
+)?.[0] ?? '';
+const syncHdrPresentationDetailsSource = getFunctionSource(
+  mainJs,
+  'syncHdrPresentationDetails',
+);
+const applyRenderModeSource = getFunctionSource(mainJs, 'applyRenderMode');
+const updateRenderBackendStatusSource = getFunctionSource(
+  mainJs,
+  'updateRenderBackendStatus',
+);
 
 verify(
   JSON.stringify(hdrPresentationPresetValues) === JSON.stringify([
@@ -404,6 +416,17 @@ verify(
     /bafx-ctrlHdrPresentationPreset/.test(mainJs) &&
     /\.\.\.HDR_PRESENTATION_PRESETS\.balanced/.test(mainJs),
   'HDR 展示控件覆盖整体亮度、预设、Extended 启用、持久化与重置',
+);
+verify(
+  /^<details id="hdrPresentationDetails">/.test(hdrPresentationDetails) &&
+    /<summary id="hdrPresentationHeading">/.test(hdrPresentationDetails) &&
+    /details\.open = mode === 'full-webgpu'/.test(
+      syncHdrPresentationDetailsSource,
+    ) &&
+    /syncHdrPresentationDetails\(normalizedMode\)/.test(applyRenderModeSource) &&
+    /syncHdrPresentationDetails\(DEFAULT_RENDER_MODE\)/.test(mainJs) &&
+    !/syncHdrPresentationDetails/.test(updateRenderBackendStatusSource),
+  'HDR 显示映射默认折叠，仅随请求模式切换且状态刷新尊重手动折叠',
 );
 const syncHdrUiOverlaySource = getFunctionSource(
   mainJs,

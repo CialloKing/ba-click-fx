@@ -1344,6 +1344,17 @@ function applyHdrPresentation(overrides, persist = true)
   }
 }
 
+function syncHdrPresentationDetails(mode)
+{
+  const details = document.getElementById('hdrPresentationDetails');
+
+  if (details)
+  {
+    // 只在明确选择或恢复模式时切换；运行时状态刷新应尊重用户手动折叠。
+    details.open = mode === 'full-webgpu';
+  }
+}
+
 function updateRenderBackendStatus()
 {
   const status = document.getElementById('renderBackendStatus');
@@ -1491,9 +1502,12 @@ function updateRenderBackendStatus()
 
 function applyRenderMode(mode)
 {
-  const config = RENDER_MODE_CONFIGS[mode] ||
-    RENDER_MODE_CONFIGS[DEFAULT_RENDER_MODE];
+  const normalizedMode = RENDER_MODE_CONFIGS[mode]
+    ? mode
+    : DEFAULT_RENDER_MODE;
+  const config = RENDER_MODE_CONFIGS[normalizedMode];
 
+  syncHdrPresentationDetails(normalizedMode);
   effect.updateConfig(config);
   updateRenderBackendStatus();
   // 事件负责持续同步运行时变化；RAF 兼容不支持 CustomEvent 的旧环境。
@@ -1900,6 +1914,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlDpr').value = '2';
   document.getElementById('outDpr').textContent = '2.00';
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
+  syncHdrPresentationDetails(DEFAULT_RENDER_MODE);
   document.getElementById('ctrlHdrPresentationPreset').value = 'balanced';
   document.getElementById('ctrlHdrUiEnabled').checked = true;
   document.getElementById('ctrlHdrUiBrightness').value =

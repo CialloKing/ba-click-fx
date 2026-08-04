@@ -303,12 +303,13 @@ fx.setPaused(true, { clear: true });</code></pre>
         <p id="webgpuDiagnosticFailure" class="webgpu-diagnostic-failure" hidden></p>
         <p id="webgpuDiagnosticNote" class="render-status-note">视频动态范围报告 High 不代表 WebGPU Canvas HDR 可用。</p>
       </details>
-      <p id="hdrPresentationHeading" class="sub-heading">HDR 显示映射</p>
-      <div
-        id="hdrPresentationControls"
-        class="hdr-presentation-controls is-inactive"
-        aria-disabled="true"
-      >
+      <details id="hdrPresentationDetails">
+        <summary id="hdrPresentationHeading">HDR 显示映射</summary>
+        <div
+          id="hdrPresentationControls"
+          class="hdr-presentation-controls is-inactive"
+          aria-disabled="true"
+        >
         <label class="ctrl">
           <span>高光预设</span>
           <select id="ctrlHdrPresentationPreset" class="ctrl-select" disabled>
@@ -342,7 +343,8 @@ fx.setPaused(true, { clear: true });</code></pre>
           <span>白核终点 <output id="outWebGPUHdrWhiteEnd">5.00</output></span>
           <input type="range" id="ctrlWebGPUHdrWhiteEnd" min="0.01" max="8" step="0.01" value="5" disabled />
         </label>
-      </div>
+        </div>
+      </details>
       </details>
       <details open>
       <summary id="hostApiSummary">宿主控制 API</summary>
