@@ -9541,6 +9541,7 @@ export class BAClickFX
     sceneAlphaSnapshot = null,
     bloomTransportContext = null,
     bloomCompositing = 'lighter',
+    applyColorCompensation = true,
   )
   {
     const overlayAlphaPolicy = this._getOverlayAlphaPolicy();
@@ -9622,11 +9623,14 @@ export class BAClickFX
         }
       }
 
-      applyOverlayColorCompensationToImageData(
-        imageData,
-        overlayColorCompensation,
-        this.config.opacity,
-      );
+      if (applyColorCompensation)
+      {
+        applyOverlayColorCompensationToImageData(
+          imageData,
+          overlayColorCompensation,
+          this.config.opacity,
+        );
+      }
       this.context.putImageData(
         imageData,
         bounds.minimumX,
@@ -10017,10 +10021,14 @@ export class BAClickFX
 
     if (!failed)
     {
+      // Software Bloom 需要在本阶段提交 visual-max 的 Alpha；颜色补偿延后到
+      // 帧收尾且只执行一次，避免 Bloom 与清晰层连续抬高同一核心。
       this._limitCanvasOverlayAlpha(
         scale,
         sceneAlphaSnapshot,
         bloomTransportContext,
+        'lighter',
+        false,
       );
       this._cacheSoftwareBloomFrame(scale);
     }

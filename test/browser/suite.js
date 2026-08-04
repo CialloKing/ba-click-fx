@@ -390,7 +390,15 @@ function captureLayers(effect, target, background = 'transparent')
     context.drawImage(layer, 0, 0, width, height);
   }
 
-  return context.getImageData(0, 0, width, height);
+  const image = context.getImageData(0, 0, width, height);
+
+  // Chromium 在高 DPR 多次读回时可能复用底层 ImageData 缓冲；夹具的
+  // 四种背景必须各自持有快照，否则后一次黑底读回会污染透明样本。
+  return {
+    data: new Uint8ClampedArray(image.data),
+    height: image.height,
+    width: image.width,
+  };
 }
 
 function captureContrastLayer(effect)
@@ -735,6 +743,7 @@ function summarizePixels(imageData, dpr)
   let alphaSum = 0;
   let energySum = 0;
   let maximumAlpha = 0;
+  let maximumEnergy = 0;
   let visiblePixels = 0;
   let minimumX = imageData.width;
   let minimumY = imageData.height;
@@ -752,6 +761,8 @@ function summarizePixels(imageData, dpr)
     alphaSum += alpha;
     energySum += energy;
     maximumAlpha = Math.max(maximumAlpha, alpha);
+    // 透明覆盖层合同比较的是预乘能量，记录峰值以避免只靠平均值掩盖高能核心漂移。
+    maximumEnergy = Math.max(maximumEnergy, energy * alpha / 255);
 
     if (alpha > 1 || energy > 1)
     {
@@ -772,13 +783,14 @@ function summarizePixels(imageData, dpr)
     getPixel(imageData, CLICK_X + radius, CLICK_Y, dpr)[3] / 255,
   );
 
-  return {
+  const summary = {
     meanRed: redSum / pixelCount / 255,
     meanGreen: greenSum / pixelCount / 255,
     meanBlue: blueSum / pixelCount / 255,
     meanAlpha: alphaSum / pixelCount / 255,
     meanEnergy: energySum / pixelCount / 255,
     maximumAlpha: maximumAlpha / 255,
+    maximumEnergy: maximumEnergy / 255,
     visibleRatio: visiblePixels / pixelCount,
     bounds:
     {
@@ -788,6 +800,8 @@ function summarizePixels(imageData, dpr)
     center: getPixel(imageData, CLICK_X, CLICK_Y, dpr),
     radialAlpha,
   };
+
+  return summary;
 }
 
 function createCompositingReference(background = 'checker')
