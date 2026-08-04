@@ -1061,6 +1061,9 @@ async function readDemoHdrUiState(page)
         document.getElementById('ctrlHdrUiBrightness')?.disabled,
       storedEnabled: localStorage.getItem('bafx-ctrlHdrUiEnabled'),
       storedBrightness: localStorage.getItem('bafx-ctrlHdrUiBrightness'),
+      hdrPresentationOpen: document.getElementById(
+        'hdrPresentationDetails',
+      )?.open ?? null,
       diagnostics:
       {
         detailsOpen: document.getElementById(
@@ -1318,6 +1321,24 @@ async function runDemoHdrUiEffectIsolation(page)
 async function runDemoHdrUiIntegration(page, origin)
 {
   await page.goto(origin);
+  await page.evaluate(() =>
+  {
+    localStorage.clear();
+    localStorage.setItem('bafx-ctrlRenderMode', 'full-webgpu');
+  });
+  await page.reload();
+  await page.waitForFunction(() => window.BAClickFXDemo?.getConfig?.());
+  await page.waitForFunction(() =>
+    window.BAClickFXDemo.getConfig().effectBackend === 'webgpu');
+  const restoredModeDetailsOpen = await page.evaluate(() =>
+    document.getElementById('hdrPresentationDetails')?.open ?? null);
+
+  assert.equal(
+    restoredModeDetailsOpen,
+    true,
+    '恢复 full-webgpu 设置后 HDR 显示映射区域未自动展开',
+  );
+
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForFunction(() => window.BAClickFXDemo?.getConfig?.());
@@ -1329,6 +1350,11 @@ async function runDemoHdrUiIntegration(page, origin)
   assert.equal(initial.requestedBackend, 'webgl2', `展示页默认后端错误: ${initialDetail}`);
   assert.equal(initial.bodyState, 'inactive', `默认 UI HDR 状态错误: ${initialDetail}`);
   assert.equal(initial.surfaceCount, 0, `默认不应创建 HDR UI Surface: ${initialDetail}`);
+  assert.equal(
+    initial.hdrPresentationOpen,
+    false,
+    `HDR 显示映射区域默认应折叠: ${initialDetail}`,
+  );
   assert.ok(
     initial.enabledDisabled && initial.brightnessDisabled,
     `默认 UI HDR 控件不应可用: ${initialDetail}`,
@@ -1366,6 +1392,48 @@ async function runDemoHdrUiIntegration(page, origin)
       pausedProbe.diagnostics.values.diagnosticPipelineValue === '正在检测' &&
       pausedProbe.diagnostics.failureHidden,
     `暂停状态下未开始的 WebGPU 探测被误报: ${pausedProbeDetail}`,
+  );
+  assert.equal(
+    pausedProbe.hdrPresentationOpen,
+    true,
+    `请求 WebGPU 时 HDR 显示映射区域未自动展开: ${pausedProbeDetail}`,
+  );
+
+  const manuallyCollapsed = await page.evaluate(() =>
+  {
+    const details = document.getElementById('hdrPresentationDetails');
+
+    details.open = false;
+    window.BAClickFXDemo.canvas.dispatchEvent(
+      new CustomEvent('baclickfxeffectbackendchange'),
+    );
+    return details.open;
+  });
+
+  assert.equal(
+    manuallyCollapsed,
+    false,
+    'WebGPU 状态事件不应重新展开用户手动折叠的 HDR 显示映射区域',
+  );
+
+  await page.selectOption('#ctrlRenderMode', 'full-webgl2');
+  const nonWebGpuDetailsOpen = await page.evaluate(() =>
+    document.getElementById('hdrPresentationDetails')?.open ?? null);
+
+  assert.equal(
+    nonWebGpuDetailsOpen,
+    false,
+    '切出 WebGPU 后 HDR 显示映射区域未折叠',
+  );
+
+  await page.selectOption('#ctrlRenderMode', 'full-webgpu');
+  const webGpuDetailsReopened = await page.evaluate(() =>
+    document.getElementById('hdrPresentationDetails')?.open ?? null);
+
+  assert.equal(
+    webGpuDetailsReopened,
+    true,
+    '重新选择 WebGPU 后 HDR 显示映射区域未展开',
   );
 
   await page.evaluate(() =>
@@ -1435,7 +1503,13 @@ async function runDemoHdrUiIntegration(page, origin)
         ),
       `WebGPU SDR 回退诊断不完整: ${negotiatedDetail}`,
     );
-    return { initial, pausedProbe, negotiated, extendedCovered: false };
+    return {
+      restoredModeDetailsOpen,
+      initial,
+      pausedProbe,
+      negotiated,
+      extendedCovered: false,
+    };
   }
 
   assert.ok(
@@ -1461,7 +1535,12 @@ async function runDemoHdrUiIntegration(page, origin)
         negotiated.brightnessDisabled,
       `CSS HDR 不可用时必须禁用 UI HDR: ${negotiatedDetail}`,
     );
-    return { initial, negotiated, extendedCovered: false };
+    return {
+      restoredModeDetailsOpen,
+      initial,
+      negotiated,
+      extendedCovered: false,
+    };
   }
 
   await page.waitForFunction(() =>
@@ -1541,7 +1620,8 @@ async function runDemoHdrUiIntegration(page, origin)
     switched.bodyState === 'inactive' &&
       switched.surfaceCount === 0 &&
       switched.statusBoxShadow === 'none' &&
-      switched.brightnessDisabled,
+      switched.brightnessDisabled &&
+      !switched.hdrPresentationOpen,
     `切出 WebGPU 后 CSS HDR UI 仍然活动: ${switchedDetail}`,
   );
 
@@ -1551,13 +1631,16 @@ async function runDemoHdrUiIntegration(page, origin)
   const resumed = await page.evaluate(() =>
   ({
     state: document.body.dataset.hdrUiState,
+    detailsOpen: document.getElementById('hdrPresentationDetails')?.open,
     surfaceCount: document.querySelectorAll(
       '#hdrUiCanvas, .hdr-ui-canvas',
     ).length,
   }));
 
   assert.ok(
-    resumed.state === 'extended' && resumed.surfaceCount === 0,
+    resumed.state === 'extended' &&
+      resumed.detailsOpen &&
+      resumed.surfaceCount === 0,
     `恢复 WebGPU 后 CSS HDR UI 状态错误: ${JSON.stringify(resumed)}`,
   );
 
@@ -1576,7 +1659,8 @@ async function runDemoHdrUiIntegration(page, origin)
       reset.brightness === '4' &&
       reset.brightnessOutput === '4.00' &&
       reset.storedEnabled === null &&
-      reset.storedBrightness === null,
+      reset.storedBrightness === null &&
+      !reset.hdrPresentationOpen,
     `重置未恢复 UI HDR 展示页默认值: ${resetDetail}`,
   );
 
@@ -1599,11 +1683,13 @@ async function runDemoHdrUiIntegration(page, origin)
       deviceLost.diagnostics.values.diagnosticDeviceValue === '设备已丢失' &&
       deviceLost.diagnostics.values.diagnosticPipelineValue === '设备已丢失' &&
       !deviceLost.diagnostics.failureHidden &&
-      deviceLost.diagnostics.failureText.includes('device-lost'),
+      deviceLost.diagnostics.failureText.includes('device-lost') &&
+      deviceLost.hdrPresentationOpen,
     `Device Lost 诊断没有跟随真实回退链: ${deviceLostDetail}`,
   );
 
   return {
+    restoredModeDetailsOpen,
     initial,
     pausedProbe,
     negotiated,
