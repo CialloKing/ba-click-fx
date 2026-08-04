@@ -588,8 +588,22 @@ fn fragmentFinal(input: FullscreenOutput) -> @location(0) vec4f
 
     if (params.brightUnknownBackground != 0u)
     {
-      let compensation = alpha * smoothstep(0.03125, 0.25, maximumSrgb);
-      premultiplied = min(vec3f(alpha), max(premultiplied, vec3f(compensation)));
+      let safeOpacity = max(params.opacity, 0.000001);
+      let normalizedCoverage = clamp(alpha / safeOpacity, 0.0, 1.0);
+      let maximumPremultiplied = max(
+        max(premultiplied.r, premultiplied.g),
+        premultiplied.b,
+      );
+      let normalizedEnergy = maximumPremultiplied / safeOpacity;
+      let energyRatio = normalizedEnergy / max(normalizedCoverage, 0.000001);
+      let gate = smoothstep(0.25, 0.75, energyRatio) *
+        smoothstep(0.03125, 0.25, normalizedEnergy);
+
+      premultiplied = mix(
+        premultiplied,
+        vec3f(maximumPremultiplied),
+        0.35 * gate,
+      );
     }
 
     return vec4f(premultiplied, alpha);

@@ -950,8 +950,22 @@ function validateTransparentContractTransitions(mode, phases)
       brightCorePixels.meanRed >= visualMaxPixels.meanRed &&
       brightCorePixels.meanGreen >= visualMaxPixels.meanGreen &&
       brightCorePixels.meanBlue >= visualMaxPixels.meanBlue &&
-      brightCorePixels.meanRed > visualMaxPixels.meanRed + 0.000001,
-    `${mode}: bright-core 改变了 Alpha 或没有提升高能核心载荷`,
+      brightCorePixels.meanRed > visualMaxPixels.meanRed + 0.000001 &&
+      Math.abs(
+        brightCorePixels.meanEnergy - visualMaxPixels.meanEnergy,
+      ) <= 1 / 255 &&
+      Math.abs(
+        brightCorePixels.maximumEnergy - visualMaxPixels.maximumEnergy,
+      ) <= 1 / 255 &&
+      Math.max(...brightCorePixels.center.slice(0, 3)) <=
+        Math.max(...visualMaxPixels.center.slice(0, 3)) + 1 &&
+      Math.max(...brightCorePixels.center.slice(0, 3)) -
+        Math.min(...brightCorePixels.center.slice(0, 3)) >=
+        (
+          Math.max(...visualMaxPixels.center.slice(0, 3)) -
+          Math.min(...visualMaxPixels.center.slice(0, 3))
+        ) * 0.6,
+    `${mode}: bright-core 改变了 Alpha/峰值或抹掉了蓝青色层次`,
     {
       brightCore: brightCorePixels,
       visualMax: visualMaxPixels,

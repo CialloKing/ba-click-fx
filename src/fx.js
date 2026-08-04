@@ -45,7 +45,10 @@ import {
   limitCanvasAlpha,
 } from './software-bloom.js';
 import {
+  BRIGHT_CORE_CHANNEL_MIX,
+  applyOverlayColorCompensationToImageData,
   applyOverlayAlphaPolicyToImageData,
+  compensateBrightCorePremultipliedRgb,
 } from './overlay-compositing.js';
 import { WebGL2EffectRenderer } from './webgl2-effect.js';
 import { WebGPUEffectRenderer } from './webgpu-effect.js';
@@ -695,17 +698,19 @@ function resolveOverlayStraightColor(
 
   if (overlayColorCompensation === 'bright-core')
   {
-    const compensation = resolveOverlayCompensation(
-      color,
-      contributionOpacity,
+    const compensated = compensateBrightCorePremultipliedRgb(
+      [
+        red * requestedAlpha,
+        green * requestedAlpha,
+        blue * requestedAlpha,
+      ],
       requestedAlpha,
       globalOpacity,
     );
 
-    // 只补偿有足够独立发射能量的核心，低能拖尾继续保留原始色相。
-    red = Math.max(red, compensation);
-    green = Math.max(green, compensation);
-    blue = Math.max(blue, compensation);
+    red = compensated[0] / requestedAlpha;
+    green = compensated[1] / requestedAlpha;
+    blue = compensated[2] / requestedAlpha;
   }
 
   return [red, green, blue];
@@ -1266,20 +1271,20 @@ function prepareLinearTintedTextureCanvas(
       const red = encodeChannel(sourceOffset, 0, straightDivisor);
       const green = encodeChannel(sourceOffset, 1, straightDivisor);
       const blue = encodeChannel(sourceOffset, 2, straightDivisor);
-      // 补偿只作用于有纹理能量的核心；直接用全局颜色作 texel 下限会把
-      // Circle 与 Tri3 的低能细节填成同一块灰白轮廓。
-      const compensationFloor = safeCompensation > 0
-        ? safeCompensation * clamp01(Math.max(red, green, blue))
-        : 0;
+      const maximum = Math.max(red, green, blue);
+      // 保留每个 texel 的峰值，只让弱通道有限靠近主通道。这里仍以纹理
+      // 能量衰减门控，兼容直接调用路径也不会填白低能细节。
+      const mixAmount = BRIGHT_CORE_CHANNEL_MIX * safeCompensation *
+        clamp01(maximum);
 
       image.data[outputOffset] = Math.round(
-        clamp01(Math.max(red, compensationFloor)) * 255,
+        clamp01(red + (maximum - red) * mixAmount) * 255,
       );
       image.data[outputOffset + 1] = Math.round(
-        clamp01(Math.max(green, compensationFloor)) * 255,
+        clamp01(green + (maximum - green) * mixAmount) * 255,
       );
       image.data[outputOffset + 2] = Math.round(
-        clamp01(Math.max(blue, compensationFloor)) * 255,
+        clamp01(blue + (maximum - blue) * mixAmount) * 255,
       );
       image.data[outputOffset + 3] = coverageByte;
     }
@@ -9243,14 +9248,16 @@ export class BAClickFX
   )
   {
     const overlayAlphaPolicy = this._getOverlayAlphaPolicy();
+    const overlayColorCompensation = this._getOverlayColorCompensation();
+    const compensateBrightCore =
+      overlayColorCompensation === 'bright-core';
+    const adjustAlpha = overlayAlphaPolicy === 'visual-max' ||
+      this.config.overlayAlphaLimit < 1;
 
     if (
       !this._usesUnknownBrowserOverlay() ||
       this._usesIndependentHostPayload() ||
-      (
-        overlayAlphaPolicy === 'coverage' &&
-        this.config.overlayAlphaLimit >= 1
-      ) ||
+      (!adjustAlpha && !compensateBrightCore) ||
       this.webgpuEffectVisible ||
       this.webglEffectVisible ||
       this.webglBloomVisible ||
@@ -9268,16 +9275,17 @@ export class BAClickFX
       return;
     }
 
-    if (overlayAlphaPolicy === 'visual-max')
+    try
     {
-      try
+      const imageData = this.context.getImageData(
+        bounds.minimumX,
+        bounds.minimumY,
+        bounds.width,
+        bounds.height,
+      );
+
+      if (overlayAlphaPolicy === 'visual-max')
       {
-        const imageData = this.context.getImageData(
-          bounds.minimumX,
-          bounds.minimumY,
-          bounds.width,
-          bounds.height,
-        );
         const matchingSnapshot = sceneAlphaSnapshot &&
           sceneAlphaSnapshot.minimumX === bounds.minimumX &&
           sceneAlphaSnapshot.minimumY === bounds.minimumY &&
@@ -9302,17 +9310,41 @@ export class BAClickFX
           overlayAlphaPolicy,
           bloomCompositing,
         );
-        this.context.putImageData(
-          imageData,
-          bounds.minimumX,
-          bounds.minimumY,
-        );
       }
-      catch
+      else if (this.config.overlayAlphaLimit < 1)
       {
-        // 受污染 Canvas 无法回读时保持原像素，不能让视觉兼容策略中断帧循环。
+        const maximumAlpha = Math.round(
+          clamp01(this.config.overlayAlphaLimit) * 255,
+        );
+
+        for (let index = 3; index < imageData.data.length; index += 4)
+        {
+          imageData.data[index] = Math.min(
+            imageData.data[index],
+            maximumAlpha,
+          );
+        }
       }
 
+      applyOverlayColorCompensationToImageData(
+        imageData,
+        overlayColorCompensation,
+        this.config.opacity,
+      );
+      this.context.putImageData(
+        imageData,
+        bounds.minimumX,
+        bounds.minimumY,
+      );
+      return;
+    }
+    catch
+    {
+      // 受污染 Canvas 无法回读时保留颜色；Coverage 仍尽力执行原 Alpha 上限。
+    }
+
+    if (overlayAlphaPolicy === 'visual-max')
+    {
       return;
     }
 
@@ -9530,7 +9562,8 @@ export class BAClickFX
       diffusion,
       opacity: this.config.opacity,
       outputCompositing: this.config.outputCompositing,
-      overlayColorCompensation: this._getOverlayColorCompensation(),
+      // Canvas 在清晰层与 Bloom 聚合后统一补偿，避免各层重复混色。
+      overlayColorCompensation: 'none',
       overlayAlphaPolicy: this._getOverlayAlphaPolicy(),
       overlayAlphaLimit: this.config.overlayAlphaLimit,
       hostCompositing: this._getEffectiveHostCompositing(),
@@ -10124,8 +10157,8 @@ export class BAClickFX
   _drawCanvasClickEffects(scale, useNativeBloom, legacy = false)
   {
     const outputCompositing = this._getCanvasOutputCompositing();
-    const overlayColorCompensation =
-      this._getOverlayColorCompensation();
+    // 最终 Canvas 载荷会在所有图元聚合后统一补偿一次。
+    const overlayColorCompensation = 'none';
     const overlayAlphaLimit = this.config.overlayAlphaLimit;
 
     for (const wave of this.waves)
@@ -10179,9 +10212,8 @@ export class BAClickFX
     const outputCompositing = linearOutput
       ? 'scene'
       : this._getCanvasOutputCompositing();
-    const overlayColorCompensation = linearOutput
-      ? 'none'
-      : this._getOverlayColorCompensation();
+    // 线性目标不需要补偿；透明 Canvas 也延迟到 Final Pass 统一处理。
+    const overlayColorCompensation = 'none';
     const overlayAlphaLimit = this.config.overlayAlphaLimit;
 
     for (
@@ -10369,7 +10401,7 @@ export class BAClickFX
           useNativeBloom,
           outputCompositing,
           this.dpr,
-          this._getOverlayColorCompensation(),
+          'none',
           this.config.overlayAlphaLimit,
         );
       }
@@ -10382,7 +10414,7 @@ export class BAClickFX
     legacy = false,
     linearNativeGlow = false,
     outputCompositing = this._getCanvasOutputCompositing(),
-    overlayColorCompensation = this._getOverlayColorCompensation(),
+    overlayColorCompensation = 'none',
     overlayAlphaLimit = this.config.overlayAlphaLimit,
   )
   {
@@ -10443,7 +10475,7 @@ export class BAClickFX
           this.config.opacity,
           this.fxConfig,
           outputCompositing,
-          this._getOverlayColorCompensation(),
+          'none',
           this.config.overlayAlphaLimit,
         );
       }

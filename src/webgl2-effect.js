@@ -674,33 +674,23 @@ void main()
 
     if (u_brightUnknownBackground)
     {
-      // 只在发射/传输能量相对 Coverage 足够高时补齐中性通道。门控先
-      // 去除全局 opacity，确保 0/0.5/1 的生命周期不会改变补偿分区。
       float safeOpacity = max(u_opacity, 0.000001);
-      float normalizedCoverage = clamp(sceneCoverage / safeOpacity, 0.0, 1.0);
-      float clearEnergy = linearToSrgb(
-        max(max(sceneEnergy.r, sceneEnergy.g), sceneEnergy.b) / safeOpacity
+      float normalizedCoverage = clamp(alpha / safeOpacity, 0.0, 1.0);
+      float maximumPremultiplied = max(
+        max(premultiplied.r, premultiplied.g),
+        premultiplied.b
       );
-      float clearRatio = clearEnergy / max(normalizedCoverage, 0.000001);
-      float normalizedBloomTransport = linearToSrgb(
-        max(0.0, filteredBloom.a) * max(0.0, u_intensity) / safeOpacity
-      );
-      float bloomEnergy = linearToSrgb(
-        max(max(filteredBloom.r, filteredBloom.g), filteredBloom.b) *
-          max(0.0, u_intensity) / safeOpacity
-      );
-      float bloomRatio = bloomEnergy /
-        max(normalizedBloomTransport, 0.000001);
-      float clearGate = smoothstep(0.25, 0.75, clearRatio) *
-        smoothstep(0.03125, 0.25, clearEnergy);
-      float bloomGate = smoothstep(0.25, 0.75, bloomRatio) *
-        smoothstep(0.03125, 0.25, normalizedBloomTransport);
-      float compensation = alpha * max(clearGate, bloomGate);
+      float normalizedEnergy = maximumPremultiplied / safeOpacity;
+      float energyRatio = normalizedEnergy /
+        max(normalizedCoverage, 0.000001);
+      float gate = smoothstep(0.25, 0.75, energyRatio) *
+        smoothstep(0.03125, 0.25, normalizedEnergy);
 
-      // 只抬升缺失通道并继续满足预乘约束；低能拖尾不会进入补偿门。
-      premultiplied = min(
-        vec3(alpha),
-        max(premultiplied, vec3(compensation))
+      // 聚合后只混合一次；峰值不增加，蓝青核心不会再坍缩成纯白。
+      premultiplied = mix(
+        premultiplied,
+        vec3(maximumPremultiplied),
+        0.35 * gate
       );
     }
 

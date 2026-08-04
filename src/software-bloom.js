@@ -5,6 +5,7 @@ import {
   resolveUnityBloomIntensity,
 } from './bloom-color-space.js';
 import { isIndependentHostCompositing } from './config.js';
+import { BRIGHT_CORE_CHANNEL_MIX } from './overlay-compositing.js';
 
 const RGB_CHANNELS = 3;
 const RGBA_CHANNELS = 4;
@@ -1090,11 +1091,12 @@ export function encodeAdditiveBloom(
             0.25,
             normalizedTransport,
           );
-          const compensation = ratioGate * energyGate;
+          const maximum = Math.max(outputRed, outputGreen, outputBlue);
+          const amount = BRIGHT_CORE_CHANNEL_MIX * ratioGate * energyGate;
 
-          outputRed = Math.max(outputRed, compensation);
-          outputGreen = Math.max(outputGreen, compensation);
-          outputBlue = Math.max(outputBlue, compensation);
+          outputRed += (maximum - outputRed) * amount;
+          outputGreen += (maximum - outputGreen) * amount;
+          outputBlue += (maximum - outputBlue) * amount;
         }
 
         output[outputIndex] = Math.round(outputRed * 255);

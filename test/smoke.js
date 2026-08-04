@@ -2911,10 +2911,10 @@ assert(
 );
 assert(
   brightOverlayFrame.compositeSettings?.overlayColorCompensation ===
-      'bright-core' &&
+      'none' &&
     brightOverlayFrame.compositeSettings?.overlayAlphaLimit === 0.7 &&
     brightOverlayFrame.compositeSettings?.hostCompositing === 'source-over',
-  'Software Bloom 接收独立外观、Alpha 上限和有效宿主合成设置',
+  'Software Bloom 延迟颜色补偿并接收 Alpha 上限与有效宿主合成设置',
 );
 assert(
   additiveOverlayFrame.compositeSettings?.hostCompositing ===

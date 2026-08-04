@@ -19,6 +19,20 @@ export const OVERLAY_COLOR_COMPENSATIONS = Object.freeze(
   ],
 );
 
+export const BRIGHT_CORE_CHANNEL_MIX = 0.35;
+
+function clamp01(value)
+{
+  return Math.max(0, Math.min(1, Number(value) || 0));
+}
+
+function smoothstep(edge0, edge1, value)
+{
+  const progress = clamp01((value - edge0) / (edge1 - edge0));
+
+  return progress * progress * (3 - 2 * progress);
+}
+
 export function isOverlayAlphaPolicy(value)
 {
   return OVERLAY_ALPHA_POLICIES.includes(value);
@@ -111,6 +125,89 @@ export function scaleOverlayPremultipliedRgb(
     Math.min(safeAlpha, Math.max(0, Number(color[1]) || 0) * scale),
     Math.min(safeAlpha, Math.max(0, Number(color[2]) || 0) * scale),
   ];
+}
+
+/**
+ * 只补齐高能像素的弱通道。最大通道和 Alpha 都保持不变，避免浅色背景
+ * 补偿把蓝青核心压成纯白；绝对能量门继续保护低能拖尾。
+ */
+export function compensateBrightCorePremultipliedRgb(
+  rgb,
+  alpha,
+  opacity = 1,
+)
+{
+  const safeAlpha = clamp01(alpha);
+
+  if (safeAlpha <= 0.000001)
+  {
+    return [0, 0, 0];
+  }
+
+  const color = [0, 1, 2].map((channel) =>
+    Math.min(safeAlpha, Math.max(0, Number(rgb?.[channel]) || 0)));
+  const maximum = Math.max(...color);
+
+  if (maximum <= 0.000001)
+  {
+    return color;
+  }
+
+  const safeOpacity = Math.max(clamp01(opacity), 0.000001);
+  const normalizedCoverage = clamp01(safeAlpha / safeOpacity);
+  const normalizedEnergy = maximum / safeOpacity;
+  const energyRatio = normalizedEnergy /
+    Math.max(normalizedCoverage, 0.000001);
+  const gate = smoothstep(0.25, 0.75, energyRatio) *
+    smoothstep(0.03125, 0.25, normalizedEnergy);
+  const amount = BRIGHT_CORE_CHANNEL_MIX * gate;
+
+  return color.map((channel) =>
+    channel + (maximum - channel) * amount);
+}
+
+/**
+ * Canvas ImageData 保存直通道 RGB；先恢复聚合后的预乘载荷，再统一补偿一次。
+ */
+export function applyOverlayColorCompensationToImageData(
+  imageData,
+  compensation = 'none',
+  opacity = 1,
+)
+{
+  if (compensation !== 'bright-core' || !imageData?.data)
+  {
+    return imageData;
+  }
+
+  const data = imageData.data;
+
+  for (let index = 0; index + 3 < data.length; index += 4)
+  {
+    const alpha = data[index + 3] / 255;
+
+    if (alpha <= 0.000001)
+    {
+      continue;
+    }
+
+    const premultiplied = [
+      data[index] / 255 * alpha,
+      data[index + 1] / 255 * alpha,
+      data[index + 2] / 255 * alpha,
+    ];
+    const compensated = compensateBrightCorePremultipliedRgb(
+      premultiplied,
+      alpha,
+      opacity,
+    );
+
+    data[index] = Math.round(compensated[0] / alpha * 255);
+    data[index + 1] = Math.round(compensated[1] / alpha * 255);
+    data[index + 2] = Math.round(compensated[2] / alpha * 255);
+  }
+
+  return imageData;
 }
 
 /**

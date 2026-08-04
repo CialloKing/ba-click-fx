@@ -280,26 +280,22 @@ void main()
 
     if (u_brightUnknownBackground)
     {
-      // 以独立 Bloom 能量/传输上界门控补偿，并先消除全局 opacity，
-      // 避免生命周期变化让低能拖尾跨入灰白补偿区。
       float safeOpacity = max(u_opacity, 0.000001);
-      float normalizedTransport = linearToSrgb(
-        max(0.0, filteredBloom.a) * max(0.0, u_intensity) / safeOpacity
+      float normalizedTransport = clamp(alpha / safeOpacity, 0.0, 1.0);
+      float maximumPremultiplied = max(
+        max(premultiplied.r, premultiplied.g),
+        premultiplied.b
       );
-      float normalizedEnergy = linearToSrgb(
-        max(max(filteredBloom.r, filteredBloom.g), filteredBloom.b) *
-          max(0.0, u_intensity) / safeOpacity
-      );
+      float normalizedEnergy = maximumPremultiplied / safeOpacity;
       float energyRatio = normalizedEnergy /
         max(normalizedTransport, 0.000001);
       float ratioGate = smoothstep(0.25, 0.75, energyRatio);
-      float energyGate = smoothstep(0.03125, 0.25, normalizedTransport);
-      float compensation = alpha * ratioGate * energyGate;
+      float energyGate = smoothstep(0.03125, 0.25, normalizedEnergy);
 
-      // 只抬升缺失通道，最终仍严格满足预乘 RGB <= Alpha。
-      premultiplied = min(
-        vec3(alpha),
-        max(premultiplied, vec3(compensation))
+      premultiplied = mix(
+        premultiplied,
+        vec3(maximumPremultiplied),
+        0.35 * ratioGate * energyGate
       );
     }
 

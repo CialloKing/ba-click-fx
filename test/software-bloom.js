@@ -21,7 +21,10 @@ import { UNITY_FX_TOUCH } from '../src/config.js';
 import { WebGL2BloomRenderer } from '../src/webgl2-bloom.js';
 import { WebGL2EffectRenderer } from '../src/webgl2-effect.js';
 import {
+  BRIGHT_CORE_CHANNEL_MIX,
+  applyOverlayColorCompensationToImageData,
   applyOverlayAlphaPolicyToImageData,
+  compensateBrightCorePremultipliedRgb,
   resolveOverlayAlpha,
   scaleOverlayPremultipliedRgb,
 } from '../src/overlay-compositing.js';
@@ -912,7 +915,9 @@ assert(
     brightAppearanceRgba[3] === 51 &&
     brightAppearanceRgba[0] >= coverageAppearanceRgba[0] &&
     brightAppearanceRgba[1] > coverageAppearanceRgba[1] &&
-    brightAppearanceRgba[2] > coverageAppearanceRgba[2],
+    brightAppearanceRgba[2] > coverageAppearanceRgba[2] &&
+    Math.max(...brightAppearanceRgba.slice(0, 3)) ===
+      Math.max(...coverageAppearanceRgba.slice(0, 3)),
   'bright-core 只补偿独立高能 Bloom 通道且不改变 Coverage Alpha',
 );
 assert(
@@ -1021,6 +1026,48 @@ encodeAdditiveBloom(
 assert(
   arraysApproximatelyEqual(lowEnergyBrightRgba, lowEnergyCoverageRgba, 0),
   'bright-core 的绝对能量门不会把低能拖尾尾端补成灰白色',
+);
+
+const cyanPremultiplied = [0.3, 0.5, 0.8];
+const compensatedCyan = compensateBrightCorePremultipliedRgb(
+  cyanPremultiplied,
+  0.8,
+  1,
+);
+
+assert(
+  approximatelyEqual(Math.max(...compensatedCyan), 0.8) &&
+    approximatelyEqual(
+      compensatedCyan[0],
+      cyanPremultiplied[0] +
+        (0.8 - cyanPremultiplied[0]) * BRIGHT_CORE_CHANNEL_MIX,
+    ) &&
+    approximatelyEqual(
+      compensatedCyan[1],
+      cyanPremultiplied[1] +
+        (0.8 - cyanPremultiplied[1]) * BRIGHT_CORE_CHANNEL_MIX,
+    ),
+  'bright-core 最多混合 35% 弱通道且不提高原始峰值',
+);
+
+const aggregatedBrightCore = {
+  width: 1,
+  height: 1,
+  data: new Uint8ClampedArray([180, 203, 255, 255]),
+};
+
+applyOverlayColorCompensationToImageData(
+  aggregatedBrightCore,
+  'bright-core',
+  1,
+);
+
+assert(
+  aggregatedBrightCore.data[0] === 206 &&
+    aggregatedBrightCore.data[1] === 221 &&
+    aggregatedBrightCore.data[2] === 255 &&
+    aggregatedBrightCore.data[3] === 255,
+  'Canvas 最终载荷只补齐弱通道并保留蓝青峰值与 Alpha',
 );
 
 const limitedCanvasData = new Uint8ClampedArray([
