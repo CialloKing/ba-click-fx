@@ -4,6 +4,7 @@ import { linearToSrgb } from '../src/software-bloom.js';
 import {
   linearToExtendedSrgb,
   WEBGPU_FULLSCREEN_SHADER,
+  WEBGPU_GEOMETRY_SHADER,
 } from '../src/webgpu-shaders.js';
 import {
   mapWebGPUHdrPresentation,
@@ -64,6 +65,28 @@ assert.ok(
       'return vec4f(max(linear, vec3f(0.0)), alpha);',
     ),
   'Extended 最终输出和已知背景反解统一使用扩展 sRGB 编码域',
+);
+
+assert.ok(
+  WEBGPU_GEOMETRY_SHADER.includes(
+    'let shapeAlpha = select(',
+  ) &&
+    WEBGPU_GEOMETRY_SHADER.includes(
+      'let supportedRgb = mix(vec3f(1.0), sampleColor.rgb, textureSupport)',
+    ) &&
+    WEBGPU_GEOMETRY_SHADER.includes(
+      'sdRoundedTriangle(point, roundness)',
+    ) &&
+    WEBGPU_GEOMETRY_SHADER.includes(
+      'samplePoint = point / (1.0 + 1.16465 * roundness)',
+    ) &&
+    WEBGPU_GEOMETRY_SHADER.includes(
+      'roundedCoverage,\n    roundness > 0.0,',
+    ) &&
+    !WEBGPU_GEOMETRY_SHADER.includes(
+      'mix(originalAlpha, roundedCoverage, roundness)',
+    ),
+  'WebGPU 用真实图集三角、唯一圆角 Coverage 与向内纹理采样',
 );
 
 console.log('WebGPU HDR 展示映射');

@@ -1824,6 +1824,8 @@ bindRange('ctrlRingWStart', 'outRingWStart', (v) => effect.setFxParam('rings.wid
 bindRange('ctrlRingWEnd', 'outRingWEnd', (v) => effect.setFxParam('rings.widthEnd', v));
 bindRange('ctrlRingLife', 'outRingLife', (v) => effect.setFxParam('rings.lifetimeMs', v), true);
 bindRange('ctrlClickShards', 'outClickShards', (v) => effect.setFxParam('shards.clickCount', v), true);
+bindRange('ctrlShardRoundness', 'outShardRoundness', (v) =>
+  effect.setTriangleRoundness(v));
 bindRange('ctrlMaxShards', 'outMaxShards', (v) => effect.setFxParam('shards.maxCount', v), true);
 bindRange('ctrlBloomRing', 'outBloomRing', (v) => effect.setFxParam('bloom.ringBlur', v));
 bindRange('ctrlBloomThreshold', 'outBloomThreshold', (v) =>
@@ -1961,6 +1963,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlRingWEnd', 'outRingWEnd', 1, false],
     ['ctrlRingLife', 'outRingLife', 600, true],
     ['ctrlClickShards', 'outClickShards', 4, true],
+    ['ctrlShardRoundness', 'outShardRoundness', 0, false],
     ['ctrlMaxShards', 'outMaxShards', 50, true],
     ['ctrlBloomRing', 'outBloomRing', 80, false],
     ['ctrlBloomThreshold', 'outBloomThreshold', 1, false],
@@ -2313,6 +2316,7 @@ const I18N = {
     labelRingWEnd: '圆环终止厚度倍率',
     labelRingLife: '圆环寿命',
     labelClickShards: '点击碎片数量',
+    labelShardRoundness: '碎片圆角（点击/拖尾）',
     labelMaxShards: '碎片上限',
     labelBloomRing: '原生圆环模糊',
     labelBloomThreshold: 'Bloom 阈值',
@@ -2498,6 +2502,7 @@ const I18N = {
     labelRingWEnd: 'Ring End Width Scale',
     labelRingLife: 'Ring Lifetime',
     labelClickShards: 'Click Shard Count',
+    labelShardRoundness: 'Shard Roundness (Click/Trail)',
     labelMaxShards: 'Max Shards',
     labelBloomRing: 'Native Ring Blur',
     labelBloomThreshold: 'Bloom Threshold',
@@ -2642,6 +2647,7 @@ function switchLanguage(lang)
     ctrlRingWEnd: d.labelRingWEnd,
     ctrlRingLife: d.labelRingLife,
     ctrlClickShards: d.labelClickShards,
+    ctrlShardRoundness: d.labelShardRoundness,
     ctrlMaxShards: d.labelMaxShards,
     ctrlBloomRing: d.labelBloomRing,
     ctrlBloomThreshold: d.labelBloomThreshold,
@@ -3088,6 +3094,7 @@ switchLanguage(currentLang);
     ['ctrlRingWEnd', 'rings.widthEnd'],
     ['ctrlRingLife', 'rings.lifetimeMs'],
     ['ctrlClickShards', 'shards.clickCount'],
+    ['ctrlShardRoundness', 'shards.roundness'],
     ['ctrlMaxShards', 'shards.maxCount'],
     ['ctrlBloomRing', 'bloom.ringBlur'],
     ['ctrlBloomThreshold', 'bloom.threshold'],

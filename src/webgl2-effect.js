@@ -250,6 +250,7 @@ uniform sampler2D u_texture;
 uniform bool u_transparentOverlay;
 uniform bool u_alphaModulatesEmission;
 uniform bool u_antialiasGeometryCoverage;
+uniform bool u_roundTriangle;
 
 in vec2 v_uv;
 in vec3 v_materialColor;
@@ -258,11 +259,88 @@ in float v_coverageFactor;
 
 out vec4 outColor;
 
+float sdTriangle(vec2 point)
+{
+  const vec2 vertices[3] = vec2[](
+    vec2(-0.9609375, -0.7265625),
+    vec2(0.9609375, -0.7265625),
+    vec2(0.0, 0.9140625)
+  );
+  float minimumSquaredDistance = 1.0e20;
+  bool inside = true;
+
+  for (int index = 0; index < 3; index++)
+  {
+    vec2 start = vertices[index];
+    vec2 end = vertices[(index + 1) % 3];
+    vec2 edge = end - start;
+    vec2 offset = point - start;
+    float progress = clamp(
+      dot(offset, edge) / max(dot(edge, edge), 1.0e-20),
+      0.0,
+      1.0
+    );
+    vec2 nearest = offset - edge * progress;
+
+    minimumSquaredDistance = min(
+      minimumSquaredDistance,
+      dot(nearest, nearest)
+    );
+    inside = inside && edge.x * offset.y - edge.y * offset.x >= 0.0;
+  }
+
+  return sqrt(minimumSquaredDistance) * (inside ? -1.0 : 1.0);
+}
+
+float sdRoundedTriangle(vec2 point, float roundness)
+{
+  if (roundness >= 1.0)
+  {
+    return length(point) - 1.0;
+  }
+
+  float triangleScale = max(1.0 - roundness, 0.000001);
+
+  // 缩小真实图集三角与圆盘的 Minkowski 和只磨圆角，仍保留直边。
+  return sdTriangle(point / triangleScale) *
+    triangleScale - roundness;
+}
+
 void main()
 {
-  vec4 sampleColor = texture(u_texture, v_uv);
+  float roundness = u_roundTriangle
+    ? clamp(v_coverageFactor, 0.0, 1.0)
+    : 0.0;
+  vec2 sampleUv = v_uv;
+
+  if (u_roundTriangle)
+  {
+    sampleUv = (v_uv * 2.0 - 1.0) /
+      (1.0 + 1.16465 * roundness) * 0.5 + 0.5;
+  }
+
+  vec4 sampleColor = texture(u_texture, sampleUv);
   float particleAlpha = clamp(v_particleAlpha, 0.0, 1.0);
   float geometryCoverage = 1.0;
+  vec2 point = v_uv * 2.0 - 1.0;
+  float distance = sdRoundedTriangle(point, roundness);
+  float footprint = max(fwidth(distance), 0.000001);
+  float roundedCoverage = 1.0 - smoothstep(
+    -footprint,
+    footprint,
+    distance
+  );
+
+  if (u_roundTriangle && roundness > 0.0)
+  {
+    float textureSupport = clamp(sampleColor.a, 0.0, 1.0);
+    vec3 supportedRgb = mix(vec3(1.0), sampleColor.rgb, textureSupport);
+    vec3 shapeRgb = mix(supportedRgb, vec3(1.0), roundness);
+
+    // 正数圆角只有一条 Coverage 边界；RGB 在透明区向材质色外推，
+    // 再随比例淡化纹理细节，避免形成“圆里套三角”的暗边。
+    sampleColor = vec4(shapeRgb, roundedCoverage);
+  }
 
   if (u_transparentOverlay && u_antialiasGeometryCoverage)
   {
@@ -272,8 +350,11 @@ void main()
     geometryCoverage = smoothstep(0.0, halfPixelFootprint, edgeDistance);
   }
 
+  float coverageFactor = u_roundTriangle
+    ? 1.0
+    : clamp(v_coverageFactor, 0.0, 1.0);
   float coverage = sampleColor.a * particleAlpha *
-    clamp(v_coverageFactor, 0.0, 1.0) * geometryCoverage;
+    coverageFactor * geometryCoverage;
   // sRGB 纹理采样会自动把 RGB 解码到线性空间。
   vec3 emission = sampleColor.rgb *
     max(v_materialColor, vec3(0.0)) *
@@ -2249,6 +2330,7 @@ export class WebGL2EffectRenderer
     transparentOverlay,
     alphaModulatesEmission = true,
     antialiasGeometryCoverage = false,
+    roundTriangle = false,
   )
   {
     if (vertexCount <= 0)
@@ -2286,6 +2368,10 @@ export class WebGL2EffectRenderer
     gl.uniform1i(
       gl.getUniformLocation(program, 'u_antialiasGeometryCoverage'),
       antialiasGeometryCoverage ? 1 : 0,
+    );
+    gl.uniform1i(
+      gl.getUniformLocation(program, 'u_roundTriangle'),
+      roundTriangle ? 1 : 0,
     );
     gl.uniform2f(
       gl.getUniformLocation(program, 'u_displaySize'),
@@ -2435,6 +2521,9 @@ export class WebGL2EffectRenderer
           ? this.triangleOverlayTexture
           : this.triangleTexture,
         transparentOverlay,
+        true,
+        false,
+        true,
       );
     }
 
@@ -2810,6 +2899,7 @@ export class WebGL2EffectRenderer
     green,
     blue,
     particleAlpha,
+    roundness = 0,
   )
   {
     const offset = this.triangleVertexCount *
@@ -2823,8 +2913,7 @@ export class WebGL2EffectRenderer
     this.triangleVertexData[offset + 5] = Math.max(0, green);
     this.triangleVertexData[offset + 6] = Math.max(0, blue);
     this.triangleVertexData[offset + 7] = clamp(particleAlpha, 0, 1);
-    // 普通碎片没有额外纵向 Coverage 包络。
-    this.triangleVertexData[offset + 8] = 1;
+    this.triangleVertexData[offset + 8] = clamp(roundness, 0, 1);
     this.triangleVertexCount++;
   }
 
@@ -3112,6 +3201,7 @@ export class WebGL2EffectRenderer
     color,
     opacity = 1,
     textureFrame = 0,
+    roundness = 0,
   )
   {
     const particleAlpha = Number.isFinite(opacity)
@@ -3157,6 +3247,7 @@ export class WebGL2EffectRenderer
       green,
       blue,
       particleAlpha,
+      roundness,
     );
     this._appendTriangleVertex(
       topRight.x,
@@ -3167,6 +3258,7 @@ export class WebGL2EffectRenderer
       green,
       blue,
       particleAlpha,
+      roundness,
     );
     this._appendTriangleVertex(
       bottomRight.x,
@@ -3177,6 +3269,7 @@ export class WebGL2EffectRenderer
       green,
       blue,
       particleAlpha,
+      roundness,
     );
     this._appendTriangleVertex(
       topLeft.x,
@@ -3187,6 +3280,7 @@ export class WebGL2EffectRenderer
       green,
       blue,
       particleAlpha,
+      roundness,
     );
     this._appendTriangleVertex(
       bottomRight.x,
@@ -3197,6 +3291,7 @@ export class WebGL2EffectRenderer
       green,
       blue,
       particleAlpha,
+      roundness,
     );
     this._appendTriangleVertex(
       bottomLeft.x,
@@ -3207,6 +3302,7 @@ export class WebGL2EffectRenderer
       green,
       blue,
       particleAlpha,
+      roundness,
     );
   }
 

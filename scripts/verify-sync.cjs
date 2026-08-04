@@ -107,6 +107,27 @@ verify(
     /\['ctrlClickGlow', 'bloom\.clickEmissionScale'\]/.test(mainJs),
   '点击辉光滑块支持重置与本地设置恢复',
 );
+const shardRoundnessControl = indexHtml.match(
+  /<input\s+[^>]*id="ctrlShardRoundness"[^>]*>/,
+)?.[0] ?? '';
+
+verify(
+  /min="0"/.test(shardRoundnessControl) &&
+    /max="1"/.test(shardRoundnessControl) &&
+    /step="0\.01"/.test(shardRoundnessControl) &&
+    /value="0"/.test(shardRoundnessControl),
+  '展示页提供默认关闭的碎片圆角比例滑块',
+);
+verify(
+  /bindRange\('ctrlShardRoundness', 'outShardRoundness',[\s\S]*?setTriangleRoundness\(v\)\)/.test(mainJs),
+  '碎片圆角滑块通过公开便捷 API 生效',
+);
+verify(
+  /\['ctrlShardRoundness', 'outShardRoundness', 0, false\]/.test(mainJs) &&
+    /\['ctrlShardRoundness', 'shards\.roundness'\]/.test(mainJs) &&
+    /ctrlShardRoundness: d\.labelShardRoundness/.test(mainJs),
+  '碎片圆角滑块支持重置、本地恢复与双语标签',
+);
 const preciseRangeSteps =
 {
   ctrlScale: '0.01',
@@ -117,6 +138,7 @@ const preciseRangeSteps =
   ctrlRingWStart: '0.01',
   ctrlRingWEnd: '0.01',
   ctrlRingLife: '1',
+  ctrlShardRoundness: '0.01',
   ctrlMaxShards: '1',
   ctrlBloomRing: '0.1',
   ctrlBloomThreshold: '0.01',

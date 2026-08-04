@@ -110,13 +110,84 @@ fn vertexDisk(
   return output;
 }
 
+fn sdTriangle(point: vec2f) -> f32
+{
+  let vertices = array<vec2f, 3>(
+    vec2f(-0.9609375, -0.7265625),
+    vec2f(0.9609375, -0.7265625),
+    vec2f(0.0, 0.9140625),
+  );
+  var minimumSquaredDistance = 1.0e20;
+  var inside = true;
+
+  for (var index = 0u; index < 3u; index++)
+  {
+    let start = vertices[index];
+    let end = vertices[(index + 1u) % 3u];
+    let edge = end - start;
+    let offset = point - start;
+    let progress = clamp(
+      dot(offset, edge) / max(dot(edge, edge), 1.0e-20),
+      0.0,
+      1.0,
+    );
+    let nearest = offset - edge * progress;
+
+    minimumSquaredDistance = min(
+      minimumSquaredDistance,
+      dot(nearest, nearest),
+    );
+    inside = inside && edge.x * offset.y - edge.y * offset.x >= 0.0;
+  }
+
+  return sqrt(minimumSquaredDistance) * select(1.0, -1.0, inside);
+}
+
+fn sdRoundedTriangle(point: vec2f, roundness: f32) -> f32
+{
+  if (roundness >= 1.0)
+  {
+    return length(point) - 1.0;
+  }
+
+  let triangleScale = max(1.0 - roundness, 0.000001);
+
+  // 缩小真实图集三角与圆盘的 Minkowski 和只磨圆角，仍保留直边。
+  return sdTriangle(point / triangleScale) *
+    triangleScale - roundness;
+}
+
 @fragment
 fn fragmentTriangle(input: TexturedOutput) -> @location(0) vec4f
 {
-  let sampleColor = textureSample(materialTexture, materialSampler, input.uv);
+  let roundness = clamp(input.coverageFactor, 0.0, 1.0);
+  let point = input.uv * 2.0 - 1.0;
+  let samplePoint = point / (1.0 + 1.16465 * roundness);
+  var sampleColor = textureSample(
+    materialTexture,
+    materialSampler,
+    samplePoint * 0.5 + 0.5,
+  );
   let particleAlpha = clamp(input.particleAlpha, 0.0, 1.0);
-  let coverage = sampleColor.a * particleAlpha *
-    clamp(input.coverageFactor, 0.0, 1.0);
+  let distance = sdRoundedTriangle(point, roundness);
+  // 导数必须在一致控制流中计算，否则 WebGPU 验证会拒绝该 Shader。
+  let footprint = max(fwidth(distance), 0.000001);
+  let roundedCoverage = 1.0 - smoothstep(-footprint, footprint, distance);
+  let textureSupport = clamp(sampleColor.a, 0.0, 1.0);
+  let supportedRgb = mix(vec3f(1.0), sampleColor.rgb, textureSupport);
+  let shapeRgb = mix(supportedRgb, vec3f(1.0), roundness);
+  let shapeAlpha = select(
+    sampleColor.a,
+    roundedCoverage,
+    roundness > 0.0,
+  );
+
+  sampleColor = vec4f(
+    select(sampleColor.rgb, shapeRgb, roundness > 0.0),
+    shapeAlpha,
+  );
+
+  let coverage = sampleColor.a * particleAlpha;
   let emission = sampleColor.rgb * max(input.color, vec3f(0.0)) * coverage;
   let alpha = select(1.0, coverage, geometry.transparentOverlay != 0u);
   return vec4f(emission, alpha);

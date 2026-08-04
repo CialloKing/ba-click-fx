@@ -1015,10 +1015,10 @@ if (sourceMode)
       ) &&
       fxSourceText.includes('Linear(texture) × Linear(material)') &&
       fxSourceText.includes(
-        'srgbToLinearChannel(rgba[sourceOffset]) * exactCoverage',
+        'energyRgb[targetOffset] = textureRgb[targetOffset] * exactCoverage',
       ) &&
       fxSourceText.includes(
-        'const straightDivisor = safeDivisor * texelAlpha',
+        'const straightDivisor = safeDivisor * effectiveAlpha',
       ) &&
       fxSourceText.includes(
         'image.data[outputOffset + 3] = coverageByte',
@@ -1151,6 +1151,8 @@ if (sourceMode)
     TRIANGLE_TEXTURE_OVERLAY_RGBA,
     TRIANGLE_TEXTURE_RGBA,
     TRIANGLE_TEXTURE_SIZE,
+    createRoundedTriangleCoverage,
+    sampleRoundedTriangleCoverage,
   } = triangleTextureSource;
   const coverageHash = createHash('sha256')
     .update(TRIANGLE_TEXTURE_COVERAGE)
@@ -1187,6 +1189,97 @@ if (sourceMode)
   assert(
     overlayMatchesAssets,
     '三角透明覆盖纹理只替换 Alpha 并保持原 RGB 字节',
+  );
+  const sharpCoverage = createRoundedTriangleCoverage(0);
+  const halfRoundedCoverage = createRoundedTriangleCoverage(0.5);
+  const circleCoverage = createRoundedTriangleCoverage(1);
+  const centerIndex = 64 * TRIANGLE_TEXTURE_SIZE + 64;
+  const cornerIndex = 0;
+  const circleArea = circleCoverage.reduce(
+    (sum, value) => sum + value / 255,
+    0,
+  );
+  let sharpIntersection = 0;
+  let sharpUnion = 0;
+
+  for (let index = 0; index < sharpCoverage.length; index++)
+  {
+    const analyticInside = sharpCoverage[index] >= 128;
+    const textureInside = TRIANGLE_TEXTURE_COVERAGE[index] >= 128;
+
+    sharpIntersection += Number(analyticInside && textureInside);
+    sharpUnion += Number(analyticInside || textureInside);
+  }
+
+  const sharpIoU = sharpIntersection / sharpUnion;
+  const halfRoundness = 0.5;
+  const coreLeft = [-0.9609375 * 0.5, -0.7265625 * 0.5];
+  const previousEdge = [-0.9609375, -1.640625];
+  const previousLength = Math.hypot(...previousEdge);
+  const previousNormal = [
+    previousEdge[1] / previousLength,
+    -previousEdge[0] / previousLength,
+  ];
+  const topNormal = [0, -1];
+  const bisector = [
+    previousNormal[0] + topNormal[0],
+    previousNormal[1] + topNormal[1],
+  ];
+  const bisectorLength = Math.hypot(...bisector);
+  const arcPoint = [
+    coreLeft[0] + halfRoundness * bisector[0] / bisectorLength,
+    coreLeft[1] + halfRoundness * bisector[1] / bisectorLength,
+  ];
+  const boundaryCoverage = (x, y, roundness) =>
+    sampleRoundedTriangleCoverage(
+      (x + 1) * 0.5,
+      (y + 1) * 0.5,
+      roundness,
+      0.00001,
+    );
+  const flatSideCoverage = boundaryCoverage(
+    0,
+    coreLeft[1] - halfRoundness,
+    halfRoundness,
+  );
+  const roundedCornerCoverage = boundaryCoverage(
+    arcPoint[0],
+    arcPoint[1],
+    halfRoundness,
+  );
+  const circleBoundaryCoverages = Array.from({ length: 8 }, (_, index) =>
+  {
+    const angle = index * Math.PI / 4;
+
+    return boundaryCoverage(Math.cos(angle), Math.sin(angle), 1);
+  });
+
+  assert(
+    sharpCoverage[centerIndex] === 255 &&
+      sharpCoverage[cornerIndex] === 0 &&
+      halfRoundedCoverage[centerIndex] === 255 &&
+      circleCoverage[centerIndex] === 255 &&
+      circleCoverage[cornerIndex] === 0 &&
+      Math.abs(circleArea - Math.PI * 64 * 64) < 300 &&
+      sharpIoU > 0.98,
+    '圆角 Coverage 对齐原图集轮廓且最大值形成同尺寸圆形',
+  );
+  assert(
+    Math.abs(flatSideCoverage - 0.5) < 0.0001 &&
+      Math.abs(roundedCornerCoverage - 0.5) < 0.0001 &&
+      circleBoundaryCoverages.every((coverage) =>
+        Math.abs(coverage - 0.5) < 0.0001),
+    '中间比例保留相切直边与圆弧，最大值八方向均为圆边界',
+  );
+  assert(
+    !fxSourceText.includes(
+      '(targetCoverage - originalCoverage) * roundness',
+    ) &&
+      !fxSourceText.includes('(targetAlpha - originalAlpha) * amount') &&
+      webgl2EffectSourceText.includes(
+        'sampleColor = vec4(shapeRgb, roundedCoverage)',
+      ),
+    'Canvas 与 WebGL2 只保留圆角 Coverage，不叠加旧尖三角 Alpha',
   );
 }
 assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');
@@ -1372,14 +1465,17 @@ assert(
   '导出宿主合成解析状态事件名，调用方无需硬编码字符串',
 );
 assert(
-  FX_PARAM_SCHEMA_VERSION === 1 &&
+  FX_PARAM_SCHEMA_VERSION === 2 &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.kind === 'replace' &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.from === 'bloom.scatter' &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.to === 'bloom.diffusion' &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.source?.type === 'number' &&
     FX_PARAM_MIGRATIONS[0]?.changes[0]?.source?.min === 0 &&
     !('max' in FX_PARAM_MIGRATIONS[0].changes[0].source) &&
-    FX_PARAM_MIGRATIONS[0]?.changes[0]?.value === 7,
+    FX_PARAM_MIGRATIONS[0]?.changes[0]?.value === 7 &&
+    FX_PARAM_MIGRATIONS[1]?.fromVersion === 1 &&
+    FX_PARAM_MIGRATIONS[1]?.toVersion === 2 &&
+    FX_PARAM_MIGRATIONS[1]?.changes.length === 0,
   '正式入口导出参数 Schema 版本与迁移合同',
 );
 
@@ -1547,12 +1643,19 @@ const singleParamRejected = paramApiEffect.setFxParam(
   'bloom.intensity',
   Number.NaN,
 );
+const roundnessAccepted = paramApiEffect.setTriangleRoundness(0.5);
+const roundnessClamped = paramApiEffect.setTriangleRoundness(2);
+const roundnessRejected = paramApiEffect.setTriangleRoundness(Number.NaN);
 
 assert(
   singleParamAccepted === true &&
     singleParamRejected === false &&
-    paramApiEffect.getFxConfig().rings.rotationDirection === -1,
-  'setFxParam 返回可检测结果且非法值不改变配置',
+    roundnessAccepted === true &&
+    roundnessClamped === true &&
+    roundnessRejected === false &&
+    paramApiEffect.getFxConfig().rings.rotationDirection === -1 &&
+    paramApiEffect.getFxConfig().shards.roundness === 1,
+  '参数 API 接受并钳制圆角比例且拒绝非有限值',
 );
 
 const partialBatchResult = paramApiEffect.setFxParams(
@@ -2540,6 +2643,26 @@ assert(
     shardWebGLCalls[0][6] === 1,
   'WebGL2 碎片与 Canvas 使用相同的起始色能量和图集帧',
 );
+
+effect.setTriangleRoundness(0.75);
+shardWebGLCalls.length = 0;
+shardProbe.appendWebGLBloom(
+  {
+    addTriangle(...args)
+    {
+      shardWebGLCalls.push(args);
+    },
+  },
+  1,
+  1,
+  effect.fxConfig,
+);
+
+assert(
+  shardWebGLCalls[0][7] === 0.75,
+  '现存碎片在下一帧即时读取统一圆角比例并传给 GPU',
+);
+effect.setTriangleRoundness(0);
 
 Object.assign(shardProbe, savedShardProbe);
 
@@ -5727,7 +5850,7 @@ assert(
         'layout(location = 4) in float a_coverageFactor;',
       ) &&
       webgl2EffectSourceText.includes(
-        'clamp(v_coverageFactor, 0.0, 1.0) * geometryCoverage;',
+        'coverageFactor * geometryCoverage;',
       ) &&
       webgl2EffectSourceText.includes(
         '(u_alphaModulatesEmission ? coverage : particleAlpha);',

@@ -59,8 +59,8 @@ function assertDeepFrozen(value, path)
 }
 
 console.log('\n参数 Schema 版本与序列化契约');
-check(FX_PARAM_SCHEMA_VERSION === 1, 'Schema 版本固定为 1');
-check(FX_PARAM_SCHEMA.length === 65, '保留 65 个公开标量参数');
+check(FX_PARAM_SCHEMA_VERSION === 2, 'Schema 版本固定为 2');
+check(FX_PARAM_SCHEMA.length === 66, '保留 66 个公开标量参数');
 assertDeepFrozen(FX_PARAM_SCHEMA, 'FX_PARAM_SCHEMA');
 assertDeepFrozen(FX_PARAM_MIGRATIONS, 'FX_PARAM_MIGRATIONS');
 check(true, 'Schema 与迁移元数据均为深只读');
@@ -195,9 +195,14 @@ assert.deepEqual(
         },
       ],
     },
+    {
+      fromVersion: 1,
+      toVersion: 2,
+      changes: [],
+    },
   ],
 );
-check(true, '0 -> 1 迁移接受旧 scatter 非负有限值并恢复 diffusion 默认值');
+check(true, '0 -> 1 保留旧参数迁移，1 -> 2 使用新增参数默认值');
 
 console.log('\n主题色配置契约');
 check(

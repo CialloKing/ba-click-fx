@@ -401,7 +401,7 @@ declare module 'ba-click-fx'
 
   export const CONFIG: Readonly<BAClickFXConfig>;
   export const DEFAULT_THEME_COLOR: '#4ca7ff';
-  export const FX_PARAM_SCHEMA_VERSION: 1;
+  export const FX_PARAM_SCHEMA_VERSION: 2;
   export const FX_PARAM_SCHEMA: readonly BAClickFXParamDescriptor[];
   export const FX_PARAM_MIGRATIONS: readonly BAClickFXParamMigration[];
   /** 主 Canvas 在 Bloom 后端解析状态变化时派发的事件名。 */
@@ -474,6 +474,9 @@ declare module 'ba-click-fx'
 
     /** 通过点号路径修改特效参数；未知路径或非法值返回 false 且保持配置不变。 */
     setFxParam(path: string, value: BAClickFXParamValue): boolean;
+
+    /** 设置全部三角碎片圆角比例；0 保持原图集，1 变为同尺寸圆形。 */
+    setTriangleRoundness(roundness: number): boolean;
 
     /** 原子验证并批量应用扁平点号路径补丁。 */
     setFxParams(

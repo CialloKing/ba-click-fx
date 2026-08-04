@@ -1,5 +1,134 @@
 export const TRIANGLE_TEXTURE_SIZE = 128;
 
+// 与 UNITY_FX_TOUCH.shards.textureFrames[0] 同源。纹理坐标换算到
+// [-1, 1] 后，这三个顶点与原图集 Alpha>=0.5 的轮廓 IoU 为 0.984。
+const TRIANGLE_POINTS = Object.freeze([
+  Object.freeze([-0.9609375, -0.7265625]),
+  Object.freeze([0.9609375, -0.7265625]),
+  Object.freeze([0, 0.9140625]),
+]);
+const TRIANGLE_TEXTURE_INSET_RATE = 1.16465;
+
+function clamp01(value)
+{
+  return Math.max(0, Math.min(1, Number(value) || 0));
+}
+
+function smoothstep(edge0, edge1, value)
+{
+  const progress = clamp01((value - edge0) / (edge1 - edge0));
+
+  return progress * progress * (3 - 2 * progress);
+}
+
+function signedDistanceToTriangle(x, y)
+{
+  let minimumSquaredDistance = Infinity;
+  let inside = true;
+
+  for (let index = 0; index < TRIANGLE_POINTS.length; index++)
+  {
+    const start = TRIANGLE_POINTS[index];
+    const end = TRIANGLE_POINTS[(index + 1) % TRIANGLE_POINTS.length];
+    const edgeX = end[0] - start[0];
+    const edgeY = end[1] - start[1];
+    const offsetX = x - start[0];
+    const offsetY = y - start[1];
+    const edgeLengthSquared = edgeX * edgeX + edgeY * edgeY;
+    const progress = clamp01(
+      (offsetX * edgeX + offsetY * edgeY) / edgeLengthSquared,
+    );
+    const nearestX = offsetX - edgeX * progress;
+    const nearestY = offsetY - edgeY * progress;
+
+    minimumSquaredDistance = Math.min(
+      minimumSquaredDistance,
+      nearestX * nearestX + nearestY * nearestY,
+    );
+    inside &&= edgeX * offsetY - edgeY * offsetX >= 0;
+  }
+
+  return Math.sqrt(minimumSquaredDistance) * (inside ? -1 : 1);
+}
+
+function signedDistanceToRoundedTriangle(x, y, roundness)
+{
+  const amount = clamp01(roundness);
+
+  if (amount >= 1)
+  {
+    return Math.hypot(x, y) - 1;
+  }
+
+  // 缩小真实三角核心后与圆盘做 Minkowski 和。直边与圆弧相切，
+  // 原图集较长的三个尖角会随比例向内磨平，而不是留在圆角层里面。
+  const triangleScale = Math.max(0.000001, 1 - amount);
+
+  return signedDistanceToTriangle(
+    x / triangleScale,
+    y / triangleScale,
+  ) * triangleScale - amount;
+}
+
+/** 把圆角轮廓内的采样点压回原三角内部，避免读取透明区的暗 RGB。 */
+export function mapRoundedTriangleTextureUv(u, v, roundness)
+{
+  const amount = clamp01(roundness);
+  // 1.16465 来自原点到最窄侧边的距离 0.4619700316；该缩放保证
+  // Minkowski 圆角轮廓在所有方向都映射到原三角内部。
+  const divisor = 1 + TRIANGLE_TEXTURE_INSET_RATE * amount;
+
+  return [
+    0.5 + ((Number(u) || 0) - 0.5) / divisor,
+    0.5 + ((Number(v) || 0) - 0.5) / divisor,
+  ];
+}
+
+/** 同一归一化形状函数供 Canvas 测试与 GPU Shader 对齐。 */
+export function sampleRoundedTriangleCoverage(
+  u,
+  v,
+  roundness,
+  pixelFootprint = 1 / TRIANGLE_TEXTURE_SIZE,
+)
+{
+  const amount = clamp01(roundness);
+  const x = (Number(u) || 0) * 2 - 1;
+  const y = (Number(v) || 0) * 2 - 1;
+  const distance = signedDistanceToRoundedTriangle(
+    x,
+    y,
+    amount,
+  );
+  const feather = Math.max(0.000001, Number(pixelFootprint) || 0) * 2;
+
+  return 1 - smoothstep(-feather, feather, distance);
+}
+
+export function createRoundedTriangleCoverage(roundness)
+{
+  const amount = clamp01(roundness);
+  const output = new Uint8Array(
+    TRIANGLE_TEXTURE_SIZE * TRIANGLE_TEXTURE_SIZE,
+  );
+
+  for (let y = 0; y < TRIANGLE_TEXTURE_SIZE; y++)
+  {
+    for (let x = 0; x < TRIANGLE_TEXTURE_SIZE; x++)
+    {
+      output[y * TRIANGLE_TEXTURE_SIZE + x] = Math.round(
+        sampleRoundedTriangleCoverage(
+          (x + 0.5) / TRIANGLE_TEXTURE_SIZE,
+          (y + 0.5) / TRIANGLE_TEXTURE_SIZE,
+          amount,
+        ) * 255,
+      );
+    }
+  }
+
+  return output;
+}
+
 const PALETTE_BASE64 = 'AAAAAK2urbT/+/////////f39/+kpKS2OTo5GQAAACSqp6qRpKSkkf///9oQDBAOVVVVbaqqqtpVVVVIpaalpKqrqrYABAAAAAAAFwAEACRlY2VxVVdVbRgYGAj/+//b3t/e3lVTVUiqp6q2qqqqtlVTVSRVVVUkqqqqkRAUEBP38/fsAAAAIVpXWm1SUVJlCAQIAKyrrNrCwcLIWldaSEpFSkGko6S29/P3/6SmpLako6SRpKakkefj5+T39/faWllaWgAEACL3+/fxUlZSZ1JTUm3FxcXl9/P32lJRUktSU1JIp6intvf79/+sq6y2CAQIJAgMCCSnqKeRrKuskQgMCAD3+/fa//v/2mNlY2SlpqWnCAgIJFdVV21aWVptCAgIAFdVV0haWVpIvbq9wD8+Pzavq6+aEAwQFU9PT23v7+//UlJSbe/v79pPT09IUlJSSK2ura8hJCElp6enkaSopJFXV1dtUlZSbcbDxshCQUI5r7CvnBAUEBn38/fzVVZVbVVWVUiqqKq2KSwpK+fr5/tNTk0jrKqskZqcmo/////pa2lraaqrqtpVV1VI9/f396SnpJGEgoSCAAAAElpaWkmkp6S2rKystggICAFPT08k7+/v/VJSUiSfn5+Q////63Nxc3MFBQUFV1ZXSKyqrLaMjoyMn5+fkQAAABRfXV9uEAwQAq+ur9rOy87LCAgICEpKSl+6uLrDMSwxLaSipJFSUVJt1tPW00JFQkTn5+fkTU1NYQ==';
 const RUNS_BASE64 = '/wD/AP8A/wD/AP8A/wD/AIsAAQEEAnQDAQQBBQUAAQYEAnQDAQQBBwYAAQgDAnQDAQkIAAEKdQMBCgELCAABDHUDAQwKAAENcwMBDQsAAQ5zAwEODAABDwQCbQMBEAIRCwABEgQCbQMBEwIRDAABFAMCbAMBFQMRDAABFgEXAgJrAwEYBBENAAEZAgJrAwEOEgABGgECagMBGxMAARwBAmoDAR0UAAEIaQMBHhUAAR8BCmcDASABIRYAASJnAwEjFwABJAElZQMBJhgAASQBJ2UDASgYAAIRASkBKmADAgQBKwERGAACEQETASpgAwIEARMBERgAAxEBLGADAQQBLQIRGAAEEQEuXwMBLwMRHAABDl8DATAgAAEbXQMBGyEAAR1dAwEdIgABHlsDAR4hAAIRATEBMlgDAioBEwERIAADEQEzWAMBKgE0AhEgAAQRATVXAwE2AxEgAAQRATdXAwE4AxEkAAEkATkCOlADAwIBOygAASQBPAI6UAMDAgE9KAACJAE+ATpQAwICAT8BQCgAAyQBQVADAQIBQgJAKwABQ1EDAQwuAAENTwMBDS8AAQ5PAwEOMAABG00DAUQwAAEkATwCBEgDAwIBRTAAAiQBRgEESAMCAgFHAUgwAAMkAS9IAwECAUICSDAAAyQBSUgDAQIBSgJINAABGgMCQAMEAgFLNwABHAMCQAMEAgFMOAABCAICQAMDAgFNOQABBwICQAMDAgFOOgABTwFQQAMCBAFRPAABUkADAQQBLz0AAVNAAwEEAVQ+AAFVPwMBBT8AAUUDBDgDBDoBVj8AAUgBVwIEOAMDOgFYQAACSAEvAQQ4AwI6AUEBEUAAAkgBWQEEOAMCOgFaARFDAAFbOQMBDUUAAVw5AwEORgABXTcDAR5HAAFeNgMBXwEHRwABEQFgAgIzAwEiSAACEQFCAQIyAwEKASRIAAIRAWEBAjIDAScBJEgAAxEBYjEDATsCJEsAAWMEAiwDAWQBZU4AAWYDAiwDAWdPAAFIAUICAisDAWhQAAFIAUcCAisDAWlSAAENKwMBagERUgABDisDAWsBEVMAARspAwEQAhFTAAEHAWwoAwETAhFUAAFtAzokAwFuWAABQQI6IwMBCgFvWAABOAI6IwMBcFoAAXEBOiIDAXIBc1oAAXQBdSADAgQBdlwAAXcgAwEEAQldAAEHAXgfAwEEAQdeAAF5HwMBUV8AASQBQQI6GAMDAgFCAXpfAAEkAXsCOhgDAwIBSmAAAiQBOQE6GAMCAgF8AUhgAAIkATwBOhgDAgIBRQFIYwABfRgDAVABfmUAAX8BChcDAVJnAAGAFwMBT2cAAYEBghUDAYNoAAERAWECAhMDASdoAAIRAWIBAhIDATsBJGgAAhEBEwECEgMBPAEkaAADEQFgEQMBIgIkawABhAFCAwIMAwEYbwABGQMCDAMBhXAAARoCAgsDAYZxAAEcAgILAwGHcgABiAEqCgMBPwEkcgABBwE2CQMBCgE8ASRzAAGJCQMBIgIkdAABigcDASUDJHQAATgDOgQCAYt4AAFxAjoDAgF8eQABBwI6AwIBRXoAAW0BOgICAWYBSHsAAYwBKgE2fQABjQEqAYl+AAGI/wD/AMEA';
 

@@ -29,6 +29,7 @@ const requiredRuntimeMethods = [
   'updateConfig',
   'setThemeColor',
   'setFxParam',
+  'setTriangleRoundness',
   'setFxParams',
   'getFxConfig',
   'resetFxConfig',
@@ -110,9 +111,9 @@ function verifyRuntimeApi(moduleExports, bundleName)
     `${bundleName} bundle does not expose runtime state event names`,
   );
   verify(
-    moduleExports.FX_PARAM_SCHEMA_VERSION === 1 &&
+    moduleExports.FX_PARAM_SCHEMA_VERSION === 2 &&
       Array.isArray(moduleExports.FX_PARAM_SCHEMA) &&
-      moduleExports.FX_PARAM_SCHEMA.length === 65 &&
+      moduleExports.FX_PARAM_SCHEMA.length === 66 &&
       Array.isArray(moduleExports.FX_PARAM_MIGRATIONS) &&
       moduleExports.FX_PARAM_MIGRATIONS.length > 0,
     `${bundleName} bundle does not expose the parameter schema contract`,
@@ -193,9 +194,9 @@ if (
   moduleExports.HOST_COMPOSITING_CHANGE_EVENT !==
     'baclickfxhostcompositingchange' ||
   moduleExports.DEFAULT_THEME_COLOR !== '#4ca7ff' ||
-  moduleExports.FX_PARAM_SCHEMA_VERSION !== 1 ||
+  moduleExports.FX_PARAM_SCHEMA_VERSION !== 2 ||
   !Array.isArray(moduleExports.FX_PARAM_SCHEMA) ||
-  moduleExports.FX_PARAM_SCHEMA.length !== 65 ||
+  moduleExports.FX_PARAM_SCHEMA.length !== 66 ||
   !Array.isArray(moduleExports.FX_PARAM_MIGRATIONS) ||
   moduleExports.FX_PARAM_MIGRATIONS.length < 1 ||
   typeof moduleExports.applyFxParamPatch !== 'function'
@@ -257,9 +258,9 @@ if (
   moduleExports.HOST_COMPOSITING_CHANGE_EVENT !==
     'baclickfxhostcompositingchange' ||
   moduleExports.DEFAULT_THEME_COLOR !== '#4ca7ff' ||
-  moduleExports.FX_PARAM_SCHEMA_VERSION !== 1 ||
+  moduleExports.FX_PARAM_SCHEMA_VERSION !== 2 ||
   !Array.isArray(moduleExports.FX_PARAM_SCHEMA) ||
-  moduleExports.FX_PARAM_SCHEMA.length !== 65 ||
+  moduleExports.FX_PARAM_SCHEMA.length !== 66 ||
   !Array.isArray(moduleExports.FX_PARAM_MIGRATIONS) ||
   moduleExports.FX_PARAM_MIGRATIONS.length < 1 ||
   typeof moduleExports.applyFxParamPatch !== 'function'
@@ -436,7 +437,7 @@ const defaults: BAClickFXConfig = createConfig(
 const unity: UnityFxTouchConfig = UNITY_FX_TOUCH;
 const defaultScale: number = CONFIG.scale;
 const defaultThemeColor: string = DEFAULT_THEME_COLOR;
-const schemaVersion: 1 = FX_PARAM_SCHEMA_VERSION;
+const schemaVersion: 2 = FX_PARAM_SCHEMA_VERSION;
 const firstDescriptor: BAClickFXParamDescriptor = FX_PARAM_SCHEMA[0]!;
 const firstMigration: BAClickFXParamMigration = FX_PARAM_MIGRATIONS[0]!;
 const defaultEffectBackend: BAClickFXEffectBackend = CONFIG.effectBackend;
@@ -598,6 +599,7 @@ const paramAccepted: boolean = namedInstance.setFxParam(
   'hit.enabled',
   paramValue,
 );
+const roundnessAccepted: boolean = namedInstance.setTriangleRoundness(0.5);
 const patchResult: BAClickFXParamPatchResult = namedInstance.setFxParams(
   {
     'hit.enabled': true,

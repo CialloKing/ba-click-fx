@@ -202,6 +202,8 @@ export const UNITY_FX_TOUCH = Object.freeze(
     shards:
     {
       hdrIntensity: 5.992157,
+      // 0 精确保留原始 Triangle_02_1 图集；1 将同尺寸碎片连续变形为圆形。
+      roundness: 0,
       // Ring (3)/(4) 的 InitialModule.startColor。Renderer 开启
       // Apply Active Color Space，因此必须在线性空间乘入，不能当作显示 Alpha。
       startColor: [0.5377358, 0.5377358, 0.5377358],
@@ -375,7 +377,7 @@ export const UNITY_FX_TOUCH = Object.freeze(
   },
 );
 
-export const FX_PARAM_SCHEMA_VERSION = 1;
+export const FX_PARAM_SCHEMA_VERSION = 2;
 
 const FX_PARAM_GROUP_ORDERS = Object.freeze(
   {
@@ -420,6 +422,7 @@ const FX_PARAM_ORDERS = Object.freeze(
     'shards.clickRadius': 270,
     'shards.clickSpeedMin': 280,
     'shards.clickSpeedMax': 290,
+    'shards.roundness': 295,
     'shards.trailLifetimeMinMs': 300,
     'shards.trailLifetimeMaxMs': 310,
     'shards.trailRadius': 320,
@@ -496,6 +499,7 @@ const FX_PARAM_DISPLAY_RANGES = Object.freeze(
     'shards.clickRadius': [0, 200, 0.01],
     'shards.clickSpeedMin': [0, 200, 0.01],
     'shards.clickSpeedMax': [0, 200, 0.01],
+    'shards.roundness': [0, 1, 0.01],
     'shards.trailLifetimeMinMs': [50, 500, 1],
     'shards.trailLifetimeMaxMs': [50, 500, 1],
     'shards.trailRadius': [0, 100, 0.01],
@@ -774,6 +778,11 @@ export const FX_PARAM_SCHEMA = freezeFxParamMetadata(
       { min: 0, max: 5000, step: 0.01, unit: 'px-per-second' },
     ),
     createFxParamDescriptor(
+      'shards.roundness',
+      'number',
+      { min: 0, max: 1, step: 0.01, unit: 'ratio' },
+    ),
+    createFxParamDescriptor(
       'shards.trailLifetimeMinMs',
       'number',
       { min: 1, max: 10000, step: 1, unit: 'ms' },
@@ -980,6 +989,12 @@ export const FX_PARAM_MIGRATIONS = freezeFxParamMetadata(
           value: UNITY_FX_TOUCH.bloom.diffusion,
         },
       ],
+    },
+    {
+      fromVersion: 1,
+      toVersion: 2,
+      // 新参数有明确默认值，旧补丁无需重写任何已持久化路径。
+      changes: [],
     },
   ],
 );

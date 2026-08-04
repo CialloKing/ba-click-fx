@@ -63,8 +63,11 @@ import {
   TRIANGLE_TEXTURE_COVERAGE,
   TRIANGLE_TEXTURE_SIZE,
   TRIANGLE_TEXTURE_RGBA,
+  createRoundedTriangleCoverage,
   createTriangleTextureSources,
+  mapRoundedTriangleTextureUv,
 } from './triangle-texture.js';
+import { traceRoundedTrianglePath } from './triangle-path.js';
 import {
   evaluateTrailLongitudinalCoverage,
   evaluateTrailTextureCoverageProfile,
@@ -983,6 +986,7 @@ function getTriangleTextureResources()
     linearTextureRgba: TRIANGLE_TEXTURE_RGBA,
     linearTextureCoverage: TRIANGLE_TEXTURE_COVERAGE,
     linearTextureCoverageFromSrgbRed: false,
+    linearTextureRgb: null,
     linearTextureEnergyRgb: null,
     linearTintFrameCount: 2,
     linearTintFrames: null,
@@ -1035,6 +1039,7 @@ function getCircleTextureResources()
     linearTextureRgba: CIRCLE_TEXTURE_RGBA,
     linearTextureCoverage: null,
     linearTextureCoverageFromSrgbRed: true,
+    linearTextureRgb: null,
     linearTextureEnergyRgb: null,
     linearTintFrameCount: 1,
     linearTintFrames: null,
@@ -1054,6 +1059,7 @@ function prepareLinearTextureData(resources)
   const pixelCount = rgba.length / 4;
   const coverage = resources.linearTextureCoverage ??
     new Uint8Array(pixelCount);
+  const textureRgb = new Float32Array(pixelCount * 3);
   const energyRgb = new Float32Array(pixelCount * 3);
 
   for (let sourceOffset = 0, pixelIndex = 0, targetOffset = 0;
@@ -1072,16 +1078,53 @@ function prepareLinearTextureData(resources)
     // Unity 先在线性空间把纹理 Coverage 乘入发射 RGB，之后才由 Final
     // Pass 编码 sRGB。把 Coverage 留给 Canvas Alpha 才相乘会压暗半覆盖
     // texel，因此这里缓存 Shader 乘法后的逐 texel 线性能量。
-    energyRgb[targetOffset] =
-      srgbToLinearChannel(rgba[sourceOffset]) * exactCoverage;
+    textureRgb[targetOffset] = srgbToLinearChannel(rgba[sourceOffset]);
+    textureRgb[targetOffset + 1] = srgbToLinearChannel(
+      rgba[sourceOffset + 1],
+    );
+    textureRgb[targetOffset + 2] = srgbToLinearChannel(
+      rgba[sourceOffset + 2],
+    );
+    energyRgb[targetOffset] = textureRgb[targetOffset] * exactCoverage;
     energyRgb[targetOffset + 1] =
-      srgbToLinearChannel(rgba[sourceOffset + 1]) * exactCoverage;
+      textureRgb[targetOffset + 1] * exactCoverage;
     energyRgb[targetOffset + 2] =
-      srgbToLinearChannel(rgba[sourceOffset + 2]) * exactCoverage;
+      textureRgb[targetOffset + 2] * exactCoverage;
   }
 
   resources.linearTextureCoverage = coverage;
+  resources.linearTextureRgb = textureRgb;
   resources.linearTextureEnergyRgb = energyRgb;
+}
+
+function sampleTextureChannel(
+  data,
+  textureSize,
+  stride,
+  u,
+  v,
+  channel = 0,
+)
+{
+  const sourceX = clamp(u * textureSize - 0.5, 0, textureSize - 1);
+  const sourceY = clamp(v * textureSize - 0.5, 0, textureSize - 1);
+  const left = Math.floor(sourceX);
+  const top = Math.floor(sourceY);
+  const right = Math.min(textureSize - 1, left + 1);
+  const bottom = Math.min(textureSize - 1, top + 1);
+  const horizontal = sourceX - left;
+  const vertical = sourceY - top;
+  const topLeft = data[(top * textureSize + left) * stride + channel];
+  const topRight = data[(top * textureSize + right) * stride + channel];
+  const bottomLeft = data[(bottom * textureSize + left) * stride + channel];
+  const bottomRight = data[
+    (bottom * textureSize + right) * stride + channel
+  ];
+  const topSample = topLeft + (topRight - topLeft) * horizontal;
+  const bottomSample = bottomLeft +
+    (bottomRight - bottomLeft) * horizontal;
+
+  return topSample + (bottomSample - topSample) * vertical;
 }
 
 // 12 位线性索引的最大 sRGB 误差低于一个 8 位通道步长，同时避免在
@@ -1168,6 +1211,7 @@ function prepareLinearTintedTextureCanvas(
   alphaDivisor,
   frameIndex = 0,
   compensation = 0,
+  shape = null,
 )
 {
   const safeContribution = Math.max(0, Number(contribution) || 0);
@@ -1175,6 +1219,10 @@ function prepareLinearTintedTextureCanvas(
   const safeMaterialEnergy = [0, 1, 2].map((channel) =>
     Math.max(0, Number(materialEnergy[channel]) || 0));
   const safeCompensation = clamp01(Number(compensation) || 0);
+  const roundness = clamp01(Number(shape?.roundness) || 0);
+  const shapeCoverage = shape?.coverage ?? null;
+  const useTextureAlpha = shape?.useTextureAlpha === true;
+  const useRoundedShape = roundness > 0 && shapeCoverage !== null;
 
   if (
     safeContribution <= 0.000001 ||
@@ -1215,6 +1263,8 @@ function prepareLinearTintedTextureCanvas(
     safeContribution,
     ...safeMaterialEnergy,
     safeCompensation,
+    roundness,
+    useTextureAlpha,
   ].join(',');
 
   if (frame.key === key)
@@ -1224,7 +1274,9 @@ function prepareLinearTintedTextureCanvas(
 
   const { context, image } = frame;
   const sourceEnergyRgb = resources.linearTextureEnergyRgb;
+  const sourceTextureRgb = resources.linearTextureRgb;
   const sourceCoverage = resources.linearTextureCoverage;
+  const sourceRgba = resources.linearTextureRgba;
   const srgbLut = getLinearToSrgbLut();
   const flipVertical = frameSlot === 1;
   const encodeChannel = (sourceOffset, channel, straightDivisor) =>
@@ -1254,8 +1306,45 @@ function prepareLinearTintedTextureCanvas(
     {
       const sourcePixelIndex = sourceY * textureSize + x;
       const sourceOffset = sourcePixelIndex * 3;
+      const sourceRgbaOffset = sourcePixelIndex * 4;
       const outputOffset = (y * textureSize + x) * 4;
-      const coverageByte = sourceCoverage[sourcePixelIndex];
+      const originalCoverage = useTextureAlpha
+        ? sourceRgba[sourceRgbaOffset + 3] / 255
+        : sourceCoverage[sourcePixelIndex] / 255;
+      let sampleU = (x + 0.5) / textureSize;
+      let sampleV = (sourceY + 0.5) / textureSize;
+
+      if (useRoundedShape)
+      {
+        [sampleU, sampleV] = mapRoundedTriangleTextureUv(
+          sampleU,
+          sampleV,
+          roundness,
+        );
+      }
+
+      const textureSupport = useRoundedShape
+        ? (useTextureAlpha
+            ? sampleTextureChannel(
+                sourceRgba,
+                textureSize,
+                4,
+                sampleU,
+                sampleV,
+                3,
+              )
+            : sampleTextureChannel(
+                sourceCoverage,
+                textureSize,
+                1,
+                sampleU,
+                sampleV,
+              )) / 255
+        : originalCoverage;
+      const targetCoverage = useRoundedShape
+        ? shapeCoverage[sourcePixelIndex] / 255
+        : originalCoverage;
+      const coverageByte = Math.round(clamp01(targetCoverage) * 255);
 
       if (coverageByte === 0)
       {
@@ -1266,11 +1355,43 @@ function prepareLinearTintedTextureCanvas(
         continue;
       }
 
-      const texelAlpha = coverageByte / 255;
-      const straightDivisor = safeDivisor * texelAlpha;
-      const red = encodeChannel(sourceOffset, 0, straightDivisor);
-      const green = encodeChannel(sourceOffset, 1, straightDivisor);
-      const blue = encodeChannel(sourceOffset, 2, straightDivisor);
+      const effectiveAlpha = coverageByte / 255;
+      const straightDivisor = safeDivisor * effectiveAlpha;
+      const encodeRoundedChannel = (channel) =>
+      {
+        if (roundness <= 0)
+        {
+          return encodeChannel(sourceOffset, channel, straightDivisor);
+        }
+
+        const textureChannel = sampleTextureChannel(
+          sourceTextureRgb,
+          textureSize,
+          3,
+          sampleU,
+          sampleV,
+          channel,
+        );
+        const supportedChannel = 1 +
+          (textureChannel - 1) * clamp01(textureSupport);
+        const shapeChannel = supportedChannel +
+          (1 - supportedChannel) * roundness;
+        // 圆角 Coverage 是唯一边界；纹理先向三角内部重映射，再随
+        // 圆角比例淡到材质白，避免保留第二层尖三角。
+        const roundedPremultiplied = shapeChannel * targetCoverage;
+        const linear = clamp01(
+          roundedPremultiplied *
+            safeMaterialEnergy[channel] * safeContribution,
+        );
+        const lookupIndex = Math.round(
+          linear * (LINEAR_TO_SRGB_LUT_SIZE - 1),
+        );
+
+        return srgbLut[lookupIndex] / straightDivisor;
+      };
+      const red = encodeRoundedChannel(0);
+      const green = encodeRoundedChannel(1);
+      const blue = encodeRoundedChannel(2);
       const maximum = Math.max(red, green, blue);
       // 保留每个 texel 的峰值，只让弱通道有限靠近主通道。这里仍以纹理
       // 能量衰减门控，兼容直接调用路径也不会填白低能细节。
@@ -2700,6 +2821,143 @@ function drawTriangleTextureFrame(context, canvas, frameIndex)
   context.restore();
 }
 
+function resolveShardRoundness(shardCfg)
+{
+  return clamp01(shardCfg.roundness);
+}
+
+function getRoundedTriangleCoverage(resources, roundness)
+{
+  const key = clamp01(roundness);
+
+  if (key <= 0)
+  {
+    return null;
+  }
+
+  if (!resources.roundedCoverages)
+  {
+    resources.roundedCoverages = new Map();
+  }
+
+  if (resources.roundedCoverages.has(key))
+  {
+    return resources.roundedCoverages.get(key);
+  }
+
+  // 宿主可能连续拖动参数，限制缓存避免把全部浮点中间值永久保留。
+  if (resources.roundedCoverages.size >= 32)
+  {
+    resources.roundedCoverages.delete(
+      resources.roundedCoverages.keys().next().value,
+    );
+  }
+
+  const coverage = createRoundedTriangleCoverage(key);
+
+  resources.roundedCoverages.set(key, coverage);
+  return coverage;
+}
+
+function prepareSceneRoundedTriangleCanvas(
+  resources,
+  materialEnergy,
+  roundness,
+  frameIndex,
+)
+{
+  const amount = clamp01(roundness);
+  const shapeCoverage = getRoundedTriangleCoverage(resources, amount);
+
+  if (!shapeCoverage)
+  {
+    return null;
+  }
+
+  if (!resources.roundedSceneFrames)
+  {
+    resources.roundedSceneFrames = createLinearTintFrames(
+      TRIANGLE_TEXTURE_SIZE,
+      2,
+    );
+  }
+
+  if (!resources.roundedSceneFrames)
+  {
+    return null;
+  }
+
+  const frameSlot = ((Math.trunc(frameIndex) % 2) + 2) % 2;
+  const frame = resources.roundedSceneFrames[frameSlot];
+  const safeMaterialEnergy = materialEnergy.map((channel) =>
+    Math.max(0, Number(channel) || 0));
+  const key = [amount, ...safeMaterialEnergy].join(',');
+
+  if (frame.key === key)
+  {
+    return frame.canvas;
+  }
+
+  prepareLinearTextureData(resources);
+
+  const flipVertical = frameSlot === 1;
+  const sourceRgba = resources.linearTextureRgba;
+  const sourceTextureRgb = resources.linearTextureRgb;
+
+  for (let y = 0; y < TRIANGLE_TEXTURE_SIZE; y++)
+  {
+    const sourceY = flipVertical ? TRIANGLE_TEXTURE_SIZE - 1 - y : y;
+
+    for (let x = 0; x < TRIANGLE_TEXTURE_SIZE; x++)
+    {
+      const sourceIndex = sourceY * TRIANGLE_TEXTURE_SIZE + x;
+      const outputOffset = (y * TRIANGLE_TEXTURE_SIZE + x) * 4;
+      const targetAlpha = shapeCoverage[sourceIndex] / 255;
+      const [sampleU, sampleV] = mapRoundedTriangleTextureUv(
+        (x + 0.5) / TRIANGLE_TEXTURE_SIZE,
+        (sourceY + 0.5) / TRIANGLE_TEXTURE_SIZE,
+        amount,
+      );
+      const textureSupport = sampleTextureChannel(
+        sourceRgba,
+        TRIANGLE_TEXTURE_SIZE,
+        4,
+        sampleU,
+        sampleV,
+        3,
+      ) / 255;
+
+      for (let channel = 0; channel < 3; channel++)
+      {
+        const textureChannel = sampleTextureChannel(
+          sourceTextureRgb,
+          TRIANGLE_TEXTURE_SIZE,
+          3,
+          sampleU,
+          sampleV,
+          channel,
+        );
+        const supportedChannel = 1 +
+          (textureChannel - 1) * clamp01(textureSupport);
+        const roundedChannel = supportedChannel +
+          (1 - supportedChannel) * amount;
+
+        frame.image.data[outputOffset + channel] = Math.round(
+          clamp01(roundedChannel * safeMaterialEnergy[channel]) * 255,
+        );
+      }
+
+      frame.image.data[outputOffset + 3] = Math.round(
+        clamp01(targetAlpha) * 255,
+      );
+    }
+  }
+
+  frame.context.putImageData(frame.image, 0, 0);
+  frame.key = key;
+  return frame.canvas;
+}
+
 function drawTexturedTriangle(
   context,
   particle,
@@ -2712,6 +2970,7 @@ function drawTexturedTriangle(
   overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
   opacity = 1,
+  roundness = 0,
 )
 {
   const resources = getTriangleTextureResources();
@@ -2725,6 +2984,14 @@ function drawTexturedTriangle(
     channel * Math.max(0, energyScale));
   const transparentPayload = outputCompositing === 'browser-overlay' ||
     outputCompositing === 'host-additive';
+  const shapeCoverage = getRoundedTriangleCoverage(resources, roundness);
+  const shape = shapeCoverage
+    ? {
+        coverage: shapeCoverage,
+        roundness,
+        useTextureAlpha: outputCompositing === 'scene',
+      }
+    : null;
   let payloadAlpha = clamp01(particleAlpha);
   let textureCanvas;
 
@@ -2750,6 +3017,7 @@ function drawTexturedTriangle(
         particleAlpha,
         frameIndex,
         compensation,
+        shape,
       );
     }
   }
@@ -2769,6 +3037,8 @@ function drawTexturedTriangle(
       particleAlpha,
       payloadAlpha,
       frameIndex,
+      0,
+      shape,
     );
   }
   else
@@ -2776,31 +3046,52 @@ function drawTexturedTriangle(
     const textureContext = resources.context;
     const scaledColor = scaledEnergy.map((channel) =>
       Math.round(clamp01(channel) * 255));
-    textureContext.setTransform(1, 0, 0, 1, 0, 0);
-    textureContext.globalAlpha = 1;
-    textureContext.globalCompositeOperation = 'source-over';
-    textureContext.imageSmoothingEnabled = true;
-    textureContext.clearRect(
-      0,
-      0,
-      TRIANGLE_TEXTURE_SIZE,
-      TRIANGLE_TEXTURE_SIZE,
-    );
-    drawTriangleTextureFrame(textureContext, resources.colorCanvas, frameIndex);
+    if (roundness > 0)
+    {
+      textureCanvas = prepareSceneRoundedTriangleCanvas(
+        resources,
+        scaledEnergy,
+        roundness,
+        frameIndex,
+      );
+    }
 
-    // Scene Final Pass 读取线性字节；这里继续按 Unity 线性材质乘法绘制。
-    textureContext.globalCompositeOperation = 'multiply';
-    textureContext.fillStyle = `rgb(${scaledColor[0]}, ${scaledColor[1]}, ${
-      scaledColor[2]})`;
-    textureContext.fillRect(
-      0,
-      0,
-      TRIANGLE_TEXTURE_SIZE,
-      TRIANGLE_TEXTURE_SIZE,
-    );
-    textureContext.globalCompositeOperation = 'destination-in';
-    drawTriangleTextureFrame(textureContext, resources.alphaCanvas, frameIndex);
-    textureCanvas = resources.canvas;
+    if (!textureCanvas)
+    {
+      textureContext.setTransform(1, 0, 0, 1, 0, 0);
+      textureContext.globalAlpha = 1;
+      textureContext.globalCompositeOperation = 'source-over';
+      textureContext.imageSmoothingEnabled = true;
+      textureContext.clearRect(
+        0,
+        0,
+        TRIANGLE_TEXTURE_SIZE,
+        TRIANGLE_TEXTURE_SIZE,
+      );
+      drawTriangleTextureFrame(
+        textureContext,
+        resources.colorCanvas,
+        frameIndex,
+      );
+
+      // Scene Final Pass 读取线性字节；这里继续按 Unity 线性材质乘法绘制。
+      textureContext.globalCompositeOperation = 'multiply';
+      textureContext.fillStyle = `rgb(${scaledColor[0]}, ${
+        scaledColor[1]}, ${scaledColor[2]})`;
+      textureContext.fillRect(
+        0,
+        0,
+        TRIANGLE_TEXTURE_SIZE,
+        TRIANGLE_TEXTURE_SIZE,
+      );
+      textureContext.globalCompositeOperation = 'destination-in';
+      drawTriangleTextureFrame(
+        textureContext,
+        resources.alphaCanvas,
+        frameIndex,
+      );
+      textureCanvas = resources.canvas;
+    }
   }
 
   if (transparentPayload && (!textureCanvas || payloadAlpha <= 0.00001))
@@ -2846,6 +3137,7 @@ function drawTriangle(
   );
   const textureFrameIndex = resolveShardTextureFrameIndex(particle, shardCfg);
   const textureFrame = resolveShardTextureFrame(particle, shardCfg);
+  const roundness = resolveShardRoundness(shardCfg);
 
   if (size <= 0 || alpha <= 0)
   {
@@ -2864,6 +3156,7 @@ function drawTriangle(
     overlayColorCompensation,
     overlayAlphaLimit,
     opacity,
+    roundness,
   ))
   {
     return;
@@ -2873,10 +3166,7 @@ function drawTriangle(
   context.translate(particle.x, particle.y);
   context.rotate(particle.rotation);
   context.beginPath();
-  context.moveTo(textureFrame[0][0] * size, textureFrame[0][1] * size);
-  context.lineTo(textureFrame[1][0] * size, textureFrame[1][1] * size);
-  context.lineTo(textureFrame[2][0] * size, textureFrame[2][1] * size);
-  context.closePath();
+  traceRoundedTrianglePath(context, textureFrame, size, shardCfg.roundness);
   if (outputCompositing === 'browser-overlay')
   {
     context.fillStyle = linearEnergyToOverlayCss(
@@ -2924,6 +3214,7 @@ function drawTriangleCoverage(
   const alpha = evaluateNumber(shardCfg.alphaKeys, progress) * opacity;
   const textureFrameIndex = resolveShardTextureFrameIndex(particle, shardCfg);
   const textureFrame = resolveShardTextureFrame(particle, shardCfg);
+  const roundness = resolveShardRoundness(shardCfg);
 
   if (size <= 0 || alpha <= 0)
   {
@@ -2939,6 +3230,10 @@ function drawTriangleCoverage(
     textureFrameIndex,
     1,
     'browser-overlay',
+    'none',
+    1,
+    opacity,
+    roundness,
   ))
   {
     return;
@@ -2948,10 +3243,7 @@ function drawTriangleCoverage(
   context.translate(particle.x, particle.y);
   context.rotate(particle.rotation);
   context.beginPath();
-  context.moveTo(textureFrame[0][0] * size, textureFrame[0][1] * size);
-  context.lineTo(textureFrame[1][0] * size, textureFrame[1][1] * size);
-  context.lineTo(textureFrame[2][0] * size, textureFrame[2][1] * size);
-  context.closePath();
+  traceRoundedTrianglePath(context, textureFrame, size, shardCfg.roundness);
   context.fillStyle = `rgba(255, 255, 255, ${clamp01(alpha)})`;
   context.shadowColor = 'transparent';
   context.shadowBlur = 0;
@@ -2983,6 +3275,7 @@ function drawTriangleEmission(
   );
   const textureFrameIndex = resolveShardTextureFrameIndex(particle, shardCfg);
   const textureFrame = resolveShardTextureFrame(particle, shardCfg);
+  const roundness = resolveShardRoundness(shardCfg);
 
   if (size <= 0 || alpha <= 0)
   {
@@ -2997,6 +3290,11 @@ function drawTriangleEmission(
     alpha,
     textureFrameIndex,
     1 / Math.max(1, bloomCfg.emissionRange),
+    'scene',
+    'none',
+    1,
+    opacity,
+    roundness,
   ))
   {
     return;
@@ -3006,10 +3304,7 @@ function drawTriangleEmission(
   context.translate(particle.x, particle.y);
   context.rotate(particle.rotation);
   context.beginPath();
-  context.moveTo(textureFrame[0][0] * size, textureFrame[0][1] * size);
-  context.lineTo(textureFrame[1][0] * size, textureFrame[1][1] * size);
-  context.lineTo(textureFrame[2][0] * size, textureFrame[2][1] * size);
-  context.closePath();
+  traceRoundedTrianglePath(context, textureFrame, size, shardCfg.roundness);
   context.fillStyle = linearEnergyToEmissionCss(
     materialEnergy,
     alpha,
@@ -3937,6 +4232,7 @@ class ShardParticle
       materialEnergy,
       alpha,
       textureFrameIndex,
+      resolveShardRoundness(shardCfg),
     );
   }
 
@@ -10978,6 +11274,12 @@ export class BAClickFX
     );
 
     return result.committed && result.applied.length === 1;
+  }
+
+  /** 设置全部点击与拖尾三角碎片的圆角比例，0 为原形，1 为圆形。 */
+  setTriangleRoundness(roundness)
+  {
+    return this.setFxParam('shards.roundness', roundness);
   }
 
   /** @returns {object} 当前完整特效配置的深拷贝 */

@@ -1740,6 +1740,31 @@ assert(
   'WebGL2 碎片以完整 Quad 采样 Unity 2×1 图集的实测透明轮廓',
 );
 
+const fullGeometryRenderer = new WebGL2EffectRenderer(rendererCanvas);
+
+fullGeometryRenderer.beginFrame();
+fullGeometryRenderer.addTriangle(
+  10,
+  20,
+  20,
+  0,
+  [1, 2, 3],
+  1,
+  upwardFrame,
+  0.75,
+);
+
+assert(
+  fullGeometryRenderer.triangleVertexCount === 6 &&
+    [0, 1, 2, 3, 4, 5].every((index) =>
+      approximatelyEqual(
+        fullGeometryRenderer.triangleVertexData[index * 9 + 8],
+        0.75,
+      )),
+  'WebGL2 将同一圆角比例传给完整碎片 Quad 的全部顶点',
+);
+fullGeometryRenderer.destroy();
+
 geometryRenderer.beginFrame();
 const headCenterToEdge =
   UNITY_FX_TOUCH.trail.textureTransverseProfileKeys.at(-1)[1];

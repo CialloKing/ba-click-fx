@@ -51,7 +51,7 @@ assert.deepEqual(
   ],
 );
 assert.equal(basicResult.committed, true);
-assert.equal(basicResult.schemaVersion, 1);
+assert.equal(basicResult.schemaVersion, 2);
 assert.equal(basicResult.nextConfig.disk.radius, 1);
 assert.equal(basicResult.nextConfig.rings.arcSamples, 95.25);
 assert.equal(basicResult.nextConfig.bloom.intensity, 10);
@@ -317,7 +317,7 @@ const invalidSchemaResult = applyFxParamPatch(
   {},
   {
     baseline,
-    schemaVersion: 2,
+    schemaVersion: 3,
   },
 );
 
