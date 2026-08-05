@@ -4,6 +4,7 @@ import {
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
   EFFECT_BACKEND_CHANGE_EVENT,
+  FX_PARAM_SCHEMA,
   UNITY_FX_TOUCH,
 } from './fx.js';
 import {
@@ -54,6 +55,7 @@ let themeReferenceResizeFrame = 0;
 let customBackgroundObjectUrl = null;
 let pageBackgroundRasterSource = null;
 let compositingReferenceMode = DEFAULT_COMPOSITING_REFERENCE_MODE;
+let lightBackgroundContrastOverride = false;
 
 function revokeCustomBackgroundObjectUrl(except = null)
 {
@@ -276,23 +278,21 @@ function resolvePureWhiteContrastAlpha(isolatedCompositing)
 
 function syncPureWhiteIsolationContrast()
 {
-  effect.updateConfig(
-    {
-      lightBackgroundContrastAlpha: resolvePureWhiteContrastAlpha(
-        effect.getConfig().isolatedCompositing,
-      ),
-    },
+  if (lightBackgroundContrastOverride)
+  {
+    return;
+  }
+
+  applyLightBackgroundContrastAlpha(
+    resolvePureWhiteContrastAlpha(effect.getConfig().isolatedCompositing),
+    false,
   );
 }
 
 function applyIsolatedCompositing(checked)
 {
-  effect.updateConfig(
-    {
-      isolatedCompositing: checked,
-      lightBackgroundContrastAlpha: resolvePureWhiteContrastAlpha(checked),
-    },
-  );
+  effect.updateConfig({ isolatedCompositing: checked });
+  syncPureWhiteIsolationContrast();
 }
 
 function applyTheme(name)
@@ -604,6 +604,14 @@ bindRange('ctrlTrailTimeScale', 'outTrailTimeScale', (value) =>
 const ctrlInputSource = document.getElementById('ctrlInputSource');
 const ctrlPaused = document.getElementById('ctrlPaused');
 const ctrlPauseClear = document.getElementById('ctrlPauseClear');
+const ctrlTouchAction = document.getElementById('ctrlTouchAction');
+const TOUCH_ACTIONS = new Set([
+  'auto',
+  'none',
+  'pan-x',
+  'pan-y',
+  'manipulation',
+]);
 let currentInputSource = 'dom';
 let manualPointerId = null;
 
@@ -712,6 +720,94 @@ if (ctrlPaused)
     updateHostApiStatus();
   });
 }
+
+if (ctrlTouchAction)
+{
+  ctrlTouchAction.addEventListener('change', () =>
+  {
+    const resolved = TOUCH_ACTIONS.has(ctrlTouchAction.value)
+      ? ctrlTouchAction.value
+      : 'auto';
+
+    ctrlTouchAction.value = resolved;
+    effect.updateConfig({ touchAction: resolved });
+    localStorage.setItem('bafx-ctrlTouchAction', resolved);
+  });
+}
+
+document.getElementById('btnTriggerBoom')?.addEventListener('click', () =>
+{
+  effect.boom(effect.width / 2, effect.height / 2);
+});
+
+document.getElementById('btnClearTrail')?.addEventListener('click', () =>
+{
+  effect.clearTrail();
+});
+
+document.getElementById('btnClearEffects')?.addEventListener('click', () =>
+{
+  effect.clear();
+});
+
+document.getElementById('btnCopyConfig')?.addEventListener('click', async () =>
+{
+  const payload = JSON.stringify(
+    {
+      config: effect.getConfig(),
+      fx: effect.getFxConfig(),
+      effectiveHostCompositing: effect.getEffectiveHostCompositing(),
+    },
+    null,
+    2,
+  );
+  const dictionary = I18N[currentLang] || I18N.zh;
+
+  try
+  {
+    await navigator.clipboard.writeText(payload);
+    document.getElementById('hostApiStatus').textContent =
+      dictionary.hostApiConfigCopied;
+  }
+  catch
+  {
+    document.getElementById('hostApiStatus').textContent =
+      dictionary.hostApiConfigCopyFailed;
+  }
+});
+
+document.getElementById('btnApplyFxParams')?.addEventListener('click', () =>
+{
+  const currentFxConfig = effect.getFxConfig();
+  const patch = Object.fromEntries(
+    FX_PARAM_SCHEMA.map(({ path }) =>
+    {
+      const value = path.split('.').reduce(
+        (config, key) => config?.[key],
+        currentFxConfig,
+      );
+
+      return [path, value];
+    }),
+  );
+  const result = effect.setFxParams(patch, { strict: true });
+  const dictionary = I18N[currentLang] || I18N.zh;
+
+  document.getElementById('hostApiStatus').textContent = result.committed
+    ? dictionary.hostApiParamsApplied
+    : dictionary.hostApiParamsApplyFailed;
+});
+
+document.getElementById('btnDestroyInstance')?.addEventListener('click', () =>
+{
+  const dictionary = I18N[currentLang] || I18N.zh;
+
+  if (window.confirm(dictionary.confirmDestroyInstance))
+  {
+    effect.destroy();
+    window.location.reload();
+  }
+});
 
 window.addEventListener('pointerdown', (event) =>
 {
@@ -1604,6 +1700,15 @@ const ctrlOverlayColorCompensation = document.getElementById(
 const ctrlOverlayAlphaLimit = document.getElementById('ctrlOverlayAlphaLimit');
 const outOverlayAlphaLimit = document.getElementById('outOverlayAlphaLimit');
 const ctrlHostCompositing = document.getElementById('ctrlHostCompositing');
+const ctrlHostCompositingSurface = document.getElementById(
+  'ctrlHostCompositingSurface',
+);
+const ctrlLightBackgroundContrastAlpha = document.getElementById(
+  'ctrlLightBackgroundContrastAlpha',
+);
+const outLightBackgroundContrastAlpha = document.getElementById(
+  'outLightBackgroundContrastAlpha',
+);
 const sourceOverOnlyControls = document.querySelectorAll(
   '.source-over-only-control',
 );
@@ -1613,6 +1718,9 @@ const DEFAULT_OVERLAY_COLOR_COMPENSATION =
   CONFIG.overlayColorCompensation;
 const DEFAULT_OVERLAY_ALPHA_LIMIT = CONFIG.overlayAlphaLimit;
 const DEFAULT_HOST_COMPOSITING = CONFIG.hostCompositing;
+const DEFAULT_HOST_COMPOSITING_SURFACE = CONFIG.hostCompositingSurface;
+const DEFAULT_LIGHT_BACKGROUND_CONTRAST_ALPHA =
+  CONFIG.lightBackgroundContrastAlpha;
 const OUTPUT_COMPOSITING_MODES = new Set([
   'scene',
   'browser-overlay',
@@ -1628,6 +1736,12 @@ const OVERLAY_COLOR_COMPENSATIONS = new Set([
 const HOST_COMPOSITING_MODES = new Set([
   'source-over',
   'screen',
+  'plus-lighter',
+]);
+const HOST_COMPOSITING_SURFACES = new Set([
+  'dom-backdrop',
+  'transparent-window',
+  'native',
 ]);
 
 function syncTransparentCompositingControlState(
@@ -1662,6 +1776,16 @@ function syncTransparentCompositingControlState(
   if (ctrlHostCompositing)
   {
     ctrlHostCompositing.disabled = !enabled;
+  }
+
+  if (ctrlHostCompositingSurface)
+  {
+    ctrlHostCompositingSurface.disabled = !enabled;
+  }
+
+  if (ctrlLightBackgroundContrastAlpha)
+  {
+    ctrlLightBackgroundContrastAlpha.disabled = enabled;
   }
 
   for (const control of sourceOverOnlyControls)
@@ -1724,11 +1848,8 @@ function applyOverlayAlphaLimit(value)
 
 function applyHostCompositing(mode)
 {
-  // 1.2.17 早期展示页曾把 DOM Add 保存为 plus-lighter。亮底修复后将
-  // 该展示项迁移到 screen；公共 API 仍保留 plus-lighter 给暗底宿主。
-  const migratedMode = mode === 'plus-lighter' ? 'screen' : mode;
-  const resolved = HOST_COMPOSITING_MODES.has(migratedMode)
-    ? migratedMode
+  const resolved = HOST_COMPOSITING_MODES.has(mode)
+    ? mode
     : DEFAULT_HOST_COMPOSITING;
 
   if (ctrlHostCompositing)
@@ -1741,6 +1862,56 @@ function applyHostCompositing(mode)
     ctrlOutputCompositing?.value,
     resolved,
   );
+  return resolved;
+}
+
+function applyHostCompositingSurface(surface)
+{
+  const resolved = HOST_COMPOSITING_SURFACES.has(surface)
+    ? surface
+    : DEFAULT_HOST_COMPOSITING_SURFACE;
+
+  if (ctrlHostCompositingSurface)
+  {
+    ctrlHostCompositingSurface.value = resolved;
+  }
+
+  effect.updateConfig({ hostCompositingSurface: resolved });
+  syncTransparentCompositingControlState(
+    ctrlOutputCompositing?.value,
+    ctrlHostCompositing?.value,
+  );
+  return resolved;
+}
+
+function applyLightBackgroundContrastAlpha(value, persist = true)
+{
+  const numericValue = Number(value);
+  const resolved = Number.isFinite(numericValue)
+    ? Math.max(0, Math.min(1, numericValue))
+    : DEFAULT_LIGHT_BACKGROUND_CONTRAST_ALPHA;
+
+  if (ctrlLightBackgroundContrastAlpha)
+  {
+    ctrlLightBackgroundContrastAlpha.value = String(resolved);
+  }
+
+  if (outLightBackgroundContrastAlpha)
+  {
+    outLightBackgroundContrastAlpha.textContent = resolved.toFixed(2);
+  }
+
+  effect.updateConfig({ lightBackgroundContrastAlpha: resolved });
+
+  if (persist)
+  {
+    lightBackgroundContrastOverride = true;
+    localStorage.setItem(
+      'bafx-ctrlLightBackgroundContrastAlpha',
+      String(resolved),
+    );
+  }
+
   return resolved;
 }
 
@@ -1817,10 +1988,34 @@ if (ctrlHostCompositing)
   });
 }
 
+if (ctrlHostCompositingSurface)
+{
+  ctrlHostCompositingSurface.addEventListener('change', () =>
+  {
+    const resolved = applyHostCompositingSurface(
+      ctrlHostCompositingSurface.value,
+    );
+
+    localStorage.setItem('bafx-ctrlHostCompositingSurface', resolved);
+  });
+}
+
+if (ctrlLightBackgroundContrastAlpha)
+{
+  ctrlLightBackgroundContrastAlpha.addEventListener('input', () =>
+  {
+    applyLightBackgroundContrastAlpha(
+      ctrlLightBackgroundContrastAlpha.value,
+    );
+  });
+}
+
 // ── 特效参数 → setFxParam ──────────────────────────────────────────────
 bindRange('ctrlRingHdr', 'outRingHdr', (v) => effect.setFxParam('rings.hdrIntensity', v));
 bindRange('ctrlRingRadMin', 'outRingRadMin', (v) => effect.setFxParam('rings.radiusMin', v));
 bindRange('ctrlRingRadMax', 'outRingRadMax', (v) => effect.setFxParam('rings.radiusMax', v));
+bindRange('ctrlRingBandRatio', 'outRingBandRatio', (v) =>
+  effect.setFxParam('rings.bandToOuterRadius', v));
 bindRange('ctrlRingWStart', 'outRingWStart', (v) => effect.setFxParam('rings.widthStart', v));
 bindRange('ctrlRingWEnd', 'outRingWEnd', (v) => effect.setFxParam('rings.widthEnd', v));
 bindRange('ctrlRingLife', 'outRingLife', (v) => effect.setFxParam('rings.lifetimeMs', v), true);
@@ -1879,11 +2074,23 @@ function formatRingDirection(value, lang = currentLang)
   return value < 0 ? '逆时针' : '顺时针';
 }
 
+function formatDissolveDirection(value, lang = currentLang)
+{
+  if (lang === 'en')
+  {
+    return value < 0 ? 'Reverse' : 'Forward';
+  }
+
+  return value < 0 ? '反向' : '正向';
+}
+
 bindRange('ctrlRingCount', 'outRingCount', (v) => effect.setFxParam('rings.count', v), true);
 bindRange('ctrlDiskRadius', 'outDiskRadius', (v) => effect.setFxParam('disk.radius', v));
 bindRange('ctrlDiskLife', 'outDiskLife', (v) => effect.setFxParam('disk.lifetimeMs', v), true);
 bindRange('ctrlAngVelMul', 'outAngVelMul', (v) => effect.setFxParam('rings.angularVelocityMultiplier', v));
 bindRange('ctrlArcSamples', 'outArcSamples', (v) => effect.setFxParam('rings.arcSamples', v), true);
+bindRange('ctrlRadialSamples', 'outRadialSamples', (v) =>
+  effect.setFxParam('rings.radialSamples', v), true);
 bindRange('ctrlRingDir', 'outRingDir', (v) =>
 {
   effect.setFxParam('rings.rotationDirection', Math.round(v));
@@ -1894,6 +2101,16 @@ bindRange('ctrlRingDir', 'outRingDir', (v) =>
     out.textContent = formatRingDirection(v);
   }
 });
+bindRange('ctrlDissolveDir', 'outDissolveDir', (v) =>
+{
+  effect.setFxParam('rings.dissolveDirection', Math.round(v));
+  const out = document.getElementById('outDissolveDir');
+
+  if (out)
+  {
+    out.textContent = formatDissolveDirection(v);
+  }
+}, true);
 bindRange('ctrlClickShardLifeMin', 'outClickShardLifeMin', (v) => effect.setFxParam('shards.clickLifetimeMinMs', v), true);
 bindRange('ctrlClickShardLifeMax', 'outClickShardLifeMax', (v) => effect.setFxParam('shards.clickLifetimeMaxMs', v), true);
 
@@ -1907,9 +2124,35 @@ bindRange('ctrlFlareLife', 'outFlareLife', (v) => effect.setFxParam('flare.lifet
 bindRange('ctrlFlareRays', 'outFlareRays', (v) => effect.setFxParam('flare.rayCount', v), true);
 bindRange('ctrlGeomWidth', 'outGeomWidth', (v) => effect.setFxParam('trail.geometryWidth', v));
 bindRange('ctrlMinVertDist', 'outMinVertDist', (v) => effect.setFxParam('trail.minVertexDistance', v));
+bindRange('ctrlCornerVerts', 'outCornerVerts', (v) =>
+  effect.setFxParam('trail.numCornerVertices', v), true);
+bindRange('ctrlCapVerts', 'outCapVerts', (v) =>
+  effect.setFxParam('trail.numCapVertices', v), true);
 bindRange('ctrlTrailShardLifeMin', 'outTrailShardLifeMin', (v) => effect.setFxParam('shards.trailLifetimeMinMs', v), true);
 bindRange('ctrlTrailShardLifeMax', 'outTrailShardLifeMax', (v) => effect.setFxParam('shards.trailLifetimeMaxMs', v), true);
 bindRange('ctrlBloomDisk', 'outBloomDisk', (v) => effect.setFxParam('bloom.diskBlur', v));
+bindRange('ctrlBloomSoftKnee', 'outBloomSoftKnee', (v) =>
+  effect.setFxParam('bloom.softKnee', v));
+bindRange('ctrlBloomClamp', 'outBloomClamp', (v) =>
+  effect.setFxParam('bloom.clamp', v), true);
+bindRange('ctrlBloomResolution', 'outBloomResolution', (v) =>
+  effect.setFxParam('bloom.resolutionScale', v));
+bindRange('ctrlBloomEmission', 'outBloomEmission', (v) =>
+  effect.setFxParam('bloom.emissionRange', v));
+bindRange('ctrlBloomDiskEmission', 'outBloomDiskEmission', (v) =>
+  effect.setFxParam('bloom.diskEmission', v));
+bindRange('ctrlBloomTrailEmission', 'outBloomTrailEmission', (v) =>
+  effect.setFxParam('bloom.trailEmission', v));
+bindRange('ctrlBloomTrailCoverage', 'outBloomTrailCoverage', (v) =>
+  effect.setFxParam('bloom.trailCoverageScale', v));
+bindRange('ctrlBloomRingCoreAlpha', 'outBloomRingCoreAlpha', (v) =>
+  effect.setFxParam('bloom.ringEmissionAlpha', v));
+bindRange('ctrlBloomDiskCoreAlpha', 'outBloomDiskCoreAlpha', (v) =>
+  effect.setFxParam('bloom.diskEmissionAlpha', v));
+bindRange('ctrlBloomRingAlpha', 'outBloomRingAlpha', (v) =>
+  effect.setFxParam('bloom.ringAlpha', v));
+bindRange('ctrlBloomDiskAlpha', 'outBloomDiskAlpha', (v) =>
+  effect.setFxParam('bloom.diskAlpha', v));
 
 // ── 主题颜色 ────────────────────────────────────────────────────────────
 const ctrlColor = document.getElementById('ctrlColor');
@@ -1955,6 +2198,10 @@ document.getElementById('btnReset').addEventListener('click', () =>
     DEFAULT_OVERLAY_ALPHA_LIMIT.toFixed(2);
   document.getElementById('ctrlHostCompositing').value =
     DEFAULT_HOST_COMPOSITING;
+  if (ctrlHostCompositingSurface)
+  {
+    ctrlHostCompositingSurface.value = DEFAULT_HOST_COMPOSITING_SURFACE;
+  }
   syncTransparentCompositingControlState(DEFAULT_OUTPUT_COMPOSITING);
   document.getElementById('ctrlInputSource').value = 'dom';
   document.getElementById('ctrlClickTimeScale').value = '1';
@@ -1964,6 +2211,21 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlPaused').checked = false;
   document.getElementById('ctrlPauseClear').checked = false;
   document.getElementById('ctrlIsolatedCompositing').checked = false;
+  lightBackgroundContrastOverride = false;
+  if (ctrlLightBackgroundContrastAlpha)
+  {
+    ctrlLightBackgroundContrastAlpha.value =
+      String(DEFAULT_LIGHT_BACKGROUND_CONTRAST_ALPHA);
+  }
+  if (outLightBackgroundContrastAlpha)
+  {
+    outLightBackgroundContrastAlpha.textContent =
+      DEFAULT_LIGHT_BACKGROUND_CONTRAST_ALPHA.toFixed(2);
+  }
+  if (ctrlTouchAction)
+  {
+    ctrlTouchAction.value = 'auto';
+  }
   document.getElementById('ctrlCompositingReference').value =
     DEFAULT_COMPOSITING_REFERENCE_MODE;
   document.getElementById('ctrlClick').checked = true;
@@ -1980,6 +2242,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlRingHdr', 'outRingHdr', 5.992157, false],
     ['ctrlRingRadMin', 'outRingRadMin', 68.92571232, false],
     ['ctrlRingRadMax', 'outRingRadMax', 80.41333104, false],
+    ['ctrlRingBandRatio', 'outRingBandRatio', 0.0598573766034603, false],
     ['ctrlRingWStart', 'outRingWStart', 1, false],
     ['ctrlRingWEnd', 'outRingWEnd', 1, false],
     ['ctrlRingLife', 'outRingLife', 600, true],
@@ -2016,7 +2279,9 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlDiskLife', 'outDiskLife', 200, true],
     ['ctrlAngVelMul', 'outAngVelMul', 11.17, false],
     ['ctrlArcSamples', 'outArcSamples', 96, true],
+    ['ctrlRadialSamples', 'outRadialSamples', 8, true],
     ['ctrlRingDir', 'outRingDir', -1, true],
+    ['ctrlDissolveDir', 'outDissolveDir', 1, true],
     ['ctrlHitRadius', 'outHitRadius', 24, false],
     ['ctrlHitLife', 'outHitLife', 80, true],
     ['ctrlFlareRadius', 'outFlareRadius', 36, false],
@@ -2024,7 +2289,20 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlFlareRays', 'outFlareRays', 6, true],
     ['ctrlGeomWidth', 'outGeomWidth', 2.7, false],
     ['ctrlMinVertDist', 'outMinVertDist', 5.4, false],
+    ['ctrlCornerVerts', 'outCornerVerts', 4, true],
+    ['ctrlCapVerts', 'outCapVerts', 1, true],
     ['ctrlBloomDisk', 'outBloomDisk', 65, false],
+    ['ctrlBloomSoftKnee', 'outBloomSoftKnee', 0, false],
+    ['ctrlBloomClamp', 'outBloomClamp', 65472, true],
+    ['ctrlBloomResolution', 'outBloomResolution', 0.5, false],
+    ['ctrlBloomEmission', 'outBloomEmission', 23.968628, false],
+    ['ctrlBloomDiskEmission', 'outBloomDiskEmission', 2, false],
+    ['ctrlBloomTrailEmission', 'outBloomTrailEmission', 23.968628, false],
+    ['ctrlBloomTrailCoverage', 'outBloomTrailCoverage', 1, false],
+    ['ctrlBloomRingCoreAlpha', 'outBloomRingCoreAlpha', 1, false],
+    ['ctrlBloomDiskCoreAlpha', 'outBloomDiskCoreAlpha', 1, false],
+    ['ctrlBloomRingAlpha', 'outBloomRingAlpha', 0.35, false],
+    ['ctrlBloomDiskAlpha', 'outBloomDiskAlpha', 0.65, false],
   ];
 
   fxDefaults.forEach(([id, outId, val, intOnly]) =>
@@ -2045,6 +2323,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
   });
   document.getElementById('outRingDir').textContent =
     formatRingDirection(-1);
+  document.getElementById('outDissolveDir').textContent =
+    formatDissolveDirection(1);
 
   effect.resetFxConfig();
   effect.setPaused(false);
@@ -2067,9 +2347,11 @@ document.getElementById('btnReset').addEventListener('click', () =>
       overlayColorCompensation: DEFAULT_OVERLAY_COLOR_COMPENSATION,
       overlayAlphaLimit: DEFAULT_OVERLAY_ALPHA_LIMIT,
       hostCompositing: DEFAULT_HOST_COMPOSITING,
+      hostCompositingSurface: DEFAULT_HOST_COMPOSITING_SURFACE,
       isolatedCompositing: false,
-      lightBackgroundContrastAlpha: 0,
+      lightBackgroundContrastAlpha: DEFAULT_LIGHT_BACKGROUND_CONTRAST_ALPHA,
       maxDpr: 2,
+      touchAction: 'auto',
     },
   );
   applyHdrUiSettings(
@@ -2256,7 +2538,12 @@ const I18N = {
     labelHostCompositing: '宿主合成',
     hostCompositingSourceOver: 'Source-over',
     hostCompositingDomAdd: 'DOM Add（近似）',
-    transparentCompositingNote: 'DOM Add 使用 Screen 自适应亮底，并停用 Alpha 策略、颜色补偿和 Alpha 上限；透明覆盖层策略都是浏览器视觉近似。',
+    hostCompositingPlusLighter: 'Plus-lighter（原始加色）',
+    labelHostCompositingSurface: '宿主表面',
+    hostSurfaceDomBackdrop: 'DOM 背景',
+    hostSurfaceTransparentWindow: '透明窗口',
+    hostSurfaceNative: '原生合成器',
+    transparentCompositingNote: 'Screen 会自适应亮底；Plus-lighter 保留更激进的加色；独立宿主合成会停用 Alpha 策略、颜色补偿和 Alpha 上限。透明覆盖层策略都是浏览器视觉近似。',
     labelCompositingReference: '特效背景参考',
     compositingReferenceMatchPage: '匹配当前页面（精确）',
     compositingReferenceUnknown: '未知透明背景（兼容）',
@@ -2264,6 +2551,7 @@ const I18N = {
     compositingReferenceUnknownStatus: '未知背景兼容输出：亮度会随宿主背景变化。',
     compositingReferenceUnavailableStatus: '当前页面背景无法作为合成参考，已使用未知背景输出。',
     labelIsolatedCompositing: '隔离合成',
+    labelLightBackgroundContrastAlpha: '浅色背景对比',
     hostApiSummary: '宿主控制 API',
     labelInputSource: '输入来源',
     inputSourceDom: 'DOM 自动监听',
@@ -2272,9 +2560,26 @@ const I18N = {
     labelTrailTimeScale: '拖尾速度',
     labelPaused: '暂停输入与动画',
     labelPauseClear: '暂停时清屏',
+    labelTouchAction: '触摸行为',
+    touchActionAuto: '自动',
+    touchActionNone: '禁止默认手势',
+    touchActionPanX: '仅横向平移',
+    touchActionPanY: '仅纵向平移',
+    touchActionManipulation: '直接操作',
     hostApiDom: 'DOM 模式：库自动监听 window 指针事件。',
     hostApiManual: '手动模式：展示页通过公开 pointer API 注入输入。',
     hostApiPaused: '已暂停：输入和 RAF 已停止。',
+    hostApiConfigCopied: '当前配置已复制到剪贴板。',
+    hostApiConfigCopyFailed: '无法访问剪贴板，请检查浏览器权限。',
+    hostApiParamsApplied: '当前参数已通过批量 API 原子应用。',
+    hostApiParamsApplyFailed: '参数批量应用失败，当前配置未改变。',
+    confirmDestroyInstance: '销毁当前特效实例并刷新展示页？',
+    btnTriggerBoom: '触发中心点击',
+    btnClearTrail: '清除拖尾',
+    btnClearEffects: '清除全部',
+    btnCopyConfig: '复制当前配置',
+    btnApplyFxParams: '原子应用参数',
+    btnDestroyInstance: '销毁并刷新',
     renderCanvas2D: 'Canvas 2D',
     renderFullWebGPU: 'WebGPU HDR（实验）',
     renderFullWebGL2: '纯 WebGL2',
@@ -2362,6 +2667,7 @@ const I18N = {
     labelRingHdr: '圆环 HDR 强度',
     labelRingRadMin: '圆环起始半径',
     labelRingRadMax: '圆环终止半径',
+    labelRingBandRatio: '圆环带宽比例',
     labelRingWStart: '圆环起始厚度倍率',
     labelRingWEnd: '圆环终止厚度倍率',
     labelRingLife: '圆环寿命',
@@ -2379,9 +2685,18 @@ const I18N = {
     labelMaxShards: '拖尾碎片上限',
     labelBloomRing: '原生圆环模糊',
     labelBloomThreshold: 'Bloom 阈值',
+    labelBloomSoftKnee: 'Bloom 柔化膝点',
+    labelBloomClamp: 'Bloom 亮度钳位',
     labelBloomIntensity: 'Bloom 强度',
     labelBloomDiffusion: 'Bloom 扩散',
+    labelBloomResolution: 'Bloom 分辨率倍率',
+    labelBloomEmission: 'Bloom 发射范围',
     labelClickGlow: '点击辉光强度',
+    labelBloomDiskEmission: '光盘发射强度',
+    labelBloomRingCoreAlpha: '圆环核心发射 Alpha',
+    labelBloomDiskCoreAlpha: '光盘核心发射 Alpha',
+    labelBloomRingAlpha: '圆环辉光 Alpha',
+    labelBloomDiskAlpha: '光盘辉光 Alpha',
     labelTrailEnabled: '启用拖尾',
     labelTrailAlways: '始终显示',
     labelTrailW: '拖尾宽度',
@@ -2389,17 +2704,23 @@ const I18N = {
     labelTrailLife: '拖尾寿命',
     labelShardSpacing: '拖尾碎片间距',
     labelBloomTrail: 'Bloom 拖尾发射校准',
+    labelBloomTrailEmission: '拖尾发射强度',
+    labelBloomTrailCoverage: '拖尾覆盖倍率',
     labelTrailOpacity: '拖尾整体透明度',
     labelRingCount: '圆环数量',
     labelDiskRadius: '光盘半径',
     labelDiskLife: '光盘寿命',
     labelAngVelMul: '旋转速度倍率',
     labelArcSamples: '弧线采样精度',
+    labelRadialSamples: '径向采样精度',
     labelRingDir: '旋转方向',
+    labelDissolveDir: '溶解方向',
     labelClickShardLifeMin: '点击碎片最短寿命',
     labelClickShardLifeMax: '点击碎片最长寿命',
     labelGeomWidth: '几何带宽',
     labelMinVertDist: '最小采样间距',
+    labelCornerVerts: '折点圆角顶点数',
+    labelCapVerts: '端帽顶点数',
     labelTrailShardLifeMin: '拖尾碎片最短寿命',
     labelTrailShardLifeMax: '拖尾碎片最长寿命',
     labelBloomDisk: '原生光盘模糊',
@@ -2471,7 +2792,12 @@ const I18N = {
     labelHostCompositing: 'Host Compositing',
     hostCompositingSourceOver: 'Source-over',
     hostCompositingDomAdd: 'DOM Add (Approximate)',
-    transparentCompositingNote: 'DOM Add uses Screen to adapt to light backdrops and disables the Alpha policy, color compensation, and Alpha limit; transparent-overlay policies are browser approximations.',
+    hostCompositingPlusLighter: 'Plus-lighter (Original Additive)',
+    labelHostCompositingSurface: 'Host Surface',
+    hostSurfaceDomBackdrop: 'DOM Backdrop',
+    hostSurfaceTransparentWindow: 'Transparent Window',
+    hostSurfaceNative: 'Native Compositor',
+    transparentCompositingNote: 'Screen adapts to light backdrops; Plus-lighter preserves more aggressive additive output. Independent host compositing disables the Alpha policy, color compensation, and Alpha limit; transparent-overlay policies are browser approximations.',
     labelCompositingReference: 'Effect Reference',
     compositingReferenceMatchPage: 'Current Page (Exact)',
     compositingReferenceUnknown: 'Unknown Background',
@@ -2479,6 +2805,7 @@ const I18N = {
     compositingReferenceUnknownStatus: 'Unknown-background output: brightness varies with the host background.',
     compositingReferenceUnavailableStatus: 'The current page cannot provide a compositing reference; using unknown-background output.',
     labelIsolatedCompositing: 'Isolated Compositing',
+    labelLightBackgroundContrastAlpha: 'Light-background Contrast',
     hostApiSummary: 'Host Control API',
     labelInputSource: 'Input Source',
     inputSourceDom: 'DOM Listeners',
@@ -2487,9 +2814,26 @@ const I18N = {
     labelTrailTimeScale: 'Trail Speed',
     labelPaused: 'Pause Input & Animation',
     labelPauseClear: 'Clear When Paused',
+    labelTouchAction: 'Touch Action',
+    touchActionAuto: 'Auto',
+    touchActionNone: 'Disable Default Gestures',
+    touchActionPanX: 'Pan X Only',
+    touchActionPanY: 'Pan Y Only',
+    touchActionManipulation: 'Manipulation',
     hostApiDom: 'DOM mode: the library listens for window pointer events.',
     hostApiManual: 'Manual mode: the demo injects input through the public pointer API.',
     hostApiPaused: 'Paused: input and RAF scheduling are stopped.',
+    hostApiConfigCopied: 'Current configuration copied to the clipboard.',
+    hostApiConfigCopyFailed: 'Clipboard access failed; check browser permissions.',
+    hostApiParamsApplied: 'Current parameters were applied atomically through the batch API.',
+    hostApiParamsApplyFailed: 'Batch parameter application failed; the current configuration was unchanged.',
+    confirmDestroyInstance: 'Destroy the current effect instance and reload the demo?',
+    btnTriggerBoom: 'Trigger Center Click',
+    btnClearTrail: 'Clear Trail',
+    btnClearEffects: 'Clear All',
+    btnCopyConfig: 'Copy Current Config',
+    btnApplyFxParams: 'Apply Parameters Atomically',
+    btnDestroyInstance: 'Destroy and Reload',
     renderCanvas2D: 'Canvas 2D',
     renderFullWebGPU: 'WebGPU HDR (Experimental)',
     renderFullWebGL2: 'Full WebGL2',
@@ -2577,6 +2921,7 @@ const I18N = {
     labelRingHdr: 'Ring HDR Intensity',
     labelRingRadMin: 'Ring Radius Min',
     labelRingRadMax: 'Ring Radius Max',
+    labelRingBandRatio: 'Ring Band Ratio',
     labelRingWStart: 'Ring Start Width Scale',
     labelRingWEnd: 'Ring End Width Scale',
     labelRingLife: 'Ring Lifetime',
@@ -2594,9 +2939,18 @@ const I18N = {
     labelMaxShards: 'Trail Shard Limit',
     labelBloomRing: 'Native Ring Blur',
     labelBloomThreshold: 'Bloom Threshold',
+    labelBloomSoftKnee: 'Bloom Soft Knee',
+    labelBloomClamp: 'Bloom Clamp',
     labelBloomIntensity: 'Bloom Intensity',
     labelBloomDiffusion: 'Bloom Diffusion',
+    labelBloomResolution: 'Bloom Resolution Scale',
+    labelBloomEmission: 'Bloom Emission Range',
     labelClickGlow: 'Click Glow Strength',
+    labelBloomDiskEmission: 'Disk Emission Strength',
+    labelBloomRingCoreAlpha: 'Ring Core Emission Alpha',
+    labelBloomDiskCoreAlpha: 'Disk Core Emission Alpha',
+    labelBloomRingAlpha: 'Ring Glow Alpha',
+    labelBloomDiskAlpha: 'Disk Glow Alpha',
     labelTrailEnabled: 'Enable Trail',
     labelTrailAlways: 'Always Show',
     labelTrailW: 'Trail Width',
@@ -2604,17 +2958,23 @@ const I18N = {
     labelTrailLife: 'Trail Lifetime',
     labelShardSpacing: 'Trail Shard Spacing',
     labelBloomTrail: 'Bloom Trail Emission Scale',
+    labelBloomTrailEmission: 'Trail Emission Strength',
+    labelBloomTrailCoverage: 'Trail Coverage Scale',
     labelTrailOpacity: 'Trail Overall Opacity',
     labelRingCount: 'Ring Count',
     labelDiskRadius: 'Disk Radius',
     labelDiskLife: 'Disk Lifetime',
     labelAngVelMul: 'Rotation Speed',
     labelArcSamples: 'Arc Samples',
+    labelRadialSamples: 'Radial Samples',
     labelRingDir: 'Rotation Direction',
+    labelDissolveDir: 'Dissolve Direction',
     labelClickShardLifeMin: 'Click Shard Life Min',
     labelClickShardLifeMax: 'Click Shard Life Max',
     labelGeomWidth: 'Geometry Width',
     labelMinVertDist: 'Min Vertex Distance',
+    labelCornerVerts: 'Corner Vertices',
+    labelCapVerts: 'Cap Vertices',
     labelTrailShardLifeMin: 'Trail Shard Life Min',
     labelTrailShardLifeMax: 'Trail Shard Life Max',
     labelBloomDisk: 'Native Disk Blur',
@@ -2749,17 +3109,21 @@ function switchLanguage(lang)
     ctrlOverlayColorCompensation: d.labelOverlayColorCompensation,
     ctrlOverlayAlphaLimit: d.labelOverlayAlphaLimit,
     ctrlHostCompositing: d.labelHostCompositing,
+    ctrlHostCompositingSurface: d.labelHostCompositingSurface,
     ctrlCompositingReference: d.labelCompositingReference,
     ctrlIsolatedCompositing: d.labelIsolatedCompositing,
+    ctrlLightBackgroundContrastAlpha: d.labelLightBackgroundContrastAlpha,
     ctrlInputSource: d.labelInputSource,
     ctrlClickTimeScale: d.labelClickTimeScale,
     ctrlTrailTimeScale: d.labelTrailTimeScale,
     ctrlPaused: d.labelPaused,
     ctrlPauseClear: d.labelPauseClear,
+    ctrlTouchAction: d.labelTouchAction,
     ctrlClick: d.labelClickEnabled,
     ctrlRingHdr: d.labelRingHdr,
     ctrlRingRadMin: d.labelRingRadMin,
     ctrlRingRadMax: d.labelRingRadMax,
+    ctrlRingBandRatio: d.labelRingBandRatio,
     ctrlRingWStart: d.labelRingWStart,
     ctrlRingWEnd: d.labelRingWEnd,
     ctrlRingLife: d.labelRingLife,
@@ -2777,9 +3141,18 @@ function switchLanguage(lang)
     ctrlMaxShards: d.labelMaxShards,
     ctrlBloomRing: d.labelBloomRing,
     ctrlBloomThreshold: d.labelBloomThreshold,
+    ctrlBloomSoftKnee: d.labelBloomSoftKnee,
+    ctrlBloomClamp: d.labelBloomClamp,
     ctrlBloomIntensity: d.labelBloomIntensity,
     ctrlBloomDiffusion: d.labelBloomDiffusion,
+    ctrlBloomResolution: d.labelBloomResolution,
+    ctrlBloomEmission: d.labelBloomEmission,
     ctrlClickGlow: d.labelClickGlow,
+    ctrlBloomDiskEmission: d.labelBloomDiskEmission,
+    ctrlBloomRingCoreAlpha: d.labelBloomRingCoreAlpha,
+    ctrlBloomDiskCoreAlpha: d.labelBloomDiskCoreAlpha,
+    ctrlBloomRingAlpha: d.labelBloomRingAlpha,
+    ctrlBloomDiskAlpha: d.labelBloomDiskAlpha,
     ctrlTrail: d.labelTrailEnabled,
     ctrlTrailAlways: d.labelTrailAlways,
     ctrlTrailW: d.labelTrailW,
@@ -2787,17 +3160,23 @@ function switchLanguage(lang)
     ctrlTrailLife: d.labelTrailLife,
     ctrlShardSpacing: d.labelShardSpacing,
     ctrlBloomTrail: d.labelBloomTrail,
+    ctrlBloomTrailEmission: d.labelBloomTrailEmission,
+    ctrlBloomTrailCoverage: d.labelBloomTrailCoverage,
     ctrlTrailOpacity: d.labelTrailOpacity,
     ctrlRingCount: d.labelRingCount,
     ctrlDiskRadius: d.labelDiskRadius,
     ctrlDiskLife: d.labelDiskLife,
     ctrlAngVelMul: d.labelAngVelMul,
     ctrlArcSamples: d.labelArcSamples,
+    ctrlRadialSamples: d.labelRadialSamples,
     ctrlRingDir: d.labelRingDir,
+    ctrlDissolveDir: d.labelDissolveDir,
     ctrlClickShardLifeMin: d.labelClickShardLifeMin,
     ctrlClickShardLifeMax: d.labelClickShardLifeMax,
     ctrlGeomWidth: d.labelGeomWidth,
     ctrlMinVertDist: d.labelMinVertDist,
+    ctrlCornerVerts: d.labelCornerVerts,
+    ctrlCapVerts: d.labelCapVerts,
     ctrlTrailShardLifeMin: d.labelTrailShardLifeMin,
     ctrlTrailShardLifeMax: d.labelTrailShardLifeMax,
     ctrlBloomDisk: d.labelBloomDisk,
@@ -2838,6 +3217,17 @@ function switchLanguage(lang)
       span.textContent = text;
     }
   });
+
+  const dissolveDirectionControl = document.getElementById('ctrlDissolveDir');
+  const dissolveDirectionOutput = document.getElementById('outDissolveDir');
+
+  if (dissolveDirectionControl && dissolveDirectionOutput)
+  {
+    dissolveDirectionOutput.textContent = formatDissolveDirection(
+      Number(dissolveDirectionControl.value),
+      currentLang,
+    );
+  }
 
   // 渲染模式下拉选项文本
   const renderModeOptions = {
@@ -2920,6 +3310,7 @@ function switchLanguage(lang)
   const hostCompositingOptions = {
     'source-over': d.hostCompositingSourceOver,
     screen: d.hostCompositingDomAdd,
+    'plus-lighter': d.hostCompositingPlusLighter,
   };
 
   document.querySelectorAll('#ctrlHostCompositing option').forEach((option) =>
@@ -2927,6 +3318,22 @@ function switchLanguage(lang)
     if (hostCompositingOptions[option.value])
     {
       option.textContent = hostCompositingOptions[option.value];
+    }
+  });
+
+  const hostSurfaceOptions = {
+    'dom-backdrop': d.hostSurfaceDomBackdrop,
+    'transparent-window': d.hostSurfaceTransparentWindow,
+    native: d.hostSurfaceNative,
+  };
+
+  document.querySelectorAll(
+    '#ctrlHostCompositingSurface option',
+  ).forEach((option) =>
+  {
+    if (hostSurfaceOptions[option.value])
+    {
+      option.textContent = hostSurfaceOptions[option.value];
     }
   });
 
@@ -2988,11 +3395,35 @@ function switchLanguage(lang)
     }
   });
 
+  const touchActionOptions = {
+    auto: d.touchActionAuto,
+    none: d.touchActionNone,
+    'pan-x': d.touchActionPanX,
+    'pan-y': d.touchActionPanY,
+    manipulation: d.touchActionManipulation,
+  };
+
+  document.querySelectorAll('#ctrlTouchAction option').forEach((option) =>
+  {
+    if (touchActionOptions[option.value])
+    {
+      option.textContent = touchActionOptions[option.value];
+    }
+  });
+
   // 按钮
   document.getElementById('hostApiSummary').textContent = d.hostApiSummary;
   document.getElementById('hdrPresentationHeading').textContent =
     d.hdrPresentationHeading;
   document.getElementById('btnReset').textContent = d.btnReset;
+  document.getElementById('btnTriggerBoom').textContent = d.btnTriggerBoom;
+  document.getElementById('btnClearTrail').textContent = d.btnClearTrail;
+  document.getElementById('btnClearEffects').textContent = d.btnClearEffects;
+  document.getElementById('btnCopyConfig').textContent = d.btnCopyConfig;
+  document.getElementById('btnApplyFxParams').textContent =
+    d.btnApplyFxParams;
+  document.getElementById('btnDestroyInstance').textContent =
+    d.btnDestroyInstance;
   document.getElementById('customBgCtrl')?.querySelector('span') && (document.getElementById('customBgCtrl').querySelector('span').textContent = d.customBgLabel);
   document.getElementById('customBgFileCtrl')?.querySelector('span') && (document.getElementById('customBgFileCtrl').querySelector('span').textContent = d.customBgFileLabel);
   document.getElementById('ctrlCustomBg').placeholder = d.customBgPlaceholder;
@@ -3169,6 +3600,45 @@ switchLanguage(currentLang);
 
   applyHostCompositing(savedHostCompositing);
 
+  const savedHostCompositingSurface = localStorage.getItem(
+    'bafx-ctrlHostCompositingSurface',
+  );
+
+  applyHostCompositingSurface(savedHostCompositingSurface);
+
+  const savedLightBackgroundContrastAlpha = localStorage.getItem(
+    'bafx-ctrlLightBackgroundContrastAlpha',
+  );
+
+  if (
+    savedLightBackgroundContrastAlpha !== null &&
+    Number.isFinite(Number(savedLightBackgroundContrastAlpha))
+  )
+  {
+    lightBackgroundContrastOverride = true;
+    applyLightBackgroundContrastAlpha(
+      savedLightBackgroundContrastAlpha,
+      false,
+    );
+  }
+  else
+  {
+    lightBackgroundContrastOverride = false;
+    syncPureWhiteIsolationContrast();
+  }
+
+  const savedTouchAction = localStorage.getItem('bafx-ctrlTouchAction');
+
+  if (ctrlTouchAction)
+  {
+    const resolvedTouchAction = TOUCH_ACTIONS.has(savedTouchAction)
+      ? savedTouchAction
+      : 'auto';
+
+    ctrlTouchAction.value = resolvedTouchAction;
+    effect.updateConfig({ touchAction: resolvedTouchAction });
+  }
+
   const isolatedCompositingEl = document.getElementById('ctrlIsolatedCompositing');
   const savedIsolatedCompositing = localStorage.getItem('bafx-ctrlIsolatedCompositing');
 
@@ -3216,6 +3686,7 @@ switchLanguage(currentLang);
     ['ctrlRingHdr', 'rings.hdrIntensity'],
     ['ctrlRingRadMin', 'rings.radiusMin'],
     ['ctrlRingRadMax', 'rings.radiusMax'],
+    ['ctrlRingBandRatio', 'rings.bandToOuterRadius'],
     ['ctrlRingWStart', 'rings.widthStart'],
     ['ctrlRingWEnd', 'rings.widthEnd'],
     ['ctrlRingLife', 'rings.lifetimeMs'],
@@ -3230,9 +3701,20 @@ switchLanguage(currentLang);
     ['ctrlMaxShards', 'shards.maxCount'],
     ['ctrlBloomRing', 'bloom.ringBlur'],
     ['ctrlBloomThreshold', 'bloom.threshold'],
+    ['ctrlBloomSoftKnee', 'bloom.softKnee'],
+    ['ctrlBloomClamp', 'bloom.clamp'],
     ['ctrlBloomIntensity', 'bloom.intensity'],
     ['ctrlBloomDiffusion', 'bloom.diffusion'],
+    ['ctrlBloomResolution', 'bloom.resolutionScale'],
+    ['ctrlBloomEmission', 'bloom.emissionRange'],
     ['ctrlClickGlow', 'bloom.clickEmissionScale'],
+    ['ctrlBloomDiskEmission', 'bloom.diskEmission'],
+    ['ctrlBloomTrailEmission', 'bloom.trailEmission'],
+    ['ctrlBloomTrailCoverage', 'bloom.trailCoverageScale'],
+    ['ctrlBloomRingCoreAlpha', 'bloom.ringEmissionAlpha'],
+    ['ctrlBloomDiskCoreAlpha', 'bloom.diskEmissionAlpha'],
+    ['ctrlBloomRingAlpha', 'bloom.ringAlpha'],
+    ['ctrlBloomDiskAlpha', 'bloom.diskAlpha'],
     ['ctrlTrailW', 'trail.width'],
     ['ctrlTrailGlowW', 'trail.outerGlowWidth'],
     ['ctrlTrailLife', 'trail.lifetimeMs'],
@@ -3247,11 +3729,15 @@ switchLanguage(currentLang);
     ['ctrlDiskLife', 'disk.lifetimeMs'],
     ['ctrlAngVelMul', 'rings.angularVelocityMultiplier'],
     ['ctrlArcSamples', 'rings.arcSamples'],
+    ['ctrlRadialSamples', 'rings.radialSamples'],
     ['ctrlRingDir', 'rings.rotationDirection'],
+    ['ctrlDissolveDir', 'rings.dissolveDirection'],
     ['ctrlClickShardLifeMin', 'shards.clickLifetimeMinMs'],
     ['ctrlClickShardLifeMax', 'shards.clickLifetimeMaxMs'],
     ['ctrlGeomWidth', 'trail.geometryWidth'],
     ['ctrlMinVertDist', 'trail.minVertexDistance'],
+    ['ctrlCornerVerts', 'trail.numCornerVertices'],
+    ['ctrlCapVerts', 'trail.numCapVertices'],
     ['ctrlTrailShardLifeMin', 'shards.trailLifetimeMinMs'],
     ['ctrlTrailShardLifeMax', 'shards.trailLifetimeMaxMs'],
     ['ctrlBloomDisk', 'bloom.diskBlur'],

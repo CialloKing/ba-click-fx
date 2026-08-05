@@ -117,6 +117,27 @@ fx.setPaused(true, { clear: true });</code></pre>
     <!-- ── 基础 ── -->
     <section class="panel-section">
       <h3 id="sectionBasicHeading">基础</h3>
+      <details id="themeDetails" open>
+      <summary id="themeSummary">背景主题</summary>
+      <div class="theme-presets" id="themePresets">
+        <button class="theme-btn active" data-theme="蔚蓝" style="background: radial-gradient(circle at 30% 20%, #1d3558 0%, #101827 45%, #080d16 100%);" title="蔚蓝（默认）"></button>
+        <button class="theme-btn" data-theme="深紫" style="background: radial-gradient(circle at 30% 20%, #2d1b4e 0%, #1a1028 45%, #0d0616 100%);" title="深紫"></button>
+        <button class="theme-btn" data-theme="深绿" style="background: radial-gradient(circle at 30% 20%, #1a3d2a 0%, #0f1a14 45%, #080d0a 100%);" title="深绿"></button>
+        <button class="theme-btn" data-theme="暖金" style="background: radial-gradient(circle at 30% 20%, #3d2a1a 0%, #1f1910 45%, #14100a 100%);" title="暖金"></button>
+        <button class="theme-btn" data-theme="纯黑" style="background: #000000;" title="纯黑"></button>
+        <button class="theme-btn" data-theme="纯白" style="background: #ffffff; border: 1px solid #ccc;" title="纯白"></button>
+        <button class="theme-btn" data-theme="custom" style="background: conic-gradient(#666 0deg 90deg, #999 90deg 180deg, #666 180deg 270deg, #999 270deg 360deg);" title="自定义"></button>
+      </div>
+      <label class="ctrl custom-bg-ctrl" id="customBgCtrl" style="display:none;">
+        <span>自定义背景</span>
+      </label>
+      <input type="text" class="custom-bg-input" id="ctrlCustomBg" placeholder="CSS background 值或图片 URL…" style="display:none;" />
+      <label class="ctrl custom-bg-ctrl" id="customBgFileCtrl" for="ctrlCustomBgFile" style="display:none;">
+        <span>本地图片</span>
+      </label>
+      <input type="file" class="custom-bg-input" id="ctrlCustomBgFile" accept="image/*" style="display:none;" />
+      <button class="btn-reset custom-bg-apply" id="btnApplyBg" style="display:none;">应用背景</button>
+      </details>
       <details id="displayDetails" open>
       <summary id="displaySummary">显示</summary>
       <label class="ctrl">
@@ -213,6 +234,15 @@ fx.setPaused(true, { clear: true });</code></pre>
           <select id="ctrlHostCompositing" class="ctrl-select" disabled>
             <option value="source-over" selected>Source-over</option>
             <option value="screen">DOM Add（近似）</option>
+            <option value="plus-lighter">Plus-lighter（原始加色）</option>
+          </select>
+        </label>
+        <label class="ctrl">
+          <span>宿主表面</span>
+          <select id="ctrlHostCompositingSurface" class="ctrl-select" disabled>
+            <option value="dom-backdrop" selected>DOM 背景</option>
+            <option value="transparent-window">透明窗口</option>
+            <option value="native">原生合成器</option>
           </select>
         </label>
         <p id="transparentCompositingNote" class="compositing-mode-note">
@@ -231,6 +261,17 @@ fx.setPaused(true, { clear: true });</code></pre>
         <span>隔离合成</span>
         <input type="checkbox" id="ctrlIsolatedCompositing" />
         <span class="toggle-track"></span>
+      </label>
+      <label class="ctrl">
+        <span>浅色背景对比 <output id="outLightBackgroundContrastAlpha">0.00</output></span>
+        <input
+          type="range"
+          id="ctrlLightBackgroundContrastAlpha"
+          min="0"
+          max="1"
+          step="0.01"
+          value="0"
+        />
       </label>
       <div id="renderBackendStatus" class="render-backend-status" data-hdr-state="inactive" aria-live="polite">
         <dl class="render-status-list">
@@ -347,27 +388,6 @@ fx.setPaused(true, { clear: true });</code></pre>
         </div>
       </details>
       </details>
-      <details id="themeDetails" open>
-      <summary id="themeSummary">背景主题</summary>
-      <div class="theme-presets" id="themePresets">
-        <button class="theme-btn active" data-theme="蔚蓝" style="background: radial-gradient(circle at 30% 20%, #1d3558 0%, #101827 45%, #080d16 100%);" title="蔚蓝（默认）"></button>
-        <button class="theme-btn" data-theme="深紫" style="background: radial-gradient(circle at 30% 20%, #2d1b4e 0%, #1a1028 45%, #0d0616 100%);" title="深紫"></button>
-        <button class="theme-btn" data-theme="深绿" style="background: radial-gradient(circle at 30% 20%, #1a3d2a 0%, #0f1a14 45%, #080d0a 100%);" title="深绿"></button>
-        <button class="theme-btn" data-theme="暖金" style="background: radial-gradient(circle at 30% 20%, #3d2a1a 0%, #1f1910 45%, #14100a 100%);" title="暖金"></button>
-        <button class="theme-btn" data-theme="纯黑" style="background: #000000;" title="纯黑"></button>
-        <button class="theme-btn" data-theme="纯白" style="background: #ffffff; border: 1px solid #ccc;" title="纯白"></button>
-        <button class="theme-btn" data-theme="custom" style="background: conic-gradient(#666 0deg 90deg, #999 90deg 180deg, #666 180deg 270deg, #999 270deg 360deg);" title="自定义"></button>
-      </div>
-      <label class="ctrl custom-bg-ctrl" id="customBgCtrl" style="display:none;">
-        <span>自定义背景</span>
-      </label>
-      <input type="text" class="custom-bg-input" id="ctrlCustomBg" placeholder="CSS background 值或图片 URL…" style="display:none;" />
-      <label class="ctrl custom-bg-ctrl" id="customBgFileCtrl" for="ctrlCustomBgFile" style="display:none;">
-        <span>本地图片</span>
-      </label>
-      <input type="file" class="custom-bg-input" id="ctrlCustomBgFile" accept="image/*" style="display:none;" />
-      <button class="btn-reset custom-bg-apply" id="btnApplyBg" style="display:none;">应用背景</button>
-      </details>
       <details open>
       <summary id="hostApiSummary">宿主控制 API</summary>
       <label class="ctrl">
@@ -395,6 +415,24 @@ fx.setPaused(true, { clear: true });</code></pre>
         <input type="checkbox" id="ctrlPauseClear" />
         <span class="toggle-track"></span>
       </label>
+      <label class="ctrl">
+        <span>触摸行为</span>
+        <select id="ctrlTouchAction" class="ctrl-select">
+          <option value="auto" selected>自动</option>
+          <option value="none">禁止默认手势</option>
+          <option value="pan-x">仅横向平移</option>
+          <option value="pan-y">仅纵向平移</option>
+          <option value="manipulation">直接操作</option>
+        </select>
+      </label>
+      <div class="host-api-actions">
+        <button class="btn-reset" id="btnTriggerBoom">触发中心点击</button>
+        <button class="btn-reset" id="btnClearTrail">清除拖尾</button>
+        <button class="btn-reset" id="btnClearEffects">清除全部</button>
+        <button class="btn-reset" id="btnCopyConfig">复制当前配置</button>
+        <button class="btn-reset" id="btnApplyFxParams">原子应用参数</button>
+        <button class="btn-reset" id="btnDestroyInstance">销毁并刷新</button>
+      </div>
       <p id="hostApiStatus" class="host-api-status" aria-live="polite">DOM 模式：库自动监听 window 指针事件。</p>
       </details>
     </section>
@@ -426,6 +464,10 @@ fx.setPaused(true, { clear: true });</code></pre>
         <input type="range" id="ctrlRingRadMax" min="20" max="120" step="0.01" value="80.41333104" />
       </label>
       <label class="ctrl">
+        <span>圆环带宽比例 <output id="outRingBandRatio">0.06</output></span>
+        <input type="range" id="ctrlRingBandRatio" min="0.01" max="0.2" step="0.0001" value="0.0598573766034603" />
+      </label>
+      <label class="ctrl">
         <span>圆环起始厚度倍率 <output id="outRingWStart">1.00</output></span>
         <input type="range" id="ctrlRingWStart" min="0.25" max="2" step="0.01" value="1" />
       </label>
@@ -446,8 +488,16 @@ fx.setPaused(true, { clear: true });</code></pre>
         <input type="range" id="ctrlArcSamples" min="24" max="192" step="1" value="96" />
       </label>
       <label class="ctrl">
+        <span>径向采样精度 <output id="outRadialSamples">8</output></span>
+        <input type="range" id="ctrlRadialSamples" min="2" max="16" step="1" value="8" />
+      </label>
+      <label class="ctrl">
         <span>旋转方向 <output id="outRingDir">逆时针</output></span>
         <input type="range" id="ctrlRingDir" min="-1" max="1" step="2" value="-1" />
+      </label>
+      <label class="ctrl">
+        <span>溶解方向 <output id="outDissolveDir">正向</output></span>
+        <input type="range" id="ctrlDissolveDir" min="-1" max="1" step="2" value="1" />
       </label>
       </details>
       <details id="diskDetails">
@@ -617,6 +667,14 @@ fx.setPaused(true, { clear: true });</code></pre>
         <span>最小采样间距 <output id="outMinVertDist">5.40</output></span>
         <input type="range" id="ctrlMinVertDist" min="1" max="20" step="0.01" value="5.4" />
       </label>
+      <label class="ctrl">
+        <span>折点圆角顶点数 <output id="outCornerVerts">4</output></span>
+        <input type="range" id="ctrlCornerVerts" min="0" max="12" step="1" value="4" />
+      </label>
+      <label class="ctrl">
+        <span>端帽顶点数 <output id="outCapVerts">1</output></span>
+        <input type="range" id="ctrlCapVerts" min="0" max="6" step="1" value="1" />
+      </label>
       </details>
     </section>
 
@@ -630,12 +688,28 @@ fx.setPaused(true, { clear: true });</code></pre>
         <input type="range" id="ctrlBloomThreshold" min="0" max="5" step="0.01" value="1" />
       </label>
       <label class="ctrl">
+        <span>Bloom 柔化膝点 <output id="outBloomSoftKnee">0.00</output></span>
+        <input type="range" id="ctrlBloomSoftKnee" min="0" max="1" step="0.01" value="0" />
+      </label>
+      <label class="ctrl">
+        <span>Bloom 亮度钳位 <output id="outBloomClamp">65472</output></span>
+        <input type="range" id="ctrlBloomClamp" min="1" max="65504" step="1" value="65472" />
+      </label>
+      <label class="ctrl">
         <span>Bloom 强度 <output id="outBloomIntensity">1.70</output></span>
         <input type="range" id="ctrlBloomIntensity" min="0" max="2" step="0.01" value="1.7" />
       </label>
       <label class="ctrl">
         <span>Bloom 扩散 <output id="outBloomDiffusion">7.00</output></span>
         <input type="range" id="ctrlBloomDiffusion" min="0" max="10" step="0.01" value="7" />
+      </label>
+      <label class="ctrl">
+        <span>Bloom 分辨率倍率 <output id="outBloomResolution">0.50</output></span>
+        <input type="range" id="ctrlBloomResolution" min="0.1" max="0.75" step="0.01" value="0.5" />
+      </label>
+      <label class="ctrl">
+        <span>Bloom 发射范围 <output id="outBloomEmission">23.97</output></span>
+        <input type="range" id="ctrlBloomEmission" min="1" max="64" step="0.01" value="23.968628" />
       </label>
       </details>
       <details id="bloomClickDetails">
@@ -652,12 +726,40 @@ fx.setPaused(true, { clear: true });</code></pre>
         <span>原生光盘模糊 <output id="outBloomDisk">65.00</output></span>
         <input type="range" id="ctrlBloomDisk" min="0" max="200" step="0.1" value="65" />
       </label>
+      <label class="ctrl">
+        <span>光盘发射强度 <output id="outBloomDiskEmission">2.00</output></span>
+        <input type="range" id="ctrlBloomDiskEmission" min="0" max="8" step="0.01" value="2" />
+      </label>
+      <label class="ctrl">
+        <span>圆环核心发射 Alpha <output id="outBloomRingCoreAlpha">1.00</output></span>
+        <input type="range" id="ctrlBloomRingCoreAlpha" min="0" max="1" step="0.01" value="1" />
+      </label>
+      <label class="ctrl">
+        <span>光盘核心发射 Alpha <output id="outBloomDiskCoreAlpha">1.00</output></span>
+        <input type="range" id="ctrlBloomDiskCoreAlpha" min="0" max="1" step="0.01" value="1" />
+      </label>
+      <label class="ctrl">
+        <span>圆环辉光 Alpha <output id="outBloomRingAlpha">0.35</output></span>
+        <input type="range" id="ctrlBloomRingAlpha" min="0" max="1" step="0.01" value="0.35" />
+      </label>
+      <label class="ctrl">
+        <span>光盘辉光 Alpha <output id="outBloomDiskAlpha">0.65</output></span>
+        <input type="range" id="ctrlBloomDiskAlpha" min="0" max="1" step="0.01" value="0.65" />
+      </label>
       </details>
       <details id="bloomTrailDetails">
       <summary id="bloomTrailSummary">拖尾辉光</summary>
       <label class="ctrl">
         <span>Bloom 拖尾发射校准 <output id="outBloomTrail">1.00</output></span>
         <input type="range" id="ctrlBloomTrail" min="0" max="1" step="0.01" value="1" />
+      </label>
+      <label class="ctrl">
+        <span>拖尾发射强度 <output id="outBloomTrailEmission">23.97</output></span>
+        <input type="range" id="ctrlBloomTrailEmission" min="0" max="64" step="0.01" value="23.968628" />
+      </label>
+      <label class="ctrl">
+        <span>拖尾覆盖倍率 <output id="outBloomTrailCoverage">1.00</output></span>
+        <input type="range" id="ctrlBloomTrailCoverage" min="0" max="4" step="0.01" value="1" />
       </label>
       </details>
     </section>

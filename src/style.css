@@ -610,6 +610,21 @@ kbd {
   line-height: 1.45;
 }
 
+.host-api-actions
+{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+
+.host-api-actions .btn-reset
+{
+  min-width: 0;
+  padding: 7px 6px;
+  font-size: 11px;
+}
+
 /* Native select behavior is retained; only the closed control follows the panel theme. */
 .ctrl-select
 {

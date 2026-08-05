@@ -3409,9 +3409,9 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       );
 
       return {
-        displayBeforeTheme: Boolean(
+        themeBeforeDisplay: Boolean(
           display && theme &&
-            (display.compareDocumentPosition(theme) &
+            (theme.compareDocumentPosition(display) &
               Node.DOCUMENT_POSITION_FOLLOWING),
         ),
         themeBeforeHostApi: Boolean(
@@ -3456,8 +3456,8 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
     });
 
     assert(
-      structure.displayBeforeTheme && structure.themeBeforeHostApi,
-      '背景主题没有位于显示折叠栏与宿主 API 之间',
+      structure.themeBeforeDisplay && structure.themeBeforeHostApi,
+      '背景主题没有位于显示折叠栏之前或宿主 API 之前',
       structure,
     );
     assert(
@@ -3642,6 +3642,105 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       reset,
     );
 
+    const hostApiState = await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+      const readConfig = () => effect.getConfig();
+      const calls = [];
+      const originals = {};
+
+      for (const method of [
+        'boom',
+        'clearTrail',
+        'clear',
+        'setFxParams',
+      ])
+      {
+        originals[method] = effect[method];
+        effect[method] = (...args) =>
+        {
+          calls.push({ method, args });
+
+          return method === 'setFxParams'
+            ? { committed: true }
+            : undefined;
+        };
+      }
+
+      const setValue = (id, value, eventName = 'change') =>
+      {
+        const control = document.getElementById(id);
+
+        control.value = value;
+        control.dispatchEvent(new Event(eventName, { bubbles: true }));
+      };
+
+      setValue('ctrlOutputCompositing', 'browser-overlay');
+      setValue('ctrlCompositingReference', 'unknown');
+      setValue('ctrlHostCompositing', 'plus-lighter');
+      setValue('ctrlHostCompositingSurface', 'native');
+      setValue('ctrlLightBackgroundContrastAlpha', '0.42', 'input');
+      setValue('ctrlTouchAction', 'none');
+      setValue('ctrlInputSource', 'manual');
+
+      const pointerDown = effect.pointerDown(
+        { x: 10, y: 20, pointerId: 9, pointerType: 'mouse' },
+      );
+      const pointerMove = effect.pointerMove(
+        { x: 15, y: 25, pointerId: 9, pointerType: 'mouse' },
+      );
+      const pointerCancel = effect.pointerCancel(9);
+      const configAfterManualInput = readConfig();
+
+      document.getElementById('btnTriggerBoom').click();
+      document.getElementById('btnClearTrail').click();
+      document.getElementById('btnClearEffects').click();
+      document.getElementById('btnApplyFxParams').click();
+
+      for (const method of Object.keys(originals))
+      {
+        effect[method] = originals[method];
+      }
+
+      setValue('ctrlInputSource', 'dom');
+
+      return {
+        config: configAfterManualInput,
+        touchActionStyle: effect.canvas.style.touchAction,
+        storedTouchAction: localStorage.getItem('bafx-ctrlTouchAction'),
+        storedHostCompositing:
+          localStorage.getItem('bafx-ctrlHostCompositing'),
+        storedHostSurface:
+          localStorage.getItem('bafx-ctrlHostCompositingSurface'),
+        storedContrastAlpha:
+          localStorage.getItem('bafx-ctrlLightBackgroundContrastAlpha'),
+        pointerDown,
+        pointerMove,
+        pointerCancel,
+        calls: calls.map(({ method }) => method),
+      };
+    });
+
+    assert(
+      hostApiState.config.outputCompositing === 'browser-overlay' &&
+        hostApiState.config.hostCompositing === 'plus-lighter' &&
+        hostApiState.config.hostCompositingSurface === 'native' &&
+        hostApiState.config.lightBackgroundContrastAlpha === 0.42 &&
+        hostApiState.config.touchAction === 'none' &&
+        hostApiState.touchActionStyle === 'none' &&
+        hostApiState.storedTouchAction === 'none' &&
+        hostApiState.storedHostCompositing === 'plus-lighter' &&
+        hostApiState.storedHostSurface === 'native' &&
+        hostApiState.storedContrastAlpha === '0.42' &&
+        hostApiState.pointerDown === true &&
+        hostApiState.pointerMove === true &&
+        hostApiState.pointerCancel === true &&
+        hostApiState.calls.join(',') ===
+          'boom,clearTrail,clear,setFxParams',
+      '宿主控制 API 没有完整映射到公开实例方法或持久化配置',
+      hostApiState,
+    );
+
     await page.locator('#panelClose').click();
     await page.locator('#langToggle').click();
     await page.waitForFunction(
@@ -3675,6 +3774,7 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       restored,
       reset,
       advancedChanged,
+      hostApiState,
       english,
     };
   }
