@@ -579,6 +579,9 @@ const overlayColorCompensationSelect = indexHtml.match(
 const hostCompositingSelect = indexHtml.match(
   /<select id="ctrlHostCompositing"[\s\S]*?<\/select>/,
 )?.[0] ?? '';
+const hostCompositingSurfaceSelect = indexHtml.match(
+  /<select id="ctrlHostCompositingSurface"[\s\S]*?<\/select>/,
+)?.[0] ?? '';
 const overlayAlphaLimitControl = indexHtml.match(
   /<input\b[^>]*\bid="ctrlOverlayAlphaLimit"[^>]*>/,
 )?.[0] ?? '';
@@ -590,6 +593,9 @@ const overlayColorCompensationValues = [
 ].map((match) => match[1]);
 const hostCompositingValues = [
   ...hostCompositingSelect.matchAll(/<option value="([^"]+)"/g),
+].map((match) => match[1]);
+const hostCompositingSurfaceValues = [
+  ...hostCompositingSurfaceSelect.matchAll(/<option value="([^"]+)"/g),
 ].map((match) => match[1]);
 
 verify(
@@ -610,9 +616,18 @@ verify(
     JSON.stringify(hostCompositingValues) === JSON.stringify([
       'source-over',
       'screen',
+      'plus-lighter',
     ]) &&
-    /<option value="source-over" selected>/.test(hostCompositingSelect),
-  '透明覆盖层提供相互独立的 Alpha、颜色与宿主合成选择',
+    JSON.stringify(hostCompositingSurfaceValues) === JSON.stringify([
+      'dom-backdrop',
+      'transparent-window',
+      'native',
+    ]) &&
+    /<option value="source-over" selected>/.test(hostCompositingSelect) &&
+    /<option value="dom-backdrop" selected>/.test(
+      hostCompositingSurfaceSelect,
+    ),
+  '透明覆盖层提供独立的 Alpha、颜色、宿主合成与宿主表面选择',
 );
 verify(
   /min="0"/.test(overlayAlphaLimitControl) &&
@@ -644,6 +659,10 @@ const applyHostCompositingSource = getFunctionSource(
   mainJs,
   'applyHostCompositing',
 );
+const applyHostCompositingSurfaceSource = getFunctionSource(
+  mainJs,
+  'applyHostCompositingSurface',
+);
 
 verify(
   /outputCompositing === 'browser-overlay'/.test(
@@ -664,13 +683,16 @@ verify(
     /ctrlHostCompositing\.disabled = !enabled/.test(
       syncTransparentControlsSource,
     ) &&
+    /ctrlHostCompositingSurface\.disabled = !enabled/.test(
+      syncTransparentControlsSource,
+    ) &&
     /syncTransparentCompositingControlState\([\s\S]*?resolved/.test(
       applyHostCompositingSource,
     ) &&
-    /mode === 'plus-lighter' \? 'screen' : mode/.test(
+    /HOST_COMPOSITING_MODES\.has\(mode\)/.test(
       applyHostCompositingSource,
     ),
-  '透明合成控件按输出模式启用并迁移旧 DOM Add 值',
+  '透明合成控件按输出模式启用并验证当前宿主合成模式',
 );
 verify(
   /overlayAlphaPolicy: resolved/.test(
@@ -678,9 +700,12 @@ verify(
   ) &&
     /overlayColorCompensation: resolved/.test(
       applyOverlayColorCompensationSource,
-  ) &&
+    ) &&
     /overlayAlphaLimit: resolved/.test(applyOverlayAlphaLimitSource) &&
     /hostCompositing: resolved/.test(applyHostCompositingSource) &&
+    /hostCompositingSurface: resolved/.test(
+      applyHostCompositingSurfaceSource,
+    ) &&
     /localStorage\.setItem\('bafx-ctrlOverlayAlphaPolicy', resolved\)/.test(
       mainJs,
     ) &&
@@ -692,8 +717,11 @@ verify(
     ) &&
     /localStorage\.setItem\('bafx-ctrlHostCompositing', resolved\)/.test(
       mainJs,
+    ) &&
+    /localStorage\.setItem\('bafx-ctrlHostCompositingSurface', resolved\)/.test(
+      mainJs,
     ),
-  '四个透明合成控件分别通过 updateConfig 生效并持久化',
+  '五个透明合成控件分别通过 updateConfig 生效并持久化',
 );
 verify(
   /bafx-ctrlOverlayAlphaPolicy[\s\S]*?applyOverlayAlphaPolicy\(savedOverlayAlphaPolicy\)/.test(
@@ -708,6 +736,9 @@ verify(
     /bafx-ctrlHostCompositing[\s\S]*?applyHostCompositing\(savedHostCompositing\)/.test(
       mainJs,
     ) &&
+    /bafx-ctrlHostCompositingSurface[\s\S]*?applyHostCompositingSurface\([\s\S]*?savedHostCompositingSurface/.test(
+      mainJs,
+    ) &&
     /overlayAlphaPolicy: DEFAULT_OVERLAY_ALPHA_POLICY/.test(
       mainJs,
     ) &&
@@ -715,7 +746,8 @@ verify(
       mainJs,
     ) &&
     /overlayAlphaLimit: DEFAULT_OVERLAY_ALPHA_LIMIT/.test(mainJs) &&
-    /hostCompositing: DEFAULT_HOST_COMPOSITING/.test(mainJs),
+    /hostCompositing: DEFAULT_HOST_COMPOSITING/.test(mainJs) &&
+    /hostCompositingSurface: DEFAULT_HOST_COMPOSITING_SURFACE/.test(mainJs),
   '透明合成配置支持本地恢复与统一重置',
 );
 verify(
@@ -726,10 +758,10 @@ verify(
     /overlayColorCompensationBrightCore: 'Light-background Bright Core'/.test(
       mainJs,
     ) &&
-    /DOM Add uses Screen to adapt to light backdrops and disables the Alpha policy, color compensation, and Alpha limit/.test(
+    /Screen adapts to light backdrops; Plus-lighter preserves more aggressive additive output\. Independent host compositing disables the Alpha policy, color compensation, and Alpha limit/.test(
       mainJs,
     ),
-  '双语文案明确 DOM Add 的亮底适配与无效控制项',
+  '双语文案明确 Screen、Plus-lighter 与无效控制项',
 );
 verify(
   /BLOOM_BACKEND_CHANGE_EVENT/.test(mainJs) &&
@@ -805,9 +837,10 @@ verify(
   /const PURE_WHITE_ISOLATED_CONTRAST_ALPHA = 0\.35/.test(mainJs) &&
     /function resolvePureWhiteContrastAlpha\(isolatedCompositing\)/.test(mainJs) &&
     /function syncPureWhiteIsolationContrast\(\)/.test(mainJs) &&
-    /function applyIsolatedCompositing\(checked\)[\s\S]*?isolatedCompositing: checked,[\s\S]*?lightBackgroundContrastAlpha: resolvePureWhiteContrastAlpha\(checked\)/.test(mainJs) &&
+    /function syncPureWhiteIsolationContrast\(\)[\s\S]*?lightBackgroundContrastOverride[\s\S]*?applyLightBackgroundContrastAlpha\([\s\S]*?resolvePureWhiteContrastAlpha\(effect\.getConfig\(\)\.isolatedCompositing\)/.test(mainJs) &&
+    /function applyIsolatedCompositing\(checked\)[\s\S]*?effect\.updateConfig\(\{ isolatedCompositing: checked \}\);[\s\S]*?syncPureWhiteIsolationContrast\(\)/.test(mainJs) &&
     /bindToggle\('ctrlIsolatedCompositing', applyIsolatedCompositing\)/.test(mainJs),
-  '展示页隔离合成开关会同步切换纯白对比层',
+  '展示页隔离合成开关会同步默认纯白对比层并保留手动覆盖',
 );
 verify(
   /localStorage\.getItem\('bafx-ctrlIsolatedCompositing'\)/.test(mainJs) &&
