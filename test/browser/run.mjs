@@ -2737,6 +2737,36 @@ async function openFixture(browserInstance, baseUrl, dpr, runtimeKind = 'source'
   const consoleErrors = [];
   const failedResources = [];
 
+  await page.addInitScript(
+    () =>
+    {
+      const getContext = HTMLCanvasElement.prototype.getContext;
+
+      HTMLCanvasElement.prototype.getContext = function getFixtureContext(
+        type,
+        options,
+      )
+      {
+        if (type !== 'webgl2')
+        {
+          return getContext.call(this, type, options);
+        }
+
+        // 透明像素断言需要从最终默认帧缓冲抓取 Canvas。测试夹具必须
+        // 保留该缓冲，避免 Chromium 在合成后清空它；产品上下文仍保持
+        // false，以免把测试读回成本带入运行时。
+        return getContext.call(
+          this,
+          type,
+          {
+            ...options,
+            preserveDrawingBuffer: true,
+          },
+        );
+      };
+    },
+  );
+
   page.on('pageerror', (error) =>
   {
     pageErrors.push(error.message);
@@ -2827,6 +2857,8 @@ async function openFixture(browserInstance, baseUrl, dpr, runtimeKind = 'source'
       userAgent: navigator.userAgent,
       webgl2: Boolean(gl),
       loseContext: Boolean(gl?.getExtension('WEBGL_lose_context')),
+      preserveDrawingBuffer: gl?.getContextAttributes()?.preserveDrawingBuffer ===
+        true,
     };
   });
 
@@ -2834,6 +2866,11 @@ async function openFixture(browserInstance, baseUrl, dpr, runtimeKind = 'source'
   assert(
     capabilities.loseContext,
     `DPR ${dpr}: Chromium 不支持 WEBGL_lose_context`,
+  );
+  assert(
+    capabilities.preserveDrawingBuffer,
+    `DPR ${dpr}: 浏览器夹具没有保留 WebGL2 读回缓冲`,
+    capabilities,
   );
   assert(
     Math.abs(capabilities.dpr - dpr) < 0.01,
