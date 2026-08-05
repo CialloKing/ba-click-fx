@@ -4,6 +4,7 @@ import {
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
   EFFECT_BACKEND_CHANGE_EVENT,
+  UNITY_FX_TOUCH,
 } from './fx.js';
 import {
   getThemeBackgroundCss,
@@ -1823,9 +1824,21 @@ bindRange('ctrlRingRadMax', 'outRingRadMax', (v) => effect.setFxParam('rings.rad
 bindRange('ctrlRingWStart', 'outRingWStart', (v) => effect.setFxParam('rings.widthStart', v));
 bindRange('ctrlRingWEnd', 'outRingWEnd', (v) => effect.setFxParam('rings.widthEnd', v));
 bindRange('ctrlRingLife', 'outRingLife', (v) => effect.setFxParam('rings.lifetimeMs', v), true);
+bindRange('ctrlShardHdr', 'outShardHdr', (v) =>
+  effect.setFxParam('shards.hdrIntensity', v));
 bindRange('ctrlClickShards', 'outClickShards', (v) => effect.setFxParam('shards.clickCount', v), true);
 bindRange('ctrlShardRoundness', 'outShardRoundness', (v) =>
   effect.setTriangleRoundness(v));
+bindRange('ctrlShardSizeMin', 'outShardSizeMin', (v) =>
+  effect.setFxParam('shards.sizeMin', v));
+bindRange('ctrlShardSizeMax', 'outShardSizeMax', (v) =>
+  effect.setFxParam('shards.sizeMax', v));
+bindRange('ctrlClickShardRadius', 'outClickShardRadius', (v) =>
+  effect.setFxParam('shards.clickRadius', v));
+bindRange('ctrlClickShardSpeedMin', 'outClickShardSpeedMin', (v) =>
+  effect.setFxParam('shards.clickSpeedMin', v));
+bindRange('ctrlClickShardSpeedMax', 'outClickShardSpeedMax', (v) =>
+  effect.setFxParam('shards.clickSpeedMax', v));
 bindRange('ctrlMaxShards', 'outMaxShards', (v) => effect.setFxParam('shards.maxCount', v), true);
 bindRange('ctrlBloomRing', 'outBloomRing', (v) => effect.setFxParam('bloom.ringBlur', v));
 bindRange('ctrlBloomThreshold', 'outBloomThreshold', (v) =>
@@ -1839,7 +1852,14 @@ bindRange('ctrlClickGlow', 'outClickGlow', (v) =>
 bindRange('ctrlTrailW', 'outTrailW', (v) => effect.setFxParam('trail.width', v));
 bindRange('ctrlTrailGlowW', 'outTrailGlowW', (v) => effect.setFxParam('trail.outerGlowWidth', v));
 bindRange('ctrlTrailLife', 'outTrailLife', (v) => effect.setFxParam('trail.lifetimeMs', v), true);
-bindRange('ctrlShardSpacing', 'outShardSpacing', (v) => effect.setFxParam('shards.trailSpacing', v), true);
+bindRange('ctrlShardSpacing', 'outShardSpacing', (v) =>
+  effect.setFxParam('shards.trailSpacing', v));
+bindRange('ctrlTrailShardRadius', 'outTrailShardRadius', (v) =>
+  effect.setFxParam('shards.trailRadius', v));
+bindRange('ctrlTrailShardSpeedMin', 'outTrailShardSpeedMin', (v) =>
+  effect.setFxParam('shards.trailSpeedMin', v));
+bindRange('ctrlTrailShardSpeedMax', 'outTrailShardSpeedMax', (v) =>
+  effect.setFxParam('shards.trailSpeedMax', v));
 bindRange('ctrlBloomTrail', 'outBloomTrail', (v) =>
 {
   // 软件卷积会摊薄亮线，原生单路径滤镜不会；保持不同标定避免回退过亮。
@@ -1955,6 +1975,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   effect.setThemeColor('#4ca7ff');
 
   // 重置特效参数
+  const shardDefaults = UNITY_FX_TOUCH.shards;
   const fxDefaults = [
     ['ctrlRingHdr', 'outRingHdr', 5.992157, false],
     ['ctrlRingRadMin', 'outRingRadMin', 68.92571232, false],
@@ -1962,9 +1983,23 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlRingWStart', 'outRingWStart', 1, false],
     ['ctrlRingWEnd', 'outRingWEnd', 1, false],
     ['ctrlRingLife', 'outRingLife', 600, true],
-    ['ctrlClickShards', 'outClickShards', 4, true],
-    ['ctrlShardRoundness', 'outShardRoundness', 0, false],
-    ['ctrlMaxShards', 'outMaxShards', 50, true],
+    ['ctrlShardHdr', 'outShardHdr', shardDefaults.hdrIntensity, false],
+    ['ctrlShardRoundness', 'outShardRoundness', shardDefaults.roundness, false],
+    ['ctrlShardSizeMin', 'outShardSizeMin', shardDefaults.sizeMin, false],
+    ['ctrlShardSizeMax', 'outShardSizeMax', shardDefaults.sizeMax, false],
+    ['ctrlClickShards', 'outClickShards', shardDefaults.clickCount, true],
+    ['ctrlClickShardLifeMin', 'outClickShardLifeMin', shardDefaults.clickLifetimeMinMs, true],
+    ['ctrlClickShardLifeMax', 'outClickShardLifeMax', shardDefaults.clickLifetimeMaxMs, true],
+    ['ctrlClickShardRadius', 'outClickShardRadius', shardDefaults.clickRadius, false],
+    ['ctrlClickShardSpeedMin', 'outClickShardSpeedMin', shardDefaults.clickSpeedMin, false],
+    ['ctrlClickShardSpeedMax', 'outClickShardSpeedMax', shardDefaults.clickSpeedMax, false],
+    ['ctrlShardSpacing', 'outShardSpacing', shardDefaults.trailSpacing, false],
+    ['ctrlMaxShards', 'outMaxShards', shardDefaults.maxCount, true],
+    ['ctrlTrailShardLifeMin', 'outTrailShardLifeMin', shardDefaults.trailLifetimeMinMs, true],
+    ['ctrlTrailShardLifeMax', 'outTrailShardLifeMax', shardDefaults.trailLifetimeMaxMs, true],
+    ['ctrlTrailShardRadius', 'outTrailShardRadius', shardDefaults.trailRadius, false],
+    ['ctrlTrailShardSpeedMin', 'outTrailShardSpeedMin', shardDefaults.trailSpeedMin, false],
+    ['ctrlTrailShardSpeedMax', 'outTrailShardSpeedMax', shardDefaults.trailSpeedMax, false],
     ['ctrlBloomRing', 'outBloomRing', 80, false],
     ['ctrlBloomThreshold', 'outBloomThreshold', 1, false],
     ['ctrlBloomIntensity', 'outBloomIntensity', 1.7, false],
@@ -1973,7 +2008,6 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlTrailW', 'outTrailW', 2.7, false],
     ['ctrlTrailGlowW', 'outTrailGlowW', 9, false],
     ['ctrlTrailLife', 'outTrailLife', 300, true],
-    ['ctrlShardSpacing', 'outShardSpacing', 108, true],
     ['ctrlBloomTrail', 'outBloomTrail', 1, false],
     ['ctrlTrailOpacity', 'outTrailOpacity', 1, false],
     // 新暴露参数
@@ -1983,8 +2017,6 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlAngVelMul', 'outAngVelMul', 11.17, false],
     ['ctrlArcSamples', 'outArcSamples', 96, true],
     ['ctrlRingDir', 'outRingDir', -1, true],
-    ['ctrlClickShardLifeMin', 'outClickShardLifeMin', 600, true],
-    ['ctrlClickShardLifeMax', 'outClickShardLifeMax', 700, true],
     ['ctrlHitRadius', 'outHitRadius', 24, false],
     ['ctrlHitLife', 'outHitLife', 80, true],
     ['ctrlFlareRadius', 'outFlareRadius', 36, false],
@@ -1992,8 +2024,6 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlFlareRays', 'outFlareRays', 6, true],
     ['ctrlGeomWidth', 'outGeomWidth', 2.7, false],
     ['ctrlMinVertDist', 'outMinVertDist', 5.4, false],
-    ['ctrlTrailShardLifeMin', 'outTrailShardLifeMin', 200, true],
-    ['ctrlTrailShardLifeMax', 'outTrailShardLifeMax', 400, true],
     ['ctrlBloomDisk', 'outBloomDisk', 65, false],
   ];
 
@@ -2187,8 +2217,27 @@ const I18N = {
     sectionBasic: '基础',
     displaySummary: '显示',
     sectionTheme: '背景主题',
+    themeBlue: '蔚蓝（默认）',
+    themePurple: '深紫',
+    themeGreen: '深绿',
+    themeGold: '暖金',
+    themeBlack: '纯黑',
+    themeWhite: '纯白',
+    themeCustom: '自定义',
     sectionClick: '点击特效',
+    sectionShards: '碎片',
     sectionTrail: '拖尾轨迹',
+    sectionBloom: 'Bloom',
+    ringSummary: '圆环',
+    diskSummary: '光盘',
+    hitFlareSummary: 'Hit / Flare',
+    sharedShardsSummary: '通用参数',
+    clickShardsSummary: '点击碎片',
+    trailShardsSummary: '拖尾碎片',
+    trailLayerSummary: '轨迹图层',
+    bloomPipelineSummary: '全局 Bloom',
+    bloomClickSummary: '点击辉光',
+    bloomTrailSummary: '拖尾辉光',
     labelColor: '主题颜色',
     labelScale: '全局缩放',
     labelOpacity: '不透明度',
@@ -2316,9 +2365,18 @@ const I18N = {
     labelRingWStart: '圆环起始厚度倍率',
     labelRingWEnd: '圆环终止厚度倍率',
     labelRingLife: '圆环寿命',
+    labelShardHdr: '碎片 HDR 强度',
+    labelShardSizeMin: '碎片最小尺寸',
+    labelShardSizeMax: '碎片最大尺寸',
     labelClickShards: '点击碎片数量',
-    labelShardRoundness: '碎片圆角（点击/拖尾）',
-    labelMaxShards: '碎片上限',
+    labelShardRoundness: '碎片圆角',
+    labelClickShardRadius: '点击发射半径',
+    labelClickShardSpeedMin: '点击碎片最低速度',
+    labelClickShardSpeedMax: '点击碎片最高速度',
+    labelTrailShardRadius: '拖尾发射半径',
+    labelTrailShardSpeedMin: '拖尾碎片最低速度',
+    labelTrailShardSpeedMax: '拖尾碎片最高速度',
+    labelMaxShards: '拖尾碎片上限',
     labelBloomRing: '原生圆环模糊',
     labelBloomThreshold: 'Bloom 阈值',
     labelBloomIntensity: 'Bloom 强度',
@@ -2329,7 +2387,7 @@ const I18N = {
     labelTrailW: '拖尾宽度',
     labelTrailGlowW: '外发光宽度',
     labelTrailLife: '拖尾寿命',
-    labelShardSpacing: '碎片间距',
+    labelShardSpacing: '拖尾碎片间距',
     labelBloomTrail: 'Bloom 拖尾发射校准',
     labelTrailOpacity: '拖尾整体透明度',
     labelRingCount: '圆环数量',
@@ -2374,8 +2432,27 @@ const I18N = {
     sectionBasic: 'Basic',
     displaySummary: 'Display',
     sectionTheme: 'Background Theme',
+    themeBlue: 'Blue (Default)',
+    themePurple: 'Deep Purple',
+    themeGreen: 'Deep Green',
+    themeGold: 'Warm Gold',
+    themeBlack: 'Pure Black',
+    themeWhite: 'Pure White',
+    themeCustom: 'Custom',
     sectionClick: 'Click Effect',
+    sectionShards: 'Shards',
     sectionTrail: 'Cursor Trail',
+    sectionBloom: 'Bloom',
+    ringSummary: 'Ring',
+    diskSummary: 'Disk',
+    hitFlareSummary: 'Hit / Flare',
+    sharedShardsSummary: 'Shared',
+    clickShardsSummary: 'Click Shards',
+    trailShardsSummary: 'Trail Shards',
+    trailLayerSummary: 'Trail Layer',
+    bloomPipelineSummary: 'Global Bloom',
+    bloomClickSummary: 'Click Glow',
+    bloomTrailSummary: 'Trail Glow',
     labelColor: 'Theme Color',
     labelScale: 'Global Scale',
     labelOpacity: 'Opacity',
@@ -2503,9 +2580,18 @@ const I18N = {
     labelRingWStart: 'Ring Start Width Scale',
     labelRingWEnd: 'Ring End Width Scale',
     labelRingLife: 'Ring Lifetime',
+    labelShardHdr: 'Shard HDR Intensity',
+    labelShardSizeMin: 'Shard Size Min',
+    labelShardSizeMax: 'Shard Size Max',
     labelClickShards: 'Click Shard Count',
-    labelShardRoundness: 'Shard Roundness (Click/Trail)',
-    labelMaxShards: 'Max Shards',
+    labelShardRoundness: 'Shard Roundness',
+    labelClickShardRadius: 'Click Emission Radius',
+    labelClickShardSpeedMin: 'Click Shard Speed Min',
+    labelClickShardSpeedMax: 'Click Shard Speed Max',
+    labelTrailShardRadius: 'Trail Emission Radius',
+    labelTrailShardSpeedMin: 'Trail Shard Speed Min',
+    labelTrailShardSpeedMax: 'Trail Shard Speed Max',
+    labelMaxShards: 'Trail Shard Limit',
     labelBloomRing: 'Native Ring Blur',
     labelBloomThreshold: 'Bloom Threshold',
     labelBloomIntensity: 'Bloom Intensity',
@@ -2516,7 +2602,7 @@ const I18N = {
     labelTrailW: 'Trail Width',
     labelTrailGlowW: 'Outer Glow Width',
     labelTrailLife: 'Trail Lifetime',
-    labelShardSpacing: 'Shard Spacing',
+    labelShardSpacing: 'Trail Shard Spacing',
     labelBloomTrail: 'Bloom Trail Emission Scale',
     labelTrailOpacity: 'Trail Overall Opacity',
     labelRingCount: 'Ring Count',
@@ -2596,7 +2682,19 @@ function switchLanguage(lang)
     displaySummary: d.displaySummary,
     themeSummary: d.sectionTheme,
     sectionClickHeading: d.sectionClick,
+    ringSummary: d.ringSummary,
+    diskSummary: d.diskSummary,
+    hitFlareSummary: d.hitFlareSummary,
+    sectionShardsHeading: d.sectionShards,
+    sharedShardsSummary: d.sharedShardsSummary,
+    clickShardsSummary: d.clickShardsSummary,
+    trailShardsSummary: d.trailShardsSummary,
     sectionTrailHeading: d.sectionTrail,
+    trailLayerSummary: d.trailLayerSummary,
+    sectionBloomHeading: d.sectionBloom,
+    bloomPipelineSummary: d.bloomPipelineSummary,
+    bloomClickSummary: d.bloomClickSummary,
+    bloomTrailSummary: d.bloomTrailSummary,
   };
 
   Object.entries(panelHeadingMap).forEach(([id, text]) =>
@@ -2606,6 +2704,27 @@ function switchLanguage(lang)
     if (heading)
     {
       heading.textContent = text;
+    }
+  });
+
+  const themeTitleMap = {
+    '蔚蓝': d.themeBlue,
+    '深紫': d.themePurple,
+    '深绿': d.themeGreen,
+    '暖金': d.themeGold,
+    '纯黑': d.themeBlack,
+    '纯白': d.themeWhite,
+    custom: d.themeCustom,
+  };
+
+  document.querySelectorAll('.theme-btn[data-theme]').forEach((button) =>
+  {
+    const title = themeTitleMap[button.dataset.theme];
+
+    if (title)
+    {
+      button.title = title;
+      button.setAttribute('aria-label', title);
     }
   });
 
@@ -2644,8 +2763,17 @@ function switchLanguage(lang)
     ctrlRingWStart: d.labelRingWStart,
     ctrlRingWEnd: d.labelRingWEnd,
     ctrlRingLife: d.labelRingLife,
+    ctrlShardHdr: d.labelShardHdr,
+    ctrlShardSizeMin: d.labelShardSizeMin,
+    ctrlShardSizeMax: d.labelShardSizeMax,
     ctrlClickShards: d.labelClickShards,
     ctrlShardRoundness: d.labelShardRoundness,
+    ctrlClickShardRadius: d.labelClickShardRadius,
+    ctrlClickShardSpeedMin: d.labelClickShardSpeedMin,
+    ctrlClickShardSpeedMax: d.labelClickShardSpeedMax,
+    ctrlTrailShardRadius: d.labelTrailShardRadius,
+    ctrlTrailShardSpeedMin: d.labelTrailShardSpeedMin,
+    ctrlTrailShardSpeedMax: d.labelTrailShardSpeedMax,
     ctrlMaxShards: d.labelMaxShards,
     ctrlBloomRing: d.labelBloomRing,
     ctrlBloomThreshold: d.labelBloomThreshold,
@@ -3091,8 +3219,14 @@ switchLanguage(currentLang);
     ['ctrlRingWStart', 'rings.widthStart'],
     ['ctrlRingWEnd', 'rings.widthEnd'],
     ['ctrlRingLife', 'rings.lifetimeMs'],
+    ['ctrlShardHdr', 'shards.hdrIntensity'],
     ['ctrlClickShards', 'shards.clickCount'],
     ['ctrlShardRoundness', 'shards.roundness'],
+    ['ctrlShardSizeMin', 'shards.sizeMin'],
+    ['ctrlShardSizeMax', 'shards.sizeMax'],
+    ['ctrlClickShardRadius', 'shards.clickRadius'],
+    ['ctrlClickShardSpeedMin', 'shards.clickSpeedMin'],
+    ['ctrlClickShardSpeedMax', 'shards.clickSpeedMax'],
     ['ctrlMaxShards', 'shards.maxCount'],
     ['ctrlBloomRing', 'bloom.ringBlur'],
     ['ctrlBloomThreshold', 'bloom.threshold'],
@@ -3103,6 +3237,9 @@ switchLanguage(currentLang);
     ['ctrlTrailGlowW', 'trail.outerGlowWidth'],
     ['ctrlTrailLife', 'trail.lifetimeMs'],
     ['ctrlShardSpacing', 'shards.trailSpacing'],
+    ['ctrlTrailShardRadius', 'shards.trailRadius'],
+    ['ctrlTrailShardSpeedMin', 'shards.trailSpeedMin'],
+    ['ctrlTrailShardSpeedMax', 'shards.trailSpeedMax'],
     ['ctrlBloomTrail', 'bloom.trailEmissionAlpha'],
     ['ctrlTrailOpacity', 'trail.trailOpacity'],
     ['ctrlRingCount', 'rings.count'],

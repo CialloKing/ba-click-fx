@@ -123,7 +123,7 @@ verify(
   '碎片圆角滑块通过公开便捷 API 生效',
 );
 verify(
-  /\['ctrlShardRoundness', 'outShardRoundness', 0, false\]/.test(mainJs) &&
+  /\['ctrlShardRoundness', 'outShardRoundness', shardDefaults\.roundness, false\]/.test(mainJs) &&
     /\['ctrlShardRoundness', 'shards\.roundness'\]/.test(mainJs) &&
     /ctrlShardRoundness: d\.labelShardRoundness/.test(mainJs),
   '碎片圆角滑块支持重置、本地恢复与双语标签',
@@ -138,7 +138,14 @@ const preciseRangeSteps =
   ctrlRingWStart: '0.01',
   ctrlRingWEnd: '0.01',
   ctrlRingLife: '1',
+  ctrlShardHdr: '0.01',
   ctrlShardRoundness: '0.01',
+  ctrlShardSizeMin: '0.01',
+  ctrlShardSizeMax: '0.01',
+  ctrlClickShardRadius: '0.01',
+  ctrlClickShardSpeedMin: '0.01',
+  ctrlClickShardSpeedMax: '0.01',
+  ctrlShardSpacing: '0.01',
   ctrlMaxShards: '1',
   ctrlBloomRing: '0.1',
   ctrlBloomThreshold: '0.01',
@@ -163,6 +170,9 @@ const preciseRangeSteps =
   ctrlMinVertDist: '0.01',
   ctrlTrailShardLifeMin: '1',
   ctrlTrailShardLifeMax: '1',
+  ctrlTrailShardRadius: '0.01',
+  ctrlTrailShardSpeedMin: '0.01',
+  ctrlTrailShardSpeedMax: '0.01',
   ctrlBloomDisk: '0.1',
 };
 
