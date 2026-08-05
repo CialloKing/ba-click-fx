@@ -2185,6 +2185,7 @@ const I18N = {
     panelCloseTitle: '关闭面板',
     panelToggleTitle: '控制面板',
     sectionBasic: '基础',
+    displaySummary: '显示',
     sectionTheme: '背景主题',
     sectionClick: '点击特效',
     sectionTrail: '拖尾轨迹',
@@ -2371,6 +2372,7 @@ const I18N = {
     panelCloseTitle: 'Close Panel',
     panelToggleTitle: 'Control Panel',
     sectionBasic: 'Basic',
+    displaySummary: 'Display',
     sectionTheme: 'Background Theme',
     sectionClick: 'Click Effect',
     sectionTrail: 'Cursor Trail',
@@ -2588,28 +2590,24 @@ function switchLanguage(lang)
   document.getElementById('hintDismiss').title = d.hintDismissTitle || 'Close';
   document.getElementById('introDismiss').title = d.introDismissTitle || 'Close';
 
-  // 段落标题
-  const h3s = document.querySelectorAll('.panel-section h3');
+  // 面板重排后标题不能依赖 DOM 序号，否则新增分组会让翻译串位。
+  const panelHeadingMap = {
+    sectionBasicHeading: d.sectionBasic,
+    displaySummary: d.displaySummary,
+    themeSummary: d.sectionTheme,
+    sectionClickHeading: d.sectionClick,
+    sectionTrailHeading: d.sectionTrail,
+  };
 
-  if (h3s[0])
+  Object.entries(panelHeadingMap).forEach(([id, text]) =>
   {
-    h3s[0].textContent = d.sectionBasic;
-  }
+    const heading = document.getElementById(id);
 
-  if (h3s[1])
-  {
-    h3s[1].textContent = d.sectionTheme;
-  }
-
-  if (h3s[2])
-  {
-    h3s[2].textContent = d.sectionClick;
-  }
-
-  if (h3s[3])
-  {
-    h3s[3].textContent = d.sectionTrail;
-  }
+    if (heading)
+    {
+      heading.textContent = text;
+    }
+  });
 
   // 控件标签：span 中可能包含 <output>，只替换文本前缀
   const labelMap = {

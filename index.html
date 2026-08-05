@@ -116,8 +116,9 @@ fx.setPaused(true, { clear: true });</code></pre>
 
     <!-- ── 基础 ── -->
     <section class="panel-section">
-      <h3>基础</h3>
-      <details open><summary>显示</summary>
+      <h3 id="sectionBasicHeading">基础</h3>
+      <details id="displayDetails" open>
+      <summary id="displaySummary">显示</summary>
       <label class="ctrl">
         <span>主题颜色</span>
         <input type="color" id="ctrlColor" value="#4ca7ff" />
@@ -346,6 +347,27 @@ fx.setPaused(true, { clear: true });</code></pre>
         </div>
       </details>
       </details>
+      <details id="themeDetails" open>
+      <summary id="themeSummary">背景主题</summary>
+      <div class="theme-presets" id="themePresets">
+        <button class="theme-btn active" data-theme="蔚蓝" style="background: radial-gradient(circle at 30% 20%, #1d3558 0%, #101827 45%, #080d16 100%);" title="蔚蓝（默认）"></button>
+        <button class="theme-btn" data-theme="深紫" style="background: radial-gradient(circle at 30% 20%, #2d1b4e 0%, #1a1028 45%, #0d0616 100%);" title="深紫"></button>
+        <button class="theme-btn" data-theme="深绿" style="background: radial-gradient(circle at 30% 20%, #1a3d2a 0%, #0f1a14 45%, #080d0a 100%);" title="深绿"></button>
+        <button class="theme-btn" data-theme="暖金" style="background: radial-gradient(circle at 30% 20%, #3d2a1a 0%, #1f1910 45%, #14100a 100%);" title="暖金"></button>
+        <button class="theme-btn" data-theme="纯黑" style="background: #000000;" title="纯黑"></button>
+        <button class="theme-btn" data-theme="纯白" style="background: #ffffff; border: 1px solid #ccc;" title="纯白"></button>
+        <button class="theme-btn" data-theme="custom" style="background: conic-gradient(#666 0deg 90deg, #999 90deg 180deg, #666 180deg 270deg, #999 270deg 360deg);" title="自定义"></button>
+      </div>
+      <label class="ctrl custom-bg-ctrl" id="customBgCtrl" style="display:none;">
+        <span>自定义背景</span>
+      </label>
+      <input type="text" class="custom-bg-input" id="ctrlCustomBg" placeholder="CSS background 值或图片 URL…" style="display:none;" />
+      <label class="ctrl custom-bg-ctrl" id="customBgFileCtrl" for="ctrlCustomBgFile" style="display:none;">
+        <span>本地图片</span>
+      </label>
+      <input type="file" class="custom-bg-input" id="ctrlCustomBgFile" accept="image/*" style="display:none;" />
+      <button class="btn-reset custom-bg-apply" id="btnApplyBg" style="display:none;">应用背景</button>
+      </details>
       <details open>
       <summary id="hostApiSummary">宿主控制 API</summary>
       <label class="ctrl">
@@ -377,32 +399,9 @@ fx.setPaused(true, { clear: true });</code></pre>
       </details>
     </section>
 
-    <!-- ── 背景主题 ── -->
-    <section class="panel-section">
-      <h3>背景主题</h3>
-      <div class="theme-presets" id="themePresets">
-        <button class="theme-btn active" data-theme="蔚蓝" style="background: radial-gradient(circle at 30% 20%, #1d3558 0%, #101827 45%, #080d16 100%);" title="蔚蓝（默认）"></button>
-        <button class="theme-btn" data-theme="深紫" style="background: radial-gradient(circle at 30% 20%, #2d1b4e 0%, #1a1028 45%, #0d0616 100%);" title="深紫"></button>
-        <button class="theme-btn" data-theme="深绿" style="background: radial-gradient(circle at 30% 20%, #1a3d2a 0%, #0f1a14 45%, #080d0a 100%);" title="深绿"></button>
-        <button class="theme-btn" data-theme="暖金" style="background: radial-gradient(circle at 30% 20%, #3d2a1a 0%, #1f1910 45%, #14100a 100%);" title="暖金"></button>
-        <button class="theme-btn" data-theme="纯黑" style="background: #000000;" title="纯黑"></button>
-        <button class="theme-btn" data-theme="纯白" style="background: #ffffff; border: 1px solid #ccc;" title="纯白"></button>
-        <button class="theme-btn" data-theme="custom" style="background: conic-gradient(#666 0deg 90deg, #999 90deg 180deg, #666 180deg 270deg, #999 270deg 360deg);" title="自定义"></button>
-      </div>
-      <label class="ctrl custom-bg-ctrl" id="customBgCtrl" style="display:none;">
-        <span>自定义背景</span>
-      </label>
-      <input type="text" class="custom-bg-input" id="ctrlCustomBg" placeholder="CSS background 值或图片 URL…" style="display:none;" />
-      <label class="ctrl custom-bg-ctrl" id="customBgFileCtrl" for="ctrlCustomBgFile" style="display:none;">
-        <span>本地图片</span>
-      </label>
-      <input type="file" class="custom-bg-input" id="ctrlCustomBgFile" accept="image/*" style="display:none;" />
-      <button class="btn-reset custom-bg-apply" id="btnApplyBg" style="display:none;">应用背景</button>
-    </section>
-
     <!-- ── 点击特效 ── -->
     <section class="panel-section">
-      <h3>点击特效</h3>
+      <h3 id="sectionClickHeading">点击特效</h3>
       <label class="ctrl toggle">
         <span>启用点击特效</span>
         <input type="checkbox" id="ctrlClick" checked />
@@ -538,7 +537,7 @@ fx.setPaused(true, { clear: true });</code></pre>
 
     <!-- ── 拖尾轨迹 ── -->
     <section class="panel-section">
-      <h3>拖尾轨迹</h3>
+      <h3 id="sectionTrailHeading">拖尾轨迹</h3>
       <label class="ctrl toggle">
         <span>启用拖尾</span>
         <input type="checkbox" id="ctrlTrail" checked />
