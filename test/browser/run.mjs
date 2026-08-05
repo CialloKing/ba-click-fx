@@ -80,6 +80,7 @@ const metrics =
   transparentContractFailureChains: {},
   iifeSmoke: null,
   demoTimeScaleControls: null,
+  demoControlPanelStructure: null,
   demoBackgroundFile: null,
   demoPureWhiteIsolation: null,
 };
@@ -3234,6 +3235,268 @@ async function runDemoTimeScaleControlSmoke(browserInstance, baseUrl)
   }
 }
 
+async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
+{
+  currentLabel = 'demo-control-panel-structure';
+  const context = await browserInstance.newContext(
+    {
+      colorScheme: 'dark',
+      deviceScaleFactor: 1,
+      viewport:
+      {
+        width: 1024,
+        height: 768,
+      },
+    },
+  );
+  const page = await context.newPage();
+
+  try
+  {
+    currentPage = page;
+    await page.goto(baseUrl, { waitUntil: 'load' });
+    await page.waitForFunction(
+      () => typeof window.BAClickFXDemo?.getConfig === 'function',
+    );
+    await page.locator('#panelToggle').click();
+    await page.waitForFunction(() =>
+    {
+      const panel = document.getElementById('panel');
+
+      return panel?.classList.contains('open') &&
+        Math.abs(panel.getBoundingClientRect().right - window.innerWidth) < 1;
+    });
+
+    const structure = await page.evaluate(() =>
+    {
+      const shardScopes =
+      {
+        ctrlShardHdr: 'sharedShardsDetails',
+        ctrlShardRoundness: 'sharedShardsDetails',
+        ctrlShardSizeMin: 'sharedShardsDetails',
+        ctrlShardSizeMax: 'sharedShardsDetails',
+        ctrlClickShards: 'clickShardsDetails',
+        ctrlClickShardLifeMin: 'clickShardsDetails',
+        ctrlClickShardLifeMax: 'clickShardsDetails',
+        ctrlClickShardRadius: 'clickShardsDetails',
+        ctrlClickShardSpeedMin: 'clickShardsDetails',
+        ctrlClickShardSpeedMax: 'clickShardsDetails',
+        ctrlShardSpacing: 'trailShardsDetails',
+        ctrlMaxShards: 'trailShardsDetails',
+        ctrlTrailShardLifeMin: 'trailShardsDetails',
+        ctrlTrailShardLifeMax: 'trailShardsDetails',
+        ctrlTrailShardRadius: 'trailShardsDetails',
+        ctrlTrailShardSpeedMin: 'trailShardsDetails',
+        ctrlTrailShardSpeedMax: 'trailShardsDetails',
+      };
+      const panel = document.getElementById('panel');
+      const display = document.getElementById('displayDetails');
+      const theme = document.getElementById('themeDetails');
+      const hostApi = document.getElementById('hostApiSummary');
+      const bloomSection = document.getElementById('sectionBloomHeading')
+        ?.closest('.panel-section');
+      const shardSection = document.getElementById('sectionShardsHeading')
+        ?.closest('.panel-section');
+      const bloomControlIds = Array.from(
+        bloomSection?.querySelectorAll('input, select') ?? [],
+      ).map((element) => element.id);
+      const shardControlIds = Object.keys(shardScopes);
+      const actualShardScopes = Object.fromEntries(
+        shardControlIds.map((id) =>
+          [id, document.getElementById(id)?.closest('details')?.id ?? null]),
+      );
+
+      return {
+        displayBeforeTheme: Boolean(
+          display && theme &&
+            (display.compareDocumentPosition(theme) &
+              Node.DOCUMENT_POSITION_FOLLOWING),
+        ),
+        themeBeforeHostApi: Boolean(
+          theme && hostApi &&
+            (theme.compareDocumentPosition(hostApi) &
+              Node.DOCUMENT_POSITION_FOLLOWING),
+        ),
+        nestedPanelSections:
+          panel?.querySelectorAll('.panel-section .panel-section').length ?? -1,
+        actualShardScopes,
+        shardControlCount: shardSection?.querySelectorAll('input[type="range"]').length ?? -1,
+        bloomControlIds,
+        themeTitles: Object.fromEntries(
+          Array.from(document.querySelectorAll('.theme-btn[data-theme]')).map(
+            (button) => [button.dataset.theme, button.title],
+          ),
+        ),
+      };
+    });
+
+    assert(
+      structure.displayBeforeTheme && structure.themeBeforeHostApi,
+      '背景主题没有位于显示折叠栏与宿主 API 之间',
+      structure,
+    );
+    assert(
+      structure.nestedPanelSections === 0,
+      '控制面板出现嵌套 panel-section',
+      structure,
+    );
+    assert(
+      structure.shardControlCount === 17 &&
+        Object.entries(structure.actualShardScopes).every(
+          ([id, detailsId]) =>
+            detailsId ===
+            {
+              ctrlShardHdr: 'sharedShardsDetails',
+              ctrlShardRoundness: 'sharedShardsDetails',
+              ctrlShardSizeMin: 'sharedShardsDetails',
+              ctrlShardSizeMax: 'sharedShardsDetails',
+              ctrlClickShards: 'clickShardsDetails',
+              ctrlClickShardLifeMin: 'clickShardsDetails',
+              ctrlClickShardLifeMax: 'clickShardsDetails',
+              ctrlClickShardRadius: 'clickShardsDetails',
+              ctrlClickShardSpeedMin: 'clickShardsDetails',
+              ctrlClickShardSpeedMax: 'clickShardsDetails',
+              ctrlShardSpacing: 'trailShardsDetails',
+              ctrlMaxShards: 'trailShardsDetails',
+              ctrlTrailShardLifeMin: 'trailShardsDetails',
+              ctrlTrailShardLifeMax: 'trailShardsDetails',
+              ctrlTrailShardRadius: 'trailShardsDetails',
+              ctrlTrailShardSpeedMin: 'trailShardsDetails',
+              ctrlTrailShardSpeedMax: 'trailShardsDetails',
+            }[id],
+        ),
+      '17 个碎片参数没有完整归入通用、点击或拖尾碎片折叠栏',
+      structure,
+    );
+    assert(
+      structure.bloomControlIds.every((id) =>
+        [
+          'ctrlBloomThreshold',
+          'ctrlBloomIntensity',
+          'ctrlBloomDiffusion',
+          'ctrlClickGlow',
+          'ctrlBloomRing',
+          'ctrlBloomDisk',
+          'ctrlBloomTrail',
+        ].includes(id),
+      ),
+      'Bloom 折叠栏仍包含碎片、环、光盘或轨迹的非 Bloom 参数',
+      structure,
+    );
+
+    await page.locator('#clickShardsSummary').click();
+    await page.locator('#ctrlClickShardRadius').fill('42.25');
+    await page.waitForFunction(() =>
+      window.BAClickFXDemo.getFxConfig().shards.clickRadius === 42.25,
+    );
+    const changed = await page.evaluate(() =>
+    {
+      const control = document.getElementById('ctrlClickShardRadius');
+      const output = document.getElementById('outClickShardRadius');
+
+      return {
+        value: control?.value,
+        output: output?.textContent,
+        config: window.BAClickFXDemo.getFxConfig().shards.clickRadius,
+        stored: localStorage.getItem('bafx-ctrlClickShardRadius'),
+      };
+    });
+    assert(
+      changed.value === '42.25' &&
+        changed.output === '42.25' &&
+        changed.config === 42.25 &&
+        changed.stored === '42.25',
+      '新增点击碎片滑块没有更新运行时配置并持久化',
+      changed,
+    );
+
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(
+      () => typeof window.BAClickFXDemo?.getConfig === 'function',
+    );
+    const restored = await page.evaluate(() =>
+    {
+      const control = document.getElementById('ctrlClickShardRadius');
+
+      return {
+        value: control?.value,
+        config: window.BAClickFXDemo.getFxConfig().shards.clickRadius,
+        stored: localStorage.getItem('bafx-ctrlClickShardRadius'),
+      };
+    });
+    assert(
+      restored.value === '42.25' &&
+        restored.config === 42.25 &&
+        restored.stored === '42.25',
+      '新增点击碎片滑块刷新后没有恢复持久化值',
+      restored,
+    );
+
+    await page.locator('#panelToggle').click();
+    await page.locator('#btnReset').click();
+    await page.waitForFunction(() =>
+      window.BAClickFXDemo.getFxConfig().shards.clickRadius === 49.8769488,
+    );
+    const reset = await page.evaluate(() =>
+    {
+      const control = document.getElementById('ctrlClickShardRadius');
+
+      return {
+        value: control?.value,
+        config: window.BAClickFXDemo.getFxConfig().shards.clickRadius,
+        stored: localStorage.getItem('bafx-ctrlClickShardRadius'),
+      };
+    });
+    assert(
+      reset.value === '49.88' &&
+        reset.config === 49.8769488 &&
+        reset.stored === null,
+      '重置默认没有恢复新增碎片滑块的 Unity 默认值',
+      reset,
+    );
+
+    await page.locator('#panelClose').click();
+    await page.locator('#langToggle').click();
+    await page.waitForFunction(
+      () => document.getElementById('langToggle')?.textContent === '中文',
+    );
+    const english = await page.evaluate(() =>
+    {
+      const title = (id) => document.getElementById(id)?.textContent;
+
+      return {
+        sectionShards: title('sectionShardsHeading'),
+        clickSummary: title('clickShardsSummary'),
+        bloomSummary: title('bloomPipelineSummary'),
+        themeBlueTitle: document.querySelector('.theme-btn[data-theme="蔚蓝"]')?.title,
+        themeCustomTitle: document.querySelector('.theme-btn[data-theme="custom"]')?.title,
+      };
+    });
+    assert(
+      english.sectionShards === 'Shards' &&
+        english.clickSummary === 'Click Shards' &&
+        english.bloomSummary === 'Global Bloom' &&
+        english.themeBlueTitle === 'Blue (Default)' &&
+        english.themeCustomTitle === 'Custom',
+      '控制面板新增分组或主题按钮缺少英文文案',
+      english,
+    );
+    metrics.demoControlPanelStructure =
+    {
+      structure,
+      changed,
+      restored,
+      reset,
+      english,
+    };
+  }
+  finally
+  {
+    await context.close();
+    currentPage = null;
+  }
+}
+
 async function runDemoBackgroundFileSmoke(browserInstance, baseUrl)
 {
   currentLabel = 'demo-local-background-file';
@@ -5594,6 +5857,7 @@ async function main()
 
   await runIifeSmoke(browser, baseUrl);
   await runDemoTimeScaleControlSmoke(browser, baseUrl);
+  await runDemoControlPanelStructureSmoke(browser, baseUrl);
   await runDemoBackgroundFileSmoke(browser, baseUrl);
   await runDemoPureWhiteIsolationSmoke(browser, baseUrl);
   const calibration = await runMatrix(browser, baseUrl, baseline);
