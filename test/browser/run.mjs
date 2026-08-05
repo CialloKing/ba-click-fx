@@ -3267,6 +3267,108 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         Math.abs(panel.getBoundingClientRect().right - window.innerWidth) < 1;
     });
 
+    // 这些公开 Schema 参数以前只有宿主 API 入口；展示页控件必须继续
+    // 使用相同路径更新配置，避免新增滑块只改变 UI 而没有改变引擎状态。
+    const advancedControls =
+    [
+      {
+        id: 'ctrlRingBandRatio',
+        path: 'rings.bandToOuterRadius',
+        scope: 'ringDetails',
+        value: 0.1234,
+      },
+      {
+        id: 'ctrlRadialSamples',
+        path: 'rings.radialSamples',
+        scope: 'ringDetails',
+        value: 11,
+      },
+      {
+        id: 'ctrlDissolveDir',
+        path: 'rings.dissolveDirection',
+        scope: 'ringDetails',
+        value: -1,
+      },
+      {
+        id: 'ctrlCornerVerts',
+        path: 'trail.numCornerVertices',
+        scope: 'trailLayerDetails',
+        value: 7,
+      },
+      {
+        id: 'ctrlCapVerts',
+        path: 'trail.numCapVertices',
+        scope: 'trailLayerDetails',
+        value: 3,
+      },
+      {
+        id: 'ctrlBloomSoftKnee',
+        path: 'bloom.softKnee',
+        scope: 'bloomPipelineDetails',
+        value: 0.27,
+      },
+      {
+        id: 'ctrlBloomClamp',
+        path: 'bloom.clamp',
+        scope: 'bloomPipelineDetails',
+        value: 12345,
+      },
+      {
+        id: 'ctrlBloomResolution',
+        path: 'bloom.resolutionScale',
+        scope: 'bloomPipelineDetails',
+        value: 0.62,
+      },
+      {
+        id: 'ctrlBloomEmission',
+        path: 'bloom.emissionRange',
+        scope: 'bloomPipelineDetails',
+        value: 31.5,
+      },
+      {
+        id: 'ctrlBloomDiskEmission',
+        path: 'bloom.diskEmission',
+        scope: 'bloomClickDetails',
+        value: 4.25,
+      },
+      {
+        id: 'ctrlBloomTrailEmission',
+        path: 'bloom.trailEmission',
+        scope: 'bloomTrailDetails',
+        value: 41.25,
+      },
+      {
+        id: 'ctrlBloomTrailCoverage',
+        path: 'bloom.trailCoverageScale',
+        scope: 'bloomTrailDetails',
+        value: 2.25,
+      },
+      {
+        id: 'ctrlBloomRingCoreAlpha',
+        path: 'bloom.ringEmissionAlpha',
+        scope: 'bloomClickDetails',
+        value: 0.73,
+      },
+      {
+        id: 'ctrlBloomDiskCoreAlpha',
+        path: 'bloom.diskEmissionAlpha',
+        scope: 'bloomClickDetails',
+        value: 0.81,
+      },
+      {
+        id: 'ctrlBloomRingAlpha',
+        path: 'bloom.ringAlpha',
+        scope: 'bloomClickDetails',
+        value: 0.49,
+      },
+      {
+        id: 'ctrlBloomDiskAlpha',
+        path: 'bloom.diskAlpha',
+        scope: 'bloomClickDetails',
+        value: 0.77,
+      },
+    ];
+
     const structure = await page.evaluate(() =>
     {
       const shardScopes =
@@ -3322,6 +3424,29 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         actualShardScopes,
         shardControlCount: shardSection?.querySelectorAll('input[type="range"]').length ?? -1,
         bloomControlIds,
+        actualAdvancedScopes: Object.fromEntries(
+          Object.keys(
+            {
+              ctrlRingBandRatio: 'ringDetails',
+              ctrlRadialSamples: 'ringDetails',
+              ctrlDissolveDir: 'ringDetails',
+              ctrlCornerVerts: 'trailLayerDetails',
+              ctrlCapVerts: 'trailLayerDetails',
+              ctrlBloomSoftKnee: 'bloomPipelineDetails',
+              ctrlBloomClamp: 'bloomPipelineDetails',
+              ctrlBloomResolution: 'bloomPipelineDetails',
+              ctrlBloomEmission: 'bloomPipelineDetails',
+              ctrlBloomDiskEmission: 'bloomClickDetails',
+              ctrlBloomTrailEmission: 'bloomTrailDetails',
+              ctrlBloomTrailCoverage: 'bloomTrailDetails',
+              ctrlBloomRingCoreAlpha: 'bloomClickDetails',
+              ctrlBloomDiskCoreAlpha: 'bloomClickDetails',
+              ctrlBloomRingAlpha: 'bloomClickDetails',
+              ctrlBloomDiskAlpha: 'bloomClickDetails',
+            },
+          ).map((id) =>
+            [id, document.getElementById(id)?.closest('details')?.id ?? null]),
+        ),
         themeTitles: Object.fromEntries(
           Array.from(document.querySelectorAll('.theme-btn[data-theme]')).map(
             (button) => [button.dataset.theme, button.title],
@@ -3369,19 +3494,81 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       structure,
     );
     assert(
+      Object.entries(structure.actualAdvancedScopes).every(
+        ([id, detailsId]) =>
+          detailsId ===
+            advancedControls.find((control) => control.id === id)?.scope,
+      ),
+      '16 个新增 Schema 参数没有完整归入对应的特效折叠栏',
+      structure,
+    );
+    assert(
       structure.bloomControlIds.every((id) =>
         [
           'ctrlBloomThreshold',
+          'ctrlBloomSoftKnee',
+          'ctrlBloomClamp',
           'ctrlBloomIntensity',
           'ctrlBloomDiffusion',
+          'ctrlBloomResolution',
+          'ctrlBloomEmission',
           'ctrlClickGlow',
           'ctrlBloomRing',
           'ctrlBloomDisk',
+          'ctrlBloomDiskEmission',
+          'ctrlBloomRingCoreAlpha',
+          'ctrlBloomDiskCoreAlpha',
+          'ctrlBloomRingAlpha',
+          'ctrlBloomDiskAlpha',
           'ctrlBloomTrail',
+          'ctrlBloomTrailEmission',
+          'ctrlBloomTrailCoverage',
         ].includes(id),
       ),
       'Bloom 折叠栏仍包含碎片、环、光盘或轨迹的非 Bloom 参数',
       structure,
+    );
+
+    const advancedChanged = await page.evaluate((controls) =>
+    {
+      const readPath = (config, path) =>
+        path.split('.').reduce((value, key) => value?.[key], config);
+      const result = {};
+
+      for (const { id, path, value } of controls)
+      {
+        const control = document.getElementById(id);
+
+        if (!control)
+        {
+          result[id] = { value: null, config: null, stored: null };
+          continue;
+        }
+
+        control.value = String(value);
+        control.dispatchEvent(new Event('input', { bubbles: true }));
+
+        result[id] =
+        {
+          value: control.value,
+          config: readPath(window.BAClickFXDemo.getFxConfig(), path),
+          stored: localStorage.getItem(`bafx-${id}`),
+        };
+      }
+
+      return result;
+    }, advancedControls);
+    assert(
+      advancedControls.every(({ id, value }) =>
+      {
+        const changed = advancedChanged[id];
+
+        return changed?.value === String(value) &&
+          changed.config === value &&
+          changed.stored === String(value);
+      }),
+      '新增 Schema 参数控件没有同步运行时配置或持久化值',
+      advancedChanged,
     );
 
     await page.locator('#clickShardsSummary').click();
@@ -3487,6 +3674,7 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       changed,
       restored,
       reset,
+      advancedChanged,
       english,
     };
   }
