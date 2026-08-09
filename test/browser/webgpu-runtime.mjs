@@ -545,6 +545,7 @@ async function startIntegration(page)
     const effect = new BAClickFX(
       {
         effectBackend: 'webgpu',
+        webgpuPreferHdr: false,
         inputSource: 'manual',
         maxDpr: 1,
         trailAlways: true,
@@ -623,11 +624,18 @@ async function startIntegration(page)
     };
     return {
       requested: config.effectBackend,
+      preferHdr: config.webgpuPreferHdr,
       resolvedEffectBackend: config.resolvedEffectBackend,
       resolvedBloomBackend: config.resolvedBloomBackend,
       resolvedWebGPUOutputMode: config.resolvedWebGPUOutputMode,
       outputMode: effect.webgpuEffectRenderer?.deviceManager.outputMode,
       format: effect.webgpuEffectRenderer?.deviceManager.canvasFormat,
+      extendedStatus:
+        effect.webgpuEffectRenderer?.deviceManager.diagnostics.stages
+          .extendedConfigure.status,
+      standardStatus:
+        effect.webgpuEffectRenderer?.deviceManager.diagnostics.stages
+          .standardConfigure.status,
       visible: effect.webgpuEffectVisible,
       changes: [...changes],
       runtimeGeometry,
@@ -764,6 +772,7 @@ async function runIntegration(page)
   const initialDetail = JSON.stringify(initial);
 
   assert.equal(initial.requested, 'webgpu', `请求后端错误: ${initialDetail}`);
+  assert.equal(initial.preferHdr, false, `普通 WebGPU 未关闭 HDR 偏好: ${initialDetail}`);
   assert.equal(
     initial.resolvedEffectBackend,
     'webgpu',
@@ -776,8 +785,15 @@ async function runIntegration(page)
   );
   assert.equal(
     initial.resolvedWebGPUOutputMode,
-    initial.outputMode,
-    `WebGPU 输出状态没有透传: ${initialDetail}`,
+    'standard',
+    `普通 WebGPU 未强制 Standard 输出: ${initialDetail}`,
+  );
+  assert.equal(initial.outputMode, 'standard', `Renderer 输出模式错误: ${initialDetail}`);
+  assert.notEqual(initial.format, 'rgba16float', `普通 WebGPU 误用 HDR Canvas: ${initialDetail}`);
+  assert.ok(
+    initial.extendedStatus === 'skipped' &&
+      initial.standardStatus === 'succeeded',
+    `普通 WebGPU 仍尝试 Extended 配置: ${initialDetail}`,
   );
   assert.ok(initial.visible, `WebGPU Canvas 不可见: ${initialDetail}`);
   assert.deepEqual(
@@ -863,9 +879,10 @@ async function runIntegration(page)
     'webgpu',
     `恢复后的 Bloom 路由错误: ${resumedDetail}`,
   );
-  assert.ok(
-    resumed.outputMode === 'extended' || resumed.outputMode === 'standard',
-    `恢复后没有重新配置 Canvas 输出: ${resumedDetail}`,
+  assert.equal(
+    resumed.outputMode,
+    'standard',
+    `普通 WebGPU 恢复后没有保持 Standard 输出: ${resumedDetail}`,
   );
   assert.equal(
     resumed.resolvedWebGPUOutputMode,
@@ -1033,8 +1050,22 @@ async function readDemoHdrUiState(page)
 
     return {
       requestedBackend: config?.effectBackend,
+      preferHdr: config?.webgpuPreferHdr,
       resolvedBackend: config?.resolvedEffectBackend,
       outputMode: config?.resolvedWebGPUOutputMode,
+      renderMode: document.getElementById('ctrlRenderMode')?.value ?? '',
+      renderModeLabel: document.getElementById(
+        'ctrlRenderMode',
+      )?.selectedOptions?.[0]?.textContent ?? '',
+      backendValue: document.getElementById(
+        'renderBackendValue',
+      )?.textContent ?? '',
+      canvasOutputValue: document.getElementById(
+        'renderCanvasOutputValue',
+      )?.textContent ?? '',
+      hdrVerdictValue: document.getElementById(
+        'renderHdrVerdictValue',
+      )?.textContent ?? '',
       bodyState: document.body.dataset.hdrUiState,
       cssExtendedColor: CSS.supports(
         'color',
@@ -1092,9 +1123,18 @@ async function selectDemoRenderMode(page, mode)
       return false;
     }
 
+    if (expectedMode === 'full-webgpu-sdr')
+    {
+      return config.effectBackend === 'webgpu' &&
+        config.webgpuPreferHdr === false &&
+        config.resolvedEffectBackend === 'webgpu' &&
+        config.resolvedWebGPUOutputMode === 'standard';
+    }
+
     if (expectedMode === 'full-webgpu')
     {
-      return config.resolvedEffectBackend === 'webgpu' &&
+      return config.webgpuPreferHdr === true &&
+        config.resolvedEffectBackend === 'webgpu' &&
         (
           config.resolvedWebGPUOutputMode === 'extended' ||
           config.resolvedWebGPUOutputMode === 'standard'
@@ -1324,6 +1364,27 @@ async function runDemoHdrUiIntegration(page, origin)
   await page.evaluate(() =>
   {
     localStorage.clear();
+    localStorage.setItem('bafx-ctrlRenderMode', 'full-webgpu-sdr');
+  });
+  await page.reload();
+  await page.waitForFunction(() =>
+  {
+    const config = window.BAClickFXDemo?.getConfig?.();
+
+    return config?.effectBackend === 'webgpu' &&
+      config.webgpuPreferHdr === false;
+  });
+  const restoredStandardMode = await readDemoHdrUiState(page);
+
+  assert.ok(
+    restoredStandardMode.renderMode === 'full-webgpu-sdr' &&
+      restoredStandardMode.renderModeLabel === 'WebGPU' &&
+      restoredStandardMode.hdrPresentationOpen === false,
+    `恢复普通 WebGPU 设置时模式或 HDR 折叠状态错误: ${JSON.stringify(restoredStandardMode)}`,
+  );
+  await page.evaluate(() =>
+  {
+    localStorage.clear();
     localStorage.setItem('bafx-ctrlRenderMode', 'full-webgpu');
   });
   await page.reload();
@@ -1361,7 +1422,7 @@ async function runDemoHdrUiIntegration(page, origin)
   );
   assert.ok(
     initial.diagnostics.detailsOpen === false &&
-      initial.diagnostics.summary === 'WebGPU HDR 诊断详情' &&
+      initial.diagnostics.summary === 'WebGPU 诊断详情' &&
       initial.diagnostics.values.diagnosticSecureContextValue ===
         '安全上下文' &&
       initial.diagnostics.values.diagnosticWebGPUApiValue === '可用' &&
@@ -1371,6 +1432,91 @@ async function runDemoHdrUiIntegration(page, origin)
       initial.diagnostics.failureHidden,
     `默认 WebGPU 诊断详情状态错误: ${initialDetail}`,
   );
+
+  await page.selectOption('#ctrlRenderMode', 'full-webgpu-sdr');
+  await page.evaluate(() => window.BAClickFXDemo.boom(24, 24));
+  await page.waitForFunction(() =>
+  {
+    const config = window.BAClickFXDemo?.getConfig?.();
+
+    return config?.effectBackend === 'webgpu' &&
+      config.webgpuPreferHdr === false &&
+      config.resolvedEffectBackend === 'webgpu' &&
+      config.resolvedWebGPUOutputMode === 'standard';
+  });
+  await page.evaluate(() =>
+  {
+    window.__BACLICKFX_STANDARD_DEVICE__ =
+      window.BAClickFXDemo.webgpuEffectRenderer?.device;
+  });
+  const standardMode = await readDemoHdrUiState(page);
+  const standardModeDetail = JSON.stringify(standardMode);
+
+  assert.ok(
+    standardMode.renderMode === 'full-webgpu-sdr' &&
+      standardMode.renderModeLabel === 'WebGPU' &&
+      standardMode.backendValue === 'WebGPU' &&
+      standardMode.canvasOutputValue.startsWith('Standard SDR · ') &&
+      standardMode.hdrVerdictValue === '未启用 WebGPU HDR' &&
+      standardMode.preferHdr === false &&
+      standardMode.outputMode === 'standard',
+    `普通 WebGPU 模式名称或标准输出状态错误: ${standardModeDetail}`,
+  );
+  assert.ok(
+    standardMode.hdrPresentationOpen === false &&
+      standardMode.bodyState === 'inactive' &&
+      standardMode.surfaceCount === 0 &&
+      standardMode.enabledDisabled &&
+      standardMode.brightnessDisabled &&
+      standardMode.diagnostics.values.diagnosticExtendedCanvasValue ===
+        '未请求' &&
+      standardMode.diagnostics.values.diagnosticSdrFallbackValue.startsWith(
+        '已启用 · ',
+      ) &&
+      standardMode.diagnostics.failureHidden,
+    `普通 WebGPU 不应启用或尝试 HDR: ${standardModeDetail}`,
+  );
+  await page.evaluate(() => document.getElementById('langToggle').click());
+  const standardEnglish = await readDemoHdrUiState(page);
+
+  assert.ok(
+    standardEnglish.renderModeLabel === 'WebGPU' &&
+      !/HDR|Experimental/i.test(standardEnglish.renderModeLabel) &&
+      standardEnglish.backendValue === 'WebGPU' &&
+      standardEnglish.diagnostics.summary === 'WebGPU Diagnostics',
+    `普通 WebGPU 英文名称不应带实验或 HDR 标记: ${JSON.stringify(standardEnglish)}`,
+  );
+  await page.evaluate(() => document.getElementById('langToggle').click());
+
+  await page.selectOption('#ctrlRenderMode', 'full-webgpu');
+  await page.evaluate(() => window.BAClickFXDemo.boom(24, 24));
+  await page.waitForFunction(() =>
+  {
+    const config = window.BAClickFXDemo?.getConfig?.();
+
+    return config?.webgpuPreferHdr === true &&
+      config.resolvedEffectBackend === 'webgpu' &&
+      (
+        config.resolvedWebGPUOutputMode === 'extended' ||
+        config.resolvedWebGPUOutputMode === 'standard'
+      );
+  });
+  const standardDeviceReused = await page.evaluate(() =>
+    window.BAClickFXDemo.webgpuEffectRenderer?.device ===
+      window.__BACLICKFX_STANDARD_DEVICE__);
+
+  assert.ok(
+    standardDeviceReused,
+    '普通 WebGPU 切到 HDR 时没有复用同一 Device',
+  );
+
+  // 保留原有“暂停且尚未开始探测”的诊断覆盖，避免前面的标准模式
+  // 已初始化 Device 后把该状态误当成未启动路径。
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForFunction(() => window.BAClickFXDemo?.getConfig?.());
+  await page.waitForFunction(() =>
+    window.BAClickFXDemo.getConfig().resolvedEffectBackend !== 'pending');
 
   await page.evaluate(() => window.BAClickFXDemo.setPaused(true));
   await page.selectOption('#ctrlRenderMode', 'full-webgpu');
@@ -1460,7 +1606,7 @@ async function runDemoHdrUiIntegration(page, origin)
   const englishDiagnosticsDetail = JSON.stringify(englishDiagnostics);
 
   assert.ok(
-    englishDiagnostics.diagnostics.summary === 'WebGPU HDR Diagnostics' &&
+    englishDiagnostics.diagnostics.summary === 'WebGPU Diagnostics' &&
       englishDiagnostics.diagnostics.values.diagnosticSecureContextValue ===
         'Secure context' &&
       englishDiagnostics.diagnostics.values.diagnosticWebGPUApiValue ===
@@ -1652,6 +1798,7 @@ async function runDemoHdrUiIntegration(page, origin)
 
   assert.ok(
     reset.requestedBackend === 'webgl2' &&
+      reset.preferHdr === true &&
       reset.bodyState === 'inactive' &&
       reset.surfaceCount === 0 &&
       reset.primaryCore === extended.primaryCore &&

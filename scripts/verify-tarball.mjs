@@ -414,6 +414,7 @@ const options: BAClickFXOptions =
   clickTimeScale: 1.5,
   trailTimeScale: 0.8,
   effectBackend: 'webgpu',
+  webgpuPreferHdr: false,
   renderingMode: 'enhanced',
   bloomBackend: 'webgl2',
   softwareBloomEnabled: true,
@@ -445,6 +446,7 @@ const defaultBloomBackend: BAClickFXBloomBackend = CONFIG.bloomBackend;
 const defaultIsolatedCompositing: boolean = CONFIG.isolatedCompositing;
 const bloomBackend: BAClickFXBloomBackend = config.bloomBackend;
 const effectBackend: BAClickFXEffectBackend = config.effectBackend;
+const webgpuPreferHdr: boolean = config.webgpuPreferHdr;
 const resolvedEffectBackend: BAClickFXResolvedEffectBackend =
   configSnapshot.resolvedEffectBackend;
 const pendingEffectBackend: BAClickFXResolvedEffectBackend = 'pending';
@@ -613,6 +615,7 @@ const updateOptions: BAClickFXUpdateOptions =
   outputCompositing: 'scene',
   hostCompositingSurface: 'dom-backdrop',
   effectBackend: 'auto',
+  webgpuPreferHdr: true,
   renderingMode: 'enhanced',
   bloomBackend: 'auto',
   inputSource: 'dom',
@@ -660,6 +663,8 @@ const invalidOptions: BAClickFXOptions =
   bloomBackend: 'webgpu',
   // @ts-expect-error 完整特效后端只接受四种公开取值。
   effectBackend: 'metal',
+  // @ts-expect-error WebGPU HDR 输出偏好只接受布尔值。
+  webgpuPreferHdr: 'standard',
   // @ts-expect-error renderingMode 只接受 enhanced 或 legacy。
   renderingMode: 'native-bloom',
   // @ts-expect-error inputSource 只接受 dom 或 manual。
@@ -683,6 +688,7 @@ void [
   defaultIsolatedCompositing,
   bloomBackend,
   effectBackend,
+  webgpuPreferHdr,
   resolvedEffectBackend,
   pendingEffectBackend,
   resolvedWebGPUOutputMode,
