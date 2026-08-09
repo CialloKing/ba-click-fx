@@ -1504,10 +1504,23 @@ async function runDemoHdrUiIntegration(page, origin)
   const standardDeviceReused = await page.evaluate(() =>
     window.BAClickFXDemo.webgpuEffectRenderer?.device ===
       window.__BACLICKFX_STANDARD_DEVICE__);
+  const hdrAfterStandard = await readDemoHdrUiState(page);
+  const hdrAfterStandardDetail = JSON.stringify(hdrAfterStandard);
 
   assert.ok(
     standardDeviceReused,
     '普通 WebGPU 切到 HDR 时没有复用同一 Device',
+  );
+  assert.ok(
+    hdrAfterStandard.outputMode === 'extended'
+      ? hdrAfterStandard.diagnostics.values.diagnosticExtendedCanvasValue ===
+          '已启用 · rgba16float'
+      : hdrAfterStandard.outputMode === 'standard' &&
+          hdrAfterStandard.diagnostics.values.diagnosticExtendedCanvasValue ===
+            '配置被拒绝' &&
+          hdrAfterStandard.diagnostics.values.diagnosticSdrFallbackValue
+            .startsWith('已启用 · '),
+    `普通 WebGPU 切到 HDR 后未重新协商 Extended Surface: ${hdrAfterStandardDetail}`,
   );
 
   // 保留原有“暂停且尚未开始探测”的诊断覆盖，避免前面的标准模式
