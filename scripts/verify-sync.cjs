@@ -87,6 +87,39 @@ function getFunctionSource(source, name)
 }
 
 verify(/setFxParam/.test(mainJs), '控制面板通过 setFxParam 修改参数，不绕过引擎');
+const panelMarkup = indexHtml.match(
+  /<aside\b[^>]*\bid="panel"[^>]*>[\s\S]*?<\/aside>/,
+)?.[0] ?? '';
+const defaultOpenPanelDetailIds = [
+  ...panelMarkup.matchAll(
+    /<details\b(?=[^>]*\bopen\b)(?=[^>]*\bid="([^"]+)")[^>]*>/g,
+  ),
+].map((match) => match[1]);
+
+verify(
+  panelMarkup.length > 0 &&
+    JSON.stringify(defaultOpenPanelDetailIds) === JSON.stringify([
+      'themeDetails',
+      'displayDetails',
+      'hostApiDetails',
+      'sharedShardsDetails',
+    ]),
+  '控制面板默认仅展开背景主题、显示、宿主控制 API 与通用参数',
+);
+const introFaqMarkup = indexHtml.match(
+  /<div id="introFAQContent">[\s\S]*?<\/div>/,
+)?.[0] ?? '';
+const localizedFaqDefinitions = mainJs.match(
+  /^\s+introFAQContent:[^\n]+$/gm,
+) ?? [];
+
+verify(
+  introFaqMarkup.length > 0 &&
+    !introFaqMarkup.includes('BASpark') &&
+    localizedFaqDefinitions.length === 2 &&
+    localizedFaqDefinitions.every((content) => !content.includes('BASpark')),
+  '展示页静态与双语 FAQ 均不显示 BASpark 字样',
+);
 const clickGlowControl = indexHtml.match(
   /<input\s+[^>]*id="ctrlClickGlow"[^>]*>/,
 )?.[0] ?? '';

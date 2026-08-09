@@ -3432,6 +3432,9 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       const display = document.getElementById('displayDetails');
       const theme = document.getElementById('themeDetails');
       const hostApi = document.getElementById('hostApiSummary');
+      const defaultOpenDetails = Array.from(
+        panel?.querySelectorAll('details[open]') ?? [],
+      ).map((details) => details.id);
       const bloomSection = document.getElementById('sectionBloomHeading')
         ?.closest('.panel-section');
       const shardSection = document.getElementById('sectionShardsHeading')
@@ -3458,6 +3461,10 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         ),
         nestedPanelSections:
           panel?.querySelectorAll('.panel-section .panel-section').length ?? -1,
+        defaultOpenDetails,
+        faqContainsBASpark:
+          document.getElementById('introFAQContent')?.textContent
+            ?.includes('BASpark') ?? null,
         actualShardScopes,
         shardControlCount: shardSection?.querySelectorAll('input[type="range"]').length ?? -1,
         bloomControlIds,
@@ -3500,6 +3507,21 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
     assert(
       structure.nestedPanelSections === 0,
       '控制面板出现嵌套 panel-section',
+      structure,
+    );
+    assert(
+      JSON.stringify(structure.defaultOpenDetails) === JSON.stringify([
+        'themeDetails',
+        'displayDetails',
+        'hostApiDetails',
+        'sharedShardsDetails',
+      ]),
+      '控制面板默认展开的折叠栏不是背景主题、显示、宿主控制 API 与通用参数',
+      structure,
+    );
+    assert(
+      structure.faqContainsBASpark === false,
+      '展示页加载后的 FAQ 仍显示 BASpark 字样',
       structure,
     );
     assert(
