@@ -986,14 +986,31 @@ async function runCase(specification)
 {
   const fixture = await prepareEffect(specification);
   const snapshot = fixture.effect.getConfig();
-  const transparent = captureLayers(
+  const dpr = fixture.effect.dpr;
+  const transparentImage = captureLayers(
     fixture.effect,
     fixture.target,
     'transparent',
   );
-  const black = captureLayers(fixture.effect, fixture.target, 'black');
-  const white = captureLayers(fixture.effect, fixture.target, 'white');
-  const checker = captureLayers(fixture.effect, fixture.target, 'checker');
+  // Edge 151 可能在紧接着的 Canvas 读回间复用底层缓冲。必须在
+  // 抓取下一张背景前消费当前快照，否则会得到“黑底平均值 +
+  // 透明帧探针”的数学上不自洽摘要，掩盖真实产品像素。
+  const transparent = summarizePixels(transparentImage, dpr);
+  const trailProfile = specification.straightTrailProbe
+    ? summarizeStraightTrail(transparentImage, fixture.effect)
+    : null;
+  const black = summarizePixels(
+    captureLayers(fixture.effect, fixture.target, 'black'),
+    dpr,
+  );
+  const white = summarizePixels(
+    captureLayers(fixture.effect, fixture.target, 'white'),
+    dpr,
+  );
+  const checker = summarizePixels(
+    captureLayers(fixture.effect, fixture.target, 'checker'),
+    dpr,
+  );
   const targetBounds = fixture.target.getBoundingClientRect();
 
   return {
@@ -1048,17 +1065,15 @@ async function runCase(specification)
     },
     pixels:
     {
-      transparent: summarizePixels(transparent, fixture.effect.dpr),
-      black: summarizePixels(black, fixture.effect.dpr),
-      white: summarizePixels(white, fixture.effect.dpr),
-      checker: summarizePixels(checker, fixture.effect.dpr),
+      transparent,
+      black,
+      white,
+      checker,
     },
     contrastLayer: specification.inspectContrast
       ? captureContrastLayer(fixture.effect)
       : null,
-    trailProfile: specification.straightTrailProbe
-      ? summarizeStraightTrail(transparent, fixture.effect)
-      : null,
+    trailProfile,
     webglTransport: specification.inspectWebGLTransport
       ? captureWebGLTransport(fixture.effect, CLICK_X, CLICK_Y)
       : null,
