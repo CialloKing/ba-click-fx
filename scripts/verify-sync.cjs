@@ -279,11 +279,18 @@ function hasRenderModeConfig(mode, expected)
   )?.[1] ?? '';
 
   return Object.entries(expected).every(([key, value]) =>
-    new RegExp(`\\b${key}:\\s*'${value}'`).test(configSource));
+  {
+    const literal = typeof value === 'string'
+      ? `'${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`
+      : String(value);
+
+    return new RegExp(`\\b${key}:\\s*${literal}`).test(configSource);
+  });
 }
 
 verify(
   JSON.stringify(renderModeValues) === JSON.stringify([
+    'full-webgpu-sdr',
     'full-webgpu',
     'full-webgl2',
     'webgl2-bloom',
@@ -291,7 +298,7 @@ verify(
     'native-bloom',
     'legacy',
   ]),
-  '展示页按 WebGPU HDR、纯 WebGL2、WebGL2 Bloom、Software、Native 与 Legacy 排列六档渲染开关',
+  '展示页按 WebGPU、WebGPU HDR、纯 WebGL2、WebGL2 Bloom、Software、Native 与 Legacy 排列七档渲染开关',
 );
 verify(
   /<option value="full-webgl2" selected>/.test(renderModeSelect) &&
@@ -299,15 +306,24 @@ verify(
   '展示页 HTML、恢复与重置路径统一默认使用纯 WebGL2',
 );
 verify(
-  hasRenderModeConfig('full-webgpu',
+  hasRenderModeConfig('full-webgpu-sdr',
     {
       effectBackend: 'webgpu',
+      webgpuPreferHdr: false,
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    }) &&
+    hasRenderModeConfig('full-webgpu',
+    {
+      effectBackend: 'webgpu',
+      webgpuPreferHdr: true,
       renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     }) &&
     hasRenderModeConfig('full-webgl2',
     {
       effectBackend: 'webgl2',
+      webgpuPreferHdr: true,
       renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     }) &&
@@ -334,7 +350,16 @@ verify(
         effectBackend: 'canvas2d',
         renderingMode: 'legacy',
       }),
-  '展示页六档开关映射到对应的完整特效、渲染模式与 Bloom API',
+  '展示页七档开关映射到对应的完整特效、WebGPU 输出偏好、渲染模式与 Bloom API',
+);
+verify(
+  /<option value="full-webgpu-sdr">WebGPU<\/option>/.test(
+    renderModeSelect,
+  ) &&
+    /renderFullWebGPUStandard: 'WebGPU'/.test(mainJs) &&
+    /renderFullWebGPU: 'WebGPU HDR（实验）'/.test(mainJs) &&
+    /renderFullWebGPU: 'WebGPU HDR \(Experimental\)'/.test(mainJs),
+  '普通 WebGPU 中英文名称不带 HDR 或实验标记，旧 HDR 模式名称保持兼容',
 );
 verify(
   /renderWebGPUOutputExtended: 'Extended HDR · rgba16float'/.test(mainJs) &&
@@ -1046,8 +1071,11 @@ verify(
 );
 verify(
   /const DEFAULT_EFFECT_BACKEND = 'webgl2'/.test(configJs) &&
-    /const DEFAULT_BLOOM_BACKEND = 'webgl2'/.test(configJs),
-  '库配置默认使用纯 WebGL2，并保留 WebGL2 Bloom 回退请求',
+    /const DEFAULT_BLOOM_BACKEND = 'webgl2'/.test(configJs) &&
+    /webgpuPreferHdr: true/.test(configJs) &&
+    /webgpuPreferHdr\?: boolean/.test(typeDefinitions) &&
+    /webgpuPreferHdr: boolean/.test(typeDefinitions),
+  '库默认使用纯 WebGL2、保留 HDR 输出偏好，并公开 WebGPU 标准输出类型合同',
 );
 verify(
   /function createOverlayRoot/.test(engineJs) &&

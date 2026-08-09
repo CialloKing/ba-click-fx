@@ -892,39 +892,52 @@ const WEBGPU_DIAGNOSTIC_REFRESH_MS = 250;
 let webgpuDiagnosticRefreshTimer = null;
 const RENDER_MODE_CONFIGS = Object.freeze(
   {
+    'full-webgpu-sdr':
+    {
+      effectBackend: 'webgpu',
+      webgpuPreferHdr: false,
+      renderingMode: 'enhanced',
+      bloomBackend: 'webgl2',
+    },
     'full-webgpu':
     {
       effectBackend: 'webgpu',
+      webgpuPreferHdr: true,
       renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     },
     'full-webgl2':
     {
       effectBackend: 'webgl2',
+      webgpuPreferHdr: true,
       renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     },
     'software-bloom':
     {
       effectBackend: 'canvas2d',
+      webgpuPreferHdr: true,
       renderingMode: 'enhanced',
       bloomBackend: 'software',
     },
     'webgl2-bloom':
     {
       effectBackend: 'canvas2d',
+      webgpuPreferHdr: true,
       renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     },
     'native-bloom':
     {
       effectBackend: 'canvas2d',
+      webgpuPreferHdr: true,
       renderingMode: 'enhanced',
       bloomBackend: 'native',
     },
     legacy:
     {
       effectBackend: 'canvas2d',
+      webgpuPreferHdr: true,
       renderingMode: 'legacy',
     },
   },
@@ -1463,11 +1476,14 @@ function updateRenderBackendStatus()
 
   const d = I18N[currentLang] || I18N.zh;
   const snapshot = effect.getConfig();
+  const webgpuLabel = snapshot.webgpuPreferHdr
+    ? d.renderFullWebGPU
+    : d.renderFullWebGPUStandard;
   const backendLabels = {
     canvas2d: d.renderCanvas2D,
     auto: d.renderAutoBloom,
     software: d.renderSoftwareBloom,
-    webgpu: d.renderFullWebGPU,
+    webgpu: webgpuLabel,
     webgl2: d.renderWebGL2Bloom,
     native: d.renderNativeBloom,
     legacy: d.renderLegacy,
@@ -1490,11 +1506,12 @@ function updateRenderBackendStatus()
   const resolvedLabel = backendLabels[resolved] || resolved;
   const requestedLabel = backendLabels[expected] || expected;
   const webgpuRequested = expected === 'webgpu' || expected === 'auto';
+  const hdrRequested = webgpuRequested && snapshot.webgpuPreferHdr;
   const outputMode = snapshot.resolvedWebGPUOutputMode;
   const dynamicRangeHigh = dynamicRangeQuery?.matches ?? null;
   const presentationState = resolveHdrPresentationState(
     {
-      webgpuRequested,
+      webgpuRequested: hdrRequested,
       resolvedBackend: resolved,
       outputMode,
       dynamicRangeHigh,
@@ -2581,6 +2598,7 @@ const I18N = {
     btnApplyFxParams: '原子应用参数',
     btnDestroyInstance: '销毁并刷新',
     renderCanvas2D: 'Canvas 2D',
+    renderFullWebGPUStandard: 'WebGPU',
     renderFullWebGPU: 'WebGPU HDR（实验）',
     renderFullWebGL2: '纯 WebGL2',
     renderSoftwareBloom: '软件 Bloom',
@@ -2598,7 +2616,7 @@ const I18N = {
     renderWebGPUOutputExtended: 'Extended HDR · rgba16float',
     renderWebGPUOutputStandard: 'Standard SDR · {format}',
     renderWebGPUOutputPending: '正在协商',
-    renderWebGPUOutputUnavailable: 'HDR Canvas 不可用',
+    renderWebGPUOutputUnavailable: 'WebGPU Canvas 不可用',
     renderWebGPUOutputInactive: '未启用',
     renderWebGPUPreferredFormat: '浏览器首选格式',
     renderDynamicRangeHigh: 'High（浏览器报告）',
@@ -2611,14 +2629,14 @@ const I18N = {
     renderHdrVerdictUnavailable: 'WebGPU HDR 不可用',
     renderHdrVerdictInactive: '未启用 WebGPU HDR',
     renderHdrStatusNote: '浏览器侧判断；实际峰值亮度由系统和屏幕决定。',
-    webgpuDiagnosticSummary: 'WebGPU HDR 诊断详情',
+    webgpuDiagnosticSummary: 'WebGPU 诊断详情',
     diagnosticSecureContextLabel: '页面环境',
     diagnosticWebGPUApiLabel: 'WebGPU API',
     diagnosticCanvasContextLabel: 'Canvas Context',
     diagnosticAdapterLabel: 'Adapter',
     diagnosticDeviceLabel: 'Device',
     diagnosticExtendedCanvasLabel: 'Extended Canvas',
-    diagnosticSdrFallbackLabel: 'SDR 回退',
+    diagnosticSdrFallbackLabel: 'Standard SDR',
     diagnosticPipelineLabel: '渲染管线',
     diagnosticGraphicsRangeLabel: '图形动态范围',
     diagnosticVideoRangeLabel: '视频动态范围',
@@ -2731,7 +2749,7 @@ const I18N = {
     btnApplyBg: '应用背景',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
-    introP2: '从 Unity FX_Touch.prefab 逐参数移植，默认使用纯 WebGL2，可选 WebGPU 真实 HDR，并提供 WebGL2 Bloom、软件 Bloom、原生辉光和 Legacy 回退路径。零外部运行时依赖。',
+    introP2: '从 Unity FX_Touch.prefab 逐参数移植，默认使用纯 WebGL2，可选标准 WebGPU 与 WebGPU 真实 HDR，并提供 WebGL2 Bloom、软件 Bloom、原生辉光和 Legacy 回退路径。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.23/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
@@ -2835,6 +2853,7 @@ const I18N = {
     btnApplyFxParams: 'Apply Parameters Atomically',
     btnDestroyInstance: 'Destroy and Reload',
     renderCanvas2D: 'Canvas 2D',
+    renderFullWebGPUStandard: 'WebGPU',
     renderFullWebGPU: 'WebGPU HDR (Experimental)',
     renderFullWebGL2: 'Full WebGL2',
     renderSoftwareBloom: 'Software Bloom',
@@ -2852,7 +2871,7 @@ const I18N = {
     renderWebGPUOutputExtended: 'Extended HDR · rgba16float',
     renderWebGPUOutputStandard: 'Standard SDR · {format}',
     renderWebGPUOutputPending: 'Negotiating',
-    renderWebGPUOutputUnavailable: 'HDR Canvas unavailable',
+    renderWebGPUOutputUnavailable: 'WebGPU Canvas unavailable',
     renderWebGPUOutputInactive: 'Inactive',
     renderWebGPUPreferredFormat: 'Browser preferred format',
     renderDynamicRangeHigh: 'High (reported by browser)',
@@ -2865,14 +2884,14 @@ const I18N = {
     renderHdrVerdictUnavailable: 'WebGPU HDR unavailable',
     renderHdrVerdictInactive: 'WebGPU HDR not enabled',
     renderHdrStatusNote: 'Browser-side verdict; peak luminance depends on the system and display.',
-    webgpuDiagnosticSummary: 'WebGPU HDR Diagnostics',
+    webgpuDiagnosticSummary: 'WebGPU Diagnostics',
     diagnosticSecureContextLabel: 'Page Context',
     diagnosticWebGPUApiLabel: 'WebGPU API',
     diagnosticCanvasContextLabel: 'Canvas Context',
     diagnosticAdapterLabel: 'Adapter',
     diagnosticDeviceLabel: 'Device',
     diagnosticExtendedCanvasLabel: 'Extended Canvas',
-    diagnosticSdrFallbackLabel: 'SDR Fallback',
+    diagnosticSdrFallbackLabel: 'Standard SDR',
     diagnosticPipelineLabel: 'Render Pipeline',
     diagnosticGraphicsRangeLabel: 'Graphics Range',
     diagnosticVideoRangeLabel: 'Video Range',
@@ -2985,7 +3004,7 @@ const I18N = {
     btnApplyBg: 'Apply',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
-    introP2: 'Ported from Unity FX_Touch.prefab with Full WebGL2 by default, optional real WebGPU HDR, and WebGL2 Bloom, Software Bloom, Native Glow, and Legacy fallbacks. Zero runtime dependencies.',
+    introP2: 'Ported from Unity FX_Touch.prefab with Full WebGL2 by default, optional standard WebGPU and real WebGPU HDR, plus WebGL2 Bloom, Software Bloom, Native Glow, and Legacy fallbacks. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
     introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.2.23/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
@@ -3231,6 +3250,7 @@ function switchLanguage(lang)
 
   // 渲染模式下拉选项文本
   const renderModeOptions = {
+    'full-webgpu-sdr': d.renderFullWebGPUStandard,
     'full-webgpu': d.renderFullWebGPU,
     'full-webgl2': d.renderFullWebGL2,
     'software-bloom': d.renderSoftwareBloom,
