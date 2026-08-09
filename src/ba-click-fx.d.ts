@@ -139,6 +139,8 @@ declare module 'ba-click-fx'
     trailTimeScale?: number;
     /** 完整特效后端；默认 'webgl2'，WebGPU/WebGL2 不可用时安全回退 Canvas2D。 */
     effectBackend?: BAClickFXEffectBackend;
+    /** 是否优先请求 WebGPU Extended HDR Canvas；false 强制标准 SDR 输出。默认 true。 */
+    webgpuPreferHdr?: boolean;
     /** WebGPU Extended 输出的线性峰值，范围 2..4，默认 3。 */
     webgpuHdrPeak?: number;
     /** WebGPU Extended 映射后特效增量的整体倍率，范围 0..32，默认 1。 */
@@ -194,6 +196,7 @@ declare module 'ba-click-fx'
     clickTimeScale: number;
     trailTimeScale: number;
     effectBackend: BAClickFXEffectBackend;
+    webgpuPreferHdr: boolean;
     webgpuHdrPeak: number;
     webgpuHdrBrightness: number;
     webgpuHdrColorPreservation: number;

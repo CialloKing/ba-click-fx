@@ -6079,6 +6079,7 @@ export class BAClickFX
    * @param {'source-over'|'screen'|'plus-lighter'} [options.hostCompositing]
    * @param {'dom-backdrop'|'transparent-window'|'native'} [options.hostCompositingSurface]
    * @param {'canvas2d'|'webgl2'|'webgpu'|'auto'} [options.effectBackend]
+   * @param {boolean} [options.webgpuPreferHdr]
    * @param {number} [options.webgpuHdrPeak]
    * @param {number} [options.webgpuHdrBrightness]
    * @param {number} [options.webgpuHdrColorPreservation]
@@ -6163,6 +6164,9 @@ export class BAClickFX
           options.effectBackend,
           compatibilityEffectBackend,
         ),
+        webgpuPreferHdr: typeof options.webgpuPreferHdr === 'boolean'
+          ? options.webgpuPreferHdr
+          : CONFIG.webgpuPreferHdr,
         webgpuHdrPeak: options.webgpuHdrPeak,
         webgpuHdrBrightness: options.webgpuHdrBrightness,
         webgpuHdrColorPreservation: options.webgpuHdrColorPreservation,
@@ -7898,6 +7902,7 @@ export class BAClickFX
   {
     if (this.webgpuEffectRenderer)
     {
+      this.webgpuEffectRenderer.setPreferHdr(this.config.webgpuPreferHdr);
       return this.webgpuEffectRenderer.available;
     }
 
@@ -7928,6 +7933,7 @@ export class BAClickFX
       renderer = new WebGPUEffectRenderer(
         canvas,
         {
+          preferHdr: this.config.webgpuPreferHdr,
           onStateChange: (status, candidate) =>
             this._handleWebGPUEffectStateChange(candidate, status),
         },
@@ -10916,6 +10922,7 @@ export class BAClickFX
     }
 
     const previousEffectBackend = this.config.effectBackend;
+    const previousWebGPUPreferHdr = this.config.webgpuPreferHdr;
     const previousRenderingMode = this.config.renderingMode;
     const previousBloomBackend = this.config.bloomBackend;
     const previousOutputCompositing = this.config.outputCompositing;
@@ -11066,6 +11073,11 @@ export class BAClickFX
       this.config.effectBackend = overrides.effectBackend;
     }
 
+    if (typeof overrides.webgpuPreferHdr === 'boolean')
+    {
+      this.config.webgpuPreferHdr = overrides.webgpuPreferHdr;
+    }
+
     if (
       overrides.webgpuHdrPeak !== undefined ||
       overrides.webgpuHdrBrightness !== undefined ||
@@ -11138,14 +11150,28 @@ export class BAClickFX
         : 'native';
     }
 
+    const webgpuPresentationChanged =
+      previousWebGPUPreferHdr !== this.config.webgpuPreferHdr &&
+      (
+        previousEffectBackend === 'webgpu' ||
+        previousEffectBackend === 'auto' ||
+        this.config.effectBackend === 'webgpu' ||
+        this.config.effectBackend === 'auto'
+      );
     const effectRouteChanged =
       previousEffectBackend !== this.config.effectBackend ||
-      previousRenderingMode !== this.config.renderingMode;
+      previousRenderingMode !== this.config.renderingMode ||
+      webgpuPresentationChanged;
     const bloomRouteChanged =
       previousBloomBackend !== this.config.bloomBackend;
 
     if (effectRouteChanged)
     {
+      if (webgpuPresentationChanged)
+      {
+        this.webgpuEffectRenderer?.setPreferHdr(this.config.webgpuPreferHdr);
+      }
+
       if (
         previousEffectBackend !== this.config.effectBackend &&
         (this.config.effectBackend === 'webgpu' ||

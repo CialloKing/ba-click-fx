@@ -1546,6 +1546,10 @@ const explicitEffectBackendConfig = createConfig(
   },
 );
 const webgpuEffectBackendConfig = createConfig({ effectBackend: 'webgpu' });
+const webgpuStandardEffectBackendConfig = createConfig(
+  { effectBackend: 'webgpu', webgpuPreferHdr: false },
+);
+const invalidWebgpuPreferenceConfig = createConfig({ webgpuPreferHdr: 'no' });
 const invalidEffectBackendConfig = createConfig({ effectBackend: 'metal' });
 const directCompositingConfig = createConfig({ isolatedCompositing: false });
 const invalidCompositingConfig = createConfig({ isolatedCompositing: 'yes' });
@@ -1590,8 +1594,12 @@ assert(
 assert(
   explicitEffectBackendConfig.effectBackend === 'webgl2' &&
     webgpuEffectBackendConfig.effectBackend === 'webgpu' &&
+    webgpuEffectBackendConfig.webgpuPreferHdr === true &&
+    webgpuStandardEffectBackendConfig.effectBackend === 'webgpu' &&
+    webgpuStandardEffectBackendConfig.webgpuPreferHdr === false &&
+    invalidWebgpuPreferenceConfig.webgpuPreferHdr === CONFIG.webgpuPreferHdr &&
     invalidEffectBackendConfig.effectBackend === CONFIG.effectBackend,
-  'createConfig 保留显式 WebGL2/WebGPU 并忽略无效完整特效后端',
+  'createConfig 保留 WebGL2/WebGPU 与标准输出偏好，并忽略无效后端配置',
 );
 assert(
   directCompositingConfig.isolatedCompositing === false &&
@@ -4509,11 +4517,16 @@ const dormantWebGPUCanvas = document.createElement('canvas');
 let dormantWebGPUSuspendCount = 0;
 let dormantWebGPUReleaseCount = 0;
 let dormantWebGPUDestroyCount = 0;
+let dormantWebGPUPreferHdr = true;
 const dormantWebGPURenderer =
 {
   available: true,
   status: 'ready',
   deviceManager: { outputMode: 'extended' },
+  setPreferHdr(preferHdr)
+  {
+    dormantWebGPUPreferHdr = preferHdr;
+  },
   suspendPresentation()
   {
     dormantWebGPUSuspendCount++;
@@ -4547,10 +4560,25 @@ assert(
 dormantWebGPURenderer.deviceManager.outputMode = 'extended';
 dormantWebGPUEffect.webgpuEffectVisible = true;
 dormantWebGPUCanvas.style.display = '';
+dormantWebGPUEffect._setResolvedEffectBackend('webgpu');
+dormantWebGPUEffect.updateConfig({ webgpuPreferHdr: false });
+assert(
+  dormantWebGPUPreferHdr === false &&
+    dormantWebGPUSuspendCount === 2 &&
+    dormantWebGPUReleaseCount === 1 &&
+    dormantWebGPUCanvas.style.display === 'none' &&
+    dormantWebGPUEffect.getConfig().webgpuPreferHdr === false &&
+    dormantWebGPUEffect.getConfig().resolvedEffectBackend === 'pending',
+  '切到 WebGPU 标准输出时先撤下 Extended Surface 并等待 SDR 首帧',
+);
+
+dormantWebGPURenderer.deviceManager.outputMode = 'extended';
+dormantWebGPUEffect.webgpuEffectVisible = true;
+dormantWebGPUCanvas.style.display = '';
 dormantWebGPUEffect.updateConfig({ effectBackend: 'webgl2' });
 assert(
-  dormantWebGPUSuspendCount === 2 &&
-    dormantWebGPUReleaseCount === 1 &&
+  dormantWebGPUSuspendCount === 3 &&
+    dormantWebGPUReleaseCount === 2 &&
     dormantWebGPUCanvas.style.display === 'none' &&
     dormantWebGPURenderer.deviceManager.outputMode === 'unconfigured' &&
     dormantWebGPUEffect.getConfig().resolvedWebGPUOutputMode === 'unavailable',

@@ -223,6 +223,10 @@ check(
 
 console.log('\nWebGPU HDR 展示配置合同');
 check(
+  CONFIG.webgpuPreferHdr === true,
+  'WebGPU 默认保持向后兼容的 HDR 优先输出偏好',
+);
+check(
   CONFIG.webgpuHdrPeak === 3 &&
     CONFIG.webgpuHdrBrightness === 1 &&
     CONFIG.webgpuHdrColorPreservation === 0 &&

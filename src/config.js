@@ -1023,6 +1023,8 @@ export const CONFIG = Object.freeze(
     hostCompositingSurface: DEFAULT_HOST_COMPOSITING_SURFACE,
     // 默认由纯 WebGL2 接管完整 Scene；能力不足时运行时安全回退 Canvas2D。
     effectBackend: DEFAULT_EFFECT_BACKEND,
+    // 普通 WebGPU 模式会显式关闭该偏好，确保不会请求 Extended Canvas。
+    webgpuPreferHdr: true,
     // 仅 WebGPU Extended 最终展示使用；不改变 Unity 发射和 Bloom 真值。
     webgpuHdrPeak: WEBGPU_HDR_PRESENTATION_DEFAULTS.peak,
     webgpuHdrBrightness: WEBGPU_HDR_PRESENTATION_DEFAULTS.brightness,
@@ -1330,6 +1332,9 @@ export function createConfig(overrides = {})
     overrides.effectBackend,
     compatibilityEffectBackend,
   );
+  const webgpuPreferHdr = typeof overrides.webgpuPreferHdr === 'boolean'
+    ? overrides.webgpuPreferHdr
+    : CONFIG.webgpuPreferHdr;
   const clickTimeScale = normalizeTimeScale(
     overrides.clickTimeScale,
     CONFIG.clickTimeScale,
@@ -1376,6 +1381,7 @@ export function createConfig(overrides = {})
     ...supportedOverrides,
     inputSource,
     effectBackend,
+    webgpuPreferHdr,
     clickTimeScale,
     trailTimeScale,
     outputCompositing,

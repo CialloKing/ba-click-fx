@@ -318,6 +318,21 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     return this.deviceManager.hdrOutput;
   }
 
+  setPreferHdr(preferHdr)
+  {
+    const normalized = preferHdr !== false;
+
+    if (this.preferHdr === normalized)
+    {
+      return false;
+    }
+
+    // Canvas 输出偏好与内部线性 Bloom 独立；下一次 resize 会以新格式
+    // 重新配置展示 Surface，并按格式重建最终管线。
+    this.preferHdr = normalized;
+    return true;
+  }
+
   _setRendererStatus(status, error = null)
   {
     if (this.status === status && this.failure === error)

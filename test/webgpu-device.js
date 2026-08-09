@@ -214,6 +214,30 @@ check(
   '重新配置生成新的协商诊断且清除旧暂停状态',
 );
 
+console.log('\nWebGPU 强制标准输出');
+const forcedStandardFixture = createFixture();
+const forcedStandard = new WebGPUCanvasDevice(
+  forcedStandardFixture.canvas,
+  { gpu: forcedStandardFixture.gpu },
+);
+
+check(await forcedStandard.ready, '标准模式可正常申请 Device');
+check(
+  forcedStandard.configure({ preferHdr: false }),
+  '标准模式可直接配置 Canvas',
+);
+check(
+  forcedStandard.outputMode === 'standard' &&
+    forcedStandard.canvasFormat === 'bgra8unorm' &&
+    forcedStandardFixture.configureCalls.length === 1 &&
+    forcedStandardFixture.configureCalls[0]?.format === 'bgra8unorm' &&
+    !('toneMapping' in forcedStandardFixture.configureCalls[0]) &&
+    forcedStandard.diagnostics.stages.extendedConfigure.status === 'skipped' &&
+    forcedStandard.diagnostics.stages.standardConfigure.status === 'succeeded',
+  '标准模式不尝试 rgba16float Extended 配置且诊断明确跳过 HDR',
+);
+forcedStandard.destroy();
+
 console.log('\nWebGPU 不可用与设备丢失');
 const unavailableFixture = createFixture({ adapterUnavailable: true });
 const unavailable = new WebGPUCanvasDevice(
