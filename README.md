@@ -10,9 +10,9 @@
 
 **从 Blue Archive Unity UI/FX_Touch 逐参数移植的网页点击特效与光标拖尾动画库。**
 
-`ba-click-fx` 将游戏《蔚蓝档案》的 `FX_Touch.prefab` 中 ParticleSystem 和 TrailRenderer 的完整参数——颜色曲线、大小曲线、旋转速度、溶解阈值、HDR 强度、TrailRenderer 时间与宽度——逐项还原到 Web。默认由 **纯 WebGL2** 接管完整 Scene、Coverage 与 MXFinalBloom；可选 WebGPU 模式在浏览器和显示链支持时输出真实 HDR 超白高光，能力不足时自动回退 WebGL2、Canvas 2D、软件 Bloom 与原生辉光。零外部运行时依赖。
+`ba-click-fx` 将游戏《蔚蓝档案》的 `FX_Touch.prefab` 中 ParticleSystem 和 TrailRenderer 的完整参数——颜色曲线、大小曲线、旋转速度、溶解阈值、HDR 强度、TrailRenderer 时间与宽度——逐项还原到 Web。默认由 **纯 WebGL2** 接管完整 Scene、Coverage 与 MXFinalBloom；可选普通 WebGPU 标准 SDR 输出，或在浏览器和显示链支持时使用 WebGPU HDR 输出真实超白高光。能力不足时自动回退 WebGL2、Canvas 2D、软件 Bloom 与原生辉光。零外部运行时依赖。
 
-A parameter-level port of the **Blue Archive** UI click effect and cursor trail from Unity to the web. **Full WebGL2** by default, optional WebGPU HDR output, automatic Canvas 2D and Bloom fallbacks, and zero external runtime dependencies.
+A parameter-level port of the **Blue Archive** UI click effect and cursor trail from Unity to the web. **Full WebGL2** by default, optional standard WebGPU or WebGPU HDR output, automatic Canvas 2D and Bloom fallbacks, and zero external runtime dependencies.
 
 **在线演示：** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
@@ -49,8 +49,8 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 - 溶解圆环（MeshTri）、中心光盘（ring）、点击碎片（Ring 3/4）、拖尾轨迹（TrailRenderer）
 - 所有粒子参数锁定为游戏原始值：颜色渐变、大小曲线、旋转速度、溶解阈值、HDR 强度
 - Canvas 2D、纯 WebGL2 与 WebGPU 共用已经验证的特效几何，无外部运行时依赖
-- 六种展示页渲染选择：WebGPU HDR（实验）、纯 WebGL2（默认）、WebGL2 Bloom、软件 Bloom、原生辉光、Legacy
-- WebGPU 使用 `rgba16float` Scene 与多级 Bloom；`extended` 输出把线性 HDR 结果编码为扩展 sRGB，并保留超过 SDR 白色的高光
+- 七种展示页渲染选择：WebGPU、WebGPU HDR（实验）、纯 WebGL2（默认）、WebGL2 Bloom、软件 Bloom、原生辉光、Legacy
+- WebGPU 使用 `rgba16float` 线性 Scene 与多级 Bloom；普通模式强制标准 SDR Canvas，HDR 模式才尝试 `extended` 输出并保留超过 SDR 白色的高光
 - WebGPU 不可用或 Device 丢失时自动回退完整 WebGL2，再沿 Canvas 2D、软件 Bloom、原生辉光链降级
 - 支持浏览器插件、npm、CDN、直接下载四种接入方式
 - 演示默认主题色 `#4ca7ff`，支持自定义 HSL hue 偏移
@@ -159,6 +159,7 @@ new BAClickFX(options?: {
   clickTimeScale?: number,        // 点击时间倍率，不小于 0.01，默认 1
   trailTimeScale?: number,        // 拖尾时间倍率，不小于 0.01，默认 1
   effectBackend?: 'canvas2d' | 'webgl2' | 'webgpu' | 'auto', // 完整特效后端，默认 webgl2
+  webgpuPreferHdr?: boolean,       // true 优先 HDR，false 强制标准 SDR；默认 true
   webgpuHdrPeak?: number,         // Extended 线性峰值 2~4，默认 3
   webgpuHdrBrightness?: number,   // Extended 特效整体亮度倍率 0~32，默认 1
   webgpuHdrColorPreservation?: number, // Extended 高亮色相保持 0~1，默认 0
@@ -176,22 +177,25 @@ new BAClickFX(options?: {
 })
 ```
 
-`effectBackend` 决定清晰几何与 Bloom 是否全部由 WebGPU 或 WebGL2 接管；Canvas 2D 路径再通过 `bloomBackend` 选择 Bloom 实现。展示页提供六种直观组合：
+`effectBackend` 决定清晰几何与 Bloom 是否全部由 WebGPU 或 WebGL2 接管；`webgpuPreferHdr` 只决定 WebGPU 最终 Canvas 是否尝试 Extended HDR，`false` 会强制 Standard SDR。Canvas 2D 路径再通过 `bloomBackend` 选择 Bloom 实现。展示页提供七种直观组合：
 
 | 展示页选项 | API 配置 | 说明 |
 |---|---|---|
-| WebGPU HDR（实验） | `{ effectBackend: 'webgpu', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 异步申请 WebGPU，并优先配置 `rgba16float + toneMapping: extended`；HDR Canvas 不可用时继续使用 WebGPU 标准 SDR 输出，Device 不可用或丢失时回退完整 WebGL2 |
+| WebGPU | `{ effectBackend: 'webgpu', webgpuPreferHdr: false, renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 正式的普通 WebGPU 模式；只配置浏览器首选 Standard SDR Canvas，不请求 `toneMapping: extended`，同时保留与 Unity 对齐的线性 Scene 与 MXFinalBloom |
+| WebGPU HDR（实验） | `{ effectBackend: 'webgpu', webgpuPreferHdr: true, renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 异步申请 WebGPU，并优先配置 `rgba16float + toneMapping: extended`；HDR Canvas 不可用时继续使用 WebGPU 标准 SDR 输出，Device 不可用或丢失时回退完整 WebGL2 |
 | 纯 WebGL2 | `{ effectBackend: 'webgl2', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 默认；完整 Scene、Coverage 与 MXFinalBloom 均在一个 WebGL2 HDR 管线中完成；失败时回退 Canvas 2D 链 |
 | WebGL2 Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | 兼容选择器；GPU 可用时复用与纯 WebGL2 相同的完整 HDR Scene，失败时沿 Canvas 2D 的 Software / Native 链回退 |
 | 软件 Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'software' }` | 兼容实现，使用 8 位 Canvas 遮罩、像素回读和全视口 Float32 Bloom 缓冲 |
 | 原生辉光 | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'native' }` | 使用 Canvas 2D `shadowBlur`，开销较低但观感与后处理 Bloom 不同 |
 | Legacy | `{ effectBackend: 'canvas2d', renderingMode: 'legacy' }` | 使用 Unity 材质能量和纹理轮廓，以 Canvas `shadowBlur` 提供兼容辉光；此时忽略 Bloom 后端 |
 
-展示页在六档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与渲染后端正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
+展示页在七档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与渲染后端正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
 
 WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 已协商扩展动态范围，并会把线性 HDR 结果编码为扩展 sRGB、保留超过 SDR 白色的高光；`'standard'` 表示 WebGPU Scene 与 Bloom 正常运行，但最终 Canvas 仍是 SDR；`'pending'` 表示正在申请设备或提交首帧；`'unavailable'` 表示当前没有可用的 WebGPU 输出。真正看到超白高光还需要 HDR 显示器、系统已开启 HDR、浏览器实现 WebGPU HDR Canvas，以及 `rgba16float + toneMapping: extended` 配置成功。
 
-展示页在 HDR 摘要下提供默认折叠的“WebGPU HDR 诊断详情”，分别报告安全上下文、WebGPU API、Canvas Context、Adapter、Device、Extended Canvas、Standard SDR 回退、首帧管线、图形/视频动态范围和 CSS HDR 语法支持，并保留稳定的失败阶段代码与浏览器异常文本。`(video-dynamic-range: high)` 只是视频输出环境提示，不参与 WebGPU HDR 成功判定。`CSS.supports()` 也只证明浏览器接受相关语法，不证明当前屏幕正在输出 HDR。网页无法可靠读取操作系统 HDR 开关或显示器尼特；最终浏览器侧判据仍是 `resolvedWebGPUOutputMode === 'extended'`。
+设置 `webgpuPreferHdr: false` 会在任何浏览器上跳过 Extended 配置，直接使用浏览器首选的 Standard SDR Canvas；这是展示页“WebGPU”普通模式的固定合同。内部 `rgba16float` Scene 仍用于保留预过滤前的发射能量和 Unity MXFinalBloom 精度，它不是 HDR 显示输出；是否真实输出 HDR 仍只由 `resolvedWebGPUOutputMode` 判断。
+
+展示页在 HDR 摘要下提供默认折叠的“WebGPU 诊断详情”，分别报告安全上下文、WebGPU API、Canvas Context、Adapter、Device、Extended Canvas、Standard SDR、首帧管线、图形/视频动态范围和 CSS HDR 语法支持，并保留稳定的失败阶段代码与浏览器异常文本。`(video-dynamic-range: high)` 只是视频输出环境提示，不参与 WebGPU HDR 成功判定。`CSS.supports()` 也只证明浏览器接受相关语法，不证明当前屏幕正在输出 HDR。网页无法可靠读取操作系统 HDR 开关或显示器尼特；最终浏览器侧判据仍是 `resolvedWebGPUOutputMode === 'extended'`。
 
 展示页的“UI HDR”是演示站点私有功能。除特效实际解析为 WebGPU Extended 外，浏览器还必须支持 `color(srgb-linear ...)` 扩展色和 `dynamic-range-limit: no-limit`；否则控件会自动禁用。它直接给标题、状态区、面板边缘和交互控件应用 CSS HDR 描边与光晕，不创建第二个全屏 Canvas，也不经过 `mix-blend-mode`。范围 `1..16` 的“UI HDR 亮度”不属于 `BAClickFX` 公共 API，不会修改 `webgpuHdrBrightness`、Unity 特效参数或点击特效像素。
 
@@ -395,6 +399,7 @@ import {
 const fx = new BAClickFX(
 {
   effectBackend: 'webgpu',
+  webgpuPreferHdr: false,
   bloomBackend: 'webgl2',
 });
 
@@ -608,7 +613,7 @@ WebGPU 可用性由实际申请 Adapter/Device、创建 `webgpu` Canvas Context 
 
 ### WebGPU 模式一定会显示真实 HDR 吗？
 
-不会。WebGPU 后端可能协商到 `standard` SDR 输出；只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 会以扩展 sRGB 编码保留超过 SDR 白色的高光。显示器、系统 HDR、浏览器 WebGPU HDR Canvas 和 `rgba16float + extended` 缺一不可。截图、Canvas 像素回读和普通 SDR 屏幕也不能证明最终面板实际输出了多少尼特。
+不会。展示页“WebGPU”普通模式会固定为 `standard` SDR；“WebGPU HDR（实验）”也可能在 Extended 配置不可用时回退到 `standard`。只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 会以扩展 sRGB 编码保留超过 SDR 白色的高光。显示器、系统 HDR、浏览器 WebGPU HDR Canvas 和 `rgba16float + extended` 缺一不可。截图、Canvas 像素回读和普通 SDR 屏幕也不能证明最终面板实际输出了多少尼特。
 
 ### 为什么纯白背景上的颜色变淡？
 
@@ -685,7 +690,7 @@ ba-click-fx/
 ### 架构特点
 
 - **隔离合成层**：默认关闭；可显式启用透明隔离组，改善非游戏纯白网页背景上的颜色保留
-- **WebGPU HDR Scene**：异步申请 Device，使用 `rgba16float` Scene 与 WGSL Bloom；`extended` 成功时保留真实超白输出，失败时保持标准 SDR 或回退 WebGL2
+- **WebGPU Scene**：异步申请 Device，使用 `rgba16float` 线性 Scene 与 WGSL Bloom；普通模式固定 Standard SDR，HDR 模式仅在 `extended` 成功时保留真实超白输出，Device 失败时回退 WebGL2
 - **纯 WebGL2 Scene**：完整几何、Coverage、背景与 MXFinalBloom 在一个 HDR 管线中完成并一次输出
 - **Canvas Scene Final Pass**：原生辉光和 Legacy 复用 Canvas 生成的 Scene 近似；提供场景背景时统一执行背景衰减与颜色编码，但不宣称具备完整 WebGL2 的浮点精度
 - **主特效层**：Canvas 路径内部以 `lighter` 累积发射能量，最终覆盖层使用预乘 Alpha 输出，避免 CSS 二次加亮

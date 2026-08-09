@@ -10,7 +10,7 @@
 
 **A parameter-level port of the Blue Archive Unity UI/FX_Touch click effect and cursor trail for the web.**
 
-`ba-click-fx` faithfully reproduces the ParticleSystem and TrailRenderer from the game's `FX_Touch.prefab` — colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity, and TrailRenderer timing/width. **Full WebGL2** owns the complete Scene, Coverage, and MXFinalBloom output by default. An optional WebGPU path can output real highlights above SDR white when the browser and display chain support it, with automatic WebGL2, Canvas 2D, Software Bloom, and Native Glow fallbacks. Zero external runtime dependencies.
+`ba-click-fx` faithfully reproduces the ParticleSystem and TrailRenderer from the game's `FX_Touch.prefab` — colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity, and TrailRenderer timing/width. **Full WebGL2** owns the complete Scene, Coverage, and MXFinalBloom output by default. Optional WebGPU modes provide a guaranteed standard SDR Canvas or, when the browser and display chain support it, real highlights above SDR white. WebGL2, Canvas 2D, Software Bloom, and Native Glow remain automatic fallbacks. Zero external runtime dependencies.
 
 **Live Demo:** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
@@ -47,8 +47,8 @@
 - Dissolve rings (MeshTri), centre disk (ring), click shards (Ring 3/4), drag trail (TrailRenderer)
 - All particle parameters locked to the game's original values: colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity
 - Canvas 2D, Full WebGL2, and WebGPU share the reviewed effect geometry with zero external runtime dependencies
-- Six demo rendering choices: WebGPU HDR (experimental), Full WebGL2 (default), WebGL2 Bloom, Software Bloom, Native Glow, and Legacy
-- WebGPU uses an `rgba16float` Scene and multi-level Bloom; `extended` output encodes the linear HDR result as extended sRGB while preserving highlights above SDR white
+- Seven demo rendering choices: WebGPU, WebGPU HDR (experimental), Full WebGL2 (default), WebGL2 Bloom, Software Bloom, Native Glow, and Legacy
+- WebGPU uses an `rgba16float` linear Scene and multi-level Bloom; the ordinary mode forces a standard SDR Canvas, while the HDR mode may request `extended` output that preserves highlights above SDR white
 - An unavailable or lost WebGPU device falls back to Full WebGL2, then through Canvas 2D, Software Bloom, and Native Glow
 - Browser extension, npm, CDN, and direct download
 - Demo theme defaults to `#4ca7ff`, with custom HSL hue shifting
@@ -139,6 +139,7 @@ new BAClickFX(options?: {
   clickTimeScale?: number,       // minimum 0.01, default 1
   trailTimeScale?: number,       // minimum 0.01, default 1
   effectBackend?: 'canvas2d' | 'webgl2' | 'webgpu' | 'auto', // default webgl2
+  webgpuPreferHdr?: boolean,      // true prefers HDR; false forces standard SDR; default true
   webgpuHdrPeak?: number,        // Extended linear peak 2..4, default 3
   webgpuHdrBrightness?: number,  // Extended effect brightness multiplier 0..32, default 1
   webgpuHdrColorPreservation?: number, // Extended highlight hue preservation 0..1, default 0
@@ -156,22 +157,25 @@ new BAClickFX(options?: {
 })
 ```
 
-`effectBackend` decides whether WebGPU or WebGL2 owns the complete crisp scene and Bloom. The Canvas 2D path then uses `bloomBackend` to select its Bloom implementation. The demo exposes six direct combinations:
+`effectBackend` decides whether WebGPU or WebGL2 owns the complete crisp scene and Bloom. `webgpuPreferHdr` only controls whether the final WebGPU Canvas attempts Extended HDR; `false` forces Standard SDR. The Canvas 2D path then uses `bloomBackend` to select its Bloom implementation. The demo exposes seven direct combinations:
 
 | Demo choice | API configuration | Behaviour |
 |---|---|---|
-| WebGPU HDR (experimental) | `{ effectBackend: 'webgpu', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Requests WebGPU asynchronously and prefers `rgba16float + toneMapping: extended`; if HDR Canvas configuration is unavailable it keeps WebGPU with standard SDR output, while an unavailable or lost device falls back to Full WebGL2 |
+| WebGPU | `{ effectBackend: 'webgpu', webgpuPreferHdr: false, renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Formal ordinary WebGPU mode. It configures only the browser-preferred Standard SDR Canvas and never requests `toneMapping: extended`, while retaining the Unity-aligned linear Scene and MXFinalBloom |
+| WebGPU HDR (experimental) | `{ effectBackend: 'webgpu', webgpuPreferHdr: true, renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Requests WebGPU asynchronously and prefers `rgba16float + toneMapping: extended`; if HDR Canvas configuration is unavailable it keeps WebGPU with standard SDR output, while an unavailable or lost device falls back to Full WebGL2 |
 | Full WebGL2 | `{ effectBackend: 'webgl2', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Default; builds the complete Scene, Coverage, and MXFinalBloom output in one WebGL2 HDR pipeline; falls back to the Canvas 2D chain on failure |
 | WebGL2 Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Compatibility selector; when the GPU is available it reuses the same complete HDR Scene as Full WebGL2, then falls back through the Canvas 2D Software / Native chain on failure |
 | Software Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'software' }` | Compatibility implementation using an 8-bit Canvas mask, pixel readback, and full-viewport Float32 Bloom buffers |
 | Native Glow | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'native' }` | Uses Canvas 2D `shadowBlur`; cheaper, but visually different from post-process Bloom |
 | Legacy | `{ effectBackend: 'canvas2d', renderingMode: 'legacy' }` | Uses Unity material energy and texture profiles with Canvas `shadowBlur` compatibility glow; WebGL backend requests are ignored |
 
-The demo exposes Isolated Compositing as a separate switch beside the six rendering choices. It is disabled by default and orthogonal to the rendering backend: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
+The demo exposes Isolated Compositing as a separate switch beside the seven rendering choices. It is disabled by default and orthogonal to the rendering backend: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
 
 WebGPU availability does not imply HDR display output. Only `getConfig().resolvedWebGPUOutputMode === 'extended'` means that the Canvas negotiated extended dynamic range, encodes the linear HDR result as extended sRGB, and preserves highlights above SDR white. `'standard'` means the WebGPU Scene and Bloom are running but the final Canvas remains SDR, `'pending'` means device or first-frame work is in progress, and `'unavailable'` means no WebGPU output is active. Visible super-white highlights additionally require an HDR display, system HDR enabled, browser support for WebGPU HDR Canvas, and successful `rgba16float + toneMapping: extended` configuration.
 
-Below the HDR summary, the demo provides a collapsed WebGPU HDR Diagnostics section. It reports the secure context, WebGPU API, Canvas context, adapter, device, Extended Canvas, Standard SDR fallback, first-frame pipeline, graphics/video dynamic range, and CSS HDR syntax support, while retaining stable failure-stage codes and browser exception text. `(video-dynamic-range: high)` is only a video-output environment hint and does not participate in the WebGPU HDR success verdict. `CSS.supports()` likewise proves only that the browser accepts the relevant syntax, not that the current display is producing HDR output. A webpage cannot reliably read the operating-system HDR switch or display luminance in nits; the final browser-side criterion remains `resolvedWebGPUOutputMode === 'extended'`.
+Setting `webgpuPreferHdr: false` skips Extended configuration on every browser and uses the browser-preferred Standard SDR Canvas directly; this is the fixed contract of the demo's ordinary “WebGPU” mode. The internal `rgba16float` Scene remains necessary to retain emission energy before prefiltering and preserve Unity MXFinalBloom precision. It is not HDR display output; `resolvedWebGPUOutputMode` remains the only output verdict.
+
+Below the HDR summary, the demo provides a collapsed WebGPU Diagnostics section. It reports the secure context, WebGPU API, Canvas context, adapter, device, Extended Canvas, Standard SDR, first-frame pipeline, graphics/video dynamic range, and CSS HDR syntax support, while retaining stable failure-stage codes and browser exception text. `(video-dynamic-range: high)` is only a video-output environment hint and does not participate in the WebGPU HDR success verdict. `CSS.supports()` likewise proves only that the browser accepts the relevant syntax, not that the current display is producing HDR output. A webpage cannot reliably read the operating-system HDR switch or display luminance in nits; the final browser-side criterion remains `resolvedWebGPUOutputMode === 'extended'`.
 
 The demo's UI HDR controls are demo-only. In addition to an effect that actually resolves to WebGPU Extended, the browser must support extended `color(srgb-linear ...)` values and `dynamic-range-limit: no-limit`; otherwise the controls are disabled. The demo applies CSS HDR outlines and glows directly to the title, status area, panel edges, and interactive controls, without creating a second full-screen Canvas or using `mix-blend-mode`. The `1..16` UI HDR Brightness multiplier is not part of the `BAClickFX` public API and does not change `webgpuHdrBrightness`, Unity FX parameters, or click-effect pixels.
 
@@ -375,6 +379,7 @@ import {
 const fx = new BAClickFX(
 {
   effectBackend: 'webgpu',
+  webgpuPreferHdr: false,
   bloomBackend: 'webgl2',
 });
 
@@ -588,7 +593,7 @@ Consequently, “ported from the Unity project” describes the source of parame
 
 ### Does WebGPU mode always produce real HDR?
 
-No. WebGPU can resolve to `standard` SDR output. Only `getConfig().resolvedWebGPUOutputMode === 'extended'` means that the Canvas preserves highlights above SDR white in its extended sRGB encoding. The display, system HDR setting, browser WebGPU HDR Canvas support, and successful `rgba16float + extended` configuration are all required. A screenshot, Canvas pixel readback, or an SDR display cannot prove the panel's final luminance in nits.
+No. The demo's ordinary “WebGPU” mode is fixed to `standard` SDR, and “WebGPU HDR (experimental)” can also fall back to `standard` when Extended configuration is unavailable. Only `getConfig().resolvedWebGPUOutputMode === 'extended'` means that the Canvas preserves highlights above SDR white in its extended sRGB encoding. The display, system HDR setting, browser WebGPU HDR Canvas support, and successful `rgba16float + extended` configuration are all required. A screenshot, Canvas pixel readback, or an SDR display cannot prove the panel's final luminance in nits.
 
 ### Why does the effect lose colour on a pure-white background?
 
@@ -662,7 +667,7 @@ ba-click-fx/
 ### Architecture
 
 - **Isolated compositing layer:** disabled by default; enable the transparent isolated group explicitly to preserve colour on non-game pure-white web backgrounds.
-- **WebGPU HDR Scene:** asynchronously requests a device and uses an `rgba16float` Scene with WGSL Bloom; successful `extended` output preserves real super-white highlights, otherwise it keeps standard SDR or falls back to WebGL2.
+- **WebGPU Scene:** asynchronously requests a device and uses an `rgba16float` linear Scene with WGSL Bloom; ordinary mode stays on Standard SDR, while HDR mode preserves real super-white highlights only after successful `extended` output and falls back to WebGL2 on device failure.
 - **Full WebGL2 Scene:** complete geometry, Coverage, background, and MXFinalBloom resolve through one HDR pipeline and one output pass.
 - **Canvas Scene Final Pass:** Native Glow and Legacy reuse a Canvas-built Scene approximation; with a supplied background they share background attenuation and colour encoding, without claiming complete-WebGL2 floating-point precision.
 - **Main FX layer:** Canvas paths accumulate emission with `lighter` internally and use premultiplied-alpha overlay output to avoid a second CSS brightness increase.
