@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## v1.2.24 — WebGPU 普通模式
+
+- 新增名为 `WebGPU` 的普通渲染模式：固定协商 Standard SDR Canvas，不请求 `toneMapping: extended` 或 `rgba16float` Canvas Surface，且不显示 HDR/实验标记；内部保留 `rgba16float` 线性 Scene 与 Unity MXFinalBloom 精度以维持效果一致，原 `WebGPU HDR（实验）` 模式保持兼容。
+- 新增公开 `webgpuPreferHdr` 输出偏好，完成 Standard/HDR 运行时原子切换、Device 复用、Surface 重新配置、状态诊断、重置和持久化合同，同步 TypeScript 声明与中英文档。
+- 补齐高级控制面板的公开参数接口与浏览器结构回归，收紧透明合成控件同步检查，并稳定高 DPR WebGL 像素夹具读回。
+- 增加 WebGPU Standard 直接渲染、公共路由、双语标签、设置恢复、Device 丢失回退及 Standard → HDR 重新协商门禁。
+
 ## v1.2.23 — 展示页控制面板分组优化
 
 - 将背景主题作为“显示”折叠栏下方的独立分组，并稳定面板标题的中英文映射。
