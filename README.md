@@ -25,12 +25,15 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 </p>
 <p align="center"><sub>ba-click-fx 项目演示（左） · 游戏内效果参考（右，仅用于效果对比）</sub></p>
 
+> 🖥 **桌面版（Windows 测试版）**：[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) 使用 C++ / Win32 API / Direct3D 11 从零实现同样的特效，详见[桌面版](#桌面版windows-测试版)章节。
+
 ---
 
 ## 目录
 
 - [特性](#特性)
 - [使用方式](#使用方式)
+- [桌面版（Windows 测试版）](#桌面版windows-测试版)
 - [常见用法](#常见用法)
 - [API 文档](#api-文档)
 - [效果说明](#效果说明)
@@ -112,6 +115,19 @@ IIFE 构建会把模块对象暴露为全局变量 `BAClickFX`，构造函数位
   const fx = new BAClickFX({ target: '#myCanvas' });
 </script>
 ```
+
+---
+
+## 桌面版（Windows 测试版）
+
+[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) 是独立实现的 Windows 原生桌面版：它不复用本项目的 JavaScript / WebGL / WebGPU 代码，而是使用 **C++20、Win32 API、Direct3D 11、HLSL 与 DirectComposition** 从零重新实现同一套蔚蓝档案点击特效与光标拖尾。Unity/游戏资源仍是视觉真值，网页版只作为行为与参数语义参考。
+
+当前发布的是**首个测试版本（Alpha）**，支持合同以单主屏 FX-only / SDR 路径为准：
+
+- 单文件运行：静态链接 Visual C++ 运行库，只使用 Windows 自带的 D3D11、DirectComposition、WIC 和 D3DCompiler 系统组件
+- Overlay 鼠标穿透且不抢焦点；可通过通知区域图标右键退出，也可按 `Ctrl+Alt+F12`
+- 附带独立的 Control Center（`BAFX.ControlCenter.exe`，纯 Win32 Common Controls，无需 Windows App SDK）：通过本地 Named Pipe 连接 Host，支持暂停/恢复特效，并调整效果大小、拖尾长度与宽度、Bloom 强度与质量等配置
+- 构建与测试基于 CMake 预设（Visual Studio 2026 + Windows SDK），架构与决策文档见桌面版仓库的 `ARCHITECTURE.md` 与 `docs/adr`
 
 ---
 

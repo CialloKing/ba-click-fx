@@ -23,12 +23,15 @@
 </p>
 <p align="center"><sub>ba-click-fx demo (left) · In-game reference (right)</sub></p>
 
+> 🖥 **Desktop (Windows test build):** [ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) reimplements the same effect from scratch in C++ / Win32 API / Direct3D 11. See the [Desktop Edition](#desktop-edition-windows-test-build) section.
+
 ---
 
 ## Table of Contents
 
 - [Features](#features)
 - [Installation](#installation)
+- [Desktop Edition (Windows Test Build)](#desktop-edition-windows-test-build)
 - [Common Usage](#common-usage)
 - [API Reference](#api-reference)
 - [Effects](#effects)
@@ -104,6 +107,19 @@ Download from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releas
   const fx = new BAClickFX({ target: '#myCanvas' });
 </script>
 ```
+
+---
+
+## Desktop Edition (Windows Test Build)
+
+[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) is an independently implemented Windows-native desktop edition. It does not reuse this project's JavaScript / WebGL / WebGPU code; instead it reimplements the same Blue Archive click effect and cursor trail from scratch with **C++20, Win32 API, Direct3D 11, HLSL, and DirectComposition**. Unity/game assets remain the visual ground truth, while the web version only serves as the behavioural and parameter-semantics reference.
+
+The current release is the **first test build (Alpha)**, and its support contract covers the single-primary-monitor FX-only / SDR path only:
+
+- Single-file runtime: the Visual C++ runtime is statically linked, and only Windows system components such as D3D11, DirectComposition, WIC, and D3DCompiler are used
+- The overlay is click-through and never steals focus; quit via the notification-area icon's right-click menu, or press `Ctrl+Alt+F12`
+- Ships with a standalone Control Center (`BAFX.ControlCenter.exe`, pure Win32 Common Controls, no Windows App SDK): it connects to the Host over a local Named Pipe and can pause/resume effects as well as tweak effect size, trail length/width, Bloom strength/quality, and more
+- Build and tests are driven by CMake presets (Visual Studio 2026 + Windows SDK); architecture and decision documents live in `ARCHITECTURE.md` and `docs/adr` of the desktop repository
 
 ---
 
