@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## v1.2.26 — 修复全屏滚动条坐标偏移
+
+- 修复无 `target` 的全屏 fixed 覆盖层在传统滚动条槽存在时，`window.innerWidth` 与 Canvas CSS 盒子宽度不一致导致的 X 轴坐标偏移。
+- 全屏实例现在按已挂载 Canvas 的实测 CSS rect 建立逻辑尺寸和 backing store；Canvas 暂不可测时仍回退到窗口尺寸。
+- 增加源码、构建后 IIFE 及 DPR 1/2 的滚动条槽浏览器回归，覆盖 10px 槽宽与 backing store 尺寸合同。
+
 ## v1.2.25 — 输入采样模拟与感知主题颜色
 
 - 新增 `inputSamplingRate` 和 `setInputSamplingRate(rateHz)` 宿主输入 API：`0` 表示不限频，`1..1000 Hz` 可模拟手机客户端低采样率下的多边形拖尾轨迹；采样时钟基于未缩放的真实输入时间，与 `trailTimeScale` 和渲染帧率正交。
