@@ -2939,6 +2939,7 @@ async function openFixture(browserInstance, baseUrl, dpr, runtimeKind = 'source'
   const page = await context.newPage();
   const pageErrors = [];
   const consoleErrors = [];
+
   const failedResources = [];
 
   await page.addInitScript(
@@ -3334,6 +3335,16 @@ async function runIifeMobileTouchSmoke(browserInstance, baseUrl)
       },
     },
   );
+  await context.addInitScript(() =>
+  {
+    // Chromium 仍会派发底层触摸事件，但库初始化时必须把该环境识别为
+    // Touch-only，确保构建产物真实走 TouchEvent fallback。
+    Object.defineProperty(window, 'PointerEvent',
+      {
+        configurable: true,
+        value: undefined,
+      });
+  });
   const page = await context.newPage();
   const pageErrors = [];
   const consoleErrors = [];
@@ -3461,11 +3472,13 @@ async function runIifeMobileTouchSmoke(browserInstance, baseUrl)
         scrollLeft: stage.scrollLeft,
         scrollTop: stage.scrollTop,
         strokeCount: effect.trailStrokes.length,
+        usesTouchInputFallback: effect.usesTouchInputFallback,
       };
     });
 
     assert(
       result.action === 'none' &&
+        result.usesTouchInputFallback &&
         result.events[0] === 'pointerdown' &&
         result.events.includes('pointerup') &&
         !result.events.includes('pointercancel') &&

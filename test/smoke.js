@@ -3843,6 +3843,14 @@ const touchActionEffect = new BAClickFX(
     touchAction: 'none',
   },
 );
+const pointerDownOptions = dom.windowMock.getEventListenerOptions(
+  'pointerdown',
+  touchActionEffect._onPointerDown,
+);
+const pointerMoveOptions = dom.windowMock.getEventListenerOptions(
+  'pointermove',
+  touchActionEffect._onPointerMove,
+);
 const pointerUpOptions = dom.windowMock.getEventListenerOptions(
   'pointerup',
   touchActionEffect._onPointerUp,
@@ -3858,11 +3866,14 @@ const touchStartOptions = dom.windowMock.getEventListenerOptions(
 assert(
   pointerEventTypes.slice(4).every((type, index) =>
     listenerCount(type) === touchListenerBaseline[index] + 1) &&
+    pointerDownOptions?.capture === true &&
+    pointerMoveOptions?.capture === true &&
+    pointerMoveOptions?.passive === true &&
     pointerUpOptions?.capture === true &&
     pointerCancelOptions?.capture === true &&
     touchStartOptions?.capture === true &&
     touchStartOptions?.passive === false,
-  '需要阻止手势时注册 capture 生命周期与非 passive Touch 监听',
+  'DOM 输入使用 capture Pointer 生命周期与非 passive Touch 仲裁监听',
 );
 let noneTouchStartPrevented = 0;
 
@@ -4567,6 +4578,139 @@ assert(
   '暂停会清空触摸仲裁状态，恢复后不接续旧手势',
 );
 closedShadowEffect.destroy();
+
+dom.windowMock.ontouchstart = null;
+let touchFallbackFilterEvent = null;
+const touchFallbackEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    clickEnabled: false,
+    touchAction: 'none',
+    inputFilter(event)
+    {
+      touchFallbackFilterEvent = event;
+      return event.target === dom.body;
+    },
+  },
+);
+let touchFallbackPrevented = 0;
+const fallbackStartTouch =
+{
+  identifier: 201,
+  clientX: 40,
+  clientY: 120,
+  target: dom.body,
+};
+const fallbackMovedTouch =
+{
+  ...fallbackStartTouch,
+  clientX: 240,
+};
+
+dom.windowMock.dispatch('touchstart',
+  {
+    target: dom.body,
+    cancelable: true,
+    timeStamp: performance.now(),
+    touches: [fallbackStartTouch],
+    changedTouches: [fallbackStartTouch],
+    preventDefault()
+    {
+      touchFallbackPrevented++;
+    },
+  });
+dom.windowMock.dispatch('touchmove',
+  {
+    target: dom.body,
+    cancelable: true,
+    timeStamp: performance.now() + 16,
+    touches: [fallbackMovedTouch],
+    changedTouches: [fallbackMovedTouch],
+    preventDefault()
+    {
+      touchFallbackPrevented++;
+    },
+  });
+dom.windowMock.dispatch('touchend',
+  {
+    target: dom.body,
+    timeStamp: performance.now() + 32,
+    touches: [],
+    changedTouches: [fallbackMovedTouch],
+  });
+assert(
+  touchFallbackEffect.usesTouchInputFallback &&
+    touchFallbackFilterEvent?.type === 'pointerdown' &&
+    touchFallbackFilterEvent?.pointerType === 'touch' &&
+    touchFallbackFilterEvent?.pointerId === fallbackStartTouch.identifier &&
+    touchFallbackPrevented === 2 &&
+    touchFallbackEffect.trailStrokes.length === 1 &&
+    touchFallbackEffect.trailStrokes[0].points.length >= 2 &&
+    touchFallbackEffect.activePointerId === null &&
+    touchFallbackEffect.currentTrailStroke === null &&
+    touchFallbackEffect.touchGestureStarts.size === 0,
+  'Touch-only 宿主在 none 下通过 fallback 建立、移动并结束拖尾',
+);
+
+touchFallbackEffect.clear();
+touchFallbackEffect.updateConfig({ touchAction: 'auto' });
+const autoFallbackStart =
+{
+  identifier: 202,
+  clientX: 60,
+  clientY: 180,
+  target: dom.body,
+};
+const autoFallbackMove = { ...autoFallbackStart, clientX: 300 };
+let autoFallbackPrevented = 0;
+
+dom.windowMock.dispatch('touchstart',
+  {
+    target: dom.body,
+    cancelable: true,
+    timeStamp: performance.now() + 48,
+    touches: [autoFallbackStart],
+    changedTouches: [autoFallbackStart],
+    preventDefault()
+    {
+      autoFallbackPrevented++;
+    },
+  });
+dom.windowMock.dispatch('touchmove',
+  {
+    target: dom.body,
+    cancelable: true,
+    timeStamp: performance.now() + 64,
+    touches: [autoFallbackMove],
+    changedTouches: [autoFallbackMove],
+    preventDefault()
+    {
+      autoFallbackPrevented++;
+    },
+  });
+dom.windowMock.dispatch('touchcancel',
+  {
+    target: dom.body,
+    timeStamp: performance.now() + 80,
+    touches: [],
+    changedTouches: [autoFallbackMove],
+  });
+assert(
+  touchFallbackEffect.touchActionListenersAttached &&
+    autoFallbackPrevented === 0 &&
+    touchFallbackEffect.activePointerId === null &&
+    touchFallbackEffect.currentTrailStroke === null &&
+    touchFallbackEffect.trailStrokes.length === 0,
+  'Touch-only fallback 在 auto 下持续监听并由 touchcancel 清理轨迹',
+);
+touchFallbackEffect.destroy();
+delete dom.windowMock.ontouchstart;
+assert(
+  pointerEventTypes.every((type, index) =>
+    listenerCount(type) === pointerListenerBaseline[index]),
+  'Touch-only fallback 销毁后完整解除 Touch 输入监听',
+);
 
 const shardOwnerEffect = new BAClickFX(
   {
