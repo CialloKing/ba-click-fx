@@ -7583,20 +7583,25 @@ export class BAClickFX
     // 推入当前实例的主题变换，渲染完成后恢复，保证多实例安全。
     const prevHueShift = themeHueShift;
     const previousRelativeOklchTheme = relativeOklchTheme;
-    themeHueShift = this._themeHueShift;
-    relativeOklchTheme = this._relativeOklchTheme;
-    this.context.save();
-    // 透明 Canvas 无法独立保存 Additive RGB 与 Coverage Alpha；在 residual
-    // Coverage Final Pass 完成前保留兼容 source-over，避免多个粒子把 Alpha 相加。
-    this.context.globalCompositeOperation =
-      this._getCanvasOutputCompositing() === 'browser-overlay'
-        ? 'source-over'
-        : 'lighter';
-    this.renderingFrame = true;
+    let contextSaved = false;
+
     this.canvasNativeSceneAlphaSnapshot = null;
 
     try
     {
+      // Context 异常也不能泄漏模块级主题状态；先建立 Canvas
+      // 恢复点，再推入当前实例配置。
+      this.context.save();
+      contextSaved = true;
+      themeHueShift = this._themeHueShift;
+      relativeOklchTheme = this._relativeOklchTheme;
+      // 透明 Canvas 无法独立保存 Additive RGB 与 Coverage Alpha；在 residual
+      // Coverage Final Pass 完成前保留兼容 source-over，避免多个粒子把 Alpha 相加。
+      this.context.globalCompositeOperation =
+        this._getCanvasOutputCompositing() === 'browser-overlay'
+          ? 'source-over'
+          : 'lighter';
+      this.renderingFrame = true;
       this._updateTrail(
         this.trailTimeMs,
         scale,
@@ -7757,9 +7762,13 @@ export class BAClickFX
     finally
     {
       this.renderingFrame = false;
-      this.context.restore();
       themeHueShift = prevHueShift;
       relativeOklchTheme = previousRelativeOklchTheme;
+
+      if (contextSaved)
+      {
+        this.context.restore();
+      }
     }
 
     // 合成合同可能在本帧内因后端成功/失败而改变；此时像素已经完成，
@@ -10536,12 +10545,14 @@ export class BAClickFX
       resolvedBloomBackend = 'native';
     }
 
-    themeHueShift = this._themeHueShift;
-    relativeOklchTheme = this._relativeOklchTheme;
-    this.context.save();
+    let contextSaved = false;
 
     try
     {
+      this.context.save();
+      contextSaved = true;
+      themeHueShift = this._themeHueShift;
+      relativeOklchTheme = this._relativeOklchTheme;
       this._drawCanvasFallbackFrame(
         scale,
         legacy || resolvedBloomBackend === 'native',
@@ -10593,9 +10604,13 @@ export class BAClickFX
     }
     finally
     {
-      this.context.restore();
       themeHueShift = previousHueShift;
       relativeOklchTheme = previousRelativeOklchTheme;
+
+      if (contextSaved)
+      {
+        this.context.restore();
+      }
     }
 
     this._finalizeCanvasOverlayAlpha(scale);
