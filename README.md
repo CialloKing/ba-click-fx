@@ -514,7 +514,7 @@ if (migrated.committed)
 
 公共库导出的 `DEFAULT_THEME_COLOR_MODE` 为 `hue-only`，用于兼容旧配置和旧像素结果：只把主题色的 HSL 色相差应用到 Unity 原始颜色，继续保留资源自带的饱和度、明度与 HDR 发射能量；没有 `themeColorMode` 字段的既有配置也按此模式解释。展示页只对没有既有设置的新用户采用推荐的 `relative-oklch`，不会静默迁移已保存的模式。
 
-`relative-oklch` 以默认游戏蓝 `#4ca7ff` 为基准，将主题色相对基准的 OKLCH 色相、色度和感知明度变化映射到 Unity 原始颜色。明度会在线性 RGB HDR 发射进入 Bloom 预过滤之前调整能量，因此较暗主题会自然减少超过阈值的 Bloom，而不是在 Final Pass 中压暗已经生成的光晕。默认游戏蓝必须走恒等映射，保持 Unity 默认像素不变；纯黑主题的发光能量为零，最终不可见，不会生成黑色遮罩或残留光晕。
+`relative-oklch` 以默认游戏蓝 `#4ca7ff` 为基准，将主题色相对基准的 OKLCH 色相、色度和感知明度变化映射到 Unity 原始颜色。明度会在线性 RGB HDR 发射进入 Bloom 预过滤之前调整能量，因此较暗主题会自然减少超过阈值的 Bloom，而不是在 Final Pass 中压暗已经生成的光晕。当透明覆盖层使用未知背景的 `source-over` 传输时，引擎还会按目标颜色的 sRGB 峰值独立限制 Coverage Alpha，避免暗色变成实心遮挡；该限制不缩放 Scene、Screen/Plus-lighter 或 HDR 发射能量。默认游戏蓝必须走恒等映射，保持 Unity 默认像素不变；纯黑主题的发光能量为零，最终不可见，不会生成黑色遮罩或残留光晕。
 
 `setTriangleRoundness(value)` 是 `setFxParam('shards.roundness', value)` 的便捷 API。默认值 `0` 完全保留当前三角图集；`0..1` 基于原图集三角边界，用与直边相切的圆弧连续磨平尖角，并同步重映射纹理以避免出现内部尖三角；`1` 会把所有点击和拖尾三角碎片变成同尺寸圆形。运行时修改会让现存粒子在下一帧即时响应。有限的越界值由 Schema 钳制到 `0..1`，非有限值会被拒绝。
 
