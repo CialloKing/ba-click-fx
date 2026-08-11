@@ -6765,17 +6765,9 @@ export class BAClickFX
       return this.host.getBoundingClientRect();
     }
 
-    if (isCanvas(this.host))
-    {
-      return this.canvas.getBoundingClientRect();
-    }
-
-    return {
-      left: 0,
-      top: 0,
-      width: window.innerWidth,
-      height: window.innerHeight,
-    };
+    // fixed 覆盖层的 CSS 盒子会排除传统滚动条槽；实测画布才能让
+    // 输入坐标、逻辑尺寸和 backing store 使用同一个坐标空间。
+    return this.canvas.getBoundingClientRect();
   }
 
   _getPointerPosition(event)

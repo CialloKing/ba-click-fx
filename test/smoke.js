@@ -547,12 +547,18 @@ class ElementMock extends EventTargetMock
 
 class CanvasMock extends ElementMock
 {
-  constructor(onAppend = null)
+  constructor(onAppend = null, bounds = null)
   {
     super('canvas', onAppend);
     this.width = 0;
     this.height = 0;
     this.context = new ContextMock(this);
+    this.bounds = bounds ?? {
+      left: 0,
+      top: 0,
+      width: 1920,
+      height: 1080,
+    };
   }
 
   getContext(type)
@@ -562,12 +568,7 @@ class CanvasMock extends ElementMock
 
   getBoundingClientRect()
   {
-    return {
-      left: 0,
-      top: 0,
-      width: 1920,
-      height: 1080,
-    };
+    return { ...this.bounds };
   }
 }
 
@@ -579,6 +580,12 @@ function installDom()
   const createdElements = [];
   const appendedCanvases = [];
   const canvasMounts = [];
+  const canvasBounds = {
+    left: 0,
+    top: 0,
+    width: 1920,
+    height: 1080,
+  };
   let nextFrameId = 1;
   let appendedCanvas = null;
   let currentTime = nativePerformance.now();
@@ -615,7 +622,7 @@ function installDom()
     {
       if (tagName === 'canvas')
       {
-        const canvas = new CanvasMock(recordAppend);
+        const canvas = new CanvasMock(recordAppend, canvasBounds);
 
         createdCanvases.push(canvas);
         createdElements.push(canvas);
@@ -669,6 +676,10 @@ function installDom()
     createdElements,
     appendedCanvases,
     canvasMounts,
+    setCanvasBounds(bounds)
+    {
+      Object.assign(canvasBounds, bounds);
+    },
     setCurrentTime(time)
     {
       currentTime = time;
@@ -1882,6 +1893,47 @@ assert(
     'destroyed',
   '销毁后的批量参数写入返回可检测拒绝原因',
 );
+
+console.log('\n全屏坐标尺寸');
+const fullscreenTestDevicePixelRatio = dom.windowMock.devicePixelRatio;
+
+dom.windowMock.devicePixelRatio = 1.5;
+dom.setCanvasBounds({ width: 1910, height: 1080 });
+const scrollbarGutterEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+  },
+);
+
+assert(
+  dom.windowMock.innerWidth === 1920 &&
+    scrollbarGutterEffect.width === 1910 &&
+    scrollbarGutterEffect.height === 1080 &&
+    scrollbarGutterEffect.canvas.width === 2865 &&
+    scrollbarGutterEffect.canvas.height === 1620,
+  '全屏覆盖层按实测 CSS 尺寸排除滚动条槽',
+);
+scrollbarGutterEffect.destroy();
+
+dom.setCanvasBounds({ width: 0, height: 0 });
+const hiddenFullscreenEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+  },
+);
+
+assert(
+  hiddenFullscreenEffect.width === 1920 &&
+    hiddenFullscreenEffect.height === 1080 &&
+    hiddenFullscreenEffect.canvas.width === 2880 &&
+    hiddenFullscreenEffect.canvas.height === 1620,
+  '全屏覆盖层不可测时回退窗口尺寸',
+);
+hiddenFullscreenEffect.destroy();
+dom.setCanvasBounds({ width: 1920, height: 1080 });
+dom.windowMock.devicePixelRatio = fullscreenTestDevicePixelRatio;
 
 const defaultBackendEffect = new BAClickFX();
 
