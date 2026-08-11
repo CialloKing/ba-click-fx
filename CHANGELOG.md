@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## v1.2.25 — 输入采样模拟与感知主题颜色
+
+- 新增 `inputSamplingRate` 和 `setInputSamplingRate(rateHz)` 宿主输入 API：`0` 表示不限频，`1..1000 Hz` 可模拟手机客户端低采样率下的多边形拖尾轨迹；采样时钟基于未缩放的真实输入时间，与 `trailTimeScale` 和渲染帧率正交。
+- 展示页在宿主控制 API 中新增输入采样率滑块，覆盖不限频到 `1000 Hz`，使用固定四位纯数字输出，并同步双语文案、本地持久化与重置。
+- 新增 `themeColorMode: 'hue-only' | 'relative-oklch'` 和 `setThemeColorMode()`；公共库默认保留旧版仅色相语义，展示页新用户使用推荐的相对 OKLCH 映射，旧颜色设置会安全迁移到兼容模式。
+- 相对 OKLCH 会在 HDR/Bloom 之前保留色相、色度与感知明度的相对关系，默认游戏蓝严格恒等，低于 8-bit 的暗部能量保留到最终输出边界。
+- 将暗色主题的 RGB 发射与未知背景 `source-over` Coverage 分离，防止暗色透明特效变成实心遮挡，同时不缩放 Scene、Screen/Plus-lighter 或 HDR 能量；Native、Software Bloom、WebGL2 与 WebGPU 均纳入默认恒等、暗色单调、纯黑透明和白底遮挡像素门禁。
+
 ## v1.2.24 — WebGPU 普通模式
 
 - 新增名为 `WebGPU` 的普通渲染模式：固定协商 Standard SDR Canvas，不请求 `toneMapping: extended` 或 `rgba16float` Canvas Surface，且不显示 HDR/实验标记；内部保留 `rgba16float` 线性 Scene 与 Unity MXFinalBloom 精度以维持效果一致，原 `WebGPU HDR（实验）` 模式保持兼容。
