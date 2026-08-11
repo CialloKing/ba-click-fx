@@ -60,7 +60,7 @@ const defaultTheme = createRelativeOklchTheme(DEFAULT_THEME_COLOR);
 const original = [180.25, 220.5, 255];
 check(defaultTheme.identity, '默认游戏蓝使用恒等快速路径');
 check(!defaultTheme.invisible, '默认游戏蓝保持可见');
-check(defaultTheme.opacityScale === 1, '默认游戏蓝保持完整不透明度');
+check(defaultTheme.coverageScale === 1, '默认游戏蓝保持完整 Coverage 上限');
 check(
   applyRelativeOklchTheme(original, defaultTheme) === original,
   '默认主题严格返回原颜色且不发生舍入',
@@ -153,7 +153,7 @@ check(
 console.log('\n零能量与色域安全');
 const blackTheme = createRelativeOklchTheme('#000000');
 check(blackTheme.invisible, '纯黑主题显式报告 invisible');
-check(blackTheme.opacityScale === 0, '纯黑主题的透明传输比例为零');
+check(blackTheme.coverageScale === 0, '纯黑主题的透明传输比例为零');
 checkEqual(
   applyRelativeOklchTheme(sourceBlue, blackTheme),
   [0, 0, 0],
@@ -195,23 +195,21 @@ check(
   '#000001 在最终量化前保留非零低能蓝色',
 );
 check(
-  oneBlueTheme.opacityScale > 0 &&
-    oneBlueTheme.opacityScale < 0.001 &&
-    fiveGrayTheme.opacityScale > 0.02 &&
-    fiveGrayTheme.opacityScale < 0.04,
-  '近黑主题透明比例沿平滑 toe 逐级增长',
+  oneBlueTheme.coverageScale === 1 / 255 &&
+    fiveGrayTheme.coverageScale === 5 / 255,
+  '近黑主题 Coverage 上限按 sRGB 峰值逐级增长',
 );
 check(
-  blackTheme.opacityScale < oneBlueTheme.opacityScale &&
-    oneBlueTheme.opacityScale < fiveGrayTheme.opacityScale &&
-    fiveGrayTheme.opacityScale < defaultTheme.opacityScale,
+  blackTheme.coverageScale < oneBlueTheme.coverageScale &&
+    oneBlueTheme.coverageScale < fiveGrayTheme.coverageScale &&
+    fiveGrayTheme.coverageScale < defaultTheme.coverageScale,
   '#000000、#000001、#050505 到默认蓝的透明传输保持单调',
 );
 check(
-  createRelativeOklchTheme('#202020').opacityScale === 1 &&
-    createRelativeOklchTheme('#808080').opacityScale === 1 &&
-    createRelativeOklchTheme('#200002').opacityScale === 1,
-  '#20 及以上的普通主题不被透明 toe 二次压暗',
+  createRelativeOklchTheme('#001020').coverageScale === 32 / 255 &&
+    createRelativeOklchTheme('#200002').coverageScale === 32 / 255 &&
+    createRelativeOklchTheme('#808080').coverageScale === 128 / 255,
+  '暗色与中灰主题使用各自 sRGB 峰值限制未知背景 Coverage',
 );
 
 console.log('\n输入边界');

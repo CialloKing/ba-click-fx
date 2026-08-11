@@ -1678,30 +1678,51 @@ paramApiEffect.updateConfig(
   },
 );
 const blackRelativeThemeOpacity = paramApiEffect._getEffectiveOpacity();
+paramApiEffect.updateConfig(
+  {
+    outputCompositing: 'browser-overlay',
+    hostCompositing: 'source-over',
+    overlayAlphaLimit: 1,
+  },
+);
+const blackRelativeThemeAlphaLimit =
+  paramApiEffect._getEffectiveOverlayAlphaLimit();
 paramApiEffect.setThemeColor('#000001');
 const oneBlueRelativeThemeOpacity = paramApiEffect._getEffectiveOpacity();
+const oneBlueRelativeThemeAlphaLimit =
+  paramApiEffect._getEffectiveOverlayAlphaLimit();
 paramApiEffect.setThemeColor('#050505');
 const fiveGrayRelativeThemeOpacity = paramApiEffect._getEffectiveOpacity();
+const fiveGrayRelativeThemeAlphaLimit =
+  paramApiEffect._getEffectiveOverlayAlphaLimit();
+paramApiEffect.setThemeColor('#001020');
+const darkBlueRelativeThemeAlphaLimit =
+  paramApiEffect._getEffectiveOverlayAlphaLimit();
+paramApiEffect.setThemeColor('#200002');
+const darkRedRelativeThemeAlphaLimit =
+  paramApiEffect._getEffectiveOverlayAlphaLimit();
 paramApiEffect.setThemeColorMode('hue-only');
 const blackHueOnlyThemeOpacity = paramApiEffect._getEffectiveOpacity();
 paramApiEffect.updateConfig(
   {
     themeColor: '#ff6969',
     themeColorMode: 'hue-only',
+    outputCompositing: 'scene',
   },
 );
 assert(
   paramApiEffect.getConfig().opacity === 1 &&
-    blackRelativeThemeOpacity === 0 &&
-    oneBlueRelativeThemeOpacity > 0 &&
-    oneBlueRelativeThemeOpacity < 0.001 &&
-    fiveGrayRelativeThemeOpacity > 0.02 &&
-    fiveGrayRelativeThemeOpacity < 0.04 &&
-    blackRelativeThemeOpacity < oneBlueRelativeThemeOpacity &&
-    oneBlueRelativeThemeOpacity < fiveGrayRelativeThemeOpacity &&
+    blackRelativeThemeOpacity === 1 &&
+    oneBlueRelativeThemeOpacity === 1 &&
+    fiveGrayRelativeThemeOpacity === 1 &&
+    blackRelativeThemeAlphaLimit === 0 &&
+    oneBlueRelativeThemeAlphaLimit === 1 / 255 &&
+    fiveGrayRelativeThemeAlphaLimit === 5 / 255 &&
+    darkBlueRelativeThemeAlphaLimit === 32 / 255 &&
+    darkRedRelativeThemeAlphaLimit === 32 / 255 &&
     blackHueOnlyThemeOpacity === 1 &&
     paramApiEffect._getEffectiveOpacity() === 1,
-  '近黑相对主题让发射与 Coverage 连续收敛，兼容色相模式不改旧语义',
+  '相对主题仅限制未知背景 Coverage，发射与兼容模式不改旧语义',
 );
 const singleParamAccepted = paramApiEffect.setFxParam(
   'rings.rotationDirection',

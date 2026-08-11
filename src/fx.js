@@ -6947,10 +6947,24 @@ export class BAClickFX
 
   _getEffectiveOpacity()
   {
-    // 相对主题越接近黑色，发射与 Coverage 越应连续收敛到零。所有后端
-    // 共用这一入口，可避免 exact-black 特判令 #000001 恢复完整透明遮罩。
-    return this.config.opacity *
-      (this._relativeOklchTheme?.opacityScale ?? 1);
+    // 主题亮度属于 RGB contribution；Scene、Add 与 HDR 必须保留原能量。
+    return this.config.opacity;
+  }
+
+  _getEffectiveOverlayAlphaLimit()
+  {
+    if (
+      !this._usesUnknownBrowserOverlay() ||
+      this._usesIndependentHostPayload()
+    )
+    {
+      return this.config.overlayAlphaLimit;
+    }
+
+    // 未知背景只能用 source-over 传输。限制 Alpha 而不改 Scene RGB，
+    // 可让暗主题的白底遮挡最多等于其自身峰值，同时保持 Add/HDR 能量。
+    return this.config.overlayAlphaLimit *
+      (this._relativeOklchTheme?.coverageScale ?? 1);
   }
 
   _acceptPointerDown(event)
@@ -9696,10 +9710,11 @@ export class BAClickFX
   {
     const overlayAlphaPolicy = this._getOverlayAlphaPolicy();
     const overlayColorCompensation = this._getOverlayColorCompensation();
+    const overlayAlphaLimit = this._getEffectiveOverlayAlphaLimit();
     const compensateBrightCore =
       overlayColorCompensation === 'bright-core';
     const adjustAlpha = overlayAlphaPolicy === 'visual-max' ||
-      this.config.overlayAlphaLimit < 1;
+      overlayAlphaLimit < 1;
 
     if (
       !this._usesUnknownBrowserOverlay() ||
@@ -9753,15 +9768,15 @@ export class BAClickFX
           imageData,
           matchingSnapshot,
           bloomTransportData,
-          this.config.overlayAlphaLimit,
+          overlayAlphaLimit,
           overlayAlphaPolicy,
           bloomCompositing,
         );
       }
-      else if (this.config.overlayAlphaLimit < 1)
+      else if (overlayAlphaLimit < 1)
       {
         const maximumAlpha = Math.round(
-          clamp01(this.config.overlayAlphaLimit) * 255,
+          clamp01(overlayAlphaLimit) * 255,
         );
 
         for (let index = 3; index < imageData.data.length; index += 4)
@@ -9808,7 +9823,7 @@ export class BAClickFX
         maximumX: bounds.maximumX - 1,
         maximumY: bounds.maximumY - 1,
       },
-      this.config.overlayAlphaLimit,
+      overlayAlphaLimit,
     );
   }
 
@@ -9861,7 +9876,7 @@ export class BAClickFX
       this._getEffectiveOpacity(),
       this.config.outputCompositing,
       this._getOverlayColorCompensation(),
-      this.config.overlayAlphaLimit,
+      this._getEffectiveOverlayAlphaLimit(),
       this._getEffectiveHostCompositing(),
       this.compositingReferenceSource === null ? 'unknown' : 'known',
       this.config.themeColorMode,
@@ -10017,7 +10032,7 @@ export class BAClickFX
       // Canvas 在清晰层与 Bloom 聚合后统一补偿，避免各层重复混色。
       overlayColorCompensation: 'none',
       overlayAlphaPolicy: this._getOverlayAlphaPolicy(),
-      overlayAlphaLimit: this.config.overlayAlphaLimit,
+      overlayAlphaLimit: this._getEffectiveOverlayAlphaLimit(),
       hostCompositing: this._getEffectiveHostCompositing(),
       enforceOverlayAlphaLimit:
         this._usesUnknownBrowserOverlay(),
@@ -10331,7 +10346,7 @@ export class BAClickFX
           overlayColorCompensation:
             this._getOverlayColorCompensation(),
           overlayAlphaPolicy: this._getOverlayAlphaPolicy(),
-          overlayAlphaLimit: this.config.overlayAlphaLimit,
+          overlayAlphaLimit: this._getEffectiveOverlayAlphaLimit(),
           hostCompositing: this._getEffectiveHostCompositing(),
           webgpuHdrPeak: this.config.webgpuHdrPeak,
           webgpuHdrBrightness: this.config.webgpuHdrBrightness,
@@ -10624,7 +10639,7 @@ export class BAClickFX
     const outputCompositing = this._getCanvasOutputCompositing();
     // 最终 Canvas 载荷会在所有图元聚合后统一补偿一次。
     const overlayColorCompensation = 'none';
-    const overlayAlphaLimit = this.config.overlayAlphaLimit;
+    const overlayAlphaLimit = this._getEffectiveOverlayAlphaLimit();
 
     for (const wave of this.waves)
     {
@@ -10679,7 +10694,7 @@ export class BAClickFX
       : this._getCanvasOutputCompositing();
     // 线性目标不需要补偿；透明 Canvas 也延迟到 Final Pass 统一处理。
     const overlayColorCompensation = 'none';
-    const overlayAlphaLimit = this.config.overlayAlphaLimit;
+    const overlayAlphaLimit = this._getEffectiveOverlayAlphaLimit();
 
     for (
       let strokeIndex = this.trailStrokes.length - 1;
@@ -10867,7 +10882,7 @@ export class BAClickFX
           outputCompositing,
           this.dpr,
           'none',
-          this.config.overlayAlphaLimit,
+          this._getEffectiveOverlayAlphaLimit(),
         );
       }
     }
@@ -10880,7 +10895,7 @@ export class BAClickFX
     linearNativeGlow = false,
     outputCompositing = this._getCanvasOutputCompositing(),
     overlayColorCompensation = 'none',
-    overlayAlphaLimit = this.config.overlayAlphaLimit,
+    overlayAlphaLimit = this._getEffectiveOverlayAlphaLimit(),
   )
   {
     const hasLegacyRings = legacy && this.waves.some(
@@ -10941,7 +10956,7 @@ export class BAClickFX
           this.fxConfig,
           outputCompositing,
           'none',
-          this.config.overlayAlphaLimit,
+          this._getEffectiveOverlayAlphaLimit(),
         );
       }
     }
