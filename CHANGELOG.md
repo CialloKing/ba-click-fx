@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## v1.2.27 — Touch-only 移动端拖尾输入修复
+
+- 支持仅提供 TouchEvent、`ontouchstart` 或触摸点能力而不提供 PointerEvent 的旧版移动浏览器/WebView；Touch 生命周期现在转换为统一的指针输入，拖尾可正常建立、采样、结束和取消。
+- Touch-only fallback 保留 `inputFilter`、坐标、target、`pointerId` 与 `composedPath()` 合同，并在 `touchend`/`touchcancel`、失焦、暂停和销毁路径完整清理活动指针。
+- DOM Pointer 生命周期改用 capture 监听，避免宿主控件停止冒泡后吞掉 `pointerdown`、`pointermove` 或终止事件；closed Shadow DOM 在真实 target 作用域内完成过滤。
+- 增加 Touch-only 源码与构建后 IIFE 回归，覆盖 `none`、自动手势取消、监听销毁和移动端拖尾点数。
+
 ## v1.2.26 — 修复全屏滚动条坐标偏移
 
 - 修复无 `target` 的全屏 fixed 覆盖层在传统滚动条槽存在时，`window.innerWidth` 与 Canvas CSS 盒子宽度不一致导致的 X 轴坐标偏移。
