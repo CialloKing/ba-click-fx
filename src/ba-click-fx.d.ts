@@ -3,6 +3,8 @@ declare module 'ba-click-fx'
   export type BAClickFXInputFilter = (event: PointerEvent) => boolean;
   export type BAClickFXInputSource = 'dom' | 'manual';
   export type BAClickFXPointerType = 'mouse' | 'touch' | 'pen';
+  /** 保留旧版纯色相行为，或按 OKLCH 相对映射完整主题颜色。 */
+  export type BAClickFXThemeColorMode = 'hue-only' | 'relative-oklch';
   /** Scene 精确路径或普通网页透明覆盖层输出。 */
   export type BAClickFXOutputCompositing =
     'scene' | 'browser-overlay';
@@ -98,6 +100,8 @@ declare module 'ba-click-fx'
     opacity?: number;
     /** 主题色，默认游戏蓝 '#4ca7ff'；仅接受六位十六进制颜色。 */
     themeColor?: string;
+    /** 主题颜色映射模式；公共库默认为兼容旧版的 'hue-only'。 */
+    themeColorMode?: BAClickFXThemeColorMode;
     /**
      * 输出合成，默认 'scene'。已知背景的精确路径应配合
      * setCompositingReference()；透明桌面的未知背景使用 'browser-overlay'。
@@ -185,6 +189,7 @@ declare module 'ba-click-fx'
     scale: number;
     opacity: number;
     themeColor: string;
+    themeColorMode: BAClickFXThemeColorMode;
     outputCompositing: BAClickFXOutputCompositing;
     overlayAlphaPolicy: BAClickFXOverlayAlphaPolicy;
     overlayColorCompensation: BAClickFXOverlayColorCompensation;
@@ -407,6 +412,7 @@ declare module 'ba-click-fx'
 
   export const CONFIG: Readonly<BAClickFXConfig>;
   export const DEFAULT_THEME_COLOR: '#4ca7ff';
+  export const DEFAULT_THEME_COLOR_MODE: 'hue-only';
   export const FX_PARAM_SCHEMA_VERSION: 2;
   export const FX_PARAM_SCHEMA: readonly BAClickFXParamDescriptor[];
   export const FX_PARAM_MIGRATIONS: readonly BAClickFXParamMigration[];
@@ -477,6 +483,9 @@ declare module 'ba-click-fx'
 
     /** 设置并保存主题色；传入空字符串或非法值恢复默认游戏蓝。 */
     setThemeColor(hex: string): void;
+
+    /** 设置主题颜色映射模式；非法值返回 false 且保持当前模式不变。 */
+    setThemeColorMode(mode: BAClickFXThemeColorMode): boolean;
 
     /** 设置移动输入采样率上限（Hz）；接受 0 或 1..1000，非法值返回 false。 */
     setInputSamplingRate(rateHz: number): boolean;

@@ -56,7 +56,7 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 - WebGPU 使用 `rgba16float` 线性 Scene 与多级 Bloom；普通模式强制标准 SDR Canvas，HDR 模式才尝试 `extended` 输出并保留超过 SDR 白色的高光
 - WebGPU 不可用或 Device 丢失时自动回退完整 WebGL2，再沿 Canvas 2D、软件 Bloom、原生辉光链降级
 - 支持浏览器插件、npm、CDN、直接下载四种接入方式
-- 演示默认主题色 `#4ca7ff`，支持自定义 HSL hue 偏移
+- 主题色支持兼容的 HSL 色相偏移和推荐的相对 OKLCH 完整颜色映射
 - 可调参 API：运行时修改圆环 HDR、半径、宽度、寿命、碎片数量、拖尾宽度、Bloom 强度等
 - 粒子尺寸随画布高度持续缩放，保持与 Unity UI 相同的相对比例
 
@@ -163,6 +163,7 @@ new BAClickFX(options?: {
   scale?: number,                  // 全局缩放，默认 1
   opacity?: number,                // 不透明度 0~1，默认 1
   themeColor?: string,             // 六位十六进制主题色，默认 #4ca7ff
+  themeColorMode?: 'hue-only' | 'relative-oklch', // 公共库默认 hue-only
   outputCompositing?: 'scene' | 'browser-overlay', // 输出合成，默认 scene
   overlayAlphaPolicy?: 'coverage' | 'visual-max', // 覆盖层 Alpha 策略，默认 coverage
   overlayColorCompensation?: 'none' | 'bright-core', // 覆盖层颜色补偿，默认 none
@@ -413,6 +414,7 @@ fx.setPaused(false);
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |
 | `updateConfig({...})` | 运行时更新基础配置、输入来源/采样率、时间倍率、完整特效/Bloom 后端、DPR 与触摸行为 |
 | `setThemeColor('#4ca7ff')` | 设置并保存主题色；非法值恢复默认游戏蓝 |
+| `setThemeColorMode(mode)` | 切换主题颜色映射模式；接受 `hue-only` 或 `relative-oklch`，成功返回 `true` |
 | `setTriangleRoundness(value)` | 设置三角碎片圆角比例；与 `setFxParam('shards.roundness', value)` 等价 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 修改单个点号路径；成功返回 `true`，拒绝时返回 `false` |
 | `setFxParams(patch, options?)` | 按 Schema 验证并批量应用点号路径补丁，返回逐项处理结果 |
@@ -508,7 +510,11 @@ if (migrated.committed)
 
 返回对象包含 `applied`、`normalized`、`rejected`、`committed` 和 `schemaVersion`：`applied` 是最终接受的路径和值；`normalized` 记录路径重命名、旧值恢复默认、数值钳制或布尔转换；`rejected` 给出路径、原值和原因；`committed` 表示候选配置是否真正提交。默认 `strict: false` 会提交合法项并报告拒绝项；`strict: true` 只要出现一个拒绝项就回滚整批，且 `applied` 为空。`reset: true` 会先恢复当前 Enhanced 或 Legacy 模式的默认基线，再应用同一批补丁；即使补丁为空，也会提交该重置。`setFxParam()` 复用相同校验并采用严格单项语义。
 
-`themeColor` 也是实例配置状态：可在构造参数或 `updateConfig()` 中设置，`setThemeColor()` 使用同一规范化路径，`getConfig()` 会返回当前值。只接受六位十六进制颜色；空字符串或非法值恢复导出的 `DEFAULT_THEME_COLOR`（`#4ca7ff`）。主题色改变的是宿主可配置的色相状态，不会改写 `UNITY_FX_TOUCH` 或 `FX_PARAM_SCHEMA` 的 Unity 参数基线。
+`themeColor` 和 `themeColorMode` 都是实例配置状态：可在构造参数或 `updateConfig()` 中设置，`setThemeColor()` 与 `setThemeColorMode()` 使用同一规范化路径，`getConfig()` 会返回当前值。主题色只接受六位十六进制颜色；空字符串或非法值恢复导出的 `DEFAULT_THEME_COLOR`（`#4ca7ff`）。非法主题颜色模式会被拒绝，`setThemeColorMode()` 返回 `false` 并保持当前模式不变。两项配置都不会改写 `UNITY_FX_TOUCH` 或 `FX_PARAM_SCHEMA` 的 Unity 参数基线。
+
+公共库导出的 `DEFAULT_THEME_COLOR_MODE` 为 `hue-only`，用于兼容旧配置和旧像素结果：只把主题色的 HSL 色相差应用到 Unity 原始颜色，继续保留资源自带的饱和度、明度与 HDR 发射能量；没有 `themeColorMode` 字段的既有配置也按此模式解释。展示页只对没有既有设置的新用户采用推荐的 `relative-oklch`，不会静默迁移已保存的模式。
+
+`relative-oklch` 以默认游戏蓝 `#4ca7ff` 为基准，将主题色相对基准的 OKLCH 色相、色度和感知明度变化映射到 Unity 原始颜色。明度会在线性 RGB HDR 发射进入 Bloom 预过滤之前调整能量，因此较暗主题会自然减少超过阈值的 Bloom，而不是在 Final Pass 中压暗已经生成的光晕。默认游戏蓝必须走恒等映射，保持 Unity 默认像素不变；纯黑主题的发光能量为零，最终不可见，不会生成黑色遮罩或残留光晕。
 
 `setTriangleRoundness(value)` 是 `setFxParam('shards.roundness', value)` 的便捷 API。默认值 `0` 完全保留当前三角图集；`0..1` 基于原图集三角边界，用与直边相切的圆弧连续磨平尖角，并同步重映射纹理以避免出现内部尖三角；`1` 会把所有点击和拖尾三角碎片变成同尺寸圆形。运行时修改会让现存粒子在下一帧即时响应。有限的越界值由 Schema 钳制到 `0..1`，非有限值会被拒绝。
 

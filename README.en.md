@@ -54,7 +54,7 @@
 - WebGPU uses an `rgba16float` linear Scene and multi-level Bloom; the ordinary mode forces a standard SDR Canvas, while the HDR mode may request `extended` output that preserves highlights above SDR white
 - An unavailable or lost WebGPU device falls back to Full WebGL2, then through Canvas 2D, Software Bloom, and Native Glow
 - Browser extension, npm, CDN, and direct download
-- Demo theme defaults to `#4ca7ff`, with custom HSL hue shifting
+- Theme colours support compatible HSL hue shifting and recommended relative-OKLCH full-colour mapping
 - Runtime-tweakable FX parameters via `setFxParam()`
 - Particle sizes keep scaling with canvas height to preserve the Unity UI proportions
 
@@ -143,6 +143,7 @@ new BAClickFX(options?: {
   scale?: number,                // default 1
   opacity?: number,              // default 1
   themeColor?: string,           // six-digit hex, default #4ca7ff
+  themeColorMode?: 'hue-only' | 'relative-oklch', // public-library default: hue-only
   outputCompositing?: 'scene' | 'browser-overlay', // default scene
   overlayAlphaPolicy?: 'coverage' | 'visual-max', // default coverage
   overlayColorCompensation?: 'none' | 'bright-core', // default none
@@ -393,6 +394,7 @@ Pausing cancels the active pointer, ignores `boom()` and every automatic or manu
 | `destroy()` | Destroy instance, remove listeners and canvas |
 | `updateConfig({...})` | Update base config, input source/rate, time scales, Full Effect/Bloom backends, DPR, and touch behaviour at runtime |
 | `setThemeColor('#4ca7ff')` | Set and persist the theme colour; invalid input restores the default game blue |
+| `setThemeColorMode(mode)` | Switch the theme-colour mapping mode; accepts `hue-only` or `relative-oklch` and returns `true` on success |
 | `setTriangleRoundness(value)` | Set the triangle-shard roundness ratio; equivalent to `setFxParam('shards.roundness', value)` |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify one dot-path; returns `true` on success and `false` when rejected |
 | `setFxParams(patch, options?)` | Validate and batch-apply a dot-path patch through the public Schema, returning per-entry results |
@@ -488,7 +490,11 @@ The package-level `applyFxParamPatch()` uses the game defaults as its private va
 
 The result contains `applied`, `normalized`, `rejected`, `committed`, and `schemaVersion`. `applied` contains the accepted final paths and values; `normalized` records renames, default restoration, numeric clamping, and Boolean coercion; `rejected` gives the path, original value, and reason; `committed` says whether the candidate configuration was actually installed. The default `strict: false` commits valid entries and reports rejected ones. With `strict: true`, one rejected entry rolls back the entire batch and `applied` is empty. `reset: true` first restores the current Enhanced or Legacy mode baseline and then applies the same patch; even an empty patch commits the reset. `setFxParam()` reuses this validation with strict single-entry semantics.
 
-`themeColor` is also instance configuration state. It can be supplied to the constructor or `updateConfig()`; `setThemeColor()` uses the same normalisation path; and `getConfig()` returns the current value. Only six-digit hexadecimal colours are accepted. An empty string or invalid value restores the exported `DEFAULT_THEME_COLOR` (`#4ca7ff`). Theme state does not mutate the Unity parameter baseline in `UNITY_FX_TOUCH` or `FX_PARAM_SCHEMA`.
+`themeColor` and `themeColorMode` are both instance configuration state. They can be supplied to the constructor or `updateConfig()`; `setThemeColor()` and `setThemeColorMode()` use the same normalisation path; and `getConfig()` returns their current values. Only six-digit hexadecimal colours are accepted. An empty string or invalid colour restores the exported `DEFAULT_THEME_COLOR` (`#4ca7ff`). An invalid mode is rejected: `setThemeColorMode()` returns `false` and leaves the current mode unchanged. Neither setting mutates the Unity parameter baseline in `UNITY_FX_TOUCH` or `FX_PARAM_SCHEMA`.
+
+The public library exports `DEFAULT_THEME_COLOR_MODE` as `hue-only` to preserve existing configurations and pixel output. This mode applies only the theme colour's HSL hue difference to the original Unity colours, retaining their authored saturation, lightness, and HDR emission energy. Existing configurations without a `themeColorMode` field are interpreted the same way. The demo selects the recommended `relative-oklch` mode only for new users without saved settings; it does not silently migrate a persisted mode.
+
+`relative-oklch` uses the default game blue `#4ca7ff` as its reference and maps the theme colour's relative OKLCH hue, chroma, and perceptual-lightness changes onto the original Unity colours. Lightness adjusts linear-RGB HDR emission energy before Bloom prefiltering, so a darker theme naturally emits less energy above the Bloom threshold instead of dimming an already-generated halo in the Final Pass. The default game blue must remain an identity mapping and preserve the default Unity pixels. A pure-black theme has zero emissive energy and is therefore invisible, without a black mask or residual halo.
 
 `setTriangleRoundness(value)` is a convenience API for `setFxParam('shards.roundness', value)`. The default `0` preserves the current triangle atlas exactly; values from `0..1` continuously trim its corners with arcs tangent to the original straight sides and remap the texture so no sharp inner triangle remains; `1` turns every click and trail triangle shard into a same-size circle. Runtime changes affect existing particles on the next frame. Finite out-of-range values are clamped to `0..1` by the Schema, while non-finite values are rejected.
 
