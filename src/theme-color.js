@@ -229,7 +229,7 @@ function mapRelativeLightness(sourceLightness, targetLightness)
 }
 
 /**
- * 将一个 0..255 sRGB 颜色映射到主题色，返回同范围的整数 sRGB。
+ * 将一个 0..255 sRGB 颜色映射到主题色，返回同范围的有限浮点 sRGB。
  * 默认主题走严格恒等路径，保证既有 Unity 默认画面不发生舍入漂移。
  */
 export function applyRelativeOklchTheme(rgb, theme)
