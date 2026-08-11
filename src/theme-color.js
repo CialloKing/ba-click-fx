@@ -2,7 +2,11 @@
 // Unity's relative color relationships. OKLCH lets us change those perceptual
 // relationships before HDR emission and Bloom are applied.
 
-export const DEFAULT_THEME_COLOR = '#4ca7ff';
+import { DEFAULT_THEME_COLOR } from './config.js';
+
+// Keep the focused color helper convenient to test without creating a second
+// source of truth for the public default.
+export { DEFAULT_THEME_COLOR };
 
 const ACHROMATIC_EPSILON = 1e-5;
 const BLACK_EPSILON = 1e-7;
