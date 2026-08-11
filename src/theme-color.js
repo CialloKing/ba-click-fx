@@ -9,6 +9,7 @@ const BLACK_EPSILON = 1e-7;
 const GAMUT_EPSILON = 1e-7;
 const GAMUT_SEARCH_STEPS = 28;
 const FULL_TURN = Math.PI * 2;
+const NEAR_BLACK_OPACITY_CEILING = 32;
 
 function clamp01(value)
 {
@@ -116,6 +117,16 @@ function normalizeHue(hue)
   return hue - Math.floor(hue / FULL_TURN) * FULL_TURN;
 }
 
+function resolveNearBlackOpacityScale(targetRgb)
+{
+  const peak = Math.max(...targetRgb);
+  const progress = clamp01(peak / NEAR_BLACK_OPACITY_CEILING);
+
+  // 五次 smootherstep 在黑点与正常亮度边界的一阶、二阶导数均为零，
+  // 调色器逐级移动时不会在 toe 两端产生新的亮度折点。
+  return progress ** 3 * (progress * (progress * 6 - 15) + 10);
+}
+
 function oklchToLinearSrgb(lightness, chroma, hue)
 {
   return oklabToLinearSrgb(
@@ -167,8 +178,10 @@ function gamutMapOklch(lightness, chroma, hue)
     linear = oklchToLinearSrgb(lightness, mappedChroma, hue);
   }
 
+  // 保留子 8-bit 的低能量；Canvas/CSS 等最终输出边界会自行量化，
+  // 这里提前 round 会让 #000001 一类主题在进入 HDR/Bloom 前直接断成零。
   return linear.map((channel) =>
-    Math.round(clamp01(encodeSrgbChannel(clamp01(channel))) * 255));
+    clamp01(encodeSrgbChannel(clamp01(channel))) * 255);
 }
 
 const BASE_OKLCH = srgb255ToOklch(parseThemeColor(DEFAULT_THEME_COLOR));
@@ -189,6 +202,10 @@ export function createRelativeOklchTheme(themeColor = DEFAULT_THEME_COLOR)
       color: canonicalColor,
       identity: canonicalColor === DEFAULT_THEME_COLOR,
       invisible: targetLightness <= BLACK_EPSILON,
+      // relative-oklch 的近黑透明传输必须随主题能量连续收敛到零，否则
+      // #000000 -> #000001 会从空帧跳回完整 Coverage，在白底形成暗遮罩。
+      // #20 以上保持 1，避免正常主题被颜色映射与 opacity 重复压暗。
+      opacityScale: resolveNearBlackOpacityScale(targetRgb),
       targetLightness,
       chromaScale: targetIsAchromatic
         ? 0

@@ -21,6 +21,15 @@ function checkEqual(actual, expected, message)
   console.log('  ✓ ' + message);
 }
 
+function checkRgbClose(actual, expected, epsilon, message)
+{
+  check(
+    actual.every((channel, index) =>
+      Math.abs(channel - expected[index]) <= epsilon),
+    message,
+  );
+}
+
 function perceivedLightness(rgb)
 {
   const channel = (value) =>
@@ -51,6 +60,7 @@ const defaultTheme = createRelativeOklchTheme(DEFAULT_THEME_COLOR);
 const original = [180.25, 220.5, 255];
 check(defaultTheme.identity, '默认游戏蓝使用恒等快速路径');
 check(!defaultTheme.invisible, '默认游戏蓝保持可见');
+check(defaultTheme.opacityScale === 1, '默认游戏蓝保持完整不透明度');
 check(
   applyRelativeOklchTheme(original, defaultTheme) === original,
   '默认主题严格返回原颜色且不发生舍入',
@@ -74,9 +84,10 @@ for (const target of ['#ff3b30', '#200002', '#d8f000', '#ffffff', '#808080'])
     Number.parseInt(target.slice(3, 5), 16),
     Number.parseInt(target.slice(5, 7), 16),
   ];
-  checkEqual(
+  checkRgbClose(
     applyRelativeOklchTheme(baseBlue, createRelativeOklchTheme(target)),
     expected,
+    0.0001,
     '游戏基准蓝准确映射到 ' + target,
   );
 }
@@ -109,7 +120,7 @@ const grayResult = applyRelativeOklchTheme(
   createRelativeOklchTheme('#808080'),
 );
 check(
-  grayResult[0] === grayResult[1] && grayResult[1] === grayResult[2],
+  Math.max(...grayResult) - Math.min(...grayResult) < 0.000001,
   '灰色目标将彩色源颜色完全去色',
 );
 
@@ -118,15 +129,16 @@ const darkWhite = applyRelativeOklchTheme(
   createRelativeOklchTheme('#200002'),
 );
 check(
-  darkWhite[0] === darkWhite[1] && darkWhite[1] === darkWhite[2],
+  Math.max(...darkWhite) - Math.min(...darkWhite) < 0.000001,
   '白色核心随主题变暗但保持中性',
 );
-checkEqual(
+checkRgbClose(
   applyRelativeOklchTheme(
     [255, 255, 255],
     createRelativeOklchTheme('#ffffff'),
   ),
   [255, 255, 255],
+  0.0001,
   '白色主题将白色核心锚定在白色',
 );
 const brightNearBlack = applyRelativeOklchTheme(
@@ -141,6 +153,7 @@ check(
 console.log('\n零能量与色域安全');
 const blackTheme = createRelativeOklchTheme('#000000');
 check(blackTheme.invisible, '纯黑主题显式报告 invisible');
+check(blackTheme.opacityScale === 0, '纯黑主题的透明传输比例为零');
 checkEqual(
   applyRelativeOklchTheme(sourceBlue, blackTheme),
   [0, 0, 0],
@@ -167,11 +180,39 @@ for (const target of ['#ff0000', '#00ff00', '#0000ff', '#ff00ff', '#00ffff'])
     const result = applyRelativeOklchTheme(source, theme);
     check(
       result.every((channel) =>
-        Number.isInteger(channel) && channel >= 0 && channel <= 255),
+        Number.isFinite(channel) && channel >= 0 && channel <= 255),
       target + ' 的映射结果保持在有限 sRGB 色域内',
     );
   }
 }
+
+console.log('\n近黑主题连续性');
+const oneBlueTheme = createRelativeOklchTheme('#000001');
+const fiveGrayTheme = createRelativeOklchTheme('#050505');
+const oneBlueOutput = applyRelativeOklchTheme(baseBlue, oneBlueTheme);
+check(
+  oneBlueOutput[2] > 0 && oneBlueOutput[2] <= 1.000001,
+  '#000001 在最终量化前保留非零低能蓝色',
+);
+check(
+  oneBlueTheme.opacityScale > 0 &&
+    oneBlueTheme.opacityScale < 0.001 &&
+    fiveGrayTheme.opacityScale > 0.02 &&
+    fiveGrayTheme.opacityScale < 0.04,
+  '近黑主题透明比例沿平滑 toe 逐级增长',
+);
+check(
+  blackTheme.opacityScale < oneBlueTheme.opacityScale &&
+    oneBlueTheme.opacityScale < fiveGrayTheme.opacityScale &&
+    fiveGrayTheme.opacityScale < defaultTheme.opacityScale,
+  '#000000、#000001、#050505 到默认蓝的透明传输保持单调',
+);
+check(
+  createRelativeOklchTheme('#202020').opacityScale === 1 &&
+    createRelativeOklchTheme('#808080').opacityScale === 1 &&
+    createRelativeOklchTheme('#200002').opacityScale === 1,
+  '#20 及以上的普通主题不被透明 toe 二次压暗',
+);
 
 console.log('\n输入边界');
 assert.throws(

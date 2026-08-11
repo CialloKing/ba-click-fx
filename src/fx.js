@@ -6947,11 +6947,10 @@ export class BAClickFX
 
   _getEffectiveOpacity()
   {
-    // 发光主题的纯黑表示零能量；Coverage 也必须归零，避免 source-over
-    // 在透明宿主上留下各后端含义不一致的黑色遮罩。
-    return this._relativeOklchTheme?.invisible
-      ? 0
-      : this.config.opacity;
+    // 相对主题越接近黑色，发射与 Coverage 越应连续收敛到零。所有后端
+    // 共用这一入口，可避免 exact-black 特判令 #000001 恢复完整透明遮罩。
+    return this.config.opacity *
+      (this._relativeOklchTheme?.opacityScale ?? 1);
   }
 
   _acceptPointerDown(event)

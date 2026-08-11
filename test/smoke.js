@@ -1678,6 +1678,10 @@ paramApiEffect.updateConfig(
   },
 );
 const blackRelativeThemeOpacity = paramApiEffect._getEffectiveOpacity();
+paramApiEffect.setThemeColor('#000001');
+const oneBlueRelativeThemeOpacity = paramApiEffect._getEffectiveOpacity();
+paramApiEffect.setThemeColor('#050505');
+const fiveGrayRelativeThemeOpacity = paramApiEffect._getEffectiveOpacity();
 paramApiEffect.setThemeColorMode('hue-only');
 const blackHueOnlyThemeOpacity = paramApiEffect._getEffectiveOpacity();
 paramApiEffect.updateConfig(
@@ -1689,9 +1693,15 @@ paramApiEffect.updateConfig(
 assert(
   paramApiEffect.getConfig().opacity === 1 &&
     blackRelativeThemeOpacity === 0 &&
+    oneBlueRelativeThemeOpacity > 0 &&
+    oneBlueRelativeThemeOpacity < 0.001 &&
+    fiveGrayRelativeThemeOpacity > 0.02 &&
+    fiveGrayRelativeThemeOpacity < 0.04 &&
+    blackRelativeThemeOpacity < oneBlueRelativeThemeOpacity &&
+    oneBlueRelativeThemeOpacity < fiveGrayRelativeThemeOpacity &&
     blackHueOnlyThemeOpacity === 1 &&
     paramApiEffect._getEffectiveOpacity() === 1,
-  '纯黑相对主题同时清空发射与 Coverage，兼容色相模式不改旧语义',
+  '近黑相对主题让发射与 Coverage 连续收敛，兼容色相模式不改旧语义',
 );
 const singleParamAccepted = paramApiEffect.setFxParam(
   'rings.rotationDirection',
