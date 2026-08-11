@@ -602,9 +602,12 @@ bindRange('ctrlTrailTimeScale', 'outTrailTimeScale', (value) =>
 
 // ── 宿主控制 API 演示 ───────────────────────────────────────────────────
 const ctrlInputSource = document.getElementById('ctrlInputSource');
+const ctrlInputSamplingRate = document.getElementById('ctrlInputSamplingRate');
+const outInputSamplingRate = document.getElementById('outInputSamplingRate');
 const ctrlPaused = document.getElementById('ctrlPaused');
 const ctrlPauseClear = document.getElementById('ctrlPauseClear');
 const ctrlTouchAction = document.getElementById('ctrlTouchAction');
+const DEFAULT_INPUT_SAMPLING_RATE = 0;
 const TOUCH_ACTIONS = new Set([
   'auto',
   'none',
@@ -618,6 +621,15 @@ let manualPointerId = null;
 function isManualInput()
 {
   return currentInputSource === 'manual';
+}
+
+function normalizeDemoInputSamplingRate(value)
+{
+  const rate = Number(value);
+
+  return Number.isInteger(rate) && rate >= 0 && rate <= 1000
+    ? rate
+    : DEFAULT_INPUT_SAMPLING_RATE;
 }
 
 function toManualPointerInput(event)
@@ -692,6 +704,29 @@ function applyInputSource(inputSource, persist = true)
   updateHostApiStatus();
 }
 
+function applyInputSamplingRate(value, persist = true)
+{
+  const rate = normalizeDemoInputSamplingRate(value);
+
+  // 统一通过公开 API 生效，展示页不直接写入实例内部配置。
+  effect.setInputSamplingRate(rate);
+
+  if (ctrlInputSamplingRate)
+  {
+    ctrlInputSamplingRate.value = String(rate);
+  }
+
+  if (outInputSamplingRate)
+  {
+    outInputSamplingRate.textContent = String(rate);
+  }
+
+  if (persist)
+  {
+    localStorage.setItem('bafx-ctrlInputSamplingRate', String(rate));
+  }
+}
+
 if (ctrlInputSource)
 {
   ctrlInputSource.addEventListener('change', () =>
@@ -718,6 +753,14 @@ if (ctrlPaused)
         clear: ctrlPauseClear?.checked === true,
       });
     updateHostApiStatus();
+  });
+}
+
+if (ctrlInputSamplingRate)
+{
+  ctrlInputSamplingRate.addEventListener('input', () =>
+  {
+    applyInputSamplingRate(ctrlInputSamplingRate.value);
   });
 }
 
@@ -2221,6 +2264,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   }
   syncTransparentCompositingControlState(DEFAULT_OUTPUT_COMPOSITING);
   document.getElementById('ctrlInputSource').value = 'dom';
+  applyInputSamplingRate(DEFAULT_INPUT_SAMPLING_RATE, false);
   document.getElementById('ctrlClickTimeScale').value = '1';
   document.getElementById('outClickTimeScale').textContent = '1.00';
   document.getElementById('ctrlTrailTimeScale').value = '1';
@@ -2352,6 +2396,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
     {
       clickTimeScale: 1,
       trailTimeScale: 1,
+      inputSamplingRate: DEFAULT_INPUT_SAMPLING_RATE,
       scale: 1,
       opacity: 1,
       clickEnabled: true,
@@ -2573,6 +2618,7 @@ const I18N = {
     labelInputSource: '输入来源',
     inputSourceDom: 'DOM 自动监听',
     inputSourceManual: '手动注入',
+    labelInputSamplingRate: '输入采样率上限 (Hz)',
     labelClickTimeScale: '点击速度',
     labelTrailTimeScale: '拖尾速度',
     labelPaused: '暂停输入与动画',
@@ -2828,6 +2874,7 @@ const I18N = {
     labelInputSource: 'Input Source',
     inputSourceDom: 'DOM Listeners',
     inputSourceManual: 'Manual Injection',
+    labelInputSamplingRate: 'Input Sampling Rate Limit (Hz)',
     labelClickTimeScale: 'Click Speed',
     labelTrailTimeScale: 'Trail Speed',
     labelPaused: 'Pause Input & Animation',
@@ -3133,6 +3180,7 @@ function switchLanguage(lang)
     ctrlIsolatedCompositing: d.labelIsolatedCompositing,
     ctrlLightBackgroundContrastAlpha: d.labelLightBackgroundContrastAlpha,
     ctrlInputSource: d.labelInputSource,
+    ctrlInputSamplingRate: d.labelInputSamplingRate,
     ctrlClickTimeScale: d.labelClickTimeScale,
     ctrlTrailTimeScale: d.labelTrailTimeScale,
     ctrlPaused: d.labelPaused,
@@ -3475,8 +3523,12 @@ switchLanguage(currentLang);
 (function restoreSettings()
 {
   const savedInputSource = localStorage.getItem('bafx-ctrlInputSource');
+  const savedInputSamplingRate = localStorage.getItem(
+    'bafx-ctrlInputSamplingRate',
+  );
 
   applyInputSource(savedInputSource === 'manual' ? 'manual' : 'dom', false);
+  applyInputSamplingRate(savedInputSamplingRate, false);
 
   for (const controlId of ['ctrlClickTimeScale', 'ctrlTrailTimeScale'])
   {

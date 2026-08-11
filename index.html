@@ -84,6 +84,7 @@ fx.pointerDown({ x, y, pointerId });
 fx.pointerMove({ x, y, pointerId });
 fx.pointerUp(pointerId);
 fx.pointerCancel(pointerId);
+fx.setInputSamplingRate(30);
 fx.updateConfig({ clickTimeScale: 1.5, trailTimeScale: 0.8 });
 fx.setPaused(true, { clear: true });</code></pre>
       </div>
@@ -397,6 +398,20 @@ fx.setPaused(true, { clear: true });</code></pre>
           <option value="dom" selected>DOM 自动监听</option>
           <option value="manual">手动注入</option>
         </select>
+      </label>
+      <label class="ctrl">
+        <span>输入采样率上限 (Hz) <output id="outInputSamplingRate" class="sampling-rate-output">0</output></span>
+        <input type="range" id="ctrlInputSamplingRate" min="0" max="1000" step="1" value="0" list="inputSamplingRatePresets" />
+        <datalist id="inputSamplingRatePresets">
+          <option value="0"></option>
+          <option value="15"></option>
+          <option value="30"></option>
+          <option value="60"></option>
+          <option value="120"></option>
+          <option value="240"></option>
+          <option value="500"></option>
+          <option value="1000"></option>
+        </datalist>
       </label>
       <label class="ctrl">
         <span>点击速度 <output id="outClickTimeScale">1.00</output>×</span>

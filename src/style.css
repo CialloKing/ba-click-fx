@@ -418,6 +418,12 @@ kbd {
   font-size: 12px;
 }
 
+/* 采样率在 0..1000 间变化时保持标签与滑块起点稳定。 */
+.ctrl output.sampling-rate-output {
+  width: 4ch;
+  min-width: 4ch;
+}
+
 .compositing-reference-status
 {
   margin: -4px 0 10px;

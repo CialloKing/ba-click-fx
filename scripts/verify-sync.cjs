@@ -260,6 +260,58 @@ verify(
     /<option value="manual">/.test(inputSourceSelect),
   '展示页可切换 DOM 自动监听与宿主手动输入',
 );
+const inputSamplingRateControl = indexHtml.match(
+  /<input type="range" id="ctrlInputSamplingRate"[^>]*>/,
+)?.[0] ?? '';
+const inputSamplingPresetMarkup = indexHtml.match(
+  /<datalist id="inputSamplingRatePresets">[\s\S]*?<\/datalist>/,
+)?.[0] ?? '';
+const inputSamplingPresets = Array.from(
+  inputSamplingPresetMarkup.matchAll(/<option value="(\d+)">/g),
+  (match) => Number(match[1]),
+);
+
+verify(
+  /min="0"/.test(inputSamplingRateControl) &&
+    /max="1000"/.test(inputSamplingRateControl) &&
+    /step="1"/.test(inputSamplingRateControl) &&
+    /value="0"/.test(inputSamplingRateControl) &&
+    JSON.stringify(inputSamplingPresets) === JSON.stringify([
+      0,
+      15,
+      30,
+      60,
+      120,
+      240,
+      500,
+      1000,
+    ]),
+  '输入采样率控件默认不限频并覆盖手机到千赫兹常用档位',
+);
+verify(
+  /effect\.setInputSamplingRate\(rate\)/.test(mainJs) &&
+    /bafx-ctrlInputSamplingRate/.test(mainJs) &&
+    /applyInputSamplingRate\(savedInputSamplingRate, false\)/.test(mainJs) &&
+    /applyInputSamplingRate\(DEFAULT_INPUT_SAMPLING_RATE, false\)/.test(mainJs),
+  '输入采样率控件通过公开 API 生效并支持持久化、恢复与重置',
+);
+verify(
+  /labelInputSamplingRate: '输入采样率上限 \(Hz\)'/.test(mainJs) &&
+    /labelInputSamplingRate: 'Input Sampling Rate Limit \(Hz\)'/.test(mainJs) &&
+    /outInputSamplingRate\.textContent = String\(rate\)/.test(mainJs) &&
+    /class="sampling-rate-output">0<\/output>/.test(indexHtml) &&
+    /output\.sampling-rate-output[\s\S]*?width: 4ch/.test(styleCss),
+  '输入采样率控件提供双语静态单位和固定纯数字输出',
+);
+verify(
+  /inputSamplingRate\?: number/.test(typeDefinitions) &&
+    /setInputSamplingRate\(rateHz: number\): boolean/.test(typeDefinitions) &&
+    /inputSamplingRate: 30/.test(readmeZh) &&
+    /inputSamplingRate: 30/.test(readmeEn) &&
+    /1\.\.1000/.test(readmeZh) &&
+    /1\.\.1000/.test(readmeEn),
+  '输入采样率公共 API 已同步类型声明与中英文文档',
+);
 verify(
   /effect\.pointerDown\(input\)/.test(mainJs) &&
     /effect\.pointerMove\(input\)/.test(mainJs) &&

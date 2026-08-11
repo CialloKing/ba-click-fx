@@ -152,6 +152,7 @@ new BAClickFX(options?: {
   trailEnabled?: boolean,        // default true
   trailAlways?: boolean,         // default false
   inputSource?: 'dom' | 'manual', // default dom
+  inputSamplingRate?: number,     // move-input rate limit; 0 unlimited, 1..1000 Hz, default 0
   clickTimeScale?: number,       // minimum 0.01, default 1
   trailTimeScale?: number,       // minimum 0.01, default 1
   effectBackend?: 'canvas2d' | 'webgl2' | 'webgpu' | 'auto', // default webgl2
@@ -330,6 +331,21 @@ fx.pointerUp(7);
 
 `inputSource` can also be switched through `updateConfig()`. A switch first cancels the old source's active pointer, then attaches or removes the automatic DOM pointer listeners for the target mode so the host never inherits a half-finished stroke.
 
+`inputSamplingRate` limits the maximum `pointerMove` sampling rate on the real input clock. It simulates the polygonal trail produced when a mobile game client reads touch positions less frequently:
+
+- `0` is the default and keeps every input sample, preserving existing trail pixels.
+- `1..1000` is measured in Hz. Start with `30` for a mobile-like result, use `15` for stronger polygonal turns, or `60` for a smoother trail.
+- Only move samples are filtered; `pointerDown()`, `pointerUp()`, and `pointerCancel()` are never delayed. DOM coalesced events use each sample's `timeStamp`, while manual input uses API arrival time.
+- This is a maximum input sampling rate, not a new rendering frame rate or synthetic fixed clock. The actual rate still depends on the host event stream. It is independent from `trailTimeScale` and Unity's `trail.minVertexDistance`; spatial vertices inserted between retained samples remain collinear and therefore do not erase low-rate turns.
+
+```js
+const fx = new BAClickFX({ inputSamplingRate: 30 });
+
+fx.setInputSamplingRate(15);   // stronger mobile-like polygonal turns
+fx.setInputSamplingRate(1000); // high-polling-rate limit
+fx.setInputSamplingRate(0);    // restore unlimited input
+```
+
 ### Independent Time Scales
 
 `clickTimeScale` and `trailTimeScale` must both be finite numbers no smaller than `0.01`. `1` is the original speed, `2` means twice the speed with half the duration, and `0.5` means half speed with twice the duration; `0` does not mean pause, and values below `0.01` are ignored. Both values can be updated at runtime:
@@ -370,11 +386,12 @@ Pausing cancels the active pointer, ignores `boom()` and every automatic or manu
 | `pointerUp(pointerId?)` | End the pointer normally and let its trail decay |
 | `pointerCancel(pointerId?)` | Force-cancel the pointer and remove its current trail immediately |
 | `setPaused(paused, options?)` | Pause or resume input and animation scheduling, optionally clearing on pause |
+| `setInputSamplingRate(rateHz)` | Set the move-input sampling-rate limit; accepts `0` or `1..1000` and returns `true` on success |
 | `setCompositingReference(source, { fit: 'cover' })` | Share a known raster compositing reference across rendering backends; pass `null` to clear it and enter the unknown-background path |
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail and shards only |
 | `destroy()` | Destroy instance, remove listeners and canvas |
-| `updateConfig({...})` | Update base config, input source, time scales, Full Effect/Bloom backends, DPR, and touch behaviour at runtime |
+| `updateConfig({...})` | Update base config, input source/rate, time scales, Full Effect/Bloom backends, DPR, and touch behaviour at runtime |
 | `setThemeColor('#4ca7ff')` | Set and persist the theme colour; invalid input restores the default game blue |
 | `setTriangleRoundness(value)` | Set the triangle-shard roundness ratio; equivalent to `setFxParam('shards.roundness', value)` |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify one dot-path; returns `true` on success and `false` when rejected |

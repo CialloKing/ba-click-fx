@@ -172,6 +172,7 @@ new BAClickFX(options?: {
   trailEnabled?: boolean,         // 启用拖尾，默认 true
   trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
   inputSource?: 'dom' | 'manual', // 输入来源，默认 dom
+  inputSamplingRate?: number,     // 移动输入采样率上限；0 不限频，1..1000 Hz，默认 0
   clickTimeScale?: number,        // 点击时间倍率，不小于 0.01，默认 1
   trailTimeScale?: number,        // 拖尾时间倍率，不小于 0.01，默认 1
   effectBackend?: 'canvas2d' | 'webgl2' | 'webgpu' | 'auto', // 完整特效后端，默认 webgl2
@@ -350,6 +351,21 @@ fx.pointerUp(7);
 
 `inputSource` 也可以通过 `updateConfig()` 动态切换。切换时会先取消旧来源的活动指针，再按目标模式注册或移除自动 DOM 指针监听，避免宿主接手尚未结束的轨迹。
 
+`inputSamplingRate` 用真实输入时间限制 `pointerMove` 的最高采样率，用来模拟手机游戏客户端低频读取触点后形成的多边形拖尾：
+
+- `0` 为默认值，不人为限频，保持既有轨迹与像素输出。
+- `1..1000` 表示 Hz；推荐从 `30` 开始模拟手机感，`15` 会呈现更强的折线，`60` 更接近流畅轨迹。
+- 它只筛选移动样本，不延迟 `pointerDown()`、`pointerUp()` 或 `pointerCancel()`；DOM 合并事件会按各自 `timeStamp` 判断，手动输入按 API 到达时间判断。
+- 它是输入采样率上限，不是新的渲染帧率或固定时钟。实际频率仍受宿主事件频率影响；`trailTimeScale` 与 Unity 的 `trail.minVertexDistance` 保持独立，保留点之间新增的空间顶点仍然共线，因此不会抹掉低频转折。
+
+```js
+const fx = new BAClickFX({ inputSamplingRate: 30 });
+
+fx.setInputSamplingRate(15);  // 更明显的手机折线感
+fx.setInputSamplingRate(1000); // 高轮询率上限
+fx.setInputSamplingRate(0);   // 恢复不限频
+```
+
 ### 独立时间倍率
 
 `clickTimeScale` 和 `trailTimeScale` 都必须是有限且不小于 `0.01` 的数字。`1` 为原始速度，`2` 表示两倍速度且持续时间减半，`0.5` 表示半速且持续时间加倍；`0` 不表示暂停，低于 `0.01` 的值会被忽略。两个倍率都可通过 `updateConfig()` 实时更新：
@@ -390,11 +406,12 @@ fx.setPaused(false);
 | `pointerUp(pointerId?)` | 正常结束指针，已有拖尾自然消失 |
 | `pointerCancel(pointerId?)` | 强制取消指针并立即移除当前轨迹 |
 | `setPaused(paused, options?)` | 暂停或恢复输入与动画调度，可选在暂停时清屏 |
+| `setInputSamplingRate(rateHz)` | 设置移动输入采样率上限；接受 `0` 或 `1..1000`，成功返回 `true` |
 | `setCompositingReference(source, { fit: 'cover' })` | 设置各渲染后端共享的已知栅格合成参考；传入 `null` 清除参考并进入未知背景路径 |
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 仅清除拖尾和碎片 |
 | `destroy()` | 销毁实例，移除事件监听和 Canvas |
-| `updateConfig({...})` | 运行时更新基础配置、输入来源、时间倍率、完整特效/Bloom 后端、DPR 与触摸行为 |
+| `updateConfig({...})` | 运行时更新基础配置、输入来源/采样率、时间倍率、完整特效/Bloom 后端、DPR 与触摸行为 |
 | `setThemeColor('#4ca7ff')` | 设置并保存主题色；非法值恢复默认游戏蓝 |
 | `setTriangleRoundness(value)` | 设置三角碎片圆角比例；与 `setFxParam('shards.roundness', value)` 等价 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 修改单个点号路径；成功返回 `true`，拒绝时返回 `false` |

@@ -3705,6 +3705,10 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
     {
       const effect = window.BAClickFXDemo;
       const readConfig = () => effect.getConfig();
+      const initialSamplingRate = readConfig().inputSamplingRate;
+      const initialSamplingControl = Number(
+        document.getElementById('ctrlInputSamplingRate').value,
+      );
       const calls = [];
       const originals = {};
 
@@ -3741,6 +3745,19 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       setValue('ctrlLightBackgroundContrastAlpha', '0.42', 'input');
       setValue('ctrlTouchAction', 'none');
       setValue('ctrlInputSource', 'manual');
+      setValue('ctrlInputSamplingRate', '1000', 'input');
+      const maximumSamplingState =
+      {
+        config: readConfig().inputSamplingRate,
+        output: document.getElementById('outInputSamplingRate').textContent,
+        outputWidth: getComputedStyle(
+          document.getElementById('outInputSamplingRate'),
+        ).width,
+      };
+      setValue('ctrlInputSamplingRate', '30', 'input');
+      const mobileSamplingOutputWidth = getComputedStyle(
+        document.getElementById('outInputSamplingRate'),
+      ).width;
 
       const pointerDown = effect.pointerDown(
         { x: 10, y: 20, pointerId: 9, pointerType: 'mouse' },
@@ -3773,6 +3790,14 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
           localStorage.getItem('bafx-ctrlHostCompositingSurface'),
         storedContrastAlpha:
           localStorage.getItem('bafx-ctrlLightBackgroundContrastAlpha'),
+        storedInputSamplingRate:
+          localStorage.getItem('bafx-ctrlInputSamplingRate'),
+        inputSamplingOutput:
+          document.getElementById('outInputSamplingRate').textContent,
+        initialSamplingRate,
+        initialSamplingControl,
+        maximumSamplingState,
+        mobileSamplingOutputWidth,
         pointerDown,
         pointerMove,
         pointerCancel,
@@ -3791,6 +3816,15 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         hostApiState.storedHostCompositing === 'plus-lighter' &&
         hostApiState.storedHostSurface === 'native' &&
         hostApiState.storedContrastAlpha === '0.42' &&
+        hostApiState.initialSamplingRate === 0 &&
+        hostApiState.initialSamplingControl === 0 &&
+        hostApiState.config.inputSamplingRate === 30 &&
+        hostApiState.storedInputSamplingRate === '30' &&
+        hostApiState.inputSamplingOutput === '30' &&
+        hostApiState.maximumSamplingState.config === 1000 &&
+        hostApiState.maximumSamplingState.output === '1000' &&
+        hostApiState.maximumSamplingState.outputWidth ===
+          hostApiState.mobileSamplingOutputWidth &&
         hostApiState.pointerDown === true &&
         hostApiState.pointerMove === true &&
         hostApiState.pointerCancel === true &&
@@ -3813,6 +3847,10 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         sectionShards: title('sectionShardsHeading'),
         clickSummary: title('clickShardsSummary'),
         bloomSummary: title('bloomPipelineSummary'),
+        inputSamplingLabel: document.getElementById('ctrlInputSamplingRate')
+          ?.closest('label')?.querySelector('span')?.childNodes[0]
+          ?.textContent?.trim(),
+        inputSamplingOutput: title('outInputSamplingRate'),
         themeBlueTitle: document.querySelector('.theme-btn[data-theme="蔚蓝"]')?.title,
         themeCustomTitle: document.querySelector('.theme-btn[data-theme="custom"]')?.title,
       };
@@ -3821,10 +3859,50 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       english.sectionShards === 'Shards' &&
         english.clickSummary === 'Click Shards' &&
         english.bloomSummary === 'Global Bloom' &&
+        english.inputSamplingLabel === 'Input Sampling Rate Limit (Hz)' &&
+        english.inputSamplingOutput === '30' &&
         english.themeBlueTitle === 'Blue (Default)' &&
         english.themeCustomTitle === 'Custom',
       '控制面板新增分组或主题按钮缺少英文文案',
       english,
+    );
+
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() =>
+    {
+      const effect = window.BAClickFXDemo;
+
+      return effect?.getConfig().inputSamplingRate === 30 &&
+        document.getElementById('ctrlInputSamplingRate')?.value === '30' &&
+        document.getElementById('outInputSamplingRate')?.textContent === '30';
+    });
+    const restoredInputSamplingRate = await page.evaluate(() =>
+      localStorage.getItem('bafx-ctrlInputSamplingRate'));
+
+    await page.evaluate(() => document.getElementById('btnReset').click());
+    await page.waitForFunction(() =>
+    {
+      const effect = window.BAClickFXDemo;
+
+      return effect?.getConfig().inputSamplingRate === 0 &&
+        document.getElementById('ctrlInputSamplingRate')?.value === '0' &&
+        document.getElementById('outInputSamplingRate')?.textContent === '0' &&
+        localStorage.getItem('bafx-ctrlInputSamplingRate') === null;
+    });
+    const resetInputSamplingRate = await page.evaluate(() =>
+    ({
+      config: window.BAClickFXDemo.getConfig().inputSamplingRate,
+      control: document.getElementById('ctrlInputSamplingRate').value,
+      stored: localStorage.getItem('bafx-ctrlInputSamplingRate'),
+    }));
+
+    assert(
+      restoredInputSamplingRate === '30' &&
+        resetInputSamplingRate.config === 0 &&
+        resetInputSamplingRate.control === '0' &&
+        resetInputSamplingRate.stored === null,
+      '输入采样率没有跨刷新恢复或随重置恢复不限频',
+      { restoredInputSamplingRate, resetInputSamplingRate },
     );
     metrics.demoControlPanelStructure =
     {
@@ -3835,6 +3913,8 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       advancedChanged,
       hostApiState,
       english,
+      restoredInputSamplingRate,
+      resetInputSamplingRate,
     };
   }
   finally
