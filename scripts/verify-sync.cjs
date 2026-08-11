@@ -1125,13 +1125,49 @@ verify(
   '自定义裸图片 URL 会把 file: 交给受信任宿主，其他协议仍保持白名单限制',
 );
 verify(
-  /ctrlColor\.addEventListener\('input',[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)[\s\S]*?\}\);[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)/.test(mainJs),
-  '展示页首次加载会主动应用颜色控件默认值',
+  /ctrlColor\.addEventListener\('input',[\s\S]*?effect\.setThemeColor\(ctrlColor\.value\)[\s\S]*?\}\);/.test(mainJs) &&
+    /effect\.setThemeColor\(restoredColor\)/.test(mainJs),
+  '展示页输入与首次恢复都会主动应用颜色控件值',
 );
 verify(
   /id="ctrlColor" value="#4ca7ff"/.test(indexHtml) &&
     /effect\.setThemeColor\('#4ca7ff'\)/.test(mainJs),
   '展示页首次加载与重置都使用游戏基准蓝',
+);
+verify(
+  /DEFAULT_THEME_COLOR_MODE = 'hue-only'/.test(configJs) &&
+    /themeColorMode: DEFAULT_THEME_COLOR_MODE/.test(configJs) &&
+    /\['hue-only', 'relative-oklch'\]/.test(configJs) &&
+    /setThemeColorMode\(mode\)/.test(engineJs) &&
+    /DEFAULT_THEME_COLOR_MODE,/.test(engineJs),
+  '公共库保留 hue-only 默认并导出相对 OKLCH 主题模式 API',
+);
+verify(
+  /id="ctrlThemeColorMode"/.test(indexHtml) &&
+    /value="relative-oklch" selected/.test(indexHtml) &&
+    /value="hue-only"/.test(indexHtml) &&
+    /DEFAULT_DEMO_THEME_COLOR_MODE = 'relative-oklch'/.test(mainJs) &&
+    /effect\.setThemeColorMode\(mode\)/.test(mainJs),
+  '展示页提供推荐相对 OKLCH 与兼容仅色相模式',
+);
+verify(
+  /bafx-ctrlThemeColorMode/.test(mainJs) &&
+    /savedColor !== null[\s\S]*?LEGACY_THEME_COLOR_MODE[\s\S]*?DEFAULT_DEMO_THEME_COLOR_MODE/.test(mainJs) &&
+    /applyThemeColorMode\(DEFAULT_DEMO_THEME_COLOR_MODE, false\)/.test(mainJs) &&
+    /applyThemeColorMode\(restoredThemeColorMode\)/.test(mainJs),
+  '主题映射模式支持新用户默认、旧颜色兼容迁移、持久化与重置',
+);
+verify(
+  /BAClickFXThemeColorMode = 'hue-only' \| 'relative-oklch'/.test(
+    typeDefinitions,
+  ) &&
+    /DEFAULT_THEME_COLOR_MODE: 'hue-only'/.test(typeDefinitions) &&
+    /setThemeColorMode\(mode: BAClickFXThemeColorMode\): boolean/.test(
+      typeDefinitions,
+    ) &&
+    /relative-oklch/.test(readmeZh) &&
+    /relative-oklch/.test(readmeEn),
+  '主题映射模式已同步类型声明与中英文文档',
 );
 verify(
   /isolatedCompositing: false/.test(configJs) &&

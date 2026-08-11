@@ -3465,6 +3465,15 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         faqContainsBASpark:
           document.getElementById('introFAQContent')?.textContent
             ?.includes('BASpark') ?? null,
+        themeColorMode:
+          document.getElementById('ctrlThemeColorMode')?.value ?? null,
+        configuredThemeColorMode:
+          window.BAClickFXDemo?.getConfig().themeColorMode ?? null,
+        storedThemeColorMode:
+          localStorage.getItem('bafx-ctrlThemeColorMode'),
+        themeColorModeOptions: Array.from(
+          document.querySelectorAll('#ctrlThemeColorMode option'),
+        ).map((option) => option.value),
         actualShardScopes,
         shardControlCount: shardSection?.querySelectorAll('input[type="range"]').length ?? -1,
         bloomControlIds,
@@ -3522,6 +3531,15 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
     assert(
       structure.faqContainsBASpark === false,
       '展示页加载后的 FAQ 仍显示 BASpark 字样',
+      structure,
+    );
+    assert(
+      structure.themeColorMode === 'relative-oklch' &&
+        structure.configuredThemeColorMode === 'relative-oklch' &&
+        structure.storedThemeColorMode === 'relative-oklch' &&
+        JSON.stringify(structure.themeColorModeOptions) ===
+          JSON.stringify(['relative-oklch', 'hue-only']),
+      '新用户没有默认启用推荐主题映射，或展示页模式枚举不同步',
       structure,
     );
     assert(
@@ -3587,6 +3605,80 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       'Bloom 折叠栏仍包含碎片、环、光盘或轨迹的非 Bloom 参数',
       structure,
     );
+
+    await page.evaluate(() =>
+    {
+      const control = document.getElementById('ctrlThemeColorMode');
+
+      control.value = 'hue-only';
+      control.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.waitForFunction(() =>
+      window.BAClickFXDemo?.getConfig().themeColorMode === 'hue-only');
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() =>
+      window.BAClickFXDemo?.getConfig().themeColorMode === 'hue-only');
+    const persistedThemeMode = await page.evaluate(() =>
+    ({
+      config: window.BAClickFXDemo.getConfig().themeColorMode,
+      control: document.getElementById('ctrlThemeColorMode').value,
+      stored: localStorage.getItem('bafx-ctrlThemeColorMode'),
+    }));
+
+    await page.evaluate(() => document.getElementById('btnReset').click());
+    await page.waitForFunction(() =>
+      window.BAClickFXDemo?.getConfig().themeColorMode === 'relative-oklch');
+    const resetThemeMode = await page.evaluate(() =>
+    ({
+      config: window.BAClickFXDemo.getConfig().themeColorMode,
+      control: document.getElementById('ctrlThemeColorMode').value,
+      stored: localStorage.getItem('bafx-ctrlThemeColorMode'),
+    }));
+
+    await page.evaluate(() =>
+    {
+      localStorage.setItem('bafx-ctrlColor', '#330000');
+      localStorage.removeItem('bafx-ctrlThemeColorMode');
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() =>
+      window.BAClickFXDemo?.getConfig().themeColorMode === 'hue-only');
+    const migratedLegacyTheme = await page.evaluate(() =>
+    ({
+      color: window.BAClickFXDemo.getConfig().themeColor,
+      config: window.BAClickFXDemo.getConfig().themeColorMode,
+      control: document.getElementById('ctrlThemeColorMode').value,
+      stored: localStorage.getItem('bafx-ctrlThemeColorMode'),
+    }));
+
+    assert(
+      persistedThemeMode.config === 'hue-only' &&
+        persistedThemeMode.control === 'hue-only' &&
+        persistedThemeMode.stored === 'hue-only' &&
+        resetThemeMode.config === 'relative-oklch' &&
+        resetThemeMode.control === 'relative-oklch' &&
+        resetThemeMode.stored === null &&
+        migratedLegacyTheme.color === '#330000' &&
+        migratedLegacyTheme.config === 'hue-only' &&
+        migratedLegacyTheme.control === 'hue-only' &&
+        migratedLegacyTheme.stored === 'hue-only',
+      '主题映射没有正确持久化、重置，或旧颜色记录被静默重新解释',
+      { persistedThemeMode, resetThemeMode, migratedLegacyTheme },
+    );
+
+    // 其余控制面板门禁从推荐的新安装默认继续，避免兼容迁移状态污染测试。
+    await page.evaluate(() => document.getElementById('btnReset').click());
+    await page.waitForFunction(() =>
+      window.BAClickFXDemo?.getConfig().themeColorMode === 'relative-oklch');
+    await page.locator('#panelToggle').click();
+    await page.waitForFunction(() =>
+      document.getElementById('panel')?.classList.contains('open'));
+    const themeModeLifecycle =
+    {
+      persistedThemeMode,
+      resetThemeMode,
+      migratedLegacyTheme,
+    };
 
     const advancedChanged = await page.evaluate((controls) =>
     {
@@ -3851,6 +3943,11 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
           ?.closest('label')?.querySelector('span')?.childNodes[0]
           ?.textContent?.trim(),
         inputSamplingOutput: title('outInputSamplingRate'),
+        themeColorModeLabel: document.getElementById('ctrlThemeColorMode')
+          ?.closest('label')?.querySelector('span')?.textContent?.trim(),
+        themeColorModeOptions: Array.from(
+          document.querySelectorAll('#ctrlThemeColorMode option'),
+        ).map((option) => option.textContent),
         themeBlueTitle: document.querySelector('.theme-btn[data-theme="蔚蓝"]')?.title,
         themeCustomTitle: document.querySelector('.theme-btn[data-theme="custom"]')?.title,
       };
@@ -3861,6 +3958,11 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         english.bloomSummary === 'Global Bloom' &&
         english.inputSamplingLabel === 'Input Sampling Rate Limit (Hz)' &&
         english.inputSamplingOutput === '30' &&
+        english.themeColorModeLabel === 'Color Mapping' &&
+        JSON.stringify(english.themeColorModeOptions) === JSON.stringify([
+          'Relative OKLCH (Recommended)',
+          'Hue Only (Compatible)',
+        ]) &&
         english.themeBlueTitle === 'Blue (Default)' &&
         english.themeCustomTitle === 'Custom',
       '控制面板新增分组或主题按钮缺少英文文案',
@@ -3911,6 +4013,7 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       restored,
       reset,
       advancedChanged,
+      themeModeLifecycle,
       hostApiState,
       english,
       restoredInputSamplingRate,

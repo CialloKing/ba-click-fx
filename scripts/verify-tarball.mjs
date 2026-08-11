@@ -28,6 +28,7 @@ const requiredRuntimeMethods = [
   'getEffectiveHostCompositing',
   'updateConfig',
   'setThemeColor',
+  'setThemeColorMode',
   'setInputSamplingRate',
   'setFxParam',
   'setTriangleRoundness',
@@ -78,7 +79,8 @@ function verifyRuntimeApi(moduleExports, bundleName)
       moduleExports.CONFIG?.bloomBackend === 'webgl2' &&
       moduleExports.CONFIG?.outputCompositing === 'scene' &&
       moduleExports.CONFIG?.hostCompositingSurface === 'dom-backdrop' &&
-      moduleExports.CONFIG?.themeColor === '#4ca7ff',
+      moduleExports.CONFIG?.themeColor === '#4ca7ff' &&
+      moduleExports.CONFIG?.themeColorMode === 'hue-only',
     `${bundleName} bundle does not expose the Full WebGL2 defaults`,
   );
   verify(
@@ -101,8 +103,9 @@ function verifyRuntimeApi(moduleExports, bundleName)
     `${bundleName} bundle does not expose the trail time-scale default`,
   );
   verify(
-    moduleExports.DEFAULT_THEME_COLOR === '#4ca7ff',
-    `${bundleName} bundle does not expose the default theme colour`,
+    moduleExports.DEFAULT_THEME_COLOR === '#4ca7ff' &&
+      moduleExports.DEFAULT_THEME_COLOR_MODE === 'hue-only',
+    `${bundleName} bundle does not expose the default theme colour contract`,
   );
   verify(
     moduleExports.BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange' &&
@@ -196,6 +199,7 @@ if (
   moduleExports.HOST_COMPOSITING_CHANGE_EVENT !==
     'baclickfxhostcompositingchange' ||
   moduleExports.DEFAULT_THEME_COLOR !== '#4ca7ff' ||
+  moduleExports.DEFAULT_THEME_COLOR_MODE !== 'hue-only' ||
   moduleExports.FX_PARAM_SCHEMA_VERSION !== 2 ||
   !Array.isArray(moduleExports.FX_PARAM_SCHEMA) ||
   moduleExports.FX_PARAM_SCHEMA.length !== 66 ||
@@ -221,6 +225,7 @@ if (
   moduleExports.CONFIG?.outputCompositing !== 'scene' ||
   moduleExports.CONFIG?.hostCompositingSurface !== 'dom-backdrop' ||
   moduleExports.CONFIG?.themeColor !== '#4ca7ff' ||
+  moduleExports.CONFIG?.themeColorMode !== 'hue-only' ||
   moduleExports.CONFIG?.softwareBloomEnabled !== false ||
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
@@ -261,6 +266,7 @@ if (
   moduleExports.HOST_COMPOSITING_CHANGE_EVENT !==
     'baclickfxhostcompositingchange' ||
   moduleExports.DEFAULT_THEME_COLOR !== '#4ca7ff' ||
+  moduleExports.DEFAULT_THEME_COLOR_MODE !== 'hue-only' ||
   moduleExports.FX_PARAM_SCHEMA_VERSION !== 2 ||
   !Array.isArray(moduleExports.FX_PARAM_SCHEMA) ||
   moduleExports.FX_PARAM_SCHEMA.length !== 66 ||
@@ -286,6 +292,7 @@ if (
   moduleExports.CONFIG?.outputCompositing !== 'scene' ||
   moduleExports.CONFIG?.hostCompositingSurface !== 'dom-backdrop' ||
   moduleExports.CONFIG?.themeColor !== '#4ca7ff' ||
+  moduleExports.CONFIG?.themeColorMode !== 'hue-only' ||
   moduleExports.CONFIG?.softwareBloomEnabled !== false ||
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
@@ -363,6 +370,7 @@ if (
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
   DEFAULT_THEME_COLOR,
+  DEFAULT_THEME_COLOR_MODE,
   EFFECT_BACKEND_CHANGE_EVENT,
   HOST_COMPOSITING_CHANGE_EVENT,
   FX_PARAM_MIGRATIONS,
@@ -397,6 +405,7 @@ if (
   type BAClickFXWebGPUOutputMode,
   type BAClickFXCompositingReferenceOptions,
   type BAClickFXStandalonePatchOptions,
+  type BAClickFXThemeColorMode,
   type BAClickFXUpdateOptions,
   type UnityFxTouchConfig,
 } from 'ba-click-fx';
@@ -409,6 +418,7 @@ const options: BAClickFXOptions =
   scale: 1,
   opacity: 1,
   themeColor: '#4ca7ff',
+  themeColorMode: 'relative-oklch',
   outputCompositing: 'browser-overlay',
   hostCompositing: 'screen',
   hostCompositingSurface: 'native',
@@ -443,6 +453,8 @@ const defaults: BAClickFXConfig = createConfig(
 const unity: UnityFxTouchConfig = UNITY_FX_TOUCH;
 const defaultScale: number = CONFIG.scale;
 const defaultThemeColor: string = DEFAULT_THEME_COLOR;
+const defaultThemeColorMode: BAClickFXThemeColorMode =
+  DEFAULT_THEME_COLOR_MODE;
 const schemaVersion: 2 = FX_PARAM_SCHEMA_VERSION;
 const firstDescriptor: BAClickFXParamDescriptor = FX_PARAM_SCHEMA[0]!;
 const firstMigration: BAClickFXParamMigration = FX_PARAM_MIGRATIONS[0]!;
@@ -602,6 +614,9 @@ namedInstance.setCompositingReference(
   },
 );
 namedInstance.setThemeColor(DEFAULT_THEME_COLOR);
+const themeColorModeAccepted: boolean = namedInstance.setThemeColorMode(
+  'relative-oklch',
+);
 const inputSamplingRateAccepted: boolean =
   namedInstance.setInputSamplingRate(30);
 const paramValue: BAClickFXParamValue = true;
@@ -620,6 +635,7 @@ const patchResult: BAClickFXParamPatchResult = namedInstance.setFxParams(
 const updateOptions: BAClickFXUpdateOptions =
 {
   themeColor: '#4ca7ff',
+  themeColorMode: 'hue-only',
   outputCompositing: 'scene',
   hostCompositingSurface: 'dom-backdrop',
   effectBackend: 'auto',
@@ -664,6 +680,8 @@ const invalidOptions: BAClickFXOptions =
 {
   // @ts-expect-error scale 只接受数字。
   scale: 'invalid',
+  // @ts-expect-error 主题颜色映射只接受两个公开模式。
+  themeColorMode: 'rgb-multiply',
   // @ts-expect-error 软件 Bloom 开关只接受布尔值。
   softwareBloomEnabled: 'invalid',
   // @ts-expect-error 隔离合成开关只接受布尔值。
@@ -689,6 +707,7 @@ void [
   unity,
   defaultScale,
   defaultThemeColor,
+  defaultThemeColorMode,
   schemaVersion,
   firstDescriptor,
   firstMigration,
@@ -733,6 +752,7 @@ void [
   internalPatchCandidate,
   paramValue,
   inputSamplingRateAccepted,
+  themeColorModeAccepted,
   paramAccepted,
   patchResult,
   updateOptions,
