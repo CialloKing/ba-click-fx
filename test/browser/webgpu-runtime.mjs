@@ -111,6 +111,11 @@ async function decodeScreenshot(page, screenshot)
     let alphaPixels = 0;
     let maximum = 0;
     let premultipliedEnergy = 0;
+    let whiteChangedPixels = 0;
+    let whiteDarkPixelCount = 0;
+    let whiteDarkeningSum = 0;
+    let whiteMaximumChannelDarkening = 0;
+    let whiteMinimumChannel = 255;
 
     for (let index = 0; index < pixels.length; index += 4)
     {
@@ -132,6 +137,22 @@ async function decodeScreenshot(page, screenshot)
 
       maximum = Math.max(maximum, energy);
       premultipliedEnergy += energy / 255 * (pixels[index + 3] / 255);
+      const alpha = pixels[index + 3] / 255;
+      const whiteMinimum = Math.min(
+        Math.round(pixels[index] * alpha + 255 * (1 - alpha)),
+        Math.round(pixels[index + 1] * alpha + 255 * (1 - alpha)),
+        Math.round(pixels[index + 2] * alpha + 255 * (1 - alpha)),
+      );
+      const whiteDarkening = 255 - whiteMinimum;
+
+      whiteChangedPixels += whiteDarkening > 0 ? 1 : 0;
+      whiteDarkPixelCount += whiteMinimum < 128 ? 1 : 0;
+      whiteDarkeningSum += whiteDarkening;
+      whiteMaximumChannelDarkening = Math.max(
+        whiteMaximumChannelDarkening,
+        whiteDarkening,
+      );
+      whiteMinimumChannel = Math.min(whiteMinimumChannel, whiteMinimum);
     }
 
     const centerOffset = (
@@ -147,6 +168,15 @@ async function decodeScreenshot(page, screenshot)
       maximum,
       premultipliedEnergy: premultipliedEnergy /
         Math.max(1, image.width * image.height),
+      whiteBackground:
+      {
+        changedPixels: whiteChangedPixels,
+        darkPixelCount: whiteDarkPixelCount,
+        maximumChannelDarkening: whiteMaximumChannelDarkening,
+        meanChannelDarkening: whiteDarkeningSum /
+          Math.max(1, image.width * image.height),
+        minimumChannel: whiteMinimumChannel,
+      },
       center: Array.from(pixels.slice(centerOffset, centerOffset + 4)),
     };
   }, screenshot.toString('base64'));
@@ -671,8 +701,11 @@ async function runWebGPUThemeColorContract(page)
     { id: 'defaultHue', color: '#4ca7ff', mode: 'hue-only' },
     { id: 'defaultRelative', color: '#4ca7ff', mode: 'relative-oklch' },
     { id: 'dark', color: '#001020', mode: 'relative-oklch' },
+    { id: 'darkRed', color: '#200002', mode: 'relative-oklch' },
     { id: 'bright', color: '#d8efff', mode: 'relative-oklch' },
     { id: 'black', color: '#000000', mode: 'relative-oklch' },
+    { id: 'oneBlue', color: '#000001', mode: 'relative-oklch' },
+    { id: 'fiveGray', color: '#050505', mode: 'relative-oklch' },
   ];
   const captures = {};
 
@@ -722,6 +755,8 @@ async function runWebGPUThemeColorContract(page)
             themeColorMode: config.themeColorMode,
           },
           effectiveOpacity: effect._getEffectiveOpacity(),
+          effectiveOverlayAlphaLimit:
+            effect._getEffectiveOverlayAlphaLimit(),
           shardCount: effect.shards.length,
           waveCount: effect.waves.length,
         };
@@ -759,6 +794,19 @@ async function runWebGPUThemeColorContract(page)
       },
     );
 
+    assert.ok(
+      variants.every((variant) =>
+      {
+        const capture = captures[variant.id];
+
+        return capture.runtime.config.resolvedEffectBackend === 'webgpu' &&
+          capture.runtime.config.resolvedBloomBackend === 'webgpu' &&
+          capture.runtime.config.themeColor === variant.color &&
+          capture.runtime.config.themeColorMode === variant.mode;
+      }),
+      `WebGPU 主题色变体没有保持预期配置或实际后端: ${detail}`,
+    );
+
     assertVisiblePixels('WebGPU 默认蓝 hue-only', captures.defaultHue.pixels);
     assertVisiblePixels(
       'WebGPU 默认蓝 relative-oklch',
@@ -783,8 +831,9 @@ async function runWebGPUThemeColorContract(page)
     assert.ok(
       captures.black.runtime.waveCount > 0 &&
         captures.black.runtime.shardCount > 0 &&
-        captures.black.runtime.effectiveOpacity === 0,
-      `WebGPU 纯黑测试没有保留活动几何或未归零透明度: ${detail}`,
+        captures.black.runtime.effectiveOpacity > 0 &&
+        captures.black.runtime.effectiveOverlayAlphaLimit === 0,
+      `WebGPU 纯黑测试没有保留活动几何或最终 Alpha 上限未归零: ${detail}`,
     );
     assert.ok(
       captures.black.pixels.visiblePixels === 0 &&
@@ -793,6 +842,52 @@ async function runWebGPUThemeColorContract(page)
         captures.black.pixels.premultipliedEnergy === 0,
       `WebGPU 纯黑主题仍残留 RGB 或 Alpha: ${detail}`,
     );
+    assert.ok(
+      captures.black.pixels.whiteBackground.changedPixels === 0 &&
+        captures.black.pixels.whiteBackground.maximumChannelDarkening === 0 &&
+        captures.black.pixels.whiteBackground.minimumChannel === 255,
+      `WebGPU 纯黑主题改变了最终纯白背景: ${detail}`,
+    );
+    const blackWhite = captures.black.pixels.whiteBackground;
+    const oneBlueWhite = captures.oneBlue.pixels.whiteBackground;
+    const fiveGrayWhite = captures.fiveGray.pixels.whiteBackground;
+
+    assert.ok(
+      blackWhite.maximumChannelDarkening <=
+          oneBlueWhite.maximumChannelDarkening &&
+        oneBlueWhite.maximumChannelDarkening <=
+          fiveGrayWhite.maximumChannelDarkening &&
+        blackWhite.meanChannelDarkening <=
+          oneBlueWhite.meanChannelDarkening &&
+        oneBlueWhite.meanChannelDarkening <=
+          fiveGrayWhite.meanChannelDarkening,
+      `WebGPU #000000 到 #000001/#050505 的白底变化不连续单调: ${detail}`,
+    );
+    assert.ok(
+      oneBlueWhite.maximumChannelDarkening <= 2 &&
+        fiveGrayWhite.changedPixels > 0 &&
+        fiveGrayWhite.maximumChannelDarkening <= 32 &&
+        oneBlueWhite.darkPixelCount === 0 &&
+        fiveGrayWhite.darkPixelCount === 0,
+      `WebGPU 近黑主题在纯白底上形成了暗色实心遮挡: ${detail}`,
+    );
+    for (const [name, capture] of [
+      ['#001020', captures.dark],
+      ['#200002', captures.darkRed],
+    ])
+    {
+      const whiteBackground = capture.pixels.whiteBackground;
+
+      assert.ok(
+        whiteBackground.changedPixels > 0 &&
+          fiveGrayWhite.maximumChannelDarkening <=
+            whiteBackground.maximumChannelDarkening &&
+          whiteBackground.maximumChannelDarkening <= 32 &&
+          whiteBackground.minimumChannel >= 223 &&
+          whiteBackground.darkPixelCount === 0,
+        `WebGPU ${name} 在峰值帧的纯白底上形成了暗色实心遮挡: ${detail}`,
+      );
+    }
 
     return {
       captures: publicCaptures,

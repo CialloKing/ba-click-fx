@@ -1151,13 +1151,56 @@ function measurePremultipliedEnergy(image)
   return energy / Math.max(1, image.width * image.height);
 }
 
+function measureWhiteBackgroundComposite(image)
+{
+  let changedPixels = 0;
+  let darkPixelCount = 0;
+  let darkeningSum = 0;
+  let maximumChannelDarkening = 0;
+  let minimumChannel = 255;
+
+  for (let offset = 0; offset < image.data.length; offset += 4)
+  {
+    const pixelMinimum = Math.min(
+      image.data[offset],
+      image.data[offset + 1],
+      image.data[offset + 2],
+    );
+    const darkening = 255 - pixelMinimum;
+
+    changedPixels += darkening > 0 ? 1 : 0;
+    darkPixelCount += pixelMinimum < 128 ? 1 : 0;
+    darkeningSum += darkening;
+    maximumChannelDarkening = Math.max(
+      maximumChannelDarkening,
+      darkening,
+    );
+    minimumChannel = Math.min(minimumChannel, pixelMinimum);
+  }
+
+  return {
+    changedPixels,
+    darkPixelCount,
+    maximumChannelDarkening,
+    meanChannelDarkening: darkeningSum /
+      Math.max(1, image.width * image.height),
+    minimumChannel,
+  };
+}
+
 /**
  * 在同一确定性时钟与随机种子下重建各主题变体。
  * 这里比较最终合成像素，而不只是颜色数学函数，因此能捕获
  * Canvas Coverage、Software Bloom 或 GPU 顶点接线遗漏。
  */
-async function runThemeColorContract(mode)
+async function runThemeColorContract(specification)
 {
+  const mode = typeof specification === 'string'
+    ? specification
+    : specification.mode;
+  const sampleTimeMs = typeof specification === 'string'
+    ? SAMPLE_TIME_MS
+    : specification.sampleTimeMs ?? SAMPLE_TIME_MS;
   const common =
   {
     mode,
@@ -1167,13 +1210,18 @@ async function runThemeColorContract(mode)
     background: 'transparent',
     shadow: false,
     containStrict: false,
-    sampleTimeMs: SAMPLE_TIME_MS,
+    sampleTimeMs,
   };
-  const captureVariant = async (themeColor, themeColorMode) =>
+  const captureVariant = async (
+    themeColor,
+    themeColorMode,
+    variantSampleTimeMs = sampleTimeMs,
+  ) =>
   {
     const fixture = await prepareEffect(
       {
         ...common,
+        sampleTimeMs: variantSampleTimeMs,
         themeColor,
         themeColorMode,
       },
@@ -1182,6 +1230,11 @@ async function runThemeColorContract(mode)
       fixture.effect,
       fixture.target,
       'transparent',
+    );
+    const whiteImage = captureLayers(
+      fixture.effect,
+      fixture.target,
+      'white',
     );
     const config = fixture.effect.getConfig();
 
@@ -1210,6 +1263,7 @@ async function runThemeColorContract(mode)
         ),
         waveCount: fixture.effect.waves.length,
       },
+      whiteBackground: measureWhiteBackgroundComposite(whiteImage),
     };
   };
 
@@ -1223,6 +1277,12 @@ async function runThemeColorContract(mode)
     const dark = await captureVariant('#001020', 'relative-oklch');
     const bright = await captureVariant('#d8efff', 'relative-oklch');
     const black = await captureVariant('#000000', 'relative-oklch');
+    // 1ms 位于圆盘 Alpha=1 的生命周期峰值；暗主题的白底
+    // 遮挡风险必须在该最坏时刻测量，不能被 120ms 衰减掩盖。
+    const oneBlue = await captureVariant('#000001', 'relative-oklch', 1);
+    const fiveGray = await captureVariant('#050505', 'relative-oklch', 1);
+    const darkPeak = await captureVariant('#001020', 'relative-oklch', 1);
+    const darkRedPeak = await captureVariant('#200002', 'relative-oklch', 1);
 
     return {
       black:
@@ -1232,6 +1292,7 @@ async function runThemeColorContract(mode)
         premultipliedEnergy: black.premultipliedEnergy,
         route: black.route,
         runtime: black.runtime,
+        whiteBackground: black.whiteBackground,
       },
       bright:
       {
@@ -1246,6 +1307,31 @@ async function runThemeColorContract(mode)
         pixels: dark.pixels,
         premultipliedEnergy: dark.premultipliedEnergy,
         route: dark.route,
+        whiteBackground: dark.whiteBackground,
+      },
+      darkPeak:
+      {
+        config: darkPeak.config,
+        pixels: darkPeak.pixels,
+        premultipliedEnergy: darkPeak.premultipliedEnergy,
+        route: darkPeak.route,
+        whiteBackground: darkPeak.whiteBackground,
+      },
+      darkRedPeak:
+      {
+        config: darkRedPeak.config,
+        pixels: darkRedPeak.pixels,
+        premultipliedEnergy: darkRedPeak.premultipliedEnergy,
+        route: darkRedPeak.route,
+        whiteBackground: darkRedPeak.whiteBackground,
+      },
+      fiveGray:
+      {
+        config: fiveGray.config,
+        pixels: fiveGray.pixels,
+        premultipliedEnergy: fiveGray.premultipliedEnergy,
+        route: fiveGray.route,
+        whiteBackground: fiveGray.whiteBackground,
       },
       defaultDifference: compareRgbaImages(
         defaultHue.image,
@@ -1264,6 +1350,14 @@ async function runThemeColorContract(mode)
         pixels: defaultRelative.pixels,
         premultipliedEnergy: defaultRelative.premultipliedEnergy,
         route: defaultRelative.route,
+      },
+      oneBlue:
+      {
+        config: oneBlue.config,
+        pixels: oneBlue.pixels,
+        premultipliedEnergy: oneBlue.premultipliedEnergy,
+        route: oneBlue.route,
+        whiteBackground: oneBlue.whiteBackground,
       },
       mode,
     };

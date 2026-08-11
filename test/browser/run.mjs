@@ -522,6 +522,10 @@ function validateThemeColorContract(mode, result)
     result.dark,
     result.bright,
     result.black,
+    result.oneBlue,
+    result.fiveGray,
+    result.darkPeak,
+    result.darkRedPeak,
   ];
 
   assert(
@@ -541,7 +545,11 @@ function validateThemeColorContract(mode, result)
       result.defaultRelative.config.themeColorMode === 'relative-oklch' &&
       result.dark.config.themeColor === '#001020' &&
       result.bright.config.themeColor === '#d8efff' &&
-      result.black.config.themeColor === '#000000',
+      result.black.config.themeColor === '#000000' &&
+      result.oneBlue.config.themeColor === '#000001' &&
+      result.fiveGray.config.themeColor === '#050505' &&
+      result.darkPeak.config.themeColor === '#001020' &&
+      result.darkRedPeak.config.themeColor === '#200002',
     `${mode}: 主题色夹具没有应用请求的颜色或映射模式`,
     variants.map((variant) => variant.config),
   );
@@ -579,6 +587,66 @@ function validateThemeColorContract(mode, result)
     result.black.runtime,
   );
   validateEmptyPixels(result.black.pixels, `${mode}: 纯黑主题`);
+
+  const blackWhite = result.black.whiteBackground;
+  const oneBlueWhite = result.oneBlue.whiteBackground;
+  const fiveGrayWhite = result.fiveGray.whiteBackground;
+
+  assert(
+    blackWhite.changedPixels === 0 &&
+      blackWhite.maximumChannelDarkening === 0 &&
+      blackWhite.minimumChannel === 255,
+    `${mode}: 纯黑主题改变了最终纯白背景`,
+    blackWhite,
+  );
+  assert(
+    blackWhite.maximumChannelDarkening <=
+        oneBlueWhite.maximumChannelDarkening &&
+      oneBlueWhite.maximumChannelDarkening <=
+        fiveGrayWhite.maximumChannelDarkening &&
+      blackWhite.meanChannelDarkening <=
+        oneBlueWhite.meanChannelDarkening &&
+      oneBlueWhite.meanChannelDarkening <=
+        fiveGrayWhite.meanChannelDarkening,
+    `${mode}: #000000 到 #000001/#050505 的白底变化不连续单调`,
+    {
+      black: blackWhite,
+      fiveGray: fiveGrayWhite,
+      oneBlue: oneBlueWhite,
+    },
+  );
+  assert(
+    oneBlueWhite.maximumChannelDarkening <= 2 &&
+      fiveGrayWhite.changedPixels > 0 &&
+      fiveGrayWhite.maximumChannelDarkening <= 32 &&
+      oneBlueWhite.darkPixelCount === 0 &&
+      fiveGrayWhite.darkPixelCount === 0,
+    `${mode}: 近黑主题在纯白底上形成了暗色实心遮挡`,
+    {
+      fiveGray: fiveGrayWhite,
+      oneBlue: oneBlueWhite,
+    },
+  );
+
+  for (const [name, variant] of [
+    ['#001020', result.darkPeak],
+    ['#200002', result.darkRedPeak],
+  ])
+  {
+    assert(
+      variant.whiteBackground.changedPixels > 0 &&
+        fiveGrayWhite.maximumChannelDarkening <=
+          variant.whiteBackground.maximumChannelDarkening &&
+        variant.whiteBackground.maximumChannelDarkening <= 32 &&
+        variant.whiteBackground.minimumChannel >= 223 &&
+        variant.whiteBackground.darkPixelCount === 0,
+      `${mode}: ${name} 在峰值帧的纯白底上形成了暗色实心遮挡`,
+      {
+        fiveGray: fiveGrayWhite,
+        theme: variant.whiteBackground,
+      },
+    );
+  }
 }
 
 async function runThemeColorContracts(page)
