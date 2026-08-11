@@ -4472,6 +4472,21 @@ closedShadowInner.getBoundingClientRect = () =>
 closedShadowInner.getRootNode = () =>
   ({ host: closedShadowOpenHost, mode: 'open' });
 closedShadowOpenHost.getRootNode = () => closedOuterRoot;
+const closedShadowPath = () =>
+  [closedShadowInner, closedShadowOpenHost, closedShadowHost, dom.windowMock];
+const dispatchClosedShadowEvent = (event, internalProperties = {}) =>
+{
+  dom.windowMock.dispatchEvent(event);
+  Object.assign(
+    event,
+    {
+      target: closedShadowInner,
+      composedPath: closedShadowPath,
+      ...internalProperties,
+    },
+  );
+  closedShadowInner.dispatchEvent(event);
+};
 const closedShadowTouch =
 {
   identifier: 99,
@@ -4498,79 +4513,112 @@ const closedShadowEffect = new BAClickFX(
 const closedShadowPointer =
 {
   type: 'pointerdown',
-  target: closedShadowInner,
+  target: closedShadowHost,
   pointerType: 'touch',
   button: 0,
   pointerId: 99,
   clientX: 30,
   clientY: 30,
-  composedPath: () =>
-    [
-      closedShadowInner,
-      closedShadowOpenHost,
-      closedShadowHost,
-      dom.windowMock,
-    ],
+  composedPath: () => [closedShadowHost, dom.windowMock],
 };
 
-closedShadowInner.dispatchEvent(closedShadowPointer);
-closedShadowPointer.target = closedShadowHost;
-closedShadowPointer.composedPath = () => [closedShadowHost, dom.windowMock];
-dom.windowMock.dispatchEvent(closedShadowPointer);
-dom.windowMock.dispatch('touchstart',
+// 真实 capture 顺序先经过 window，且 closed Shadow 外部只能看到重定向
+// host；进入内部 target 后，实例才应执行过滤并建立拖尾。
+dispatchClosedShadowEvent(closedShadowPointer);
+const closedShadowStartEvent =
+{
+  type: 'touchstart',
+  target: closedShadowHost,
+  composedPath: () => [closedShadowHost, dom.windowMock],
+  touches: [{ ...closedShadowTouch, target: closedShadowHost }],
+  changedTouches: [{ ...closedShadowTouch, target: closedShadowHost }],
+};
+
+dispatchClosedShadowEvent(
+  closedShadowStartEvent,
   {
-    target: closedShadowHost,
-    composedPath: () => [closedShadowHost, dom.windowMock],
     touches: [closedShadowTouch],
     changedTouches: [closedShadowTouch],
-  });
-dom.windowMock.dispatch('touchmove',
+  },
+);
+const closedShadowMovedTouch = { ...closedShadowTouch, clientX: 90 };
+const closedShadowMoveEvent =
+{
+  type: 'touchmove',
+  target: closedShadowHost,
+  composedPath: () => [closedShadowHost, dom.windowMock],
+  cancelable: true,
+  touches: [{ ...closedShadowMovedTouch, target: closedShadowHost }],
+  changedTouches: [{ ...closedShadowMovedTouch, target: closedShadowHost }],
+  preventDefault()
   {
-    target: closedShadowHost,
-    composedPath: () => [closedShadowHost, dom.windowMock],
-    cancelable: true,
-    touches: [{ ...closedShadowTouch, clientX: 90 }],
-    changedTouches: [{ ...closedShadowTouch, clientX: 90 }],
-    preventDefault()
-    {
-      closedShadowPrevented++;
-    },
-  });
-dom.windowMock.dispatch('touchcancel',
+    closedShadowPrevented++;
+  },
+};
+
+dispatchClosedShadowEvent(
+  closedShadowMoveEvent,
   {
-    target: closedShadowHost,
-    touches: [],
-    changedTouches: [closedShadowTouch],
-  });
+    touches: [closedShadowMovedTouch],
+    changedTouches: [closedShadowMovedTouch],
+  },
+);
+const closedShadowCancelEvent =
+{
+  type: 'touchcancel',
+  target: closedShadowHost,
+  composedPath: () => [closedShadowHost, dom.windowMock],
+  touches: [],
+  changedTouches: [{ ...closedShadowTouch, target: closedShadowHost }],
+};
+
+dispatchClosedShadowEvent(
+  closedShadowCancelEvent,
+  { changedTouches: [closedShadowTouch] },
+);
 assert(
   closedShadowFilterCalls === 1 &&
     closedShadowPrevented === 1 &&
     closedShadowEffect.activePointerId === 99,
   '嵌套 closed Shadow 内部 target 在重定向前过滤并保持触摸仲裁',
 );
-dom.windowMock.dispatch('touchstart',
+const pausedClosedShadowTouch = { ...closedShadowTouch, identifier: 100 };
+const pausedClosedShadowStartEvent =
+{
+  type: 'touchstart',
+  target: closedShadowHost,
+  composedPath: () => [closedShadowHost, dom.windowMock],
+  touches: [{ ...pausedClosedShadowTouch, target: closedShadowHost }],
+  changedTouches: [{ ...pausedClosedShadowTouch, target: closedShadowHost }],
+};
+
+dispatchClosedShadowEvent(
+  pausedClosedShadowStartEvent,
   {
-    target: closedShadowHost,
-    composedPath: () => [closedShadowHost, dom.windowMock],
-    touches: [{ ...closedShadowTouch, identifier: 100 }],
-    changedTouches: [{ ...closedShadowTouch, identifier: 100 }],
-  });
+    touches: [pausedClosedShadowTouch],
+    changedTouches: [pausedClosedShadowTouch],
+  },
+);
 closedShadowEffect.setPaused(true);
 let resumedTouchPrevented = 0;
 
 closedShadowEffect.setPaused(false);
-dom.windowMock.dispatch('touchmove',
+const resumedClosedShadowMove = { ...pausedClosedShadowTouch, clientX: 90 };
+const resumedClosedShadowMoveEvent =
+{
+  type: 'touchmove',
+  target: closedShadowInner,
+  composedPath: closedShadowPath,
+  cancelable: true,
+  touches: [resumedClosedShadowMove],
+  changedTouches: [resumedClosedShadowMove],
+  preventDefault()
   {
-    target: closedShadowHost,
-    composedPath: () => [closedShadowHost, dom.windowMock],
-    cancelable: true,
-    touches: [{ ...closedShadowTouch, identifier: 100, clientX: 90 }],
-    changedTouches: [{ ...closedShadowTouch, identifier: 100, clientX: 90 }],
-    preventDefault()
-    {
-      resumedTouchPrevented++;
-    },
-  });
+    resumedTouchPrevented++;
+  },
+};
+
+closedShadowInner.dispatchEvent(resumedClosedShadowMoveEvent);
 assert(
   closedShadowEffect.touchGestureStarts.size === 0 &&
     closedShadowEffect.touchPointerFilterResults.length === 0 &&
@@ -4611,15 +4659,30 @@ const closedShadowTouchFirstMove =
   clientX: 90,
 };
 
-// 先派发 Touch，再按真实 capture 顺序让 window 看到重定向宿主，
-// 最后进入 closed Shadow 内部 host；窗口侧不能提前消费 pending 状态。
-dom.windowMock.dispatch('touchstart',
+// Touch-first 也先经过重定向后的 window，再进入真实 host；内部状态保持
+// pending，直到随后的真实 PointerEvent 完成 inputFilter 决定。
+const closedShadowTouchFirstStartEvent =
+{
+  type: 'touchstart',
+  target: closedShadowHost,
+  composedPath: () => [closedShadowHost, dom.windowMock],
+  touches:
+  [
+    { ...closedShadowTouchFirstStart, target: closedShadowHost },
+  ],
+  changedTouches:
+  [
+    { ...closedShadowTouchFirstStart, target: closedShadowHost },
+  ],
+};
+
+dispatchClosedShadowEvent(
+  closedShadowTouchFirstStartEvent,
   {
-    target: closedShadowHost,
-    composedPath: () => [closedShadowHost, dom.windowMock],
     touches: [closedShadowTouchFirstStart],
     changedTouches: [closedShadowTouchFirstStart],
-  });
+  },
+);
 const closedShadowTouchFirstPointer =
 {
   type: 'pointerdown',
@@ -4633,21 +4696,35 @@ const closedShadowTouchFirstPointer =
 };
 dom.windowMock.dispatchEvent(closedShadowTouchFirstPointer);
 closedShadowTouchFirstPointer.target = closedShadowInner;
-closedShadowTouchFirstPointer.composedPath = () =>
-  [closedShadowInner, closedShadowOpenHost, closedShadowHost, dom.windowMock];
+closedShadowTouchFirstPointer.composedPath = closedShadowPath;
 closedShadowInner.dispatchEvent(closedShadowTouchFirstPointer);
-dom.windowMock.dispatch('touchmove',
+const closedShadowTouchFirstMoveEvent =
+{
+  type: 'touchmove',
+  target: closedShadowHost,
+  composedPath: () => [closedShadowHost, dom.windowMock],
+  cancelable: true,
+  touches:
+  [
+    { ...closedShadowTouchFirstMove, target: closedShadowHost },
+  ],
+  changedTouches:
+  [
+    { ...closedShadowTouchFirstMove, target: closedShadowHost },
+  ],
+  preventDefault()
   {
-    target: closedShadowHost,
-    composedPath: () => [closedShadowHost, dom.windowMock],
-    cancelable: true,
+    closedShadowTouchFirstPrevented++;
+  },
+};
+
+dispatchClosedShadowEvent(
+  closedShadowTouchFirstMoveEvent,
+  {
     touches: [closedShadowTouchFirstMove],
     changedTouches: [closedShadowTouchFirstMove],
-    preventDefault()
-    {
-      closedShadowTouchFirstPrevented++;
-    },
-  });
+  },
+);
 assert(
   closedShadowTouchFirstFilterCalls === 1 &&
     closedShadowTouchFirstPrevented === 1 &&
@@ -4732,21 +4809,9 @@ const closedShadowFallbackEndEvent =
 
 // Touch-only fallback 在 window 看到重定向宿主时让路，再由真实 host
 // listener 处理完整的 Touch 生命周期，避免 closed Shadow 下零轨迹。
-dom.windowMock.dispatchEvent(closedShadowFallbackStartEvent);
-closedShadowFallbackStartEvent.target = closedShadowInner;
-closedShadowFallbackStartEvent.composedPath = () =>
-  [closedShadowInner, closedShadowOpenHost, closedShadowHost, dom.windowMock];
-closedShadowInner.dispatchEvent(closedShadowFallbackStartEvent);
-dom.windowMock.dispatchEvent(closedShadowFallbackMoveEvent);
-closedShadowFallbackMoveEvent.target = closedShadowInner;
-closedShadowFallbackMoveEvent.composedPath = () =>
-  [closedShadowInner, closedShadowOpenHost, closedShadowHost, dom.windowMock];
-closedShadowInner.dispatchEvent(closedShadowFallbackMoveEvent);
-dom.windowMock.dispatchEvent(closedShadowFallbackEndEvent);
-closedShadowFallbackEndEvent.target = closedShadowInner;
-closedShadowFallbackEndEvent.composedPath = () =>
-  [closedShadowInner, closedShadowOpenHost, closedShadowHost, dom.windowMock];
-closedShadowInner.dispatchEvent(closedShadowFallbackEndEvent);
+dispatchClosedShadowEvent(closedShadowFallbackStartEvent);
+dispatchClosedShadowEvent(closedShadowFallbackMoveEvent);
+dispatchClosedShadowEvent(closedShadowFallbackEndEvent);
 assert(
   closedShadowFallbackEffect.usesTouchInputFallback &&
     closedShadowFallbackFilterCalls === 1 &&

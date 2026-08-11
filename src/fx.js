@@ -6638,7 +6638,9 @@ export class BAClickFX
         capture: true,
         passive: true,
       });
-    if (this._isHostInClosedShadowRoot() && !this.usesTouchInputFallback)
+    const hostInClosedShadowRoot = this._isHostInClosedShadowRoot();
+
+    if (hostInClosedShadowRoot && !this.usesTouchInputFallback)
     {
       // Window 侧看不到 closed ShadowRoot 的内部 target；先在真实作用域
       // 内记录同一个 PointerEvent 的过滤决定，窗口监听随后复用。
@@ -6649,12 +6651,11 @@ export class BAClickFX
       );
     }
 
-    if (this.usesTouchInputFallback &&
-      this._isHostInClosedShadowRoot() &&
+    if (hostInClosedShadowRoot &&
       typeof this.host?.addEventListener === 'function')
     {
-      // Touch-only 宿主必须在 closed Shadow 内部接收原始事件；window 侧
-      // 的 composedPath 已被重定向，无法可靠判断 target 作用域。
+      // closed Shadow 外部看不到真实 Touch target；不论是否支持
+      // PointerEvent，都必须在内部作用域完成方向仲裁和 fallback 转发。
       this.host.addEventListener('touchstart', this._onTouchStart,
         {
           capture: true,
@@ -6889,8 +6890,7 @@ export class BAClickFX
 
   _isClosedShadowWindowTouchEvent(event)
   {
-    if (!this.usesTouchInputFallback ||
-      !this._isHostInClosedShadowRoot())
+    if (!this._isHostInClosedShadowRoot())
     {
       return false;
     }
