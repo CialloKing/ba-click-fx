@@ -1671,6 +1671,28 @@ assert(
     paramApiEffect.getConfig().themeColorMode === 'hue-only',
   '主题映射 setter 接受公开模式、拒绝非法值并与 updateConfig 共用状态',
 );
+paramApiEffect.updateConfig(
+  {
+    themeColor: '#000000',
+    themeColorMode: 'relative-oklch',
+  },
+);
+const blackRelativeThemeOpacity = paramApiEffect._getEffectiveOpacity();
+paramApiEffect.setThemeColorMode('hue-only');
+const blackHueOnlyThemeOpacity = paramApiEffect._getEffectiveOpacity();
+paramApiEffect.updateConfig(
+  {
+    themeColor: '#ff6969',
+    themeColorMode: 'hue-only',
+  },
+);
+assert(
+  paramApiEffect.getConfig().opacity === 1 &&
+    blackRelativeThemeOpacity === 0 &&
+    blackHueOnlyThemeOpacity === 1 &&
+    paramApiEffect._getEffectiveOpacity() === 1,
+  '纯黑相对主题同时清空发射与 Coverage，兼容色相模式不改旧语义',
+);
 const singleParamAccepted = paramApiEffect.setFxParam(
   'rings.rotationDirection',
   -1,
