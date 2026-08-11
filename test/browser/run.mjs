@@ -84,6 +84,11 @@ const metrics =
   themeColorContracts: {},
   transparentContractContextLifecycle: {},
   transparentContractFailureChains: {},
+  fullscreenScrollbarGutter:
+  {
+    source: null,
+    iife: null,
+  },
   iifeSmoke: null,
   demoTimeScaleControls: null,
   demoControlPanelStructure: null,
@@ -505,6 +510,40 @@ function validateEmptyPixels(pixels, label)
       pixels.visibleRatio === 0,
     `${label}: 生命周期结束后仍有残影`,
     pixels,
+  );
+}
+
+function validateFullscreenScrollbarGutter(result, expectedDpr)
+{
+  const gutterWidth = result.viewport.innerWidth - result.canvas.clientWidth;
+  const bounds = result.canvas.bounds;
+
+  assert(
+    Math.abs(gutterWidth - 10) < 0.01,
+    `${currentLabel}: 没有建立 10px 全屏滚动条槽`,
+    result,
+  );
+  assert(
+    Math.abs(result.effect.dpr - expectedDpr) < 0.01,
+    `${currentLabel}: 全屏覆盖层 DPR 未按浏览器上下文生效`,
+    result,
+  );
+  assert(
+    Math.abs(result.effect.width - bounds.width) < 0.01 &&
+      Math.abs(result.effect.height - bounds.height) < 0.01 &&
+      Math.abs(result.canvas.clientWidth - bounds.width) < 0.01 &&
+      Math.abs(result.canvas.clientHeight - bounds.height) < 0.01 &&
+      Math.abs(result.viewport.innerHeight - bounds.height) < 0.01,
+    `${currentLabel}: 全屏逻辑尺寸与 fixed Canvas CSS 盒子不一致`,
+    result,
+  );
+  assert(
+    result.canvas.backingWidth ===
+      Math.round(result.effect.width * result.effect.dpr) &&
+      result.canvas.backingHeight ===
+        Math.round(result.effect.height * result.effect.dpr),
+    `${currentLabel}: 全屏 backing store 没有按实测 CSS 尺寸和 DPR 分配`,
+    result,
   );
 }
 
@@ -3181,6 +3220,14 @@ async function runIifeSmoke(browserInstance, baseUrl)
       runtimeContract,
     );
 
+    currentLabel = 'iife-fullscreen-scrollbar-gutter';
+    const fullscreenScrollbarGutter = await page.evaluate(
+      () => window.browserPixelSuite.runFullscreenScrollbarGutterContract(),
+    );
+
+    validateFullscreenScrollbarGutter(fullscreenScrollbarGutter, 1);
+    metrics.fullscreenScrollbarGutter.iife = fullscreenScrollbarGutter;
+
     currentLabel = 'iife-transparent-click-trail';
     const basic = await page.evaluate(
       (input) => window.browserPixelSuite.runCase(input),
@@ -3244,6 +3291,7 @@ async function runIifeSmoke(browserInstance, baseUrl)
     metrics.iifeSmoke =
     {
       basic,
+      fullscreenScrollbarGutter,
       reentrantNative,
       runtimeContract,
       trailFailureChains,
@@ -5583,6 +5631,17 @@ async function runMatrix(browserInstance, baseUrl, baseline)
 
     currentPage = page;
     metrics.environment[`dpr${dpr}`] = session.capabilities;
+
+    if (dpr === 2)
+    {
+      currentLabel = 'source-fullscreen-scrollbar-gutter';
+      const fullscreenScrollbarGutter = await page.evaluate(
+        () => window.browserPixelSuite.runFullscreenScrollbarGutterContract(),
+      );
+
+      validateFullscreenScrollbarGutter(fullscreenScrollbarGutter, dpr);
+      metrics.fullscreenScrollbarGutter.source = fullscreenScrollbarGutter;
+    }
 
     if (dpr === 1)
     {

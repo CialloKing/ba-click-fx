@@ -995,6 +995,79 @@ function disposeActiveFixture()
   animationFrames.clear();
 }
 
+async function runFullscreenScrollbarGutterContract()
+{
+  disposeActiveFixture();
+  resetVirtualRuntime();
+  const root = document.documentElement;
+  const scrollbarStyle = document.createElement('style');
+  const previousOverflowY = root.style.overflowY;
+  const previousScrollbarGutter = root.style.scrollbarGutter;
+  let effect = null;
+
+  // Headless Chromium 使用覆盖式滚动条；stable gutter 显式建立与传统
+  // 10px 滚动条相同的 fixed 布局视口，避免依赖浏览器私有启动参数。
+  scrollbarStyle.textContent = [
+    'html::-webkit-scrollbar',
+    '{',
+    '  width: 10px;',
+    '}',
+  ].join('\n');
+
+  try
+  {
+    document.head.appendChild(scrollbarStyle);
+    root.style.overflowY = 'scroll';
+    root.style.scrollbarGutter = 'stable';
+    effect = new BAClickFX(
+      {
+        effectBackend: 'canvas2d',
+        bloomBackend: 'native',
+        inputSource: 'dom',
+        isolatedCompositing: false,
+        maxDpr: 2,
+      },
+    );
+    const bounds = effect.canvas.getBoundingClientRect();
+
+    return {
+      viewport:
+      {
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+      },
+      effect:
+      {
+        width: effect.width,
+        height: effect.height,
+        dpr: effect.dpr,
+      },
+      canvas:
+      {
+        clientWidth: effect.canvas.clientWidth,
+        clientHeight: effect.canvas.clientHeight,
+        backingWidth: effect.canvas.width,
+        backingHeight: effect.canvas.height,
+        bounds:
+        {
+          left: bounds.left,
+          top: bounds.top,
+          width: bounds.width,
+          height: bounds.height,
+        },
+      },
+    };
+  }
+  finally
+  {
+    effect?.destroy();
+    scrollbarStyle.remove();
+    root.style.overflowY = previousOverflowY;
+    root.style.scrollbarGutter = previousScrollbarGutter;
+    animationFrames.clear();
+  }
+}
+
 async function runCase(specification)
 {
   const fixture = await prepareEffect(specification);
@@ -2903,6 +2976,7 @@ window.browserPixelSuite = Object.freeze(
     runCompositingReferenceContextLifecycle,
     runBackendFailureChain,
     runBackendReentrantNative,
+    runFullscreenScrollbarGutterContract,
     runTrailTextureResourceLifecycle,
     runTrailContextLifecycle,
     setTransparentContractReference,
