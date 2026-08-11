@@ -7,6 +7,8 @@
 - 新增 `themeColorMode: 'hue-only' | 'relative-oklch'` 和 `setThemeColorMode()`；公共库默认保留旧版仅色相语义，展示页新用户使用推荐的相对 OKLCH 映射，旧颜色设置会安全迁移到兼容模式。
 - 相对 OKLCH 会在 HDR/Bloom 之前保留色相、色度与感知明度的相对关系，默认游戏蓝严格恒等，低于 8-bit 的暗部能量保留到最终输出边界。
 - 将暗色主题的 RGB 发射与未知背景 `source-over` Coverage 分离，防止暗色透明特效变成实心遮挡，同时不缩放 Scene、Screen/Plus-lighter 或 HDR 能量；Native、Software Bloom、WebGL2 与 WebGPU 均纳入默认恒等、暗色单调、纯黑透明和白底遮挡像素门禁。
+- 调整展示页折叠栏默认状态，仅展开背景主题、显示、宿主控制 API 与通用参数；FAQ 的静态及双语运行时文案移除特定宿主名称。
+- 中英文 README 新增 Windows 原生桌面测试版入口，并明确当前单主显示器、特效层与 SDR 路径等能力边界。
 
 ## v1.2.24 — WebGPU 普通模式
 
