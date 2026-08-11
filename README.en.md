@@ -170,10 +170,12 @@ new BAClickFX(options?: {
   isolatedCompositing?: boolean,  // default false; true enables non-game white-background compatibility
   lightBackgroundContrastAlpha?: number, // light-background compatibility strength, default 0
   maxDpr?: number,               // default 2
-  touchAction?: string,          // default 'auto'
+  touchAction?: string,          // DOM touch-gesture policy; default 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
 })
 ```
+
+`touchAction` accepts CSS `touch-action` keywords and space-separated combinations, including `none`, `pan-x`, `pan-y`, `pan-left`, `pan-right`, `pan-up`, `pan-down`, and `pinch-zoom`. DOM input installs capture Touch arbitration only when the policy must block a direction or pinch; `auto`, `manipulation`, and combinations that explicitly allow every axis and pinch retain the browser's compositor-friendly scrolling. When an overlay Canvas is not hit-testable, the library locks the gesture direction at its first meaningful move and applies `inputFilter` to exclude host controls; `inputSource: 'manual'` does not install these DOM listeners.
 
 `effectBackend` decides whether WebGPU or WebGL2 owns the complete crisp scene and Bloom. `webgpuPreferHdr` only controls whether the final WebGPU Canvas attempts Extended HDR; `false` forces Standard SDR. The Canvas 2D path then uses `bloomBackend` to select its Bloom implementation. The demo exposes seven direct combinations:
 

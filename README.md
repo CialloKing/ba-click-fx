@@ -190,10 +190,12 @@ new BAClickFX(options?: {
   isolatedCompositing?: boolean,  // 隔离合成，默认 false；true 为非游戏白底兼容选项
   lightBackgroundContrastAlpha?: number, // 浅色背景兼容层强度，默认 0
   maxDpr?: number,                // 最大设备像素比，默认 2
-  touchAction?: string,           // Canvas touch-action，默认 'auto'
+  touchAction?: string,           // DOM 触摸手势策略，默认 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
 })
 ```
+
+`touchAction` 接受 CSS `touch-action` 关键字及组合，例如 `none`、`pan-x`、`pan-y`、`pan-left`、`pan-right`、`pan-up`、`pan-down`、`pinch-zoom` 和它们的空格组合。DOM 自动输入只在策略需要禁止某个方向或缩放时注册 capture Touch 仲裁监听；`auto`、`manipulation` 与显式允许全部方向/缩放的组合保留浏览器原生快速滚动。覆盖层 Canvas 不参与命中测试时，库会在首次可判定方向的移动时锁定本次手势，并通过 `inputFilter` 排除宿主控件；`inputSource: 'manual'` 不注册这些 DOM 监听。
 
 `effectBackend` 决定清晰几何与 Bloom 是否全部由 WebGPU 或 WebGL2 接管；`webgpuPreferHdr` 只决定 WebGPU 最终 Canvas 是否尝试 Extended HDR，`false` 会强制 Standard SDR。Canvas 2D 路径再通过 `bloomBackend` 选择 Bloom 实现。展示页提供七种直观组合：
 

@@ -5,6 +5,7 @@
 - 修复无 `target` 的全屏 fixed 覆盖层在传统滚动条槽存在时，`window.innerWidth` 与 Canvas CSS 盒子宽度不一致导致的 X 轴坐标偏移。
 - 全屏实例现在按已挂载 Canvas 的实测 CSS rect 建立逻辑尺寸和 backing store；Canvas 暂不可测时仍回退到窗口尺寸。
 - 增加源码、构建后 IIFE 及 DPR 1/2 的滚动条槽浏览器回归，覆盖 10px 槽宽与 backing store 尺寸合同。
+- 修复移动端覆盖层因 `pointer-events: none` 导致 Canvas `touch-action` 不参与命中判定、滑动立即收到 `pointercancel` 而无法形成拖尾的问题；DOM 输入现在按 CSS `touch-action` 的方向/缩放策略在 capture 阶段仲裁原生手势，锁定手势方向并保持 `inputFilter`、target 与 Shadow DOM 作用域边界。
 
 ## v1.2.25 — 输入采样模拟与感知主题颜色
 

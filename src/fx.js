@@ -90,11 +90,126 @@ const HOST_COMPOSITING_CHANGE_EVENT = 'baclickfxhostcompositingchange';
 const MAX_SCALED_TIME_DELTA_MS = Number.MAX_SAFE_INTEGER;
 const MAX_TRAIL_INNER_MITER_RATIO = 4;
 const MIN_TRAIL_SEGMENT_LENGTH = 0.000001;
+const TOUCH_DIRECTION_THRESHOLD = 2;
+const TOUCH_FILTER_CACHE_MS = 1000;
+const TOUCH_INPUT_MATCH_TOLERANCE = 2;
+const TOUCH_ACTION_DIRECTIONS = Object.freeze(
+  {
+    negative: 'negative',
+    positive: 'positive',
+  },
+);
 
 let triangleTextureResources = null;
 let triangleTextureUnavailable = false;
 let circleTextureResources = null;
 let circleTextureUnavailable = false;
+
+function createTouchActionPolicy(value)
+{
+  const raw = String(value ?? 'auto').trim().toLowerCase();
+  const tokens = raw ? raw.split(/\s+/) : ['auto'];
+  const policy =
+  {
+    allowX: false,
+    allowY: false,
+    allowPinch: false,
+    xDirections: new Set(),
+    yDirections: new Set(),
+    blockAll: false,
+    requiresShim: true,
+  };
+  const allowBothAxes = () =>
+  {
+    policy.allowX = true;
+    policy.allowY = true;
+    policy.xDirections.add(TOUCH_ACTION_DIRECTIONS.negative);
+    policy.xDirections.add(TOUCH_ACTION_DIRECTIONS.positive);
+    policy.yDirections.add(TOUCH_ACTION_DIRECTIONS.negative);
+    policy.yDirections.add(TOUCH_ACTION_DIRECTIONS.positive);
+  };
+
+  if (tokens.includes('auto') || tokens.includes('manipulation'))
+  {
+    allowBothAxes();
+    policy.allowPinch = true;
+    policy.requiresShim = false;
+    return policy;
+  }
+
+  if (tokens.includes('none'))
+  {
+    policy.blockAll = true;
+    return policy;
+  }
+
+  let recognized = false;
+
+  for (const token of tokens)
+  {
+    if (token === 'pinch-zoom')
+    {
+      policy.allowPinch = true;
+      recognized = true;
+    }
+    else if (token === 'pan-x')
+    {
+      policy.allowX = true;
+      policy.xDirections.add(TOUCH_ACTION_DIRECTIONS.negative);
+      policy.xDirections.add(TOUCH_ACTION_DIRECTIONS.positive);
+      recognized = true;
+    }
+    else if (token === 'pan-y')
+    {
+      policy.allowY = true;
+      policy.yDirections.add(TOUCH_ACTION_DIRECTIONS.negative);
+      policy.yDirections.add(TOUCH_ACTION_DIRECTIONS.positive);
+      recognized = true;
+    }
+    else if (token === 'pan-left' || token === 'pan-right')
+    {
+      policy.allowX = true;
+      // CSS 关键字描述页面的平移方向，与手指在屏幕上的位移相反。
+      policy.xDirections.add(
+        token === 'pan-left'
+          ? TOUCH_ACTION_DIRECTIONS.positive
+          : TOUCH_ACTION_DIRECTIONS.negative,
+      );
+      recognized = true;
+    }
+    else if (token === 'pan-up' || token === 'pan-down')
+    {
+      policy.allowY = true;
+      policy.yDirections.add(
+        token === 'pan-up'
+          ? TOUCH_ACTION_DIRECTIONS.positive
+          : TOUCH_ACTION_DIRECTIONS.negative,
+      );
+      recognized = true;
+    }
+    else
+    {
+      recognized = false;
+      break;
+    }
+  }
+
+  if (!recognized)
+  {
+    allowBothAxes();
+    policy.allowPinch = true;
+    policy.requiresShim = false;
+    return policy;
+  }
+
+  policy.requiresShim = policy.blockAll ||
+    !policy.allowX ||
+    !policy.allowY ||
+    !policy.allowPinch ||
+    policy.xDirections.size < 2 ||
+    policy.yDirections.size < 2;
+  return policy;
+}
 
 // ── 共享 HSL 转换 ──────────────────────────────────────────────────────
 function rgbToHsl(r, g, b)
@@ -6387,6 +6502,10 @@ export class BAClickFX
     // 输入采样率使用未缩放的 source time，不能复用拖尾虚拟时钟。
     this.lastInputSampleSourceTime = null;
     this.trailDistanceSinceShard = 0;
+    this.touchGestureStarts = new Map();
+    this.touchPointerFilterResults = [];
+    this.closedShadowPointerDecisions = new WeakMap();
+    this.touchActionListenersAttached = false;
     const initialTimeSource = performance.now();
 
     this.clickTimeMs = 0;
@@ -6405,6 +6524,11 @@ export class BAClickFX
     this._onPointerMove = this._handlePointerMove.bind(this);
     this._onPointerUp = this._handlePointerUp.bind(this);
     this._onPointerCancel = this._handlePointerCancel.bind(this);
+    this._onClosedShadowPointerDown =
+      this._handleClosedShadowPointerDown.bind(this);
+    this._onTouchStart = this._handleTouchStart.bind(this);
+    this._onTouchMove = this._handleTouchMove.bind(this);
+    this._onTouchEnd = this._handleTouchEnd.bind(this);
     this._onBlur = this._cancelPointer.bind(this);
     this._onFrame = this._renderFrame.bind(this);
     this._onWebGLContextLost = this._handleWebGLContextLost.bind(this);
@@ -6452,6 +6576,89 @@ export class BAClickFX
     window.addEventListener('pointerup', this._onPointerUp);
     window.addEventListener('pointercancel', this._onPointerCancel);
     this.domPointerListenersAttached = true;
+    this._syncTouchActionListeners();
+  }
+
+  _attachTouchActionListeners()
+  {
+    if (this.touchActionListenersAttached)
+    {
+      return;
+    }
+
+    window.addEventListener('touchstart', this._onTouchStart,
+      {
+        capture: true,
+        passive: true,
+      });
+    window.addEventListener('touchmove', this._onTouchMove,
+      {
+        // Canvas 不参与命中测试时，只有非 passive Touch Event 才能在
+        // 浏览器接管滚动前兑现 touchAction 的禁止方向。
+        capture: true,
+        passive: false,
+      });
+    window.addEventListener('touchend', this._onTouchEnd,
+      {
+        capture: true,
+        passive: true,
+      });
+    window.addEventListener('touchcancel', this._onTouchEnd,
+      {
+        capture: true,
+        passive: true,
+      });
+    if (this._isHostInClosedShadowRoot())
+    {
+      // Window 侧看不到 closed ShadowRoot 的内部 target；先在真实作用域
+      // 内记录同一个 PointerEvent 的过滤决定，窗口监听随后复用。
+      this.host.addEventListener(
+        'pointerdown',
+        this._onClosedShadowPointerDown,
+        { capture: true },
+      );
+    }
+    this.touchActionListenersAttached = true;
+  }
+
+  _detachTouchActionListeners()
+  {
+    if (!this.touchActionListenersAttached)
+    {
+      this.touchGestureStarts.clear();
+      this.touchPointerFilterResults.length = 0;
+      this.closedShadowPointerDecisions = new WeakMap();
+      return;
+    }
+
+    window.removeEventListener('touchstart', this._onTouchStart, true);
+    window.removeEventListener('touchmove', this._onTouchMove, true);
+    window.removeEventListener('touchend', this._onTouchEnd, true);
+    window.removeEventListener('touchcancel', this._onTouchEnd, true);
+    this.host?.removeEventListener?.(
+      'pointerdown',
+      this._onClosedShadowPointerDown,
+      true,
+    );
+    this.touchGestureStarts.clear();
+    this.touchPointerFilterResults.length = 0;
+    this.closedShadowPointerDecisions = new WeakMap();
+    this.touchActionListenersAttached = false;
+  }
+
+  _syncTouchActionListeners()
+  {
+    const shouldAttach = this.domPointerListenersAttached &&
+      createTouchActionPolicy(this.config.touchAction).requiresShim;
+
+    if (shouldAttach)
+    {
+      this._attachTouchActionListeners();
+    }
+    else
+    {
+      this._detachTouchActionListeners();
+    }
   }
 
   _detachDomPointerListeners()
@@ -6461,11 +6668,426 @@ export class BAClickFX
       return;
     }
 
+    this._detachTouchActionListeners();
     window.removeEventListener('pointerdown', this._onPointerDown);
     window.removeEventListener('pointermove', this._onPointerMove);
     window.removeEventListener('pointerup', this._onPointerUp);
     window.removeEventListener('pointercancel', this._onPointerCancel);
     this.domPointerListenersAttached = false;
+  }
+
+  _touchTargetsMatch(event, left, right)
+  {
+    if (!left || !right || left === right)
+    {
+      return true;
+    }
+
+    const path = typeof event.composedPath === 'function'
+      ? event.composedPath()
+      : [];
+
+    return path.includes(left) && path.includes(right);
+  }
+
+  _touchInputsMatch(event, input, clientX, clientY, target)
+  {
+    const eventTargetsMatch = input.eventTarget && event.target &&
+      input.eventTarget === event.target;
+
+    return Math.abs(input.clientX - clientX) <= TOUCH_INPUT_MATCH_TOLERANCE &&
+      Math.abs(input.clientY - clientY) <= TOUCH_INPUT_MATCH_TOLERANCE &&
+      (
+        eventTargetsMatch ||
+        this._touchTargetsMatch(event, input.target, target)
+      );
+  }
+
+  _rememberTouchPointerFilterResult(event, accepted)
+  {
+    this.touchPointerFilterResults.push(
+      {
+        accepted,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        createdAt: performance.now(),
+        eventTarget: event.target,
+        target: event.target,
+      },
+    );
+
+    if (this.touchPointerFilterResults.length > 8)
+    {
+      this.touchPointerFilterResults.shift();
+    }
+  }
+
+  _consumeTouchPointerFilterResult(event, touch)
+  {
+    const now = performance.now();
+    const target = touch.target ?? event.target;
+
+    for (let index = this.touchPointerFilterResults.length - 1; index >= 0; index--)
+    {
+      const result = this.touchPointerFilterResults[index];
+
+      if (now - result.createdAt > TOUCH_FILTER_CACHE_MS)
+      {
+        this.touchPointerFilterResults.splice(index, 1);
+        continue;
+      }
+
+      if (!this._touchInputsMatch(
+        event,
+        result,
+        touch.clientX,
+        touch.clientY,
+        target,
+      ))
+      {
+        continue;
+      }
+
+      this.touchPointerFilterResults.splice(index, 1);
+      return result;
+    }
+
+    return undefined;
+  }
+
+  _consumeTouchGestureState(event)
+  {
+    for (const state of this.touchGestureStarts.values())
+    {
+      if (
+        state.pointerDecisionConsumed ||
+        !this._touchInputsMatch(
+          event,
+          state,
+          event.clientX,
+          event.clientY,
+          event.target,
+        )
+      )
+      {
+        continue;
+      }
+
+      state.pointerDecisionConsumed = true;
+      return state;
+    }
+
+    return null;
+  }
+
+  _isTouchEventInScope(event, touchTarget = null)
+  {
+    if (!this.host)
+    {
+      return true;
+    }
+
+    const target = touchTarget ?? event.target;
+
+    if (
+      target === this.host ||
+      (
+        target &&
+        typeof this.host.contains === 'function' &&
+        this.host.contains(target)
+      )
+    )
+    {
+      return true;
+    }
+
+    const path = typeof event.composedPath === 'function'
+      ? event.composedPath()
+      : [];
+
+    return path.includes(this.host);
+  }
+
+  _isHostInClosedShadowRoot()
+  {
+    let node = this.host;
+
+    // Window 会跨过 open ShadowRoot，但任意外层 closed 边界都会隐藏真实
+    // Pointer target，因此必须沿宿主链检查，而不只检查最近的一层。
+    while (typeof node?.getRootNode === 'function')
+    {
+      const root = node.getRootNode();
+
+      if (!root?.host)
+      {
+        return false;
+      }
+
+      if (root.mode === 'closed')
+      {
+        return true;
+      }
+
+      node = root.host;
+    }
+
+    return false;
+  }
+
+  _handleClosedShadowPointerDown(event)
+  {
+    if (
+      this.destroyed ||
+      this.paused ||
+      event.pointerType !== 'touch'
+    )
+    {
+      return;
+    }
+
+    const accepted = !this.inputFilter || this.inputFilter(event);
+
+    this.closedShadowPointerDecisions.set(event, accepted);
+  }
+
+  _acceptTouchStart(event, touch)
+  {
+    const target = touch.target ?? event.target;
+    const pointerFilterResult = this._consumeTouchPointerFilterResult(
+      event,
+      touch,
+    );
+
+    if (!this._isTouchEventInScope(event, target))
+    {
+      return {
+        accepted: false,
+        pointerDecisionConsumed: false,
+        pointerFilterPending: false,
+        target,
+      };
+    }
+
+    if (pointerFilterResult !== undefined)
+    {
+      const accepted = pointerFilterResult.accepted;
+
+      return {
+        accepted,
+        pointerDecisionConsumed: true,
+        pointerFilterPending: false,
+        target,
+      };
+    }
+
+    if (!this.inputFilter)
+    {
+      return {
+        accepted: true,
+        pointerDecisionConsumed: false,
+        pointerFilterPending: false,
+        target,
+      };
+    }
+
+    // Pointer 与 Touch 的先后顺序因浏览器而异。Touch 先到时暂不伪造
+    // PointerEvent；由随后的真实 pointerdown 完成过滤并回填本次手势。
+    return {
+      accepted: false,
+      pointerDecisionConsumed: false,
+      pointerFilterPending: true,
+      target,
+    };
+  }
+
+  _handleTouchStart(event)
+  {
+    if (
+      this.destroyed ||
+      this.paused
+    )
+    {
+      return;
+    }
+
+    const touches = event.changedTouches;
+    const policy = createTouchActionPolicy(this.config.touchAction);
+
+    for (let index = 0; index < (touches?.length ?? 0); index++)
+    {
+      const touch = touches[index];
+      const acceptance = this._acceptTouchStart(event, touch);
+
+      this.touchGestureStarts.set(
+        touch.identifier,
+        {
+          ...acceptance,
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          eventTarget: event.target,
+          policy,
+          preventDefault: null,
+          x: touch.clientX,
+          y: touch.clientY,
+        },
+      );
+    }
+  }
+
+  _getAcceptedTouchCount(event)
+  {
+    const touches = event.touches ?? event.changedTouches;
+    let count = 0;
+
+    for (let index = 0; index < (touches?.length ?? 0); index++)
+    {
+      if (this.touchGestureStarts.get(touches[index].identifier)?.accepted)
+      {
+        count++;
+      }
+    }
+
+    return count;
+  }
+
+  _isTouchDirectionAllowed(policy, axis, delta)
+  {
+    if (axis === 'x')
+    {
+      if (!policy.allowX)
+      {
+        return false;
+      }
+
+      return policy.xDirections.has(
+        delta < 0
+          ? TOUCH_ACTION_DIRECTIONS.negative
+          : TOUCH_ACTION_DIRECTIONS.positive,
+      );
+    }
+
+    if (!policy.allowY)
+    {
+      return false;
+    }
+
+    return policy.yDirections.has(
+      delta < 0
+        ? TOUCH_ACTION_DIRECTIONS.negative
+        : TOUCH_ACTION_DIRECTIONS.positive,
+    );
+  }
+
+  _shouldPreventTouchMove(state, touch, acceptedTouchCount)
+  {
+    const policy = state.policy;
+
+    if (policy.blockAll)
+    {
+      return true;
+    }
+
+    if (acceptedTouchCount > 1)
+    {
+      return !policy.allowPinch;
+    }
+
+    if (state.preventDefault !== null)
+    {
+      return state.preventDefault;
+    }
+
+    const deltaX = touch.clientX - state.x;
+    const deltaY = touch.clientY - state.y;
+    const absoluteX = Math.abs(deltaX);
+    const absoluteY = Math.abs(deltaY);
+
+    if (Math.max(absoluteX, absoluteY) < TOUCH_DIRECTION_THRESHOLD)
+    {
+      return false;
+    }
+
+    if (!policy.allowX && !policy.allowY)
+    {
+      state.preventDefault = true;
+      return true;
+    }
+
+    if (absoluteX === absoluteY)
+    {
+      return false;
+    }
+
+    const axis = absoluteX > absoluteY ? 'x' : 'y';
+    const delta = axis === 'x' ? deltaX : deltaY;
+
+    // 与 CSS touch-action 一样，首次可判定方向后锁定本次手势；后续
+    // 折返不能重新开启浏览器滚动并触发迟到的 pointercancel。
+    state.preventDefault = !this._isTouchDirectionAllowed(
+      policy,
+      axis,
+      delta,
+    );
+    return state.preventDefault;
+  }
+
+  _handleTouchMove(event)
+  {
+    if (
+      this.destroyed ||
+      this.paused ||
+      !event.cancelable
+    )
+    {
+      return;
+    }
+
+    const touches = event.changedTouches;
+    const acceptedTouchCount = this._getAcceptedTouchCount(event);
+    let shouldPreventDefault = false;
+
+    for (let index = 0; index < (touches?.length ?? 0); index++)
+    {
+      const touch = touches[index];
+      const start = this.touchGestureStarts.get(touch.identifier);
+
+      if (!start?.accepted)
+      {
+        continue;
+      }
+
+      shouldPreventDefault = this._shouldPreventTouchMove(
+        start,
+        touch,
+        acceptedTouchCount,
+      );
+
+      if (shouldPreventDefault)
+      {
+        break;
+      }
+    }
+
+    if (shouldPreventDefault)
+    {
+      event.preventDefault();
+    }
+  }
+
+  _handleTouchEnd(event)
+  {
+    const touches = event.changedTouches;
+
+    for (let index = 0; index < (touches?.length ?? 0); index++)
+    {
+      this.touchGestureStarts.delete(touches[index].identifier);
+    }
+
+    if (event.touches?.length === 0)
+    {
+      this.touchGestureStarts.clear();
+      this.touchPointerFilterResults.length = 0;
+    }
   }
 
   _getOverlayLayers()
@@ -6962,6 +7584,47 @@ export class BAClickFX
   _acceptPointerDown(event)
   {
     const pointerType = event.pointerType || 'mouse';
+    const isTouchStart = pointerType === 'touch' &&
+      event.type === 'pointerdown';
+    const usesTouchShim = isTouchStart &&
+      this.touchActionListenersAttached;
+    const hasClosedShadowDecision = usesTouchShim &&
+      this.closedShadowPointerDecisions.has(event);
+    const closedShadowDecision = hasClosedShadowDecision
+      ? this.closedShadowPointerDecisions.get(event)
+      : undefined;
+
+    if (hasClosedShadowDecision)
+    {
+      this.closedShadowPointerDecisions.delete(event);
+    }
+
+    if (usesTouchShim)
+    {
+      const touchState = this._consumeTouchGestureState(event);
+
+      if (touchState && !touchState.pointerFilterPending)
+      {
+        return touchState.accepted;
+      }
+
+      if (touchState)
+      {
+        const accepted = hasClosedShadowDecision
+          ? closedShadowDecision
+          : !this.inputFilter || this.inputFilter(event);
+
+        touchState.accepted = accepted;
+        touchState.pointerFilterPending = false;
+        return accepted;
+      }
+    }
+
+    if (hasClosedShadowDecision)
+    {
+      this._rememberTouchPointerFilterResult(event, closedShadowDecision);
+      return closedShadowDecision;
+    }
 
     // button: 0=左键, -1=未按键(移动事件)；仅 >0 的非左键实际点击需拦截
     if (pointerType === 'mouse' && event.button > 0)
@@ -6969,21 +7632,27 @@ export class BAClickFX
       return false;
     }
 
-    if (this.inputFilter && !this.inputFilter(event))
+    if (
+      usesTouchShim &&
+      !this._isTouchEventInScope(event, event.target)
+    )
     {
+      this._rememberTouchPointerFilterResult(event, false);
       return false;
     }
 
-    return true;
-  }
+    const accepted = !this.inputFilter || this.inputFilter(event);
 
-  _handlePointerDown(event)
-  {
-    if (this.destroyed || this.paused || !this._acceptPointerDown(event))
+    if (usesTouchShim)
     {
-      return;
+      this._rememberTouchPointerFilterResult(event, accepted);
     }
 
+    return accepted;
+  }
+
+  _startDomPointer(event)
+  {
     const accepted = this.pointerDown(this._getDomPointerInput(event));
 
     if (accepted && this.config.inputSamplingRate > 0)
@@ -6993,6 +7662,18 @@ export class BAClickFX
         performance.now(),
       );
     }
+
+    return accepted;
+  }
+
+  _handlePointerDown(event)
+  {
+    if (this.destroyed || this.paused || !this._acceptPointerDown(event))
+    {
+      return;
+    }
+
+    this._startDomPointer(event);
   }
 
   /**
@@ -7412,6 +8093,10 @@ export class BAClickFX
 
   _cancelPointer()
   {
+    this.touchGestureStarts.clear();
+    this.touchPointerFilterResults.length = 0;
+    this.closedShadowPointerDecisions = new WeakMap();
+
     if (this.activePointerId !== null)
     {
       this._releaseActivePointer(true);
@@ -11000,6 +11685,9 @@ export class BAClickFX
         this.paused = true;
 
         // 暂停不能保留可继续追加的宿主指针，否则恢复后会连接跨环境轨迹。
+        this.touchGestureStarts.clear();
+        this.touchPointerFilterResults.length = 0;
+        this.closedShadowPointerDecisions = new WeakMap();
         if (this.activePointerId !== null)
         {
           this._releaseActivePointer();
@@ -11466,6 +12154,7 @@ export class BAClickFX
     {
       this.config.touchAction = overrides.touchAction;
       this.canvas.style.touchAction = overrides.touchAction;
+      this._syncTouchActionListeners();
     }
 
     this._requestRender();

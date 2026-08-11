@@ -174,6 +174,11 @@ declare module 'ba-click-fx'
     lightBackgroundContrastAlpha?: number;
     /** Canvas backing store 的设备像素比上限，默认 2。 */
     maxDpr?: number;
+    /**
+     * DOM 自动输入的 CSS touch-action 策略。除设置 Canvas CSS 外，覆盖层会
+     * 在禁止方向或缩放上阻止原生手势，以避免浏览器 pointercancel 中断拖尾；
+     * auto/manipulation 和显式允许全部方向的组合保留原生快速滚动。
+     */
     touchAction?: CSSStyleDeclaration['touchAction'];
     /** 仅用于自动 DOM 输入准入；手动指针方法不会调用此过滤器。 */
     inputFilter?: BAClickFXInputFilter;

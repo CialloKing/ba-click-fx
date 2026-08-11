@@ -90,7 +90,9 @@ const metrics =
     iife: null,
   },
   iifeSmoke: null,
+  iifeMobileTouch: null,
   demoTimeScaleControls: null,
+  demoMobileTouch: null,
   demoControlPanelStructure: null,
   demoBackgroundFile: null,
   demoPureWhiteIsolation: null,
@@ -3316,6 +3318,184 @@ async function runIifeSmoke(browserInstance, baseUrl)
   }
 }
 
+async function runIifeMobileTouchSmoke(browserInstance, baseUrl)
+{
+  currentLabel = 'iife-mobile-touch-none';
+  const context = await browserInstance.newContext(
+    {
+      colorScheme: 'dark',
+      deviceScaleFactor: 2,
+      hasTouch: true,
+      isMobile: true,
+      viewport:
+      {
+        width: 390,
+        height: 844,
+      },
+    },
+  );
+  const page = await context.newPage();
+  const pageErrors = [];
+  const consoleErrors = [];
+
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('console', (message) =>
+  {
+    if (message.type() === 'error')
+    {
+      consoleErrors.push(message.text());
+    }
+  });
+
+  try
+  {
+    currentPage = page;
+    const fixtureUrl = new URL(`${baseUrl}${fixturePath}`);
+
+    fixtureUrl.searchParams.set('runtime', 'iife');
+    await page.goto(fixtureUrl.href, { waitUntil: 'load' });
+    await page.waitForFunction(
+      () => window.__BACLICKFX_PIXEL_READY__ === true,
+    );
+    const runtimeContract = await page.evaluate(() =>
+    {
+      const stage = document.getElementById('stage');
+      const content = document.createElement('div');
+
+      stage.replaceChildren(content);
+      stage.style.cssText = [
+        'position: fixed',
+        'left: 20px',
+        'top: 120px',
+        'width: 320px',
+        'height: 320px',
+        'padding: 0',
+        'overflow: auto',
+        'touch-action: auto',
+      ].join(';');
+      content.style.cssText = 'width: 700px; height: 700px';
+      content.addEventListener('touchmove', (event) =>
+      {
+        event.stopPropagation();
+      },
+      {
+        passive: true,
+      });
+      window.__iifeMobileEffect = new window.BAClickFX.BAClickFX(
+        {
+          bloomBackend: 'native',
+          clickEnabled: false,
+          effectBackend: 'canvas2d',
+          inputSource: 'dom',
+          touchAction: 'none',
+          trailEnabled: true,
+          trailAlways: false,
+        },
+      );
+      window.__iifeMobileEffect.setFxParam('trail.lifetimeMs', 2000);
+      window.__iifeMobileEvents = [];
+
+      for (const type of [
+        'pointerdown',
+        'pointermove',
+        'pointerup',
+        'pointercancel',
+      ])
+      {
+        window.addEventListener(
+          type,
+          () => window.__iifeMobileEvents.push(type),
+          { capture: true },
+        );
+      }
+
+      return {
+        constructorType: typeof window.BAClickFX?.BAClickFX,
+        runtimeKind: window.browserPixelSuite.runtimeKind,
+      };
+    });
+
+    assert(
+      runtimeContract.runtimeKind === 'iife' &&
+        runtimeContract.constructorType === 'function',
+      '移动触摸夹具没有加载构建后 IIFE',
+      runtimeContract,
+    );
+    const cdp = await context.newCDPSession(page);
+
+    await cdp.send('Input.dispatchTouchEvent',
+      {
+        type: 'touchStart',
+        touchPoints:
+        [
+          { x: 280, y: 260, id: 1, radiusX: 1, radiusY: 1, force: 1 },
+        ],
+      });
+    for (const x of [250, 220, 180, 140, 100, 60])
+    {
+      await cdp.send('Input.dispatchTouchEvent',
+        {
+          type: 'touchMove',
+          touchPoints:
+          [
+            { x, y: 260, id: 1, radiusX: 1, radiusY: 1, force: 1 },
+          ],
+        });
+      await new Promise((resolve) => setTimeout(resolve, 16));
+    }
+    await cdp.send('Input.dispatchTouchEvent',
+      {
+        type: 'touchEnd',
+        touchPoints: [],
+      });
+    await page.waitForTimeout(30);
+    const result = await page.evaluate(() =>
+    {
+      const effect = window.__iifeMobileEffect;
+      const stage = document.getElementById('stage');
+
+      return {
+        action: effect.getConfig().touchAction,
+        events: window.__iifeMobileEvents,
+        pointCounts: effect.trailStrokes.map((stroke) => stroke.points.length),
+        scrollLeft: stage.scrollLeft,
+        scrollTop: stage.scrollTop,
+        strokeCount: effect.trailStrokes.length,
+      };
+    });
+
+    assert(
+      result.action === 'none' &&
+        result.events[0] === 'pointerdown' &&
+        result.events.includes('pointerup') &&
+        !result.events.includes('pointercancel') &&
+        result.strokeCount > 0 &&
+        result.pointCounts[0] > 2 &&
+        result.scrollLeft === 0 &&
+        result.scrollTop === 0,
+      '构建后 IIFE 在移动触摸下没有保留拖尾生命周期',
+      result,
+    );
+    assert(
+      pageErrors.length === 0 && consoleErrors.length === 0,
+      '构建后 IIFE 移动触摸夹具出现未处理异常',
+      { consoleErrors, pageErrors },
+    );
+    metrics.iifeMobileTouch = { result, runtimeContract };
+  }
+  finally
+  {
+    await page.evaluate(() =>
+    {
+      window.__iifeMobileEffect?.destroy();
+      window.browserPixelSuite?.dispose();
+      delete window.__iifeMobileEffect;
+    }).catch(() => {});
+    await context.close();
+    currentPage = null;
+  }
+}
+
 async function runDemoTimeScaleControlSmoke(browserInstance, baseUrl)
 {
   currentLabel = 'demo-time-scale-controls';
@@ -3475,6 +3655,518 @@ async function runDemoTimeScaleControlSmoke(browserInstance, baseUrl)
       controlState.trailPrecise,
     );
     metrics.demoTimeScaleControls = controlState;
+  }
+  finally
+  {
+    await context.close();
+    currentPage = null;
+  }
+}
+
+async function runDemoMobileTouchSmoke(browserInstance, baseUrl)
+{
+  currentLabel = 'demo-mobile-touch-action';
+  const context = await browserInstance.newContext(
+    {
+      colorScheme: 'dark',
+      deviceScaleFactor: 2,
+      hasTouch: true,
+      isMobile: true,
+      viewport:
+      {
+        width: 390,
+        height: 844,
+      },
+    },
+  );
+  const page = await context.newPage();
+
+  const cases =
+  [
+    {
+      action: 'none',
+      direction: 'horizontal',
+      keepsTrail: true,
+    },
+    {
+      action: 'pan-y',
+      direction: 'horizontal',
+      keepsTrail: true,
+    },
+    {
+      action: 'pan-y',
+      direction: 'vertical',
+      keepsTrail: false,
+    },
+    {
+      action: 'pan-x',
+      direction: 'vertical',
+      keepsTrail: true,
+    },
+    {
+      action: 'pan-x',
+      direction: 'horizontal',
+      keepsTrail: false,
+    },
+    {
+      action: 'auto',
+      direction: 'horizontal',
+      keepsTrail: false,
+    },
+    {
+      action: 'manipulation',
+      direction: 'horizontal',
+      keepsTrail: false,
+    },
+    {
+      action: 'pan-left',
+      direction: 'right',
+      keepsTrail: false,
+    },
+    {
+      action: 'pan-left',
+      direction: 'left',
+      keepsTrail: true,
+    },
+    {
+      action: 'pan-right',
+      direction: 'left',
+      keepsTrail: false,
+    },
+    {
+      action: 'pan-right',
+      direction: 'right',
+      keepsTrail: true,
+    },
+    {
+      action: 'pan-up',
+      direction: 'down',
+      keepsTrail: false,
+    },
+    {
+      action: 'pan-up',
+      direction: 'up',
+      keepsTrail: true,
+    },
+    {
+      action: 'pan-down',
+      direction: 'up',
+      keepsTrail: false,
+    },
+    {
+      action: 'pan-down',
+      direction: 'down',
+      keepsTrail: true,
+    },
+  ];
+
+  try
+  {
+    currentPage = page;
+    await page.goto(baseUrl, { waitUntil: 'load' });
+    await page.waitForFunction(
+      () => typeof window.BAClickFXDemo?.getConfig === 'function',
+    );
+    await page.evaluate(() =>
+    {
+      const inputSource = document.getElementById('ctrlInputSource');
+      const trail = document.getElementById('ctrlTrail');
+      const trailAlways = document.getElementById('ctrlTrailAlways');
+      const surface = document.createElement('div');
+      const content = document.createElement('div');
+
+      // 触摸回归必须走库的 DOM 输入链路，避免宿主演示页的持久化状态
+      // 把测试误切到 manual，导致只有事件序列而没有逻辑拖尾。
+      window.BAClickFXDemo.updateConfig(
+        {
+          bloomBackend: 'native',
+          clickEnabled: false,
+          effectBackend: 'canvas2d',
+          inputSource: 'dom',
+          trailEnabled: true,
+          trailAlways: false,
+        },
+      );
+      window.BAClickFXDemo.setFxParam('trail.lifetimeMs', 2000);
+      inputSource.value = 'dom';
+      trail.checked = true;
+      trailAlways.checked = false;
+
+      surface.id = 'mobile-touch-regression-surface';
+      surface.style.cssText = [
+        'position: fixed',
+        'left: 20px',
+        'top: 120px',
+        'width: 320px',
+        'height: 320px',
+        'overflow: auto',
+        'z-index: 2147483000',
+        'background: #333',
+        'touch-action: auto',
+      ].join(';');
+      content.style.cssText = 'width: 700px; height: 700px';
+      content.addEventListener('touchmove', (event) =>
+      {
+        // 模拟宿主控件阻断冒泡；库的 capture 仲裁仍必须先于该处理器执行。
+        event.stopPropagation();
+      },
+      {
+        passive: true,
+      });
+      surface.append(content);
+      document.body.append(surface);
+      window.__mobileTouchEvents = [];
+
+      for (const type of [
+        'pointerdown',
+        'pointermove',
+        'pointerup',
+        'pointercancel',
+      ])
+      {
+        window.addEventListener(
+          type,
+          () => window.__mobileTouchEvents.push(type),
+          { capture: true },
+        );
+      }
+    });
+    const cdp = await context.newCDPSession(page);
+    const results = [];
+    const dispatchTouchGesture = async (start, moves) =>
+    {
+      await cdp.send('Input.dispatchTouchEvent',
+        {
+          type: 'touchStart',
+          touchPoints:
+          [
+            { ...start, id: 1, radiusX: 1, radiusY: 1, force: 1 },
+          ],
+        });
+
+      for (const point of moves)
+      {
+        await cdp.send('Input.dispatchTouchEvent',
+          {
+            type: 'touchMove',
+            touchPoints:
+            [
+              { ...point, id: 1, radiusX: 1, radiusY: 1, force: 1 },
+            ],
+          });
+        await new Promise((resolve) => setTimeout(resolve, 16));
+      }
+
+      await cdp.send('Input.dispatchTouchEvent',
+        {
+          type: 'touchEnd',
+          touchPoints: [],
+        });
+      await page.waitForTimeout(30);
+    };
+
+    for (const specification of cases)
+    {
+      currentLabel =
+        `demo-mobile-touch-${specification.action}-${specification.direction}`;
+      await page.evaluate((action) =>
+      {
+        const control = document.getElementById('ctrlTouchAction');
+        const surface = document.getElementById(
+          'mobile-touch-regression-surface',
+        );
+        const resetSurface = surface.cloneNode(true);
+
+        window.BAClickFXDemo.clear();
+        // 替换节点会同步终止上一用例的惯性滚动；只重设 scrollTop 时，
+        // compositor 仍可能在下一帧追加旧手势的残余位移。
+        surface.replaceWith(resetSurface);
+        resetSurface.firstElementChild.addEventListener('touchmove', (event) =>
+        {
+          event.stopPropagation();
+        },
+        {
+          passive: true,
+        });
+        resetSurface.scrollLeft = 160;
+        resetSurface.scrollTop = 160;
+        if (Array.from(control.options).some((option) => option.value === action))
+        {
+          control.value = action;
+          control.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        else
+        {
+          window.BAClickFXDemo.updateConfig({ touchAction: action });
+        }
+        window.__mobileTouchEvents = [];
+      }, specification.action);
+
+      const horizontalDirections = new Set(['horizontal', 'left', 'right']);
+      const horizontal = horizontalDirections.has(specification.direction);
+      const positive = specification.direction === 'right' ||
+        specification.direction === 'down';
+      const start = horizontal
+        ? { x: positive ? 60 : 280, y: 260 }
+        : { x: 180, y: positive ? 160 : 380 };
+      const moves = horizontal
+        ? (positive
+          ? [
+            { x: 100, y: 260 },
+            { x: 140, y: 260 },
+            { x: 180, y: 260 },
+            { x: 220, y: 260 },
+            { x: 250, y: 260 },
+            { x: 280, y: 260 },
+          ]
+          : [
+            { x: 250, y: 260 },
+            { x: 220, y: 260 },
+            { x: 180, y: 260 },
+            { x: 140, y: 260 },
+            { x: 100, y: 260 },
+            { x: 60, y: 260 },
+          ])
+        : (positive
+          ? [
+            { x: 180, y: 200 },
+            { x: 180, y: 240 },
+            { x: 180, y: 280 },
+            { x: 180, y: 320 },
+            { x: 180, y: 350 },
+            { x: 180, y: 380 },
+          ]
+          : [
+            { x: 180, y: 350 },
+            { x: 180, y: 320 },
+            { x: 180, y: 280 },
+            { x: 180, y: 240 },
+            { x: 180, y: 200 },
+            { x: 180, y: 160 },
+          ]);
+
+      await dispatchTouchGesture(start, moves);
+
+      const result = await page.evaluate(() =>
+      {
+        const surface = document.getElementById(
+          'mobile-touch-regression-surface',
+        );
+        const effect = window.BAClickFXDemo;
+
+        return {
+          action: effect.getConfig().touchAction,
+          events: window.__mobileTouchEvents,
+          pointCounts: effect.trailStrokes.map((stroke) => stroke.points.length),
+          scrollLeft: surface.scrollLeft,
+          scrollTop: surface.scrollTop,
+          strokeCount: effect.trailStrokes.length,
+        };
+      });
+
+      assert(
+        result.action === specification.action &&
+          result.events[0] === 'pointerdown' &&
+          result.events.includes(
+            specification.keepsTrail ? 'pointerup' : 'pointercancel',
+          ) &&
+          !result.events.includes(
+            specification.keepsTrail ? 'pointercancel' : 'pointerup',
+          ) &&
+          (specification.keepsTrail
+            ? result.strokeCount > 0 && result.pointCounts[0] > 2
+            : result.strokeCount === 0),
+        `${currentLabel}: 移动触摸拖尾生命周期不符合触摸策略`,
+        result,
+      );
+      assert(
+        specification.keepsTrail
+          ? result.scrollLeft === 160 && result.scrollTop === 160
+          : (
+            horizontal
+              ? result.scrollLeft !== 160
+              : result.scrollTop !== 160
+          ),
+        `${currentLabel}: 原生滚动方向与触摸策略不一致`,
+        result,
+      );
+      results.push({ specification, result });
+    }
+
+    currentLabel = 'demo-mobile-touch-input-filter';
+    await page.evaluate(() =>
+    {
+      const control = document.getElementById('ctrlTouchAction');
+      const panel = document.getElementById('panel');
+
+      window.BAClickFXDemo.clear();
+      document.getElementById('mobile-touch-regression-surface')
+        .style.display = 'none';
+      panel.style.transition = 'none';
+      panel.classList.add('open');
+      panel.scrollTop = 0;
+      const originalInputFilter = window.BAClickFXDemo.inputFilter;
+
+      window.__mobileInputFilterEvent = null;
+      window.BAClickFXDemo.inputFilter = (event) =>
+      {
+        window.__mobileInputFilterEvent =
+        {
+          hasComposedPath: typeof event.composedPath === 'function',
+          isPointerEvent: event instanceof PointerEvent,
+        };
+        return originalInputFilter(event);
+      };
+      control.value = 'none';
+      control.dispatchEvent(new Event('change', { bubbles: true }));
+      window.__mobileTouchEvents = [];
+    });
+    await dispatchTouchGesture(
+      { x: 370, y: 700 },
+      [
+        { x: 370, y: 650 },
+        { x: 370, y: 600 },
+        { x: 370, y: 550 },
+        { x: 370, y: 500 },
+        { x: 370, y: 450 },
+      ],
+    );
+    const filteredResult = await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+      const panel = document.getElementById('panel');
+
+      return {
+        events: window.__mobileTouchEvents,
+        filterEvent: window.__mobileInputFilterEvent,
+        panelScrollTop: panel.scrollTop,
+        strokeCount: effect.trailStrokes.length,
+      };
+    });
+
+    assert(
+      filteredResult.events.includes('pointercancel') &&
+        !filteredResult.events.includes('pointerup') &&
+        filteredResult.filterEvent?.isPointerEvent &&
+        filteredResult.filterEvent?.hasComposedPath &&
+        filteredResult.panelScrollTop > 0 &&
+        filteredResult.strokeCount === 0,
+      'demo-mobile-touch-input-filter: 宿主面板没有保留原生滚动',
+      filteredResult,
+    );
+    results.push(
+      {
+        specification: { action: 'none', scope: 'input-filter' },
+        result: filteredResult,
+      },
+    );
+
+    currentLabel = 'demo-mobile-touch-shadow-target';
+    await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+      const control = document.getElementById('ctrlTouchAction');
+      const panel = document.getElementById('panel');
+      const shadowHost = document.createElement('div');
+      const shadowRoot = shadowHost.attachShadow({ mode: 'closed' });
+      const target = document.createElement('div');
+
+      panel.classList.remove('open');
+      control.value = 'auto';
+      control.dispatchEvent(new Event('change', { bubbles: true }));
+      shadowHost.id = 'mobile-touch-shadow-host';
+      shadowHost.style.cssText = [
+        'position: fixed',
+        'left: 20px',
+        'top: 500px',
+        'width: 320px',
+        'height: 260px',
+        'z-index: 2147483000',
+      ].join(';');
+      target.style.cssText = [
+        'position: relative',
+        'display: block',
+        'width: 100%',
+        'height: 100%',
+        'background: #333',
+      ].join(';');
+      shadowRoot.append(target);
+      document.body.append(shadowHost);
+      window.__mobileShadowFilterEvents = [];
+      window.__mobileShadowEffect = new effect.constructor(
+        {
+          target,
+          bloomBackend: 'native',
+          clickEnabled: false,
+          effectBackend: 'canvas2d',
+          inputSource: 'dom',
+          touchAction: 'none',
+          trailEnabled: true,
+          trailAlways: false,
+          inputFilter(event)
+          {
+            window.__mobileShadowFilterEvents.push(
+              {
+                hasComposedPath: typeof event.composedPath === 'function',
+                isPointerEvent: event instanceof PointerEvent,
+                targetIsInternal: event.target === target,
+              },
+            );
+            return event.target === target;
+          },
+        },
+      );
+      window.__mobileShadowEffect.setFxParam('trail.lifetimeMs', 2000);
+      window.__mobileTouchEvents = [];
+    });
+    await dispatchTouchGesture(
+      { x: 280, y: 620 },
+      [
+        { x: 250, y: 620 },
+        { x: 220, y: 620 },
+        { x: 180, y: 620 },
+        { x: 140, y: 620 },
+        { x: 100, y: 620 },
+        { x: 60, y: 620 },
+      ],
+    );
+    const shadowResult = await page.evaluate(() =>
+    {
+      const effect = window.__mobileShadowEffect;
+      const result =
+      {
+        events: window.__mobileTouchEvents,
+        filterEvents: window.__mobileShadowFilterEvents,
+        pointCounts: effect.trailStrokes.map((stroke) => stroke.points.length),
+        strokeCount: effect.trailStrokes.length,
+      };
+
+      effect.destroy();
+      document.getElementById('mobile-touch-shadow-host').remove();
+      delete window.__mobileShadowEffect;
+      return result;
+    });
+
+    assert(
+      shadowResult.events.includes('pointerup') &&
+        !shadowResult.events.includes('pointercancel') &&
+        shadowResult.filterEvents.length === 1 &&
+        shadowResult.filterEvents[0].isPointerEvent &&
+        shadowResult.filterEvents[0].hasComposedPath &&
+        shadowResult.filterEvents[0].targetIsInternal &&
+        shadowResult.strokeCount > 0 &&
+        shadowResult.pointCounts[0] > 2,
+      'demo-mobile-touch-shadow-target: Shadow DOM target 拖尾被中断',
+      shadowResult,
+    );
+    results.push(
+      {
+        specification: { action: 'none', scope: 'shadow-target' },
+        result: shadowResult,
+      },
+    );
+
+    metrics.demoMobileTouch = results;
   }
   finally
   {
@@ -6615,6 +7307,8 @@ async function main()
   }
 
   await runIifeSmoke(browser, baseUrl);
+  await runIifeMobileTouchSmoke(browser, baseUrl);
+  await runDemoMobileTouchSmoke(browser, baseUrl);
   await runDemoTimeScaleControlSmoke(browser, baseUrl);
   await runDemoControlPanelStructureSmoke(browser, baseUrl);
   await runDemoBackgroundFileSmoke(browser, baseUrl);

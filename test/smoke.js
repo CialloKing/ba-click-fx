@@ -528,6 +528,20 @@ class ElementMock extends EventTargetMock
     return child;
   }
 
+  contains(candidate)
+  {
+    if (candidate === this)
+    {
+      return true;
+    }
+
+    return this.children.some((child) =>
+      typeof child.contains === 'function'
+        ? child.contains(candidate)
+        : child === candidate,
+    );
+  }
+
   remove()
   {
     if (this.parentElement)
@@ -3601,9 +3615,14 @@ const pointerEventTypes = [
   'pointermove',
   'pointerup',
   'pointercancel',
+  'touchstart',
+  'touchmove',
+  'touchend',
+  'touchcancel',
 ];
 const listenerCount = (type) => dom.windowMock.listeners.get(type)?.size ?? 0;
 const pointerListenerBaseline = pointerEventTypes.map(listenerCount);
+const touchListenerBaseline = pointerListenerBaseline.slice(4);
 let manualFilterCallCount = 0;
 const manualEffect = new BAClickFX(
   {
@@ -3771,8 +3790,10 @@ manualEffect.clear();
 manualEffect.updateConfig({ inputSource: 'dom' });
 assert(
   manualEffect.getConfig().inputSource === 'dom' &&
-    pointerEventTypes.every((type, index) =>
-      listenerCount(type) === pointerListenerBaseline[index] + 1),
+    pointerEventTypes.slice(0, 4).every((type, index) =>
+      listenerCount(type) === pointerListenerBaseline[index] + 1) &&
+    pointerEventTypes.slice(4).every((type, index) =>
+      listenerCount(type) === touchListenerBaseline[index]),
   '运行时切换为 dom 会仅注册一组指针监听',
 );
 dom.windowMock.dispatch('pointerdown',
@@ -3804,6 +3825,626 @@ assert(
   '运行时恢复 manual 会完整解除 DOM 指针监听',
 );
 manualEffect.destroy();
+
+console.log('\n移动端触摸行为');
+const touchActionEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    touchAction: 'none',
+  },
+);
+assert(
+  pointerEventTypes.slice(4).every((type, index) =>
+    listenerCount(type) === touchListenerBaseline[index] + 1),
+  '需要阻止手势时只注册一组 capture Touch 监听',
+);
+touchActionEffect.updateConfig({ touchAction: 'auto' });
+assert(
+  pointerEventTypes.slice(4).every((type, index) =>
+    listenerCount(type) === touchListenerBaseline[index]),
+  'auto 不保留全局非 passive Touch 监听',
+);
+const dispatchTouchMove = (
+  action,
+  start,
+  end,
+  target = dom.body,
+  effect = touchActionEffect,
+) =>
+{
+  let prevented = 0;
+  const identifier = 91;
+
+  effect.updateConfig({ touchAction: action });
+  dom.windowMock.dispatch('touchstart',
+    {
+      target,
+      changedTouches:
+      [
+        {
+          identifier,
+          clientX: start.x,
+          clientY: start.y,
+        },
+      ],
+    });
+  dom.windowMock.dispatch('touchmove',
+    {
+      target,
+      cancelable: true,
+      changedTouches:
+      [
+        {
+          identifier,
+          clientX: end.x,
+          clientY: end.y,
+        },
+      ],
+      preventDefault()
+      {
+        prevented++;
+      },
+    });
+  dom.windowMock.dispatch('touchend',
+    {
+      target,
+      changedTouches: [{ identifier }],
+    });
+  return prevented;
+};
+
+const dispatchTouchSequence = (action, moves) =>
+{
+  const identifier = 93;
+  const prevented = [];
+
+  touchActionEffect.updateConfig({ touchAction: action });
+  dom.windowMock.dispatch('touchstart',
+    {
+      target: dom.body,
+      touches: [{ identifier, clientX: 10, clientY: 10 }],
+      changedTouches: [{ identifier, clientX: 10, clientY: 10 }],
+    });
+
+  for (const move of moves)
+  {
+    let count = 0;
+    const touch = { identifier, clientX: move.x, clientY: move.y };
+
+    dom.windowMock.dispatch('touchmove',
+      {
+        target: dom.body,
+        cancelable: true,
+        touches: [touch],
+        changedTouches: [touch],
+        preventDefault()
+        {
+          count++;
+        },
+      });
+    prevented.push(count);
+  }
+
+  dom.windowMock.dispatch('touchend',
+    {
+      target: dom.body,
+      touches: [],
+      changedTouches: [{ identifier }],
+    });
+  return prevented;
+};
+
+assert(
+  dispatchTouchMove('none', { x: 10, y: 10 }, { x: 110, y: 10 }) === 1 &&
+    dispatchTouchMove('pan-x', { x: 10, y: 10 }, { x: 10, y: 110 }) === 1 &&
+    dispatchTouchMove('pan-x', { x: 10, y: 10 }, { x: 110, y: 10 }) === 0 &&
+    dispatchTouchMove('pan-y', { x: 10, y: 10 }, { x: 110, y: 10 }) === 1 &&
+    dispatchTouchMove('pan-y', { x: 10, y: 10 }, { x: 10, y: 110 }) === 0 &&
+    dispatchTouchMove('auto', { x: 10, y: 10 }, { x: 110, y: 10 }) === 0 &&
+    dispatchTouchMove(
+      'manipulation',
+      { x: 10, y: 10 },
+      { x: 10, y: 110 },
+    ) === 0,
+  'DOM 触摸行为只阻止 none 与 pan-x/pan-y 的禁止方向',
+);
+assert(
+  dispatchTouchMove(
+    'pan-left',
+    { x: 100, y: 10 },
+    { x: 180, y: 10 },
+  ) === 0 &&
+    dispatchTouchMove(
+      'pan-left',
+      { x: 100, y: 10 },
+      { x: 20, y: 10 },
+    ) === 1 &&
+    dispatchTouchMove(
+      'pan-right',
+      { x: 100, y: 10 },
+      { x: 20, y: 10 },
+    ) === 0 &&
+    dispatchTouchMove(
+      'pan-right',
+      { x: 100, y: 10 },
+      { x: 180, y: 10 },
+    ) === 1 &&
+    dispatchTouchMove(
+      'pan-up',
+      { x: 10, y: 100 },
+      { x: 10, y: 180 },
+    ) === 0 &&
+    dispatchTouchMove(
+      'pan-up',
+      { x: 10, y: 100 },
+      { x: 10, y: 20 },
+    ) === 1 &&
+    dispatchTouchMove(
+      'pan-down',
+      { x: 10, y: 100 },
+      { x: 10, y: 20 },
+    ) === 0 &&
+    dispatchTouchMove(
+      'pan-down',
+      { x: 10, y: 100 },
+      { x: 10, y: 180 },
+    ) === 1 &&
+    dispatchTouchMove(
+      'pan-x pinch-zoom',
+      { x: 10, y: 10 },
+      { x: 10, y: 110 },
+    ) === 1 &&
+    dispatchTouchMove(
+      'pan-x pan-y',
+      { x: 10, y: 10 },
+      { x: 10, y: 110 },
+    ) === 0,
+  'DOM 触摸策略解析 CSS 方向与组合关键字',
+);
+assert(
+  dispatchTouchSequence(
+    'pan-x',
+    [{ x: 10, y: 110 }, { x: 210, y: 10 }],
+  ).join(',') === '1,1' &&
+    dispatchTouchSequence(
+      'pan-x',
+      [{ x: 110, y: 10 }, { x: 10, y: 210 }],
+    ).join(',') === '0,0',
+  'pan-x 在首个可判定方向后锁存整次手势',
+);
+
+const dispatchPinchMove = (action) =>
+{
+  const starts =
+  [
+    { identifier: 94, clientX: 80, clientY: 80 },
+    { identifier: 95, clientX: 120, clientY: 80 },
+  ];
+  const moves =
+  [
+    { identifier: 94, clientX: 60, clientY: 80 },
+    { identifier: 95, clientX: 140, clientY: 80 },
+  ];
+  let prevented = 0;
+
+  touchActionEffect.updateConfig({ touchAction: action });
+  dom.windowMock.dispatch('touchstart',
+    {
+      target: dom.body,
+      touches: starts,
+      changedTouches: starts,
+    });
+  dom.windowMock.dispatch('touchmove',
+    {
+      target: dom.body,
+      cancelable: true,
+      touches: moves,
+      changedTouches: moves,
+      preventDefault()
+      {
+        prevented++;
+      },
+    });
+  dom.windowMock.dispatch('touchend',
+    {
+      target: dom.body,
+      touches: [],
+      changedTouches: moves,
+    });
+  return prevented;
+};
+
+assert(
+  dispatchPinchMove('pan-x') === 1 &&
+    dispatchPinchMove('pan-x pinch-zoom') === 0,
+  '多指缩放仅在 touchAction 显式允许 pinch-zoom 时保留原生行为',
+);
+touchActionEffect.destroy();
+
+const excludedTouchTarget = new ElementMock('aside');
+let touchFilterCallCount = 0;
+let expectedTouchFilterEvent = null;
+let touchFilterSawExpectedPointer = false;
+const filteredTouchEffect = new BAClickFX(
+  {
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    touchAction: 'none',
+    inputFilter(event)
+    {
+      touchFilterCallCount++;
+      touchFilterSawExpectedPointer = event === expectedTouchFilterEvent;
+      return event.target !== excludedTouchTarget;
+    },
+  },
+);
+
+const dispatchFilteredTouchMove = (target, identifier) =>
+{
+  const start = { x: 10, y: 10 };
+  const end = { x: 80, y: 10 };
+  const pointer =
+  {
+    type: 'pointerdown',
+    target,
+    pointerType: 'touch',
+    button: 0,
+    pointerId: identifier,
+    clientX: start.x,
+    clientY: start.y,
+  };
+  let prevented = 0;
+
+  expectedTouchFilterEvent = pointer;
+  dom.windowMock.dispatchEvent(pointer);
+  dom.windowMock.dispatch('touchstart',
+    {
+      target,
+      touches: [{ identifier, clientX: start.x, clientY: start.y }],
+      changedTouches: [{ identifier, clientX: start.x, clientY: start.y }],
+    });
+  dom.windowMock.dispatch('touchmove',
+    {
+      target,
+      cancelable: true,
+      touches: [{ identifier, clientX: end.x, clientY: end.y }],
+      changedTouches: [{ identifier, clientX: end.x, clientY: end.y }],
+      preventDefault()
+      {
+        prevented++;
+      },
+    });
+  dom.windowMock.dispatchEvent(
+    {
+      ...pointer,
+      type: 'pointerup',
+      clientX: end.x,
+      clientY: end.y,
+    });
+  dom.windowMock.dispatch('touchend',
+    {
+      target,
+      touches: [],
+      changedTouches: [{ identifier, clientX: end.x, clientY: end.y }],
+    });
+  return prevented;
+};
+
+assert(
+  dispatchFilteredTouchMove(excludedTouchTarget, 89) === 0 &&
+    dispatchFilteredTouchMove(dom.body, 90) === 1 &&
+    touchFilterCallCount === 2,
+  'Touch 仲裁复用 inputFilter 并保留宿主 UI 手势',
+);
+
+const dispatchFilteredTouchOrder = (touchFirst, target, identifier) =>
+{
+  const touch = { identifier, clientX: 40, clientY: 40, target };
+  const movedTouch = { ...touch, clientX: 100 };
+  const pointer =
+  {
+    type: 'pointerdown',
+    target,
+    pointerType: 'touch',
+    button: 0,
+    pointerId: identifier,
+    clientX: 40,
+    clientY: 40,
+  };
+  const dispatchTouchStart = () => dom.windowMock.dispatch('touchstart',
+    {
+      target,
+      touches: [touch],
+      changedTouches: [touch],
+    });
+  let prevented = 0;
+
+  touchFilterCallCount = 0;
+  expectedTouchFilterEvent = pointer;
+  touchFilterSawExpectedPointer = false;
+
+  if (touchFirst)
+  {
+    dispatchTouchStart();
+    dom.windowMock.dispatchEvent(pointer);
+  }
+  else
+  {
+    dom.windowMock.dispatchEvent(pointer);
+    dispatchTouchStart();
+  }
+
+  dom.windowMock.dispatch('touchmove',
+    {
+      target,
+      cancelable: true,
+      touches: [movedTouch],
+      changedTouches: [movedTouch],
+      preventDefault()
+      {
+        prevented++;
+      },
+    });
+  dom.windowMock.dispatchEvent(
+    {
+      ...pointer,
+      type: 'pointercancel',
+      clientX: movedTouch.clientX,
+    });
+  dom.windowMock.dispatch('touchcancel',
+    {
+      target,
+      touches: [],
+      changedTouches: [movedTouch],
+    });
+  return {
+    callCount: touchFilterCallCount,
+    prevented,
+    sawExpectedPointer: touchFilterSawExpectedPointer,
+  };
+};
+
+const pointerFirstFilterResult = dispatchFilteredTouchOrder(false, dom.body, 97);
+const touchFirstFilterResult = dispatchFilteredTouchOrder(true, dom.body, 98);
+const touchFirstRejectedFilterResult = dispatchFilteredTouchOrder(
+  true,
+  excludedTouchTarget,
+  101,
+);
+
+assert(
+  pointerFirstFilterResult.callCount === 1 &&
+    pointerFirstFilterResult.sawExpectedPointer &&
+    touchFirstFilterResult.callCount === 1 &&
+    touchFirstFilterResult.sawExpectedPointer &&
+    touchFirstRejectedFilterResult.callCount === 1 &&
+    touchFirstRejectedFilterResult.sawExpectedPointer,
+  'Pointer/Touch 两种事件顺序都只用真实 PointerEvent 过滤一次',
+);
+assert(
+  pointerFirstFilterResult.prevented === 1 &&
+    touchFirstFilterResult.prevented === 1 &&
+    touchFirstRejectedFilterResult.prevented === 0,
+  'Touch-first 会回填过滤决定并只仲裁接受的手势',
+);
+filteredTouchEffect.destroy();
+
+const scopedTouchCanvas = new CanvasMock();
+const scopedTouchChild = new ElementMock('span');
+
+scopedTouchCanvas.appendChild(scopedTouchChild);
+const scopedTouchEffect = new BAClickFX(
+  {
+    target: scopedTouchCanvas,
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    touchAction: 'none',
+  },
+);
+const dispatchScopedTouchMove = (target) =>
+{
+  let prevented = 0;
+
+  dom.windowMock.dispatch('touchstart',
+    {
+      target,
+      changedTouches: [{ identifier: 92, clientX: 20, clientY: 20 }],
+    });
+  dom.windowMock.dispatch('touchmove',
+    {
+      target,
+      cancelable: true,
+      changedTouches: [{ identifier: 92, clientX: 80, clientY: 20 }],
+      preventDefault()
+      {
+        prevented++;
+      },
+    });
+  dom.windowMock.dispatch('touchend',
+    {
+      target,
+      changedTouches: [{ identifier: 92 }],
+    });
+  return prevented;
+};
+
+assert(
+  dispatchScopedTouchMove(dom.body) === 0 &&
+    dispatchScopedTouchMove(scopedTouchCanvas) === 1 &&
+    dispatchScopedTouchMove(scopedTouchChild) === 1,
+  'target 实例只阻止自身命中范围内的触摸默认行为',
+);
+
+let shadowPrevented = 0;
+const shadowHost = new ElementMock('div');
+const shadowInnerTarget = new ElementMock('button');
+const shadowTouch =
+{
+  identifier: 96,
+  clientX: 20,
+  clientY: 20,
+  target: shadowInnerTarget,
+};
+const shadowPath = () =>
+  [shadowInnerTarget, scopedTouchCanvas, shadowHost, dom.windowMock];
+
+dom.windowMock.dispatch('touchstart',
+  {
+    target: shadowHost,
+    composedPath: shadowPath,
+    changedTouches: [shadowTouch],
+  });
+dom.windowMock.dispatch('touchmove',
+  {
+    target: shadowHost,
+    composedPath: shadowPath,
+    cancelable: true,
+    changedTouches:
+    [
+      { identifier: 96, clientX: 90, clientY: 20 },
+    ],
+    preventDefault()
+    {
+      shadowPrevented++;
+    },
+  });
+assert(
+  shadowPrevented === 1,
+  'Shadow DOM retarget 后仍通过 composedPath 识别 target 作用域',
+);
+dom.windowMock.dispatch('blur');
+assert(
+  scopedTouchEffect.touchGestureStarts.size === 0,
+  '窗口异常失焦会清空尚未结束的触摸手势',
+);
+scopedTouchEffect.destroy();
+assert(
+  pointerEventTypes.every((type, index) =>
+    listenerCount(type) === pointerListenerBaseline[index]),
+  '销毁实例后完整解除 Pointer 与 Touch 输入监听',
+);
+
+const closedShadowHost = new ElementMock('section');
+const closedShadowOpenHost = new ElementMock('div');
+const closedShadowInner = new ElementMock('button');
+const closedOuterRoot =
+{
+  host: closedShadowHost,
+  mode: 'closed',
+};
+
+closedShadowInner.getBoundingClientRect = () =>
+  ({ left: 0, top: 0, width: 320, height: 240 });
+closedShadowInner.getRootNode = () =>
+  ({ host: closedShadowOpenHost, mode: 'open' });
+closedShadowOpenHost.getRootNode = () => closedOuterRoot;
+const closedShadowTouch =
+{
+  identifier: 99,
+  clientX: 30,
+  clientY: 30,
+  target: closedShadowInner,
+};
+let closedShadowFilterCalls = 0;
+let closedShadowPrevented = 0;
+const closedShadowEffect = new BAClickFX(
+  {
+    target: closedShadowInner,
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    touchAction: 'none',
+    inputFilter(event)
+    {
+      closedShadowFilterCalls++;
+      return event.target === closedShadowInner;
+    },
+  },
+);
+
+const closedShadowPointer =
+{
+  type: 'pointerdown',
+  target: closedShadowInner,
+  pointerType: 'touch',
+  button: 0,
+  pointerId: 99,
+  clientX: 30,
+  clientY: 30,
+  composedPath: () =>
+    [
+      closedShadowInner,
+      closedShadowOpenHost,
+      closedShadowHost,
+      dom.windowMock,
+    ],
+};
+
+closedShadowInner.dispatchEvent(closedShadowPointer);
+closedShadowPointer.target = closedShadowHost;
+closedShadowPointer.composedPath = () => [closedShadowHost, dom.windowMock];
+dom.windowMock.dispatchEvent(closedShadowPointer);
+dom.windowMock.dispatch('touchstart',
+  {
+    target: closedShadowHost,
+    composedPath: () => [closedShadowHost, dom.windowMock],
+    touches: [closedShadowTouch],
+    changedTouches: [closedShadowTouch],
+  });
+dom.windowMock.dispatch('touchmove',
+  {
+    target: closedShadowHost,
+    composedPath: () => [closedShadowHost, dom.windowMock],
+    cancelable: true,
+    touches: [{ ...closedShadowTouch, clientX: 90 }],
+    changedTouches: [{ ...closedShadowTouch, clientX: 90 }],
+    preventDefault()
+    {
+      closedShadowPrevented++;
+    },
+  });
+dom.windowMock.dispatch('touchcancel',
+  {
+    target: closedShadowHost,
+    touches: [],
+    changedTouches: [closedShadowTouch],
+  });
+assert(
+  closedShadowFilterCalls === 1 &&
+    closedShadowPrevented === 1 &&
+    closedShadowEffect.activePointerId === 99,
+  '嵌套 closed Shadow 内部 target 在重定向前过滤并保持触摸仲裁',
+);
+dom.windowMock.dispatch('touchstart',
+  {
+    target: closedShadowHost,
+    composedPath: () => [closedShadowHost, dom.windowMock],
+    touches: [{ ...closedShadowTouch, identifier: 100 }],
+    changedTouches: [{ ...closedShadowTouch, identifier: 100 }],
+  });
+closedShadowEffect.setPaused(true);
+let resumedTouchPrevented = 0;
+
+closedShadowEffect.setPaused(false);
+dom.windowMock.dispatch('touchmove',
+  {
+    target: closedShadowHost,
+    composedPath: () => [closedShadowHost, dom.windowMock],
+    cancelable: true,
+    touches: [{ ...closedShadowTouch, identifier: 100, clientX: 90 }],
+    changedTouches: [{ ...closedShadowTouch, identifier: 100, clientX: 90 }],
+    preventDefault()
+    {
+      resumedTouchPrevented++;
+    },
+  });
+assert(
+  closedShadowEffect.touchGestureStarts.size === 0 &&
+    closedShadowEffect.touchPointerFilterResults.length === 0 &&
+    resumedTouchPrevented === 0,
+  '暂停会清空触摸仲裁状态，恢复后不接续旧手势',
+);
+closedShadowEffect.destroy();
 
 const shardOwnerEffect = new BAClickFX(
   {
