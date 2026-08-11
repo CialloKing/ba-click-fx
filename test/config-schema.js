@@ -16,11 +16,13 @@ import {
   isHostCompositing,
   isHostCompositingSurface,
   isIndependentHostCompositing,
+  isInputSamplingRate,
   isOverlayAlphaPolicy,
   isOverlayColorCompensation,
   isOverlayAlphaLimit,
   normalizeHostCompositing,
   normalizeHostCompositingSurface,
+  normalizeInputSamplingRate,
   normalizeOverlayAlphaLimit,
   normalizeOverlayAlphaPolicyConfig,
   normalizeOverlayColorCompensationConfig,
@@ -219,6 +221,31 @@ check(
   createConfig({ themeColor: '#FF6969' }).themeColor === '#ff6969' &&
     createConfig({ themeColor: 'red' }).themeColor === DEFAULT_THEME_COLOR,
   '构造配置保存合法主题色并拒绝非十六进制颜色',
+);
+
+console.log('\n输入采样率配置合同');
+check(
+  CONFIG.inputSamplingRate === 0 &&
+    createConfig().inputSamplingRate === 0,
+  '输入采样率默认不限频',
+);
+check(
+  isInputSamplingRate(0) &&
+    isInputSamplingRate(30) &&
+    isInputSamplingRate(240) &&
+    !isInputSamplingRate(0.5) &&
+    !isInputSamplingRate(241) &&
+    !isInputSamplingRate(-1) &&
+    !isInputSamplingRate(Number.NaN) &&
+    !isInputSamplingRate(Number.POSITIVE_INFINITY),
+  '输入采样率只接受 0 或 1..240 的有限 Hz',
+);
+check(
+  normalizeInputSamplingRate(30) === 30 &&
+    normalizeInputSamplingRate(-1, 60) === 60 &&
+    createConfig({ inputSamplingRate: 15 }).inputSamplingRate === 15 &&
+    createConfig({ inputSamplingRate: -1 }).inputSamplingRate === 0,
+  '构造配置保留合法采样率并让非法值回退默认值',
 );
 
 console.log('\nWebGPU HDR 展示配置合同');

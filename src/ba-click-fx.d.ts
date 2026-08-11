@@ -133,6 +133,8 @@ declare module 'ba-click-fx'
     trailAlways?: boolean;
     /** 'dom' 自动监听 Pointer 事件；'manual' 仅接受宿主注入。默认 'dom'。 */
     inputSource?: BAClickFXInputSource;
+    /** 移动输入采样率上限（Hz）；0 不限频，或使用 1..240 模拟折线拖尾。默认 0。 */
+    inputSamplingRate?: number;
     /** 点击波纹、旋转和点击碎片的时间倍率，必须有限且不小于 0.01。默认 1。 */
     clickTimeScale?: number;
     /** 拖尾衰减和拖尾碎片的时间倍率，必须有限且不小于 0.01。默认 1。 */
@@ -193,6 +195,7 @@ declare module 'ba-click-fx'
     trailEnabled: boolean;
     trailAlways: boolean;
     inputSource: BAClickFXInputSource;
+    inputSamplingRate: number;
     clickTimeScale: number;
     trailTimeScale: number;
     effectBackend: BAClickFXEffectBackend;
@@ -439,7 +442,7 @@ declare module 'ba-click-fx'
     /** 开始一次点击与拖尾生命周期；两种 inputSource 下均可调用。 */
     pointerDown(input: BAClickFXPointerInput): boolean;
 
-    /** 为当前逻辑指针追加一个拖尾采样点。 */
+    /** 为当前逻辑指针追加一个拖尾采样点；限频丢弃时仍返回 true。 */
     pointerMove(input: BAClickFXPointerInput): boolean;
 
     /** 正常结束逻辑指针，已有拖尾继续自然消失。 */
@@ -469,11 +472,14 @@ declare module 'ba-click-fx'
     /** 返回当前实际生效的宿主合成模式。 */
     getEffectiveHostCompositing(): BAClickFXHostCompositing;
 
-    /** 运行时更新合成合同、输入来源、时间倍率、渲染后端、DPR 与触摸行为。 */
+    /** 运行时更新合成合同、输入来源/采样率、时间倍率、渲染后端、DPR 与触摸行为。 */
     updateConfig(overrides: BAClickFXUpdateOptions): void;
 
     /** 设置并保存主题色；传入空字符串或非法值恢复默认游戏蓝。 */
     setThemeColor(hex: string): void;
+
+    /** 设置移动输入采样率上限（Hz）；接受 0 或 1..240，非法值返回 false。 */
+    setInputSamplingRate(rateHz: number): boolean;
 
     /** 通过点号路径修改特效参数；未知路径或非法值返回 false 且保持配置不变。 */
     setFxParam(path: string, value: BAClickFXParamValue): boolean;

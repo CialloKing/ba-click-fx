@@ -1008,6 +1008,8 @@ export const CONFIG = Object.freeze(
     trailEnabled: true,
     trailAlways: false,
     inputSource: 'dom',
+    // 0 保留浏览器提供的全部移动样本；正数按真实时间限制输入采样 Hz。
+    inputSamplingRate: 0,
     clickTimeScale: 1,
     trailTimeScale: 1,
     // 默认保留 Unity Scene 合成；透明桌面宿主必须显式选择覆盖层输出。
@@ -1071,6 +1073,20 @@ export function normalizeBloomBackend(value, fallback = DEFAULT_BLOOM_BACKEND)
 export function isInputSource(value)
 {
   return INPUT_SOURCES.has(value);
+}
+
+export function isInputSamplingRate(value)
+{
+  return value === 0 || (
+    Number.isFinite(value) &&
+    value >= 1 &&
+    value <= 240
+  );
+}
+
+export function normalizeInputSamplingRate(value, fallback = 0)
+{
+  return isInputSamplingRate(value) ? value : fallback;
 }
 
 export function isOutputCompositing(value)
@@ -1323,6 +1339,10 @@ export function createConfig(overrides = {})
   const inputSource = isInputSource(overrides.inputSource)
     ? overrides.inputSource
     : CONFIG.inputSource;
+  const inputSamplingRate = normalizeInputSamplingRate(
+    overrides.inputSamplingRate,
+    CONFIG.inputSamplingRate,
+  );
   const compatibilityEffectBackend =
     isBloomBackend(overrides.bloomBackend) ||
     typeof overrides.softwareBloomEnabled === 'boolean'
@@ -1380,6 +1400,7 @@ export function createConfig(overrides = {})
     ...CONFIG,
     ...supportedOverrides,
     inputSource,
+    inputSamplingRate,
     effectBackend,
     webgpuPreferHdr,
     clickTimeScale,

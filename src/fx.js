@@ -15,6 +15,7 @@ import {
   createConfig,
   isBloomBackend,
   isEffectBackend,
+  isInputSamplingRate,
   isInputSource,
   isHostCompositing,
   isHostCompositingSurface,
@@ -27,6 +28,7 @@ import {
   normalizeEffectBackend,
   normalizeHostCompositing,
   normalizeHostCompositingSurface,
+  normalizeInputSamplingRate,
   normalizeOverlayAlphaLimit,
   normalizeOverlayAlphaPolicyConfig,
   normalizeOverlayColorCompensationConfig,
@@ -6070,6 +6072,7 @@ export class BAClickFX
    * @param {boolean} [options.trailEnabled]
    * @param {boolean} [options.trailAlways]
    * @param {'dom'|'manual'} [options.inputSource]
+   * @param {number} [options.inputSamplingRate]
    * @param {number} [options.clickTimeScale]
    * @param {number} [options.trailTimeScale]
    * @param {'scene'|'browser-overlay'} [options.outputCompositing]
@@ -6129,6 +6132,10 @@ export class BAClickFX
         inputSource: isInputSource(options.inputSource)
           ? options.inputSource
           : CONFIG.inputSource,
+        inputSamplingRate: normalizeInputSamplingRate(
+          options.inputSamplingRate,
+          CONFIG.inputSamplingRate,
+        ),
         clickTimeScale: normalizeTimeScale(
           options.clickTimeScale,
           CONFIG.clickTimeScale,
@@ -6334,6 +6341,8 @@ export class BAClickFX
     this.activePointerSource = null;
     this.lastPointerPosition = null;
     this.lastPointerTime = 0;
+    // 输入采样率使用未缩放的 source time，不能复用拖尾虚拟时钟。
+    this.lastInputSampleSourceTime = null;
     this.trailDistanceSinceShard = 0;
     const initialTimeSource = performance.now();
 
@@ -6774,11 +6783,11 @@ export class BAClickFX
     };
   }
 
-  _getDomTrailSampleTime(timeStamp, sourceNow, trailNow)
+  _getDomInputSourceTime(timeStamp, sourceNow)
   {
     if (!Number.isFinite(timeStamp) || timeStamp <= 0)
     {
-      return trailNow;
+      return sourceNow;
     }
 
     let sampleSourceTime = timeStamp;
@@ -6794,9 +6803,16 @@ export class BAClickFX
 
     if (sampleSourceTime < 0 || sampleSourceTime > sourceNow + 1000)
     {
-      return trailNow;
+      return sourceNow;
     }
 
+    // 未来时间戳对轨迹 bornAt 等价于当前时刻，但若直接作为限频锚点，
+    // 会让后续真实样本长时间无法通过，因此统一钳到 sourceNow。
+    return Math.min(sampleSourceTime, sourceNow);
+  }
+
+  _getDomTrailSampleTime(sampleSourceTime, sourceNow, trailNow)
+  {
     const elapsedMs = Math.max(0, sourceNow - sampleSourceTime);
 
     return Math.max(
@@ -6911,7 +6927,15 @@ export class BAClickFX
       return;
     }
 
-    this.pointerDown(this._getDomPointerInput(event));
+    const accepted = this.pointerDown(this._getDomPointerInput(event));
+
+    if (accepted && this.config.inputSamplingRate > 0)
+    {
+      this.lastInputSampleSourceTime = this._getDomInputSourceTime(
+        event.timeStamp,
+        performance.now(),
+      );
+    }
   }
 
   /**
@@ -6950,8 +6974,11 @@ export class BAClickFX
     this.activePointerId = pointer.pointerId;
     this.activePointerSource = 'press';
     this._beginTrailOwner();
+    const inputSourceTime = performance.now();
+
     this.lastPointerPosition = { x: pointer.x, y: pointer.y };
-    this.lastPointerTime = this._getTrailInputTime();
+    this.lastPointerTime = this._getTrailInputTime(inputSourceTime);
+    this.lastInputSampleSourceTime = inputSourceTime;
     this.trailDistanceSinceShard = 0;
 
     if (this.config.trailEnabled)
@@ -6993,8 +7020,12 @@ export class BAClickFX
 
     for (const sample of events)
     {
-      const sampleTime = this._getDomTrailSampleTime(
+      const sampleSourceTime = this._getDomInputSourceTime(
         sample.timeStamp ?? event.timeStamp,
+        sourceNow,
+      );
+      const sampleTime = this._getDomTrailSampleTime(
+        sampleSourceTime,
         sourceNow,
         trailNow,
       );
@@ -7002,17 +7033,24 @@ export class BAClickFX
       this._pointerMoveAtTime(
         this._getDomPointerInput(sample, event),
         sampleTime,
+        sampleSourceTime,
       );
     }
   }
 
-  /** 追加一个手动指针采样点；空间采样阈值不受时间倍率影响。 */
+  /** 追加一个手动指针采样点；采样 Hz 与空间阈值都不受时间倍率影响。 */
   pointerMove(input)
   {
-    return this._pointerMoveAtTime(input);
+    const inputSourceTime = performance.now();
+
+    return this._pointerMoveAtTime(
+      input,
+      this._getTrailInputTime(inputSourceTime),
+      inputSourceTime,
+    );
   }
 
-  _pointerMoveAtTime(input, sampleTime = null)
+  _pointerMoveAtTime(input, sampleTime = null, sampleSourceTime = null)
   {
     if (this.destroyed || this.paused || !this.config.trailEnabled)
     {
@@ -7030,6 +7068,9 @@ export class BAClickFX
     const requestedTime = Number.isFinite(sampleTime)
       ? sampleTime
       : this._getTrailInputTime();
+    const inputSourceTime = Number.isFinite(sampleSourceTime)
+      ? sampleSourceTime
+      : performance.now();
     const now = Math.max(this.lastPointerTime, requestedTime);
 
     // trailAlways 的悬停轨迹没有按下事件；首个移动样本负责创建逻辑指针。
@@ -7040,6 +7081,7 @@ export class BAClickFX
       this._beginTrailOwner();
       this.lastPointerPosition = position;
       this.lastPointerTime = now;
+      this.lastInputSampleSourceTime = inputSourceTime;
       this.trailDistanceSinceShard = 0;
       this._startTrailStroke(position, now, true);
       this._requestRender();
@@ -7054,10 +7096,54 @@ export class BAClickFX
       return false;
     }
 
+    const latestTrailPoint = this.currentTrailStroke?.points.at(-1);
+
+    if (
+      !latestTrailPoint ||
+      now - latestTrailPoint.bornAt >= this.fxConfig.trail.lifetimeMs
+    )
+    {
+      // 已不可见的轨迹恢复移动时必须立即建立新锚点，不能等待旧采样周期。
+      this.lastInputSampleSourceTime = null;
+    }
+
+    if (!this._acceptInputSample(inputSourceTime))
+    {
+      // 返回值表示逻辑指针已接受；限频样本与空间阈值 no-op 一样仍返回 true。
+      return true;
+    }
+
     this._ensureCurrentTrailStroke(now);
     this._appendPointerSample(position, now);
 
     this._requestRender();
+    return true;
+  }
+
+  _acceptInputSample(inputSourceTime)
+  {
+    const rate = this.config.inputSamplingRate;
+
+    if (rate <= 0)
+    {
+      return true;
+    }
+
+    if (!Number.isFinite(this.lastInputSampleSourceTime))
+    {
+      this.lastInputSampleSourceTime = inputSourceTime;
+      return true;
+    }
+
+    const intervalMs = 1000 / rate;
+
+    if (inputSourceTime - this.lastInputSampleSourceTime < intervalMs)
+    {
+      return false;
+    }
+
+    // 即使空间位移不足 minVertexDistance，也要推进独立的时间采样相位。
+    this.lastInputSampleSourceTime = inputSourceTime;
     return true;
   }
 
@@ -7323,6 +7409,7 @@ export class BAClickFX
     this.activePointerSource = null;
     this.lastPointerPosition = null;
     this.lastPointerTime = 0;
+    this.lastInputSampleSourceTime = null;
     this.trailDistanceSinceShard = 0;
     this._requestRender();
   }
@@ -10909,6 +10996,18 @@ export class BAClickFX
     this._themeHueShift = computeThemeHueShift(themeColor);
   }
 
+  /** 设置移动输入采样率上限；0 表示保留全部输入样本。 */
+  setInputSamplingRate(rateHz)
+  {
+    if (this.destroyed || !isInputSamplingRate(rateHz))
+    {
+      return false;
+    }
+
+    this.updateConfig({ inputSamplingRate: rateHz });
+    return true;
+  }
+
   /**
    * 运行时更新部分配置，无需销毁重建实例。
    * target 与 inputFilter 只在构造时生效，其余公开配置均可按需覆盖。
@@ -10948,6 +11047,16 @@ export class BAClickFX
       {
         this._detachDomPointerListeners();
       }
+    }
+
+    if (
+      isInputSamplingRate(overrides.inputSamplingRate) &&
+      overrides.inputSamplingRate !== this.config.inputSamplingRate
+    )
+    {
+      this.config.inputSamplingRate = overrides.inputSamplingRate;
+      // 新设置从下一次匹配 move 立即建立相位，不跨两种采样率继承旧锚点。
+      this.lastInputSampleSourceTime = null;
     }
 
     if (isTimeScale(overrides.clickTimeScale))
@@ -11341,6 +11450,8 @@ export class BAClickFX
     this.currentTrailStroke = null;
     this.shards = this.shards.filter((shard) => shard.kind !== 'trail');
     this.trailShardCounts.clear();
+    // 清轨迹后下一次合法 move 必须能立即重建，不能被旧采样相位挡住。
+    this.lastInputSampleSourceTime = null;
 
     if (this.activeTrailOwnerId !== null)
     {
@@ -11359,6 +11470,7 @@ export class BAClickFX
     this.trailStrokes.length = 0;
     this.currentTrailStroke = null;
     this.trailShardCounts.clear();
+    this.lastInputSampleSourceTime = null;
     this._trimBloomRendererPool(0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
     this.contrastContext?.clearRect(0, 0, this.width, this.height);

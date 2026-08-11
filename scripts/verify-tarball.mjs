@@ -28,6 +28,7 @@ const requiredRuntimeMethods = [
   'getEffectiveHostCompositing',
   'updateConfig',
   'setThemeColor',
+  'setInputSamplingRate',
   'setFxParam',
   'setTriangleRoundness',
   'setFxParams',
@@ -87,7 +88,8 @@ function verifyRuntimeApi(moduleExports, bundleName)
     `${bundleName} bundle does not expose the strict compositing defaults`,
   );
   verify(
-    moduleExports.CONFIG?.inputSource === 'dom',
+    moduleExports.CONFIG?.inputSource === 'dom' &&
+      moduleExports.CONFIG?.inputSamplingRate === 0,
     `${bundleName} bundle does not expose the DOM input default`,
   );
   verify(
@@ -223,6 +225,7 @@ if (
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
   moduleExports.CONFIG?.inputSource !== 'dom' ||
+  moduleExports.CONFIG?.inputSamplingRate !== 0 ||
   moduleExports.CONFIG?.clickTimeScale !== 1 ||
   moduleExports.CONFIG?.trailTimeScale !== 1
 )
@@ -287,6 +290,7 @@ if (
   moduleExports.CONFIG?.isolatedCompositing !== false ||
   moduleExports.CONFIG?.lightBackgroundContrastAlpha !== 0 ||
   moduleExports.CONFIG?.inputSource !== 'dom' ||
+  moduleExports.CONFIG?.inputSamplingRate !== 0 ||
   moduleExports.CONFIG?.clickTimeScale !== 1 ||
   moduleExports.CONFIG?.trailTimeScale !== 1
 )
@@ -411,6 +415,7 @@ const options: BAClickFXOptions =
   clickEnabled: true,
   trailEnabled: true,
   inputSource: 'manual',
+  inputSamplingRate: 30,
   clickTimeScale: 1.5,
   trailTimeScale: 0.8,
   effectBackend: 'webgpu',
@@ -468,6 +473,7 @@ const hostCompositingSurface: BAClickFXHostCompositingSurface =
 const lightBackgroundContrastAlpha: number =
   config.lightBackgroundContrastAlpha;
 const inputSource: BAClickFXInputSource = config.inputSource;
+const inputSamplingRate: number = config.inputSamplingRate;
 const clickTimeScale: number = config.clickTimeScale;
 const trailTimeScale: number = config.trailTimeScale;
 const pointerType: BAClickFXPointerType = 'pen';
@@ -596,6 +602,8 @@ namedInstance.setCompositingReference(
   },
 );
 namedInstance.setThemeColor(DEFAULT_THEME_COLOR);
+const inputSamplingRateAccepted: boolean =
+  namedInstance.setInputSamplingRate(30);
 const paramValue: BAClickFXParamValue = true;
 const paramAccepted: boolean = namedInstance.setFxParam(
   'hit.enabled',
@@ -619,6 +627,7 @@ const updateOptions: BAClickFXUpdateOptions =
   renderingMode: 'enhanced',
   bloomBackend: 'auto',
   inputSource: 'dom',
+  inputSamplingRate: 60,
   clickTimeScale: 2,
   trailTimeScale: 0.5,
 };
@@ -704,6 +713,7 @@ void [
   effectiveHostCompositing,
   lightBackgroundContrastAlpha,
   inputSource,
+  inputSamplingRate,
   clickTimeScale,
   trailTimeScale,
   pointerType,
@@ -722,6 +732,7 @@ void [
   standalonePatchResult,
   internalPatchCandidate,
   paramValue,
+  inputSamplingRateAccepted,
   paramAccepted,
   patchResult,
   updateOptions,

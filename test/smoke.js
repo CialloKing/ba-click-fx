@@ -3821,6 +3821,169 @@ assert(
 coalescedEffect.pointerCancel(70);
 coalescedEffect.destroy();
 
+console.log('\n输入采样率');
+const unlimitedSamplingStart = performance.now() + 1000;
+
+dom.setCurrentTime(unlimitedSamplingStart);
+const unlimitedSamplingEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    clickEnabled: false,
+    inputSource: 'manual',
+  },
+);
+
+unlimitedSamplingEffect.setFxParam('trail.minVertexDistance', 1);
+unlimitedSamplingEffect.setFxParam('shards.maxCount', 0);
+unlimitedSamplingEffect.pointerDown({ x: 100, y: 100, pointerId: 71 });
+dom.setCurrentTime(unlimitedSamplingStart + 100);
+unlimitedSamplingEffect.pointerMove({ x: 200, y: 100, pointerId: 71 });
+dom.setCurrentTime(unlimitedSamplingStart + 120);
+unlimitedSamplingEffect.pointerMove({ x: 250, y: 200, pointerId: 71 });
+dom.setCurrentTime(unlimitedSamplingStart + 200);
+unlimitedSamplingEffect.pointerMove({ x: 300, y: 100, pointerId: 71 });
+
+assert(
+  unlimitedSamplingEffect.getConfig().inputSamplingRate === 0 &&
+    unlimitedSamplingEffect.currentTrailStroke.points.some((point) =>
+      point.y > 100),
+  '默认 0 Hz 不限频并保留每个输入转折点',
+);
+unlimitedSamplingEffect.destroy();
+
+const limitedSamplingStart = unlimitedSamplingStart + 1000;
+
+dom.setCurrentTime(limitedSamplingStart);
+const limitedSamplingEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    clickEnabled: false,
+    inputSamplingRate: 10,
+    inputSource: 'manual',
+    trailTimeScale: 0.5,
+  },
+);
+
+limitedSamplingEffect.setFxParam('trail.minVertexDistance', 1);
+limitedSamplingEffect.setFxParam('shards.maxCount', 0);
+limitedSamplingEffect.pointerDown({ x: 100, y: 100, pointerId: 72 });
+dom.setCurrentTime(limitedSamplingStart + 100);
+const firstLimitedMove = limitedSamplingEffect.pointerMove(
+  { x: 200, y: 100, pointerId: 72 },
+);
+dom.setCurrentTime(limitedSamplingStart + 120);
+const throttledLimitedMove = limitedSamplingEffect.pointerMove(
+  { x: 250, y: 200, pointerId: 72 },
+);
+dom.setCurrentTime(limitedSamplingStart + 200);
+const secondLimitedMove = limitedSamplingEffect.pointerMove(
+  { x: 300, y: 100, pointerId: 72 },
+);
+
+assert(
+  firstLimitedMove === true &&
+    throttledLimitedMove === true &&
+    secondLimitedMove === true &&
+    limitedSamplingEffect.currentTrailStroke.points.every((point) =>
+      point.y === 100),
+  '10 Hz 按真实时间丢弃中间弯点并连接低频采样弦段',
+);
+assert(
+  limitedSamplingEffect.lastInputSampleSourceTime ===
+      limitedSamplingStart + 200 &&
+    limitedSamplingEffect.lastPointerTime === 100,
+  '输入采样 Hz 不受 trailTimeScale 缩放',
+);
+assert(
+  limitedSamplingEffect.setInputSamplingRate(-1) === false &&
+    limitedSamplingEffect.getConfig().inputSamplingRate === 10 &&
+    limitedSamplingEffect.setInputSamplingRate(0) === true &&
+    limitedSamplingEffect.getConfig().inputSamplingRate === 0,
+  '采样率便捷 API 拒绝非法值并可恢复不限频',
+);
+dom.setCurrentTime(limitedSamplingStart + 201);
+limitedSamplingEffect.pointerMove({ x: 310, y: 160, pointerId: 72 });
+assert(
+  limitedSamplingEffect.currentTrailStroke.points.some((point) =>
+    point.y > 100),
+  '运行时关闭限频后下一次移动立即恢复完整采样',
+);
+limitedSamplingEffect.pointerCancel(72);
+limitedSamplingEffect.destroy();
+
+const coalescedSamplingStart = limitedSamplingStart + 1000;
+
+dom.setCurrentTime(coalescedSamplingStart);
+const coalescedSamplingEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    clickEnabled: false,
+    inputSamplingRate: 10,
+    trailAlways: true,
+  },
+);
+
+dom.windowMock.dispatch('pointermove',
+  {
+    pointerType: 'mouse',
+    pointerId: 73,
+    button: -1,
+    clientX: 300,
+    clientY: 240,
+    timeStamp: coalescedSamplingStart,
+    getCoalescedEvents()
+    {
+      return [
+        {
+          pointerType: 'mouse',
+          pointerId: 73,
+          clientX: 100,
+          clientY: 240,
+          timeStamp: coalescedSamplingStart - 100,
+        },
+        {
+          pointerType: 'mouse',
+          pointerId: 73,
+          clientX: 300,
+          clientY: 240,
+          timeStamp: coalescedSamplingStart - 20,
+        },
+      ];
+    },
+  });
+assert(
+  coalescedSamplingEffect.lastPointerPosition.x === 100 &&
+    coalescedSamplingEffect.lastInputSampleSourceTime ===
+      coalescedSamplingStart - 100,
+  'DOM 合并样本分别按各自 timeStamp 限频',
+);
+coalescedSamplingEffect.pointerCancel(73);
+coalescedSamplingEffect.destroy();
+
+const idleSamplingStart = coalescedSamplingStart + 1000;
+
+dom.setCurrentTime(idleSamplingStart);
+const idleSamplingEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    clickEnabled: false,
+    inputSamplingRate: 1,
+    trailAlways: true,
+  },
+);
+
+idleSamplingEffect.pointerMove({ x: 100, y: 260, pointerId: 74 });
+flushFrames(dom, idleSamplingStart, 30);
+dom.setCurrentTime(idleSamplingStart + 500);
+idleSamplingEffect.pointerMove({ x: 300, y: 260, pointerId: 74 });
+assert(
+  idleSamplingEffect.lastPointerPosition.x === 300 &&
+    idleSamplingEffect.currentTrailStroke.points.length >= 2,
+  '低采样率空闲到轨迹消失后首个移动立即重建可见轨迹',
+);
+idleSamplingEffect.pointerCancel(74);
+idleSamplingEffect.destroy();
+
 console.log('\n独立时间倍率');
 const timeScaleEffect = new BAClickFX(
   {
