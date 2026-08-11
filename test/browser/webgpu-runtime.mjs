@@ -110,6 +110,7 @@ async function decodeScreenshot(page, screenshot)
     let visiblePixels = 0;
     let alphaPixels = 0;
     let maximum = 0;
+    let premultipliedEnergy = 0;
 
     for (let index = 0; index < pixels.length; index += 4)
     {
@@ -130,6 +131,7 @@ async function decodeScreenshot(page, screenshot)
       }
 
       maximum = Math.max(maximum, energy);
+      premultipliedEnergy += energy / 255 * (pixels[index + 3] / 255);
     }
 
     const centerOffset = (
@@ -143,6 +145,8 @@ async function decodeScreenshot(page, screenshot)
       visiblePixels,
       alphaPixels,
       maximum,
+      premultipliedEnergy: premultipliedEnergy /
+        Math.max(1, image.width * image.height),
       center: Array.from(pixels.slice(centerOffset, centerOffset + 4)),
     };
   }, screenshot.toString('base64'));
@@ -534,6 +538,285 @@ function assertSdrColorParity(preferred, standard)
     Math.max(...modeDelta) <= 3,
     `Extended 的 SDR 中间调颜色比 Standard 更深: ${detail}`,
   );
+}
+
+async function compareExactScreenshots(page, reference, current)
+{
+  return page.evaluate(async ({ referenceBase64, currentBase64 }) =>
+  {
+    async function decode(base64)
+    {
+      const image = new Image();
+
+      image.src = `data:image/png;base64,${base64}`;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+
+      context.drawImage(image, 0, 0);
+      return {
+        width: image.width,
+        height: image.height,
+        pixels: context.getImageData(0, 0, image.width, image.height).data,
+      };
+    }
+
+    const left = await decode(referenceBase64);
+    const right = await decode(currentBase64);
+
+    if (left.width !== right.width || left.height !== right.height)
+    {
+      return {
+        changedPixels: null,
+        maximumChannelDelta: null,
+        sizeMismatch: true,
+      };
+    }
+
+    let changedPixels = 0;
+    let maximumChannelDelta = 0;
+
+    for (let offset = 0; offset < left.pixels.length; offset += 4)
+    {
+      let pixelChanged = false;
+
+      for (let channel = 0; channel < 4; channel++)
+      {
+        const delta = Math.abs(
+          left.pixels[offset + channel] - right.pixels[offset + channel],
+        );
+
+        maximumChannelDelta = Math.max(maximumChannelDelta, delta);
+        pixelChanged ||= delta > 0;
+      }
+
+      changedPixels += pixelChanged ? 1 : 0;
+    }
+
+    return {
+      changedPixels,
+      maximumChannelDelta,
+      sizeMismatch: false,
+    };
+  },
+  {
+    referenceBase64: reference.toString('base64'),
+    currentBase64: current.toString('base64'),
+  });
+}
+
+async function runWebGPUThemeColorContract(page)
+{
+  const initial = await page.evaluate(async () =>
+  {
+    const { BAClickFX } = await import('/src/fx.js');
+    const previousBackgrounds =
+    {
+      body: document.body.style.background,
+      root: document.documentElement.style.background,
+    };
+
+    document.documentElement.style.background = 'transparent';
+    document.body.style.background = 'transparent';
+    const effect = new BAClickFX(
+      {
+        effectBackend: 'webgpu',
+        webgpuPreferHdr: false,
+        inputSource: 'manual',
+        maxDpr: 1,
+        outputCompositing: 'browser-overlay',
+        themeColor: '#4ca7ff',
+        themeColorMode: 'hue-only',
+      },
+    );
+
+    effect.boom(160, 120);
+    const deadline = performance.now() + 4000;
+
+    while (
+      effect.getConfig().resolvedEffectBackend === 'pending' &&
+      performance.now() < deadline
+    )
+    {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    }
+
+    await effect.webgpuEffectRenderer?.device.queue.onSubmittedWorkDone();
+    effect.clear();
+    effect.boom(160, 120);
+    await new Promise((resolvePromise) => requestAnimationFrame(resolvePromise));
+    await effect.webgpuEffectRenderer?.device.queue.onSubmittedWorkDone();
+    effect.setPaused(true, { clear: false });
+    effect.webgpuEffectCanvas.dataset.test = 'theme-contract-webgpu';
+    window.__BACLICKFX_WEBGPU_THEME_CONTRACT__ =
+    {
+      effect,
+      previousBackgrounds,
+    };
+
+    return effect.getConfig();
+  });
+
+  assert.equal(
+    initial.resolvedEffectBackend,
+    'webgpu',
+    `WebGPU 主题色门禁初始化失败: ${JSON.stringify(initial)}`,
+  );
+
+  const variants =
+  [
+    { id: 'defaultHue', color: '#4ca7ff', mode: 'hue-only' },
+    { id: 'defaultRelative', color: '#4ca7ff', mode: 'relative-oklch' },
+    { id: 'dark', color: '#001020', mode: 'relative-oklch' },
+    { id: 'bright', color: '#d8efff', mode: 'relative-oklch' },
+    { id: 'black', color: '#000000', mode: 'relative-oklch' },
+  ];
+  const captures = {};
+
+  try
+  {
+    for (const variant of variants)
+    {
+      const runtime = await page.evaluate(async (requested) =>
+      {
+        const entry = window.__BACLICKFX_WEBGPU_THEME_CONTRACT__;
+        const effect = entry.effect;
+
+        // 直接固定已生成的粒子时钟；各变体只改变主题映射，
+        // 不让 RAF 时序差被误判为颜色像素差异。
+        effect.paused = false;
+        effect.setThemeColorMode(requested.mode);
+        effect.setThemeColor(requested.color);
+
+        if (effect.animationFrame !== null)
+        {
+          cancelAnimationFrame(effect.animationFrame);
+          effect.animationFrame = null;
+        }
+
+        const now = performance.now();
+
+        effect.lastClickTimeSource = now;
+        effect.lastTrailTimeSource = now;
+        effect._renderFrame(now);
+
+        if (effect.animationFrame !== null)
+        {
+          cancelAnimationFrame(effect.animationFrame);
+          effect.animationFrame = null;
+        }
+
+        effect.paused = true;
+        await effect.webgpuEffectRenderer.device.queue.onSubmittedWorkDone();
+        const config = effect.getConfig();
+
+        return {
+          config:
+          {
+            resolvedBloomBackend: config.resolvedBloomBackend,
+            resolvedEffectBackend: config.resolvedEffectBackend,
+            themeColor: config.themeColor,
+            themeColorMode: config.themeColorMode,
+          },
+          effectiveOpacity: effect._getEffectiveOpacity(),
+          shardCount: effect.shards.length,
+          waveCount: effect.waves.length,
+        };
+      }, variant);
+      const canvas = page.locator('canvas[data-test="theme-contract-webgpu"]');
+      const screenshot = await canvas.screenshot({ omitBackground: true });
+
+      captures[variant.id] =
+      {
+        pixels: await decodeScreenshot(page, screenshot),
+        runtime,
+        screenshot,
+      };
+    }
+
+    const defaultDifference = await compareExactScreenshots(
+      page,
+      captures.defaultHue.screenshot,
+      captures.defaultRelative.screenshot,
+    );
+    const publicCaptures = Object.fromEntries(
+      Object.entries(captures).map(([name, capture]) =>
+      [
+        name,
+        {
+          pixels: capture.pixels,
+          runtime: capture.runtime,
+        },
+      ]),
+    );
+    const detail = JSON.stringify(
+      {
+        captures: publicCaptures,
+        defaultDifference,
+      },
+    );
+
+    assertVisiblePixels('WebGPU 默认蓝 hue-only', captures.defaultHue.pixels);
+    assertVisiblePixels(
+      'WebGPU 默认蓝 relative-oklch',
+      captures.defaultRelative.pixels,
+    );
+    assert.deepEqual(
+      defaultDifference,
+      {
+        changedPixels: 0,
+        maximumChannelDelta: 0,
+        sizeMismatch: false,
+      },
+      `WebGPU 默认蓝两种映射不再像素恒等: ${detail}`,
+    );
+    assert.ok(
+      captures.dark.pixels.visiblePixels > 0 &&
+        captures.bright.pixels.visiblePixels > 0 &&
+        captures.dark.pixels.premultipliedEnergy <
+          captures.bright.pixels.premultipliedEnergy,
+      `WebGPU 暗色没有比亮色产生更低的最终能量: ${detail}`,
+    );
+    assert.ok(
+      captures.black.runtime.waveCount > 0 &&
+        captures.black.runtime.shardCount > 0 &&
+        captures.black.runtime.effectiveOpacity === 0,
+      `WebGPU 纯黑测试没有保留活动几何或未归零透明度: ${detail}`,
+    );
+    assert.ok(
+      captures.black.pixels.visiblePixels === 0 &&
+        captures.black.pixels.alphaPixels === 0 &&
+        captures.black.pixels.maximum === 0 &&
+        captures.black.pixels.premultipliedEnergy === 0,
+      `WebGPU 纯黑主题仍残留 RGB 或 Alpha: ${detail}`,
+    );
+
+    return {
+      captures: publicCaptures,
+      defaultDifference,
+    };
+  }
+  finally
+  {
+    await page.evaluate(() =>
+    {
+      const entry = window.__BACLICKFX_WEBGPU_THEME_CONTRACT__;
+
+      entry?.effect.destroy();
+
+      if (entry)
+      {
+        document.documentElement.style.background =
+          entry.previousBackgrounds.root;
+        document.body.style.background = entry.previousBackgrounds.body;
+      }
+
+      delete window.__BACLICKFX_WEBGPU_THEME_CONTRACT__;
+    });
+  }
 }
 
 async function startIntegration(page)
@@ -2006,6 +2289,7 @@ async function main()
 
     assertSdrColorParity(colorProbes.preferred, colorProbes.standard);
 
+    const themeColorContract = await runWebGPUThemeColorContract(page);
     const integration = await runIntegration(page);
     const demoHdrUi = await runDemoHdrUiIntegration(
       page,
@@ -2036,6 +2320,7 @@ async function main()
           pixels: result.pixels,
         })),
         colorProbes,
+        themeColorContract,
         integration,
         demoHdrUi,
       },
