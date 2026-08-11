@@ -3494,7 +3494,118 @@ async function runIifeMobileTouchSmoke(browserInstance, baseUrl)
       '构建后 IIFE 移动触摸夹具出现未处理异常',
       { consoleErrors, pageErrors },
     );
-    metrics.iifeMobileTouch = { result, runtimeContract };
+
+    const closedShadowContract = await page.evaluate(() =>
+    {
+      const host = document.createElement('div');
+      const root = host.attachShadow({ mode: 'closed' });
+      const target = document.createElement('div');
+
+      host.id = 'iife-mobile-closed-shadow-host';
+      host.style.cssText = [
+        'position: fixed',
+        'left: 20px',
+        'top: 500px',
+        'width: 320px',
+        'height: 260px',
+        'z-index: 2147483000',
+      ].join(';');
+      target.style.cssText = [
+        'display: block',
+        'width: 100%',
+        'height: 100%',
+        'touch-action: none',
+      ].join(';');
+      root.append(target);
+      document.body.append(host);
+
+      window.__iifeClosedShadowFilterCalls = 0;
+      window.__iifeClosedShadowEffect =
+        new window.BAClickFX.BAClickFX(
+          {
+            target,
+            bloomBackend: 'native',
+            clickEnabled: false,
+            effectBackend: 'canvas2d',
+            inputSource: 'dom',
+            touchAction: 'none',
+            trailEnabled: true,
+            trailAlways: false,
+            inputFilter(event)
+            {
+              window.__iifeClosedShadowFilterCalls++;
+              return event.target === target;
+            },
+          },
+        );
+      window.__iifeClosedShadowEffect.setFxParam(
+        'trail.lifetimeMs',
+        2000,
+      );
+
+      return {
+        usesTouchInputFallback:
+          window.__iifeClosedShadowEffect.usesTouchInputFallback,
+      };
+    });
+    const closedShadowCdp = await context.newCDPSession(page);
+    await closedShadowCdp.send('Input.dispatchTouchEvent',
+      {
+        type: 'touchStart',
+        touchPoints:
+        [
+          { x: 280, y: 620, id: 2, radiusX: 1, radiusY: 1, force: 1 },
+        ],
+      });
+    for (const x of [250, 220, 180, 140, 100, 60])
+    {
+      await closedShadowCdp.send('Input.dispatchTouchEvent',
+        {
+          type: 'touchMove',
+          touchPoints:
+          [
+            { x, y: 620, id: 2, radiusX: 1, radiusY: 1, force: 1 },
+          ],
+        });
+      await new Promise((resolve) => setTimeout(resolve, 16));
+    }
+    await closedShadowCdp.send('Input.dispatchTouchEvent',
+      {
+        type: 'touchEnd',
+        touchPoints: [],
+      });
+    await page.waitForTimeout(30);
+    const closedShadowResult = await page.evaluate(() =>
+    {
+      const effect = window.__iifeClosedShadowEffect;
+      const result =
+      {
+        filterCalls: window.__iifeClosedShadowFilterCalls,
+        pointCounts: effect.trailStrokes.map((stroke) => stroke.points.length),
+        strokeCount: effect.trailStrokes.length,
+        usesTouchInputFallback: effect.usesTouchInputFallback,
+      };
+
+      effect.destroy();
+      document.getElementById('iife-mobile-closed-shadow-host')?.remove();
+      delete window.__iifeClosedShadowEffect;
+      return result;
+    });
+    assert(
+      closedShadowContract.usesTouchInputFallback &&
+        closedShadowResult.filterCalls === 1 &&
+        closedShadowResult.strokeCount > 0 &&
+        closedShadowResult.pointCounts[0] > 2,
+      '构建后 IIFE Touch-only closed Shadow 没有建立拖尾',
+      { closedShadowContract, closedShadowResult },
+    );
+    metrics.iifeMobileTouch =
+    {
+      result,
+      runtimeContract,
+      closedShadowContract,
+      closedShadowResult,
+    };
   }
   finally
   {

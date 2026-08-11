@@ -4579,8 +4579,187 @@ assert(
 );
 closedShadowEffect.destroy();
 
+const previousPointerEventConstructor = dom.windowMock.PointerEvent;
+dom.windowMock.PointerEvent = function PointerEventMock()
+{
+};
+let closedShadowTouchFirstFilterCalls = 0;
+let closedShadowTouchFirstPrevented = 0;
+const closedShadowTouchFirstEffect = new BAClickFX(
+  {
+    target: closedShadowInner,
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    touchAction: 'none',
+    inputFilter(event)
+    {
+      closedShadowTouchFirstFilterCalls++;
+      return event.target === closedShadowInner;
+    },
+  },
+);
+const closedShadowTouchFirstStart =
+{
+  identifier: 103,
+  clientX: 30,
+  clientY: 30,
+  target: closedShadowInner,
+};
+const closedShadowTouchFirstMove =
+{
+  ...closedShadowTouchFirstStart,
+  clientX: 90,
+};
+
+// 先派发 Touch，再按真实 capture 顺序让 window 看到重定向宿主，
+// 最后进入 closed Shadow 内部 host；窗口侧不能提前消费 pending 状态。
+dom.windowMock.dispatch('touchstart',
+  {
+    target: closedShadowHost,
+    composedPath: () => [closedShadowHost, dom.windowMock],
+    touches: [closedShadowTouchFirstStart],
+    changedTouches: [closedShadowTouchFirstStart],
+  });
+const closedShadowTouchFirstPointer =
+{
+  type: 'pointerdown',
+  target: closedShadowHost,
+  pointerType: 'touch',
+  button: 0,
+  pointerId: closedShadowTouchFirstStart.identifier,
+  clientX: closedShadowTouchFirstStart.clientX,
+  clientY: closedShadowTouchFirstStart.clientY,
+  composedPath: () => [closedShadowHost, dom.windowMock],
+};
+dom.windowMock.dispatchEvent(closedShadowTouchFirstPointer);
+closedShadowTouchFirstPointer.target = closedShadowInner;
+closedShadowTouchFirstPointer.composedPath = () =>
+  [closedShadowInner, closedShadowOpenHost, closedShadowHost, dom.windowMock];
+closedShadowInner.dispatchEvent(closedShadowTouchFirstPointer);
+dom.windowMock.dispatch('touchmove',
+  {
+    target: closedShadowHost,
+    composedPath: () => [closedShadowHost, dom.windowMock],
+    cancelable: true,
+    touches: [closedShadowTouchFirstMove],
+    changedTouches: [closedShadowTouchFirstMove],
+    preventDefault()
+    {
+      closedShadowTouchFirstPrevented++;
+    },
+  });
+assert(
+  closedShadowTouchFirstFilterCalls === 1 &&
+    closedShadowTouchFirstPrevented === 1 &&
+    closedShadowTouchFirstEffect.activePointerId === 103 &&
+    closedShadowTouchFirstEffect.touchGestureStarts.get(103)?.accepted === true,
+  'closed Shadow touch-first 在窗口 capture 让路后由内部 target 回填状态',
+);
+dom.windowMock.dispatch('pointercancel',
+  {
+    target: closedShadowHost,
+    pointerType: 'touch',
+    pointerId: closedShadowTouchFirstStart.identifier,
+  });
+closedShadowTouchFirstEffect.destroy();
+if (previousPointerEventConstructor === undefined)
+{
+  delete dom.windowMock.PointerEvent;
+}
+else
+{
+  dom.windowMock.PointerEvent = previousPointerEventConstructor;
+}
+
 dom.windowMock.ontouchstart = null;
+let closedShadowFallbackFilterCalls = 0;
+const closedShadowFallbackEffect = new BAClickFX(
+  {
+    target: closedShadowInner,
+    effectBackend: 'canvas2d',
+    bloomBackend: 'native',
+    clickEnabled: false,
+    touchAction: 'none',
+    inputFilter(event)
+    {
+      closedShadowFallbackFilterCalls++;
+      return event.target === closedShadowInner;
+    },
+  },
+);
+const closedShadowFallbackStartTouch =
+{
+  identifier: 104,
+  clientX: 30,
+  clientY: 60,
+  target: closedShadowInner,
+};
+const closedShadowFallbackMoveTouch =
+{
+  ...closedShadowFallbackStartTouch,
+  clientX: 100,
+};
+const closedShadowFallbackStartEvent =
+{
+  type: 'touchstart',
+  target: closedShadowHost,
+  touches: [closedShadowFallbackStartTouch],
+  changedTouches: [closedShadowFallbackStartTouch],
+  composedPath: () => [closedShadowHost, dom.windowMock],
+};
+const closedShadowFallbackMoveEvent =
+{
+  type: 'touchmove',
+  target: closedShadowHost,
+  cancelable: true,
+  touches: [closedShadowFallbackMoveTouch],
+  changedTouches: [closedShadowFallbackMoveTouch],
+  composedPath: () => [closedShadowHost, dom.windowMock],
+  preventDefault()
+  {
+    closedShadowFallbackMoveEvent.prevented =
+      (closedShadowFallbackMoveEvent.prevented ?? 0) + 1;
+  },
+};
+const closedShadowFallbackEndEvent =
+{
+  type: 'touchend',
+  target: closedShadowHost,
+  touches: [],
+  changedTouches: [closedShadowFallbackMoveTouch],
+  composedPath: () => [closedShadowHost, dom.windowMock],
+};
+
+// Touch-only fallback 在 window 看到重定向宿主时让路，再由真实 host
+// listener 处理完整的 Touch 生命周期，避免 closed Shadow 下零轨迹。
+dom.windowMock.dispatchEvent(closedShadowFallbackStartEvent);
+closedShadowFallbackStartEvent.target = closedShadowInner;
+closedShadowFallbackStartEvent.composedPath = () =>
+  [closedShadowInner, closedShadowOpenHost, closedShadowHost, dom.windowMock];
+closedShadowInner.dispatchEvent(closedShadowFallbackStartEvent);
+dom.windowMock.dispatchEvent(closedShadowFallbackMoveEvent);
+closedShadowFallbackMoveEvent.target = closedShadowInner;
+closedShadowFallbackMoveEvent.composedPath = () =>
+  [closedShadowInner, closedShadowOpenHost, closedShadowHost, dom.windowMock];
+closedShadowInner.dispatchEvent(closedShadowFallbackMoveEvent);
+dom.windowMock.dispatchEvent(closedShadowFallbackEndEvent);
+closedShadowFallbackEndEvent.target = closedShadowInner;
+closedShadowFallbackEndEvent.composedPath = () =>
+  [closedShadowInner, closedShadowOpenHost, closedShadowHost, dom.windowMock];
+closedShadowInner.dispatchEvent(closedShadowFallbackEndEvent);
+assert(
+  closedShadowFallbackEffect.usesTouchInputFallback &&
+    closedShadowFallbackFilterCalls === 1 &&
+    closedShadowFallbackMoveEvent.prevented === 1 &&
+    closedShadowFallbackEffect.trailStrokes.length === 1 &&
+    closedShadowFallbackEffect.trailStrokes[0].points.length >= 2 &&
+    closedShadowFallbackEffect.activePointerId === null,
+  'Touch-only closed Shadow 由内部 Touch listener 建立并结束拖尾',
+);
+closedShadowFallbackEffect.destroy();
+
 let touchFallbackFilterEvent = null;
+const touchFallbackFilterEvents = [];
 const touchFallbackEffect = new BAClickFX(
   {
     effectBackend: 'canvas2d',
@@ -4590,6 +4769,7 @@ const touchFallbackEffect = new BAClickFX(
     inputFilter(event)
     {
       touchFallbackFilterEvent = event;
+      touchFallbackFilterEvents.push(event);
       return event.target === dom.body;
     },
   },
@@ -4644,6 +4824,8 @@ assert(
     touchFallbackFilterEvent?.type === 'pointerdown' &&
     touchFallbackFilterEvent?.pointerType === 'touch' &&
     touchFallbackFilterEvent?.pointerId === fallbackStartTouch.identifier &&
+    touchFallbackFilterEvent?.isPrimary === true &&
+    touchFallbackFilterEvents.length === 1 &&
     touchFallbackPrevented === 2 &&
     touchFallbackEffect.trailStrokes.length === 1 &&
     touchFallbackEffect.trailStrokes[0].points.length >= 2 &&
@@ -4651,6 +4833,68 @@ assert(
     touchFallbackEffect.currentTrailStroke === null &&
     touchFallbackEffect.touchGestureStarts.size === 0,
   'Touch-only 宿主在 none 下通过 fallback 建立、移动并结束拖尾',
+);
+
+touchFallbackEffect.clear();
+touchFallbackFilterEvents.length = 0;
+touchFallbackEffect.updateConfig({ touchAction: 'pinch-zoom' });
+const pinchFallbackTouches =
+[
+  {
+    identifier: 203,
+    clientX: 100,
+    clientY: 220,
+    target: dom.body,
+  },
+  {
+    identifier: 204,
+    clientX: 140,
+    clientY: 220,
+    target: dom.body,
+  },
+];
+const pinchFallbackMovedTouches =
+[
+  { ...pinchFallbackTouches[0], clientX: 80 },
+  { ...pinchFallbackTouches[1], clientX: 160 },
+];
+let pinchFallbackPrevented = 0;
+
+dom.windowMock.dispatch('touchstart',
+  {
+    target: dom.body,
+    cancelable: true,
+    touches: pinchFallbackTouches,
+    changedTouches: pinchFallbackTouches,
+    preventDefault()
+    {
+      pinchFallbackPrevented++;
+    },
+  });
+dom.windowMock.dispatch('touchmove',
+  {
+    target: dom.body,
+    cancelable: true,
+    touches: pinchFallbackMovedTouches,
+    changedTouches: pinchFallbackMovedTouches,
+    preventDefault()
+    {
+      pinchFallbackPrevented++;
+    },
+  });
+dom.windowMock.dispatch('touchend',
+  {
+    target: dom.body,
+    touches: [],
+    changedTouches: pinchFallbackMovedTouches,
+  });
+assert(
+  pinchFallbackPrevented === 0 &&
+    touchFallbackFilterEvents.length === 2 &&
+    touchFallbackFilterEvents[0].isPrimary === true &&
+    touchFallbackFilterEvents[1].isPrimary === false &&
+    touchFallbackEffect.activePointerId === null,
+  'Touch-only fallback 以 filter 接受数识别 pinch 并保持 isPrimary 语义',
 );
 
 touchFallbackEffect.clear();
@@ -4704,6 +4948,30 @@ assert(
     touchFallbackEffect.trailStrokes.length === 0,
   'Touch-only fallback 在 auto 下持续监听并由 touchcancel 清理轨迹',
 );
+touchFallbackEffect.pointerDown({ x: 20, y: 20, pointerId: 205 });
+dom.windowMock.dispatch('touchstart',
+  {
+    target: dom.body,
+    touches: [{ identifier: 206, clientX: 30, clientY: 30, target: dom.body }],
+    changedTouches:
+    [
+      { identifier: 206, clientX: 30, clientY: 30, target: dom.body },
+    ],
+  });
+dom.windowMock.dispatch('touchend',
+  {
+    target: dom.body,
+    touches: [],
+    changedTouches:
+    [
+      { identifier: 206, clientX: 30, clientY: 30, target: dom.body },
+    ],
+  });
+assert(
+  touchFallbackEffect.activePointerId === 205,
+  'Touch-only fallback 的兜底结束不会释放无关手动指针',
+);
+touchFallbackEffect.pointerCancel(205);
 touchFallbackEffect.destroy();
 delete dom.windowMock.ontouchstart;
 assert(

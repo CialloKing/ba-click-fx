@@ -6511,6 +6511,8 @@ export class BAClickFX
     this.trailShardCounts = new Map();
     this.activePointerId = null;
     this.activePointerSource = null;
+    // 仅由 Touch-only fallback 写入；兜底结束事件不能误释放手动指针。
+    this.fallbackTouchPointerId = null;
     this.lastPointerPosition = null;
     this.lastPointerTime = 0;
     // 输入采样率使用未缩放的 source time，不能复用拖尾虚拟时钟。
@@ -6521,6 +6523,7 @@ export class BAClickFX
     this.closedShadowPointerDecisions = new WeakMap();
     this.usesTouchInputFallback = shouldUseTouchInputFallback();
     this.touchActionListenersAttached = false;
+    this.closedShadowTouchListenersAttached = false;
     const initialTimeSource = performance.now();
 
     this.clickTimeMs = 0;
@@ -6635,7 +6638,7 @@ export class BAClickFX
         capture: true,
         passive: true,
       });
-    if (this._isHostInClosedShadowRoot())
+    if (this._isHostInClosedShadowRoot() && !this.usesTouchInputFallback)
     {
       // Window 侧看不到 closed ShadowRoot 的内部 target；先在真实作用域
       // 内记录同一个 PointerEvent 的过滤决定，窗口监听随后复用。
@@ -6644,6 +6647,35 @@ export class BAClickFX
         this._onClosedShadowPointerDown,
         { capture: true },
       );
+    }
+
+    if (this.usesTouchInputFallback &&
+      this._isHostInClosedShadowRoot() &&
+      typeof this.host?.addEventListener === 'function')
+    {
+      // Touch-only 宿主必须在 closed Shadow 内部接收原始事件；window 侧
+      // 的 composedPath 已被重定向，无法可靠判断 target 作用域。
+      this.host.addEventListener('touchstart', this._onTouchStart,
+        {
+          capture: true,
+          passive: false,
+        });
+      this.host.addEventListener('touchmove', this._onTouchMove,
+        {
+          capture: true,
+          passive: false,
+        });
+      this.host.addEventListener('touchend', this._onTouchEnd,
+        {
+          capture: true,
+          passive: true,
+        });
+      this.host.addEventListener('touchcancel', this._onTouchEnd,
+        {
+          capture: true,
+          passive: true,
+        });
+      this.closedShadowTouchListenersAttached = true;
     }
     this.touchActionListenersAttached = true;
   }
@@ -6655,6 +6687,7 @@ export class BAClickFX
       this.touchGestureStarts.clear();
       this.touchPointerFilterResults.length = 0;
       this.closedShadowPointerDecisions = new WeakMap();
+      this.closedShadowTouchListenersAttached = false;
       return;
     }
 
@@ -6662,6 +6695,14 @@ export class BAClickFX
     window.removeEventListener('touchmove', this._onTouchMove, true);
     window.removeEventListener('touchend', this._onTouchEnd, true);
     window.removeEventListener('touchcancel', this._onTouchEnd, true);
+    if (this.closedShadowTouchListenersAttached)
+    {
+      this.host?.removeEventListener?.('touchstart', this._onTouchStart, true);
+      this.host?.removeEventListener?.('touchmove', this._onTouchMove, true);
+      this.host?.removeEventListener?.('touchend', this._onTouchEnd, true);
+      this.host?.removeEventListener?.('touchcancel', this._onTouchEnd, true);
+      this.closedShadowTouchListenersAttached = false;
+    }
     this.host?.removeEventListener?.(
       'pointerdown',
       this._onClosedShadowPointerDown,
@@ -6736,7 +6777,11 @@ export class BAClickFX
       );
   }
 
-  _rememberTouchPointerFilterResult(event, accepted)
+  _rememberTouchPointerFilterResult(
+    event,
+    accepted,
+    filterAccepted = accepted,
+  )
   {
     this.touchPointerFilterResults.push(
       {
@@ -6745,6 +6790,7 @@ export class BAClickFX
         clientY: event.clientY,
         createdAt: performance.now(),
         eventTarget: event.target,
+        filterAccepted,
         target: event.target,
       },
     );
@@ -6841,6 +6887,23 @@ export class BAClickFX
     return path.includes(this.host);
   }
 
+  _isClosedShadowWindowTouchEvent(event)
+  {
+    if (!this.usesTouchInputFallback ||
+      !this._isHostInClosedShadowRoot())
+    {
+      return false;
+    }
+
+    // 真实 DOM 会提供 currentTarget；测试夹具的简化 EventTarget 不会，
+    // 此时只有 scope 失败的 window 目标才应视作重定向事件。
+    const isWindowDispatch = event.currentTarget === undefined ||
+      event.currentTarget === window;
+
+    return isWindowDispatch &&
+      !this._isTouchEventInScope(event, event.target);
+  }
+
   _isHostInClosedShadowRoot()
   {
     let node = this.host;
@@ -6886,9 +6949,19 @@ export class BAClickFX
     this._handlePointerDown(event);
   }
 
-  _createTouchPointerEvent(event, touch, type = 'pointermove')
+  _createTouchPointerEvent(
+    event,
+    touch,
+    type = 'pointermove',
+    isPrimary = null,
+  )
   {
     const target = touch.target ?? event.target;
+    const activeTouches = event.touches ?? event.changedTouches;
+    const primaryTouchIdentifier = activeTouches?.[0]?.identifier;
+    const resolvedIsPrimary = isPrimary === null
+      ? touch.identifier === primaryTouchIdentifier
+      : isPrimary === true;
     const pageX = Number.isFinite(touch.pageX)
       ? touch.pageX
       : touch.clientX + (window.pageXOffset || 0);
@@ -6902,7 +6975,7 @@ export class BAClickFX
       currentTarget: event.currentTarget ?? window,
       pointerId: touch.identifier,
       pointerType: 'touch',
-      isPrimary: true,
+      isPrimary: resolvedIsPrimary,
       button: type === 'pointermove' ? -1 : 0,
       buttons: type === 'pointerup' || type === 'pointercancel' ? 0 : 1,
       clientX: touch.clientX,
@@ -6926,7 +6999,7 @@ export class BAClickFX
     };
   }
 
-  _acceptTouchStart(event, touch)
+  _acceptTouchStart(event, touch, isPrimary = null)
   {
     const target = touch.target ?? event.target;
     const pointerFilterResult = this._consumeTouchPointerFilterResult(
@@ -6938,6 +7011,8 @@ export class BAClickFX
     {
       return {
         accepted: false,
+        filterAccepted: false,
+        isPrimary,
         pointerDecisionConsumed: false,
         pointerFilterPending: false,
         target,
@@ -6947,9 +7022,12 @@ export class BAClickFX
     if (pointerFilterResult !== undefined)
     {
       const accepted = pointerFilterResult.accepted;
+      const filterAccepted = pointerFilterResult.filterAccepted ?? accepted;
 
       return {
         accepted,
+        filterAccepted,
+        isPrimary,
         pointerDecisionConsumed: true,
         pointerFilterPending: false,
         target,
@@ -6961,11 +7039,18 @@ export class BAClickFX
       // Touch-only 宿主没有后续 PointerEvent 可回填过滤结果；使用同一组
       // 坐标和 target 构造 pointer-like 事件，保持 inputFilter 合同。
       const accepted = this.inputFilter(
-        this._createTouchPointerEvent(event, touch, 'pointerdown'),
+        this._createTouchPointerEvent(
+          event,
+          touch,
+          'pointerdown',
+          isPrimary,
+        ),
       );
 
       return {
         accepted,
+        filterAccepted: accepted,
+        isPrimary,
         pointerDecisionConsumed: true,
         pointerFilterPending: false,
         target,
@@ -6976,6 +7061,8 @@ export class BAClickFX
     {
       return {
         accepted: true,
+        filterAccepted: true,
+        isPrimary,
         pointerDecisionConsumed: false,
         pointerFilterPending: false,
         target,
@@ -6986,6 +7073,8 @@ export class BAClickFX
     // PointerEvent；由随后的真实 pointerdown 完成过滤并回填本次手势。
     return {
       accepted: false,
+      filterAccepted: false,
+      isPrimary,
       pointerDecisionConsumed: false,
       pointerFilterPending: true,
       target,
@@ -7002,13 +7091,21 @@ export class BAClickFX
       return;
     }
 
+    if (this._isClosedShadowWindowTouchEvent(event))
+    {
+      return;
+    }
+
     const touches = event.changedTouches;
     const policy = createTouchActionPolicy(this.config.touchAction);
+    const activeTouches = event.touches ?? touches;
+    const primaryTouchIdentifier = activeTouches?.[0]?.identifier;
 
     for (let index = 0; index < (touches?.length ?? 0); index++)
     {
       const touch = touches[index];
-      const acceptance = this._acceptTouchStart(event, touch);
+      const isPrimary = touch.identifier === primaryTouchIdentifier;
+      const acceptance = this._acceptTouchStart(event, touch, isPrimary);
 
       this.touchGestureStarts.set(
         touch.identifier,
@@ -7017,6 +7114,8 @@ export class BAClickFX
           clientX: touch.clientX,
           clientY: touch.clientY,
           eventTarget: event.target,
+          filterAccepted: acceptance.filterAccepted ?? acceptance.accepted,
+          isPrimary,
           policy,
           preventDefault: null,
           x: touch.clientX,
@@ -7024,10 +7123,15 @@ export class BAClickFX
         },
       );
 
-      if (this.usesTouchInputFallback && acceptance.accepted)
+      if (this.usesTouchInputFallback && acceptance.filterAccepted)
       {
         const started = this._startDomPointer(
-          this._createTouchPointerEvent(event, touch, 'pointerdown'),
+          this._createTouchPointerEvent(
+            event,
+            touch,
+            'pointerdown',
+            isPrimary,
+          ),
         );
         const state = this.touchGestureStarts.get(touch.identifier);
 
@@ -7037,6 +7141,11 @@ export class BAClickFX
         {
           state.accepted = started;
           state.pointerFilterPending = false;
+
+          if (started)
+          {
+            this.fallbackTouchPointerId = touch.identifier;
+          }
         }
       }
     }
@@ -7062,7 +7171,7 @@ export class BAClickFX
 
     for (let index = 0; index < (touches?.length ?? 0); index++)
     {
-      if (this.touchGestureStarts.get(touches[index].identifier)?.accepted)
+      if (this.touchGestureStarts.get(touches[index].identifier)?.filterAccepted)
       {
         count++;
       }
@@ -7159,6 +7268,11 @@ export class BAClickFX
       return;
     }
 
+    if (this._isClosedShadowWindowTouchEvent(event))
+    {
+      return;
+    }
+
     const touches = event.changedTouches;
     let shouldPreventDefault = false;
 
@@ -7215,7 +7329,12 @@ export class BAClickFX
 
         this._pointerMoveAtTime(
           this._getDomPointerInput(
-            this._createTouchPointerEvent(event, touch, 'pointermove'),
+            this._createTouchPointerEvent(
+              event,
+              touch,
+              'pointermove',
+              state.isPrimary,
+            ),
           ),
           sampleTime,
           sampleSourceTime,
@@ -7231,6 +7350,11 @@ export class BAClickFX
 
   _handleTouchEnd(event)
   {
+    if (this._isClosedShadowWindowTouchEvent(event))
+    {
+      return;
+    }
+
     const touches = event.changedTouches;
     const pointerType = event.type === 'touchcancel'
       ? 'pointercancel'
@@ -7247,6 +7371,7 @@ export class BAClickFX
           event,
           touch,
           pointerType,
+          state.isPrimary,
         );
 
         if (pointerType === 'pointercancel')
@@ -7257,6 +7382,11 @@ export class BAClickFX
         {
           this.pointerUp(pointerEvent.pointerId);
         }
+
+        if (this.fallbackTouchPointerId === pointerEvent.pointerId)
+        {
+          this.fallbackTouchPointerId = null;
+        }
       }
 
       this.touchGestureStarts.delete(touch.identifier);
@@ -7264,21 +7394,26 @@ export class BAClickFX
 
     if (event.touches?.length === 0)
     {
+      const fallbackPointerId = this.fallbackTouchPointerId;
+
       if (
         this.usesTouchInputFallback &&
-        this.activePointerId !== null &&
+        fallbackPointerId !== null &&
+        this.activePointerId === fallbackPointerId &&
         this.activePointerSource === 'press'
       )
       {
         if (pointerType === 'pointercancel')
         {
-          this.pointerCancel(this.activePointerId);
+          this.pointerCancel(fallbackPointerId);
         }
         else
         {
-          this.pointerUp(this.activePointerId);
+          this.pointerUp(fallbackPointerId);
         }
       }
+
+      this.fallbackTouchPointerId = null;
 
       this.touchGestureStarts.clear();
       this.touchPointerFilterResults.length = 0;
@@ -7794,6 +7929,9 @@ export class BAClickFX
     const closedShadowDecision = hasClosedShadowDecision
       ? this.closedShadowPointerDecisions.get(event)
       : undefined;
+    const isClosedShadowRetarget = usesTouchShim &&
+      this._isHostInClosedShadowRoot() &&
+      !this._isTouchEventInScope(event, event.target);
 
     if (hasClosedShadowDecision)
     {
@@ -7802,7 +7940,11 @@ export class BAClickFX
 
     if (usesTouchShim)
     {
-      const touchState = this._consumeTouchGestureState(event);
+      // Touch-first 先在 window capture 看到 closed Shadow 的重定向宿主；
+      // 保留 pending 状态，让内部 host capture 用真实 target 回填决定。
+      const touchState = isClosedShadowRetarget
+        ? null
+        : this._consumeTouchGestureState(event);
       decision.touchState = touchState;
 
       if (touchState && !touchState.pointerFilterPending)
@@ -7818,6 +7960,7 @@ export class BAClickFX
           : !this.inputFilter || this.inputFilter(event);
 
         touchState.accepted = decision.accepted;
+        touchState.filterAccepted = decision.accepted;
         touchState.pointerFilterPending = false;
         return decision;
       }
@@ -7882,12 +8025,13 @@ export class BAClickFX
       if (decision.touchState)
       {
         decision.touchState.accepted = false;
+        decision.touchState.filterAccepted = false;
         decision.touchState.pointerFilterPending = false;
       }
 
       if (decision.rememberTouchPointerFilterResult)
       {
-        this._rememberTouchPointerFilterResult(event, false);
+        this._rememberTouchPointerFilterResult(event, false, false);
       }
 
       return;
@@ -7901,12 +8045,17 @@ export class BAClickFX
     if (decision.touchState)
     {
       decision.touchState.accepted = accepted;
+      decision.touchState.filterAccepted = decision.accepted;
       decision.touchState.pointerFilterPending = false;
     }
 
     if (decision.rememberTouchPointerFilterResult)
     {
-      this._rememberTouchPointerFilterResult(event, accepted);
+      this._rememberTouchPointerFilterResult(
+        event,
+        accepted,
+        decision.accepted,
+      );
     }
   }
 
@@ -8339,6 +8488,7 @@ export class BAClickFX
 
   _releaseActivePointer(discardCurrentStroke = false)
   {
+    const releasedPointerId = this.activePointerId;
     const releasedOwnerId = this.activeTrailOwnerId;
 
     if (this.currentTrailStroke)
@@ -8368,6 +8518,11 @@ export class BAClickFX
     {
       // 无存活粒子的 Unity 实例可以随指针一起释放，避免按点击次数积累空计数。
       this.trailShardCounts.delete(releasedOwnerId);
+    }
+
+    if (this.fallbackTouchPointerId === releasedPointerId)
+    {
+      this.fallbackTouchPointerId = null;
     }
 
     this.activePointerId = null;
