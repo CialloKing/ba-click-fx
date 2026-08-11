@@ -28,6 +28,11 @@ const modeNames = [
   'native',
   'legacy',
 ];
+const themeColorContractModes = [
+  'native',
+  'software-bloom',
+  'full-webgl2',
+];
 const opacities = [0, 0.5, 1];
 const isolationModes = [false, true];
 const devicePixelRatios = [1, 2];
@@ -76,6 +81,7 @@ const metrics =
   prefabCountContracts: {},
   transparentCompositingTransitions: {},
   hostCompositingAccuracy: null,
+  themeColorContracts: {},
   transparentContractContextLifecycle: {},
   transparentContractFailureChains: {},
   iifeSmoke: null,
@@ -500,6 +506,95 @@ function validateEmptyPixels(pixels, label)
     `${label}: 生命周期结束后仍有残影`,
     pixels,
   );
+}
+
+function validateThemeColorContract(mode, result)
+{
+  const expectedRoute = mode === 'full-webgl2'
+    ? ['webgl2', 'webgl2']
+    : [
+        'canvas2d',
+        mode === 'software-bloom' ? 'software' : 'native',
+      ];
+  const variants = [
+    result.defaultHue,
+    result.defaultRelative,
+    result.dark,
+    result.bright,
+    result.black,
+  ];
+
+  assert(
+    variants.every((variant) =>
+      variant.route.resolvedEffectBackend === expectedRoute[0] &&
+      variant.route.resolvedBloomBackend === expectedRoute[1]),
+    `${mode}: 主题色门禁没有走预期渲染后端`,
+    {
+      expectedRoute,
+      routes: variants.map((variant) => variant.route),
+    },
+  );
+  assert(
+    result.defaultHue.config.themeColor === '#4ca7ff' &&
+      result.defaultHue.config.themeColorMode === 'hue-only' &&
+      result.defaultRelative.config.themeColor === '#4ca7ff' &&
+      result.defaultRelative.config.themeColorMode === 'relative-oklch' &&
+      result.dark.config.themeColor === '#001020' &&
+      result.bright.config.themeColor === '#d8efff' &&
+      result.black.config.themeColor === '#000000',
+    `${mode}: 主题色夹具没有应用请求的颜色或映射模式`,
+    variants.map((variant) => variant.config),
+  );
+  assert(
+    hasPixelOutput(result.defaultHue.pixels) &&
+      hasPixelOutput(result.defaultRelative.pixels),
+    `${mode}: 默认蓝主题夹具没有可见像素`,
+    {
+      hueOnly: result.defaultHue.pixels,
+      relativeOklch: result.defaultRelative.pixels,
+    },
+  );
+  assert(
+    result.defaultDifference.sizeMismatch === false &&
+      result.defaultDifference.changedPixels === 0 &&
+      result.defaultDifference.maximumChannelDelta === 0,
+    `${mode}: 默认蓝在 hue-only 与 relative-oklch 之间不再像素恒等`,
+    result.defaultDifference,
+  );
+  assert(
+    hasPixelOutput(result.dark.pixels) &&
+      hasPixelOutput(result.bright.pixels) &&
+      result.dark.premultipliedEnergy < result.bright.premultipliedEnergy,
+    `${mode}: 相对 OKLCH 暗色没有比亮色产生更低的最终能量`,
+    {
+      bright: result.bright,
+      dark: result.dark,
+    },
+  );
+  assert(
+    result.black.runtime.waveCount > 0 &&
+      result.black.runtime.shardCount > 0 &&
+      result.black.runtime.trailPointCount >= 2,
+    `${mode}: 纯黑门禁没有保留活动特效几何，无法排除空场景假通过`,
+    result.black.runtime,
+  );
+  validateEmptyPixels(result.black.pixels, `${mode}: 纯黑主题`);
+}
+
+async function runThemeColorContracts(page)
+{
+  for (const mode of themeColorContractModes)
+  {
+    currentLabel = `${mode}__theme-color-contract`;
+    const result = await page.evaluate(
+      (requestedMode) =>
+        window.browserPixelSuite.runThemeColorContract(requestedMode),
+      mode,
+    );
+
+    validateThemeColorContract(mode, result);
+    metrics.themeColorContracts[mode] = result;
+  }
 }
 
 function validateEffectLifecycle(mode, timelines)
@@ -5420,6 +5515,13 @@ async function runMatrix(browserInstance, baseUrl, baseline)
 
     currentPage = page;
     metrics.environment[`dpr${dpr}`] = session.capabilities;
+
+    if (dpr === 1)
+    {
+      // 主题色映射与 DPR 无关；只跑一次便可在不扩大整体
+      // 像素矩阵的前提下锁定三条实际后端管线。
+      await runThemeColorContracts(page);
+    }
 
     for (const mode of modeNames)
     {

@@ -868,6 +868,19 @@ async function prepareEffect(specification)
     }
   }
 
+  // 主题色像素门禁同时复用该夹具。只传入显式字段，使其他
+  // 回归用例仍然验证公共库自身的默认主题合同。
+  for (const key of ['themeColor', 'themeColorMode'])
+  {
+    if (
+      Object.hasOwn(specification, key) &&
+      specification[key] !== undefined
+    )
+    {
+      effectOptions[key] = specification[key];
+    }
+  }
+
   const effect = new BAClickFX(effectOptions);
 
   if (specification.includeTrailShards === false)
@@ -1078,6 +1091,187 @@ async function runCase(specification)
       ? captureWebGLTransport(fixture.effect, CLICK_X, CLICK_Y)
       : null,
   };
+}
+
+function compareRgbaImages(reference, current)
+{
+  if (
+    reference.width !== current.width ||
+    reference.height !== current.height ||
+    reference.data.length !== current.data.length
+  )
+  {
+    return {
+      changedPixels: null,
+      maximumChannelDelta: null,
+      sizeMismatch: true,
+    };
+  }
+
+  let changedPixels = 0;
+  let maximumChannelDelta = 0;
+
+  for (let offset = 0; offset < reference.data.length; offset += 4)
+  {
+    let pixelChanged = false;
+
+    for (let channel = 0; channel < 4; channel++)
+    {
+      const delta = Math.abs(
+        reference.data[offset + channel] - current.data[offset + channel],
+      );
+
+      maximumChannelDelta = Math.max(maximumChannelDelta, delta);
+      pixelChanged ||= delta > 0;
+    }
+
+    changedPixels += pixelChanged ? 1 : 0;
+  }
+
+  return {
+    changedPixels,
+    maximumChannelDelta,
+    sizeMismatch: false,
+  };
+}
+
+function measurePremultipliedEnergy(image)
+{
+  let energy = 0;
+
+  for (let offset = 0; offset < image.data.length; offset += 4)
+  {
+    energy += Math.max(
+      image.data[offset],
+      image.data[offset + 1],
+      image.data[offset + 2],
+    ) / 255 * (image.data[offset + 3] / 255);
+  }
+
+  return energy / Math.max(1, image.width * image.height);
+}
+
+/**
+ * 在同一确定性时钟与随机种子下重建各主题变体。
+ * 这里比较最终合成像素，而不只是颜色数学函数，因此能捕获
+ * Canvas Coverage、Software Bloom 或 GPU 顶点接线遗漏。
+ */
+async function runThemeColorContract(mode)
+{
+  const common =
+  {
+    mode,
+    opacity: 1,
+    isolatedCompositing: true,
+    outputCompositing: 'browser-overlay',
+    background: 'transparent',
+    shadow: false,
+    containStrict: false,
+    sampleTimeMs: SAMPLE_TIME_MS,
+  };
+  const captureVariant = async (themeColor, themeColorMode) =>
+  {
+    const fixture = await prepareEffect(
+      {
+        ...common,
+        themeColor,
+        themeColorMode,
+      },
+    );
+    const image = captureLayers(
+      fixture.effect,
+      fixture.target,
+      'transparent',
+    );
+    const config = fixture.effect.getConfig();
+
+    return {
+      config:
+      {
+        themeColor: config.themeColor,
+        themeColorMode: config.themeColorMode,
+      },
+      image,
+      pixels: summarizePixels(image, fixture.effect.dpr),
+      premultipliedEnergy: measurePremultipliedEnergy(image),
+      route:
+      {
+        requestedEffectBackend: config.effectBackend,
+        resolvedEffectBackend: config.resolvedEffectBackend,
+        requestedBloomBackend: config.bloomBackend,
+        resolvedBloomBackend: config.resolvedBloomBackend,
+      },
+      runtime:
+      {
+        shardCount: fixture.effect.shards.length,
+        trailPointCount: fixture.effect.trailStrokes.reduce(
+          (count, stroke) => count + stroke.points.length,
+          0,
+        ),
+        waveCount: fixture.effect.waves.length,
+      },
+    };
+  };
+
+  try
+  {
+    const defaultHue = await captureVariant('#4ca7ff', 'hue-only');
+    const defaultRelative = await captureVariant(
+      '#4ca7ff',
+      'relative-oklch',
+    );
+    const dark = await captureVariant('#001020', 'relative-oklch');
+    const bright = await captureVariant('#d8efff', 'relative-oklch');
+    const black = await captureVariant('#000000', 'relative-oklch');
+
+    return {
+      black:
+      {
+        config: black.config,
+        pixels: black.pixels,
+        premultipliedEnergy: black.premultipliedEnergy,
+        route: black.route,
+        runtime: black.runtime,
+      },
+      bright:
+      {
+        config: bright.config,
+        pixels: bright.pixels,
+        premultipliedEnergy: bright.premultipliedEnergy,
+        route: bright.route,
+      },
+      dark:
+      {
+        config: dark.config,
+        pixels: dark.pixels,
+        premultipliedEnergy: dark.premultipliedEnergy,
+        route: dark.route,
+      },
+      defaultDifference: compareRgbaImages(
+        defaultHue.image,
+        defaultRelative.image,
+      ),
+      defaultHue:
+      {
+        config: defaultHue.config,
+        pixels: defaultHue.pixels,
+        premultipliedEnergy: defaultHue.premultipliedEnergy,
+        route: defaultHue.route,
+      },
+      defaultRelative:
+      {
+        config: defaultRelative.config,
+        pixels: defaultRelative.pixels,
+        premultipliedEnergy: defaultRelative.premultipliedEnergy,
+        route: defaultRelative.route,
+      },
+      mode,
+    };
+  }
+  finally
+  {
+    disposeActiveFixture();
+  }
 }
 
 async function runCompositingReferenceReset()
@@ -2611,6 +2805,7 @@ window.browserPixelSuite = Object.freeze(
     runCase,
     runCompositingReferenceReset,
     runContextLifecycle,
+    runThemeColorContract,
     runCompositingReferenceContextLifecycle,
     runBackendFailureChain,
     runBackendReentrantNative,
