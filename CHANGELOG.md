@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.2.28 — 补强移动端 closed Shadow 触摸仲裁
+
+- 修复 PointerEvent 可用的移动浏览器在 closed Shadow 内触摸时，window 重定向的 `touchstart` 未及时阻止默认手势、随后触发 `pointercancel` 导致拖尾中断的问题；现在统一由真实 Shadow host 作用域完成 Touch 生命周期与手势仲裁。
+- 增加真实 Edge 移动触摸回归，覆盖 PointerEvent/TouchEvent 两种事件顺序、closed Shadow 重定向、多指与 Touch-only fallback。
+
 ## v1.2.27 — Touch-only 移动端拖尾输入修复
 
 - 支持仅提供 TouchEvent、`ontouchstart` 或触摸点能力而不提供 PointerEvent 的旧版移动浏览器/WebView；Touch 生命周期现在转换为统一的指针输入，拖尾可正常建立、采样、结束和取消。
