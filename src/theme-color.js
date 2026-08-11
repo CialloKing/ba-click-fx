@@ -202,13 +202,20 @@ export function createRelativeOklchTheme(themeColor = DEFAULT_THEME_COLOR)
 
 function mapRelativeLightness(sourceLightness, targetLightness)
 {
-  if (targetLightness <= BASE_OKLCH[0])
+  if (
+    targetLightness <= BASE_OKLCH[0] ||
+    sourceLightness <= BASE_OKLCH[0]
+  )
   {
     return sourceLightness * targetLightness / BASE_OKLCH[0];
   }
 
-  const progress = (targetLightness - BASE_OKLCH[0]) / (1 - BASE_OKLCH[0]);
-  return sourceLightness + (1 - sourceLightness) * progress;
+  // 亮主题分别锚定基准色和白色，避免高光被简单乘法推到 1 后夹平；
+  // 低于基准的颜色仍从黑点线性映射，不能无中生有抬起近黑能量。
+  return targetLightness +
+    (sourceLightness - BASE_OKLCH[0]) *
+      (1 - targetLightness) /
+      (1 - BASE_OKLCH[0]);
 }
 
 /**

@@ -53,6 +53,7 @@ const {
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
   DEFAULT_THEME_COLOR,
+  DEFAULT_THEME_COLOR_MODE,
   EFFECT_BACKEND_CHANGE_EVENT,
   FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
@@ -1449,8 +1450,10 @@ assert(
 );
 assert(
   DEFAULT_THEME_COLOR === '#4ca7ff' &&
-    CONFIG.themeColor === DEFAULT_THEME_COLOR,
-  '正式入口导出默认游戏蓝并纳入基础配置',
+    CONFIG.themeColor === DEFAULT_THEME_COLOR &&
+    DEFAULT_THEME_COLOR_MODE === 'hue-only' &&
+    CONFIG.themeColorMode === DEFAULT_THEME_COLOR_MODE,
+  '正式入口导出默认游戏蓝与兼容主题映射并纳入基础配置',
 );
 assert(
   BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange',
@@ -1573,7 +1576,12 @@ const invalidHostControlConfig = createConfig(
     trailTimeScale: 0,
   },
 );
-const themedConfig = createConfig({ themeColor: '#FF6969' });
+const themedConfig = createConfig(
+  {
+    themeColor: '#FF6969',
+    themeColorMode: 'relative-oklch',
+  },
+);
 
 assert(
   nativeAliasConfig.bloomBackend === 'native' &&
@@ -1625,8 +1633,11 @@ assert(
 );
 assert(
   themedConfig.themeColor === '#ff6969' &&
-    createConfig({ themeColor: 'red' }).themeColor === DEFAULT_THEME_COLOR,
-  'createConfig 规范化主题色并让非法值恢复游戏蓝',
+    themedConfig.themeColorMode === 'relative-oklch' &&
+    createConfig({ themeColor: 'red' }).themeColor === DEFAULT_THEME_COLOR &&
+    createConfig({ themeColorMode: 'invalid' }).themeColorMode ===
+      DEFAULT_THEME_COLOR_MODE,
+  'createConfig 规范化主题颜色与映射模式并恢复非法值',
 );
 
 console.log('\n指针生命周期');
@@ -1640,8 +1651,25 @@ const paramApiEffect = new BAClickFX(
   },
 );
 assert(
-  paramApiEffect.getConfig().themeColor === '#ff6969',
-  '构造参数主题色进入可读取的实例配置快照',
+  paramApiEffect.getConfig().themeColor === '#ff6969' &&
+    paramApiEffect.getConfig().themeColorMode === DEFAULT_THEME_COLOR_MODE,
+  '构造参数主题色与兼容映射模式进入可读取的实例配置快照',
+);
+const relativeThemeModeAccepted = paramApiEffect.setThemeColorMode(
+  'relative-oklch',
+);
+const repeatedThemeModeAccepted = paramApiEffect.setThemeColorMode(
+  'relative-oklch',
+);
+const invalidThemeModeRejected = paramApiEffect.setThemeColorMode('oklch');
+paramApiEffect.updateConfig({ themeColorMode: 'hue-only' });
+paramApiEffect.updateConfig({ themeColorMode: 'invalid' });
+assert(
+  relativeThemeModeAccepted === true &&
+    repeatedThemeModeAccepted === true &&
+    invalidThemeModeRejected === false &&
+    paramApiEffect.getConfig().themeColorMode === 'hue-only',
+  '主题映射 setter 接受公开模式、拒绝非法值并与 updateConfig 共用状态',
 );
 const singleParamAccepted = paramApiEffect.setFxParam(
   'rings.rotationDirection',

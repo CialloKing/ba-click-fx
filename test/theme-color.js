@@ -129,6 +129,14 @@ checkEqual(
   [255, 255, 255],
   '白色主题将白色核心锚定在白色',
 );
+const brightNearBlack = applyRelativeOklchTheme(
+  [1, 1, 1],
+  createRelativeOklchTheme('#ffffff'),
+);
+check(
+  Math.max(...brightNearBlack) < 10,
+  '亮主题保持近黑能量靠近黑点而不会整体抬灰',
+);
 
 console.log('\n零能量与色域安全');
 const blackTheme = createRelativeOklchTheme('#000000');

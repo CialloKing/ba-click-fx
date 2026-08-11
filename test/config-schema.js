@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   CONFIG,
   DEFAULT_THEME_COLOR,
+  DEFAULT_THEME_COLOR_MODE,
   FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
@@ -20,6 +21,7 @@ import {
   isOverlayAlphaPolicy,
   isOverlayColorCompensation,
   isOverlayAlphaLimit,
+  isThemeColorMode,
   normalizeHostCompositing,
   normalizeHostCompositingSurface,
   normalizeInputSamplingRate,
@@ -27,6 +29,7 @@ import {
   normalizeOverlayAlphaPolicyConfig,
   normalizeOverlayColorCompensationConfig,
   normalizeThemeColor,
+  normalizeThemeColorMode,
   normalizeWebGPUHdrPresentation,
   resolveHostCompositing,
 } from '../src/config.js';
@@ -221,6 +224,23 @@ check(
   createConfig({ themeColor: '#FF6969' }).themeColor === '#ff6969' &&
     createConfig({ themeColor: 'red' }).themeColor === DEFAULT_THEME_COLOR,
   '构造配置保存合法主题色并拒绝非十六进制颜色',
+);
+check(
+  DEFAULT_THEME_COLOR_MODE === 'hue-only' &&
+    CONFIG.themeColorMode === DEFAULT_THEME_COLOR_MODE &&
+    isThemeColorMode('hue-only') &&
+    isThemeColorMode('relative-oklch') &&
+    !isThemeColorMode('oklch'),
+  '主题颜色映射默认兼容旧色相模式并只接受两个公开枚举',
+);
+check(
+  normalizeThemeColorMode('relative-oklch') === 'relative-oklch' &&
+    normalizeThemeColorMode('invalid') === DEFAULT_THEME_COLOR_MODE &&
+    createConfig({ themeColorMode: 'relative-oklch' }).themeColorMode ===
+      'relative-oklch' &&
+    createConfig({ themeColorMode: 'invalid' }).themeColorMode ===
+      DEFAULT_THEME_COLOR_MODE,
+  '主题颜色映射可规范化并让非法值恢复兼容默认',
 );
 
 console.log('\n输入采样率配置合同');

@@ -53,6 +53,8 @@ export const MIN_TIME_SCALE = 0.01;
 
 // 主题色属于宿主配置状态；固定导出游戏蓝可避免各适配层重复写常量。
 export const DEFAULT_THEME_COLOR = '#4ca7ff';
+export const DEFAULT_THEME_COLOR_MODE = 'hue-only';
+const THEME_COLOR_MODES = new Set(['hue-only', 'relative-oklch']);
 
 // FX_Touch 使用独立的 UI 正交投影（高度 2 世界单位），不跟随场景相机。
 export const SIZE_CORRECTION = 1;
@@ -1004,6 +1006,8 @@ export const CONFIG = Object.freeze(
     scale: 1,
     opacity: 1,
     themeColor: DEFAULT_THEME_COLOR,
+    // 1.x 默认保留既有色相合同；相对 OKLCH 由宿主显式启用。
+    themeColorMode: DEFAULT_THEME_COLOR_MODE,
     clickEnabled: true,
     trailEnabled: true,
     trailAlways: false,
@@ -1240,6 +1244,19 @@ export function normalizeThemeColor(value, fallback = DEFAULT_THEME_COLOR)
   return value.toLowerCase();
 }
 
+export function isThemeColorMode(value)
+{
+  return THEME_COLOR_MODES.has(value);
+}
+
+export function normalizeThemeColorMode(
+  value,
+  fallback = DEFAULT_THEME_COLOR_MODE,
+)
+{
+  return isThemeColorMode(value) ? value : fallback;
+}
+
 function normalizeFiniteRange(value, fallback, minimum, maximum)
 {
   const safeFallback = Number.isFinite(fallback)
@@ -1391,6 +1408,10 @@ export function createConfig(overrides = {})
     overrides.themeColor,
     CONFIG.themeColor,
   );
+  const themeColorMode = normalizeThemeColorMode(
+    overrides.themeColorMode,
+    CONFIG.themeColorMode,
+  );
   const webgpuHdrPresentation = normalizeWebGPUHdrPresentation(
     overrides,
     CONFIG,
@@ -1412,6 +1433,7 @@ export function createConfig(overrides = {})
     hostCompositing,
     hostCompositingSurface,
     themeColor,
+    themeColorMode,
     ...webgpuHdrPresentation,
     bloomBackend,
     softwareBloomEnabled: bloomBackend === 'software',

@@ -8,6 +8,7 @@
 import {
   CONFIG,
   DEFAULT_THEME_COLOR,
+  DEFAULT_THEME_COLOR_MODE,
   FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
@@ -24,6 +25,7 @@ import {
   isOverlayColorCompensation,
   isOutputCompositing,
   isTimeScale,
+  isThemeColorMode,
   normalizeBloomBackend,
   normalizeEffectBackend,
   normalizeHostCompositing,
@@ -33,11 +35,16 @@ import {
   normalizeOverlayAlphaPolicyConfig,
   normalizeOverlayColorCompensationConfig,
   normalizeThemeColor,
+  normalizeThemeColorMode,
   normalizeTimeScale,
   normalizeWebGPUHdrPresentation,
   resolveHostCompositing,
   SIZE_CORRECTION,
 } from './config.js';
+import {
+  applyRelativeOklchTheme,
+  createRelativeOklchTheme,
+} from './theme-color.js';
 import { applyFxParamPatch as prepareFxParamPatch } from './fx-param-patch.js';
 import { gammaToLinear } from './bloom-color-space.js';
 import {
@@ -170,6 +177,7 @@ function hslToRgb(h, s, l)
 // 模块级缓存，_renderFrame 前推入实例值，渲染后清空，保证多实例安全。
 
 let themeHueShift = 0;
+let relativeOklchTheme = null;
 const BASE_BLUE = [76, 167, 255];
 const BASE_BLUE_HUE = rgbToHsl(BASE_BLUE[0] / 255, BASE_BLUE[1] / 255, BASE_BLUE[2] / 255)[0];
 
@@ -216,6 +224,16 @@ function applyThemeHue(rgb)
   newHue = newHue - Math.floor(newHue);
   const [nr, ng, nb] = hslToRgb(newHue, s, l);
   return [Math.round(nr * 255), Math.round(ng * 255), Math.round(nb * 255)];
+}
+
+function applyThemeColor(rgb)
+{
+  if (relativeOklchTheme)
+  {
+    return applyRelativeOklchTheme(rgb, relativeOklchTheme);
+  }
+
+  return applyThemeHue(rgb);
 }
 
 function clamp(value, min, max)
@@ -528,8 +546,8 @@ function evaluateColor(keys, progress, output = [0, 0, 0])
 
 function colorToCss(color, alpha = 1)
 {
-  // 在 clamp 之前应用主题色 hue 偏移，保留 HDR 亮度信息
-  const themed = applyThemeHue(color);
+  // 在 clamp 之前统一应用主题映射，默认模式仍精确保留旧 hue 偏移。
+  const themed = applyThemeColor(color);
   const red = Math.round(clamp(themed[0], 0, 255));
   const green = Math.round(clamp(themed[1], 0, 255));
   const blue = Math.round(clamp(themed[2], 0, 255));
@@ -561,8 +579,25 @@ function srgbToLinearChannel(channel)
 
 function colorToLinearEnergy(color, intensity = 1, decodeSrgb = false)
 {
-  const themed = applyThemeHue(color);
   const safeIntensity = Math.max(0, intensity);
+
+  if (relativeOklchTheme && !relativeOklchTheme.identity)
+  {
+    // TrailRenderer Gradient 已处于项目的线性活动色彩空间。OKLCH 只接受
+    // 普通 sRGB，因此先编码主题输入，映射后再统一解码回线性能量。
+    const themeInput = decodeSrgb
+      ? color
+      : color.map((channel) =>
+        linearToSrgb(clamp01(channel / 255)) * 255);
+    const themed = applyRelativeOklchTheme(themeInput, relativeOklchTheme);
+
+    return themed.map((channel) =>
+      srgbToLinearChannel(channel) * safeIntensity);
+  }
+
+  const themed = relativeOklchTheme?.identity
+    ? color
+    : applyThemeHue(color);
 
   return themed.map((channel) =>
   {
@@ -584,7 +619,7 @@ function evaluateSrgbGradientEnergy(
   const linearKeys = keys.map(([time, color]) =>
   [
     time,
-    applyThemeHue(color).map(srgbToLinearChannel),
+    applyThemeColor(color).map(srgbToLinearChannel),
   ]);
   const safeIntensity = Math.max(0, intensity);
   const linearStartColor = startColor
@@ -6068,6 +6103,7 @@ export class BAClickFX
    * @param {number} [options.scale]
    * @param {number} [options.opacity]
    * @param {string} [options.themeColor]
+   * @param {'hue-only'|'relative-oklch'} [options.themeColorMode]
    * @param {boolean} [options.clickEnabled]
    * @param {boolean} [options.trailEnabled]
    * @param {boolean} [options.trailAlways]
@@ -6126,6 +6162,10 @@ export class BAClickFX
         scale: Number.isFinite(options.scale) ? Math.max(0.01, options.scale) : CONFIG.scale,
         opacity: Number.isFinite(options.opacity) ? clamp01(options.opacity) : CONFIG.opacity,
         themeColor: normalizeThemeColor(options.themeColor, CONFIG.themeColor),
+        themeColorMode: normalizeThemeColorMode(
+          options.themeColorMode,
+          CONFIG.themeColorMode,
+        ),
         clickEnabled: options.clickEnabled ?? CONFIG.clickEnabled,
         trailEnabled: options.trailEnabled ?? CONFIG.trailEnabled,
         trailAlways: options.trailAlways ?? CONFIG.trailAlways,
@@ -6326,6 +6366,9 @@ export class BAClickFX
     this.dpr = 1;
     this.fxConfig = structuredClone(UNITY_FX_TOUCH);
     this._themeHueShift = computeThemeHueShift(this.config.themeColor);
+    this._relativeOklchTheme = this.config.themeColorMode === 'relative-oklch'
+      ? createRelativeOklchTheme(this.config.themeColor)
+      : null;
     if (this.config.renderingMode === 'legacy')
     {
       this._applyLegacyParams();
@@ -6900,6 +6943,15 @@ export class BAClickFX
     return this.config.scale *
       (this.height / UNITY_FX_TOUCH.referenceHeight) *
       SIZE_CORRECTION;
+  }
+
+  _getEffectiveOpacity()
+  {
+    // 发光主题的纯黑表示零能量；Coverage 也必须归零，避免 source-over
+    // 在透明宿主上留下各后端含义不一致的黑色遮罩。
+    return this._relativeOklchTheme?.invisible
+      ? 0
+      : this.config.opacity;
   }
 
   _acceptPointerDown(event)
@@ -7529,9 +7581,11 @@ export class BAClickFX
     this._setWebGLBloomVisible(!useGpuClickEffects && useWebGL2Bloom);
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
-    // 推入当前实例的主题色偏移，渲染完成后清空，保证多实例安全
+    // 推入当前实例的主题变换，渲染完成后恢复，保证多实例安全。
     const prevHueShift = themeHueShift;
+    const previousRelativeOklchTheme = relativeOklchTheme;
     themeHueShift = this._themeHueShift;
+    relativeOklchTheme = this._relativeOklchTheme;
     this.context.save();
     // 透明 Canvas 无法独立保存 Additive RGB 与 Coverage Alpha；在 residual
     // Coverage Final Pass 完成前保留兼容 source-over，避免多个粒子把 Alpha 相加。
@@ -7706,6 +7760,7 @@ export class BAClickFX
       this.renderingFrame = false;
       this.context.restore();
       themeHueShift = prevHueShift;
+      relativeOklchTheme = previousRelativeOklchTheme;
     }
 
     // 合成合同可能在本帧内因后端成功/失败而改变；此时像素已经完成，
@@ -9054,7 +9109,7 @@ export class BAClickFX
             context,
             stroke.points,
             scale,
-            this.config.opacity,
+            this._getEffectiveOpacity(),
             this.fxConfig,
             false,
             false,
@@ -9069,7 +9124,7 @@ export class BAClickFX
         wave.drawBase(
           context,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
           false,
           this.config.outputCompositing,
           this.dpr,
@@ -9078,7 +9133,12 @@ export class BAClickFX
 
       for (const shard of this.shards)
       {
-        shard.draw(context, scale, this.config.opacity, this.fxConfig);
+        shard.draw(
+          context,
+          scale,
+          this._getEffectiveOpacity(),
+          this.fxConfig,
+        );
       }
 
       for (const wave of this.waves)
@@ -9086,7 +9146,7 @@ export class BAClickFX
         wave.drawRings(
           context,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
           false,
           false,
           null,
@@ -9213,7 +9273,7 @@ export class BAClickFX
         this.fxConfig.trail,
         bloomCfg.trailEmission,
       );
-      const trailOpacity = this.config.opacity *
+      const trailOpacity = this._getEffectiveOpacity() *
         (this.fxConfig.trail.trailOpacity ?? 1) *
         bloomCfg.trailEmissionAlpha;
       const emissionQuantizationScale = trailOpacity /
@@ -9710,7 +9770,7 @@ export class BAClickFX
         applyOverlayColorCompensationToImageData(
           imageData,
           overlayColorCompensation,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
         );
       }
       this.context.putImageData(
@@ -9790,12 +9850,14 @@ export class BAClickFX
       scale,
       this.clickTimeMs,
       this.trailTimeMs,
-      this.config.opacity,
+      this._getEffectiveOpacity(),
       this.config.outputCompositing,
       this._getOverlayColorCompensation(),
       this.config.overlayAlphaLimit,
       this._getEffectiveHostCompositing(),
       this.compositingReferenceSource === null ? 'unknown' : 'known',
+      this.config.themeColorMode,
+      this.config.themeColor,
       this._themeHueShift,
       bloomCfg.threshold,
       bloomCfg.softKnee,
@@ -9942,7 +10004,7 @@ export class BAClickFX
       clamp: bloomCfg.clamp,
       intensity: bloomCfg.intensity,
       diffusion,
-      opacity: this.config.opacity,
+      opacity: this._getEffectiveOpacity(),
       outputCompositing: this.config.outputCompositing,
       // Canvas 在清晰层与 Bloom 聚合后统一补偿，避免各层重复混色。
       overlayColorCompensation: 'none',
@@ -9998,7 +10060,7 @@ export class BAClickFX
             bloomContext,
             stroke.points,
             scale,
-            this.config.opacity,
+            this._getEffectiveOpacity(),
             this.fxConfig,
             stroke.trailFrameData,
             batch.firstSegment,
@@ -10009,7 +10071,7 @@ export class BAClickFX
 
       for (const wave of region.waves)
       {
-        wave.drawBloom(bloomContext, scale, this.config.opacity);
+        wave.drawBloom(bloomContext, scale, this._getEffectiveOpacity());
       }
 
       for (const shard of region.shards)
@@ -10017,7 +10079,7 @@ export class BAClickFX
         shard.drawBloom(
           bloomContext,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
           this.fxConfig,
         );
       }
@@ -10038,7 +10100,7 @@ export class BAClickFX
               coverageContext,
               stroke.points,
               scale,
-              this.config.opacity,
+              this._getEffectiveOpacity(),
               this.fxConfig,
               stroke.trailFrameData,
               batch.firstSegment,
@@ -10052,7 +10114,7 @@ export class BAClickFX
           wave.drawBloomCoverage(
             coverageContext,
             scale,
-            this.config.opacity,
+            this._getEffectiveOpacity(),
           );
         }
 
@@ -10061,7 +10123,7 @@ export class BAClickFX
           shard.drawBloomCoverage(
             coverageContext,
             scale,
-            this.config.opacity,
+            this._getEffectiveOpacity(),
             this.fxConfig,
           );
         }
@@ -10191,7 +10253,7 @@ export class BAClickFX
           renderer,
           stroke.points,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
           this.fxConfig,
           stroke.trailFrameData,
         );
@@ -10203,7 +10265,7 @@ export class BAClickFX
         wave.appendWebGLSceneDiskLayer(
           renderer,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
         );
       }
 
@@ -10212,7 +10274,7 @@ export class BAClickFX
         shard.appendWebGLScene(
           renderer,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
           this.fxConfig,
         );
       }
@@ -10223,7 +10285,7 @@ export class BAClickFX
         wave.appendWebGLSceneAdditiveLayer(
           renderer,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
         );
       }
 
@@ -10256,7 +10318,7 @@ export class BAClickFX
           clamp: bloomCfg.clamp,
           intensity: bloomCfg.intensity,
           diffusion: bloomCfg.diffusion,
-          opacity: this.config.opacity,
+          opacity: this._getEffectiveOpacity(),
           outputCompositing: this.config.outputCompositing,
           overlayColorCompensation:
             this._getOverlayColorCompensation(),
@@ -10348,14 +10410,14 @@ export class BAClickFX
         wave.drawDiskLayer(
           this.context,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
           false,
           this.dpr,
         );
         wave.appendCanvasSceneCoverage(
           renderer,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
         );
       }
 
@@ -10367,7 +10429,7 @@ export class BAClickFX
           wave.drawDiskGlow(
             this.context,
             scale,
-            this.config.opacity,
+            this._getEffectiveOpacity(),
             this.dpr,
           );
         }
@@ -10378,7 +10440,7 @@ export class BAClickFX
         shard.draw(
           this.context,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
           this.fxConfig,
         );
       }
@@ -10388,7 +10450,7 @@ export class BAClickFX
         wave.drawAdditiveBase(
           this.context,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
           true,
         );
       }
@@ -10464,6 +10526,7 @@ export class BAClickFX
   {
     const scale = this._getScale();
     const previousHueShift = themeHueShift;
+    const previousRelativeOklchTheme = relativeOklchTheme;
     let resolvedBloomBackend = bloomBackend;
 
     this._setResolvedBloomBackend(resolvedBloomBackend);
@@ -10475,6 +10538,7 @@ export class BAClickFX
     }
 
     themeHueShift = this._themeHueShift;
+    relativeOklchTheme = this._relativeOklchTheme;
     this.context.save();
 
     try
@@ -10532,6 +10596,7 @@ export class BAClickFX
     {
       this.context.restore();
       themeHueShift = previousHueShift;
+      relativeOklchTheme = previousRelativeOklchTheme;
     }
 
     this._finalizeCanvasOverlayAlpha(scale);
@@ -10552,7 +10617,7 @@ export class BAClickFX
       wave.drawBase(
         this.context,
         scale,
-        this.config.opacity,
+        this._getEffectiveOpacity(),
         useNativeBloom,
         outputCompositing,
         this.dpr,
@@ -10566,7 +10631,7 @@ export class BAClickFX
       shard.draw(
         this.context,
         scale,
-        this.config.opacity,
+        this._getEffectiveOpacity(),
         this.fxConfig,
         outputCompositing,
         overlayColorCompensation,
@@ -10633,7 +10698,7 @@ export class BAClickFX
         this.context,
         stroke.points,
         scale,
-        this.config.opacity,
+        this._getEffectiveOpacity(),
         this.fxConfig,
         useNativeBloom,
         legacy,
@@ -10783,7 +10848,7 @@ export class BAClickFX
         wave.drawBase(
           this.context,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
           useNativeBloom,
           outputCompositing,
           this.dpr,
@@ -10816,7 +10881,7 @@ export class BAClickFX
       wave.drawRings(
         this.context,
         scale,
-        this.config.opacity,
+        this._getEffectiveOpacity(),
         useNativeBloom,
         legacy,
         legacyRingRasterizer,
@@ -10858,7 +10923,7 @@ export class BAClickFX
         shard.draw(
           this.context,
           scale,
-          this.config.opacity,
+          this._getEffectiveOpacity(),
           this.fxConfig,
           outputCompositing,
           'none',
@@ -10962,7 +11027,7 @@ export class BAClickFX
   }
 
   /**
-   * 设置主题色；所有蓝色系特效的 hue 将以此为基准偏移。
+   * 设置主题色；具体映射由 themeColorMode 决定。
    * 传入空字符串或无效值可恢复默认蓝色。
    * @param {string} hex — CSS 十六进制颜色，如 "#ff6969"
    */
@@ -10983,6 +11048,25 @@ export class BAClickFX
 
     this.config.themeColor = themeColor;
     this._themeHueShift = computeThemeHueShift(themeColor);
+    this._relativeOklchTheme = this.config.themeColorMode === 'relative-oklch'
+      ? createRelativeOklchTheme(themeColor)
+      : null;
+  }
+
+  /** 切换主题颜色映射；合法值即视为已接受，包括与当前模式相同。 */
+  setThemeColorMode(mode)
+  {
+    if (this.destroyed || !isThemeColorMode(mode))
+    {
+      return false;
+    }
+
+    this.config.themeColorMode = mode;
+    this._relativeOklchTheme = mode === 'relative-oklch'
+      ? createRelativeOklchTheme(this.config.themeColor)
+      : null;
+    this._requestRender();
+    return true;
   }
 
   /** 设置移动输入采样率上限；0 表示保留全部输入样本。 */
@@ -11072,9 +11156,24 @@ export class BAClickFX
       this.config.opacity = clamp01(overrides.opacity);
     }
 
-    if (overrides.themeColor !== undefined)
+    if (isThemeColorMode(overrides.themeColorMode))
     {
-      this._applyThemeColor(overrides.themeColor);
+      this.config.themeColorMode = normalizeThemeColorMode(
+        overrides.themeColorMode,
+        DEFAULT_THEME_COLOR_MODE,
+      );
+    }
+
+    if (
+      overrides.themeColor !== undefined ||
+      isThemeColorMode(overrides.themeColorMode)
+    )
+    {
+      this._applyThemeColor(
+        overrides.themeColor === undefined
+          ? this.config.themeColor
+          : overrides.themeColor,
+      );
     }
 
     if (isOutputCompositing(overrides.outputCompositing))
@@ -11816,6 +11915,7 @@ export {
   BLOOM_BACKEND_CHANGE_EVENT,
   CONFIG,
   DEFAULT_THEME_COLOR,
+  DEFAULT_THEME_COLOR_MODE,
   EFFECT_BACKEND_CHANGE_EVENT,
   FX_PARAM_MIGRATIONS,
   FX_PARAM_SCHEMA,
