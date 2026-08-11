@@ -7096,17 +7096,6 @@ export class BAClickFX
       return false;
     }
 
-    const latestTrailPoint = this.currentTrailStroke?.points.at(-1);
-
-    if (
-      !latestTrailPoint ||
-      now - latestTrailPoint.bornAt >= this.fxConfig.trail.lifetimeMs
-    )
-    {
-      // 已不可见的轨迹恢复移动时必须立即建立新锚点，不能等待旧采样周期。
-      this.lastInputSampleSourceTime = null;
-    }
-
     if (!this._acceptInputSample(inputSourceTime))
     {
       // 返回值表示逻辑指针已接受；限频样本与空间阈值 no-op 一样仍返回 true。

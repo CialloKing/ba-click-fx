@@ -1080,7 +1080,7 @@ export function isInputSamplingRate(value)
   return value === 0 || (
     Number.isFinite(value) &&
     value >= 1 &&
-    value <= 240
+    value <= 1000
   );
 }
 

@@ -3975,14 +3975,46 @@ const idleSamplingEffect = new BAClickFX(
 idleSamplingEffect.pointerMove({ x: 100, y: 260, pointerId: 74 });
 flushFrames(dom, idleSamplingStart, 30);
 dom.setCurrentTime(idleSamplingStart + 500);
-idleSamplingEffect.pointerMove({ x: 300, y: 260, pointerId: 74 });
+const throttledIdleMove = idleSamplingEffect.pointerMove(
+  { x: 300, y: 260, pointerId: 74 },
+);
+dom.setCurrentTime(idleSamplingStart + 1000);
+idleSamplingEffect.pointerMove({ x: 400, y: 260, pointerId: 74 });
 assert(
-  idleSamplingEffect.lastPointerPosition.x === 300 &&
+  throttledIdleMove === true &&
+    idleSamplingEffect.lastPointerPosition.x === 400 &&
     idleSamplingEffect.currentTrailStroke.points.length >= 2,
-  '低采样率空闲到轨迹消失后首个移动立即重建可见轨迹',
+  '低采样率在真实间隔到期后才重建已消失轨迹',
 );
 idleSamplingEffect.pointerCancel(74);
 idleSamplingEffect.destroy();
+
+const fastTrailSamplingStart = idleSamplingStart + 2000;
+
+dom.setCurrentTime(fastTrailSamplingStart);
+const fastTrailSamplingEffect = new BAClickFX(
+  {
+    bloomBackend: 'native',
+    clickEnabled: false,
+    inputSamplingRate: 10,
+    inputSource: 'manual',
+    trailTimeScale: 4,
+  },
+);
+
+fastTrailSamplingEffect.pointerDown({ x: 100, y: 280, pointerId: 75 });
+dom.setCurrentTime(fastTrailSamplingStart + 80);
+fastTrailSamplingEffect.pointerMove({ x: 200, y: 280, pointerId: 75 });
+const positionBeforeSourceInterval = fastTrailSamplingEffect.lastPointerPosition.x;
+dom.setCurrentTime(fastTrailSamplingStart + 100);
+fastTrailSamplingEffect.pointerMove({ x: 300, y: 280, pointerId: 75 });
+assert(
+  positionBeforeSourceInterval === 100 &&
+    fastTrailSamplingEffect.lastPointerPosition.x === 300,
+  '视觉拖尾提前过期不会突破真实输入采样率上限',
+);
+fastTrailSamplingEffect.pointerCancel(75);
+fastTrailSamplingEffect.destroy();
 
 console.log('\n独立时间倍率');
 const timeScaleEffect = new BAClickFX(

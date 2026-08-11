@@ -133,7 +133,7 @@ declare module 'ba-click-fx'
     trailAlways?: boolean;
     /** 'dom' 自动监听 Pointer 事件；'manual' 仅接受宿主注入。默认 'dom'。 */
     inputSource?: BAClickFXInputSource;
-    /** 移动输入采样率上限（Hz）；0 不限频，或使用 1..240 模拟折线拖尾。默认 0。 */
+    /** 移动输入采样率上限（Hz）；0 不限频，或使用 1..1000 模拟折线拖尾。默认 0。 */
     inputSamplingRate?: number;
     /** 点击波纹、旋转和点击碎片的时间倍率，必须有限且不小于 0.01。默认 1。 */
     clickTimeScale?: number;
@@ -478,7 +478,7 @@ declare module 'ba-click-fx'
     /** 设置并保存主题色；传入空字符串或非法值恢复默认游戏蓝。 */
     setThemeColor(hex: string): void;
 
-    /** 设置移动输入采样率上限（Hz）；接受 0 或 1..240，非法值返回 false。 */
+    /** 设置移动输入采样率上限（Hz）；接受 0 或 1..1000，非法值返回 false。 */
     setInputSamplingRate(rateHz: number): boolean;
 
     /** 通过点号路径修改特效参数；未知路径或非法值返回 false 且保持配置不变。 */

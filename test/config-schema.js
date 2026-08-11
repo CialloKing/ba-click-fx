@@ -232,13 +232,13 @@ check(
 check(
   isInputSamplingRate(0) &&
     isInputSamplingRate(30) &&
-    isInputSamplingRate(240) &&
+    isInputSamplingRate(1000) &&
     !isInputSamplingRate(0.5) &&
-    !isInputSamplingRate(241) &&
+    !isInputSamplingRate(1001) &&
     !isInputSamplingRate(-1) &&
     !isInputSamplingRate(Number.NaN) &&
     !isInputSamplingRate(Number.POSITIVE_INFINITY),
-  '输入采样率只接受 0 或 1..240 的有限 Hz',
+  '输入采样率只接受 0 或 1..1000 的有限 Hz',
 );
 check(
   normalizeInputSamplingRate(30) === 30 &&
