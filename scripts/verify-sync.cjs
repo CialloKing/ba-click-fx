@@ -112,6 +112,9 @@ const introFaqMarkup = indexHtml.match(
 const localizedFaqDefinitions = mainJs.match(
   /^\s+introFAQContent:[^\n]+$/gm,
 ) ?? [];
+const localizedMobileTouchFaqDefinitions = mainJs.match(
+  /^\s+introMobileTouchFAQContent:[^\n]+$/gm,
+) ?? [];
 
 verify(
   introFaqMarkup.length > 0 &&
@@ -119,6 +122,32 @@ verify(
     localizedFaqDefinitions.length === 2 &&
     localizedFaqDefinitions.every((content) => !content.includes('BASpark')),
   '展示页静态与双语 FAQ 均不显示 BASpark 字样',
+);
+verify(
+  /移动端浏览器滑动时为什么没有轨迹拖尾/.test(introFaqMarkup) &&
+    /“触摸行为”切换为“禁止默认手势”/.test(introFaqMarkup) &&
+    /pointercancel/.test(introFaqMarkup) &&
+    localizedMobileTouchFaqDefinitions.length === 2 &&
+    /移动端浏览器滑动时为什么没有轨迹拖尾/.test(
+      localizedMobileTouchFaqDefinitions[0],
+    ) &&
+    /“触摸行为”切换为“禁止默认手势”/.test(
+      localizedMobileTouchFaqDefinitions[0],
+    ) &&
+    /Why does dragging fail to leave a trail in a mobile browser/.test(
+      localizedMobileTouchFaqDefinitions[1],
+    ) &&
+    /Switch Touch Action to Disable Default Gestures/.test(
+      localizedMobileTouchFaqDefinitions[1],
+    ) &&
+    /d\.introMobileTouchFAQContent/.test(mainJs) &&
+    /移动端浏览器滑动时为什么没有轨迹拖尾/.test(readmeZh) &&
+    /touchAction: 'none'/.test(readmeZh) &&
+    /Why does dragging fail to leave a trail in a mobile browser/.test(
+      readmeEn,
+    ) &&
+    /touchAction: 'none'/.test(readmeEn),
+  '展示页静态、双语运行时与 README FAQ 说明移动端触摸行为切换',
 );
 const clickGlowControl = indexHtml.match(
   /<input\s+[^>]*id="ctrlClickGlow"[^>]*>/,

@@ -656,6 +656,10 @@ WebGPU 可用性由实际申请 Adapter/Device、创建 `webgpu` Canvas Context 
 
 不会。展示页“WebGPU”普通模式会固定为 `standard` SDR；“WebGPU HDR（实验）”也可能在 Extended 配置不可用时回退到 `standard`。只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 会以扩展 sRGB 编码保留超过 SDR 白色的高光。显示器、系统 HDR、浏览器 WebGPU HDR Canvas 和 `rgba16float + extended` 缺一不可。截图、Canvas 像素回读和普通 SDR 屏幕也不能证明最终面板实际输出了多少尼特。
 
+### 移动端浏览器滑动时为什么没有轨迹拖尾？
+
+展示页默认的“触摸行为：自动”会保留浏览器原生滚动；浏览器接管手势后发送 `pointercancel`，当前拖尾会中止。把控制面板中的“触摸行为”切换为“禁止默认手势”即可在任意滑动方向持续触发拖尾，对应 API 为 `touchAction: 'none'`。页面仍需单轴滚动时，可选择“仅横向平移”或“仅纵向平移”；浏览器允许的方向继续滚动并中止拖尾，未被浏览器接管的方向保留拖尾。该设置也会改变页面原生滚动与缩放手势。
+
 ### 为什么纯白背景上的颜色变淡？
 
 Unity 的点击特效使用加色混合；接近白色的目标已经没有足够通道空间继续变亮，因此直接合成时蓝青色对比会下降。纯白网页背景建议开启 `isolatedCompositing: true`，让库自有输出层先在透明组中解析。若使用 `scene` 输出仍需要更清晰的非游戏轮廓，可再按需设置 `lightBackgroundContrastAlpha`；透明桌面的 `browser-overlay` 模式应保持该值为 `0`。

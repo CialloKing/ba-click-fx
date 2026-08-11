@@ -636,6 +636,10 @@ Consequently, “ported from the Unity project” describes the source of parame
 
 No. The demo's ordinary “WebGPU” mode is fixed to `standard` SDR, and “WebGPU HDR (experimental)” can also fall back to `standard` when Extended configuration is unavailable. Only `getConfig().resolvedWebGPUOutputMode === 'extended'` means that the Canvas preserves highlights above SDR white in its extended sRGB encoding. The display, system HDR setting, browser WebGPU HDR Canvas support, and successful `rgba16float + extended` configuration are all required. A screenshot, Canvas pixel readback, or an SDR display cannot prove the panel's final luminance in nits.
 
+### Why does dragging fail to leave a trail in a mobile browser?
+
+The demo defaults Touch Action to Auto so native browser scrolling remains available. Once the browser takes over the gesture it sends `pointercancel`, ending the current trail. Switch Touch Action to Disable Default Gestures to keep trails active in every drag direction; the equivalent API is `touchAction: 'none'`. If the page still needs one-axis scrolling, choose Pan X Only or Pan Y Only: browser-allowed directions continue to scroll and end the trail, while directions the browser does not take over retain it. This setting also changes native page scroll and zoom gestures.
+
 ### Why does the effect lose colour on a pure-white background?
 
 The Unity effect uses additive blending. A nearly white target has little channel headroom left, so direct composition loses cyan-blue contrast. Enable `isolatedCompositing: true` on pure-white web pages so library-owned output layers resolve inside a transparent group first. If `scene` output still needs a clearer non-game silhouette, opt into `lightBackgroundContrastAlpha`; keep it at `0` for transparent-desktop `browser-overlay` output.
