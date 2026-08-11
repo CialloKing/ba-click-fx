@@ -146,6 +146,13 @@ fx.setPaused(true, { clear: true });</code></pre>
         <input type="color" id="ctrlColor" value="#4ca7ff" />
       </label>
       <label class="ctrl">
+        <span>颜色作用</span>
+        <select id="ctrlThemeColorMode" class="ctrl-select">
+          <option value="relative-oklch" selected>相对 OKLCH（推荐）</option>
+          <option value="hue-only">仅色相（兼容）</option>
+        </select>
+      </label>
+      <label class="ctrl">
         <span>全局缩放 <output id="outScale">1.00</output></span>
         <input type="range" id="ctrlScale" min="0.01" max="5" step="0.01" value="1" />
       </label>

@@ -2215,7 +2215,44 @@ bindRange('ctrlBloomDiskAlpha', 'outBloomDiskAlpha', (v) =>
   effect.setFxParam('bloom.diskAlpha', v));
 
 // ── 主题颜色 ────────────────────────────────────────────────────────────
+const THEME_COLOR_MODE_STORAGE_KEY = 'bafx-ctrlThemeColorMode';
+const DEFAULT_DEMO_THEME_COLOR_MODE = 'relative-oklch';
+const LEGACY_THEME_COLOR_MODE = 'hue-only';
+const THEME_COLOR_MODES = new Set([
+  DEFAULT_DEMO_THEME_COLOR_MODE,
+  LEGACY_THEME_COLOR_MODE,
+]);
 const ctrlColor = document.getElementById('ctrlColor');
+const ctrlThemeColorMode = document.getElementById('ctrlThemeColorMode');
+
+function applyThemeColorMode(mode, persist = true)
+{
+  if (!THEME_COLOR_MODES.has(mode) || !effect.setThemeColorMode(mode))
+  {
+    return false;
+  }
+
+  if (ctrlThemeColorMode)
+  {
+    ctrlThemeColorMode.value = mode;
+  }
+
+  if (persist)
+  {
+    localStorage.setItem(THEME_COLOR_MODE_STORAGE_KEY, mode);
+  }
+
+  syncHdrUiOverlay(effect.getConfig());
+  return true;
+}
+
+if (ctrlThemeColorMode)
+{
+  ctrlThemeColorMode.addEventListener('change', () =>
+  {
+    applyThemeColorMode(ctrlThemeColorMode.value);
+  });
+}
 
 if (ctrlColor)
 {
@@ -2225,8 +2262,6 @@ if (ctrlColor)
     localStorage.setItem('bafx-ctrlColor', ctrlColor.value);
     syncHdrUiOverlay(effect.getConfig());
   });
-  // HTML 默认值不会触发 input；显式应用可让持久化恢复共用同一入口。
-  effect.setThemeColor(ctrlColor.value);
 }
 
 // ── 重置 ────────────────────────────────────────────────────────────────
@@ -2295,7 +2330,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('ctrlHitEnabled').checked = false;
   document.getElementById('ctrlFlareEnabled').checked = false;
   document.getElementById('ctrlColor').value = '#4ca7ff';
-  effect.setThemeColor('#4ca7ff');
+  document.getElementById('ctrlThemeColorMode').value =
+    DEFAULT_DEMO_THEME_COLOR_MODE;
 
   // 重置特效参数
   const shardDefaults = UNITY_FX_TOUCH.shards;
@@ -2388,6 +2424,9 @@ document.getElementById('btnReset').addEventListener('click', () =>
     formatDissolveDirection(1);
 
   effect.resetFxConfig();
+  // 库默认保留兼容的 hue-only；展示页重置明确选择推荐的新映射模式。
+  applyThemeColorMode(DEFAULT_DEMO_THEME_COLOR_MODE, false);
+  effect.setThemeColor('#4ca7ff');
   effect.setPaused(false);
   applyInputSource('dom', false);
   compositingReferenceMode = DEFAULT_COMPOSITING_REFERENCE_MODE;
@@ -2583,6 +2622,9 @@ const I18N = {
     bloomClickSummary: '点击辉光',
     bloomTrailSummary: '拖尾辉光',
     labelColor: '主题颜色',
+    labelThemeColorMode: '颜色作用',
+    themeColorModeRelativeOklch: '相对 OKLCH（推荐）',
+    themeColorModeHueOnly: '仅色相（兼容）',
     labelScale: '全局缩放',
     labelOpacity: '不透明度',
     labelDpr: '最大 DPR',
@@ -2839,6 +2881,9 @@ const I18N = {
     bloomClickSummary: 'Click Glow',
     bloomTrailSummary: 'Trail Glow',
     labelColor: 'Theme Color',
+    labelThemeColorMode: 'Color Mapping',
+    themeColorModeRelativeOklch: 'Relative OKLCH (Recommended)',
+    themeColorModeHueOnly: 'Hue Only (Compatible)',
     labelScale: 'Global Scale',
     labelOpacity: 'Opacity',
     labelDpr: 'Max DPR',
@@ -3157,6 +3202,7 @@ function switchLanguage(lang)
   // 控件标签：span 中可能包含 <output>，只替换文本前缀
   const labelMap = {
     ctrlColor: d.labelColor,
+    ctrlThemeColorMode: d.labelThemeColorMode,
     ctrlScale: d.labelScale,
     ctrlOpacity: d.labelOpacity,
     ctrlDpr: d.labelDpr,
@@ -3312,6 +3358,19 @@ function switchLanguage(lang)
     if (renderModeOptions[opt.value])
     {
       opt.textContent = renderModeOptions[opt.value];
+    }
+  });
+
+  const themeColorModeOptions = {
+    'relative-oklch': d.themeColorModeRelativeOklch,
+    'hue-only': d.themeColorModeHueOnly,
+  };
+
+  document.querySelectorAll('#ctrlThemeColorMode option').forEach((option) =>
+  {
+    if (themeColorModeOptions[option.value])
+    {
+      option.textContent = themeColorModeOptions[option.value];
     }
   });
 
@@ -3866,18 +3925,30 @@ switchLanguage(currentLang);
     }
   });
 
-  // 恢复主题颜色
+  // 恢复主题颜色。旧版本只保存颜色，因此缺少模式且存在颜色时必须继续
+  // 使用 hue-only；完全没有主题颜色记录的新安装使用推荐的新模式。
   const savedColor = localStorage.getItem('bafx-ctrlColor');
+  const savedThemeColorMode = localStorage.getItem(
+    THEME_COLOR_MODE_STORAGE_KEY,
+  );
+  const restoredThemeColorMode = THEME_COLOR_MODES.has(savedThemeColorMode)
+    ? savedThemeColorMode
+    : savedColor !== null
+      ? LEGACY_THEME_COLOR_MODE
+      : DEFAULT_DEMO_THEME_COLOR_MODE;
+  const restoredColor = savedColor && /^#[0-9a-f]{6}$/i.test(savedColor)
+    ? savedColor
+    : '#4ca7ff';
 
-  if (savedColor && /^#[0-9a-f]{6}$/i.test(savedColor))
+  if (ctrlColor)
   {
-    if (ctrlColor)
-    {
-      ctrlColor.value = savedColor;
-    }
-
-    effect.setThemeColor(savedColor);
+    ctrlColor.value = restoredColor;
   }
+
+  // 首次恢复即写入显式模式，避免后续版本再次依赖有歧义的缺省值。
+  applyThemeColorMode(restoredThemeColorMode);
+  effect.setThemeColor(restoredColor);
+  syncHdrUiOverlay(effect.getConfig());
 
   const theme = localStorage.getItem('bafx-theme');
   const customBg = localStorage.getItem('bafx-custom-bg');
