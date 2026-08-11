@@ -7,6 +7,7 @@
 - 增加源码、构建后 IIFE 及 DPR 1/2 的滚动条槽浏览器回归，覆盖 10px 槽宽与 backing store 尺寸合同。
 - 修复移动端覆盖层因 `pointer-events: none` 导致 Canvas `touch-action` 不参与命中判定、滑动立即收到 `pointercancel` 而无法形成拖尾的问题；DOM 输入现在按 CSS `touch-action` 的方向/缩放策略在 capture 阶段仲裁原生手势，锁定手势方向并保持 `inputFilter`、target 与 Shadow DOM 作用域边界。
 - 展示页与 README 的中英文常见问题补充移动端拖尾说明，明确“触摸行为”各选项与原生滚动、缩放及 `pointercancel` 的关系。
+- 将 `pointerup` 与 `pointercancel` 生命周期监听提升到 capture，并按实际 Pointer 启动结果回填 Touch 仲裁，避免宿主阻断冒泡后下一次触摸无法建立拖尾。
 
 ## v1.2.25 — 输入采样模拟与感知主题颜色
 

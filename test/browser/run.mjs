@@ -3805,14 +3805,18 @@ async function runDemoMobileTouchSmoke(browserInstance, baseUrl)
         'touch-action: auto',
       ].join(';');
       content.style.cssText = 'width: 700px; height: 700px';
-      content.addEventListener('touchmove', (event) =>
+      const stopHostPropagation = (event) =>
       {
-        // 模拟宿主控件阻断冒泡；库的 capture 仲裁仍必须先于该处理器执行。
+        // 模拟宿主控件阻断冒泡；库的 capture 监听仍必须完成仲裁与清理。
         event.stopPropagation();
-      },
+      };
+      for (const type of ['touchmove', 'pointerup', 'pointercancel'])
       {
-        passive: true,
-      });
+        content.addEventListener(type, stopHostPropagation,
+          {
+            passive: true,
+          });
+      }
       surface.append(content);
       document.body.append(surface);
       window.__mobileTouchEvents = [];
@@ -3877,17 +3881,27 @@ async function runDemoMobileTouchSmoke(browserInstance, baseUrl)
         );
         const resetSurface = surface.cloneNode(true);
 
-        window.BAClickFXDemo.clear();
+        // clear() 保留活动指针是公开合同；每轮触摸回归必须用公开暂停
+        // 生命周期清空输入状态，避免上一轮未冒泡的终止事件污染下一轮。
+        window.BAClickFXDemo.setPaused(true, { clear: true });
+        window.BAClickFXDemo.setPaused(false);
         // 替换节点会同步终止上一用例的惯性滚动；只重设 scrollTop 时，
         // compositor 仍可能在下一帧追加旧手势的残余位移。
         surface.replaceWith(resetSurface);
-        resetSurface.firstElementChild.addEventListener('touchmove', (event) =>
+        const stopHostPropagation = (event) =>
         {
           event.stopPropagation();
-        },
+        };
+        for (const type of ['touchmove', 'pointerup', 'pointercancel'])
         {
-          passive: true,
-        });
+          resetSurface.firstElementChild.addEventListener(
+            type,
+            stopHostPropagation,
+            {
+              passive: true,
+            },
+          );
+        }
         resetSurface.scrollLeft = 160;
         resetSurface.scrollTop = 160;
         if (Array.from(control.options).some((option) => option.value === action))
@@ -3961,6 +3975,9 @@ async function runDemoMobileTouchSmoke(browserInstance, baseUrl)
           scrollLeft: surface.scrollLeft,
           scrollTop: surface.scrollTop,
           strokeCount: effect.trailStrokes.length,
+          activePointerId: effect.activePointerId,
+          currentTrailStroke: effect.currentTrailStroke !== null,
+          touchGestureCount: effect.touchGestureStarts.size,
         };
       });
 
@@ -3975,7 +3992,10 @@ async function runDemoMobileTouchSmoke(browserInstance, baseUrl)
           ) &&
           (specification.keepsTrail
             ? result.strokeCount > 0 && result.pointCounts[0] > 2
-            : result.strokeCount === 0),
+            : result.strokeCount === 0) &&
+          result.activePointerId === null &&
+          !result.currentTrailStroke &&
+          result.touchGestureCount === 0,
         `${currentLabel}: 移动触摸拖尾生命周期不符合触摸策略`,
         result,
       );
@@ -4350,6 +4370,8 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         shardControlIds.map((id) =>
           [id, document.getElementById(id)?.closest('details')?.id ?? null]),
       );
+      const faqText =
+        document.getElementById('introFAQContent')?.textContent ?? '';
 
       return {
         themeBeforeDisplay: Boolean(
@@ -4365,9 +4387,11 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         nestedPanelSections:
           panel?.querySelectorAll('.panel-section .panel-section').length ?? -1,
         defaultOpenDetails,
-        faqContainsBASpark:
-          document.getElementById('introFAQContent')?.textContent
-            ?.includes('BASpark') ?? null,
+        faqContainsBASpark: faqText.includes('BASpark'),
+        faqExplainsMobileTouch:
+          faqText.includes('移动端浏览器滑动时为什么没有轨迹拖尾') &&
+          faqText.includes('“触摸行为”切换为“禁止默认手势”') &&
+          faqText.includes('pointercancel'),
         themeColorMode:
           document.getElementById('ctrlThemeColorMode')?.value ?? null,
         configuredThemeColorMode:
@@ -4434,6 +4458,11 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
     assert(
       structure.faqContainsBASpark === false,
       '展示页加载后的 FAQ 仍显示 BASpark 字样',
+      structure,
+    );
+    assert(
+      structure.faqExplainsMobileTouch,
+      '展示页中文 FAQ 没有说明移动端触摸行为切换',
       structure,
     );
     assert(
@@ -4846,6 +4875,8 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
           ?.closest('label')?.querySelector('span')?.childNodes[0]
           ?.textContent?.trim(),
         inputSamplingOutput: title('outInputSamplingRate'),
+        mobileTouchFaqText:
+          document.getElementById('introFAQContent')?.textContent ?? '',
         themeColorModeLabel: document.getElementById('ctrlThemeColorMode')
           ?.closest('label')?.querySelector('span')?.textContent?.trim(),
         themeColorModeOptions: Array.from(
@@ -4869,6 +4900,17 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         english.themeBlueTitle === 'Blue (Default)' &&
         english.themeCustomTitle === 'Custom',
       '控制面板新增分组或主题按钮缺少英文文案',
+      english,
+    );
+    assert(
+      english.mobileTouchFaqText.includes(
+        'Why does dragging fail to leave a trail in a mobile browser',
+      ) &&
+        english.mobileTouchFaqText.includes(
+          'Switch Touch Action to Disable Default Gestures',
+        ) &&
+        english.mobileTouchFaqText.includes('pointercancel'),
+      '展示页英文 FAQ 没有说明移动端 Touch Action 切换',
       english,
     );
 

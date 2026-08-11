@@ -6573,8 +6573,14 @@ export class BAClickFX
       {
         passive: true,
       });
-    window.addEventListener('pointerup', this._onPointerUp);
-    window.addEventListener('pointercancel', this._onPointerCancel);
+    window.addEventListener('pointerup', this._onPointerUp,
+      {
+        capture: true,
+      });
+    window.addEventListener('pointercancel', this._onPointerCancel,
+      {
+        capture: true,
+      });
     this.domPointerListenersAttached = true;
     this._syncTouchActionListeners();
   }
@@ -6589,7 +6595,7 @@ export class BAClickFX
     window.addEventListener('touchstart', this._onTouchStart,
       {
         capture: true,
-        passive: true,
+        passive: false,
       });
     window.addEventListener('touchmove', this._onTouchMove,
       {
@@ -6671,8 +6677,8 @@ export class BAClickFX
     this._detachTouchActionListeners();
     window.removeEventListener('pointerdown', this._onPointerDown);
     window.removeEventListener('pointermove', this._onPointerMove);
-    window.removeEventListener('pointerup', this._onPointerUp);
-    window.removeEventListener('pointercancel', this._onPointerCancel);
+    window.removeEventListener('pointerup', this._onPointerUp, true);
+    window.removeEventListener('pointercancel', this._onPointerCancel, true);
     this.domPointerListenersAttached = false;
   }
 
@@ -6931,6 +6937,19 @@ export class BAClickFX
           y: touch.clientY,
         },
       );
+    }
+
+    // none 已经在 touchstart 阶段确定不会让浏览器接管手势；提前阻止
+    // 默认行为可避免部分移动浏览器在首个 touchmove 前抢先发送 pointercancel。
+    if (policy.blockAll && event.cancelable)
+    {
+      const accepted = Array.from(this.touchGestureStarts.values())
+        .some((state) => state.accepted);
+
+      if (accepted)
+      {
+        event.preventDefault();
+      }
     }
   }
 
@@ -7581,8 +7600,14 @@ export class BAClickFX
       (this._relativeOklchTheme?.coverageScale ?? 1);
   }
 
-  _acceptPointerDown(event)
+  _getPointerDownDecision(event)
   {
+    const decision =
+    {
+      accepted: false,
+      rememberTouchPointerFilterResult: false,
+      touchState: null,
+    };
     const pointerType = event.pointerType || 'mouse';
     const isTouchStart = pointerType === 'touch' &&
       event.type === 'pointerdown';
@@ -7602,34 +7627,37 @@ export class BAClickFX
     if (usesTouchShim)
     {
       const touchState = this._consumeTouchGestureState(event);
+      decision.touchState = touchState;
 
       if (touchState && !touchState.pointerFilterPending)
       {
-        return touchState.accepted;
+        decision.accepted = touchState.accepted;
+        return decision;
       }
 
       if (touchState)
       {
-        const accepted = hasClosedShadowDecision
+        decision.accepted = hasClosedShadowDecision
           ? closedShadowDecision
           : !this.inputFilter || this.inputFilter(event);
 
-        touchState.accepted = accepted;
+        touchState.accepted = decision.accepted;
         touchState.pointerFilterPending = false;
-        return accepted;
+        return decision;
       }
     }
 
     if (hasClosedShadowDecision)
     {
-      this._rememberTouchPointerFilterResult(event, closedShadowDecision);
-      return closedShadowDecision;
+      decision.accepted = closedShadowDecision;
+      decision.rememberTouchPointerFilterResult = usesTouchShim;
+      return decision;
     }
 
     // button: 0=左键, -1=未按键(移动事件)；仅 >0 的非左键实际点击需拦截
     if (pointerType === 'mouse' && event.button > 0)
     {
-      return false;
+      return decision;
     }
 
     if (
@@ -7637,18 +7665,13 @@ export class BAClickFX
       !this._isTouchEventInScope(event, event.target)
     )
     {
-      this._rememberTouchPointerFilterResult(event, false);
-      return false;
+      decision.rememberTouchPointerFilterResult = true;
+      return decision;
     }
 
-    const accepted = !this.inputFilter || this.inputFilter(event);
-
-    if (usesTouchShim)
-    {
-      this._rememberTouchPointerFilterResult(event, accepted);
-    }
-
-    return accepted;
+    decision.accepted = !this.inputFilter || this.inputFilter(event);
+    decision.rememberTouchPointerFilterResult = usesTouchShim;
+    return decision;
   }
 
   _startDomPointer(event)
@@ -7668,12 +7691,44 @@ export class BAClickFX
 
   _handlePointerDown(event)
   {
-    if (this.destroyed || this.paused || !this._acceptPointerDown(event))
+    if (this.destroyed || this.paused)
     {
       return;
     }
 
-    this._startDomPointer(event);
+    const decision = this._getPointerDownDecision(event);
+
+    if (!decision.accepted)
+    {
+      if (decision.touchState)
+      {
+        decision.touchState.accepted = false;
+        decision.touchState.pointerFilterPending = false;
+      }
+
+      if (decision.rememberTouchPointerFilterResult)
+      {
+        this._rememberTouchPointerFilterResult(event, false);
+      }
+
+      return;
+    }
+
+    const started = this._startDomPointer(event);
+    const accepted = started && decision.accepted;
+
+    // 过滤器接受不代表实例一定能接管指针；例如已有另一根真实指针时，
+    // 必须把实际启动结果回填，否则 Touch 仲裁会阻止一个并不存在的拖尾。
+    if (decision.touchState)
+    {
+      decision.touchState.accepted = accepted;
+      decision.touchState.pointerFilterPending = false;
+    }
+
+    if (decision.rememberTouchPointerFilterResult)
+    {
+      this._rememberTouchPointerFilterResult(event, accepted);
+    }
   }
 
   /**
@@ -7743,7 +7798,7 @@ export class BAClickFX
     if (
       this.activePointerId === null &&
       this.config.trailAlways &&
-      !this._acceptPointerDown(event)
+      !this._getPointerDownDecision(event).accepted
     )
     {
       return;

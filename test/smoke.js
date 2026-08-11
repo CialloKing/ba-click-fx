@@ -142,21 +142,30 @@ class EventTargetMock
   constructor()
   {
     this.listeners = new Map();
+    this.listenerOptions = new Map();
   }
 
-  addEventListener(type, listener)
+  addEventListener(type, listener, options = false)
   {
     if (!this.listeners.has(type))
     {
       this.listeners.set(type, new Set());
+      this.listenerOptions.set(type, new Map());
     }
 
     this.listeners.get(type).add(listener);
+    this.listenerOptions.get(type).set(listener, options);
   }
 
   removeEventListener(type, listener)
   {
     this.listeners.get(type)?.delete(listener);
+    this.listenerOptions.get(type)?.delete(listener);
+  }
+
+  getEventListenerOptions(type, listener)
+  {
+    return this.listenerOptions.get(type)?.get(listener);
   }
 
   dispatch(type, properties = {})
@@ -3834,10 +3843,49 @@ const touchActionEffect = new BAClickFX(
     touchAction: 'none',
   },
 );
+const pointerUpOptions = dom.windowMock.getEventListenerOptions(
+  'pointerup',
+  touchActionEffect._onPointerUp,
+);
+const pointerCancelOptions = dom.windowMock.getEventListenerOptions(
+  'pointercancel',
+  touchActionEffect._onPointerCancel,
+);
+const touchStartOptions = dom.windowMock.getEventListenerOptions(
+  'touchstart',
+  touchActionEffect._onTouchStart,
+);
 assert(
   pointerEventTypes.slice(4).every((type, index) =>
-    listenerCount(type) === touchListenerBaseline[index] + 1),
-  '需要阻止手势时只注册一组 capture Touch 监听',
+    listenerCount(type) === touchListenerBaseline[index] + 1) &&
+    pointerUpOptions?.capture === true &&
+    pointerCancelOptions?.capture === true &&
+    touchStartOptions?.capture === true &&
+    touchStartOptions?.passive === false,
+  '需要阻止手势时注册 capture 生命周期与非 passive Touch 监听',
+);
+let noneTouchStartPrevented = 0;
+
+dom.windowMock.dispatch('touchstart',
+  {
+    target: dom.body,
+    cancelable: true,
+    touches: [{ identifier: 88, clientX: 10, clientY: 10 }],
+    changedTouches: [{ identifier: 88, clientX: 10, clientY: 10 }],
+    preventDefault()
+    {
+      noneTouchStartPrevented++;
+    },
+  });
+dom.windowMock.dispatch('touchcancel',
+  {
+    target: dom.body,
+    touches: [],
+    changedTouches: [{ identifier: 88, clientX: 10, clientY: 10 }],
+  });
+assert(
+  noneTouchStartPrevented === 1,
+  'touchAction none 在 touchstart 阶段阻止浏览器抢占手势',
 );
 touchActionEffect.updateConfig({ touchAction: 'auto' });
 assert(
@@ -4228,6 +4276,80 @@ assert(
     touchFirstRejectedFilterResult.prevented === 0,
   'Touch-first 会回填过滤决定并只仲裁接受的手势',
 );
+assert(
+  filteredTouchEffect.pointerDown(
+    { x: 20, y: 20, pointerId: 200, pointerType: 'touch' },
+  ),
+  '触摸占用回归可先建立一根活动指针',
+);
+const competingPointer =
+{
+  type: 'pointerdown',
+  target: dom.body,
+  pointerType: 'touch',
+  button: 0,
+  pointerId: 201,
+  clientX: 40,
+  clientY: 40,
+};
+const competingTouch =
+{
+  identifier: 201,
+  target: dom.body,
+  clientX: 40,
+  clientY: 40,
+};
+const movedCompetingTouch = { ...competingTouch, clientX: 100 };
+let competingTouchStartPrevented = 0;
+let competingTouchMovePrevented = 0;
+
+touchFilterCallCount = 0;
+expectedTouchFilterEvent = competingPointer;
+touchFilterSawExpectedPointer = false;
+dom.windowMock.dispatchEvent(competingPointer);
+dom.windowMock.dispatch('touchstart',
+  {
+    target: dom.body,
+    cancelable: true,
+    touches: [competingTouch],
+    changedTouches: [competingTouch],
+    preventDefault()
+    {
+      competingTouchStartPrevented++;
+    },
+  });
+dom.windowMock.dispatch('touchmove',
+  {
+    target: dom.body,
+    cancelable: true,
+    touches: [movedCompetingTouch],
+    changedTouches: [movedCompetingTouch],
+    preventDefault()
+    {
+      competingTouchMovePrevented++;
+    },
+  });
+dom.windowMock.dispatchEvent(
+  {
+    ...competingPointer,
+    type: 'pointercancel',
+    clientX: movedCompetingTouch.clientX,
+  });
+dom.windowMock.dispatch('touchcancel',
+  {
+    target: dom.body,
+    touches: [],
+    changedTouches: [movedCompetingTouch],
+  });
+assert(
+  touchFilterCallCount === 1 &&
+    touchFilterSawExpectedPointer &&
+    competingTouchStartPrevented === 0 &&
+    competingTouchMovePrevented === 0 &&
+    filteredTouchEffect.activePointerId === 200,
+  '实例未能启动第二根 Pointer 时不会错误阻止对应原生手势',
+);
+filteredTouchEffect.pointerCancel(200);
 filteredTouchEffect.destroy();
 
 const scopedTouchCanvas = new CanvasMock();
