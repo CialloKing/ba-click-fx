@@ -1049,7 +1049,8 @@ export const CONFIG = Object.freeze(
     isolatedCompositing: false,
     // 淡青 darken 轮廓不是游戏管线的一部分，浅色页面需要时再显式开启。
     lightBackgroundContrastAlpha: 0,
-    maxDpr: 2,
+    // 默认按 CSS 像素渲染，避免高 DPR 移动设备成倍放大填充与 Bloom 开销。
+    maxDpr: 1,
     touchAction: 'auto',
   },
 );

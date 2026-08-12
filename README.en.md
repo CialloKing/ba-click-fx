@@ -169,7 +169,7 @@ new BAClickFX(options?: {
   softwareBloomEnabled?: boolean, // compatibility alias: true = software, false = native
   isolatedCompositing?: boolean,  // default false; true enables non-game white-background compatibility
   lightBackgroundContrastAlpha?: number, // light-background compatibility strength, default 0
-  maxDpr?: number,               // default 2
+  maxDpr?: number,               // default 1; raise explicitly for capable devices
   touchAction?: string,          // DOM touch-gesture policy; default 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
 })

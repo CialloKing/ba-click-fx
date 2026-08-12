@@ -739,6 +739,8 @@ function flushFrames(dom, startTime, count, frameMs = 1000 / 60)
 
 console.log('\nUnity 参数');
 
+assert(CONFIG.maxDpr === 1, '默认最大 DPR 为 1，避免低性能设备承担高分辨率开销');
+
 const fxSchemaPaths = new Set(FX_PARAM_SCHEMA.map((entry) => entry.path));
 const readUnityScalar = (path) => path.split('.').reduce(
   (value, key) => value[key],
@@ -1933,8 +1935,8 @@ assert(
   dom.windowMock.innerWidth === 1920 &&
     scrollbarGutterEffect.width === 1910 &&
     scrollbarGutterEffect.height === 1080 &&
-    scrollbarGutterEffect.canvas.width === 2865 &&
-    scrollbarGutterEffect.canvas.height === 1620,
+    scrollbarGutterEffect.canvas.width === 1910 * CONFIG.maxDpr &&
+    scrollbarGutterEffect.canvas.height === 1080 * CONFIG.maxDpr,
   '全屏覆盖层按实测 CSS 尺寸排除滚动条槽',
 );
 scrollbarGutterEffect.destroy();
@@ -1950,8 +1952,8 @@ const hiddenFullscreenEffect = new BAClickFX(
 assert(
   hiddenFullscreenEffect.width === 1920 &&
     hiddenFullscreenEffect.height === 1080 &&
-    hiddenFullscreenEffect.canvas.width === 2880 &&
-    hiddenFullscreenEffect.canvas.height === 1620,
+    hiddenFullscreenEffect.canvas.width === 1920 * CONFIG.maxDpr &&
+    hiddenFullscreenEffect.canvas.height === 1080 * CONFIG.maxDpr,
   '全屏覆盖层不可测时回退窗口尺寸',
 );
 hiddenFullscreenEffect.destroy();

@@ -238,6 +238,21 @@ const preciseRangeSteps =
   ctrlBloomDisk: '0.1',
 };
 
+const dprControl = indexHtml.match(
+  /<input\s+[^>]*id="ctrlDpr"[^>]*>/,
+)?.[0] ?? '';
+
+verify(
+  /maxDpr:\s*1/.test(configJs) &&
+    /value="1"/.test(dprControl) &&
+    /document\.getElementById\('ctrlDpr'\)\.value = String\(CONFIG\.maxDpr\)/.test(mainJs) &&
+    /document\.getElementById\('outDpr'\)\.textContent = CONFIG\.maxDpr\.toFixed\(2\)/.test(mainJs) &&
+    /maxDpr:\s*CONFIG\.maxDpr/.test(mainJs) &&
+    /最大设备像素比，默认 1/.test(readmeZh) &&
+    /maxDpr\?: number,\s+\/\/ default 1/.test(readmeEn),
+  '公共库与展示页统一默认最大 DPR 为 1',
+);
+
 for (const [controlId, expectedStep] of Object.entries(preciseRangeSteps))
 {
   const control = indexHtml.match(

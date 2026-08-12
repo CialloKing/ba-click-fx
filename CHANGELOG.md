@@ -1,5 +1,9 @@
 ﻿# Changelog
 
+## 未发布
+
+- 将公共库与展示页的默认最大 DPR 从 `2` 调整为 `1`，降低高 DPR 移动设备上的 Canvas 填充、显存和 Bloom 开销；控制面板仍可按设备性能手动提高到 `3`。
+
 ## v1.2.28 — 补强移动端 closed Shadow 触摸仲裁
 
 - 修复 PointerEvent 可用的移动浏览器在 closed Shadow 内触摸时，window 重定向的 `touchstart` 未及时阻止默认手势、随后触发 `pointercancel` 导致拖尾中断的问题；现在统一由真实 Shadow host 作用域完成 Touch 生命周期与手势仲裁。

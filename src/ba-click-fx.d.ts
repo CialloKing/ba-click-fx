@@ -172,7 +172,7 @@ declare module 'ba-click-fx'
      * outputCompositing 为 'browser-overlay' 时忽略此项。
      */
     lightBackgroundContrastAlpha?: number;
-    /** Canvas backing store 的设备像素比上限，默认 2。 */
+    /** Canvas backing store 的设备像素比上限，默认 1；可按设备性能显式提高。 */
     maxDpr?: number;
     /**
      * DOM 自动输入的 CSS touch-action 策略。除设置 Canvas CSS 外，覆盖层会

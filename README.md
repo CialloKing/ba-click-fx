@@ -189,7 +189,7 @@ new BAClickFX(options?: {
   softwareBloomEnabled?: boolean, // 兼容旧 API：true 等同 software，false 等同 native
   isolatedCompositing?: boolean,  // 隔离合成，默认 false；true 为非游戏白底兼容选项
   lightBackgroundContrastAlpha?: number, // 浅色背景兼容层强度，默认 0
-  maxDpr?: number,                // 最大设备像素比，默认 2
+  maxDpr?: number,                // 最大设备像素比，默认 1；可按设备性能显式提高
   touchAction?: string,           // DOM 触摸手势策略，默认 'auto'
   inputFilter?: (e: PointerEvent) => boolean,
 })

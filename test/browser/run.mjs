@@ -4839,13 +4839,21 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         value: control?.value,
         config: window.BAClickFXDemo.getFxConfig().shards.clickRadius,
         stored: localStorage.getItem('bafx-ctrlClickShardRadius'),
+        dprValue: document.getElementById('ctrlDpr')?.value,
+        dprOutput: document.getElementById('outDpr')?.textContent,
+        dprConfig: window.BAClickFXDemo.getConfig().maxDpr,
+        dprStored: localStorage.getItem('bafx-ctrlDpr'),
       };
     });
     assert(
       reset.value === '49.88' &&
         reset.config === 49.8769488 &&
-        reset.stored === null,
-      '重置默认没有恢复新增碎片滑块的 Unity 默认值',
+        reset.stored === null &&
+        reset.dprValue === '1' &&
+        reset.dprOutput === '1.00' &&
+        reset.dprConfig === 1 &&
+        reset.dprStored === null,
+      '重置默认没有恢复碎片参数或最大 DPR 默认值',
       reset,
     );
 

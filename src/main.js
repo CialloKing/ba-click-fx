@@ -2271,8 +2271,8 @@ document.getElementById('btnReset').addEventListener('click', () =>
   document.getElementById('outScale').textContent = '1.00';
   document.getElementById('ctrlOpacity').value = '1';
   document.getElementById('outOpacity').textContent = '1.00';
-  document.getElementById('ctrlDpr').value = '2';
-  document.getElementById('outDpr').textContent = '2.00';
+  document.getElementById('ctrlDpr').value = String(CONFIG.maxDpr);
+  document.getElementById('outDpr').textContent = CONFIG.maxDpr.toFixed(2);
   document.getElementById('ctrlRenderMode').value = DEFAULT_RENDER_MODE;
   syncHdrPresentationDetails(DEFAULT_RENDER_MODE);
   document.getElementById('ctrlHdrPresentationPreset').value = 'balanced';
@@ -2451,7 +2451,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
       hostCompositingSurface: DEFAULT_HOST_COMPOSITING_SURFACE,
       isolatedCompositing: false,
       lightBackgroundContrastAlpha: DEFAULT_LIGHT_BACKGROUND_CONTRAST_ALPHA,
-      maxDpr: 2,
+      maxDpr: CONFIG.maxDpr,
       touchAction: 'auto',
     },
   );
