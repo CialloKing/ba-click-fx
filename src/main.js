@@ -2116,11 +2116,9 @@ bindRange('ctrlTrailShardSpeedMin', 'outTrailShardSpeedMin', (v) =>
 bindRange('ctrlTrailShardSpeedMax', 'outTrailShardSpeedMax', (v) =>
   effect.setFxParam('shards.trailSpeedMax', v));
 bindRange('ctrlBloomTrail', 'outBloomTrail', (v) =>
-{
-  // 软件卷积会摊薄亮线，原生单路径滤镜不会；保持不同标定避免回退过亮。
-  effect.setFxParam('bloom.trailEmissionAlpha', v);
-  effect.setFxParam('bloom.trailAlpha', v * 0.18);
-});
+  effect.setFxParam('bloom.trailEmissionAlpha', v));
+bindRange('ctrlBloomTrailAlpha', 'outBloomTrailAlpha', (v) =>
+  effect.setFxParam('bloom.trailAlpha', v));
 bindRange('ctrlTrailOpacity', 'outTrailOpacity', (v) => effect.setFxParam('trail.trailOpacity', v));
 
 // ── 新暴露的数值参数 ──────────────────────────────────────────────────
@@ -2369,6 +2367,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
     ['ctrlTrailGlowW', 'outTrailGlowW', 9, false],
     ['ctrlTrailLife', 'outTrailLife', 300, true],
     ['ctrlBloomTrail', 'outBloomTrail', 1, false],
+    ['ctrlBloomTrailAlpha', 'outBloomTrailAlpha', 0.18, false],
     ['ctrlTrailOpacity', 'outTrailOpacity', 1, false],
     // 新暴露参数
     ['ctrlRingCount', 'outRingCount', 2, true],
@@ -2810,6 +2809,7 @@ const I18N = {
     labelTrailLife: '拖尾寿命',
     labelShardSpacing: '拖尾碎片间距',
     labelBloomTrail: 'Bloom 拖尾发射校准',
+    labelBloomTrailAlpha: '原生拖尾辉光 Alpha',
     labelBloomTrailEmission: '拖尾发射强度',
     labelBloomTrailCoverage: '拖尾覆盖倍率',
     labelTrailOpacity: '拖尾整体透明度',
@@ -3070,6 +3070,7 @@ const I18N = {
     labelTrailLife: 'Trail Lifetime',
     labelShardSpacing: 'Trail Shard Spacing',
     labelBloomTrail: 'Bloom Trail Emission Scale',
+    labelBloomTrailAlpha: 'Native Trail Glow Alpha',
     labelBloomTrailEmission: 'Trail Emission Strength',
     labelBloomTrailCoverage: 'Trail Coverage Scale',
     labelTrailOpacity: 'Trail Overall Opacity',
@@ -3275,6 +3276,7 @@ function switchLanguage(lang)
     ctrlTrailLife: d.labelTrailLife,
     ctrlShardSpacing: d.labelShardSpacing,
     ctrlBloomTrail: d.labelBloomTrail,
+    ctrlBloomTrailAlpha: d.labelBloomTrailAlpha,
     ctrlBloomTrailEmission: d.labelBloomTrailEmission,
     ctrlBloomTrailCoverage: d.labelBloomTrailCoverage,
     ctrlTrailOpacity: d.labelTrailOpacity,
@@ -3858,6 +3860,7 @@ switchLanguage(currentLang);
     ['ctrlTrailShardSpeedMin', 'shards.trailSpeedMin'],
     ['ctrlTrailShardSpeedMax', 'shards.trailSpeedMax'],
     ['ctrlBloomTrail', 'bloom.trailEmissionAlpha'],
+    ['ctrlBloomTrailAlpha', 'bloom.trailAlpha'],
     ['ctrlTrailOpacity', 'trail.trailOpacity'],
     ['ctrlRingCount', 'rings.count'],
     ['ctrlDiskRadius', 'disk.radius'],
@@ -3906,6 +3909,25 @@ switchLanguage(currentLang);
     }
 
     effect.setFxParam('flare.enabled', true);
+  }
+
+  const nativeTrailAlphaStorageKey = 'bafx-ctrlBloomTrailAlpha';
+  const legacyTrailCalibration = localStorage.getItem('bafx-ctrlBloomTrail');
+
+  if (
+    localStorage.getItem(nativeTrailAlphaStorageKey) === null &&
+    legacyTrailCalibration !== null
+  )
+  {
+    const calibration = Number.parseFloat(legacyTrailCalibration);
+
+    if (Number.isFinite(calibration))
+    {
+      // 旧面板以固定 0.18 比例联动 Native 回退；迁移后保留相同观感。
+      const nativeAlpha = Math.min(1, Math.max(0, calibration * 0.18));
+
+      localStorage.setItem(nativeTrailAlphaStorageKey, String(nativeAlpha));
+    }
   }
 
   fxSliders.forEach(([elId, paramPath]) =>

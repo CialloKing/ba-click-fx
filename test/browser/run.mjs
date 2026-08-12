@@ -4342,6 +4342,45 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
     await page.waitForFunction(
       () => typeof window.BAClickFXDemo?.getConfig === 'function',
     );
+
+    await page.evaluate(() =>
+    {
+      localStorage.setItem('bafx-ctrlBloomTrail', '0.5');
+      localStorage.removeItem('bafx-ctrlBloomTrailAlpha');
+    });
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() =>
+      window.BAClickFXDemo?.getFxConfig().bloom.trailAlpha === 0.09);
+    const migratedNativeTrailAlpha = await page.evaluate(() =>
+    ({
+      trailEmissionAlpha:
+        window.BAClickFXDemo.getFxConfig().bloom.trailEmissionAlpha,
+      trailAlpha: window.BAClickFXDemo.getFxConfig().bloom.trailAlpha,
+      control: document.getElementById('ctrlBloomTrailAlpha')?.value,
+      stored: localStorage.getItem('bafx-ctrlBloomTrailAlpha'),
+    }));
+    assert(
+      migratedNativeTrailAlpha.trailEmissionAlpha === 0.5 &&
+        migratedNativeTrailAlpha.trailAlpha === 0.09 &&
+        migratedNativeTrailAlpha.control === '0.09' &&
+        migratedNativeTrailAlpha.stored === '0.09',
+      '旧版拖尾发射校准没有迁移为等效的 Native 拖尾辉光 Alpha',
+      migratedNativeTrailAlpha,
+    );
+
+    await page.evaluate(() => document.getElementById('btnReset').click());
+    await page.waitForFunction(() =>
+    {
+      const bloom = window.BAClickFXDemo?.getFxConfig().bloom;
+
+      return bloom?.trailEmissionAlpha === 1 && bloom?.trailAlpha === 0.18;
+    });
+    // 重置会按产品合同清空全部 bafx-* 键；刷新后再以新安装默认状态
+    // 执行原有控制面板结构门禁，避免迁移用例污染主题持久化断言。
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(
+      () => typeof window.BAClickFXDemo?.getConfig === 'function',
+    );
     await page.locator('#panelToggle').click();
     await page.waitForFunction(() =>
     {
@@ -4414,6 +4453,12 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         path: 'bloom.diskEmission',
         scope: 'bloomClickDetails',
         value: 4.25,
+      },
+      {
+        id: 'ctrlBloomTrailAlpha',
+        path: 'bloom.trailAlpha',
+        scope: 'bloomTrailDetails',
+        value: 0.46,
       },
       {
         id: 'ctrlBloomTrailEmission',
@@ -4541,6 +4586,7 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
               ctrlBloomResolution: 'bloomPipelineDetails',
               ctrlBloomEmission: 'bloomPipelineDetails',
               ctrlBloomDiskEmission: 'bloomClickDetails',
+              ctrlBloomTrailAlpha: 'bloomTrailDetails',
               ctrlBloomTrailEmission: 'bloomTrailDetails',
               ctrlBloomTrailCoverage: 'bloomTrailDetails',
               ctrlBloomRingCoreAlpha: 'bloomClickDetails',
@@ -4654,6 +4700,7 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
           'ctrlBloomRingAlpha',
           'ctrlBloomDiskAlpha',
           'ctrlBloomTrail',
+          'ctrlBloomTrailAlpha',
           'ctrlBloomTrailEmission',
           'ctrlBloomTrailCoverage',
         ].includes(id),
@@ -4735,6 +4782,38 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       resetThemeMode,
       migratedLegacyTheme,
     };
+
+    const independentTrailAlphaControls = await page.evaluate(() =>
+    {
+      const emissionControl = document.getElementById('ctrlBloomTrail');
+      const nativeControl = document.getElementById('ctrlBloomTrailAlpha');
+
+      emissionControl.value = '0.37';
+      emissionControl.dispatchEvent(new Event('input', { bubbles: true }));
+      const alphaAfterEmissionChange =
+        window.BAClickFXDemo.getFxConfig().bloom.trailAlpha;
+
+      nativeControl.value = '0.46';
+      nativeControl.dispatchEvent(new Event('input', { bubbles: true }));
+      const bloom = window.BAClickFXDemo.getFxConfig().bloom;
+
+      return {
+        trailEmissionAlpha: bloom.trailEmissionAlpha,
+        trailAlpha: bloom.trailAlpha,
+        alphaAfterEmissionChange,
+        storedEmission: localStorage.getItem('bafx-ctrlBloomTrail'),
+        storedNative: localStorage.getItem('bafx-ctrlBloomTrailAlpha'),
+      };
+    });
+    assert(
+      independentTrailAlphaControls.trailEmissionAlpha === 0.37 &&
+        independentTrailAlphaControls.trailAlpha === 0.46 &&
+        independentTrailAlphaControls.alphaAfterEmissionChange === 0.18 &&
+        independentTrailAlphaControls.storedEmission === '0.37' &&
+        independentTrailAlphaControls.storedNative === '0.46',
+      'Software 与 Native 拖尾辉光 Alpha 控件仍然互相覆盖',
+      independentTrailAlphaControls,
+    );
 
     const advancedChanged = await page.evaluate((controls) =>
     {

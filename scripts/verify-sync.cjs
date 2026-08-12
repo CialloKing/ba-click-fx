@@ -190,6 +190,27 @@ verify(
     /ctrlShardRoundness: d\.labelShardRoundness/.test(mainJs),
   '碎片圆角滑块支持重置、本地恢复与双语标签',
 );
+const nativeTrailAlphaControl = indexHtml.match(
+  /<input\s+[^>]*id="ctrlBloomTrailAlpha"[^>]*>/,
+)?.[0] ?? '';
+
+verify(
+  /min="0"/.test(nativeTrailAlphaControl) &&
+    /max="1"/.test(nativeTrailAlphaControl) &&
+    /step="0\.01"/.test(nativeTrailAlphaControl) &&
+    /value="0\.18"/.test(nativeTrailAlphaControl) &&
+    /bindRange\('ctrlBloomTrailAlpha', 'outBloomTrailAlpha',[\s\S]*?setFxParam\('bloom\.trailAlpha', v\)\)/.test(mainJs) &&
+    /bindRange\('ctrlBloomTrail', 'outBloomTrail',[\s\S]*?setFxParam\('bloom\.trailEmissionAlpha', v\)\)/.test(mainJs) &&
+    !/setFxParam\('bloom\.trailAlpha', v \* 0\.18\)/.test(mainJs),
+  '展示页分别调整 Software 与 Native 拖尾辉光 Alpha',
+);
+verify(
+  /\['ctrlBloomTrailAlpha', 'outBloomTrailAlpha', 0\.18, false\]/.test(mainJs) &&
+    /\['ctrlBloomTrailAlpha', 'bloom\.trailAlpha'\]/.test(mainJs) &&
+    /ctrlBloomTrailAlpha: d\.labelBloomTrailAlpha/.test(mainJs) &&
+    /legacyTrailCalibration[\s\S]*?calibration \* 0\.18/.test(mainJs),
+  'Native 拖尾辉光 Alpha 支持重置、双语、持久化与旧设置迁移',
+);
 const preciseRangeSteps =
 {
   ctrlScale: '0.01',
@@ -236,6 +257,7 @@ const preciseRangeSteps =
   ctrlTrailShardSpeedMin: '0.01',
   ctrlTrailShardSpeedMax: '0.01',
   ctrlBloomDisk: '0.1',
+  ctrlBloomTrailAlpha: '0.01',
 };
 
 const dprControl = indexHtml.match(
