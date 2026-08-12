@@ -326,6 +326,53 @@ verify(
     /<option value="manual">/.test(inputSourceSelect),
   '展示页可切换 DOM 自动监听与宿主手动输入',
 );
+const touchActionSelect = indexHtml.match(
+  /<select id="ctrlTouchAction"[\s\S]*?<\/select>/,
+)?.[0] ?? '';
+const touchActionOptions = [
+  ...touchActionSelect.matchAll(
+    /<option value="([^"]+)"(?: selected)?>([^<]+)<\/option>/g,
+  ),
+].map((match) => ({ value: match[1], text: match[2] }));
+const expectedTouchActionOptions = [
+  { value: 'auto', text: '自动' },
+  { value: 'none', text: '禁止默认手势' },
+  { value: 'pan-x', text: '仅横向平移' },
+  { value: 'pan-y', text: '仅纵向平移' },
+  { value: 'pinch-zoom', text: '仅双指缩放' },
+  { value: 'pan-x pinch-zoom', text: '横向平移与缩放' },
+  { value: 'pan-y pinch-zoom', text: '纵向平移与缩放' },
+  { value: 'manipulation', text: '直接操作' },
+];
+const touchActionSetSource = mainJs.match(
+  /const TOUCH_ACTIONS = new Set\(\[([\s\S]*?)\]\);/,
+)?.[1] ?? '';
+const touchActionValues = [
+  ...touchActionSetSource.matchAll(/'([^']+)'/g),
+].map((match) => match[1]);
+
+verify(
+  JSON.stringify(touchActionOptions) ===
+      JSON.stringify(expectedTouchActionOptions) &&
+    JSON.stringify(touchActionValues) === JSON.stringify(
+      expectedTouchActionOptions.map(({ value }) => value),
+    ),
+  '展示页触摸行为下拉框与运行时白名单统一提供八种策略',
+);
+verify(
+  /touchActionPinchZoom: '仅双指缩放'/.test(mainJs) &&
+    /touchActionPanXPinchZoom: '横向平移与缩放'/.test(mainJs) &&
+    /touchActionPanYPinchZoom: '纵向平移与缩放'/.test(mainJs) &&
+    /touchActionPinchZoom: 'Pinch Zoom Only'/.test(mainJs) &&
+    /touchActionPanXPinchZoom: 'Pan X \+ Pinch Zoom'/.test(mainJs) &&
+    /touchActionPanYPinchZoom: 'Pan Y \+ Pinch Zoom'/.test(mainJs) &&
+    /'pinch-zoom': d\.touchActionPinchZoom/.test(mainJs) &&
+    /'pan-x pinch-zoom': d\.touchActionPanXPinchZoom/.test(mainJs) &&
+    /'pan-y pinch-zoom': d\.touchActionPanYPinchZoom/.test(mainJs) &&
+    /effect\.updateConfig\(\{ touchAction: resolved \}\)/.test(mainJs) &&
+    /localStorage\.setItem\('bafx-ctrlTouchAction', resolved\)/.test(mainJs),
+  '保留缩放的触摸行为支持双语切换并复用配置持久化通路',
+);
 const inputSamplingRateControl = indexHtml.match(
   /<input type="range" id="ctrlInputSamplingRate"[^>]*>/,
 )?.[0] ?? '';

@@ -613,6 +613,9 @@ const TOUCH_ACTIONS = new Set([
   'none',
   'pan-x',
   'pan-y',
+  'pinch-zoom',
+  'pan-x pinch-zoom',
+  'pan-y pinch-zoom',
   'manipulation',
 ]);
 let currentInputSource = 'dom';
@@ -2669,6 +2672,9 @@ const I18N = {
     touchActionNone: '禁止默认手势',
     touchActionPanX: '仅横向平移',
     touchActionPanY: '仅纵向平移',
+    touchActionPinchZoom: '仅双指缩放',
+    touchActionPanXPinchZoom: '横向平移与缩放',
+    touchActionPanYPinchZoom: '纵向平移与缩放',
     touchActionManipulation: '直接操作',
     hostApiDom: 'DOM 模式：库自动监听 window 指针事件。',
     hostApiManual: '手动模式：展示页通过公开 pointer API 注入输入。',
@@ -2930,6 +2936,9 @@ const I18N = {
     touchActionNone: 'Disable Default Gestures',
     touchActionPanX: 'Pan X Only',
     touchActionPanY: 'Pan Y Only',
+    touchActionPinchZoom: 'Pinch Zoom Only',
+    touchActionPanXPinchZoom: 'Pan X + Pinch Zoom',
+    touchActionPanYPinchZoom: 'Pan Y + Pinch Zoom',
     touchActionManipulation: 'Manipulation',
     hostApiDom: 'DOM mode: the library listens for window pointer events.',
     hostApiManual: 'Manual mode: the demo injects input through the public pointer API.',
@@ -3531,6 +3540,9 @@ function switchLanguage(lang)
     none: d.touchActionNone,
     'pan-x': d.touchActionPanX,
     'pan-y': d.touchActionPanY,
+    'pinch-zoom': d.touchActionPinchZoom,
+    'pan-x pinch-zoom': d.touchActionPanXPinchZoom,
+    'pan-y pinch-zoom': d.touchActionPanYPinchZoom,
     manipulation: d.touchActionManipulation,
   };
 

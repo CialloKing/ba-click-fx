@@ -3833,6 +3833,36 @@ async function runDemoMobileTouchSmoke(browserInstance, baseUrl)
       keepsTrail: false,
     },
     {
+      action: 'pinch-zoom',
+      direction: 'horizontal',
+      keepsTrail: true,
+    },
+    {
+      action: 'pinch-zoom',
+      direction: 'vertical',
+      keepsTrail: true,
+    },
+    {
+      action: 'pan-x pinch-zoom',
+      direction: 'horizontal',
+      keepsTrail: false,
+    },
+    {
+      action: 'pan-x pinch-zoom',
+      direction: 'vertical',
+      keepsTrail: true,
+    },
+    {
+      action: 'pan-y pinch-zoom',
+      direction: 'horizontal',
+      keepsTrail: true,
+    },
+    {
+      action: 'pan-y pinch-zoom',
+      direction: 'vertical',
+      keepsTrail: false,
+    },
+    {
       action: 'auto',
       direction: 'horizontal',
       keepsTrail: false,
@@ -4570,6 +4600,13 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         themeColorModeOptions: Array.from(
           document.querySelectorAll('#ctrlThemeColorMode option'),
         ).map((option) => option.value),
+        touchActionOptions: Array.from(
+          document.querySelectorAll('#ctrlTouchAction option'),
+        ).map((option) =>
+        ({
+          value: option.value,
+          text: option.textContent.trim(),
+        })),
         actualShardScopes,
         shardControlCount: shardSection?.querySelectorAll('input[type="range"]').length ?? -1,
         bloomControlIds,
@@ -4634,6 +4671,20 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       structure.faqExplainsMobileTouch,
       '展示页中文 FAQ 没有说明移动端触摸行为切换',
       structure,
+    );
+    assert(
+      JSON.stringify(structure.touchActionOptions) === JSON.stringify([
+        { value: 'auto', text: '自动' },
+        { value: 'none', text: '禁止默认手势' },
+        { value: 'pan-x', text: '仅横向平移' },
+        { value: 'pan-y', text: '仅纵向平移' },
+        { value: 'pinch-zoom', text: '仅双指缩放' },
+        { value: 'pan-x pinch-zoom', text: '横向平移与缩放' },
+        { value: 'pan-y pinch-zoom', text: '纵向平移与缩放' },
+        { value: 'manipulation', text: '直接操作' },
+      ]),
+      '展示页没有完整提供八种中文触摸行为选项',
+      structure.touchActionOptions,
     );
     assert(
       structure.themeColorMode === 'relative-oklch' &&
@@ -4978,7 +5029,21 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       setValue('ctrlHostCompositing', 'plus-lighter');
       setValue('ctrlHostCompositingSurface', 'native');
       setValue('ctrlLightBackgroundContrastAlpha', '0.42', 'input');
-      setValue('ctrlTouchAction', 'none');
+      const touchActionStates = [
+        'pinch-zoom',
+        'pan-x pinch-zoom',
+        'pan-y pinch-zoom',
+      ].map((action) =>
+      {
+        setValue('ctrlTouchAction', action);
+
+        return {
+          action,
+          config: readConfig().touchAction,
+          style: effect.canvas.style.touchAction,
+          stored: localStorage.getItem('bafx-ctrlTouchAction'),
+        };
+      });
       setValue('ctrlInputSource', 'manual');
       setValue('ctrlInputSamplingRate', '1000', 'input');
       const maximumSamplingState =
@@ -5033,6 +5098,7 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         initialSamplingControl,
         maximumSamplingState,
         mobileSamplingOutputWidth,
+        touchActionStates,
         pointerDown,
         pointerMove,
         pointerCancel,
@@ -5045,9 +5111,13 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         hostApiState.config.hostCompositing === 'plus-lighter' &&
         hostApiState.config.hostCompositingSurface === 'native' &&
         hostApiState.config.lightBackgroundContrastAlpha === 0.42 &&
-        hostApiState.config.touchAction === 'none' &&
-        hostApiState.touchActionStyle === 'none' &&
-        hostApiState.storedTouchAction === 'none' &&
+        hostApiState.config.touchAction === 'pan-y pinch-zoom' &&
+        hostApiState.touchActionStyle === 'pan-y pinch-zoom' &&
+        hostApiState.storedTouchAction === 'pan-y pinch-zoom' &&
+        hostApiState.touchActionStates.every((state) =>
+          state.config === state.action &&
+            state.style === state.action &&
+            state.stored === state.action) &&
         hostApiState.storedHostCompositing === 'plus-lighter' &&
         hostApiState.storedHostSurface === 'native' &&
         hostApiState.storedContrastAlpha === '0.42' &&
@@ -5093,6 +5163,13 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         themeColorModeOptions: Array.from(
           document.querySelectorAll('#ctrlThemeColorMode option'),
         ).map((option) => option.textContent),
+        touchActionOptions: Array.from(
+          document.querySelectorAll('#ctrlTouchAction option'),
+        ).map((option) =>
+        ({
+          value: option.value,
+          text: option.textContent.trim(),
+        })),
         themeBlueTitle: document.querySelector('.theme-btn[data-theme="蔚蓝"]')?.title,
         themeCustomTitle: document.querySelector('.theme-btn[data-theme="custom"]')?.title,
       };
@@ -5107,6 +5184,16 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         JSON.stringify(english.themeColorModeOptions) === JSON.stringify([
           'Relative OKLCH (Recommended)',
           'Hue Only (Compatible)',
+        ]) &&
+        JSON.stringify(english.touchActionOptions) === JSON.stringify([
+          { value: 'auto', text: 'Auto' },
+          { value: 'none', text: 'Disable Default Gestures' },
+          { value: 'pan-x', text: 'Pan X Only' },
+          { value: 'pan-y', text: 'Pan Y Only' },
+          { value: 'pinch-zoom', text: 'Pinch Zoom Only' },
+          { value: 'pan-x pinch-zoom', text: 'Pan X + Pinch Zoom' },
+          { value: 'pan-y pinch-zoom', text: 'Pan Y + Pinch Zoom' },
+          { value: 'manipulation', text: 'Manipulation' },
         ]) &&
         english.themeBlueTitle === 'Blue (Default)' &&
         english.themeCustomTitle === 'Custom',
@@ -5132,10 +5219,22 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
 
       return effect?.getConfig().inputSamplingRate === 30 &&
         document.getElementById('ctrlInputSamplingRate')?.value === '30' &&
-        document.getElementById('outInputSamplingRate')?.textContent === '30';
+        document.getElementById('outInputSamplingRate')?.textContent === '30' &&
+        effect.getConfig().touchAction === 'pan-y pinch-zoom' &&
+        effect.canvas.style.touchAction === 'pan-y pinch-zoom' &&
+        document.getElementById('ctrlTouchAction')?.value ===
+          'pan-y pinch-zoom' &&
+        localStorage.getItem('bafx-ctrlTouchAction') === 'pan-y pinch-zoom';
     });
     const restoredInputSamplingRate = await page.evaluate(() =>
       localStorage.getItem('bafx-ctrlInputSamplingRate'));
+    const restoredTouchAction = await page.evaluate(() =>
+    ({
+      config: window.BAClickFXDemo.getConfig().touchAction,
+      control: document.getElementById('ctrlTouchAction').value,
+      style: window.BAClickFXDemo.canvas.style.touchAction,
+      stored: localStorage.getItem('bafx-ctrlTouchAction'),
+    }));
 
     await page.evaluate(() => document.getElementById('btnReset').click());
     await page.waitForFunction(() =>
@@ -5145,13 +5244,24 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       return effect?.getConfig().inputSamplingRate === 0 &&
         document.getElementById('ctrlInputSamplingRate')?.value === '0' &&
         document.getElementById('outInputSamplingRate')?.textContent === '0' &&
-        localStorage.getItem('bafx-ctrlInputSamplingRate') === null;
+        localStorage.getItem('bafx-ctrlInputSamplingRate') === null &&
+        effect.getConfig().touchAction === 'auto' &&
+        effect.canvas.style.touchAction === 'auto' &&
+        document.getElementById('ctrlTouchAction')?.value === 'auto' &&
+        localStorage.getItem('bafx-ctrlTouchAction') === null;
     });
     const resetInputSamplingRate = await page.evaluate(() =>
     ({
       config: window.BAClickFXDemo.getConfig().inputSamplingRate,
       control: document.getElementById('ctrlInputSamplingRate').value,
       stored: localStorage.getItem('bafx-ctrlInputSamplingRate'),
+    }));
+    const resetTouchAction = await page.evaluate(() =>
+    ({
+      config: window.BAClickFXDemo.getConfig().touchAction,
+      control: document.getElementById('ctrlTouchAction').value,
+      style: window.BAClickFXDemo.canvas.style.touchAction,
+      stored: localStorage.getItem('bafx-ctrlTouchAction'),
     }));
 
     assert(
@@ -5161,6 +5271,17 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         resetInputSamplingRate.stored === null,
       '输入采样率没有跨刷新恢复或随重置恢复不限频',
       { restoredInputSamplingRate, resetInputSamplingRate },
+    );
+    assert(
+      Object.values(restoredTouchAction).every(
+        (value) => value === 'pan-y pinch-zoom',
+      ) &&
+        resetTouchAction.config === 'auto' &&
+        resetTouchAction.control === 'auto' &&
+        resetTouchAction.style === 'auto' &&
+        resetTouchAction.stored === null,
+      '组合触摸行为没有跨刷新恢复或随重置恢复自动模式',
+      { restoredTouchAction, resetTouchAction },
     );
     metrics.demoControlPanelStructure =
     {
@@ -5174,6 +5295,8 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
       english,
       restoredInputSamplingRate,
       resetInputSamplingRate,
+      restoredTouchAction,
+      resetTouchAction,
     };
   }
   finally
