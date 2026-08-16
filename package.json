@@ -66,7 +66,8 @@
     "dev": "vite",
     "build": "node scripts/build.mjs",
     "preview": "vite preview",
-    "test": "node test/smoke.js",
+    "test:worker": "node test/offscreen-worker.js",
+    "test": "node test/smoke.js && node test/offscreen-worker.js",
     "test:source": "node test/smoke.js --source && node test/triangle-fallback.js",
     "test:themes": "node test/theme-color.js && node test/theme-background.js",
     "test:bloom": "node test/software-bloom.js",
@@ -83,10 +84,11 @@
     "verify:package": "node scripts/verify-package.mjs",
     "verify:pack": "node scripts/verify-pack.mjs",
     "verify:tarball": "node scripts/verify-tarball.mjs",
-    "check:fast": "npm run test:config && npm run test:themes && npm run test:webgpu && npm run test:source && node scripts/verify-sync.cjs",
+    "check:fast": "npm run test:config && npm run test:themes && npm run test:webgpu && npm run test:source && npm run test:worker && node scripts/verify-sync.cjs",
     "check": "npm run build && npm run test:bloom && npm run test:webgpu && npm run test:config && npm run test:themes && npm run test:source && npm test && npm run verify:sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
     "check:release": "npm run check && npm run test:browser:built && npm run test:browser:webgpu:optional",
     "prepack": "npm run build",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run check:release"
   },
   "devDependencies": {
