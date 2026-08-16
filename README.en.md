@@ -131,7 +131,24 @@ fx.boom(window.innerWidth / 2, window.innerHeight / 2);
 fx.destroy();
 ```
 
-Render off the main thread in a Web Worker (`OffscreenCanvas`):
+Render off the main thread in a Web Worker (Zero Main-Thread CPU Overhead):
+
+**Option A: Out-of-the-box (Recommended)**
+
+```js
+import { BAClickFX } from 'ba-click-fx';
+
+// Enable useWorker to automatically create an OffscreenCanvas and WebGL2 renderer in a background Web Worker
+const fx = new BAClickFX({
+  useWorker: true,
+  scale: 1,
+});
+
+// All public methods (boom, setThemeColor, setPaused, updateConfig, destroy) seamlessly proxy to the background Worker
+fx.boom(window.innerWidth / 2, window.innerHeight / 2);
+```
+
+**Option B: Custom Worker Pipeline (Advanced)**
 
 ```js
 // worker.js
@@ -190,6 +207,7 @@ window.addEventListener('pointerup', (e) => {
 ```ts
 new BAClickFX(options?: {
   target?: string | HTMLElement | OffscreenCanvas, // mount target or OffscreenCanvas, default fullscreen
+  useWorker?: boolean,           // enable Web Worker offscreen rendering, default false
   scale?: number,                // default 1
   opacity?: number,              // default 1
   themeColor?: string,           // six-digit hex, default #4ca7ff

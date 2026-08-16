@@ -81,6 +81,7 @@ import {
   evaluateTrailLongitudinalCoverage,
   evaluateTrailTextureCoverageProfile,
 } from './trail-coverage.js';
+import { WORKER_SOURCE } from './worker-code.generated.js';
 
 const TAU = Math.PI * 2;
 const LIGHT_BACKGROUND_CONTRAST_COLOR = [76, 255, 255];
@@ -6407,6 +6408,7 @@ export class BAClickFX
           : CONFIG.lightBackgroundContrastAlpha,
         maxDpr: Number.isFinite(options.maxDpr) ? Math.max(1, options.maxDpr) : CONFIG.maxDpr,
         touchAction: options.touchAction ?? CONFIG.touchAction,
+        useWorker: options.useWorker ?? options.worker ?? CONFIG.useWorker,
       },
     );
     this.inputFilter = typeof options.inputFilter === 'function'
@@ -6445,6 +6447,136 @@ export class BAClickFX
     if (!this.canvas)
     {
       throw new Error('BAClickFX 找不到 target');
+    }
+
+    const shouldTryWorker = (this.config.useWorker === true || options.worker === true) && !options._isWorkerInstance;
+    const canUseWorker = shouldTryWorker &&
+      typeof window !== 'undefined' &&
+      typeof Worker !== 'undefined' &&
+      typeof Blob !== 'undefined' &&
+      typeof URL !== 'undefined' &&
+      typeof HTMLCanvasElement !== 'undefined' &&
+      'transferControlToOffscreen' in HTMLCanvasElement.prototype &&
+      typeof WORKER_SOURCE === 'string';
+
+    if (canUseWorker)
+    {
+      this.isWorkerControlled = true;
+      this.destroyed = false;
+      this.paused = false;
+      this.waves = [];
+      this.shards = [];
+      this.trailStrokes = [];
+
+      if (this.ownsCanvas)
+      {
+        const parent = this.host ?? document.body;
+        this.overlayMountParent = parent;
+        this.overlayRoot = createOverlayRoot(!this.host);
+        setOverlayStyle(this.canvas, false, '2147483646', '');
+        this._applyCompositingMount();
+      }
+      else
+      {
+        this.overlayMountParent = null;
+        this.overlayRoot = null;
+        this.overlayParent = null;
+      }
+
+      if (this.canvas.style)
+      {
+        this.canvas.style.touchAction = this.config.touchAction;
+      }
+
+      const offscreen = this.canvas.transferControlToOffscreen();
+      const blob = new Blob([WORKER_SOURCE], { type: 'application/javascript' });
+      this.workerBlobUrl = URL.createObjectURL(blob);
+      this.worker = new Worker(this.workerBlobUrl);
+
+      const rect = this._getCanvasRect();
+      const width = Math.max(1, rect.width || window.innerWidth || 1);
+      const height = Math.max(1, rect.height || window.innerHeight || 1);
+      const dpr = Math.min(window.devicePixelRatio || 1, this.config.maxDpr);
+
+      this.worker.postMessage(
+        {
+          type: 'INIT',
+          canvas: offscreen,
+          width,
+          height,
+          dpr,
+          options: {
+            ...options,
+            useWorker: false,
+            _isWorkerInstance: true,
+          },
+        },
+        [offscreen],
+      );
+
+      this._workerOnResize = () =>
+      {
+        if (this.destroyed) return;
+        const r = this._getCanvasRect();
+        this.worker?.postMessage({
+          type: 'RESIZE',
+          width: Math.max(1, r.width || window.innerWidth || 1),
+          height: Math.max(1, r.height || window.innerHeight || 1),
+          dpr: Math.min(window.devicePixelRatio || 1, this.config.maxDpr),
+        });
+      };
+      window.addEventListener('resize', this._workerOnResize, { passive: true });
+
+      if (this.config.inputSource === 'dom')
+      {
+        this._workerOnPointerDown = (e) =>
+        {
+          if (this.destroyed) return;
+          if (this.inputFilter && !this.inputFilter(e)) return;
+          this.worker?.postMessage({
+            type: 'POINTER_DOWN',
+            x: e.clientX,
+            y: e.clientY,
+            pointerId: e.pointerId ?? 1,
+            pointerType: e.pointerType ?? 'mouse',
+          });
+        };
+        this._workerOnPointerMove = (e) =>
+        {
+          if (this.destroyed) return;
+          if (this.inputFilter && !this.inputFilter(e)) return;
+          this.worker?.postMessage({
+            type: 'POINTER_MOVE',
+            x: e.clientX,
+            y: e.clientY,
+            pointerId: e.pointerId ?? 1,
+            pointerType: e.pointerType ?? 'mouse',
+          });
+        };
+        this._workerOnPointerUp = (e) =>
+        {
+          if (this.destroyed) return;
+          this.worker?.postMessage({
+            type: 'POINTER_UP',
+            pointerId: e.pointerId ?? 1,
+          });
+        };
+        this._workerOnPointerCancel = (e) =>
+        {
+          if (this.destroyed) return;
+          this.worker?.postMessage({
+            type: 'POINTER_CANCEL',
+            pointerId: e.pointerId ?? 1,
+          });
+        };
+
+        window.addEventListener('pointerdown', this._workerOnPointerDown, { passive: true });
+        window.addEventListener('pointermove', this._workerOnPointerMove, { passive: true });
+        window.addEventListener('pointerup', this._workerOnPointerUp, { passive: true });
+        window.addEventListener('pointercancel', this._workerOnPointerCancel, { passive: true });
+      }
+
+      return;
     }
 
     if (this.ownsCanvas)
@@ -7743,6 +7875,16 @@ export class BAClickFX
 
   resize(width, height, dpr)
   {
+    if (this.isWorkerControlled)
+    {
+      this.worker?.postMessage({
+        type: 'RESIZE',
+        width,
+        height,
+        dpr,
+      });
+      return;
+    }
     this._resize(width, height, dpr);
   }
 
@@ -8152,6 +8294,18 @@ export class BAClickFX
       return false;
     }
 
+    if (this.isWorkerControlled)
+    {
+      this.worker?.postMessage({
+        type: 'POINTER_DOWN',
+        x: input?.x ?? input?.clientX ?? 0,
+        y: input?.y ?? input?.clientY ?? 0,
+        pointerId: input?.pointerId ?? 1,
+        pointerType: input?.pointerType ?? 'mouse',
+      });
+      return true;
+    }
+
     const pointer = this._normalizePointerInput(input);
 
     if (!pointer)
@@ -8258,6 +8412,18 @@ export class BAClickFX
     if (this.destroyed || this.paused || !this.config.trailEnabled)
     {
       return false;
+    }
+
+    if (this.isWorkerControlled)
+    {
+      this.worker?.postMessage({
+        type: 'POINTER_MOVE',
+        x: input?.x ?? input?.clientX ?? 0,
+        y: input?.y ?? input?.clientY ?? 0,
+        pointerId: input?.pointerId ?? 1,
+        pointerType: input?.pointerType ?? 'mouse',
+      });
+      return true;
     }
 
     const pointer = this._normalizePointerInput(input);
@@ -8523,9 +8689,21 @@ export class BAClickFX
   /** 结束指针；已有拖尾顶点继续自然消失。 */
   pointerUp(pointerId = 1)
   {
+    if (this.destroyed || this.paused)
+    {
+      return false;
+    }
+
+    if (this.isWorkerControlled)
+    {
+      this.worker?.postMessage({
+        type: 'POINTER_UP',
+        pointerId: typeof pointerId === 'number' ? pointerId : (pointerId?.pointerId ?? 1),
+      });
+      return true;
+    }
+
     if (
-      this.destroyed ||
-      this.paused ||
       !Number.isFinite(pointerId) ||
       this.activePointerId === null ||
       pointerId !== this.activePointerId
@@ -8541,9 +8719,21 @@ export class BAClickFX
   /** 强制结束异常指针状态，并立即移除当前轨迹。 */
   pointerCancel(pointerId = 1)
   {
+    if (this.destroyed || this.paused)
+    {
+      return false;
+    }
+
+    if (this.isWorkerControlled)
+    {
+      this.worker?.postMessage({
+        type: 'POINTER_CANCEL',
+        pointerId: typeof pointerId === 'number' ? pointerId : (pointerId?.pointerId ?? 1),
+      });
+      return true;
+    }
+
     if (
-      this.destroyed ||
-      this.paused ||
       !Number.isFinite(pointerId) ||
       this.activePointerId === null ||
       pointerId !== this.activePointerId
@@ -12169,6 +12359,16 @@ export class BAClickFX
       return;
     }
 
+    if (this.isWorkerControlled)
+    {
+      this.worker?.postMessage({
+        type: 'BOOM',
+        x: Number(x) || 0,
+        y: Number(y) || 0,
+      });
+      return;
+    }
+
     this._spawnClick(
       clamp(Number(x) || 0, 0, this.width),
       clamp(Number(y) || 0, 0, this.height),
@@ -12181,6 +12381,17 @@ export class BAClickFX
   {
     if (this.destroyed)
     {
+      return;
+    }
+
+    if (this.isWorkerControlled)
+    {
+      this.paused = paused === true;
+      this.worker?.postMessage({
+        type: 'PAUSE',
+        paused: this.paused,
+        clear: options?.clear === true,
+      });
       return;
     }
 
@@ -12260,6 +12471,18 @@ export class BAClickFX
       return;
     }
 
+    if (this.isWorkerControlled)
+    {
+      const themeColor = normalizeThemeColor(hex, DEFAULT_THEME_COLOR);
+      this.config.themeColor = themeColor;
+      this.worker?.postMessage({
+        type: 'SET_THEME_COLOR',
+        color: themeColor,
+        mode: this.config.themeColorMode,
+      });
+      return;
+    }
+
     this._applyThemeColor(hex);
     this._requestRender();
   }
@@ -12283,6 +12506,17 @@ export class BAClickFX
       return false;
     }
 
+    if (this.isWorkerControlled)
+    {
+      this.config.themeColorMode = mode;
+      this.worker?.postMessage({
+        type: 'SET_THEME_COLOR',
+        color: this.config.themeColor,
+        mode,
+      });
+      return true;
+    }
+
     this.config.themeColorMode = mode;
     this._relativeOklchTheme = mode === 'relative-oklch'
       ? createRelativeOklchTheme(this.config.themeColor)
@@ -12299,6 +12533,16 @@ export class BAClickFX
       return false;
     }
 
+    if (this.isWorkerControlled)
+    {
+      this.config.inputSamplingRate = rateHz;
+      this.worker?.postMessage({
+        type: 'UPDATE_CONFIG',
+        config: { inputSamplingRate: rateHz },
+      });
+      return true;
+    }
+
     this.updateConfig({ inputSamplingRate: rateHz });
     return true;
   }
@@ -12312,6 +12556,16 @@ export class BAClickFX
   {
     if (this.destroyed)
     {
+      return;
+    }
+
+    if (this.isWorkerControlled)
+    {
+      Object.assign(this.config, overrides);
+      this.worker?.postMessage({
+        type: 'UPDATE_CONFIG',
+        config: overrides,
+      });
       return;
     }
 
@@ -13049,6 +13303,35 @@ export class BAClickFX
   {
     if (this.destroyed)
     {
+      return;
+    }
+
+    if (this.isWorkerControlled)
+    {
+      this.destroyed = true;
+      if (typeof window !== 'undefined')
+      {
+        window.removeEventListener('resize', this._workerOnResize);
+        if (this._workerOnPointerDown)
+        {
+          window.removeEventListener('pointerdown', this._workerOnPointerDown);
+          window.removeEventListener('pointermove', this._workerOnPointerMove);
+          window.removeEventListener('pointerup', this._workerOnPointerUp);
+          window.removeEventListener('pointercancel', this._workerOnPointerCancel);
+        }
+      }
+      this.worker?.postMessage({ type: 'DESTROY' });
+      this.worker?.terminate();
+      if (this.workerBlobUrl && typeof URL !== 'undefined')
+      {
+        URL.revokeObjectURL(this.workerBlobUrl);
+      }
+      if (this.ownsCanvas)
+      {
+        this.canvas?.remove();
+        this.overlayRoot?.remove?.();
+      }
+      this.worker = null;
       return;
     }
 

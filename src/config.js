@@ -1052,6 +1052,7 @@ export const CONFIG = Object.freeze(
     // 默认按 CSS 像素渲染，避免高 DPR 移动设备成倍放大填充与 Bloom 开销。
     maxDpr: 1,
     touchAction: 'auto',
+    useWorker: false,
   },
 );
 
@@ -1441,5 +1442,8 @@ export function createConfig(overrides = {})
     isolatedCompositing: typeof overrides.isolatedCompositing === 'boolean'
       ? overrides.isolatedCompositing
       : CONFIG.isolatedCompositing,
+    useWorker: typeof overrides.useWorker === 'boolean'
+      ? overrides.useWorker
+      : (typeof overrides.worker === 'boolean' ? overrides.worker : CONFIG.useWorker),
   };
 }

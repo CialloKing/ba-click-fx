@@ -151,7 +151,24 @@ fx.boom(window.innerWidth / 2, window.innerHeight / 2);
 fx.destroy();
 ```
 
-在 Web Worker 中离线渲染（OffscreenCanvas）：
+在 Web Worker 中離線渲染（零主線程 CPU 開銷）：
+
+**方法 A：開箱即用（推薦）**
+
+```js
+import { BAClickFX } from 'ba-click-fx';
+
+// 啟用 useWorker，自動在後台 Web Worker 中建立 OffscreenCanvas 與 WebGL2 渲染，主線程零 CPU 負擔
+const fx = new BAClickFX({
+  useWorker: true,
+  scale: 1,
+});
+
+// 所有公開 API（boom、setThemeColor、setPaused、updateConfig、destroy）均無縫代理至後台 Worker
+fx.boom(window.innerWidth / 2, window.innerHeight / 2);
+```
+
+**方法 B：自定義 Worker 通訊（進階）**
 
 ```js
 // worker.js
@@ -210,6 +227,7 @@ window.addEventListener('pointerup', (e) => {
 ```ts
 new BAClickFX(options?: {
   target?: string | HTMLElement | OffscreenCanvas, // 挂载目标或离屏 Canvas，默认全屏
+  useWorker?: boolean,             // 是否启用 Web Worker 离线渲染，默认 false
   scale?: number,                  // 全局缩放，默认 1
   opacity?: number,                // 不透明度 0~1，默认 1
   themeColor?: string,             // 六位十六进制主题色，默认 #4ca7ff

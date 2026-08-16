@@ -180,6 +180,8 @@ declare module 'ba-click-fx'
      * auto/manipulation 和显式允许全部方向的组合保留原生快速滚动。
      */
     touchAction?: CSSStyleDeclaration['touchAction'];
+    /** 是否启用 Web Worker 离线渲染，默认 false。开启后自动在后台 Worker 中渲染 WebGL2，零主线程 CPU 开销。 */
+    useWorker?: boolean;
     /** 仅用于自动 DOM 输入准入；手动指针方法不会调用此过滤器。 */
     inputFilter?: BAClickFXInputFilter;
   }
@@ -224,6 +226,7 @@ declare module 'ba-click-fx'
     lightBackgroundContrastAlpha: number;
     maxDpr: number;
     touchAction: string;
+    useWorker: boolean;
   }
 
   export interface UnityFxTouchConfig
