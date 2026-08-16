@@ -6500,10 +6500,13 @@ export class BAClickFX
     {
       this.canvas.style.touchAction = this.config.touchAction;
     }
-    this.context = this.canvas.getContext('2d');
+    const isDirectOffscreen = typeof OffscreenCanvas !== 'undefined' && this.canvas instanceof OffscreenCanvas;
+    this.context = isDirectOffscreen && this.config.effectBackend !== 'canvas2d' && this.config.renderingMode !== 'legacy'
+      ? null
+      : this.canvas.getContext('2d');
     this.contrastContext = this.contrastCanvas?.getContext('2d') ?? null;
 
-    if (!this.context)
+    if (!this.context && !isDirectOffscreen)
     {
       throw new Error('BAClickFX 无法创建 Canvas 2D 上下文');
     }
@@ -7764,7 +7767,10 @@ export class BAClickFX
     this.dpr = dpr;
     this.canvas.width = Math.round(width * dpr);
     this.canvas.height = Math.round(height * dpr);
-    this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (this.context)
+    {
+      this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
 
     if (this.contrastCanvas && this.contrastContext)
     {
@@ -8734,8 +8740,18 @@ export class BAClickFX
     }
 
     this._setWebGLBloomVisible(!useGpuClickEffects && useWebGL2Bloom);
-    this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    this.context.clearRect(0, 0, this.width, this.height);
+    if (!useGpuClickEffects)
+    {
+      if (!this.context)
+      {
+        this.context = this.canvas.getContext?.('2d') ?? null;
+      }
+      if (this.context)
+      {
+        this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+        this.context.clearRect(0, 0, this.width, this.height);
+      }
+    }
     // 推入当前实例的主题变换，渲染完成后恢复，保证多实例安全。
     const prevHueShift = themeHueShift;
     const previousRelativeOklchTheme = relativeOklchTheme;
@@ -8747,16 +8763,22 @@ export class BAClickFX
     {
       // Context 异常也不能泄漏模块级主题状态；先建立 Canvas
       // 恢复点，再推入当前实例配置。
-      this.context.save();
-      contextSaved = true;
+      if (!useGpuClickEffects && this.context)
+      {
+        this.context.save();
+        contextSaved = true;
+      }
       themeHueShift = this._themeHueShift;
       relativeOklchTheme = this._relativeOklchTheme;
       // 透明 Canvas 无法独立保存 Additive RGB 与 Coverage Alpha；在 residual
       // Coverage Final Pass 完成前保留兼容 source-over，避免多个粒子把 Alpha 相加。
-      this.context.globalCompositeOperation =
-        this._getCanvasOutputCompositing() === 'browser-overlay'
-          ? 'source-over'
-          : 'lighter';
+      if (this.context)
+      {
+        this.context.globalCompositeOperation =
+          this._getCanvasOutputCompositing() === 'browser-overlay'
+            ? 'source-over'
+            : 'lighter';
+      }
       this.renderingFrame = true;
       this._updateTrail(
         this.trailTimeMs,
@@ -8944,12 +8966,13 @@ export class BAClickFX
   _getRequestedEffectBackendState()
   {
     const requested = normalizeEffectBackend(this.config.effectBackend);
+    const isDirectCanvas = typeof OffscreenCanvas !== 'undefined' && this.canvas instanceof OffscreenCanvas;
 
     if (
       this.config.renderingMode === 'legacy' ||
       requested === 'canvas2d' ||
-      !this.ownsCanvas ||
-      !this.overlayParent
+      (!this.ownsCanvas && !isDirectCanvas) ||
+      (this.ownsCanvas && !this.overlayParent)
     )
     {
       return 'canvas2d';
@@ -9515,28 +9538,38 @@ export class BAClickFX
       return this.webglEffectRenderer.available;
     }
 
-    if (
-      this.webglEffectUnavailable ||
-      !this.ownsCanvas ||
-      !this.overlayParent
-    )
+    if (this.webglEffectUnavailable)
     {
       return false;
     }
 
-    const canvas = createCanvas();
+    const isDirectCanvas = typeof OffscreenCanvas !== 'undefined' && this.canvas instanceof OffscreenCanvas;
+    if (!this.ownsCanvas && !isDirectCanvas)
+    {
+      return false;
+    }
 
-    setOverlayStyle(
-      canvas,
-      !this.host && !this.config.isolatedCompositing,
-      '2147483646',
-      '',
-    );
-    // 纯 WebGL2 已把加色 RGB 与 Cross2 Coverage 编码为预乘输出；普通
-    // DOM 合成才能执行 Unity 的 OneMinusSrcAlpha 背景衰减。
-    // 独立 Canvas 在 Scene 后端接管前保持隐藏，避免与稳定 Bloom 层叠加。
-    canvas.style.display = 'none';
-    this.overlayParent.appendChild(canvas);
+    if (this.ownsCanvas && !this.overlayParent)
+    {
+      return false;
+    }
+
+    const canvas = this.ownsCanvas ? createCanvas() : this.canvas;
+
+    if (this.ownsCanvas && this.overlayParent)
+    {
+      setOverlayStyle(
+        canvas,
+        !this.host && !this.config.isolatedCompositing,
+        '2147483646',
+        '',
+      );
+      // 纯 WebGL2 已把加色 RGB 与 Cross2 Coverage 编码为预乘输出；普通
+      // DOM 合成才能执行 Unity 的 OneMinusSrcAlpha 背景衰减。
+      // 独立 Canvas 在 Scene 后端接管前保持隐藏，避免与稳定 Bloom 层叠加。
+      canvas.style.display = 'none';
+      this.overlayParent.appendChild(canvas);
+    }
 
     let renderer = null;
 
@@ -9548,7 +9581,10 @@ export class BAClickFX
       {
         this.webglEffectUnavailable = true;
         renderer.destroy();
-        canvas.remove();
+        if (this.ownsCanvas)
+        {
+          canvas.remove();
+        }
         return false;
       }
 
@@ -9566,7 +9602,10 @@ export class BAClickFX
           // 候选 Renderer 未接入规范背景时不能宣称 Scene 已就绪。
           this.webglEffectUnavailable = true;
           renderer.destroy();
-          canvas.remove();
+          if (this.ownsCanvas)
+          {
+            canvas.remove();
+          }
           return false;
         }
       }
@@ -9576,17 +9615,20 @@ export class BAClickFX
       console.warn('[BAClickFX] 纯 WebGL2 创建失败:', error);
       this.webglEffectUnavailable = true;
       renderer?.destroy();
-      canvas.remove();
+      if (this.ownsCanvas)
+      {
+        canvas.remove();
+      }
       return false;
     }
 
     this.webglEffectCanvas = canvas;
     this.webglEffectRenderer = renderer;
-    canvas.addEventListener(
+    canvas.addEventListener?.(
       'webglcontextlost',
       this._onWebGLEffectContextLost,
     );
-    canvas.addEventListener(
+    canvas.addEventListener?.(
       'webglcontextrestored',
       this._onWebGLEffectContextRestored,
     );
@@ -9656,7 +9698,10 @@ export class BAClickFX
     }
 
     this.webglEffectVisible = visible;
-    this.webglEffectCanvas.style.display = visible ? '' : 'none';
+    if (this.webglEffectCanvas.style)
+    {
+      this.webglEffectCanvas.style.display = visible ? '' : 'none';
+    }
 
     if (!visible)
     {
@@ -9668,16 +9713,19 @@ export class BAClickFX
 
   _destroyWebGLEffectRenderer()
   {
-    this.webglEffectCanvas?.removeEventListener(
+    this.webglEffectCanvas?.removeEventListener?.(
       'webglcontextlost',
       this._onWebGLEffectContextLost,
     );
-    this.webglEffectCanvas?.removeEventListener(
+    this.webglEffectCanvas?.removeEventListener?.(
       'webglcontextrestored',
       this._onWebGLEffectContextRestored,
     );
-    this.webglEffectRenderer?.destroy();
-    this.webglEffectCanvas?.remove();
+    this.webglEffectRenderer?.destroy?.();
+    if (this.ownsCanvas)
+    {
+      this.webglEffectCanvas?.remove?.();
+    }
     this.webglEffectRenderer = null;
     this.webglEffectCanvas = null;
     this.webglEffectVisible = false;
