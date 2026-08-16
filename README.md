@@ -151,6 +151,56 @@ fx.boom(window.innerWidth / 2, window.innerHeight / 2);
 fx.destroy();
 ```
 
+在 Web Worker 中离线渲染（OffscreenCanvas）：
+
+```js
+// worker.js
+import { BAClickFX } from 'ba-click-fx';
+
+let fx = null;
+self.onmessage = (e) => {
+  const { type, ...data } = e.data;
+  if (type === 'INIT') {
+    fx = new BAClickFX({ target: data.canvas, inputSource: 'manual' });
+    fx.resize(data.width, data.height, data.dpr);
+  } else if (type === 'RESIZE') {
+    fx?.resize(data.width, data.height, data.dpr);
+  } else if (type === 'POINTER_DOWN') {
+    fx?.pointerDown(data);
+  } else if (type === 'POINTER_MOVE') {
+    fx?.pointerMove(data);
+  } else if (type === 'POINTER_UP') {
+    fx?.pointerUp(data.pointerId);
+  }
+};
+
+// main.js
+const canvas = document.getElementById('myCanvas');
+const offscreen = canvas.transferControlToOffscreen();
+const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+
+worker.postMessage(
+  {
+    type: 'INIT',
+    canvas: offscreen,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    dpr: window.devicePixelRatio || 1,
+  },
+  [offscreen]
+);
+
+window.addEventListener('pointerdown', (e) => {
+  worker.postMessage({ type: 'POINTER_DOWN', x: e.clientX, y: e.clientY, pointerId: e.pointerId });
+}, { passive: true });
+window.addEventListener('pointermove', (e) => {
+  worker.postMessage({ type: 'POINTER_MOVE', x: e.clientX, y: e.clientY, pointerId: e.pointerId });
+}, { passive: true });
+window.addEventListener('pointerup', (e) => {
+  worker.postMessage({ type: 'POINTER_UP', pointerId: e.pointerId });
+}, { passive: true });
+```
+
 ---
 
 ## API 文档
@@ -159,7 +209,7 @@ fx.destroy();
 
 ```ts
 new BAClickFX(options?: {
-  target?: string | HTMLElement,   // 挂载目标，默认全屏
+  target?: string | HTMLElement | OffscreenCanvas, // 挂载目标或离屏 Canvas，默认全屏
   scale?: number,                  // 全局缩放，默认 1
   opacity?: number,                // 不透明度 0~1，默认 1
   themeColor?: string,             // 六位十六进制主题色，默认 #4ca7ff

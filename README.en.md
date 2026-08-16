@@ -1,4 +1,4 @@
-﻿# ba-click-fx — Blue Archive Click Effect and Cursor Trail for Web
+# ba-click-fx — Blue Archive Click Effect and Cursor Trail for Web
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)
@@ -131,6 +131,56 @@ fx.boom(window.innerWidth / 2, window.innerHeight / 2);
 fx.destroy();
 ```
 
+Render off the main thread in a Web Worker (`OffscreenCanvas`):
+
+```js
+// worker.js
+import { BAClickFX } from 'ba-click-fx';
+
+let fx = null;
+self.onmessage = (e) => {
+  const { type, ...data } = e.data;
+  if (type === 'INIT') {
+    fx = new BAClickFX({ target: data.canvas, inputSource: 'manual' });
+    fx.resize(data.width, data.height, data.dpr);
+  } else if (type === 'RESIZE') {
+    fx?.resize(data.width, data.height, data.dpr);
+  } else if (type === 'POINTER_DOWN') {
+    fx?.pointerDown(data);
+  } else if (type === 'POINTER_MOVE') {
+    fx?.pointerMove(data);
+  } else if (type === 'POINTER_UP') {
+    fx?.pointerUp(data.pointerId);
+  }
+};
+
+// main.js
+const canvas = document.getElementById('myCanvas');
+const offscreen = canvas.transferControlToOffscreen();
+const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+
+worker.postMessage(
+  {
+    type: 'INIT',
+    canvas: offscreen,
+    width: window.innerWidth,
+    height: window.innerHeight,
+    dpr: window.devicePixelRatio || 1,
+  },
+  [offscreen]
+);
+
+window.addEventListener('pointerdown', (e) => {
+  worker.postMessage({ type: 'POINTER_DOWN', x: e.clientX, y: e.clientY, pointerId: e.pointerId });
+}, { passive: true });
+window.addEventListener('pointermove', (e) => {
+  worker.postMessage({ type: 'POINTER_MOVE', x: e.clientX, y: e.clientY, pointerId: e.pointerId });
+}, { passive: true });
+window.addEventListener('pointerup', (e) => {
+  worker.postMessage({ type: 'POINTER_UP', pointerId: e.pointerId });
+}, { passive: true });
+```
+
 ---
 
 ## API Reference
@@ -139,7 +189,7 @@ fx.destroy();
 
 ```ts
 new BAClickFX(options?: {
-  target?: string | HTMLElement,
+  target?: string | HTMLElement | OffscreenCanvas, // mount target or OffscreenCanvas, default fullscreen
   scale?: number,                // default 1
   opacity?: number,              // default 1
   themeColor?: string,           // six-digit hex, default #4ca7ff
