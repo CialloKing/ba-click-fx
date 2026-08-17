@@ -53,6 +53,7 @@
 - Seven demo rendering choices: WebGPU, WebGPU HDR (experimental), Full WebGL2 (default), WebGL2 Bloom, Software Bloom, Native Glow, and Legacy
 - WebGPU uses an `rgba16float` linear Scene and multi-level Bloom; the ordinary mode forces a standard SDR Canvas, while the HDR mode may request `extended` output that preserves highlights above SDR white
 - An unavailable or lost WebGPU device falls back to Full WebGL2, then through Canvas 2D, Software Bloom, and Native Glow
+- Advanced hosts can place the core in a Worker with direct `OffscreenCanvas`, Full WebGL2, manual input, and explicit sizing
 - Browser extension, npm, CDN, and direct download
 - Theme colours support compatible HSL hue shifting and recommended relative-OKLCH full-colour mapping
 - Runtime-tweakable FX parameters via `setFxParam()`
@@ -131,56 +132,6 @@ fx.boom(window.innerWidth / 2, window.innerHeight / 2);
 fx.destroy();
 ```
 
-Render off the main thread in a Web Worker (`OffscreenCanvas`):
-
-```js
-// worker.js
-import { BAClickFX } from 'ba-click-fx';
-
-let fx = null;
-self.onmessage = (e) => {
-  const { type, ...data } = e.data;
-  if (type === 'INIT') {
-    fx = new BAClickFX({ target: data.canvas, inputSource: 'manual' });
-    fx.resize(data.width, data.height, data.dpr);
-  } else if (type === 'RESIZE') {
-    fx?.resize(data.width, data.height, data.dpr);
-  } else if (type === 'POINTER_DOWN') {
-    fx?.pointerDown(data);
-  } else if (type === 'POINTER_MOVE') {
-    fx?.pointerMove(data);
-  } else if (type === 'POINTER_UP') {
-    fx?.pointerUp(data.pointerId);
-  }
-};
-
-// main.js
-const canvas = document.getElementById('myCanvas');
-const offscreen = canvas.transferControlToOffscreen();
-const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-
-worker.postMessage(
-  {
-    type: 'INIT',
-    canvas: offscreen,
-    width: window.innerWidth,
-    height: window.innerHeight,
-    dpr: window.devicePixelRatio || 1,
-  },
-  [offscreen]
-);
-
-window.addEventListener('pointerdown', (e) => {
-  worker.postMessage({ type: 'POINTER_DOWN', x: e.clientX, y: e.clientY, pointerId: e.pointerId });
-}, { passive: true });
-window.addEventListener('pointermove', (e) => {
-  worker.postMessage({ type: 'POINTER_MOVE', x: e.clientX, y: e.clientY, pointerId: e.pointerId });
-}, { passive: true });
-window.addEventListener('pointerup', (e) => {
-  worker.postMessage({ type: 'POINTER_UP', pointerId: e.pointerId });
-}, { passive: true });
-```
-
 ---
 
 ## API Reference
@@ -189,7 +140,7 @@ window.addEventListener('pointerup', (e) => {
 
 ```ts
 new BAClickFX(options?: {
-  target?: string | HTMLElement | OffscreenCanvas, // mount target or OffscreenCanvas, default fullscreen
+  target?: string | HTMLElement | OffscreenCanvas,
   scale?: number,                // default 1
   opacity?: number,              // default 1
   themeColor?: string,           // six-digit hex, default #4ca7ff
@@ -284,7 +235,7 @@ For a library-owned overlay, the selected host blend is applied once to the comp
 
 `isolatedCompositing` defaults to `false`, so canvases mount directly into the target or page. With `true`, the library-owned main FX canvas, WebGPU/WebGL2 canvases, and light-background compatibility canvas resolve inside one transparent isolated group before that group is composited over the page. This prevents the browser from resolving compatibility layers independently against pure white and losing cyan-blue contrast. The default `source-over` contract does not blend again at the outer boundary; an explicitly selected independent full-payload contract applies its chosen `screen` or `plus-lighter` blend once to the complete group. Isolated compositing is a non-game web compatibility option and can be changed at runtime through `updateConfig()`.
 
-WebGPU, Full WebGL2, WebGL2 Bloom, scene-background Final Passes, and isolated compositing require a library-owned DOM overlay. When `target` is an existing `<canvas>`, the library cannot safely insert the extra GPU, contrast, or isolation layers: Full Effect `'webgpu'` / `'webgl2'` / `'auto'` falls back to `canvas2d`, Bloom `'webgl2'` / `'auto'` falls back to Software Bloom, and `isolatedCompositing` is forced to `false`. `getConfig()` reports these effective values. The default fullscreen overlay has no such limitation. A regular container is also supported, but it must establish its own positioning context, normally with `position: relative`; the library does not silently modify host styles.
+When `target` is an existing `HTMLCanvasElement`, the library cannot safely insert the additional DOM layers required for the complete effect, Bloom, contrast, and isolation. Full Effect `'webgpu'` / `'webgl2'` / `'auto'` therefore falls back to `canvas2d`, Bloom `'webgl2'` / `'auto'` falls back to Software Bloom, and `isolatedCompositing` is forced to `false`; `getConfig()` reports these effective values. A directly supplied `OffscreenCanvas` is an intentionally supported exception: Full WebGL2 can own that surface directly, as can an explicit `'canvas2d'` path, but WebGPU, isolated compositing, and other features that require a DOM/CSS layer tree are unavailable. The caller always owns external Canvas CSS and final host compositing. The default fullscreen overlay has no `HTMLCanvasElement` limitation. A regular container is also supported, but it must establish its own positioning context, normally with `position: relative`.
 
 Each `BAClickFX` instance owns a separate isolation group. Multiple isolated instances on the same page do not mix their internal compatibility layers across group boundaries, and switching or destroying one instance does not move or remove another instance's canvases.
 
@@ -384,6 +335,163 @@ fx.pointerUp(7);
 
 `inputSource` can also be switched through `updateConfig()`. A switch first cancels the old source's active pointer, then attaches or removes the automatic DOM pointer listeners for the target mode so the host never inherits a half-finished stroke.
 
+### Host-owned Worker and OffscreenCanvas
+
+`BAClickFX` can receive an `OffscreenCanvas` directly inside a Dedicated Worker, but it does not create the Worker, transfer the Canvas, proxy DOM input, or manage the Worker lifecycle. Those responsibilities remain with the host so the application protocol and bundling strategy do not become library policy. The following is a minimal host-owned protocol.
+
+The main thread reads the real Canvas geometry, converts DOM coordinates into Canvas-local CSS pixels, and forwards size, DPR, and pointer lifecycle changes:
+
+```js
+// main.js
+const canvas = document.querySelector('#fx');
+const worker = new Worker(new URL('./fx-worker.js', import.meta.url),
+{
+  type: 'module',
+});
+
+function post(type, payload = {})
+{
+  worker.postMessage({ type, payload });
+}
+
+function getViewport()
+{
+  const rect = canvas.getBoundingClientRect();
+
+  return {
+    width: rect.width,
+    height: rect.height,
+    dpr: Math.min(window.devicePixelRatio || 1, 2),
+  };
+}
+
+function getPointer(event)
+{
+  const rect = canvas.getBoundingClientRect();
+
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+    pointerId: event.pointerId,
+    pointerType: event.pointerType,
+  };
+}
+
+const offscreen = canvas.transferControlToOffscreen();
+
+worker.postMessage(
+  {
+    type: 'init',
+    payload: { canvas: offscreen, ...getViewport() },
+  },
+  [offscreen],
+);
+
+const resizeObserver = new ResizeObserver(() => post('resize', getViewport()));
+
+resizeObserver.observe(canvas);
+worker.addEventListener('message', (event) =>
+{
+  if (event.data.type === 'destroyed')
+  {
+    resizeObserver.disconnect();
+    worker.terminate();
+  }
+});
+canvas.addEventListener('pointerdown', (event) =>
+  post('pointerDown', getPointer(event)));
+window.addEventListener('pointermove', (event) =>
+  post('pointerMove', getPointer(event)));
+window.addEventListener('pointerup', (event) =>
+  post('pointerUp', { pointerId: event.pointerId }));
+window.addEventListener('pointercancel', (event) =>
+  post('pointerCancel', { pointerId: event.pointerId }));
+
+// Other public controls can use the same host protocol.
+function boom(x, y)
+{
+  post('boom', { x, y });
+}
+
+function setOpacity(opacity)
+{
+  post('updateConfig', { opacity });
+}
+
+function setPaused(paused, clear = false)
+{
+  post('setPaused', { paused, options: { clear } });
+}
+
+// During teardown, let the instance release resources before the host terminates the Worker.
+function destroy()
+{
+  post('destroy');
+}
+```
+
+The Worker imports the normal ESM build, selects manual input, and pins Full WebGL2 explicitly:
+
+```js
+// fx-worker.js
+import { BAClickFX } from 'ba-click-fx';
+
+let fx = null;
+
+self.addEventListener('message', (event) =>
+{
+  const { type, payload } = event.data;
+
+  switch (type)
+  {
+    case 'init':
+      fx = new BAClickFX(
+        {
+          target: payload.canvas,
+          inputSource: 'manual',
+          effectBackend: 'webgl2',
+          maxDpr: 2,
+        },
+      );
+      fx.resize(payload.width, payload.height, payload.dpr);
+      break;
+    case 'resize':
+      fx.resize(payload.width, payload.height, payload.dpr);
+      break;
+    case 'pointerDown':
+      fx.pointerDown(payload);
+      break;
+    case 'pointerMove':
+      fx.pointerMove(payload);
+      break;
+    case 'pointerUp':
+      fx.pointerUp(payload.pointerId);
+      break;
+    case 'pointerCancel':
+      fx.pointerCancel(payload.pointerId);
+      break;
+    case 'boom':
+      fx.boom(payload.x, payload.y);
+      break;
+    case 'updateConfig':
+      fx.updateConfig(payload);
+      break;
+    case 'setPaused':
+      fx.setPaused(payload.paused, payload.options);
+      break;
+    case 'destroy':
+      fx?.destroy();
+      fx = null;
+      self.postMessage({ type: 'destroyed' });
+      break;
+  }
+});
+```
+
+The width and height passed to `resize(width, height, dpr)`, as well as manual input coordinates, are Canvas-local CSS pixels. The library scales the backing store by `dpr`, still capped by `maxDpr`. An `OffscreenCanvas` has no DOM layout information, so a Worker cannot discover CSS resize or device-DPR changes automatically.
+
+A Canvas context type is locked by its first `getContext()` call. Choose `effectBackend: 'webgl2'` (recommended) or explicit `'canvas2d'` when constructing a direct Offscreen instance; do not switch between those context types later through `updateConfig()`. Destroy the instance and transfer a new Canvas when such a switch is required. WebGPU, DOM multi-layer compositing, and automatic input proxying are outside the current Worker contract.
+
 `inputSamplingRate` limits the maximum `pointerMove` sampling rate on the real input clock. It simulates the polygonal trail produced when a mobile game client reads touch positions less frequently:
 
 - `0` is the default and keeps every input sample, preserving existing trail pixels.
@@ -433,6 +541,7 @@ Pausing cancels the active pointer, ignores `boom()` and every automatic or manu
 
 | Method | Description |
 |---|---|
+| `resize(width?, height?, dpr?)` | Explicitly synchronize Canvas CSS size and DPR, primarily for Worker / OffscreenCanvas hosts |
 | `boom(x, y)` | Trigger one click effect without creating trail state |
 | `pointerDown(input)` | Start one click-and-trail lifecycle |
 | `pointerMove(input)` | Append a trail sample for the current logical pointer |

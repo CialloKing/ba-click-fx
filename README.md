@@ -55,6 +55,7 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 - 七种展示页渲染选择：WebGPU、WebGPU HDR（实验）、纯 WebGL2（默认）、WebGL2 Bloom、软件 Bloom、原生辉光、Legacy
 - WebGPU 使用 `rgba16float` 线性 Scene 与多级 Bloom；普通模式强制标准 SDR Canvas，HDR 模式才尝试 `extended` 输出并保留超过 SDR 白色的高光
 - WebGPU 不可用或 Device 丢失时自动回退完整 WebGL2，再沿 Canvas 2D、软件 Bloom、原生辉光链降级
+- 核心可由高级宿主放入 Worker，直接使用 `OffscreenCanvas`、纯 WebGL2、手动输入与显式尺寸同步
 - 支持浏览器插件、npm、CDN、直接下载四种接入方式
 - 主题色支持兼容的 HSL 色相偏移和推荐的相对 OKLCH 完整颜色映射
 - 可调参 API：运行时修改圆环 HDR、半径、宽度、寿命、碎片数量、拖尾宽度、Bloom 强度等
@@ -151,56 +152,6 @@ fx.boom(window.innerWidth / 2, window.innerHeight / 2);
 fx.destroy();
 ```
 
-在 Web Worker 中离线渲染（OffscreenCanvas）：
-
-```js
-// worker.js
-import { BAClickFX } from 'ba-click-fx';
-
-let fx = null;
-self.onmessage = (e) => {
-  const { type, ...data } = e.data;
-  if (type === 'INIT') {
-    fx = new BAClickFX({ target: data.canvas, inputSource: 'manual' });
-    fx.resize(data.width, data.height, data.dpr);
-  } else if (type === 'RESIZE') {
-    fx?.resize(data.width, data.height, data.dpr);
-  } else if (type === 'POINTER_DOWN') {
-    fx?.pointerDown(data);
-  } else if (type === 'POINTER_MOVE') {
-    fx?.pointerMove(data);
-  } else if (type === 'POINTER_UP') {
-    fx?.pointerUp(data.pointerId);
-  }
-};
-
-// main.js
-const canvas = document.getElementById('myCanvas');
-const offscreen = canvas.transferControlToOffscreen();
-const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-
-worker.postMessage(
-  {
-    type: 'INIT',
-    canvas: offscreen,
-    width: window.innerWidth,
-    height: window.innerHeight,
-    dpr: window.devicePixelRatio || 1,
-  },
-  [offscreen]
-);
-
-window.addEventListener('pointerdown', (e) => {
-  worker.postMessage({ type: 'POINTER_DOWN', x: e.clientX, y: e.clientY, pointerId: e.pointerId });
-}, { passive: true });
-window.addEventListener('pointermove', (e) => {
-  worker.postMessage({ type: 'POINTER_MOVE', x: e.clientX, y: e.clientY, pointerId: e.pointerId });
-}, { passive: true });
-window.addEventListener('pointerup', (e) => {
-  worker.postMessage({ type: 'POINTER_UP', pointerId: e.pointerId });
-}, { passive: true });
-```
-
 ---
 
 ## API 文档
@@ -209,7 +160,7 @@ window.addEventListener('pointerup', (e) => {
 
 ```ts
 new BAClickFX(options?: {
-  target?: string | HTMLElement | OffscreenCanvas, // 挂载目标或离屏 Canvas，默认全屏
+  target?: string | HTMLElement | OffscreenCanvas, // 挂载目标，DOM 中省略时默认全屏
   scale?: number,                  // 全局缩放，默认 1
   opacity?: number,                // 不透明度 0~1，默认 1
   themeColor?: string,             // 六位十六进制主题色，默认 #4ca7ff
@@ -304,7 +255,7 @@ WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutp
 
 `isolatedCompositing` 默认是 `false`，各 Canvas 直接挂载到目标容器或页面。设为 `true` 后，库拥有的主特效层、WebGPU/WebGL2 层和浅色背景兼容层会先在透明隔离组内解析，再将整个组覆盖到页面上，避免浏览器分别把兼容层与纯白页面合成后丢失蓝青色对比。默认 `source-over` 合同不会在外层再次混合；只有显式选择独立完整载荷时，完整图层组才执行一次所选的 `screen` 或 `plus-lighter`。隔离合成是非游戏的网页白底兼容选项，可通过 `updateConfig()` 在运行时切换。
 
-WebGPU、纯 WebGL2、WebGL2 Bloom、场景背景 Final Pass 和隔离合成都需要库拥有 DOM 覆盖层。若 `target` 是一个已有的 `<canvas>`，库无法安全插入额外的 GPU、对比或隔离层，因此完整特效的 `'webgpu'` / `'webgl2'` / `'auto'` 会回退 `canvas2d`，Bloom 的 `'webgl2'` / `'auto'` 会回退软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回降级后的实际配置。外部 Canvas 的 CSS 所有权始终属于调用方，包括 `hostCompositing: 'screen'` 或 `'plus-lighter'` 所需的最终混合样式。默认全屏覆盖层不受此限制。普通容器也可以使用，但容器必须自行建立定位上下文（通常设置 `position: relative`），库不会静默修改宿主样式。
+若 `target` 是已有的 `HTMLCanvasElement`，库无法安全插入完整特效、Bloom、对比和隔离所需的额外 DOM 图层，因此完整特效的 `'webgpu'` / `'webgl2'` / `'auto'` 会回退 `canvas2d`，Bloom 的 `'webgl2'` / `'auto'` 会回退软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回降级后的实际配置。直接传入的 `OffscreenCanvas` 是一个有意支持的例外：纯 WebGL2 可以直接拥有该画布，显式 `'canvas2d'` 也可以工作，但无法使用依赖 DOM/CSS 多图层的 WebGPU、隔离合成等能力。外部 Canvas 的 CSS 和最终宿主合成始终由调用方负责。默认全屏覆盖层不受 `HTMLCanvasElement` 限制；普通容器也可以使用，但必须自行建立定位上下文（通常设置 `position: relative`）。
 
 隔离根按 `BAClickFX` 实例独立创建和销毁。同一页面的多个隔离实例不会跨根混合内部兼容层；一个实例切换模式或销毁也不会移动、删除其他实例的 Canvas。
 
@@ -404,6 +355,163 @@ fx.pointerUp(7);
 
 `inputSource` 也可以通过 `updateConfig()` 动态切换。切换时会先取消旧来源的活动指针，再按目标模式注册或移除自动 DOM 指针监听，避免宿主接手尚未结束的轨迹。
 
+### 宿主拥有的 Worker 与 OffscreenCanvas
+
+`BAClickFX` 可以在 Dedicated Worker 中直接接收 `OffscreenCanvas`，但库不会创建 Worker、转移 Canvas、代理 DOM 输入或管理 Worker 生命周期。这些职责留给宿主，可以避免把应用协议和打包策略固化进库。下面是一个最小的宿主协议。
+
+主线程负责读取真实 Canvas 几何、把 DOM 坐标转换为 Canvas 局部 CSS 像素，并转发尺寸、DPR 和指针生命周期：
+
+```js
+// main.js
+const canvas = document.querySelector('#fx');
+const worker = new Worker(new URL('./fx-worker.js', import.meta.url),
+{
+  type: 'module',
+});
+
+function post(type, payload = {})
+{
+  worker.postMessage({ type, payload });
+}
+
+function getViewport()
+{
+  const rect = canvas.getBoundingClientRect();
+
+  return {
+    width: rect.width,
+    height: rect.height,
+    dpr: Math.min(window.devicePixelRatio || 1, 2),
+  };
+}
+
+function getPointer(event)
+{
+  const rect = canvas.getBoundingClientRect();
+
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+    pointerId: event.pointerId,
+    pointerType: event.pointerType,
+  };
+}
+
+const offscreen = canvas.transferControlToOffscreen();
+
+worker.postMessage(
+  {
+    type: 'init',
+    payload: { canvas: offscreen, ...getViewport() },
+  },
+  [offscreen],
+);
+
+const resizeObserver = new ResizeObserver(() => post('resize', getViewport()));
+
+resizeObserver.observe(canvas);
+worker.addEventListener('message', (event) =>
+{
+  if (event.data.type === 'destroyed')
+  {
+    resizeObserver.disconnect();
+    worker.terminate();
+  }
+});
+canvas.addEventListener('pointerdown', (event) =>
+  post('pointerDown', getPointer(event)));
+window.addEventListener('pointermove', (event) =>
+  post('pointerMove', getPointer(event)));
+window.addEventListener('pointerup', (event) =>
+  post('pointerUp', { pointerId: event.pointerId }));
+window.addEventListener('pointercancel', (event) =>
+  post('pointerCancel', { pointerId: event.pointerId }));
+
+// 其他公开控制也沿同一宿主协议转发。
+function boom(x, y)
+{
+  post('boom', { x, y });
+}
+
+function setOpacity(opacity)
+{
+  post('updateConfig', { opacity });
+}
+
+function setPaused(paused, clear = false)
+{
+  post('setPaused', { paused, options: { clear } });
+}
+
+// 卸载时先让实例释放资源，收到确认后再由宿主终止 Worker。
+function destroy()
+{
+  post('destroy');
+}
+```
+
+Worker 导入普通 ESM 构建，使用 `manual` 输入并显式选择纯 WebGL2：
+
+```js
+// fx-worker.js
+import { BAClickFX } from 'ba-click-fx';
+
+let fx = null;
+
+self.addEventListener('message', (event) =>
+{
+  const { type, payload } = event.data;
+
+  switch (type)
+  {
+    case 'init':
+      fx = new BAClickFX(
+        {
+          target: payload.canvas,
+          inputSource: 'manual',
+          effectBackend: 'webgl2',
+          maxDpr: 2,
+        },
+      );
+      fx.resize(payload.width, payload.height, payload.dpr);
+      break;
+    case 'resize':
+      fx.resize(payload.width, payload.height, payload.dpr);
+      break;
+    case 'pointerDown':
+      fx.pointerDown(payload);
+      break;
+    case 'pointerMove':
+      fx.pointerMove(payload);
+      break;
+    case 'pointerUp':
+      fx.pointerUp(payload.pointerId);
+      break;
+    case 'pointerCancel':
+      fx.pointerCancel(payload.pointerId);
+      break;
+    case 'boom':
+      fx.boom(payload.x, payload.y);
+      break;
+    case 'updateConfig':
+      fx.updateConfig(payload);
+      break;
+    case 'setPaused':
+      fx.setPaused(payload.paused, payload.options);
+      break;
+    case 'destroy':
+      fx?.destroy();
+      fx = null;
+      self.postMessage({ type: 'destroyed' });
+      break;
+  }
+});
+```
+
+`resize(width, height, dpr)` 的宽高与 manual 输入坐标都使用 Canvas 局部 CSS 像素；库再按 `dpr` 调整实际 backing store，且 DPR 仍受 `maxDpr` 限制。`OffscreenCanvas` 没有 DOM 布局信息，因此 Worker 中不会自动获知 CSS resize 或设备 DPR 变化。
+
+Canvas 的上下文类型会被第一次 `getContext()` 锁定。直接 Offscreen 路径应在构造时固定为 `effectBackend: 'webgl2'`（推荐）或显式 `'canvas2d'`；不要再通过 `updateConfig()` 在两种上下文之间切换，需要切换时应销毁实例并转移一张新的 Canvas。当前 Worker 合同不包含 WebGPU、DOM 多图层合成或自动输入代理。
+
 `inputSamplingRate` 用真实输入时间限制 `pointerMove` 的最高采样率，用来模拟手机游戏客户端低频读取触点后形成的多边形拖尾：
 
 - `0` 为默认值，不人为限频，保持既有轨迹与像素输出。
@@ -453,6 +561,7 @@ fx.setPaused(false);
 
 | 方法 | 说明 |
 |---|---|
+| `resize(width?, height?, dpr?)` | 显式同步 Canvas 的 CSS 尺寸与 DPR，主要用于 Worker / OffscreenCanvas 宿主 |
 | `boom(x, y)` | 在指定坐标触发单次点击特效，不创建拖尾状态 |
 | `pointerDown(input)` | 开始一次点击和拖尾生命周期 |
 | `pointerMove(input)` | 为当前逻辑指针追加拖尾采样点 |
