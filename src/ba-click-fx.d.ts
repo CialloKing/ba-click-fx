@@ -486,7 +486,10 @@ declare module 'ba-click-fx'
     /** 返回当前实际生效的宿主合成模式。 */
     getEffectiveHostCompositing(): BAClickFXHostCompositing;
 
-    /** 运行时更新合成合同、输入来源/采样率、时间倍率、渲染后端、DPR 与触摸行为。 */
+    /**
+     * 运行时更新合成合同、输入来源/采样率、时间倍率、渲染后端、DPR 与触摸行为。
+     * 直接 OffscreenCanvas 会忽略需要切换 Canvas context 类型的后端或渲染模式。
+     */
     updateConfig(overrides: BAClickFXUpdateOptions): void;
 
     /** 设置并保存主题色；传入空字符串或非法值恢复默认游戏蓝。 */

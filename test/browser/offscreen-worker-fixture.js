@@ -12,6 +12,8 @@ function getState()
     dpr: fx.dpr,
     backingWidth: fx.canvas.width,
     backingHeight: fx.canvas.height,
+    effectBackend: config.effectBackend,
+    renderingMode: config.renderingMode,
     resolvedEffectBackend: config.resolvedEffectBackend,
     destroyed: fx.destroyed,
   };
@@ -128,6 +130,10 @@ self.addEventListener('message', async (event) =>
 
       case 'boom':
         fx.boom(payload.x, payload.y);
+        break;
+
+      case 'updateConfig':
+        fx.updateConfig(payload);
         break;
 
       case 'destroy':

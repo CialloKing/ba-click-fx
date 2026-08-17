@@ -203,6 +203,18 @@ async function main()
       window.offscreenWorkerTest.request('state'));
 
     assert.equal(activeState.resolvedEffectBackend, 'webgl2');
+    const lockedRouteState = await page.evaluate(() =>
+      window.offscreenWorkerTest.request(
+        'updateConfig',
+        {
+          effectBackend: 'canvas2d',
+          renderingMode: 'legacy',
+        },
+      ));
+
+    assert.equal(lockedRouteState.effectBackend, 'webgl2');
+    assert.equal(lockedRouteState.renderingMode, 'enhanced');
+    assert.equal(lockedRouteState.resolvedEffectBackend, 'webgl2');
 
     await page.waitForTimeout(750);
     await page.evaluate(async () =>

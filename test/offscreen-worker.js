@@ -187,6 +187,28 @@ assert(
     !canvas2d.contextRequests.includes('webgl2'),
   'Explicit Canvas2D mode does not lock the OffscreenCanvas to WebGL2',
 );
+canvas2dFx.updateConfig({ effectBackend: 'webgl2' });
+assert(
+  canvas2dFx.getConfig().effectBackend === 'canvas2d' &&
+    !canvas2d.contextRequests.includes('webgl2'),
+  'Canvas2D OffscreenCanvas ignores a runtime switch to WebGL2',
+);
+canvas2dFx.updateConfig({ renderingMode: 'legacy' });
+assert(
+  canvas2dFx.getConfig().renderingMode === 'legacy',
+  'Canvas2D OffscreenCanvas accepts rendering modes that retain its context',
+);
+canvas2dFx.updateConfig(
+  {
+    effectBackend: 'canvas2d',
+    renderingMode: 'enhanced',
+  },
+);
+assert(
+  canvas2dFx.getConfig().effectBackend === 'canvas2d' &&
+    canvas2dFx.getConfig().renderingMode === 'enhanced',
+  'Canvas2D OffscreenCanvas accepts an atomic context-compatible route update',
+);
 canvas2dFx.destroy();
 
 assert(

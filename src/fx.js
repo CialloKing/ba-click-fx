@@ -6671,6 +6671,13 @@ export class BAClickFX
       }
       this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     }
+    // OffscreenCanvas 的首次 context 请求决定其终身类型；记录实际结果，
+    // 防止后续配置把可用实例切换到无法创建的另一种 context。
+    this._directOffscreenContextType = isDirectOffscreen
+      ? this.context
+        ? '2d'
+        : 'webgl2'
+      : null;
     if (typeof window !== 'undefined')
     {
       window.addEventListener('resize', this._onResize);
@@ -12370,7 +12377,8 @@ export class BAClickFX
 
   /**
    * 运行时更新部分配置，无需销毁重建实例。
-   * target 与 inputFilter 只在构造时生效，其余公开配置均可按需覆盖。
+   * target 与 inputFilter 只在构造时生效；直接 OffscreenCanvas 的 context
+   * 类型也在构造时固定，不兼容的后端与渲染模式切换会被忽略。
    * @param {object} overrides
    */
   updateConfig(overrides = {})
@@ -12388,6 +12396,21 @@ export class BAClickFX
     const previousHostCompositing = this.config.hostCompositing;
     const previousHostCompositingSurface =
       this.config.hostCompositingSurface;
+    const nextEffectBackend = isEffectBackend(overrides.effectBackend)
+      ? overrides.effectBackend
+      : this.config.effectBackend;
+    const nextRenderingMode =
+      overrides.renderingMode === 'enhanced' ||
+      overrides.renderingMode === 'legacy'
+        ? overrides.renderingMode
+        : this.config.renderingMode;
+    const nextOffscreenContextType =
+      nextRenderingMode === 'legacy' || nextEffectBackend === 'canvas2d'
+        ? '2d'
+        : 'webgl2';
+    const canChangeOffscreenRoute =
+      this._directOffscreenContextType === null ||
+      this._directOffscreenContextType === nextOffscreenContextType;
     let transparentContractChanged = false;
 
     if (
@@ -12552,7 +12575,7 @@ export class BAClickFX
       this.config.trailAlways = overrides.trailAlways;
     }
 
-    if (isEffectBackend(overrides.effectBackend))
+    if (isEffectBackend(overrides.effectBackend) && canChangeOffscreenRoute)
     {
       this.config.effectBackend = overrides.effectBackend;
     }
@@ -12577,7 +12600,13 @@ export class BAClickFX
       );
     }
 
-    if (overrides.renderingMode === 'enhanced' || overrides.renderingMode === 'legacy')
+    if (
+      canChangeOffscreenRoute &&
+      (
+        overrides.renderingMode === 'enhanced' ||
+        overrides.renderingMode === 'legacy'
+      )
+    )
     {
       const wasLegacy = this.config.renderingMode === 'legacy';
       const nowLegacy = overrides.renderingMode === 'legacy';
