@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## v1.3.0 — Worker 与 OffscreenCanvas 核心支持
+
+- 核心支持由高级宿主放入浏览器 `DedicatedWorker`，直接接收宿主转移的 `OffscreenCanvas`；库不创建 Worker、不代理 DOM 输入，也不管理 Worker 生命周期。
+- 直接 Offscreen 路径支持纯 WebGL2 与显式 Canvas2D，复用 manual input、公开 `resize(width, height, dpr)` 和无 `requestAnimationFrame` 时的定时器调度；尺寸与输入统一使用 Canvas 局部 CSS 像素。
+- 固定 OffscreenCanvas 首次创建的 Context 类型，拒绝 `updateConfig()` 中不兼容的 Canvas2D/WebGL2/Legacy 热切换，并完善初始化失败、清屏、销毁与 GPU 回退生命周期。
+- 增加真实 Dedicated Worker 浏览器回归，覆盖 WebGL2 像素输出、点击与拖尾、尺寸、DPR、上下文路由和销毁，同时保留无 DOM Mock Worker 单元门禁。
+- 补齐中英文宿主 Worker 协议与能力边界文档；开发和 CI 升级至 Node.js `24.19.0` LTS 与最新版 Node 24 Actions 运行时。
+
 ## v1.2.29 — 改善移动端性能与展示页控制
 
 - 将公共库与展示页的默认最大 DPR 从 `2` 调整为 `1`，降低高 DPR 移动设备上的 Canvas 填充、显存和 Bloom 开销；控制面板仍可按设备性能手动提高到 `3`。
