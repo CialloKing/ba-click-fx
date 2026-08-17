@@ -100,6 +100,11 @@ const TOUCH_ACTION_DIRECTIONS = Object.freeze(
   },
 );
 
+function resolvePositiveFinite(value, fallback)
+{
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 function shouldUseTouchInputFallback()
 {
   if (typeof window === 'undefined')
@@ -6587,7 +6592,8 @@ export class BAClickFX
     this.destroyed = false;
     this.domPointerListenersAttached = false;
 
-    this._onResize = this._resize.bind(this);
+    // 浏览器事件和 ResizeObserver 都会传入参数，不能让它们进入公开尺寸覆盖值。
+    this._onResize = () => this._resize();
     this._onPointerDown = this._handlePointerDown.bind(this);
     this._onPointerMove = this._handlePointerMove.bind(this);
     this._onPointerUp = this._handlePointerUp.bind(this);
@@ -7754,13 +7760,17 @@ export class BAClickFX
     }
 
     const rect = this._getCanvasRect();
-    const defaultWidth = typeof window !== 'undefined' ? window.innerWidth : (this.canvas?.width || 1);
-    const defaultHeight = typeof window !== 'undefined' ? window.innerHeight : (this.canvas?.height || 1);
-    const defaultDpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-
-    const width = Math.max(1, overrideWidth || rect.width || defaultWidth);
-    const height = Math.max(1, overrideHeight || rect.height || defaultHeight);
-    const dpr = Math.min(overrideDpr || defaultDpr, this.config.maxDpr);
+    const defaultWidth = typeof window !== 'undefined' ? window.innerWidth : this.canvas?.width;
+    const defaultHeight = typeof window !== 'undefined' ? window.innerHeight : this.canvas?.height;
+    const defaultDpr = typeof window !== 'undefined' ? window.devicePixelRatio : 1;
+    const measuredWidth = resolvePositiveFinite(rect.width, resolvePositiveFinite(defaultWidth, 1));
+    const measuredHeight = resolvePositiveFinite(rect.height, resolvePositiveFinite(defaultHeight, 1));
+    const width = resolvePositiveFinite(overrideWidth, measuredWidth);
+    const height = resolvePositiveFinite(overrideHeight, measuredHeight);
+    const dpr = Math.min(
+      resolvePositiveFinite(overrideDpr, resolvePositiveFinite(defaultDpr, 1)),
+      this.config.maxDpr,
+    );
 
     this.width = width;
     this.height = height;

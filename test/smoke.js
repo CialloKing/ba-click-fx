@@ -1939,6 +1939,31 @@ assert(
     scrollbarGutterEffect.canvas.height === 1080 * CONFIG.maxDpr,
   '全屏覆盖层按实测 CSS 尺寸排除滚动条槽',
 );
+dom.setCanvasBounds({ width: 1600, height: 900 });
+scrollbarGutterEffect._onResize({ type: 'resize' });
+assert(
+  scrollbarGutterEffect.width === 1600 &&
+    scrollbarGutterEffect.height === 900 &&
+    Number.isFinite(scrollbarGutterEffect.canvas.width) &&
+    Number.isFinite(scrollbarGutterEffect.canvas.height),
+  '浏览器 resize 事件参数不会污染公开尺寸覆盖值',
+);
+scrollbarGutterEffect.resize(800, 600, 0.5);
+assert(
+  scrollbarGutterEffect.width === 800 &&
+    scrollbarGutterEffect.height === 600 &&
+    scrollbarGutterEffect.dpr === 0.5 &&
+    scrollbarGutterEffect.canvas.width === 400 &&
+    scrollbarGutterEffect.canvas.height === 300,
+  '公开 resize 接受有效 CSS 尺寸与 DPR',
+);
+scrollbarGutterEffect.resize(Number.NaN, -1, 0);
+assert(
+  scrollbarGutterEffect.width === 1600 &&
+    scrollbarGutterEffect.height === 900 &&
+    scrollbarGutterEffect.dpr === CONFIG.maxDpr,
+  '公开 resize 对非法尺寸与 DPR 回退到实测环境值',
+);
 scrollbarGutterEffect.destroy();
 
 dom.setCanvasBounds({ width: 0, height: 0 });
