@@ -8791,17 +8791,16 @@ export class BAClickFX
     }
 
     this._setWebGLBloomVisible(!useGpuClickEffects && useWebGL2Bloom);
-    if (!useGpuClickEffects)
+    if (!this.context && !useGpuClickEffects)
     {
-      if (!this.context)
-      {
-        this.context = this.canvas.getContext?.('2d') ?? null;
-      }
-      if (this.context)
-      {
-        this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-        this.context.clearRect(0, 0, this.width, this.height);
-      }
+      this.context = this.canvas.getContext?.('2d') ?? null;
+    }
+    if (this.context)
+    {
+      // DOM 的 GPU 层恢复时，备用 Canvas 可能仍参与同一帧合成；每帧清空
+      // 可防止回退像素叠加。直接 WebGL2 OffscreenCanvas 没有 2D context。
+      this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      this.context.clearRect(0, 0, this.width, this.height);
     }
     // 推入当前实例的主题变换，渲染完成后恢复，保证多实例安全。
     const prevHueShift = themeHueShift;
