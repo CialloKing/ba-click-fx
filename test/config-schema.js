@@ -43,6 +43,13 @@ function check(condition, message)
   console.log(`  ✓ ${message}`);
 }
 
+function assertConfigError(factory, message)
+{
+  assert.throws(factory, TypeError, message);
+  passed++;
+  console.log(`  ✓ ${message}`);
+}
+
 function getUnityValue(path)
 {
   return path.split('.').reduce((value, key) => value[key], UNITY_FX_TOUCH);
@@ -221,9 +228,12 @@ check(
   '主题色规范化为小写并让无效值回退游戏蓝',
 );
 check(
-  createConfig({ themeColor: '#FF6969' }).themeColor === '#ff6969' &&
-    createConfig({ themeColor: 'red' }).themeColor === DEFAULT_THEME_COLOR,
-  '构造配置保存合法主题色并拒绝非十六进制颜色',
+  createConfig({ themeColor: '#FF6969' }).themeColor === '#ff6969',
+  '构造配置保存合法主题色并统一为小写',
+);
+assertConfigError(
+  () => createConfig({ themeColor: 'red' }),
+  '构造配置拒绝非十六进制主题色',
 );
 check(
   DEFAULT_THEME_COLOR_MODE === 'hue-only' &&
@@ -237,10 +247,12 @@ check(
   normalizeThemeColorMode('relative-oklch') === 'relative-oklch' &&
     normalizeThemeColorMode('invalid') === DEFAULT_THEME_COLOR_MODE &&
     createConfig({ themeColorMode: 'relative-oklch' }).themeColorMode ===
-      'relative-oklch' &&
-    createConfig({ themeColorMode: 'invalid' }).themeColorMode ===
-      DEFAULT_THEME_COLOR_MODE,
-  '主题颜色映射可规范化并让非法值恢复兼容默认',
+      'relative-oklch',
+  '主题颜色映射辅助函数可规范化，构造配置保留合法模式',
+);
+assertConfigError(
+  () => createConfig({ themeColorMode: 'invalid' }),
+  '构造配置拒绝非法主题颜色映射模式',
 );
 
 console.log('\n输入采样率配置合同');
@@ -263,9 +275,12 @@ check(
 check(
   normalizeInputSamplingRate(30) === 30 &&
     normalizeInputSamplingRate(-1, 60) === 60 &&
-    createConfig({ inputSamplingRate: 15 }).inputSamplingRate === 15 &&
-    createConfig({ inputSamplingRate: -1 }).inputSamplingRate === 0,
-  '构造配置保留合法采样率并让非法值回退默认值',
+    createConfig({ inputSamplingRate: 15 }).inputSamplingRate === 15,
+  '构造配置保留合法采样率，辅助函数仍可恢复默认值',
+);
+assertConfigError(
+  () => createConfig({ inputSamplingRate: -1 }),
+  '构造配置拒绝低于范围的采样率',
 );
 
 console.log('\nWebGPU HDR 展示配置合同');
@@ -314,29 +329,22 @@ const configuredHdrPresentation = createConfig(
     webgpuHdrWhiteEnd: 4,
   },
 );
-const invalidHdrPresentation = createConfig(
-  {
-    webgpuHdrPeak: '4',
-    webgpuHdrBrightness: Number.POSITIVE_INFINITY,
-    webgpuHdrColorPreservation: Number.NaN,
-    webgpuHdrWhiteCore: Number.NaN,
-  },
-);
-
 check(
   configuredHdrPresentation.webgpuHdrPeak === 2.5 &&
     configuredHdrPresentation.webgpuHdrBrightness === 12 &&
     configuredHdrPresentation.webgpuHdrColorPreservation === 0.75 &&
     configuredHdrPresentation.webgpuHdrWhiteCore === 0.75 &&
     configuredHdrPresentation.webgpuHdrWhiteStart === 0.5 &&
-    configuredHdrPresentation.webgpuHdrWhiteEnd === 4 &&
-    invalidHdrPresentation.webgpuHdrPeak === CONFIG.webgpuHdrPeak &&
-    invalidHdrPresentation.webgpuHdrBrightness ===
-      CONFIG.webgpuHdrBrightness &&
-    invalidHdrPresentation.webgpuHdrColorPreservation ===
-      CONFIG.webgpuHdrColorPreservation &&
-    invalidHdrPresentation.webgpuHdrWhiteCore === CONFIG.webgpuHdrWhiteCore,
-  '构造配置保留合法 HDR 校准并让非法值恢复默认值',
+    configuredHdrPresentation.webgpuHdrWhiteEnd === 4,
+  '构造配置保留合法 HDR 校准值',
+);
+assertConfigError(
+  () => createConfig({ webgpuHdrPeak: '4' }),
+  '构造配置拒绝错误类型的 HDR 峰值',
+);
+assertConfigError(
+  () => createConfig({ webgpuHdrWhiteStart: 4, webgpuHdrWhiteEnd: 4 }),
+  '构造配置拒绝无效的 HDR 白核阈值顺序',
 );
 
 console.log('\n透明合成配置合同');
@@ -350,10 +358,9 @@ check(
 );
 check(
   CONFIG.bloomBackend === 'webgl2' &&
-    CONFIG.softwareBloomEnabled === false &&
-    createConfig({ bloomBackend: 'auto' }).softwareBloomEnabled === false &&
-    createConfig({ bloomBackend: 'software' }).softwareBloomEnabled === true,
-  'Software Bloom 仅在显式请求时启用',
+    !Object.hasOwn(CONFIG, 'softwareBloomEnabled') &&
+    !Object.hasOwn(createConfig({ bloomBackend: 'software' }), 'softwareBloomEnabled'),
+  'Software Bloom 兼容布尔字段已从配置快照删除',
 );
 check(
   isOverlayAlphaPolicy('coverage') &&
@@ -412,38 +419,34 @@ const transparentCompositingConfig = createConfig(
   {
     overlayAlphaPolicy: 'visual-max',
     overlayColorCompensation: 'bright-core',
-    overlayAlphaLimit: 2,
+    overlayAlphaLimit: 0.8,
     hostCompositing: 'screen',
     hostCompositingSurface: 'native',
   },
 );
-const invalidTransparentCompositingConfig = createConfig(
-  {
-    overlayColorCompensation: 'bright',
-    overlayAlphaLimit: '0.5',
-    hostCompositing: 'overlay',
-    hostCompositingSurface: 'webview',
-  },
-);
-
 check(
   transparentCompositingConfig.overlayAlphaPolicy === 'visual-max' &&
     transparentCompositingConfig.overlayColorCompensation === 'bright-core' &&
-    transparentCompositingConfig.overlayAlphaLimit === 1 &&
+    transparentCompositingConfig.overlayAlphaLimit === 0.8 &&
     transparentCompositingConfig.hostCompositing === 'screen' &&
     transparentCompositingConfig.hostCompositingSurface === 'native',
-  '构造配置保留合法透明合成选项并钳制 Alpha',
+  '构造配置保留合法透明合成选项',
 );
-check(
-  invalidTransparentCompositingConfig.overlayColorCompensation ===
-      CONFIG.overlayColorCompensation &&
-    invalidTransparentCompositingConfig.overlayAlphaLimit ===
-      CONFIG.overlayAlphaLimit &&
-    invalidTransparentCompositingConfig.hostCompositing ===
-      CONFIG.hostCompositing &&
-    invalidTransparentCompositingConfig.hostCompositingSurface ===
-      CONFIG.hostCompositingSurface,
-  '构造配置拒绝非法透明合成选项和非数值 Alpha',
+assertConfigError(
+  () => createConfig({ overlayColorCompensation: 'bright' }),
+  '构造配置拒绝非法颜色补偿策略',
+);
+assertConfigError(
+  () => createConfig({ overlayAlphaLimit: 2 }),
+  '构造配置拒绝越界覆盖层 Alpha',
+);
+assertConfigError(
+  () => createConfig({ hostCompositing: 'overlay' }),
+  '构造配置拒绝非法宿主合成模式',
+);
+assertConfigError(
+  () => createConfig({ hostCompositingSurface: 'webview' }),
+  '构造配置拒绝非法宿主表面',
 );
 
 const domScreenResolution = resolveHostCompositing(
@@ -510,14 +513,9 @@ check(
   'Scene 与活动合成参考直接解析为 source-over 且不产生误导警告',
 );
 
-const removedAppearanceConfig = createConfig(
-  { unknownBackgroundAppearance: 'bright' },
-);
-
-check(
-  !Object.hasOwn(removedAppearanceConfig, 'unknownBackgroundAppearance') &&
-    removedAppearanceConfig.overlayColorCompensation === 'none',
-  '已删除的未知背景外观字段不再映射或进入配置快照',
+assertConfigError(
+  () => createConfig({ unknownBackgroundAppearance: 'bright' }),
+  '构造配置拒绝已删除或拼写错误的未知字段',
 );
 
 console.log(`\n参数 Schema 测试完成：${passed} 项通过。`);

@@ -79,6 +79,22 @@ function assert(condition, message)
   console.log(`  ✓ ${message}`);
 }
 
+function assertThrowsTypeError(factory, message)
+{
+  let thrown = null;
+
+  try
+  {
+    factory();
+  }
+  catch (error)
+  {
+    thrown = error;
+  }
+
+  assert(thrown instanceof TypeError, message);
+}
+
 function getCssChannels(value)
 {
   return String(value).match(/[\d.]+/g)?.map(Number) ?? [];
@@ -1471,8 +1487,8 @@ assert(
 assert(CONFIG.effectBackend === 'webgl2', '默认由纯 WebGL2 接管完整特效');
 assert(
   CONFIG.bloomBackend === 'webgl2' &&
-    CONFIG.softwareBloomEnabled === false,
-  '默认使用 WebGL2 Bloom，且不会隐式启用 Software',
+    !Object.hasOwn(CONFIG, 'softwareBloomEnabled'),
+  '默认使用 WebGL2 Bloom，且配置快照不再公开旧布尔别名',
 );
 assert(CONFIG.isolatedCompositing === false, '默认直接与页面加色，保持游戏合成顺序');
 assert(CONFIG.inputSource === 'dom', '默认由 DOM 指针事件驱动输入');
@@ -1570,14 +1586,11 @@ const rightConfig = createConfig();
 
 leftConfig.scale = 2;
 assert(rightConfig.scale === CONFIG.scale, '实例配置互不污染');
-const nativeAliasConfig = createConfig({ softwareBloomEnabled: false });
 const explicitBackendConfig = createConfig(
   {
     bloomBackend: 'webgl2',
-    softwareBloomEnabled: false,
   },
 );
-const invalidBackendConfig = createConfig({ bloomBackend: 'webgpu' });
 const explicitEffectBackendConfig = createConfig(
   {
     effectBackend: 'webgl2',
@@ -1588,10 +1601,7 @@ const webgpuEffectBackendConfig = createConfig({ effectBackend: 'webgpu' });
 const webgpuStandardEffectBackendConfig = createConfig(
   { effectBackend: 'webgpu', webgpuPreferHdr: false },
 );
-const invalidWebgpuPreferenceConfig = createConfig({ webgpuPreferHdr: 'no' });
-const invalidEffectBackendConfig = createConfig({ effectBackend: 'metal' });
 const directCompositingConfig = createConfig({ isolatedCompositing: false });
-const invalidCompositingConfig = createConfig({ isolatedCompositing: 'yes' });
 const manualInputConfig = createConfig(
   {
     inputSource: 'manual',
@@ -1605,13 +1615,6 @@ const minimumTimeScaleConfig = createConfig(
     trailTimeScale: 0.01,
   },
 );
-const invalidHostControlConfig = createConfig(
-  {
-    inputSource: 'electron',
-    clickTimeScale: 0.009,
-    trailTimeScale: 0,
-  },
-);
 const themedConfig = createConfig(
   {
     themeColor: '#FF6969',
@@ -1620,35 +1623,22 @@ const themedConfig = createConfig(
 );
 
 assert(
-  nativeAliasConfig.bloomBackend === 'native' &&
-    nativeAliasConfig.softwareBloomEnabled === false &&
-    nativeAliasConfig.effectBackend === 'canvas2d',
-  'createConfig 同步旧布尔别名并保留 Canvas2D 兼容路径',
-);
-assert(
   explicitBackendConfig.bloomBackend === 'webgl2' &&
-    explicitBackendConfig.softwareBloomEnabled === false &&
-    explicitBackendConfig.effectBackend === 'canvas2d',
-  'createConfig 中显式 Bloom 后端优先于旧别名并保留原路径',
-);
-assert(
-  invalidBackendConfig.bloomBackend === CONFIG.bloomBackend,
-  'createConfig 忽略无效 Bloom 后端并恢复默认值',
+    explicitBackendConfig.effectBackend === CONFIG.effectBackend &&
+    !Object.hasOwn(explicitBackendConfig, 'softwareBloomEnabled'),
+  'createConfig 保留显式 Bloom 后端且不再隐式改变完整特效后端',
 );
 assert(
   explicitEffectBackendConfig.effectBackend === 'webgl2' &&
     webgpuEffectBackendConfig.effectBackend === 'webgpu' &&
     webgpuEffectBackendConfig.webgpuPreferHdr === true &&
     webgpuStandardEffectBackendConfig.effectBackend === 'webgpu' &&
-    webgpuStandardEffectBackendConfig.webgpuPreferHdr === false &&
-    invalidWebgpuPreferenceConfig.webgpuPreferHdr === CONFIG.webgpuPreferHdr &&
-    invalidEffectBackendConfig.effectBackend === CONFIG.effectBackend,
-  'createConfig 保留 WebGL2/WebGPU 与标准输出偏好，并忽略无效后端配置',
+    webgpuStandardEffectBackendConfig.webgpuPreferHdr === false,
+  'createConfig 保留 WebGL2/WebGPU 与标准输出偏好',
 );
 assert(
-  directCompositingConfig.isolatedCompositing === false &&
-    invalidCompositingConfig.isolatedCompositing === CONFIG.isolatedCompositing,
-  'createConfig 只接受布尔隔离合成配置',
+  directCompositingConfig.isolatedCompositing === false,
+  'createConfig 保留布尔隔离合成配置',
 );
 assert(
   manualInputConfig.inputSource === 'manual' &&
@@ -1662,18 +1652,45 @@ assert(
   'createConfig 接受 0.01 的最低时间倍率',
 );
 assert(
-  invalidHostControlConfig.inputSource === CONFIG.inputSource &&
-    invalidHostControlConfig.clickTimeScale === CONFIG.clickTimeScale &&
-    invalidHostControlConfig.trailTimeScale === CONFIG.trailTimeScale,
-  'createConfig 忽略无效输入模式与低于 0.01 的时间倍率',
-);
-assert(
   themedConfig.themeColor === '#ff6969' &&
-    themedConfig.themeColorMode === 'relative-oklch' &&
-    createConfig({ themeColor: 'red' }).themeColor === DEFAULT_THEME_COLOR &&
-    createConfig({ themeColorMode: 'invalid' }).themeColorMode ===
-      DEFAULT_THEME_COLOR_MODE,
-  'createConfig 规范化主题颜色与映射模式并恢复非法值',
+    themedConfig.themeColorMode === 'relative-oklch',
+  'createConfig 规范化合法主题颜色与映射模式',
+);
+assertThrowsTypeError(
+  () => createConfig({ softwareBloomEnabled: false }),
+  'createConfig 拒绝已删除的 Software Bloom 布尔别名',
+);
+assertThrowsTypeError(
+  () => createConfig({ bloomBackend: 'webgpu' }),
+  'createConfig 拒绝无效 Bloom 后端',
+);
+assertThrowsTypeError(
+  () => createConfig({ effectBackend: 'metal' }),
+  'createConfig 拒绝无效完整特效后端',
+);
+assertThrowsTypeError(
+  () => createConfig({ webgpuPreferHdr: 'no' }),
+  'createConfig 拒绝错误类型的 WebGPU 输出偏好',
+);
+assertThrowsTypeError(
+  () => createConfig({ isolatedCompositing: 'yes' }),
+  'createConfig 拒绝错误类型的隔离合成配置',
+);
+assertThrowsTypeError(
+  () => createConfig({ inputSource: 'electron' }),
+  'createConfig 拒绝无效输入模式',
+);
+assertThrowsTypeError(
+  () => createConfig({ clickTimeScale: 0.009 }),
+  'createConfig 拒绝低于下限的时间倍率',
+);
+assertThrowsTypeError(
+  () => createConfig({ themeColor: 'red' }),
+  'createConfig 拒绝非十六进制主题色',
+);
+assertThrowsTypeError(
+  () => createConfig({ themeColorMode: 'invalid' }),
+  'createConfig 拒绝无效主题映射模式',
 );
 
 console.log('\n指针生命周期');
@@ -1699,7 +1716,10 @@ const repeatedThemeModeAccepted = paramApiEffect.setThemeColorMode(
 );
 const invalidThemeModeRejected = paramApiEffect.setThemeColorMode('oklch');
 paramApiEffect.updateConfig({ themeColorMode: 'hue-only' });
-paramApiEffect.updateConfig({ themeColorMode: 'invalid' });
+assertThrowsTypeError(
+  () => paramApiEffect.updateConfig({ themeColorMode: 'invalid' }),
+  'updateConfig 在修改状态前拒绝非法主题映射模式',
+);
 assert(
   relativeThemeModeAccepted === true &&
     repeatedThemeModeAccepted === true &&
@@ -2018,7 +2038,7 @@ effect.updateConfig(
     webgpuHdrColorPreservation: 0.85,
     webgpuHdrWhiteCore: 0.8,
     webgpuHdrWhiteStart: 6,
-    webgpuHdrWhiteEnd: 2,
+    webgpuHdrWhiteEnd: 6.5,
   },
 );
 let hdrPresentationConfig = effect.getConfig();
@@ -2029,8 +2049,12 @@ assert(
     hdrPresentationConfig.webgpuHdrColorPreservation === 0.85 &&
     hdrPresentationConfig.webgpuHdrWhiteCore === 0.8 &&
     hdrPresentationConfig.webgpuHdrWhiteStart === 6 &&
-    hdrPresentationConfig.webgpuHdrWhiteEnd === 6.01,
+    hdrPresentationConfig.webgpuHdrWhiteEnd === 6.5,
   '运行时 HDR 展示配置使用与构造配置相同的范围和阈值合同',
+);
+assertThrowsTypeError(
+  () => effect.updateConfig({ webgpuHdrWhiteStart: 6, webgpuHdrWhiteEnd: 2 }),
+  'updateConfig 拒绝无效的 HDR 白核阈值顺序',
 );
 effect.updateConfig(
   {
@@ -2876,7 +2900,7 @@ effect.trailStrokes[0].points = [
 
 effect.updateConfig(
   {
-    softwareBloomEnabled: false,
+    bloomBackend: 'native',
     outputCompositing: 'browser-overlay',
   },
 );
@@ -3357,13 +3381,16 @@ assert(
   'updateConfig 原子切换透明合同、清除旧快照并刷新 DOM 合成挂载',
 );
 
-compositingSwitchEffect.updateConfig(
-  {
-    overlayColorCompensation: 'bright',
-    overlayAlphaLimit: Number.NaN,
-    hostCompositing: 'multiply',
-    hostCompositingSurface: 'webview',
-  },
+assertThrowsTypeError(
+  () => compositingSwitchEffect.updateConfig(
+    {
+      overlayColorCompensation: 'bright',
+      overlayAlphaLimit: Number.NaN,
+      hostCompositing: 'multiply',
+      hostCompositingSurface: 'webview',
+    },
+  ),
+  'updateConfig 拒绝非法透明合同值',
 );
 assert(
   compositingSwitchEffect.getConfig().overlayColorCompensation ===
@@ -3372,7 +3399,7 @@ assert(
     compositingSwitchEffect.getConfig().hostCompositing === 'source-over' &&
     compositingSwitchEffect.getConfig().hostCompositingSurface ===
       'dom-backdrop',
-  'updateConfig 忽略非法透明合同值并保留上一份有效配置',
+  'updateConfig 校验失败后保留上一份有效透明配置',
 );
 
 compositingSwitchEffect.updateConfig({ hostCompositing: 'plus-lighter' });
@@ -5540,16 +5567,19 @@ assert(
     timeScaleEffect.getConfig().trailTimeScale === 0.01,
   'updateConfig 接受 0.01 的最低时间倍率',
 );
-timeScaleEffect.updateConfig(
-  {
-    clickTimeScale: 0.009,
-    trailTimeScale: 0,
-  },
+assertThrowsTypeError(
+  () => timeScaleEffect.updateConfig(
+    {
+      clickTimeScale: 0.009,
+      trailTimeScale: 0,
+    },
+  ),
+  'updateConfig 拒绝低于 0.01 的时间倍率',
 );
 assert(
   timeScaleEffect.getConfig().clickTimeScale === 0.01 &&
     timeScaleEffect.getConfig().trailTimeScale === 0.01,
-  'updateConfig 忽略低于 0.01 的时间倍率并保留有效值',
+  'updateConfig 校验失败后保留原有时间倍率',
 );
 timeScaleEffect.destroy();
 
@@ -6637,7 +6667,7 @@ assert(
 );
 assert(
   webglFallbackConfig.bloomBackend === 'webgl2' &&
-    webglFallbackConfig.softwareBloomEnabled === false &&
+    !Object.hasOwn(webglFallbackConfig, 'softwareBloomEnabled') &&
     webglFallbackConfig.resolvedBloomBackend === 'native',
   'getConfig() 保留 WebGL2 请求并公开实际 Native 回退结果',
 );
@@ -6825,81 +6855,96 @@ assert(
   '销毁实例不会移除外部 Canvas 或改写调用方混合样式',
 );
 
-const compatibilityEffect = new BAClickFX(
+const bloomSwitchEffect = new BAClickFX(
   {
-    softwareBloomEnabled: false,
+    bloomBackend: 'native',
   },
 );
-const compatibilityBackendEvents = [];
+const bloomSwitchEvents = [];
 
-compatibilityEffect.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
+bloomSwitchEffect.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 {
-  compatibilityBackendEvents.push(event.detail.resolvedBloomBackend);
+  bloomSwitchEvents.push(event.detail.resolvedBloomBackend);
 });
-let compatibilityConfig = compatibilityEffect.getConfig();
+let bloomSwitchConfig = bloomSwitchEffect.getConfig();
 
 assert(
-  compatibilityConfig.bloomBackend === 'native' &&
-    compatibilityConfig.softwareBloomEnabled === false &&
-    compatibilityConfig.resolvedBloomBackend === 'native',
-  '旧 softwareBloomEnabled=false 构造参数同步映射到原生辉光',
+  bloomSwitchConfig.bloomBackend === 'native' &&
+    !Object.hasOwn(bloomSwitchConfig, 'softwareBloomEnabled') &&
+    bloomSwitchConfig.resolvedBloomBackend === 'native',
+  '显式 Native Bloom 构造参数进入后端快照',
 );
-compatibilityEffect.updateConfig(
+bloomSwitchEffect.updateConfig(
   {
-    softwareBloomEnabled: true,
+    bloomBackend: 'software',
   },
 );
-compatibilityConfig = compatibilityEffect.getConfig();
+bloomSwitchConfig = bloomSwitchEffect.getConfig();
 assert(
-  compatibilityConfig.bloomBackend === 'software' &&
-    compatibilityConfig.softwareBloomEnabled === true &&
-    compatibilityConfig.resolvedBloomBackend === 'software',
-  '旧 softwareBloomEnabled=true 更新参数同步映射到软件 Bloom',
+  bloomSwitchConfig.bloomBackend === 'software' &&
+    bloomSwitchConfig.resolvedBloomBackend === 'software',
+  '显式 Software Bloom 更新参数切换软件后端',
 );
-compatibilityEffect.updateConfig(
+bloomSwitchEffect.updateConfig(
   {
     bloomBackend: 'webgl2',
-    softwareBloomEnabled: false,
   },
 );
-compatibilityConfig = compatibilityEffect.getConfig();
+bloomSwitchConfig = bloomSwitchEffect.getConfig();
 assert(
-  compatibilityConfig.bloomBackend === 'webgl2' &&
-    compatibilityConfig.softwareBloomEnabled === false &&
-    compatibilityConfig.resolvedBloomBackend === 'pending',
-  '新 bloomBackend 优先于旧别名，并在延迟探测前同步进入 pending',
+  bloomSwitchConfig.bloomBackend === 'webgl2' &&
+    bloomSwitchConfig.resolvedBloomBackend === 'pending',
+  '显式 WebGL2 Bloom 更新在延迟探测前进入 pending',
 );
-compatibilityEffect.updateConfig({ bloomBackend: 'auto' });
+bloomSwitchEffect.updateConfig({ bloomBackend: 'auto' });
 assert(
-  compatibilityEffect.getConfig().resolvedBloomBackend === 'pending',
+  bloomSwitchEffect.getConfig().resolvedBloomBackend === 'pending',
   'pending 期间切换 auto 保持等待探测，不伪造回退结果',
 );
 flushFrames(dom, performance.now(), 1);
-compatibilityConfig = compatibilityEffect.getConfig();
+bloomSwitchConfig = bloomSwitchEffect.getConfig();
 assert(
-  compatibilityConfig.bloomBackend === 'auto' &&
-    compatibilityConfig.resolvedBloomBackend === 'native',
+  bloomSwitchConfig.bloomBackend === 'auto' &&
+    bloomSwitchConfig.resolvedBloomBackend === 'native',
   'auto 会优先尝试 WebGL2，并在当前环境回退 Native',
 );
 assert(
-  compatibilityBackendEvents.join(',') === 'software,pending,native',
+  bloomSwitchEvents.join(',') === 'software,pending,native',
   '运行时后端 API 按显式 Software、pending、Native 回退依次派发状态',
 );
-compatibilityEffect.destroy();
+bloomSwitchEffect.destroy();
 
-const softwareAliasEffect = new BAClickFX(
-  {
-    softwareBloomEnabled: true,
-  },
+assertThrowsTypeError(
+  () => new BAClickFX({ softwareBloomEnabled: true }),
+  '构造函数拒绝已删除的 Software Bloom 布尔别名',
+);
+const strictUpdateEffect = new BAClickFX({ bloomBackend: 'native' });
+const strictUpdateBefore = strictUpdateEffect.getConfig();
+
+assertThrowsTypeError(
+  () => strictUpdateEffect.updateConfig(
+    {
+      opacity: 0.5,
+      softwareBloomEnabled: true,
+    },
+  ),
+  'updateConfig 原子拒绝包含已删除字段的配置',
 );
 assert(
-  softwareAliasEffect.getConfig().bloomBackend === 'software' &&
-    softwareAliasEffect.getConfig().resolvedBloomBackend === 'software',
-  '旧 softwareBloomEnabled=true 构造参数仍显式选择软件 Bloom',
+  strictUpdateEffect.getConfig().opacity === strictUpdateBefore.opacity &&
+    strictUpdateEffect.getConfig().bloomBackend === strictUpdateBefore.bloomBackend,
+  'updateConfig 校验失败不会留下部分状态修改',
 );
-softwareAliasEffect.destroy();
+strictUpdateEffect.destroy();
 
-const contextLifecycleEffect = new BAClickFX({ bloomBackend: 'webgl2' });
+const contextLifecycleEffect = new BAClickFX(
+  {
+    // 此用例验证独立 Bloom Canvas 的 Context 生命周期；完整 WebGL2 会接管
+    // 场景而不创建该输出层，必须显式选择 Canvas2D。
+    effectBackend: 'canvas2d',
+    bloomBackend: 'webgl2',
+  },
+);
 const contextLifecycleEvents = [];
 
 contextLifecycleEffect.canvas.addEventListener(

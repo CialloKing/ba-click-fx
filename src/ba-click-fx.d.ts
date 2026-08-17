@@ -163,8 +163,6 @@ declare module 'ba-click-fx'
     renderingMode?: BAClickFXRenderingMode;
     /** Bloom 后端。默认 'webgl2'；GPU 不可用时回退原生辉光，Software 仅显式选择。 */
     bloomBackend?: BAClickFXBloomBackend;
-    /** 兼容旧 API：true 等价于 'software'，false 等价于 'native'。 */
-    softwareBloomEnabled?: boolean;
     /** 在透明组内合成多 Canvas 后再覆盖页面，默认 false；已有 Canvas target 不支持。 */
     isolatedCompositing?: boolean;
     /**
@@ -218,8 +216,6 @@ declare module 'ba-click-fx'
     webgpuHdrWhiteEnd: number;
     renderingMode: BAClickFXRenderingMode;
     bloomBackend: BAClickFXBloomBackend;
-    /** 兼容旧 API；仅显式选择软件 Bloom 时为 true。 */
-    softwareBloomEnabled: boolean;
     isolatedCompositing: boolean;
     lightBackgroundContrastAlpha: number;
     maxDpr: number;
@@ -488,9 +484,9 @@ declare module 'ba-click-fx'
 
     /**
      * 运行时更新合成合同、输入来源/采样率、时间倍率、渲染后端、DPR 与触摸行为。
-     * 直接 OffscreenCanvas 会忽略需要切换 Canvas context 类型的后端或渲染模式。
+     * 直接 OffscreenCanvas 遇到需要切换 Canvas context 类型的后端或渲染模式时抛错。
      */
-    updateConfig(overrides: BAClickFXUpdateOptions): void;
+    updateConfig(overrides: BAClickFXUpdateOptions): BAClickFXConfigSnapshot;
 
     /** 设置并保存主题色；传入空字符串或非法值恢复默认游戏蓝。 */
     setThemeColor(hex: string): void;

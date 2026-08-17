@@ -1044,7 +1044,6 @@ export const CONFIG = Object.freeze(
     renderingMode: 'enhanced',
     // 默认使用 GPU Bloom；能力不足时回退原生辉光，Software 只允许显式选择。
     bloomBackend: DEFAULT_BLOOM_BACKEND,
-    softwareBloomEnabled: false,
     // 游戏把 UI 粒子直接加到同一 HDR 目标；透明隔离组仅作为网页兼容选项。
     isolatedCompositing: false,
     // 淡青 darken 轮廓不是游戏管线的一部分，浅色页面需要时再显式开启。
@@ -1331,6 +1330,109 @@ export function normalizeWebGPUHdrPresentation(
   };
 }
 
+const CONFIG_OVERRIDE_VALIDATORS = Object.freeze(
+  {
+    scale: value => Number.isFinite(value) && value >= 0.01,
+    opacity: value => Number.isFinite(value) && value >= 0 && value <= 1,
+    themeColor: value =>
+      typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value),
+    themeColorMode: isThemeColorMode,
+    clickEnabled: value => typeof value === 'boolean',
+    trailEnabled: value => typeof value === 'boolean',
+    trailAlways: value => typeof value === 'boolean',
+    inputSource: isInputSource,
+    inputSamplingRate: isInputSamplingRate,
+    clickTimeScale: isTimeScale,
+    trailTimeScale: isTimeScale,
+    outputCompositing: isOutputCompositing,
+    overlayAlphaPolicy: isOverlayAlphaPolicy,
+    overlayColorCompensation: isOverlayColorCompensation,
+    overlayAlphaLimit: isOverlayAlphaLimit,
+    hostCompositing: isHostCompositing,
+    hostCompositingSurface: isHostCompositingSurface,
+    effectBackend: isEffectBackend,
+    webgpuPreferHdr: value => typeof value === 'boolean',
+    webgpuHdrPeak: value =>
+      Number.isFinite(value) && value >= WEBGPU_HDR_PEAK_MIN &&
+      value <= WEBGPU_HDR_PEAK_MAX,
+    webgpuHdrBrightness: value =>
+      Number.isFinite(value) && value >= 0 &&
+      value <= WEBGPU_HDR_BRIGHTNESS_MAX,
+    webgpuHdrColorPreservation: value =>
+      Number.isFinite(value) && value >= 0 && value <= 1,
+    webgpuHdrWhiteCore: value =>
+      Number.isFinite(value) && value >= 0 && value <= 1,
+    webgpuHdrWhiteStart: value =>
+      Number.isFinite(value) && value >= WEBGPU_HDR_WHITE_THRESHOLD_MIN &&
+      value <= WEBGPU_HDR_WHITE_START_MAX,
+    webgpuHdrWhiteEnd: value =>
+      Number.isFinite(value) && value >= WEBGPU_HDR_WHITE_THRESHOLD_STEP &&
+      value <= WEBGPU_HDR_WHITE_END_MAX,
+    renderingMode: value => value === 'enhanced' || value === 'legacy',
+    bloomBackend: isBloomBackend,
+    isolatedCompositing: value => typeof value === 'boolean',
+    lightBackgroundContrastAlpha: value =>
+      Number.isFinite(value) && value >= 0 && value <= 1,
+    maxDpr: value => Number.isFinite(value) && value >= 1,
+    touchAction: value => typeof value === 'string' && value.trim() !== '',
+  },
+);
+
+/**
+ * 公共配置入口必须在修改状态前完整拒绝无效输入，避免拼写错误或越界值
+ * 被静默吞掉后留下难以诊断的半生效配置。
+ */
+export function assertConfigOverrides(
+  overrides,
+  {
+    allowInstanceOptions = false,
+    fallback = CONFIG,
+  } = {},
+)
+{
+  if (overrides === null || typeof overrides !== 'object' || Array.isArray(overrides))
+  {
+    throw new TypeError('BAClickFX 配置必须是对象');
+  }
+
+  for (const [key, value] of Object.entries(overrides))
+  {
+    if (allowInstanceOptions && (key === 'target' || key === 'inputFilter'))
+    {
+      if (key === 'inputFilter' && value !== undefined && typeof value !== 'function')
+      {
+        throw new TypeError('BAClickFX 配置项 inputFilter 无效');
+      }
+
+      continue;
+    }
+
+    const validator = CONFIG_OVERRIDE_VALIDATORS[key];
+
+    if (!validator)
+    {
+      throw new TypeError(`BAClickFX 未知配置项: ${key}`);
+    }
+
+    if (value !== undefined && !validator(value))
+    {
+      throw new TypeError(`BAClickFX 配置项 ${key} 无效`);
+    }
+  }
+
+  const whiteStart = overrides.webgpuHdrWhiteStart ??
+    fallback.webgpuHdrWhiteStart ?? fallback.whiteStart;
+  const whiteEnd = overrides.webgpuHdrWhiteEnd ??
+    fallback.webgpuHdrWhiteEnd ?? fallback.whiteEnd;
+
+  if (whiteEnd < whiteStart + WEBGPU_HDR_WHITE_THRESHOLD_STEP)
+  {
+    throw new TypeError(
+      'BAClickFX 配置项 webgpuHdrWhiteEnd 必须至少比 webgpuHdrWhiteStart 大 0.01',
+    );
+  }
+}
+
 /**
  * 每个引擎实例持有独立的运行配置；Unity 参数本身保持只读。
  * @param {object} [overrides]
@@ -1338,108 +1440,21 @@ export function normalizeWebGPUHdrPresentation(
  */
 export function createConfig(overrides = {})
 {
-  const supportedOverrides = { ...overrides };
-
-  // 该旧字段已经从公共合同删除；createConfig 会保留其他宿主扩展键，
-  // 因此必须在展开 overrides 前显式剔除，避免它继续出现在配置快照中。
-  delete supportedOverrides.unknownBackgroundAppearance;
-  let bloomBackend = CONFIG.bloomBackend;
-
-  if (isBloomBackend(overrides.bloomBackend))
-  {
-    bloomBackend = overrides.bloomBackend;
-  }
-  else if (typeof overrides.softwareBloomEnabled === 'boolean')
-  {
-    bloomBackend = overrides.softwareBloomEnabled ? 'software' : 'native';
-  }
-
-  const inputSource = isInputSource(overrides.inputSource)
-    ? overrides.inputSource
-    : CONFIG.inputSource;
-  const inputSamplingRate = normalizeInputSamplingRate(
-    overrides.inputSamplingRate,
-    CONFIG.inputSamplingRate,
-  );
-  const compatibilityEffectBackend =
-    isBloomBackend(overrides.bloomBackend) ||
-    typeof overrides.softwareBloomEnabled === 'boolean'
-      ? 'canvas2d'
-      : CONFIG.effectBackend;
-  const effectBackend = normalizeEffectBackend(
-    overrides.effectBackend,
-    compatibilityEffectBackend,
-  );
-  const webgpuPreferHdr = typeof overrides.webgpuPreferHdr === 'boolean'
-    ? overrides.webgpuPreferHdr
-    : CONFIG.webgpuPreferHdr;
-  const clickTimeScale = normalizeTimeScale(
-    overrides.clickTimeScale,
-    CONFIG.clickTimeScale,
-  );
-  const trailTimeScale = normalizeTimeScale(
-    overrides.trailTimeScale,
-    CONFIG.trailTimeScale,
-  );
-  const outputCompositing = normalizeOutputCompositing(
-    overrides.outputCompositing,
-    CONFIG.outputCompositing,
-  );
-  const overlayAlphaPolicy = normalizeOverlayAlphaPolicyConfig(
-    overrides.overlayAlphaPolicy,
-    CONFIG.overlayAlphaPolicy,
-  );
-  const overlayColorCompensation = normalizeOverlayColorCompensationConfig(
-    overrides.overlayColorCompensation,
-    CONFIG.overlayColorCompensation,
-  );
-  const overlayAlphaLimit = normalizeOverlayAlphaLimit(
-    overrides.overlayAlphaLimit,
-    CONFIG.overlayAlphaLimit,
-  );
-  const hostCompositing = normalizeHostCompositing(
-    overrides.hostCompositing,
-    CONFIG.hostCompositing,
-  );
-  const hostCompositingSurface = normalizeHostCompositingSurface(
-    overrides.hostCompositingSurface,
-    CONFIG.hostCompositingSurface,
-  );
-  const themeColor = normalizeThemeColor(
-    overrides.themeColor,
-    CONFIG.themeColor,
-  );
-  const themeColorMode = normalizeThemeColorMode(
-    overrides.themeColorMode,
-    CONFIG.themeColorMode,
+  assertConfigOverrides(overrides);
+  const supportedOverrides = Object.fromEntries(
+    Object.entries(overrides).filter(([, value]) => value !== undefined),
   );
   const webgpuHdrPresentation = normalizeWebGPUHdrPresentation(
-    overrides,
+    supportedOverrides,
     CONFIG,
   );
 
   return {
     ...CONFIG,
     ...supportedOverrides,
-    inputSource,
-    inputSamplingRate,
-    effectBackend,
-    webgpuPreferHdr,
-    clickTimeScale,
-    trailTimeScale,
-    outputCompositing,
-    overlayAlphaPolicy,
-    overlayColorCompensation,
-    overlayAlphaLimit,
-    hostCompositing,
-    hostCompositingSurface,
-    themeColor,
-    themeColorMode,
+    themeColor: supportedOverrides.themeColor === undefined
+      ? CONFIG.themeColor
+      : supportedOverrides.themeColor.toLowerCase(),
     ...webgpuHdrPresentation,
-    bloomBackend,
-    softwareBloomEnabled: bloomBackend === 'software',
-    isolatedCompositing: typeof overrides.isolatedCompositing === 'boolean'
-      ? overrides.isolatedCompositing
-      : CONFIG.isolatedCompositing,
   };
 }

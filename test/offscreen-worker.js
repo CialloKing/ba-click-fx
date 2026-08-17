@@ -126,6 +126,22 @@ function assert(condition, message)
   console.log(`  ✓ ${message}`);
 }
 
+function assertThrows(factory, messagePattern, message)
+{
+  let thrown = null;
+
+  try
+  {
+    factory();
+  }
+  catch (error)
+  {
+    thrown = error;
+  }
+
+  assert(thrown instanceof Error && messagePattern.test(thrown.message), message);
+}
+
 console.log('Testing BAClickFX in OffscreenCanvas / Worker environment:');
 
 const offscreen = new MockOffscreenCanvas(1920, 1080);
@@ -187,11 +203,15 @@ assert(
     !canvas2d.contextRequests.includes('webgl2'),
   'Explicit Canvas2D mode does not lock the OffscreenCanvas to WebGL2',
 );
-canvas2dFx.updateConfig({ effectBackend: 'webgl2' });
+assertThrows(
+  () => canvas2dFx.updateConfig({ effectBackend: 'webgl2' }),
+  /无法切换 OffscreenCanvas context 类型/,
+  'Canvas2D OffscreenCanvas rejects a runtime switch to WebGL2',
+);
 assert(
   canvas2dFx.getConfig().effectBackend === 'canvas2d' &&
     !canvas2d.contextRequests.includes('webgl2'),
-  'Canvas2D OffscreenCanvas ignores a runtime switch to WebGL2',
+  'Rejected OffscreenCanvas route switch leaves the original context intact',
 );
 canvas2dFx.updateConfig({ renderingMode: 'legacy' });
 assert(

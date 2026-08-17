@@ -13,6 +13,7 @@ import {
   FX_PARAM_SCHEMA,
   FX_PARAM_SCHEMA_VERSION,
   UNITY_FX_TOUCH,
+  assertConfigOverrides,
   createConfig,
   isBloomBackend,
   isEffectBackend,
@@ -6326,7 +6327,6 @@ export class BAClickFX
    * @param {number} [options.webgpuHdrWhiteEnd]
    * @param {'enhanced'|'legacy'} [options.renderingMode]
    * @param {'auto'|'software'|'webgl2'|'native'} [options.bloomBackend]
-   * @param {boolean} [options.softwareBloomEnabled]
    * @param {boolean} [options.isolatedCompositing]
    * @param {number} [options.lightBackgroundContrastAlpha]
    * @param {number} [options.maxDpr]
@@ -6335,6 +6335,7 @@ export class BAClickFX
    */
   constructor(options = {})
   {
+    assertConfigOverrides(options, { allowInstanceOptions: true });
     const hasDom = typeof document !== 'undefined' && typeof window !== 'undefined';
     const hasOffscreen = typeof OffscreenCanvas !== 'undefined';
 
@@ -6348,101 +6349,9 @@ export class BAClickFX
       throw new Error('BAClickFX 在 Worker 中需要显式传入 OffscreenCanvas target');
     }
 
-    const compatibilityBloomBackend =
-      typeof options.softwareBloomEnabled === 'boolean'
-        ? options.softwareBloomEnabled
-          ? 'software'
-          : 'native'
-        : CONFIG.bloomBackend;
-    const bloomBackend = normalizeBloomBackend(
-      options.bloomBackend,
-      compatibilityBloomBackend,
-    );
-    const compatibilityEffectBackend =
-      isBloomBackend(options.bloomBackend) ||
-      typeof options.softwareBloomEnabled === 'boolean'
-        ? 'canvas2d'
-        : CONFIG.effectBackend;
+    const { target: _target, inputFilter: _inputFilter, ...configOptions } = options;
 
-    this.config = createConfig(
-      {
-        scale: Number.isFinite(options.scale) ? Math.max(0.01, options.scale) : CONFIG.scale,
-        opacity: Number.isFinite(options.opacity) ? clamp01(options.opacity) : CONFIG.opacity,
-        themeColor: normalizeThemeColor(options.themeColor, CONFIG.themeColor),
-        themeColorMode: normalizeThemeColorMode(
-          options.themeColorMode,
-          CONFIG.themeColorMode,
-        ),
-        clickEnabled: options.clickEnabled ?? CONFIG.clickEnabled,
-        trailEnabled: options.trailEnabled ?? CONFIG.trailEnabled,
-        trailAlways: options.trailAlways ?? CONFIG.trailAlways,
-        inputSource: isInputSource(options.inputSource)
-          ? options.inputSource
-          : CONFIG.inputSource,
-        inputSamplingRate: normalizeInputSamplingRate(
-          options.inputSamplingRate,
-          CONFIG.inputSamplingRate,
-        ),
-        clickTimeScale: normalizeTimeScale(
-          options.clickTimeScale,
-          CONFIG.clickTimeScale,
-        ),
-        trailTimeScale: normalizeTimeScale(
-          options.trailTimeScale,
-          CONFIG.trailTimeScale,
-        ),
-        outputCompositing: isOutputCompositing(options.outputCompositing)
-          ? options.outputCompositing
-          : CONFIG.outputCompositing,
-        overlayAlphaPolicy: normalizeOverlayAlphaPolicyConfig(
-          options.overlayAlphaPolicy,
-          CONFIG.overlayAlphaPolicy,
-        ),
-        overlayColorCompensation: normalizeOverlayColorCompensationConfig(
-          options.overlayColorCompensation,
-          CONFIG.overlayColorCompensation,
-        ),
-        overlayAlphaLimit: normalizeOverlayAlphaLimit(
-          options.overlayAlphaLimit,
-          CONFIG.overlayAlphaLimit,
-        ),
-        hostCompositing: normalizeHostCompositing(
-          options.hostCompositing,
-          CONFIG.hostCompositing,
-        ),
-        hostCompositingSurface: normalizeHostCompositingSurface(
-          options.hostCompositingSurface,
-          CONFIG.hostCompositingSurface,
-        ),
-        effectBackend: normalizeEffectBackend(
-          options.effectBackend,
-          compatibilityEffectBackend,
-        ),
-        webgpuPreferHdr: typeof options.webgpuPreferHdr === 'boolean'
-          ? options.webgpuPreferHdr
-          : CONFIG.webgpuPreferHdr,
-        webgpuHdrPeak: options.webgpuHdrPeak,
-        webgpuHdrBrightness: options.webgpuHdrBrightness,
-        webgpuHdrColorPreservation: options.webgpuHdrColorPreservation,
-        webgpuHdrWhiteCore: options.webgpuHdrWhiteCore,
-        webgpuHdrWhiteStart: options.webgpuHdrWhiteStart,
-        webgpuHdrWhiteEnd: options.webgpuHdrWhiteEnd,
-        renderingMode: options.renderingMode === 'legacy' ? 'legacy' : CONFIG.renderingMode,
-        bloomBackend,
-        // 保留旧布尔字段作为显式 Software 兼容别名。
-        softwareBloomEnabled: bloomBackend === 'software',
-        isolatedCompositing: typeof options.isolatedCompositing === 'boolean'
-          ? options.isolatedCompositing
-          : CONFIG.isolatedCompositing,
-        lightBackgroundContrastAlpha: Number.isFinite(
-          options.lightBackgroundContrastAlpha,
-        )
-          ? clamp01(options.lightBackgroundContrastAlpha)
-          : CONFIG.lightBackgroundContrastAlpha,
-        maxDpr: Number.isFinite(options.maxDpr) ? Math.max(1, options.maxDpr) : CONFIG.maxDpr,
-        touchAction: options.touchAction ?? CONFIG.touchAction,
-      },
-    );
+    this.config = createConfig(configOptions);
     this.inputFilter = typeof options.inputFilter === 'function'
       ? options.inputFilter
       : null;
@@ -12378,15 +12287,18 @@ export class BAClickFX
   /**
    * 运行时更新部分配置，无需销毁重建实例。
    * target 与 inputFilter 只在构造时生效；直接 OffscreenCanvas 的 context
-   * 类型也在构造时固定，不兼容的后端与渲染模式切换会被忽略。
+   * 类型也在构造时固定，不兼容的后端与渲染模式切换会明确失败。
    * @param {object} overrides
+   * @returns {object}
    */
   updateConfig(overrides = {})
   {
     if (this.destroyed)
     {
-      return;
+      throw new Error('BAClickFX 实例已销毁');
     }
+
+    assertConfigOverrides(overrides, { fallback: this.config });
 
     const previousEffectBackend = this.config.effectBackend;
     const previousWebGPUPreferHdr = this.config.webgpuPreferHdr;
@@ -12411,6 +12323,18 @@ export class BAClickFX
     const canChangeOffscreenRoute =
       this._directOffscreenContextType === null ||
       this._directOffscreenContextType === nextOffscreenContextType;
+
+    if (
+      !canChangeOffscreenRoute &&
+      (overrides.effectBackend !== undefined ||
+        overrides.renderingMode !== undefined)
+    )
+    {
+      throw new Error(
+        'BAClickFX 无法切换 OffscreenCanvas context 类型；请销毁实例并使用新的画布',
+      );
+    }
+
     let transparentContractChanged = false;
 
     if (
@@ -12653,14 +12577,6 @@ export class BAClickFX
     if (isBloomBackend(overrides.bloomBackend))
     {
       this.config.bloomBackend = overrides.bloomBackend;
-      this.config.softwareBloomEnabled = overrides.bloomBackend === 'software';
-    }
-    else if (typeof overrides.softwareBloomEnabled === 'boolean')
-    {
-      this.config.softwareBloomEnabled = overrides.softwareBloomEnabled;
-      this.config.bloomBackend = overrides.softwareBloomEnabled
-        ? 'software'
-        : 'native';
     }
 
     const webgpuPresentationChanged =
@@ -12768,6 +12684,7 @@ export class BAClickFX
     }
 
     this._requestRender();
+    return this.getConfig();
   }
 
   setFxParams(patch, options = {})
