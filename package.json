@@ -89,7 +89,6 @@
     "check": "npm run build && npm run test:bloom && npm run test:webgpu && npm run test:config && npm run test:themes && npm run test:source && npm test && npm run verify:sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
     "check:release": "npm run check && npm run test:browser:built && npm run test:browser:webgpu:optional",
     "prepack": "npm run build",
-    "prepare": "npm run build",
     "prepublishOnly": "npm run check:release"
   },
   "devDependencies": {
