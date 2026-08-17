@@ -138,6 +138,32 @@ async function inspectScreenshot(page, screenshot)
   }, screenshot.toString('base64'));
 }
 
+async function waitForScreenshotPixels(
+  page,
+  locator,
+  predicate,
+  timeout = 3000,
+)
+{
+  const deadline = Date.now() + timeout;
+  let pixels = null;
+
+  // Software GPU startup can take several frames in CI. Poll the presented
+  // canvas while retaining the same pixel thresholds and a bounded timeout.
+  do
+  {
+    pixels = await inspectScreenshot(page, await locator.screenshot());
+    if (predicate(pixels))
+    {
+      return pixels;
+    }
+    await page.waitForTimeout(25);
+  }
+  while (Date.now() < deadline);
+
+  return pixels;
+}
+
 async function main()
 {
   const executablePath = findExecutable();
@@ -208,15 +234,22 @@ async function main()
     assert.equal(ready.backingHeight, 240);
     assert.match(ready.resolvedEffectBackend, /^(pending|webgl2)$/);
 
+    await page.waitForFunction(async () =>
+    {
+      const state = await window.offscreenWorkerTest.request('state');
+
+      return state.resolvedEffectBackend === 'webgl2';
+    }, null, { timeout: 5000 });
+
     await page.evaluate(() => window.offscreenWorkerTest.request(
       'boom',
       { x: 160, y: 120 },
     ));
-    await page.waitForTimeout(60);
     const stage = page.locator('#stage');
-    const clickPixels = await inspectScreenshot(
+    const clickPixels = await waitForScreenshotPixels(
       page,
-      await stage.screenshot(),
+      stage,
+      (pixels) => pixels.visiblePixels > 50 && pixels.maximumChannel > 80,
     );
 
     assert.ok(clickPixels.visiblePixels > 50, JSON.stringify(clickPixels));
@@ -241,10 +274,10 @@ async function main()
       }
       await api.request('pointerUp', { pointerId });
     });
-    await page.waitForTimeout(40);
-    const trailPixels = await inspectScreenshot(
+    const trailPixels = await waitForScreenshotPixels(
       page,
-      await stage.screenshot(),
+      stage,
+      (pixels) => pixels.visiblePixels > 100 && pixels.visibleWidth > 180,
     );
 
     assert.ok(trailPixels.visiblePixels > 100, JSON.stringify(trailPixels));
@@ -263,10 +296,10 @@ async function main()
       'boom',
       { x: 100, y: 60 },
     ));
-    await page.waitForTimeout(60);
-    const resizedPixels = await inspectScreenshot(
+    const resizedPixels = await waitForScreenshotPixels(
       page,
-      await stage.screenshot(),
+      stage,
+      (pixels) => pixels.visiblePixels > 30,
     );
 
     assert.equal(resizedPixels.width, 200);
