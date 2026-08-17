@@ -1939,15 +1939,6 @@ assert(
     scrollbarGutterEffect.canvas.height === 1080 * CONFIG.maxDpr,
   '全屏覆盖层按实测 CSS 尺寸排除滚动条槽',
 );
-dom.setCanvasBounds({ width: 1870, height: 1040 });
-dom.windowMock.dispatch('resize');
-assert(
-  scrollbarGutterEffect.width === 1870 &&
-    scrollbarGutterEffect.height === 1040 &&
-    scrollbarGutterEffect.canvas.width === 1870 * CONFIG.maxDpr &&
-    scrollbarGutterEffect.canvas.height === 1040 * CONFIG.maxDpr,
-  '浏览器 resize 事件不会被误当作公开尺寸参数',
-);
 scrollbarGutterEffect.destroy();
 
 dom.setCanvasBounds({ width: 0, height: 0 });
@@ -5362,8 +5353,7 @@ dom.setCurrentTime(idleSamplingStart + 500);
 const throttledIdleMove = idleSamplingEffect.pointerMove(
   { x: 300, y: 260, pointerId: 74 },
 );
-// 使用明确越过阈值的时间，避免 performance.now() 小数起点的舍入差异。
-dom.setCurrentTime(idleSamplingStart + 1001);
+dom.setCurrentTime(idleSamplingStart + 1000);
 idleSamplingEffect.pointerMove({ x: 400, y: 260, pointerId: 74 });
 assert(
   throttledIdleMove === true &&
@@ -6229,8 +6219,6 @@ fullWebGLEffect.webglEffectRenderer = fullWebGLRenderer;
 fullWebGLEffect._ensureWebGLEffectRenderer = () => true;
 fullWebGLEffect._resizeWebGLEffectRenderer = () => true;
 fullWebGLEffect._renderWebGL2ClickEffects = () => true;
-const fullWebGLMainClearCount = fullWebGLEffect.context.clearRectCalls.length;
-
 fullWebGLEffect.boom(960, 540);
 let fullWebGLNow = flushFrames(dom, performance.now(), 1);
 assert(
@@ -6239,10 +6227,6 @@ assert(
     fullWebGLEvents[0].requestedEffectBackend === 'webgl2' &&
     fullWebGLEvents[0].resolvedEffectBackend === 'webgl2',
   '纯 WebGL2 首帧成功后只派发一次实际后端，不产生虚假回退事件',
-);
-assert(
-  fullWebGLEffect.context.clearRectCalls.length > fullWebGLMainClearCount,
-  'DOM 纯 WebGL2 帧清空备用 Canvas，避免 Context 恢复时叠加旧回退像素',
 );
 fullWebGLEffect.updateConfig({ bloomBackend: 'native' });
 assert(

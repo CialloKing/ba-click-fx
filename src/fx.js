@@ -100,36 +100,8 @@ const TOUCH_ACTION_DIRECTIONS = Object.freeze(
   },
 );
 
-function requestRenderFrame(callback)
-{
-  if (typeof requestAnimationFrame === 'function')
-  {
-    return requestAnimationFrame(callback);
-  }
-
-  // Dedicated Worker 并非都暴露 requestAnimationFrame；定时器后备让核心
-  // 保持可运行，但不会替宿主承担 Worker 生命周期或消息协议。
-  return setTimeout(() => callback(performance.now()), 1000 / 60);
-}
-
-function cancelRenderFrame(handle)
-{
-  if (typeof cancelAnimationFrame === 'function')
-  {
-    cancelAnimationFrame(handle);
-    return;
-  }
-
-  clearTimeout(handle);
-}
-
 function shouldUseTouchInputFallback()
 {
-  if (typeof window === 'undefined')
-  {
-    return false;
-  }
-
   if (typeof window.PointerEvent === 'function')
   {
     return false;
@@ -1087,29 +1059,8 @@ function colorToEmissionCss(
   );
 }
 
-function isOffscreenCanvas(value)
-{
-  return typeof OffscreenCanvas !== 'undefined' &&
-    value instanceof OffscreenCanvas;
-}
-
 function isCanvas(value)
 {
-  if (!value)
-  {
-    return false;
-  }
-
-  if (typeof HTMLCanvasElement !== 'undefined' && value instanceof HTMLCanvasElement)
-  {
-    return true;
-  }
-
-  if (isOffscreenCanvas(value))
-  {
-    return true;
-  }
-
   return value?.tagName?.toLowerCase?.() === 'canvas';
 }
 
@@ -1156,30 +1107,18 @@ function resolveTarget(target)
 {
   if (typeof target === 'string')
   {
-    return typeof document !== 'undefined' && typeof document.querySelector === 'function'
-      ? document.querySelector(target)
-      : null;
+    return document.querySelector(target);
   }
 
   return target ?? null;
 }
 
-function createCanvas(width = 300, height = 150)
+function createCanvas()
 {
-  if (typeof document !== 'undefined' && typeof document.createElement === 'function')
-  {
-    const canvas = document.createElement('canvas');
+  const canvas = document.createElement('canvas');
 
-    canvas.setAttribute?.('aria-hidden', 'true');
-    return canvas;
-  }
-
-  if (typeof OffscreenCanvas !== 'undefined')
-  {
-    return new OffscreenCanvas(width, height);
-  }
-
-  return null;
+  canvas.setAttribute('aria-hidden', 'true');
+  return canvas;
 }
 
 function getTriangleTextureResources()
@@ -1723,11 +1662,6 @@ function setOverlayStyle(
   mixBlendMode = 'plus-lighter',
 )
 {
-  if (!canvas?.style)
-  {
-    return;
-  }
-
   canvas.style.position = fixed ? 'fixed' : 'absolute';
   canvas.style.inset = '0';
   canvas.style.width = '100%';
@@ -6294,7 +6228,7 @@ export class BAClickFX
 {
   /**
    * @param {object} [options]
-   * @param {string|HTMLElement|OffscreenCanvas} [options.target]
+   * @param {string|HTMLElement} [options.target]
    * @param {number} [options.scale]
    * @param {number} [options.opacity]
    * @param {string} [options.themeColor]
@@ -6331,12 +6265,9 @@ export class BAClickFX
    */
   constructor(options = {})
   {
-    const hasDom = typeof document !== 'undefined' && typeof window !== 'undefined';
-    const hasOffscreen = typeof OffscreenCanvas !== 'undefined';
-
-    if (!hasDom && !hasOffscreen)
+    if (typeof document === 'undefined' || typeof window === 'undefined')
     {
-      throw new Error('BAClickFX 需要浏览器 DOM 或 Web Worker (OffscreenCanvas) 环境');
+      throw new Error('BAClickFX 需要浏览器 DOM 环境');
     }
 
     const compatibilityBloomBackend =
@@ -6521,21 +6452,11 @@ export class BAClickFX
       this._applyCompositingMount();
     }
 
-    if (this.canvas.style)
-    {
-      this.canvas.style.touchAction = this.config.touchAction;
-    }
-    const isDirectOffscreen = isOffscreenCanvas(this.canvas);
-    const requiresCanvas2D = !isDirectOffscreen ||
-      this.config.effectBackend === 'canvas2d' ||
-      this.config.renderingMode === 'legacy';
-
-    // Canvas 的上下文类型一旦确定便不能切换。直接 OffscreenCanvas 请求 GPU
-    // 后端时必须把首次 getContext 留给 WebGL2 Renderer。
-    this.context = requiresCanvas2D ? this.canvas.getContext('2d') : null;
+    this.canvas.style.touchAction = this.config.touchAction;
+    this.context = this.canvas.getContext('2d');
     this.contrastContext = this.contrastCanvas?.getContext('2d') ?? null;
 
-    if (!this.context && requiresCanvas2D)
+    if (!this.context)
     {
       throw new Error('BAClickFX 无法创建 Canvas 2D 上下文');
     }
@@ -6640,35 +6561,12 @@ export class BAClickFX
       this._handleCanvasSceneContextRestored.bind(this);
 
     this._resize();
-    if (
-      isDirectOffscreen &&
-      !requiresCanvas2D &&
-      !this._prepareWebGLEffectBackend()
-    )
-    {
-      // getContext('webgl2') 未锁定画布时仍可回退 2D；若已经建立但完整
-      // Scene 初始化失败，同一 OffscreenCanvas 无法再更换上下文类型。
-      this.context = this.canvas.getContext('2d');
-      if (!this.context)
-      {
-        throw new Error(
-          'BAClickFX 无法在 OffscreenCanvas 上初始化 WebGL2；请使用新的画布并显式选择 Canvas2D',
-        );
-      }
-      this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    }
-    if (typeof window !== 'undefined')
-    {
-      window.addEventListener('resize', this._onResize);
-    }
-    if (this.config.inputSource === 'dom' && typeof window !== 'undefined')
+    window.addEventListener('resize', this._onResize);
+    if (this.config.inputSource === 'dom')
     {
       this._attachDomPointerListeners();
     }
-    if (typeof window !== 'undefined')
-    {
-      window.addEventListener('blur', this._onBlur);
-    }
+    window.addEventListener('blur', this._onBlur);
 
     if (this.host && !isCanvas(this.host) && typeof ResizeObserver !== 'undefined')
     {
@@ -6794,13 +6692,10 @@ export class BAClickFX
       return;
     }
 
-    if (typeof window !== 'undefined')
-    {
-      window.removeEventListener('touchstart', this._onTouchStart, true);
-      window.removeEventListener('touchmove', this._onTouchMove, true);
-      window.removeEventListener('touchend', this._onTouchEnd, true);
-      window.removeEventListener('touchcancel', this._onTouchEnd, true);
-    }
+    window.removeEventListener('touchstart', this._onTouchStart, true);
+    window.removeEventListener('touchmove', this._onTouchMove, true);
+    window.removeEventListener('touchend', this._onTouchEnd, true);
+    window.removeEventListener('touchcancel', this._onTouchEnd, true);
     if (this.closedShadowTouchListenersAttached)
     {
       this.host?.removeEventListener?.('touchstart', this._onTouchStart, true);
@@ -6846,16 +6741,13 @@ export class BAClickFX
     }
 
     this._detachTouchActionListeners();
-    if (typeof window !== 'undefined')
+    if (!this.usesTouchInputFallback)
     {
-      if (!this.usesTouchInputFallback)
-      {
-        window.removeEventListener('pointerdown', this._onPointerDown, true);
-        window.removeEventListener('pointermove', this._onPointerMove, true);
-      }
-      window.removeEventListener('pointerup', this._onPointerUp, true);
-      window.removeEventListener('pointercancel', this._onPointerCancel, true);
+      window.removeEventListener('pointerdown', this._onPointerDown, true);
+      window.removeEventListener('pointermove', this._onPointerMove, true);
     }
+    window.removeEventListener('pointerup', this._onPointerUp, true);
+    window.removeEventListener('pointercancel', this._onPointerCancel, true);
     this.domPointerListenersAttached = false;
   }
 
@@ -7006,7 +6898,7 @@ export class BAClickFX
     // 真实 DOM 会提供 currentTarget；测试夹具的简化 EventTarget 不会，
     // 此时只有 scope 失败的 window 目标才应视作重定向事件。
     const isWindowDispatch = event.currentTarget === undefined ||
-      event.currentTarget === (typeof window !== 'undefined' ? window : null);
+      event.currentTarget === window;
 
     return isWindowDispatch &&
       !this._isTouchEventInScope(event, event.target);
@@ -7072,15 +6964,15 @@ export class BAClickFX
       : isPrimary === true;
     const pageX = Number.isFinite(touch.pageX)
       ? touch.pageX
-      : touch.clientX + (typeof window !== 'undefined' ? (window.pageXOffset || 0) : 0);
+      : touch.clientX + (window.pageXOffset || 0);
     const pageY = Number.isFinite(touch.pageY)
       ? touch.pageY
-      : touch.clientY + (typeof window !== 'undefined' ? (window.pageYOffset || 0) : 0);
+      : touch.clientY + (window.pageYOffset || 0);
 
     return {
       type,
       target,
-      currentTarget: event.currentTarget ?? (typeof window !== 'undefined' ? window : null),
+      currentTarget: event.currentTarget ?? window,
       pointerId: touch.identifier,
       pointerType: 'touch',
       isPrimary: resolvedIsPrimary,
@@ -7787,12 +7679,7 @@ export class BAClickFX
     Object.assign(this.fxConfig, nextConfig);
   }
 
-  resize(width, height, dpr)
-  {
-    this._resize(width, height, dpr);
-  }
-
-  _resize(overrideWidth, overrideHeight, overrideDpr)
+  _resize()
   {
     if (this.destroyed)
     {
@@ -7800,28 +7687,16 @@ export class BAClickFX
     }
 
     const rect = this._getCanvasRect();
-    const defaultWidth = typeof window !== 'undefined' ? window.innerWidth : (this.canvas?.width || 1);
-    const defaultHeight = typeof window !== 'undefined' ? window.innerHeight : (this.canvas?.height || 1);
-    const defaultDpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-    const explicitWidth = Number.isFinite(overrideWidth) ? overrideWidth : 0;
-    const explicitHeight = Number.isFinite(overrideHeight) ? overrideHeight : 0;
-    const explicitDpr = Number.isFinite(overrideDpr) ? overrideDpr : 0;
-
-    // window resize 与 ResizeObserver 会向监听器传入 Event/entries；只有公开
-    // resize() 的有限数值参数才能覆盖实测布局，避免把对象转换为 NaN。
-    const width = Math.max(1, explicitWidth || rect.width || defaultWidth);
-    const height = Math.max(1, explicitHeight || rect.height || defaultHeight);
-    const dpr = Math.min(explicitDpr || defaultDpr, this.config.maxDpr);
+    const width = Math.max(1, rect.width || window.innerWidth || 1);
+    const height = Math.max(1, rect.height || window.innerHeight || 1);
+    const dpr = Math.min(window.devicePixelRatio || 1, this.config.maxDpr);
 
     this.width = width;
     this.height = height;
     this.dpr = dpr;
     this.canvas.width = Math.round(width * dpr);
     this.canvas.height = Math.round(height * dpr);
-    if (this.context)
-    {
-      this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
+    this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     if (this.contrastCanvas && this.contrastContext)
     {
@@ -7837,22 +7712,14 @@ export class BAClickFX
 
   _getCanvasRect()
   {
-    if (this.host && !isCanvas(this.host) && typeof this.host.getBoundingClientRect === 'function')
+    if (this.host && !isCanvas(this.host))
     {
       return this.host.getBoundingClientRect();
     }
 
-    if (typeof this.canvas?.getBoundingClientRect === 'function')
-    {
-      return this.canvas.getBoundingClientRect();
-    }
-
-    return {
-      left: 0,
-      top: 0,
-      width: this.canvas?.width || 0,
-      height: this.canvas?.height || 0,
-    };
+    // fixed 覆盖层的 CSS 盒子会排除传统滚动条槽；实测画布才能让
+    // 输入坐标、逻辑尺寸和 backing store 使用同一个坐标空间。
+    return this.canvas.getBoundingClientRect();
   }
 
   _getPointerPosition(event)
@@ -8696,7 +8563,7 @@ export class BAClickFX
     }
 
     this.lastFrameTime = this.lastFrameTime ?? performance.now();
-    this.animationFrame = requestRenderFrame(this._onFrame);
+    this.animationFrame = requestAnimationFrame(this._onFrame);
   }
 
   _renderFrame(now)
@@ -8791,17 +8658,8 @@ export class BAClickFX
     }
 
     this._setWebGLBloomVisible(!useGpuClickEffects && useWebGL2Bloom);
-    if (!this.context && !useGpuClickEffects)
-    {
-      this.context = this.canvas.getContext?.('2d') ?? null;
-    }
-    if (this.context)
-    {
-      // DOM 的 GPU 层恢复时，备用 Canvas 可能仍参与同一帧合成；每帧清空
-      // 可防止回退像素叠加。直接 WebGL2 OffscreenCanvas 没有 2D context。
-      this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-      this.context.clearRect(0, 0, this.width, this.height);
-    }
+    this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.context.clearRect(0, 0, this.width, this.height);
     // 推入当前实例的主题变换，渲染完成后恢复，保证多实例安全。
     const prevHueShift = themeHueShift;
     const previousRelativeOklchTheme = relativeOklchTheme;
@@ -8813,22 +8671,16 @@ export class BAClickFX
     {
       // Context 异常也不能泄漏模块级主题状态；先建立 Canvas
       // 恢复点，再推入当前实例配置。
-      if (!useGpuClickEffects && this.context)
-      {
-        this.context.save();
-        contextSaved = true;
-      }
+      this.context.save();
+      contextSaved = true;
       themeHueShift = this._themeHueShift;
       relativeOklchTheme = this._relativeOklchTheme;
       // 透明 Canvas 无法独立保存 Additive RGB 与 Coverage Alpha；在 residual
       // Coverage Final Pass 完成前保留兼容 source-over，避免多个粒子把 Alpha 相加。
-      if (this.context)
-      {
-        this.context.globalCompositeOperation =
-          this._getCanvasOutputCompositing() === 'browser-overlay'
-            ? 'source-over'
-            : 'lighter';
-      }
+      this.context.globalCompositeOperation =
+        this._getCanvasOutputCompositing() === 'browser-overlay'
+          ? 'source-over'
+          : 'lighter';
       this.renderingFrame = true;
       this._updateTrail(
         this.trailTimeMs,
@@ -9016,13 +8868,12 @@ export class BAClickFX
   _getRequestedEffectBackendState()
   {
     const requested = normalizeEffectBackend(this.config.effectBackend);
-    const isDirectCanvas = isOffscreenCanvas(this.canvas);
 
     if (
       this.config.renderingMode === 'legacy' ||
       requested === 'canvas2d' ||
-      (!this.ownsCanvas && !isDirectCanvas) ||
-      (this.ownsCanvas && !this.overlayParent)
+      !this.ownsCanvas ||
+      !this.overlayParent
     )
     {
       return 'canvas2d';
@@ -9588,38 +9439,28 @@ export class BAClickFX
       return this.webglEffectRenderer.available;
     }
 
-    if (this.webglEffectUnavailable)
+    if (
+      this.webglEffectUnavailable ||
+      !this.ownsCanvas ||
+      !this.overlayParent
+    )
     {
       return false;
     }
 
-    const isDirectCanvas = isOffscreenCanvas(this.canvas);
-    if (!this.ownsCanvas && !isDirectCanvas)
-    {
-      return false;
-    }
+    const canvas = createCanvas();
 
-    if (this.ownsCanvas && !this.overlayParent)
-    {
-      return false;
-    }
-
-    const canvas = this.ownsCanvas ? createCanvas() : this.canvas;
-
-    if (this.ownsCanvas && this.overlayParent)
-    {
-      setOverlayStyle(
-        canvas,
-        !this.host && !this.config.isolatedCompositing,
-        '2147483646',
-        '',
-      );
-      // 纯 WebGL2 已把加色 RGB 与 Cross2 Coverage 编码为预乘输出；普通
-      // DOM 合成才能执行 Unity 的 OneMinusSrcAlpha 背景衰减。
-      // 独立 Canvas 在 Scene 后端接管前保持隐藏，避免与稳定 Bloom 层叠加。
-      canvas.style.display = 'none';
-      this.overlayParent.appendChild(canvas);
-    }
+    setOverlayStyle(
+      canvas,
+      !this.host && !this.config.isolatedCompositing,
+      '2147483646',
+      '',
+    );
+    // 纯 WebGL2 已把加色 RGB 与 Cross2 Coverage 编码为预乘输出；普通
+    // DOM 合成才能执行 Unity 的 OneMinusSrcAlpha 背景衰减。
+    // 独立 Canvas 在 Scene 后端接管前保持隐藏，避免与稳定 Bloom 层叠加。
+    canvas.style.display = 'none';
+    this.overlayParent.appendChild(canvas);
 
     let renderer = null;
 
@@ -9631,10 +9472,7 @@ export class BAClickFX
       {
         this.webglEffectUnavailable = true;
         renderer.destroy();
-        if (this.ownsCanvas)
-        {
-          canvas.remove();
-        }
+        canvas.remove();
         return false;
       }
 
@@ -9652,10 +9490,7 @@ export class BAClickFX
           // 候选 Renderer 未接入规范背景时不能宣称 Scene 已就绪。
           this.webglEffectUnavailable = true;
           renderer.destroy();
-          if (this.ownsCanvas)
-          {
-            canvas.remove();
-          }
+          canvas.remove();
           return false;
         }
       }
@@ -9665,20 +9500,17 @@ export class BAClickFX
       console.warn('[BAClickFX] 纯 WebGL2 创建失败:', error);
       this.webglEffectUnavailable = true;
       renderer?.destroy();
-      if (this.ownsCanvas)
-      {
-        canvas.remove();
-      }
+      canvas.remove();
       return false;
     }
 
     this.webglEffectCanvas = canvas;
     this.webglEffectRenderer = renderer;
-    canvas.addEventListener?.(
+    canvas.addEventListener(
       'webglcontextlost',
       this._onWebGLEffectContextLost,
     );
-    canvas.addEventListener?.(
+    canvas.addEventListener(
       'webglcontextrestored',
       this._onWebGLEffectContextRestored,
     );
@@ -9748,10 +9580,7 @@ export class BAClickFX
     }
 
     this.webglEffectVisible = visible;
-    if (this.webglEffectCanvas.style)
-    {
-      this.webglEffectCanvas.style.display = visible ? '' : 'none';
-    }
+    this.webglEffectCanvas.style.display = visible ? '' : 'none';
 
     if (!visible)
     {
@@ -9763,19 +9592,16 @@ export class BAClickFX
 
   _destroyWebGLEffectRenderer()
   {
-    this.webglEffectCanvas?.removeEventListener?.(
+    this.webglEffectCanvas?.removeEventListener(
       'webglcontextlost',
       this._onWebGLEffectContextLost,
     );
-    this.webglEffectCanvas?.removeEventListener?.(
+    this.webglEffectCanvas?.removeEventListener(
       'webglcontextrestored',
       this._onWebGLEffectContextRestored,
     );
-    this.webglEffectRenderer?.destroy?.();
-    if (this.ownsCanvas)
-    {
-      this.webglEffectCanvas?.remove?.();
-    }
+    this.webglEffectRenderer?.destroy();
+    this.webglEffectCanvas?.remove();
     this.webglEffectRenderer = null;
     this.webglEffectCanvas = null;
     this.webglEffectVisible = false;
@@ -12258,7 +12084,7 @@ export class BAClickFX
 
         if (this.animationFrame !== null)
         {
-          cancelRenderFrame(this.animationFrame);
+          cancelAnimationFrame(this.animationFrame);
           this.animationFrame = null;
         }
 
@@ -12716,10 +12542,7 @@ export class BAClickFX
     if (overrides.touchAction !== undefined)
     {
       this.config.touchAction = overrides.touchAction;
-      if (this.canvas.style)
-      {
-        this.canvas.style.touchAction = overrides.touchAction;
-      }
+      this.canvas.style.touchAction = overrides.touchAction;
       this._syncTouchActionListeners();
     }
 
@@ -12836,8 +12659,7 @@ export class BAClickFX
     this.trailShardCounts.clear();
     this.lastInputSampleSourceTime = null;
     this._trimBloomRendererPool(0, 0);
-    // 直接 WebGL2 OffscreenCanvas 不创建 2D context，由对应 Renderer 清屏。
-    this.context?.clearRect(0, 0, this.width, this.height);
+    this.context.clearRect(0, 0, this.width, this.height);
     this.contrastContext?.clearRect(0, 0, this.width, this.height);
     this.webglBloomRenderer?.clear();
     this.webgpuEffectRenderer?.clear();
@@ -13104,20 +12926,14 @@ export class BAClickFX
     }
 
     this.destroyed = true;
-    if (typeof window !== 'undefined')
-    {
-      window.removeEventListener('resize', this._onResize);
-    }
+    window.removeEventListener('resize', this._onResize);
     this._detachDomPointerListeners();
-    if (typeof window !== 'undefined')
-    {
-      window.removeEventListener('blur', this._onBlur);
-    }
+    window.removeEventListener('blur', this._onBlur);
     this.resizeObserver?.disconnect();
 
     if (this.animationFrame !== null)
     {
-      cancelRenderFrame(this.animationFrame);
+      cancelAnimationFrame(this.animationFrame);
       this.animationFrame = null;
     }
 
