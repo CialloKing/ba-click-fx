@@ -239,6 +239,8 @@ async function main()
     assert.ok(trailPixels.visiblePixels > 100, JSON.stringify(trailPixels));
     assert.ok(trailPixels.visibleWidth > 180, JSON.stringify(trailPixels));
 
+    await page.evaluate(() =>
+      window.offscreenWorkerTest.request('clearTrail'));
     await page.waitForTimeout(750);
     const resized = await page.evaluate(() =>
       window.offscreenWorkerTest.resize(200, 120, 2));

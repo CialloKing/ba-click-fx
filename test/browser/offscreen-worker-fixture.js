@@ -109,6 +109,9 @@ self.addEventListener('message', async (event) =>
             maxDpr: 2,
           },
         );
+        // SwiftShader 帧缓冲读回可能超过默认 300ms；延长测试几何寿命，
+        // 让像素断言验证 Worker 渲染，而不是依赖 CI 机器速度。
+        fx.setFxParam('trail.lifetimeMs', 10000);
         fx.resize(payload.width, payload.height, payload.dpr);
         break;
 
@@ -126,6 +129,10 @@ self.addEventListener('message', async (event) =>
 
       case 'pointerUp':
         fx.pointerUp(payload.pointerId);
+        break;
+
+      case 'clearTrail':
+        fx.clearTrail();
         break;
 
       case 'boom':
