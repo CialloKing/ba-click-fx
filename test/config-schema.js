@@ -224,12 +224,12 @@ assertConfigError(
   '构造配置拒绝非十六进制主题色',
 );
 check(
-  DEFAULT_THEME_COLOR_MODE === 'hue-only' &&
+  DEFAULT_THEME_COLOR_MODE === 'relative-oklch' &&
     CONFIG.themeColorMode === DEFAULT_THEME_COLOR_MODE &&
     isThemeColorMode('hue-only') &&
     isThemeColorMode('relative-oklch') &&
     !isThemeColorMode('oklch'),
-  '主题颜色映射默认兼容旧色相模式并只接受两个公开枚举',
+  '主题颜色映射默认使用相对 OKLCH 并只接受两个公开枚举',
 );
 check(
   normalizeThemeColorMode('relative-oklch') === 'relative-oklch' &&

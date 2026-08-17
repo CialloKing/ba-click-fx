@@ -213,21 +213,10 @@ assert(
     !canvas2d.contextRequests.includes('webgl2'),
   'Rejected OffscreenCanvas route switch leaves the original context intact',
 );
-canvas2dFx.updateConfig({ renderingMode: 'legacy' });
-assert(
-  canvas2dFx.getConfig().renderingMode === 'legacy',
-  'Canvas2D OffscreenCanvas accepts rendering modes that retain its context',
-);
-canvas2dFx.updateConfig(
-  {
-    effectBackend: 'canvas2d',
-    renderingMode: 'enhanced',
-  },
-);
-assert(
-  canvas2dFx.getConfig().effectBackend === 'canvas2d' &&
-    canvas2dFx.getConfig().renderingMode === 'enhanced',
-  'Canvas2D OffscreenCanvas accepts an atomic context-compatible route update',
+assertThrows(
+  () => canvas2dFx.updateConfig({ renderingMode: 'legacy' }),
+  /未知配置项: renderingMode/,
+  'Canvas2D OffscreenCanvas rejects the removed renderingMode option',
 );
 canvas2dFx.destroy();
 

@@ -53,7 +53,7 @@ export const MIN_TIME_SCALE = 0.01;
 
 // 主题色属于宿主配置状态；固定导出游戏蓝可避免各适配层重复写常量。
 export const DEFAULT_THEME_COLOR = '#4ca7ff';
-export const DEFAULT_THEME_COLOR_MODE = 'hue-only';
+export const DEFAULT_THEME_COLOR_MODE = 'relative-oklch';
 const THEME_COLOR_MODES = new Set(['hue-only', 'relative-oklch']);
 
 // FX_Touch 使用独立的 UI 正交投影（高度 2 世界单位），不跟随场景相机。

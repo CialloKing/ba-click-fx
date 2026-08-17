@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## v1.3.1 - 破坏性运行时与发布包收敛
+
+- 移除 Legacy 渲染模式与运行时切换，只保留统一的 Unity Canvas/WebGL/WebGPU 后端路径。
+- 公共主题颜色映射默认改为 `relative-oklch`；既有宿主需在需要旧色相行为时显式传入 `themeColorMode: 'hue-only'`。
+- 后续发布包仅保留 ESM 入口与专用子路径，CommonJS 与 IIFE CDN 入口不再受支持。
+
 ## v1.3.0 — Worker 与 OffscreenCanvas 核心支持
 
 - 核心支持由高级宿主放入浏览器 `DedicatedWorker`，直接接收宿主转移的 `OffscreenCanvas`；库不创建 Worker、不代理 DOM 输入，也不管理 Worker 生命周期。

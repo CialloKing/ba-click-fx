@@ -3,7 +3,7 @@ declare module 'ba-click-fx'
   export type BAClickFXInputFilter = (event: PointerEvent) => boolean;
   export type BAClickFXInputSource = 'dom' | 'manual';
   export type BAClickFXPointerType = 'mouse' | 'touch' | 'pen';
-  /** 保留旧版纯色相行为，或按 OKLCH 相对映射完整主题颜色。 */
+  /** 按 OKLCH 相对映射完整主题颜色，或选择纯色相兼容映射。 */
   export type BAClickFXThemeColorMode = 'hue-only' | 'relative-oklch';
   /** Scene 精确路径或普通网页透明覆盖层输出。 */
   export type BAClickFXOutputCompositing =
@@ -401,7 +401,7 @@ declare module 'ba-click-fx'
 
   export const CONFIG: Readonly<BAClickFXConfig>;
   export const DEFAULT_THEME_COLOR: '#4ca7ff';
-  export const DEFAULT_THEME_COLOR_MODE: 'hue-only';
+  export const DEFAULT_THEME_COLOR_MODE: 'relative-oklch';
   export const FX_PARAM_SCHEMA_VERSION: 2;
   export const FX_PARAM_SCHEMA: readonly BAClickFXParamDescriptor[];
   export const FX_PARAM_MIGRATIONS: readonly BAClickFXParamMigration[];
@@ -500,7 +500,7 @@ declare module 'ba-click-fx'
     /** 返回当前完整特效配置的深拷贝（与 UNITY_FX_TOUCH 同结构）。 */
     getFxConfig(): Record<string, unknown>;
 
-    /** 重置所有特效参数为当前 Enhanced 或 Legacy 模式的默认基线。 */
+    /** 重置所有特效参数为 Unity 默认基线。 */
     resetFxConfig(): void;
 
     clearTrail(): void;
