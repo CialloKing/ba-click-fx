@@ -92,8 +92,8 @@ declare module 'ba-click-fx'
 
   export interface BAClickFXOptions
   {
-    /** CSS 选择器、定位容器或已有 Canvas；普通容器建议设置 position: relative，省略时创建全屏覆盖层。 */
-    target?: string | HTMLElement;
+    /** CSS 选择器、定位容器或已有 Canvas / OffscreenCanvas；普通容器建议设置 position: relative，省略时创建全屏覆盖层。 */
+    target?: string | HTMLElement | OffscreenCanvas;
     /** 相对 Unity 原始尺寸的倍率，默认 1。 */
     scale?: number;
     /** 整体透明度，默认 1。 */
@@ -443,9 +443,12 @@ declare module 'ba-click-fx'
   {
     constructor(options?: BAClickFXOptions);
 
-    readonly canvas: HTMLCanvasElement;
+    readonly canvas: HTMLCanvasElement | OffscreenCanvas;
     readonly width: number;
     readonly height: number;
+
+    /** 调整画布尺寸与 DPR。在 Worker 或离屏模式下可由宿主主动调用。 */
+    resize(width?: number, height?: number, dpr?: number): void;
 
     /** 在 Canvas 局部坐标触发一次游戏原版 FX_Touch 点击。 */
     boom(x?: number, y?: number): void;

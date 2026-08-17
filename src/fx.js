@@ -102,6 +102,11 @@ const TOUCH_ACTION_DIRECTIONS = Object.freeze(
 
 function shouldUseTouchInputFallback()
 {
+  if (typeof window === 'undefined')
+  {
+    return false;
+  }
+
   if (typeof window.PointerEvent === 'function')
   {
     return false;
@@ -1061,6 +1066,21 @@ function colorToEmissionCss(
 
 function isCanvas(value)
 {
+  if (!value)
+  {
+    return false;
+  }
+
+  if (typeof HTMLCanvasElement !== 'undefined' && value instanceof HTMLCanvasElement)
+  {
+    return true;
+  }
+
+  if (typeof OffscreenCanvas !== 'undefined' && value instanceof OffscreenCanvas)
+  {
+    return true;
+  }
+
   return value?.tagName?.toLowerCase?.() === 'canvas';
 }
 
@@ -1107,18 +1127,30 @@ function resolveTarget(target)
 {
   if (typeof target === 'string')
   {
-    return document.querySelector(target);
+    return typeof document !== 'undefined' && typeof document.querySelector === 'function'
+      ? document.querySelector(target)
+      : null;
   }
 
   return target ?? null;
 }
 
-function createCanvas()
+function createCanvas(width = 300, height = 150)
 {
-  const canvas = document.createElement('canvas');
+  if (typeof document !== 'undefined' && typeof document.createElement === 'function')
+  {
+    const canvas = document.createElement('canvas');
 
-  canvas.setAttribute('aria-hidden', 'true');
-  return canvas;
+    canvas.setAttribute?.('aria-hidden', 'true');
+    return canvas;
+  }
+
+  if (typeof OffscreenCanvas !== 'undefined')
+  {
+    return new OffscreenCanvas(width, height);
+  }
+
+  return null;
 }
 
 function getTriangleTextureResources()
@@ -1662,6 +1694,11 @@ function setOverlayStyle(
   mixBlendMode = 'plus-lighter',
 )
 {
+  if (!canvas?.style)
+  {
+    return;
+  }
+
   canvas.style.position = fixed ? 'fixed' : 'absolute';
   canvas.style.inset = '0';
   canvas.style.width = '100%';
@@ -6228,7 +6265,7 @@ export class BAClickFX
 {
   /**
    * @param {object} [options]
-   * @param {string|HTMLElement} [options.target]
+   * @param {string|HTMLElement|OffscreenCanvas} [options.target]
    * @param {number} [options.scale]
    * @param {number} [options.opacity]
    * @param {string} [options.themeColor]
@@ -6265,9 +6302,16 @@ export class BAClickFX
    */
   constructor(options = {})
   {
-    if (typeof document === 'undefined' || typeof window === 'undefined')
+    const hasDom = typeof document !== 'undefined' && typeof window !== 'undefined';
+    const hasOffscreen = typeof OffscreenCanvas !== 'undefined';
+    const isWorkerScope =
+      typeof WorkerGlobalScope !== 'undefined' &&
+      typeof self !== 'undefined' &&
+      self instanceof WorkerGlobalScope;
+
+    if (!hasDom && !hasOffscreen && !isWorkerScope)
     {
-      throw new Error('BAClickFX 需要浏览器 DOM 环境');
+      throw new Error('BAClickFX 需要浏览器 DOM 或 Web Worker (OffscreenCanvas) 环境');
     }
 
     const compatibilityBloomBackend =
@@ -6452,7 +6496,10 @@ export class BAClickFX
       this._applyCompositingMount();
     }
 
-    this.canvas.style.touchAction = this.config.touchAction;
+    if (this.canvas.style)
+    {
+      this.canvas.style.touchAction = this.config.touchAction;
+    }
     this.context = this.canvas.getContext('2d');
     this.contrastContext = this.contrastCanvas?.getContext('2d') ?? null;
 
@@ -6561,12 +6608,18 @@ export class BAClickFX
       this._handleCanvasSceneContextRestored.bind(this);
 
     this._resize();
-    window.addEventListener('resize', this._onResize);
-    if (this.config.inputSource === 'dom')
+    if (typeof window !== 'undefined')
+    {
+      window.addEventListener('resize', this._onResize);
+    }
+    if (this.config.inputSource === 'dom' && typeof window !== 'undefined')
     {
       this._attachDomPointerListeners();
     }
-    window.addEventListener('blur', this._onBlur);
+    if (typeof window !== 'undefined')
+    {
+      window.addEventListener('blur', this._onBlur);
+    }
 
     if (this.host && !isCanvas(this.host) && typeof ResizeObserver !== 'undefined')
     {
@@ -6692,10 +6745,13 @@ export class BAClickFX
       return;
     }
 
-    window.removeEventListener('touchstart', this._onTouchStart, true);
-    window.removeEventListener('touchmove', this._onTouchMove, true);
-    window.removeEventListener('touchend', this._onTouchEnd, true);
-    window.removeEventListener('touchcancel', this._onTouchEnd, true);
+    if (typeof window !== 'undefined')
+    {
+      window.removeEventListener('touchstart', this._onTouchStart, true);
+      window.removeEventListener('touchmove', this._onTouchMove, true);
+      window.removeEventListener('touchend', this._onTouchEnd, true);
+      window.removeEventListener('touchcancel', this._onTouchEnd, true);
+    }
     if (this.closedShadowTouchListenersAttached)
     {
       this.host?.removeEventListener?.('touchstart', this._onTouchStart, true);
@@ -6741,13 +6797,16 @@ export class BAClickFX
     }
 
     this._detachTouchActionListeners();
-    if (!this.usesTouchInputFallback)
+    if (typeof window !== 'undefined')
     {
-      window.removeEventListener('pointerdown', this._onPointerDown, true);
-      window.removeEventListener('pointermove', this._onPointerMove, true);
+      if (!this.usesTouchInputFallback)
+      {
+        window.removeEventListener('pointerdown', this._onPointerDown, true);
+        window.removeEventListener('pointermove', this._onPointerMove, true);
+      }
+      window.removeEventListener('pointerup', this._onPointerUp, true);
+      window.removeEventListener('pointercancel', this._onPointerCancel, true);
     }
-    window.removeEventListener('pointerup', this._onPointerUp, true);
-    window.removeEventListener('pointercancel', this._onPointerCancel, true);
     this.domPointerListenersAttached = false;
   }
 
@@ -6898,7 +6957,7 @@ export class BAClickFX
     // 真实 DOM 会提供 currentTarget；测试夹具的简化 EventTarget 不会，
     // 此时只有 scope 失败的 window 目标才应视作重定向事件。
     const isWindowDispatch = event.currentTarget === undefined ||
-      event.currentTarget === window;
+      event.currentTarget === (typeof window !== 'undefined' ? window : null);
 
     return isWindowDispatch &&
       !this._isTouchEventInScope(event, event.target);
@@ -6964,15 +7023,15 @@ export class BAClickFX
       : isPrimary === true;
     const pageX = Number.isFinite(touch.pageX)
       ? touch.pageX
-      : touch.clientX + (window.pageXOffset || 0);
+      : touch.clientX + (typeof window !== 'undefined' ? (window.pageXOffset || 0) : 0);
     const pageY = Number.isFinite(touch.pageY)
       ? touch.pageY
-      : touch.clientY + (window.pageYOffset || 0);
+      : touch.clientY + (typeof window !== 'undefined' ? (window.pageYOffset || 0) : 0);
 
     return {
       type,
       target,
-      currentTarget: event.currentTarget ?? window,
+      currentTarget: event.currentTarget ?? (typeof window !== 'undefined' ? window : null),
       pointerId: touch.identifier,
       pointerType: 'touch',
       isPrimary: resolvedIsPrimary,
@@ -7679,7 +7738,12 @@ export class BAClickFX
     Object.assign(this.fxConfig, nextConfig);
   }
 
-  _resize()
+  resize(width, height, dpr)
+  {
+    this._resize(width, height, dpr);
+  }
+
+  _resize(overrideWidth, overrideHeight, overrideDpr)
   {
     if (this.destroyed)
     {
@@ -7687,9 +7751,13 @@ export class BAClickFX
     }
 
     const rect = this._getCanvasRect();
-    const width = Math.max(1, rect.width || window.innerWidth || 1);
-    const height = Math.max(1, rect.height || window.innerHeight || 1);
-    const dpr = Math.min(window.devicePixelRatio || 1, this.config.maxDpr);
+    const defaultWidth = typeof window !== 'undefined' ? window.innerWidth : (this.canvas?.width || 1);
+    const defaultHeight = typeof window !== 'undefined' ? window.innerHeight : (this.canvas?.height || 1);
+    const defaultDpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+
+    const width = Math.max(1, overrideWidth || rect.width || defaultWidth);
+    const height = Math.max(1, overrideHeight || rect.height || defaultHeight);
+    const dpr = Math.min(overrideDpr || defaultDpr, this.config.maxDpr);
 
     this.width = width;
     this.height = height;
@@ -7712,14 +7780,22 @@ export class BAClickFX
 
   _getCanvasRect()
   {
-    if (this.host && !isCanvas(this.host))
+    if (this.host && !isCanvas(this.host) && typeof this.host.getBoundingClientRect === 'function')
     {
       return this.host.getBoundingClientRect();
     }
 
-    // fixed 覆盖层的 CSS 盒子会排除传统滚动条槽；实测画布才能让
-    // 输入坐标、逻辑尺寸和 backing store 使用同一个坐标空间。
-    return this.canvas.getBoundingClientRect();
+    if (typeof this.canvas?.getBoundingClientRect === 'function')
+    {
+      return this.canvas.getBoundingClientRect();
+    }
+
+    return {
+      left: 0,
+      top: 0,
+      width: this.canvas?.width || 0,
+      height: this.canvas?.height || 0,
+    };
   }
 
   _getPointerPosition(event)
@@ -12542,7 +12618,10 @@ export class BAClickFX
     if (overrides.touchAction !== undefined)
     {
       this.config.touchAction = overrides.touchAction;
-      this.canvas.style.touchAction = overrides.touchAction;
+      if (this.canvas.style)
+      {
+        this.canvas.style.touchAction = overrides.touchAction;
+      }
       this._syncTouchActionListeners();
     }
 
@@ -12926,9 +13005,15 @@ export class BAClickFX
     }
 
     this.destroyed = true;
-    window.removeEventListener('resize', this._onResize);
+    if (typeof window !== 'undefined')
+    {
+      window.removeEventListener('resize', this._onResize);
+    }
     this._detachDomPointerListeners();
-    window.removeEventListener('blur', this._onBlur);
+    if (typeof window !== 'undefined')
+    {
+      window.removeEventListener('blur', this._onBlur);
+    }
     this.resizeObserver?.disconnect();
 
     if (this.animationFrame !== null)
