@@ -105,6 +105,28 @@ function resolvePositiveFinite(value, fallback)
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function requestRenderFrame(callback)
+{
+  if (typeof requestAnimationFrame === 'function')
+  {
+    return requestAnimationFrame(callback);
+  }
+
+  // 部分 Dedicated Worker 没有 RAF；定时器只负责帧调度，不接管 Worker 协议。
+  return setTimeout(() => callback(performance.now()), 1000 / 60);
+}
+
+function cancelRenderFrame(handle)
+{
+  if (typeof cancelAnimationFrame === 'function')
+  {
+    cancelAnimationFrame(handle);
+    return;
+  }
+
+  clearTimeout(handle);
+}
+
 function shouldUseTouchInputFallback()
 {
   if (typeof window === 'undefined')
@@ -1069,6 +1091,12 @@ function colorToEmissionCss(
   );
 }
 
+function isOffscreenCanvas(value)
+{
+  return typeof OffscreenCanvas !== 'undefined' &&
+    value instanceof OffscreenCanvas;
+}
+
 function isCanvas(value)
 {
   if (!value)
@@ -1081,7 +1109,7 @@ function isCanvas(value)
     return true;
   }
 
-  if (typeof OffscreenCanvas !== 'undefined' && value instanceof OffscreenCanvas)
+  if (isOffscreenCanvas(value))
   {
     return true;
   }
@@ -6270,7 +6298,7 @@ export class BAClickFX
 {
   /**
    * @param {object} [options]
-   * @param {string|HTMLElement} [options.target]
+   * @param {string|HTMLElement|OffscreenCanvas} [options.target]
    * @param {number} [options.scale]
    * @param {number} [options.opacity]
    * @param {string} [options.themeColor]
@@ -6309,14 +6337,15 @@ export class BAClickFX
   {
     const hasDom = typeof document !== 'undefined' && typeof window !== 'undefined';
     const hasOffscreen = typeof OffscreenCanvas !== 'undefined';
-    const isWorkerScope =
-      typeof WorkerGlobalScope !== 'undefined' &&
-      typeof self !== 'undefined' &&
-      self instanceof WorkerGlobalScope;
 
-    if (!hasDom && !hasOffscreen && !isWorkerScope)
+    if (!hasDom && !hasOffscreen)
     {
       throw new Error('BAClickFX 需要浏览器 DOM 或 Web Worker (OffscreenCanvas) 环境');
+    }
+
+    if (!hasDom && !isOffscreenCanvas(options.target))
+    {
+      throw new Error('BAClickFX 在 Worker 中需要显式传入 OffscreenCanvas target');
     }
 
     const compatibilityBloomBackend =
@@ -6505,13 +6534,16 @@ export class BAClickFX
     {
       this.canvas.style.touchAction = this.config.touchAction;
     }
-    const isDirectOffscreen = typeof OffscreenCanvas !== 'undefined' && this.canvas instanceof OffscreenCanvas;
-    this.context = isDirectOffscreen && this.config.effectBackend !== 'canvas2d' && this.config.renderingMode !== 'legacy'
-      ? null
-      : this.canvas.getContext('2d');
+    const isDirectOffscreen = isOffscreenCanvas(this.canvas);
+    const requiresCanvas2D = !isDirectOffscreen ||
+      this.config.effectBackend === 'canvas2d' ||
+      this.config.renderingMode === 'legacy';
+
+    // Canvas 上下文类型一旦确定便不能切换；GPU 模式必须把首次请求留给 WebGL2。
+    this.context = requiresCanvas2D ? this.canvas.getContext('2d') : null;
     this.contrastContext = this.contrastCanvas?.getContext('2d') ?? null;
 
-    if (!this.context && !isDirectOffscreen)
+    if (!this.context && requiresCanvas2D)
     {
       throw new Error('BAClickFX 无法创建 Canvas 2D 上下文');
     }
@@ -6617,6 +6649,28 @@ export class BAClickFX
       this._handleCanvasSceneContextRestored.bind(this);
 
     this._resize();
+    if (
+      isDirectOffscreen &&
+      !requiresCanvas2D &&
+      !this._prepareWebGLEffectBackend()
+    )
+    {
+      // getContext('webgl2') 返回 null 时画布仍可回退 2D；若 WebGL2 已经
+      // 锁定但完整 Scene 初始化失败，则必须让宿主换一张画布重建实例。
+      this.context = this.canvas.getContext('2d');
+      if (!this.context)
+      {
+        if (this.animationFrame !== null)
+        {
+          cancelRenderFrame(this.animationFrame);
+          this.animationFrame = null;
+        }
+        throw new Error(
+          'BAClickFX 无法在 OffscreenCanvas 上初始化 WebGL2；请使用新的画布并显式选择 Canvas2D',
+        );
+      }
+      this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    }
     if (typeof window !== 'undefined')
     {
       window.addEventListener('resize', this._onResize);
@@ -8655,7 +8709,7 @@ export class BAClickFX
     }
 
     this.lastFrameTime = this.lastFrameTime ?? performance.now();
-    this.animationFrame = requestAnimationFrame(this._onFrame);
+    this.animationFrame = requestRenderFrame(this._onFrame);
   }
 
   _renderFrame(now)
@@ -8750,17 +8804,15 @@ export class BAClickFX
     }
 
     this._setWebGLBloomVisible(!useGpuClickEffects && useWebGL2Bloom);
-    if (!useGpuClickEffects)
+    if (!this.context && !useGpuClickEffects)
     {
-      if (!this.context)
-      {
-        this.context = this.canvas.getContext?.('2d') ?? null;
-      }
-      if (this.context)
-      {
-        this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-        this.context.clearRect(0, 0, this.width, this.height);
-      }
+      this.context = this.canvas.getContext?.('2d') ?? null;
+    }
+    if (this.context)
+    {
+      // DOM 的 GPU 层恢复时备用 Canvas 仍可能参与合成，必须清掉旧回退帧。
+      this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      this.context.clearRect(0, 0, this.width, this.height);
     }
     // 推入当前实例的主题变换，渲染完成后恢复，保证多实例安全。
     const prevHueShift = themeHueShift;
@@ -8976,7 +9028,7 @@ export class BAClickFX
   _getRequestedEffectBackendState()
   {
     const requested = normalizeEffectBackend(this.config.effectBackend);
-    const isDirectCanvas = typeof OffscreenCanvas !== 'undefined' && this.canvas instanceof OffscreenCanvas;
+    const isDirectCanvas = isOffscreenCanvas(this.canvas);
 
     if (
       this.config.renderingMode === 'legacy' ||
@@ -9553,7 +9605,7 @@ export class BAClickFX
       return false;
     }
 
-    const isDirectCanvas = typeof OffscreenCanvas !== 'undefined' && this.canvas instanceof OffscreenCanvas;
+    const isDirectCanvas = isOffscreenCanvas(this.canvas);
     if (!this.ownsCanvas && !isDirectCanvas)
     {
       return false;
@@ -10175,10 +10227,13 @@ export class BAClickFX
     this.webglBloomRenderer?.clear();
     this.canvasSceneRenderer?.clear();
 
-    this.context.save();
-    this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    this.context.clearRect(0, 0, this.width, this.height);
-    this.context.restore();
+    if (this.context)
+    {
+      this.context.save();
+      this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      this.context.clearRect(0, 0, this.width, this.height);
+      this.context.restore();
+    }
     this._clearLightBackgroundContrast();
     // 暂停时不会申请 RAF；同步清空后再恢复 Canvas，避免旧背景残差常驻。
     this._setCanvasOutputVisible(true);
@@ -12218,7 +12273,7 @@ export class BAClickFX
 
         if (this.animationFrame !== null)
         {
-          cancelAnimationFrame(this.animationFrame);
+          cancelRenderFrame(this.animationFrame);
           this.animationFrame = null;
         }
 
@@ -12796,7 +12851,8 @@ export class BAClickFX
     this.trailShardCounts.clear();
     this.lastInputSampleSourceTime = null;
     this._trimBloomRendererPool(0, 0);
-    this.context.clearRect(0, 0, this.width, this.height);
+    // 直接 WebGL2 OffscreenCanvas 不创建 2D context，由对应 Renderer 清屏。
+    this.context?.clearRect(0, 0, this.width, this.height);
     this.contrastContext?.clearRect(0, 0, this.width, this.height);
     this.webglBloomRenderer?.clear();
     this.webgpuEffectRenderer?.clear();
@@ -13076,7 +13132,7 @@ export class BAClickFX
 
     if (this.animationFrame !== null)
     {
-      cancelAnimationFrame(this.animationFrame);
+      cancelRenderFrame(this.animationFrame);
       this.animationFrame = null;
     }
 

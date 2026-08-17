@@ -6244,6 +6244,8 @@ fullWebGLEffect.webglEffectRenderer = fullWebGLRenderer;
 fullWebGLEffect._ensureWebGLEffectRenderer = () => true;
 fullWebGLEffect._resizeWebGLEffectRenderer = () => true;
 fullWebGLEffect._renderWebGL2ClickEffects = () => true;
+const fullWebGLMainClearCount = fullWebGLEffect.context.clearRectCalls.length;
+
 fullWebGLEffect.boom(960, 540);
 let fullWebGLNow = flushFrames(dom, performance.now(), 1);
 assert(
@@ -6252,6 +6254,10 @@ assert(
     fullWebGLEvents[0].requestedEffectBackend === 'webgl2' &&
     fullWebGLEvents[0].resolvedEffectBackend === 'webgl2',
   '纯 WebGL2 首帧成功后只派发一次实际后端，不产生虚假回退事件',
+);
+assert(
+  fullWebGLEffect.context.clearRectCalls.length > fullWebGLMainClearCount,
+  'DOM 纯 WebGL2 帧清空备用 Canvas，避免 Context 恢复时叠加旧回退像素',
 );
 fullWebGLEffect.updateConfig({ bloomBackend: 'native' });
 assert(

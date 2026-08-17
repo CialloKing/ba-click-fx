@@ -74,10 +74,12 @@ class MockOffscreenCanvas
     this.width = width;
     this.height = height;
     this._context = null;
+    this.contextRequests = [];
   }
 
   getContext(type)
   {
+    this.contextRequests.push(type);
     if (type === '2d')
     {
       if (!this._context)
@@ -90,13 +92,28 @@ class MockOffscreenCanvas
   }
 }
 
-// 模拟 Worker 环境全局对象
-globalThis.OffscreenCanvas = MockOffscreenCanvas;
-if (typeof globalThis.requestAnimationFrame === 'undefined')
+class LockedWebGL2OffscreenCanvas extends MockOffscreenCanvas
 {
-  globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 16);
-  globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
+  getContext(type)
+  {
+    this.contextRequests.push(type);
+    if (type === 'webgl2' && !this._context)
+    {
+      this._context = {
+        getExtension()
+        {
+          return null;
+        },
+      };
+      return this._context;
+    }
+
+    return null;
+  }
 }
+
+// Worker 没有 DOM，测试必须确保核心只依赖 OffscreenCanvas 提供的接口。
+globalThis.OffscreenCanvas = MockOffscreenCanvas;
 
 let passed = 0;
 function assert(condition, message)
@@ -116,12 +133,18 @@ const fx = new BAClickFX({
   target: offscreen,
   inputSource: 'manual',
   maxDpr: 1,
+  effectBackend: 'webgl2',
   bloomBackend: 'native',
 });
 
 assert(fx.canvas === offscreen, 'BAClickFX correctly binds to OffscreenCanvas target');
 assert(fx.width === 1920, 'BAClickFX reads initial width from OffscreenCanvas');
 assert(fx.height === 1080, 'BAClickFX reads initial height from OffscreenCanvas');
+assert(
+  offscreen.contextRequests[0] === 'webgl2' &&
+    offscreen.contextRequests.includes('2d'),
+  'GPU initialization can fall back to Canvas2D before the surface is locked',
+);
 
 // 測試 resize API
 fx.resize(1280, 720, 1);
@@ -133,6 +156,7 @@ assert(offscreen.height === 720, 'fx.resize updates OffscreenCanvas backing heig
 // 測試 手動輸入生命週期
 const downResult = fx.pointerDown({ x: 100, y: 200, pointerId: 1, pointerType: 'mouse' });
 assert(downResult === true, 'pointerDown succeeded in manual mode');
+assert(fx.animationFrame !== null, 'Worker without requestAnimationFrame uses the timer scheduler');
 
 const moveResult = fx.pointerMove({ x: 120, y: 220, pointerId: 1, pointerType: 'mouse' });
 assert(moveResult === true, 'pointerMove succeeded in manual mode');
@@ -150,5 +174,55 @@ assert(true, 'fx.setPaused executed successfully');
 
 fx.destroy();
 assert(fx.destroyed === true, 'fx.destroy executed and set destroyed flag');
+
+const canvas2d = new MockOffscreenCanvas(64, 64);
+const canvas2dFx = new BAClickFX({
+  target: canvas2d,
+  inputSource: 'manual',
+  effectBackend: 'canvas2d',
+  bloomBackend: 'native',
+});
+assert(
+  canvas2d.contextRequests[0] === '2d' &&
+    !canvas2d.contextRequests.includes('webgl2'),
+  'Explicit Canvas2D mode does not lock the OffscreenCanvas to WebGL2',
+);
+canvas2dFx.destroy();
+
+assert(
+  (() =>
+  {
+    try
+    {
+      new BAClickFX({
+        target: new LockedWebGL2OffscreenCanvas(64, 64),
+        inputSource: 'manual',
+        effectBackend: 'webgl2',
+      });
+      return false;
+    }
+    catch (error)
+    {
+      return /新的画布/.test(error.message) && /Canvas2D/.test(error.message);
+    }
+  })(),
+  'Locked WebGL2 initialization failure reports that a new canvas is required',
+);
+
+assert(
+  (() =>
+  {
+    try
+    {
+      new BAClickFX({ inputSource: 'manual' });
+      return false;
+    }
+    catch (error)
+    {
+      return /OffscreenCanvas target/.test(error.message);
+    }
+  })(),
+  'Worker without an OffscreenCanvas target fails with an actionable error',
+);
 
 console.log(`\nAll ${passed} OffscreenCanvas tests passed!`);
