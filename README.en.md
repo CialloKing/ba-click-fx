@@ -886,6 +886,8 @@ ba-click-fx/
 
 ## Development
 
+Local development and CI use **Node.js 24 LTS**. The currently verified toolchain is Node.js `24.19.0` (Krypton) with npm `11.17.0`. The `node >=18` entry in `package.json` remains the runtime compatibility floor for consumers of the built library; it is not the development-toolchain version.
+
 ### Unity source-of-truth gate
 
 The current `UnityMouseFxLab` is the only fixed UI Pass baseline: `Matrix4x4.Ortho(-aspect, aspect, -1, 1)` is equivalent to `orthographicSize = 1.0`. The `1.35` camera in the old `提取资产2` project belongs to an earlier preview scene and cannot override the newer machine-code and serialized-resource evidence. The Prefab contract is 2 rings, 4 click shards, and at most 50 trail shards per press instance.
