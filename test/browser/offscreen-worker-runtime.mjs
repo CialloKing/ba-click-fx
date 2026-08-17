@@ -85,62 +85,8 @@ async function getAvailablePort()
   return port;
 }
 
-async function inspectScreenshot(page, screenshot)
-{
-  return page.evaluate(async (base64) =>
-  {
-    const image = new Image();
-
-    image.src = `data:image/png;base64,${base64}`;
-    await image.decode();
-    const canvas = document.createElement('canvas');
-
-    canvas.width = image.width;
-    canvas.height = image.height;
-    const context = canvas.getContext('2d', { willReadFrequently: true });
-
-    context.drawImage(image, 0, 0);
-    const pixels = context.getImageData(0, 0, image.width, image.height).data;
-    let visiblePixels = 0;
-    let maximumChannel = 0;
-    let minimumX = image.width;
-    let maximumX = -1;
-
-    for (let index = 0; index < pixels.length; index += 4)
-    {
-      const energy = Math.max(
-        pixels[index],
-        pixels[index + 1],
-        pixels[index + 2],
-      );
-
-      if (energy <= 8)
-      {
-        continue;
-      }
-
-      const pixelIndex = index / 4;
-      const x = pixelIndex % image.width;
-
-      visiblePixels++;
-      maximumChannel = Math.max(maximumChannel, energy);
-      minimumX = Math.min(minimumX, x);
-      maximumX = Math.max(maximumX, x);
-    }
-
-    return {
-      width: image.width,
-      height: image.height,
-      visiblePixels,
-      maximumChannel,
-      visibleWidth: maximumX >= minimumX ? maximumX - minimumX + 1 : 0,
-    };
-  }, screenshot.toString('base64'));
-}
-
-async function waitForScreenshotPixels(
+async function waitForWorkerPixels(
   page,
-  locator,
   predicate,
   timeout = 3000,
 )
@@ -148,11 +94,12 @@ async function waitForScreenshotPixels(
   const deadline = Date.now() + timeout;
   let pixels = null;
 
-  // Software GPU startup can take several frames in CI. Poll the presented
-  // canvas while retaining the same pixel thresholds and a bounded timeout.
+  // Poll inside the Worker because Edge headless screenshots do not reliably
+  // composite a transferred OffscreenCanvas backed by software WebGL2.
   do
   {
-    pixels = await inspectScreenshot(page, await locator.screenshot());
+    pixels = await page.evaluate(() =>
+      window.offscreenWorkerTest.request('pixels'));
     if (predicate(pixels))
     {
       return pixels;
@@ -245,10 +192,8 @@ async function main()
       'boom',
       { x: 160, y: 120 },
     ));
-    const stage = page.locator('#stage');
-    const clickPixels = await waitForScreenshotPixels(
+    const clickPixels = await waitForWorkerPixels(
       page,
-      stage,
       (pixels) => pixels.visiblePixels > 50 && pixels.maximumChannel > 80,
     );
 
@@ -274,9 +219,8 @@ async function main()
       }
       await api.request('pointerUp', { pointerId });
     });
-    const trailPixels = await waitForScreenshotPixels(
+    const trailPixels = await waitForWorkerPixels(
       page,
-      stage,
       (pixels) => pixels.visiblePixels > 100 && pixels.visibleWidth > 180,
     );
 
@@ -296,14 +240,21 @@ async function main()
       'boom',
       { x: 100, y: 60 },
     ));
-    const resizedPixels = await waitForScreenshotPixels(
+    const resizedPixels = await waitForWorkerPixels(
       page,
-      stage,
       (pixels) => pixels.visiblePixels > 30,
     );
+    const stageSize = await page.locator('#stage').evaluate((canvas) =>
+    {
+      const rect = canvas.getBoundingClientRect();
 
-    assert.equal(resizedPixels.width, 200);
-    assert.equal(resizedPixels.height, 120);
+      return { width: rect.width, height: rect.height };
+    });
+
+    assert.equal(stageSize.width, 200);
+    assert.equal(stageSize.height, 120);
+    assert.equal(resizedPixels.width, 400);
+    assert.equal(resizedPixels.height, 240);
     assert.ok(resizedPixels.visiblePixels > 30, JSON.stringify(resizedPixels));
 
     const destroyed = await page.evaluate(() =>
