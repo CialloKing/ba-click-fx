@@ -5362,7 +5362,8 @@ dom.setCurrentTime(idleSamplingStart + 500);
 const throttledIdleMove = idleSamplingEffect.pointerMove(
   { x: 300, y: 260, pointerId: 74 },
 );
-dom.setCurrentTime(idleSamplingStart + 1000);
+// 使用明确越过阈值的时间，避免 performance.now() 小数起点的舍入差异。
+dom.setCurrentTime(idleSamplingStart + 1001);
 idleSamplingEffect.pointerMove({ x: 400, y: 260, pointerId: 74 });
 assert(
   throttledIdleMove === true &&
