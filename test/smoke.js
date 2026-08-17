@@ -1939,6 +1939,15 @@ assert(
     scrollbarGutterEffect.canvas.height === 1080 * CONFIG.maxDpr,
   '全屏覆盖层按实测 CSS 尺寸排除滚动条槽',
 );
+dom.setCanvasBounds({ width: 1870, height: 1040 });
+dom.windowMock.dispatch('resize');
+assert(
+  scrollbarGutterEffect.width === 1870 &&
+    scrollbarGutterEffect.height === 1040 &&
+    scrollbarGutterEffect.canvas.width === 1870 * CONFIG.maxDpr &&
+    scrollbarGutterEffect.canvas.height === 1040 * CONFIG.maxDpr,
+  '浏览器 resize 事件不会被误当作公开尺寸参数',
+);
 scrollbarGutterEffect.destroy();
 
 dom.setCanvasBounds({ width: 0, height: 0 });

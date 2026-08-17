@@ -7803,10 +7803,15 @@ export class BAClickFX
     const defaultWidth = typeof window !== 'undefined' ? window.innerWidth : (this.canvas?.width || 1);
     const defaultHeight = typeof window !== 'undefined' ? window.innerHeight : (this.canvas?.height || 1);
     const defaultDpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const explicitWidth = Number.isFinite(overrideWidth) ? overrideWidth : 0;
+    const explicitHeight = Number.isFinite(overrideHeight) ? overrideHeight : 0;
+    const explicitDpr = Number.isFinite(overrideDpr) ? overrideDpr : 0;
 
-    const width = Math.max(1, overrideWidth || rect.width || defaultWidth);
-    const height = Math.max(1, overrideHeight || rect.height || defaultHeight);
-    const dpr = Math.min(overrideDpr || defaultDpr, this.config.maxDpr);
+    // window resize 与 ResizeObserver 会向监听器传入 Event/entries；只有公开
+    // resize() 的有限数值参数才能覆盖实测布局，避免把对象转换为 NaN。
+    const width = Math.max(1, explicitWidth || rect.width || defaultWidth);
+    const height = Math.max(1, explicitHeight || rect.height || defaultHeight);
+    const dpr = Math.min(explicitDpr || defaultDpr, this.config.maxDpr);
 
     this.width = width;
     this.height = height;
