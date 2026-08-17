@@ -74,10 +74,12 @@ class MockOffscreenCanvas
     this.width = width;
     this.height = height;
     this._context = null;
+    this.contextRequests = [];
   }
 
   getContext(type)
   {
+    this.contextRequests.push(type);
     if (type === '2d')
     {
       if (!this._context)
@@ -92,11 +94,6 @@ class MockOffscreenCanvas
 
 // Worker 没有 DOM，测试必须确保核心只依赖 OffscreenCanvas 提供的接口。
 globalThis.OffscreenCanvas = MockOffscreenCanvas;
-if (typeof globalThis.requestAnimationFrame === 'undefined')
-{
-  globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 16);
-  globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-}
 
 let passed = 0;
 function assert(condition, message)
@@ -116,12 +113,18 @@ const fx = new BAClickFX({
   target: offscreen,
   inputSource: 'manual',
   maxDpr: 1,
+  effectBackend: 'webgl2',
   bloomBackend: 'native',
 });
 
 assert(fx.canvas === offscreen, 'BAClickFX correctly binds to OffscreenCanvas target');
 assert(fx.width === 1920, 'BAClickFX reads initial width from OffscreenCanvas');
 assert(fx.height === 1080, 'BAClickFX reads initial height from OffscreenCanvas');
+assert(
+  offscreen.contextRequests[0] === 'webgl2' &&
+    offscreen.contextRequests.includes('2d'),
+  'GPU initialization can fall back to Canvas2D before the surface is locked',
+);
 
 // 宿主负责把视口和 DPR 变化显式同步给 Worker。
 fx.resize(1280, 720, 1);
@@ -133,6 +136,7 @@ assert(offscreen.height === 720, 'fx.resize updates OffscreenCanvas backing heig
 // Worker 中没有 DOM 事件，宿主通过 manual API 转发局部坐标。
 const downResult = fx.pointerDown({ x: 100, y: 200, pointerId: 1, pointerType: 'mouse' });
 assert(downResult === true, 'pointerDown succeeded in manual mode');
+assert(fx.animationFrame !== null, 'Worker without requestAnimationFrame uses the timer scheduler');
 
 const moveResult = fx.pointerMove({ x: 120, y: 220, pointerId: 1, pointerType: 'mouse' });
 assert(moveResult === true, 'pointerMove succeeded in manual mode');
@@ -150,5 +154,19 @@ assert(true, 'fx.setPaused executed successfully');
 
 fx.destroy();
 assert(fx.destroyed === true, 'fx.destroy executed and set destroyed flag');
+
+const canvas2d = new MockOffscreenCanvas(64, 64);
+const canvas2dFx = new BAClickFX({
+  target: canvas2d,
+  inputSource: 'manual',
+  effectBackend: 'canvas2d',
+  bloomBackend: 'native',
+});
+assert(
+  canvas2d.contextRequests[0] === '2d' &&
+    !canvas2d.contextRequests.includes('webgl2'),
+  'Explicit Canvas2D mode does not lock the OffscreenCanvas to WebGL2',
+);
+canvas2dFx.destroy();
 
 console.log(`\nAll ${passed} OffscreenCanvas tests passed!`);
