@@ -339,6 +339,8 @@ fx.pointerUp(7);
 
 `BAClickFX` can receive an `OffscreenCanvas` directly inside a Dedicated Worker, but it does not create the Worker, transfer the Canvas, proxy DOM input, or manage the Worker lifecycle. Those responsibilities remain with the host so the application protocol and bundling strategy do not become library policy. The following is a minimal host-owned protocol.
 
+Worker means a browser `DedicatedWorker` here, not Node.js `worker_threads`. Node.js 24 is only the development and CI toolchain for this project; browser Worker support depends on the available `Worker`, module-script, `OffscreenCanvas`, and selected Canvas-context implementations.
+
 The main thread reads the real Canvas geometry, converts DOM coordinates into Canvas-local CSS pixels, and forwards size, DPR, and pointer lifecycle changes:
 
 ```js

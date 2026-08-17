@@ -359,6 +359,8 @@ fx.pointerUp(7);
 
 `BAClickFX` 可以在 Dedicated Worker 中直接接收 `OffscreenCanvas`，但库不会创建 Worker、转移 Canvas、代理 DOM 输入或管理 Worker 生命周期。这些职责留给宿主，可以避免把应用协议和打包策略固化进库。下面是一个最小的宿主协议。
 
+这里的 Worker 专指浏览器 `DedicatedWorker`，不是 Node.js `worker_threads`。Node.js 24 仅是本项目的开发与 CI 工具链；浏览器端 Worker 是否可用取决于 `Worker`、模块脚本、`OffscreenCanvas` 和所选 Canvas Context 的实现。
+
 主线程负责读取真实 Canvas 几何、把 DOM 坐标转换为 Canvas 局部 CSS 像素，并转发尺寸、DPR 和指针生命周期：
 
 ```js
