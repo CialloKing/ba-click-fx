@@ -120,13 +120,6 @@ for (const descriptor of FX_PARAM_SCHEMA)
     descriptor.groupLabelKey,
     `baClickFx.paramGroups.${descriptor.group}`,
   );
-  assert.equal(descriptor.modeDefaults.enhanced, descriptor.default);
-  assert.equal(
-    typeof descriptor.modeDefaults.legacy,
-    descriptor.type,
-    `${descriptor.path} Legacy 默认值类型`,
-  );
-
   previousOrder = descriptor.order;
 
   if (descriptor.type === 'number')
@@ -170,21 +163,16 @@ assert.equal(bloomThresholdDescriptor?.unit, 'gamma-hdr');
 assert.equal(bloomClampDescriptor?.unit, 'gamma-hdr');
 check(true, 'Bloom Threshold 与 Clamp 都从 Gamma 配置换算到 Linear');
 
-console.log('\nLegacy 基线与版本迁移');
-const legacyOverrides = FX_PARAM_SCHEMA.filter(
-  (descriptor) =>
-    descriptor.modeDefaults.legacy !== descriptor.modeDefaults.enhanced,
+console.log('\nUnity 基线与版本迁移');
+assert.equal(
+  FX_PARAM_SCHEMA.every((descriptor) => !Object.hasOwn(descriptor, 'modeDefaults')),
+  true,
 );
-
-assert.deepEqual(
-  legacyOverrides.map((descriptor) =>
-    [descriptor.path, descriptor.modeDefaults.legacy]),
-  [
-    ['trail.width', 4],
-    ['bloom.trailAlpha', 0],
-  ],
+check(true, '参数描述符只保留 Unity 基线');
+assertConfigError(
+  () => createConfig({ renderingMode: 'enhanced' }),
+  '构造配置拒绝已移除的 renderingMode',
 );
-check(true, 'Legacy 只声明实际改变的两项公开标量');
 
 assert.deepEqual(
   FX_PARAM_MIGRATIONS,

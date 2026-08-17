@@ -464,14 +464,6 @@ const FX_PARAM_ORDERS = Object.freeze(
   },
 );
 
-const LEGACY_FX_PARAM_DEFAULTS = Object.freeze(
-  {
-    // Legacy 只替换 Canvas 拖尾主体宽度与外层辉光，其他公开参数沿用 Unity 真值。
-    'trail.width': 4,
-    'bloom.trailAlpha': 0,
-  },
-);
-
 const FX_PARAM_DISPLAY_RANGES = Object.freeze(
   {
     'hit.lifetimeMs': [20, 200, 1],
@@ -599,12 +591,6 @@ function finalizeFxParamDescriptor(descriptor)
 {
   const group = descriptor.path.split('.')[0];
   const displayRange = FX_PARAM_DISPLAY_RANGES[descriptor.path];
-  const legacyDefault = Object.hasOwn(
-    LEGACY_FX_PARAM_DEFAULTS,
-    descriptor.path,
-  )
-    ? LEGACY_FX_PARAM_DEFAULTS[descriptor.path]
-    : descriptor.default;
 
   const result =
   {
@@ -616,11 +602,6 @@ function finalizeFxParamDescriptor(descriptor)
     labelKey: `baClickFx.params.${descriptor.path}`,
     groupLabelKey: `baClickFx.paramGroups.${group}`,
     linkedParams: FX_PARAM_LINKS[descriptor.path] ?? [],
-    modeDefaults:
-    {
-      enhanced: descriptor.default,
-      legacy: legacyDefault,
-    },
   };
 
   if (displayRange)
@@ -1039,9 +1020,6 @@ export const CONFIG = Object.freeze(
     webgpuHdrWhiteCore: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteCore,
     webgpuHdrWhiteStart: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteStart,
     webgpuHdrWhiteEnd: WEBGPU_HDR_PRESENTATION_DEFAULTS.whiteEnd,
-    // 两种模式都按 Unity Linear/HDR 真值绘制清晰主体；Legacy 仅把 Bloom
-    // 替换为兼容性更高的 Canvas shadowBlur，并保留旧版拖尾合成风格。
-    renderingMode: 'enhanced',
     // 默认使用 GPU Bloom；能力不足时回退原生辉光，Software 只允许显式选择。
     bloomBackend: DEFAULT_BLOOM_BACKEND,
     // 游戏把 UI 粒子直接加到同一 HDR 目标；透明隔离组仅作为网页兼容选项。
@@ -1368,7 +1346,6 @@ const CONFIG_OVERRIDE_VALIDATORS = Object.freeze(
     webgpuHdrWhiteEnd: value =>
       Number.isFinite(value) && value >= WEBGPU_HDR_WHITE_THRESHOLD_STEP &&
       value <= WEBGPU_HDR_WHITE_END_MAX,
-    renderingMode: value => value === 'enhanced' || value === 'legacy',
     bloomBackend: isBloomBackend,
     isolatedCompositing: value => typeof value === 'boolean',
     lightBackgroundContrastAlpha: value =>

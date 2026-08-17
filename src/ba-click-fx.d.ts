@@ -35,8 +35,7 @@ declare module 'ba-click-fx'
   export type BAClickFXBloomBackend = 'auto' | 'software' | 'webgl2' | 'native';
   export type BAClickFXResolvedBloomBackend =
     Exclude<BAClickFXBloomBackend, 'auto'> |
-    'webgpu' | 'legacy' | 'pending';
-  export type BAClickFXRenderingMode = 'enhanced' | 'legacy';
+    'webgpu' | 'pending';
 
   export interface BAClickFXBackendChangeDetail
   {
@@ -159,8 +158,6 @@ declare module 'ba-click-fx'
     webgpuHdrWhiteStart?: number;
     /** 白核混合完成的 SDR 超额线性能量，范围 0.01..16，默认 5。 */
     webgpuHdrWhiteEnd?: number;
-    /** 渲染模式：'enhanced'（默认，完整 Bloom）或 'legacy'（Unity 材质主体 + Canvas shadowBlur）。 */
-    renderingMode?: BAClickFXRenderingMode;
     /** Bloom 后端。默认 'webgl2'；GPU 不可用时回退原生辉光，Software 仅显式选择。 */
     bloomBackend?: BAClickFXBloomBackend;
     /** 在透明组内合成多 Canvas 后再覆盖页面，默认 false；已有 Canvas target 不支持。 */
@@ -214,7 +211,6 @@ declare module 'ba-click-fx'
     webgpuHdrWhiteCore: number;
     webgpuHdrWhiteStart: number;
     webgpuHdrWhiteEnd: number;
-    renderingMode: BAClickFXRenderingMode;
     bloomBackend: BAClickFXBloomBackend;
     isolatedCompositing: boolean;
     lightBackgroundContrastAlpha: number;
@@ -282,13 +278,6 @@ declare module 'ba-click-fx'
     readonly step: number;
   }
 
-  /** 各渲染模式重置时应恢复的参数基线。 */
-  export interface BAClickFXParamModeDefaults
-  {
-    readonly enhanced: number | boolean;
-    readonly legacy: number | boolean;
-  }
-
   /** 可安全交给宿主配置界面的只读标量参数描述。 */
   export interface BAClickFXParamDescriptor
   {
@@ -308,7 +297,6 @@ declare module 'ba-click-fx'
     readonly display?: Readonly<BAClickFXParamDisplay>;
     /** 需要在同一界面中协同校验或展示的参数路径。 */
     readonly linkedParams: readonly string[];
-    readonly modeDefaults: Readonly<BAClickFXParamModeDefaults>;
   }
 
   export interface BAClickFXParamRenameMigration
