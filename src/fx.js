@@ -2027,11 +2027,1000 @@ function resolveRingGeometry(ring, progress, scale, ringCfg)
   };
 }
 
-function evaluateRingAngularVelocity(
-  angularBlend,
+function drawDissolvedCircle(
+  context,
+  ring,
   progress,
-  ringCfg = UNITY_FX_TOUCH.rings,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  useNativeBloom = true,
+  sharedMaterialEnergy = null,
+  outputCompositing = 'scene',
+  linearNativeGlow = false,
+  dpr = 1,
+  overlayColorCompensation = 'none',
+  overlayAlphaLimit = 1,
 )
+{
+  const ringCfg = fxConfig.rings;
+  const bloomCfg = fxConfig.bloom;
+  const geometry = resolveRingGeometry(ring, progress, scale, ringCfg);
+  const particleColor = evaluateColor(ringCfg.colorKeys, progress);
+
+  if (geometry.width <= 0.001)
+  {
+    return;
+  }
+
+  // 同一圆环的所有径向带和渐变 stop 使用相同材质能量。若在回调中计算，
+  // 每帧会重复执行上千次主题变换和 sRGB 解码。
+  const materialEnergy = sharedMaterialEnergy ?? evaluateSrgbGradientEnergy(
+    ringCfg.colorKeys,
+    progress,
+    ringCfg.hdrIntensity,
+  );
+  // Canvas 只替换 Bloom 为 shadow；Tri3 本体仍必须保留原材质的
+  // Linear 色彩空间与 HDR 强度，否则清晰环带会比 Unity 明显偏蓝、偏暗。
+  const colorForLuminance = (luminance) =>
+  {
+    const coverage = opacity * luminance;
+
+    if (outputCompositing === 'browser-overlay')
+    {
+      return linearEnergyToOverlayCss(
+        materialEnergy,
+        coverage,
+        coverage,
+        overlayColorCompensation,
+        overlayAlphaLimit,
+        opacity,
+      );
+    }
+
+    return outputCompositing === 'host-additive'
+      ? linearEnergyToHostAdditiveCss(
+          materialEnergy,
+          coverage,
+          coverage,
+        )
+      : linearEnergyToAdditiveCss(materialEnergy, coverage);
+  };
+
+  context.save();
+  context.translate(ring.x, ring.y);
+  context.rotate(ring.rotation);
+  const ringGlowAlpha = scaleNativeGlowAlpha(
+    opacity * bloomCfg.ringAlpha,
+    bloomCfg.clickEmissionScale,
+  );
+  let ringGlowColor;
+
+  if (outputCompositing === 'browser-overlay')
+  {
+    ringGlowColor = linearEnergyToOverlayCss(
+      colorToLinearEnergy(particleColor, 1, true),
+      ringGlowAlpha,
+      ringGlowAlpha,
+      overlayColorCompensation,
+      overlayAlphaLimit,
+      opacity,
+    );
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    ringGlowColor = linearEnergyToHostAdditiveCss(
+      colorToLinearEnergy(particleColor, 1, true),
+      ringGlowAlpha,
+      ringGlowAlpha,
+    );
+  }
+  else
+  {
+    ringGlowColor = colorToCanvasOutputCss(
+      particleColor,
+      ringGlowAlpha,
+      linearNativeGlow,
+    );
+  }
+
+  fillDissolvedRing(
+    context,
+    geometry.radius,
+    geometry.width,
+    geometry.threshold,
+    ringCfg,
+    colorForLuminance,
+    useNativeBloom
+      ? {
+          // Canvas shadowBlur 不跟随当前变换矩阵，必须显式换算到物理像素。
+          blur: bloomCfg.ringBlur * scale * dpr,
+          color: ringGlowColor,
+        }
+      : null,
+  );
+
+  context.restore();
+}
+
+function drawDissolvedCircleEmission(
+  context,
+  ring,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  sharedMaterialEnergy = null,
+)
+{
+  const ringCfg = fxConfig.rings;
+  const bloomCfg = fxConfig.bloom;
+  const geometry = resolveRingGeometry(ring, progress, scale, ringCfg);
+
+  if (geometry.width <= 0.001)
+  {
+    return;
+  }
+
+  const materialEnergy = sharedMaterialEnergy ?? evaluateSrgbGradientEnergy(
+    ringCfg.colorKeys,
+    progress,
+    ringCfg.hdrIntensity,
+  );
+
+  context.save();
+  context.translate(ring.x, ring.y);
+  context.rotate(ring.rotation);
+  fillDissolvedRing(
+    context,
+    geometry.radius,
+    geometry.width,
+    geometry.threshold,
+    ringCfg,
+    (luminance) => linearEnergyToEmissionCss(
+      materialEnergy,
+      opacity * luminance * bloomCfg.ringEmissionAlpha,
+      bloomCfg.emissionRange,
+      bloomCfg.clickEmissionScale,
+    ),
+  );
+  context.restore();
+}
+
+function drawDisk(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  useNativeBloom = true,
+  dpr = 1,
+  outputCompositing = 'scene',
+  overlayColorCompensation = 'none',
+  overlayAlphaLimit = 1,
+)
+{
+  const diskCfg = fxConfig.disk;
+  const bloomCfg = fxConfig.bloom;
+  // Size over Lifetime 是带切线的 Unity AnimationCurve；所有后端必须
+  // 共享 Hermite 求值，否则清晰圆盘与 Bloom 发射会在扩张阶段错位。
+  const size = evaluateUnityHermiteCurve(diskCfg.sizeKeys, progress);
+  const radius = diskCfg.radius * size * scale;
+  const color = evaluateColor(diskCfg.colorKeys, progress);
+  const particleAlpha = evaluateNumber(
+    diskCfg.alphaKeys,
+    progress,
+  );
+
+  if (radius <= 0 || particleAlpha <= 0)
+  {
+    return;
+  }
+
+  const materialEnergy = evaluateSrgbGradientEnergy(
+    diskCfg.colorKeys,
+    progress,
+    bloomCfg.diskEmission,
+  );
+  const coverageAlpha = particleAlpha * opacity;
+  let textureAlpha = clamp01(coverageAlpha);
+  let textureCanvas;
+
+  if (outputCompositing === 'browser-overlay')
+  {
+    textureAlpha = Math.min(textureAlpha, clamp01(overlayAlphaLimit));
+    const resources = getCircleTextureResources();
+    const compensation = overlayColorCompensation === 'bright-core'
+      ? resolveOverlayCompensation(
+          materialEnergy,
+          opacity,
+          coverageAlpha,
+          opacity,
+        )
+      : 0;
+
+    if (resources && textureAlpha > 0.000001)
+    {
+      textureCanvas = prepareLinearTintedTextureCanvas(
+        resources,
+        CIRCLE_TEXTURE_SIZE,
+        materialEnergy,
+        opacity,
+        coverageAlpha,
+        0,
+        compensation,
+      );
+    }
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    const payload = resolveHostAdditivePayload(
+      materialEnergy,
+      opacity,
+      coverageAlpha,
+    );
+
+    textureAlpha = payload[3];
+    const resources = getCircleTextureResources();
+
+    if (resources)
+    {
+      textureCanvas = prepareLinearTintedTextureCanvas(
+        resources,
+        CIRCLE_TEXTURE_SIZE,
+        materialEnergy,
+        opacity,
+        textureAlpha,
+      );
+    }
+  }
+  else
+  {
+    const textureScales = materialEnergy.map((channel) =>
+      channel / Math.max(particleAlpha, 0.00001));
+    textureCanvas = prepareCircleTextureCanvas(textureScales);
+  }
+
+  if (!textureCanvas)
+  {
+    return;
+  }
+
+  context.save();
+  // Cross2 的 Blend One / OneMinusSrcAlpha 与最终输出模式无关；清晰层
+  // 始终按 Coverage 衰减目标，超过 8 位范围的能量由独立 Bloom 保留。
+  context.globalCompositeOperation = 'source-over';
+  context.translate(wave.x, wave.y);
+  context.rotate(wave.diskRotation);
+  context.globalAlpha = textureAlpha;
+  const shadowAlpha = scaleNativeGlowAlpha(
+    opacity * bloomCfg.diskAlpha,
+    bloomCfg.clickEmissionScale,
+  );
+  if (outputCompositing === 'browser-overlay')
+  {
+    context.shadowColor = linearEnergyToOverlayCss(
+      colorToLinearEnergy(color, 1, true),
+      shadowAlpha,
+      shadowAlpha,
+      overlayColorCompensation,
+      overlayAlphaLimit,
+      opacity,
+    );
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    context.shadowColor = linearEnergyToHostAdditiveCss(
+      colorToLinearEnergy(color, 1, true),
+      shadowAlpha,
+      shadowAlpha,
+    );
+  }
+  else
+  {
+    context.shadowColor = colorToCss(color, shadowAlpha);
+  }
+  // Canvas shadowBlur 不受 DPR 变换影响；按物理像素缩放才能保持 CSS 尺寸。
+  context.shadowBlur = useNativeBloom
+    ? bloomCfg.diskBlur * scale * dpr
+    : 0;
+  context.drawImage(
+    textureCanvas,
+    0,
+    0,
+    CIRCLE_TEXTURE_SIZE,
+    CIRCLE_TEXTURE_SIZE,
+    -radius,
+    -radius,
+    radius * 2,
+    radius * 2,
+  );
+  context.restore();
+}
+
+function drawDiskNativeGlow(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  dpr = 1,
+)
+{
+  const diskCfg = fxConfig.disk;
+  const bloomCfg = fxConfig.bloom;
+  const radius = diskCfg.radius * evaluateUnityHermiteCurve(
+    diskCfg.sizeKeys,
+    progress,
+  ) * scale;
+  const blur = bloomCfg.diskBlur * scale * dpr;
+
+  if (radius <= 0 || blur <= 0)
+  {
+    return;
+  }
+
+  const color = evaluateColor(diskCfg.colorKeys, progress);
+  const shadowAlpha = scaleNativeGlowAlpha(
+    opacity * bloomCfg.diskAlpha,
+    bloomCfg.clickEmissionScale,
+  );
+
+  context.save();
+  context.globalCompositeOperation = 'lighter';
+  context.beginPath();
+  context.arc(wave.x, wave.y, radius, 0, TAU);
+  // 黑色源在 lighter 下不增加 RGB；Final Pass 不读取其 Alpha，因此可以
+  // 保留零偏移阴影的完整内外卷积，而不会重新遮挡宿主背景。
+  context.fillStyle = 'rgb(0, 0, 0)';
+  context.shadowColor = colorToCanvasOutputCss(color, shadowAlpha, true);
+  context.shadowBlur = blur;
+  context.fill();
+  context.restore();
+}
+
+function drawDiskEmission(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
+{
+  const diskCfg = fxConfig.disk;
+  const bloomCfg = fxConfig.bloom;
+  const radius = diskCfg.radius * evaluateUnityHermiteCurve(
+    diskCfg.sizeKeys,
+    progress,
+  ) * scale;
+  const materialEnergy = evaluateSrgbGradientEnergy(
+    diskCfg.colorKeys,
+    progress,
+    bloomCfg.diskEmission,
+  );
+  const textureCanvas = prepareCircleTextureCanvas(
+    materialEnergy.map((channel) =>
+      channel * bloomCfg.clickEmissionScale / bloomCfg.emissionRange),
+  );
+
+  if (radius <= 0 || !textureCanvas)
+  {
+    return;
+  }
+
+  context.save();
+  context.translate(wave.x, wave.y);
+  context.rotate(wave.diskRotation);
+  // Cross2 生命周期 Alpha 不进入 RGB；Bloom 发射持续到粒子真正死亡。
+  context.globalAlpha = clamp01(opacity * bloomCfg.diskEmissionAlpha);
+  context.drawImage(
+    textureCanvas,
+    0,
+    0,
+    CIRCLE_TEXTURE_SIZE,
+    CIRCLE_TEXTURE_SIZE,
+    -radius,
+    -radius,
+    radius * 2,
+    radius * 2,
+  );
+  context.restore();
+}
+
+function drawDiskCoverage(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
+{
+  const diskCfg = fxConfig.disk;
+  const radius = diskCfg.radius * evaluateUnityHermiteCurve(
+    diskCfg.sizeKeys,
+    progress,
+  ) * scale;
+  const lifecycleAlpha = evaluateNumber(diskCfg.alphaKeys, progress) * opacity;
+
+  if (radius <= 0 || lifecycleAlpha <= 0)
+  {
+    return;
+  }
+
+  const resources = getCircleTextureResources();
+
+  if (!resources)
+  {
+    // Software Bloom 依赖同样的 ImageData 能力；资源不可用时由外层
+    // renderer 失败策略切换 Native，不能用径向近似掩盖纹理细节缺失。
+    return;
+  }
+
+  context.save();
+  context.globalCompositeOperation = 'source-over';
+  context.translate(wave.x, wave.y);
+  context.rotate(wave.diskRotation);
+  context.globalAlpha = clamp01(lifecycleAlpha);
+  context.shadowBlur = 0;
+  context.shadowColor = 'transparent';
+  // 直接采样完整 Circle_01，保留径向表无法表达的逐像素 Coverage 细节。
+  context.drawImage(
+    resources.coverageCanvas,
+    0,
+    0,
+    CIRCLE_TEXTURE_SIZE,
+    CIRCLE_TEXTURE_SIZE,
+    -radius,
+    -radius,
+    radius * 2,
+    radius * 2,
+  );
+  context.restore();
+}
+
+function resolveShardTextureFrameIndex(particle, shardCfg)
+{
+  const frames = shardCfg.textureFrames;
+  const frameCount = Array.isArray(frames) && frames.length > 0
+    ? frames.length
+    : 2;
+  const rawIndex = Number.isInteger(particle.textureFrame)
+    ? particle.textureFrame
+    : 0;
+
+  return ((rawIndex % frameCount) + frameCount) % frameCount;
+}
+
+function resolveShardTextureFrame(particle, shardCfg)
+{
+  const frames = shardCfg.textureFrames;
+
+  if (!Array.isArray(frames) || frames.length === 0)
+  {
+    // 保留旧配置的兼容轮廓；默认配置始终使用 Unity 图集的实测边界。
+    return [
+      [0, -0.58],
+      [0.52, 0.45],
+      [-0.52, 0.45],
+    ];
+  }
+
+  return frames[resolveShardTextureFrameIndex(particle, shardCfg)];
+}
+
+function drawTriangleTextureFrame(context, canvas, frameIndex)
+{
+  context.save();
+
+  if (frameIndex % 2 === 1)
+  {
+    // Unity 图集的第二帧与第一帧 RGBA 完全相同，仅 V 方向翻转。
+    context.translate(0, TRIANGLE_TEXTURE_SIZE);
+    context.scale(1, -1);
+  }
+
+  context.drawImage(canvas, 0, 0);
+  context.restore();
+}
+
+function resolveShardRoundness(shardCfg)
+{
+  return clamp01(shardCfg.roundness);
+}
+
+function getRoundedTriangleCoverage(resources, roundness)
+{
+  const key = clamp01(roundness);
+
+  if (key <= 0)
+  {
+    return null;
+  }
+
+  if (!resources.roundedCoverages)
+  {
+    resources.roundedCoverages = new Map();
+  }
+
+  if (resources.roundedCoverages.has(key))
+  {
+    return resources.roundedCoverages.get(key);
+  }
+
+  // 宿主可能连续拖动参数，限制缓存避免把全部浮点中间值永久保留。
+  if (resources.roundedCoverages.size >= 32)
+  {
+    resources.roundedCoverages.delete(
+      resources.roundedCoverages.keys().next().value,
+    );
+  }
+
+  const coverage = createRoundedTriangleCoverage(key);
+
+  resources.roundedCoverages.set(key, coverage);
+  return coverage;
+}
+
+function prepareSceneRoundedTriangleCanvas(
+  resources,
+  materialEnergy,
+  roundness,
+  frameIndex,
+)
+{
+  const amount = clamp01(roundness);
+  const shapeCoverage = getRoundedTriangleCoverage(resources, amount);
+
+  if (!shapeCoverage)
+  {
+    return null;
+  }
+
+  if (!resources.roundedSceneFrames)
+  {
+    resources.roundedSceneFrames = createLinearTintFrames(
+      TRIANGLE_TEXTURE_SIZE,
+      2,
+    );
+  }
+
+  if (!resources.roundedSceneFrames)
+  {
+    return null;
+  }
+
+  const frameSlot = ((Math.trunc(frameIndex) % 2) + 2) % 2;
+  const frame = resources.roundedSceneFrames[frameSlot];
+  const safeMaterialEnergy = materialEnergy.map((channel) =>
+    Math.max(0, Number(channel) || 0));
+  const key = [amount, ...safeMaterialEnergy].join(',');
+
+  if (frame.key === key)
+  {
+    return frame.canvas;
+  }
+
+  prepareLinearTextureData(resources);
+
+  const flipVertical = frameSlot === 1;
+  const sourceRgba = resources.linearTextureRgba;
+  const sourceTextureRgb = resources.linearTextureRgb;
+
+  for (let y = 0; y < TRIANGLE_TEXTURE_SIZE; y++)
+  {
+    const sourceY = flipVertical ? TRIANGLE_TEXTURE_SIZE - 1 - y : y;
+
+    for (let x = 0; x < TRIANGLE_TEXTURE_SIZE; x++)
+    {
+      const sourceIndex = sourceY * TRIANGLE_TEXTURE_SIZE + x;
+      const outputOffset = (y * TRIANGLE_TEXTURE_SIZE + x) * 4;
+      const targetAlpha = shapeCoverage[sourceIndex] / 255;
+      const [sampleU, sampleV] = mapRoundedTriangleTextureUv(
+        (x + 0.5) / TRIANGLE_TEXTURE_SIZE,
+        (sourceY + 0.5) / TRIANGLE_TEXTURE_SIZE,
+        amount,
+      );
+      const textureSupport = sampleTextureChannel(
+        sourceRgba,
+        TRIANGLE_TEXTURE_SIZE,
+        4,
+        sampleU,
+        sampleV,
+        3,
+      ) / 255;
+
+      for (let channel = 0; channel < 3; channel++)
+      {
+        const textureChannel = sampleTextureChannel(
+          sourceTextureRgb,
+          TRIANGLE_TEXTURE_SIZE,
+          3,
+          sampleU,
+          sampleV,
+          channel,
+        );
+        const supportedChannel = 1 +
+          (textureChannel - 1) * clamp01(textureSupport);
+        const roundedChannel = supportedChannel +
+          (1 - supportedChannel) * amount;
+
+        frame.image.data[outputOffset + channel] = Math.round(
+          clamp01(roundedChannel * safeMaterialEnergy[channel]) * 255,
+        );
+      }
+
+      frame.image.data[outputOffset + 3] = Math.round(
+        clamp01(targetAlpha) * 255,
+      );
+    }
+  }
+
+  frame.context.putImageData(frame.image, 0, 0);
+  frame.key = key;
+  return frame.canvas;
+}
+
+function drawTexturedTriangle(
+  context,
+  particle,
+  size,
+  materialEnergy,
+  particleAlpha,
+  frameIndex,
+  energyScale = 1,
+  outputCompositing = 'scene',
+  overlayColorCompensation = 'none',
+  overlayAlphaLimit = 1,
+  opacity = 1,
+  roundness = 0,
+)
+{
+  const resources = getTriangleTextureResources();
+
+  if (!resources)
+  {
+    return false;
+  }
+
+  const scaledEnergy = materialEnergy.map((channel) =>
+    channel * Math.max(0, energyScale));
+  const transparentPayload = outputCompositing === 'browser-overlay' ||
+    outputCompositing === 'host-additive';
+  const shapeCoverage = getRoundedTriangleCoverage(resources, roundness);
+  const shape = shapeCoverage
+    ? {
+        coverage: shapeCoverage,
+        roundness,
+        useTextureAlpha: outputCompositing === 'scene',
+      }
+    : null;
+  let payloadAlpha = clamp01(particleAlpha);
+  let textureCanvas;
+
+  if (outputCompositing === 'browser-overlay')
+  {
+    payloadAlpha = Math.min(payloadAlpha, clamp01(overlayAlphaLimit));
+    const compensation = overlayColorCompensation === 'bright-core'
+      ? resolveOverlayCompensation(
+          scaledEnergy,
+          particleAlpha,
+          particleAlpha,
+          opacity,
+        )
+      : 0;
+
+    if (payloadAlpha > 0.000001)
+    {
+      textureCanvas = prepareLinearTintedTextureCanvas(
+        resources,
+        TRIANGLE_TEXTURE_SIZE,
+        scaledEnergy,
+        particleAlpha,
+        particleAlpha,
+        frameIndex,
+        compensation,
+        shape,
+      );
+    }
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    const payload = resolveHostAdditivePayload(
+      scaledEnergy,
+      particleAlpha,
+      particleAlpha,
+    );
+
+    payloadAlpha = payload[3];
+    textureCanvas = prepareLinearTintedTextureCanvas(
+      resources,
+      TRIANGLE_TEXTURE_SIZE,
+      scaledEnergy,
+      particleAlpha,
+      payloadAlpha,
+      frameIndex,
+      0,
+      shape,
+    );
+  }
+  else
+  {
+    const textureContext = resources.context;
+    const scaledColor = scaledEnergy.map((channel) =>
+      Math.round(clamp01(channel) * 255));
+    if (roundness > 0)
+    {
+      textureCanvas = prepareSceneRoundedTriangleCanvas(
+        resources,
+        scaledEnergy,
+        roundness,
+        frameIndex,
+      );
+    }
+
+    if (!textureCanvas)
+    {
+      textureContext.setTransform(1, 0, 0, 1, 0, 0);
+      textureContext.globalAlpha = 1;
+      textureContext.globalCompositeOperation = 'source-over';
+      textureContext.imageSmoothingEnabled = true;
+      textureContext.clearRect(
+        0,
+        0,
+        TRIANGLE_TEXTURE_SIZE,
+        TRIANGLE_TEXTURE_SIZE,
+      );
+      drawTriangleTextureFrame(
+        textureContext,
+        resources.colorCanvas,
+        frameIndex,
+      );
+
+      // Scene Final Pass 读取线性字节；这里继续按 Unity 线性材质乘法绘制。
+      textureContext.globalCompositeOperation = 'multiply';
+      textureContext.fillStyle = `rgb(${scaledColor[0]}, ${
+        scaledColor[1]}, ${scaledColor[2]})`;
+      textureContext.fillRect(
+        0,
+        0,
+        TRIANGLE_TEXTURE_SIZE,
+        TRIANGLE_TEXTURE_SIZE,
+      );
+      textureContext.globalCompositeOperation = 'destination-in';
+      drawTriangleTextureFrame(
+        textureContext,
+        resources.alphaCanvas,
+        frameIndex,
+      );
+      textureCanvas = resources.canvas;
+    }
+  }
+
+  if (transparentPayload && (!textureCanvas || payloadAlpha <= 0.00001))
+  {
+    // source-over 下黑色纹理仍会遮挡宿主；零能量必须完全跳过。
+    return true;
+  }
+
+  context.save();
+  context.translate(particle.x, particle.y);
+  context.rotate(particle.rotation);
+  context.globalAlpha = payloadAlpha;
+  context.shadowColor = 'transparent';
+  context.shadowBlur = 0;
+  context.drawImage(textureCanvas, -size * 0.5, -size * 0.5, size, size);
+  context.restore();
+  return true;
+}
+
+function drawTriangle(
+  context,
+  particle,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+  outputCompositing = 'scene',
+  overlayColorCompensation = 'none',
+  overlayAlphaLimit = 1,
+)
+{
+  const shardCfg = fxConfig.shards;
+  const progress = clamp01(particle.ageMs / particle.lifetimeMs);
+  const size = particle.size * evaluateUnityHermiteCurve(
+    shardCfg.sizeKeys,
+    progress,
+  ) * scale;
+  const alpha = evaluateNumber(shardCfg.alphaKeys, progress) * opacity;
+  const materialEnergy = evaluateSrgbGradientEnergy(
+    shardCfg.colorKeys,
+    progress,
+    shardCfg.hdrIntensity,
+    shardCfg.startColor,
+  );
+  const textureFrameIndex = resolveShardTextureFrameIndex(particle, shardCfg);
+  const textureFrame = resolveShardTextureFrame(particle, shardCfg);
+  const roundness = resolveShardRoundness(shardCfg);
+
+  if (size <= 0 || alpha <= 0)
+  {
+    return;
+  }
+
+  if (drawTexturedTriangle(
+    context,
+    particle,
+    size,
+    materialEnergy,
+    alpha,
+    textureFrameIndex,
+    1,
+    outputCompositing,
+    overlayColorCompensation,
+    overlayAlphaLimit,
+    opacity,
+    roundness,
+  ))
+  {
+    return;
+  }
+
+  context.save();
+  context.translate(particle.x, particle.y);
+  context.rotate(particle.rotation);
+  context.beginPath();
+  traceRoundedTrianglePath(context, textureFrame, size, shardCfg.roundness);
+  if (outputCompositing === 'browser-overlay')
+  {
+    context.fillStyle = linearEnergyToOverlayCss(
+      materialEnergy,
+      alpha,
+      alpha,
+      overlayColorCompensation,
+      overlayAlphaLimit,
+      opacity,
+    );
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    context.fillStyle = linearEnergyToHostAdditiveCss(
+      materialEnergy,
+      alpha,
+      alpha,
+    );
+  }
+  else
+  {
+    context.fillStyle = linearEnergyToAdditiveCss(materialEnergy, alpha);
+  }
+  // 三角碎片在原图中是清晰本体；显式清空阴影，避免继承上一层发光状态。
+  context.shadowColor = 'transparent';
+  context.shadowBlur = 0;
+  context.fill();
+  context.restore();
+}
+
+function drawTriangleCoverage(
+  context,
+  particle,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
+{
+  const shardCfg = fxConfig.shards;
+  const progress = clamp01(particle.ageMs / particle.lifetimeMs);
+  const size = particle.size * evaluateUnityHermiteCurve(
+    shardCfg.sizeKeys,
+    progress,
+  ) * scale;
+  const alpha = evaluateNumber(shardCfg.alphaKeys, progress) * opacity;
+  const textureFrameIndex = resolveShardTextureFrameIndex(particle, shardCfg);
+  const textureFrame = resolveShardTextureFrame(particle, shardCfg);
+  const roundness = resolveShardRoundness(shardCfg);
+
+  if (size <= 0 || alpha <= 0)
+  {
+    return;
+  }
+
+  if (drawTexturedTriangle(
+    context,
+    particle,
+    size,
+    [1, 1, 1],
+    alpha,
+    textureFrameIndex,
+    1,
+    'browser-overlay',
+    'none',
+    1,
+    opacity,
+    roundness,
+  ))
+  {
+    return;
+  }
+
+  context.save();
+  context.translate(particle.x, particle.y);
+  context.rotate(particle.rotation);
+  context.beginPath();
+  traceRoundedTrianglePath(context, textureFrame, size, shardCfg.roundness);
+  context.fillStyle = `rgba(255, 255, 255, ${clamp01(alpha)})`;
+  context.shadowColor = 'transparent';
+  context.shadowBlur = 0;
+  context.fill();
+  context.restore();
+}
+
+function drawTriangleEmission(
+  context,
+  particle,
+  scale,
+  opacity,
+  fxConfig = UNITY_FX_TOUCH,
+)
+{
+  const shardCfg = fxConfig.shards;
+  const bloomCfg = fxConfig.bloom;
+  const progress = clamp01(particle.ageMs / particle.lifetimeMs);
+  const size = particle.size * evaluateUnityHermiteCurve(
+    shardCfg.sizeKeys,
+    progress,
+  ) * scale;
+  const alpha = evaluateNumber(shardCfg.alphaKeys, progress) * opacity;
+  const materialEnergy = evaluateSrgbGradientEnergy(
+    shardCfg.colorKeys,
+    progress,
+    shardCfg.hdrIntensity,
+    shardCfg.startColor,
+  );
+  const textureFrameIndex = resolveShardTextureFrameIndex(particle, shardCfg);
+  const textureFrame = resolveShardTextureFrame(particle, shardCfg);
+  const roundness = resolveShardRoundness(shardCfg);
+
+  if (size <= 0 || alpha <= 0)
+  {
+    return;
+  }
+
+  if (drawTexturedTriangle(
+    context,
+    particle,
+    size,
+    materialEnergy,
+    alpha,
+    textureFrameIndex,
+    1 / Math.max(1, bloomCfg.emissionRange),
+    'scene',
+    'none',
+    1,
+    opacity,
+    roundness,
+  ))
+  {
+    return;
+  }
+
+  context.save();
+  context.translate(particle.x, particle.y);
+  context.rotate(particle.rotation);
+  context.beginPath();
+  traceRoundedTrianglePath(context, textureFrame, size, shardCfg.roundness);
+  context.fillStyle = linearEnergyToEmissionCss(
+    materialEnergy,
+    alpha,
+    bloomCfg.emissionRange,
+  );
+  context.fill();
+  context.restore();
+}
+
+function evaluateRingAngularVelocity(angularBlend, progress, ringCfg = UNITY_FX_TOUCH.rings)
 {
   const minVelocity = evaluateUnitySmoothCurve(
     ringCfg.angularVelocityMinKeys,
@@ -2046,6 +3035,127 @@ function evaluateRingAngularVelocity(
 
   return velocity * ringCfg.angularVelocityMultiplier * ringCfg.rotationDirection;
 }
+
+function drawHit(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig,
+  linearOutput = false,
+  outputCompositing = 'scene',
+  overlayColorCompensation = 'none',
+  overlayAlphaLimit = 1,
+)
+{
+  const cfg = fxConfig.hit;
+  const radius = cfg.radius * scale;
+  const alpha = evaluateNumber(cfg.alphaKeys, progress) * opacity;
+  const color = evaluateColor(cfg.colorKeys, progress);
+
+  if (alpha <= 0)
+  {
+    return;
+  }
+
+  context.save();
+  context.beginPath();
+  context.arc(wave.x, wave.y, radius, 0, TAU);
+  if (outputCompositing === 'browser-overlay')
+  {
+    context.fillStyle = linearEnergyToOverlayCss(
+      colorToLinearEnergy(color, 1, true),
+      alpha,
+      alpha,
+      overlayColorCompensation,
+      overlayAlphaLimit,
+      opacity,
+    );
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    context.fillStyle = linearEnergyToHostAdditiveCss(
+      colorToLinearEnergy(color, 1, true),
+      alpha,
+      alpha,
+    );
+  }
+  else
+  {
+    context.fillStyle = colorToCanvasOutputCss(color, alpha, linearOutput);
+  }
+  context.fill();
+  context.restore();
+}
+
+function drawFlare(
+  context,
+  wave,
+  progress,
+  scale,
+  opacity,
+  fxConfig,
+  linearOutput = false,
+  outputCompositing = 'scene',
+  overlayColorCompensation = 'none',
+  overlayAlphaLimit = 1,
+)
+{
+  const cfg = fxConfig.flare;
+  const radius = cfg.radius * scale;
+  const alpha = evaluateNumber(cfg.alphaKeys, progress) * opacity;
+  const color = evaluateColor(cfg.colorKeys, progress);
+
+  if (alpha <= 0)
+  {
+    return;
+  }
+
+  context.save();
+  context.translate(wave.x, wave.y);
+  // Final Pass 直接采样 Canvas 预乘颜色，因此附加粒子也必须写入线性能量。
+  if (outputCompositing === 'browser-overlay')
+  {
+    context.strokeStyle = linearEnergyToOverlayCss(
+      colorToLinearEnergy(color, 1, true),
+      alpha,
+      alpha,
+      overlayColorCompensation,
+      overlayAlphaLimit,
+      opacity,
+    );
+  }
+  else if (outputCompositing === 'host-additive')
+  {
+    context.strokeStyle = linearEnergyToHostAdditiveCss(
+      colorToLinearEnergy(color, 1, true),
+      alpha,
+      alpha,
+    );
+  }
+  else
+  {
+    context.strokeStyle = colorToCanvasOutputCss(color, alpha, linearOutput);
+  }
+
+  for (let i = 0; i < cfg.rayCount; i++)
+  {
+    const angle = (TAU / cfg.rayCount) * i;
+    const endX = Math.cos(angle) * radius;
+    const endY = Math.sin(angle) * radius;
+
+    context.beginPath();
+    context.moveTo(0, 0);
+    context.lineTo(endX, endY);
+    context.lineWidth = 1.5 * scale;
+    context.stroke();
+  }
+
+  context.restore();
+}
+
+
 
 class ClickWave
 {

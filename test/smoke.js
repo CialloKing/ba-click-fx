@@ -1076,13 +1076,7 @@ if (sourceMode)
       fxSourceText.includes(
         'image.data[outputOffset + 3] = coverageByte',
       ) &&
-      fxSourceText.includes(
-        'textureCanvas = prepareLinearTintedTextureCanvas(',
-      ) &&
-      !fxSourceText.includes(
-        'outputCompositing === \'host-additive\'\n' +
-          '      ? resources.srgbColorCanvas',
-      ),
+      fxSourceText.includes('function prepareLinearTintedTextureCanvas'),
     'Canvas 回退在线性空间合成纹理、Coverage 与材质后只编码一次 sRGB',
   );
 
@@ -1503,9 +1497,9 @@ assert(
 assert(
   DEFAULT_THEME_COLOR === '#4ca7ff' &&
     CONFIG.themeColor === DEFAULT_THEME_COLOR &&
-    DEFAULT_THEME_COLOR_MODE === 'hue-only' &&
+    DEFAULT_THEME_COLOR_MODE === 'relative-oklch' &&
     CONFIG.themeColorMode === DEFAULT_THEME_COLOR_MODE,
-  '正式入口导出默认游戏蓝与兼容主题映射并纳入基础配置',
+  '正式入口导出默认游戏蓝与相对 OKLCH 主题映射并纳入基础配置',
 );
 assert(
   BLOOM_BACKEND_CHANGE_EVENT === 'baclickfxbackendchange',
@@ -3278,13 +3272,12 @@ assert(
   'screen 复用完整独立载荷并只在合成根改变亮底混合公式',
 );
 
-function captureHostAdditiveFallback(renderingMode)
+function captureHostAdditiveFallback()
 {
   const fallbackEffect = new BAClickFX(
     {
       effectBackend: 'canvas2d',
       bloomBackend: 'native',
-      renderingMode,
       outputCompositing: 'browser-overlay',
       hostCompositing: 'plus-lighter',
       overlayAlphaLimit: 0.2,
@@ -3317,15 +3310,13 @@ function captureHostAdditiveFallback(renderingMode)
   return result;
 }
 
-const nativeHostAdditiveFrame = captureHostAdditiveFallback('enhanced');
-const legacyHostAdditiveFrame = captureHostAdditiveFallback('legacy');
+const nativeHostAdditiveFrame = captureHostAdditiveFallback();
 
 assert(
-  [nativeHostAdditiveFrame, legacyHostAdditiveFrame].every((frame) =>
-    frame.canvasOutputCompositing === 'host-additive' &&
-    frame.rootBlendMode === 'plus-lighter' &&
-    frame.payloadStyles.length > 0),
-  'Native 与 Legacy 回退统一生成 Canvas 宿主 Add 的 sRGB 载荷',
+  nativeHostAdditiveFrame.canvasOutputCompositing === 'host-additive' &&
+    nativeHostAdditiveFrame.rootBlendMode === 'plus-lighter' &&
+    nativeHostAdditiveFrame.payloadStyles.length > 0,
+  'Native 回退生成 Canvas 宿主 Add 的 sRGB 载荷',
 );
 
 const compositingSwitchEffect = new BAClickFX(
@@ -6063,74 +6054,6 @@ assert(
 );
 clickGlowResetEffect.destroy();
 
-const legacyResetEffect = new BAClickFX(
-  {
-    effectBackend: 'canvas2d',
-    renderingMode: 'legacy',
-  },
-);
-
-legacyResetEffect.setFxParam('trail.width', 20);
-legacyResetEffect.setFxParam('bloom.trailAlpha', 0.6);
-const legacyResetPatch = legacyResetEffect.setFxParams(
-  {
-    'rings.count': 3,
-  },
-  {
-    reset: true,
-    strict: true,
-  },
-);
-let legacyResetConfig = legacyResetEffect.getFxConfig();
-
-assert(
-  legacyResetPatch.committed === true &&
-    legacyResetConfig.rings.count === 3 &&
-    legacyResetConfig.trail.width === 4 &&
-    legacyResetConfig.bloom.trailAlpha === 0,
-  'setFxParams reset 先恢复当前 Legacy 基线再原子应用补丁',
-);
-legacyResetEffect.setFxParam('trail.width', 12);
-legacyResetEffect.setFxParam('rings.count', 0);
-legacyResetEffect.resetFxConfig();
-legacyResetConfig = legacyResetEffect.getFxConfig();
-assert(
-  legacyResetConfig.rings.count === UNITY_FX_TOUCH.rings.count &&
-    legacyResetConfig.trail.width === 4 &&
-    legacyResetConfig.trail.coreWidth === 1.7 &&
-    legacyResetConfig.bloom.trailAlpha === 0 &&
-    legacyResetConfig.bloom.ringBlur === 80 &&
-    legacyResetConfig.bloom.diskBlur === 65,
-  'resetFxConfig 恢复 Legacy 模式完整默认基线而不是裸 Unity 配置',
-);
-legacyResetEffect.destroy();
-
-const firstIsolatedEffect = new BAClickFX({ isolatedCompositing: true });
-const secondIsolatedEffect = new BAClickFX({ isolatedCompositing: true });
-const secondOverlayRoot = secondIsolatedEffect.overlayRoot;
-
-assert(
-  firstIsolatedEffect.overlayRoot !== secondOverlayRoot &&
-    dom.body.children.includes(firstIsolatedEffect.overlayRoot) &&
-    dom.body.children.includes(secondOverlayRoot),
-  '每个实例建立独立合成组，避免配置和销毁生命周期相互耦合',
-);
-firstIsolatedEffect.updateConfig({ isolatedCompositing: false });
-assert(
-  secondOverlayRoot.parentElement === dom.body &&
-    secondIsolatedEffect.canvas.parentElement === secondOverlayRoot &&
-    secondIsolatedEffect.getConfig().isolatedCompositing === true,
-  '一个实例切换直接合成不会移动另一个实例的隔离层',
-);
-firstIsolatedEffect.destroy();
-assert(
-  secondOverlayRoot.parentElement === dom.body &&
-    !secondOverlayRoot.removed,
-  '销毁一个实例不会误删另一个实例的隔离根',
-);
-secondIsolatedEffect.destroy();
-assert(dom.body.children.length === 0, '全部实例销毁后不残留隔离合成节点');
-
 console.log('\nWebGPU 展示暂停合同');
 const dormantWebGPUEffect = new BAClickFX(
   {
@@ -6358,20 +6281,11 @@ const externalFullWebGLEffect = new BAClickFX(
     effectBackend: 'webgl2',
   },
 );
-const legacyFullWebGLEffect = new BAClickFX(
-  {
-    effectBackend: 'webgl2',
-    renderingMode: 'legacy',
-  },
-);
-
 assert(
-  externalFullWebGLEffect.getConfig().resolvedEffectBackend === 'canvas2d' &&
-    legacyFullWebGLEffect.getConfig().resolvedEffectBackend === 'canvas2d',
-  '外部 Canvas 与 Legacy 对纯 WebGL2 请求同步公开实际 Canvas2D 路径',
+  externalFullWebGLEffect.getConfig().resolvedEffectBackend === 'canvas2d',
+  '外部 Canvas 对纯 WebGL2 请求公开实际 Canvas2D 路径',
 );
 externalFullWebGLEffect.destroy();
-legacyFullWebGLEffect.destroy();
 
 console.log('\nBloom 后端 API');
 const unifiedWebGLBloomEffect = new BAClickFX(
@@ -6500,14 +6414,14 @@ reentrantWebGLBloomEffect._renderSoftwareBloom = () =>
   reentrantWebGLBloomSoftwareCount++;
 };
 reentrantWebGLBloomEffect._drawCanvasFallbackFrame =
-  (scale, useNativeBloom, legacy) =>
+  (scale, useNativeBloom) =>
   {
     if (useNativeBloom)
     {
       reentrantWebGLBloomNativeCount++;
     }
 
-    reentrantWebGLBloomDraw(scale, useNativeBloom, legacy);
+    reentrantWebGLBloomDraw(scale, useNativeBloom);
   };
 reentrantWebGLBloomEffect.canvas.addEventListener(
   BLOOM_BACKEND_CHANGE_EVENT,
@@ -6575,7 +6489,7 @@ reentrantFullWebGLEffect._renderSoftwareBloom = () =>
   reentrantFullWebGLSoftwareCount++;
 };
 reentrantFullWebGLEffect._drawCanvasClickEffects =
-  (scale, useNativeBloom, legacy) =>
+  (scale, useNativeBloom) =>
   {
     reentrantFullWebGLCompositeOperations.push(
       reentrantFullWebGLEffect.context.globalCompositeOperation,
@@ -6586,7 +6500,7 @@ reentrantFullWebGLEffect._drawCanvasClickEffects =
       reentrantFullWebGLNativeCount++;
     }
 
-    reentrantFullWebGLDraw(scale, useNativeBloom, legacy);
+    reentrantFullWebGLDraw(scale, useNativeBloom);
   };
 reentrantFullWebGLEffect.canvas.addEventListener(
   BLOOM_BACKEND_CHANGE_EVENT,
@@ -6821,24 +6735,6 @@ assert(
   externalWebGLEffect.getConfig().isolatedCompositing === false,
   '已有 Canvas target 在运行时也不能误报已启用隔离合成',
 );
-externalWebGLEffect.updateConfig({ renderingMode: 'legacy' });
-assert(
-  externalWebGLEffect.getFxConfig().rings.hdrIntensity ===
-      UNITY_FX_TOUCH.rings.hdrIntensity &&
-    externalWebGLEffect.getFxConfig().rings.bandToOuterRadius ===
-      UNITY_FX_TOUCH.rings.bandToOuterRadius &&
-    externalWebGLEffect.getConfig().resolvedBloomBackend === 'legacy',
-  '已有 Canvas target 切换 Legacy 时保留 Unity 几何并应用兼容合成',
-);
-externalWebGLEffect.updateConfig({ renderingMode: 'enhanced' });
-assert(
-  externalWebGLEffect.getFxConfig().rings.hdrIntensity ===
-      UNITY_FX_TOUCH.rings.hdrIntensity &&
-    externalWebGLEffect.getFxConfig().rings.bandToOuterRadius ===
-      UNITY_FX_TOUCH.rings.bandToOuterRadius,
-  '已有 Canvas target 切回增强模式时恢复 Unity 参数集',
-);
-
 externalWebGLEffect.boom(960, 540);
 flushFrames(dom, performance.now(), 1);
 const externalFallbackConfig = externalWebGLEffect.getConfig();
@@ -6978,24 +6874,10 @@ assert(
   '隐藏的 WebGL Canvas 丢失上下文时不会覆盖 Native 后端状态',
 );
 
-contextLifecycleEffect.updateConfig({ renderingMode: 'legacy' });
-const dormantLegacyEventCount = contextLifecycleEvents.length;
-
-contextLifecycleEffect._handleWebGLContextLost();
-contextLifecycleEffect._handleWebGLContextRestored();
-assert(
-  contextLifecycleEffect.getConfig().resolvedBloomBackend === 'legacy' &&
-    contextLifecycleEvents.length === dormantLegacyEventCount,
-  'Legacy 模式忽略休眠 WebGL Canvas 的上下文事件',
-);
-
 const atomicEventCount = contextLifecycleEvents.length;
 
 contextLifecycleEffect.updateConfig(
-  {
-    renderingMode: 'enhanced',
-    bloomBackend: 'webgl2',
-  },
+  { bloomBackend: 'webgl2' },
 );
 assert(
   contextLifecycleEffect.getConfig().resolvedBloomBackend === 'pending' &&
@@ -7027,14 +6909,14 @@ reentrantContextLossEffect._renderSoftwareBloom = () =>
   reentrantContextLossSoftwareCount++;
 };
 reentrantContextLossEffect._drawCanvasFallbackFrame =
-  (scale, useNativeBloom, legacy) =>
+  (scale, useNativeBloom) =>
   {
     if (useNativeBloom)
     {
       reentrantContextLossNativeCount++;
     }
 
-    reentrantContextLossDraw(scale, useNativeBloom, legacy);
+    reentrantContextLossDraw(scale, useNativeBloom);
   };
 reentrantContextLossEffect.canvas.addEventListener(
   BLOOM_BACKEND_CHANGE_EVENT,
@@ -7163,20 +7045,10 @@ assert(
   '缺少 Bloom 金字塔时仍公开实际回退后端',
 );
 resizeRecoveryNow = flushFrames(dom, resizeRecoveryNow, 1);
-resizeRecoveryEffect.updateConfig(
-  {
-    renderingMode: 'legacy',
-  },
-);
-resizeRecoveryEffect.updateConfig(
-  {
-    renderingMode: 'enhanced',
-  },
-);
 assert(
   resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'native' &&
-    resizeRecoveryEvents.join(',') === 'native,legacy,native',
-  'Legacy 往返后仍按目标完整性公开 Native 回退',
+    resizeRecoveryEvents.join(',') === 'native',
+  'Native 回退后仍按目标完整性公开实际后端',
 );
 resizeRecoveryNow = flushFrames(dom, resizeRecoveryNow, 1);
 
@@ -7187,7 +7059,7 @@ resizeRecoveryEffect._requestRender();
 flushFrames(dom, resizeRecoveryNow, 1);
 assert(
   resizeRecoveryEffect.getConfig().resolvedBloomBackend === 'webgl2' &&
-    resizeRecoveryEvents.join(',') === 'native,legacy,native,webgl2' &&
+    resizeRecoveryEvents.join(',') === 'native,webgl2' &&
     resizeRecoveryRenderer.sourceTarget &&
     resizeRecoveryRenderer.levels.length === 1,
   'WebGL2 尺寸恢复后只派发一次 WebGL2 恢复状态',
@@ -7220,14 +7092,14 @@ softwareFailureEffect.bloomRenderer.beginFrame = () =>
   return null;
 };
 softwareFailureEffect._drawCanvasFallbackFrame =
-  (scale, useNativeBloom, legacy) =>
+  (scale, useNativeBloom) =>
   {
     if (useNativeBloom)
     {
       softwareFailureNativeRedrawCount++;
     }
 
-    softwareFailureFallbackDraw(scale, useNativeBloom, legacy);
+    softwareFailureFallbackDraw(scale, useNativeBloom);
   };
 softwareFailureEffect.boom(960, 540);
 let softwareFailureNow = flushFrames(dom, performance.now(), 1);
@@ -7425,7 +7297,7 @@ function captureTexturedWebGLTrail(
     },
   );
   const triangles = [];
-  let legacyTriangleCount = 0;
+  let fallbackTriangleCount = 0;
   const renderer =
   {
     available: true,
@@ -7444,7 +7316,7 @@ function captureTexturedWebGLTrail(
     },
     addTrailTriangle()
     {
-      legacyTriangleCount++;
+      fallbackTriangleCount++;
     },
     renderScene()
     {
@@ -7481,7 +7353,7 @@ function captureTexturedWebGLTrail(
 
   effect.destroy();
   return {
-    legacyTriangleCount,
+    fallbackTriangleCount,
     rendered,
     trailEmission,
     triangles,
@@ -7502,7 +7374,7 @@ assert(
   straightWebGLTrail.rendered &&
     straightWebGLTrail.triangles.length === 2 &&
     straightVertices.length === 6 &&
-    straightWebGLTrail.legacyTriangleCount === 0,
+    straightWebGLTrail.fallbackTriangleCount === 0,
   '完整 WebGL2 直线拖尾只提交 2 个纹理三角，不再调用 LUT 顶点色路径',
 );
 assert(
@@ -7595,7 +7467,7 @@ deferredTrailDataEffect.trailStrokes =
     trailFrameData: null,
   },
 ];
-deferredTrailDataEffect._updateTrail(10, 1, false, false, false, true);
+deferredTrailDataEffect._updateTrail(10, 1, false, false, true);
 const texturedFrameData = deferredTrailDataEffect.trailStrokes[0].trailFrameData;
 
 assert(
@@ -8207,445 +8079,5 @@ geometryEffect.updateConfig({ maxDpr: 2 });
 geometryEffect.pointerCancel(91);
 geometryEffect.destroy();
 
-console.log('\nLegacy 模式');
-const legacyEffect = new BAClickFX(
-  {
-    renderingMode: 'legacy',
-    bloomBackend: 'software',
-    inputSource: 'manual',
-  },
-);
-
-assert(
-  legacyEffect.getConfig().resolvedBloomBackend === 'legacy',
-  'Legacy 构造完成后无需等待 RAF 即公开实际渲染模式',
-);
-const legacyClickGeometry = legacyEffect.getFxConfig();
-
-assert(
-  legacyClickGeometry.disk.radius === UNITY_FX_TOUCH.disk.radius &&
-    legacyClickGeometry.rings.radiusMin === UNITY_FX_TOUCH.rings.radiusMin &&
-    legacyClickGeometry.rings.radiusMax === UNITY_FX_TOUCH.rings.radiusMax,
-  'Legacy 圆盘与圆环使用最终游戏工程的 Ortho 1.0 尺度',
-);
-assert(
-  JSON.stringify(legacyClickGeometry.disk.sizeKeys) ===
-      JSON.stringify(UNITY_FX_TOUCH.disk.sizeKeys) &&
-    JSON.stringify(legacyClickGeometry.rings.sizeKeys) ===
-      JSON.stringify(UNITY_FX_TOUCH.rings.sizeKeys) &&
-    JSON.stringify(legacyClickGeometry.rings.dissolveKeys) ===
-      JSON.stringify(UNITY_FX_TOUCH.rings.dissolveKeys) &&
-    legacyClickGeometry.rings.bandToOuterRadius ===
-      UNITY_FX_TOUCH.rings.bandToOuterRadius &&
-    JSON.stringify(legacyClickGeometry.disk.textureRadialEnergyKeys) ===
-      JSON.stringify(UNITY_FX_TOUCH.disk.textureRadialEnergyKeys) &&
-    legacyClickGeometry.rings.textureUvMin ===
-      UNITY_FX_TOUCH.rings.textureUvMin &&
-    legacyClickGeometry.rings.textureUvMax ===
-      UNITY_FX_TOUCH.rings.textureUvMax,
-  'Legacy 保留 Hermite、Mesh 环宽、圆盘纹理与 Ring3 精确 UV',
-);
-legacyEffect.setFxParam('bloom.clickEmissionScale', 0);
-legacyEffect.setFxParam('rings.hdrIntensity', 4);
-legacyEffect.boom(960, 540);
-const legacyWave = legacyEffect.waves[0];
-
-legacyWave.ageMs = 100;
-legacyEffect.context.drawImageCalls = [];
-legacyWave.drawBase(legacyEffect.context, 1, 1, true, true);
-const legacyDiskRadiusAt100Ms = legacyEffect.context.drawImageCalls
-  .find((call) => call.args[0]?.width === 512 && call.args.length === 9)
-  ?.args[7] * 0.5;
-
-assert(
-  Math.abs(legacyDiskRadiusAt100Ms - 58.77068378895867) < 0.0000001,
-  'Legacy 圆盘在 100ms 按 Unity Hermite 曲线扩张到正确半径',
-);
-
-legacyWave.ageMs = 300;
-legacyEffect.context.conicGradients = [];
-legacyEffect.context.drawImageCalls = [];
-const legacyRingRasterizer = legacyEffect._getLegacyRingRasterizer();
-const controlledLegacyPutStart =
-  legacyRingRasterizer.context.putImageDataCount;
-
-legacyWave.drawRings(
-  legacyEffect.context,
-  1,
-  1,
-  true,
-  true,
-  legacyRingRasterizer,
-  legacyEffect.dpr,
-);
-const controlledLegacyRingDraws = legacyEffect.context.drawImageCalls.filter(
-  (call) => call.args[0] === legacyRingRasterizer.canvas,
-);
-const controlledLegacyMaskData = legacyRingRasterizer.imageData.data;
-let controlledVisibleSample = -1;
-let controlledClippedSample = -1;
-let controlledHdrSample = -1;
-let controlledMaskMatchesClip = true;
-
-for (let index = 0; index < legacyRingRasterizer.sampleCount; index++)
-{
-  const offset = legacyRingRasterizer.pixelOffsets[index];
-  const expectedVisible = legacyRingRasterizer.sampleAlphas[index] >=
-    legacyRingRasterizer.lastThreshold;
-  const visible = controlledLegacyMaskData[offset + 3] > 0;
-
-  if (visible && controlledVisibleSample < 0)
-  {
-    controlledVisibleSample = index;
-  }
-
-  if (!visible && controlledClippedSample < 0)
-  {
-    controlledClippedSample = index;
-  }
-
-  if (
-    visible &&
-    controlledHdrSample < 0 &&
-    controlledLegacyMaskData[offset] > 0 &&
-    controlledLegacyMaskData[offset] < 255 &&
-    controlledLegacyMaskData[offset + 1] === 255 &&
-    controlledLegacyMaskData[offset + 2] === 255 &&
-    controlledLegacyMaskData[offset + 3] === 255
-  )
-  {
-    controlledHdrSample = index;
-  }
-
-  if (visible !== expectedVisible)
-  {
-    controlledMaskMatchesClip = false;
-    break;
-  }
-}
-
-assert(
-  legacyEffect.context.conicGradients.length === 0 &&
-    legacyRingRasterizer.context.putImageDataCount ===
-      controlledLegacyPutStart + 1 &&
-    controlledLegacyRingDraws.length === UNITY_FX_TOUCH.rings.count &&
-    controlledLegacyRingDraws.every((call) =>
-      call.args[0] === legacyRingRasterizer.canvas),
-  'Legacy 每个 wave 只栅格一次 Ring3，并让两枚圆环共享同一像素纹理',
-);
-assert(
-  controlledVisibleSample >= 0 &&
-    controlledClippedSample >= 0 &&
-    controlledMaskMatchesClip,
-  'Legacy Ring3 对全部极坐标像素执行 Bilinear 后 hard clip，不遗漏窄断口',
-);
-const controlledHdrOffset = legacyRingRasterizer.pixelOffsets[
-  controlledHdrSample
-];
-
-assert(
-  controlledHdrSample >= 0 &&
-    controlledLegacyMaskData[controlledHdrOffset] > 0 &&
-    controlledLegacyMaskData[controlledHdrOffset] < 255 &&
-    controlledLegacyMaskData[controlledHdrOffset + 1] === 255 &&
-    controlledLegacyMaskData[controlledHdrOffset + 2] === 255 &&
-    controlledLegacyMaskData[controlledHdrOffset + 3] === 255,
-  'Legacy 圆环本体保留 Tri3 的 Linear 插值与 HDR 材质能量',
-);
-
-if (sourceMode)
-{
-  const sampleIndex = Math.floor(legacyRingRasterizer.sampleCount * 0.37);
-  const angularProgress = legacyRingRasterizer.angularProgresses[sampleIndex];
-  const radialProgress = (
-    legacyRingRasterizer.radialDistances[sampleIndex] -
-      (1 - legacyRingRasterizer.lastBandRatio)
-  ) / legacyRingRasterizer.lastBandRatio;
-  const ringCfg = legacyEffect.getFxConfig().rings;
-  const textureProgress = ringCfg.dissolveDirection >= 0
-    ? angularProgress
-    : 1 - angularProgress;
-  const uvSpan = ringCfg.textureUvMax - ringCfg.textureUvMin;
-  const expectedAlpha = ring3AlphaSource.sampleRing3Alpha(
-    ringCfg.textureUvMin + uvSpan * textureProgress,
-    ringCfg.textureUvMin + uvSpan * radialProgress,
-  );
-
-  assert(
-    Math.abs(
-      legacyRingRasterizer.sampleAlphas[sampleIndex] - expectedAlpha,
-    ) < 0.00001,
-    'Legacy 极坐标缓存逐像素复用 Ring3 原纹理 Bilinear 采样器',
-  );
-}
-
-const stableLegacyCanvas = legacyRingRasterizer.canvas;
-const stableLegacyImageData = legacyRingRasterizer.imageData;
-const stableLegacyPixelOffsets = legacyRingRasterizer.pixelOffsets;
-const stableLegacySampleAlphas = legacyRingRasterizer.sampleAlphas;
-const stableLegacyCacheRevision = legacyRingRasterizer.cacheRevision;
-
-for (const ageMs of [420, 480])
-{
-  legacyWave.ageMs = ageMs;
-  legacyWave.drawRings(
-    legacyEffect.context,
-    1,
-    1,
-    true,
-    true,
-    legacyRingRasterizer,
-    legacyEffect.dpr,
-  );
-
-  for (let index = 0; index < legacyRingRasterizer.sampleCount; index++)
-  {
-    const offset = legacyRingRasterizer.pixelOffsets[index];
-    const expectedVisible = legacyRingRasterizer.sampleAlphas[index] >=
-      legacyRingRasterizer.lastThreshold;
-
-    if ((legacyRingRasterizer.imageData.data[offset + 3] > 0) !== expectedVisible)
-    {
-      controlledMaskMatchesClip = false;
-      break;
-    }
-  }
-}
-
-assert(
-  controlledMaskMatchesClip &&
-    legacyRingRasterizer.canvas === stableLegacyCanvas &&
-    legacyRingRasterizer.imageData === stableLegacyImageData &&
-    legacyRingRasterizer.pixelOffsets === stableLegacyPixelOffsets &&
-    legacyRingRasterizer.sampleAlphas === stableLegacySampleAlphas &&
-    legacyRingRasterizer.cacheRevision === stableLegacyCacheRevision,
-  'Legacy 在 0.7/0.8 生命周期完整裁剪 Ring3，并跨帧复用像素缓冲',
-);
-legacyEffect.setFxParam('bloom.clickEmissionScale', 1);
-legacyWave.ageMs = 0;
-legacyEffect.context.filledPaths = [];
-legacyEffect.context.filledStyles = [];
-legacyEffect.context.fillShadowBlurs = [];
-legacyEffect.context.fillShadowColors = [];
-legacyEffect.context.fillOrders = [];
-legacyEffect.context.radialGradients = [];
-legacyEffect.context.conicGradients = [];
-legacyEffect.context.drawImageCalls = [];
-const legacyFramePutStart = legacyRingRasterizer.context.putImageDataCount;
-let legacyNow = flushFrames(dom, performance.now(), 1);
-const legacyDiskDraw = legacyEffect.context.drawImageCalls.find((call) =>
-  call.args[0]?.width === 512 &&
-    call.args[0]?.height === 512 &&
-    call.args.length === 9);
-const legacyRingDraws = legacyEffect.context.drawImageCalls.filter(
-  (call) => call.args[0] === legacyRingRasterizer.canvas,
-);
-const legacyTriangleDraws = legacyEffect.context.drawImageCalls.filter((call) =>
-  call.args[0] !== legacyRingRasterizer.canvas &&
-    call.args.length === 5 &&
-    call.args[1] < 0 &&
-    call.args[2] < 0 &&
-    call.args[3] === call.args[4]);
-const legacyScale = legacyEffect._getScale();
-
-assert(
-  legacyEffect.context.conicGradients.length === 0 &&
-    legacyRingRasterizer.context.putImageDataCount ===
-      legacyFramePutStart + 1 &&
-    legacyRingDraws.length === UNITY_FX_TOUCH.rings.count,
-  'Legacy 运行帧不再构建 96x8 conic band，并让两枚圆环共用一次纹理更新',
-);
-assert(
-  legacyTriangleDraws.length === UNITY_FX_TOUCH.shards.clickCount,
-  'Legacy 点击后的第一帧同时绘制三角碎片',
-);
-assert(
-  Math.min(...legacyRingDraws.map((call) => call.order)) >
-    Math.max(...legacyTriangleDraws.map((call) => call.order)),
-  'Tri3 圆环按材质 queue 4499 在圆盘和碎片之后绘制',
-);
-assert(
-  legacyDiskDraw?.compositeOperation === 'source-over' &&
-    legacyDiskDraw.shadowBlur === legacyEffect.getFxConfig().bloom.diskBlur &&
-    getCssAlpha(legacyDiskDraw.shadowColor) > 0 &&
-    Math.abs(legacyDiskDraw.rotation - legacyWave.diskRotation) < 0.000001,
-  'Legacy 圆盘旋转完整 Circle_01 二维纹理，并继续使用原生辉光近似',
-);
-assert(
-  legacyEffect.getFxConfig().rings.hdrIntensity === 4 &&
-    legacyRingDraws.every((call, index) =>
-      call.shadowBlur === legacyEffect.getFxConfig().bloom.ringBlur *
-        legacyScale &&
-      getCssAlpha(call.shadowColor) > 0 &&
-      call.imageSmoothingEnabled === false &&
-      call.args[7] === call.args[8] &&
-      Math.abs(call.rotation - legacyWave.rings[index].rotation) < 0.000001),
-  'Legacy 圆环保留 HDR 本体，并让每枚完整像素环带只生成一次原生辉光',
-);
-assert(
-  legacyRingDraws.every((call) =>
-    call.shadowBlur > 0 && getCssAlpha(call.shadowColor) > 0),
-  '点击发射倍率不改变 Legacy 兼容圆环辉光',
-);
-
-legacyNow = flushFrames(dom, legacyNow, 50);
-legacyEffect.updateConfig({ clickEnabled: false });
-legacyEffect.context.shadowBlur = 24;
-legacyEffect.context.shadowColor = 'rgba(255, 0, 0, 1)';
-legacyEffect.pointerDown({ x: 100, y: 200, pointerId: 92 });
-legacyEffect.currentTrailStroke.points = Array.from(
-  { length: 64 },
-  (_, index) =>
-  ({
-    x: 100 + index * 8,
-    y: 200 + index % 2 * 8,
-    bornAt: legacyEffect.trailTimeMs,
-  }),
-);
-legacyEffect.context.strokeCount = 0;
-legacyEffect.context.lineJoinWrites = [];
-legacyEffect.context.strokeShadowBlurs = [];
-legacyEffect.context.strokeStyles = [];
-legacyEffect.context.strokedPaths = [];
-legacyNow = flushFrames(dom, legacyNow, 1);
-const legacyTrailPaths = legacyEffect.context.strokedPaths;
-const legacyTrailFrameData = legacyEffect.currentTrailStroke.trailFrameData;
-const legacyGradientChannels = [0, 31, 62].map((index) =>
-  getCssChannels(legacyEffect.context.strokeStyles[index]).slice(0, 3));
-
-assert(
-  legacyEffect.getFxConfig().bloom.trailAlpha === 0 &&
-    legacyTrailFrameData.measurement.segmentLengths === null &&
-    legacyTrailFrameData.pointProgresses.length === 64 &&
-    legacyTrailFrameData.segmentProgresses.length === 63 &&
-    legacyTrailFrameData.pointCoverageFactors[0] === 0 &&
-    legacyTrailFrameData.pointCoverageFactors.at(-1) === 1 &&
-    legacyTrailFrameData.pointCoverageFactors.every((value, index, values) =>
-      index === 0 || value >= values[index - 1]) &&
-    legacyEffect.context.strokeCount === 64 &&
-    legacyTrailPaths.filter((path) => path.length === 2).length === 63 &&
-    legacyTrailPaths.filter((path) => path.length === 64).length === 1 &&
-    legacyEffect.context.strokeStyles.every((style) =>
-      getCssAlpha(style) > 0) &&
-    legacyEffect.context.strokeStyles.at(-1) ===
-      'rgba(116, 225, 255, 0.72)' &&
-    JSON.stringify(legacyEffect.context.lineJoinWrites) ===
-      JSON.stringify(['round']) &&
-    JSON.stringify(legacyGradientChannels) ===
-      JSON.stringify([[0, 101, 220], [0, 143, 233], [0, 238, 255]]) &&
-    legacyEffect.context.strokeShadowBlurs.every((blur) => blur === 0),
-  'Legacy 跳过透明外层，并只为核心整路径写入圆角连接',
-);
-legacyEffect.setFxParam('bloom.trailAlpha', 0.25);
-legacyEffect.context.lineJoinWrites = [];
-legacyEffect.context.strokeStyles = [];
-legacyEffect.context.strokedPaths = [];
-legacyNow = flushFrames(dom, legacyNow, 1);
-
-assert(
-  legacyEffect.context.strokedPaths.length === 65 &&
-    legacyEffect.context.strokedPaths[0].length === 64 &&
-    legacyEffect.context.strokeStyles[0] === 'rgba(0, 88, 224, 0.25)' &&
-    JSON.stringify(legacyEffect.context.lineJoinWrites) ===
-      JSON.stringify(['round', 'round']),
-  'Legacy 正 Alpha 外层恢复描边，渐变段仍不重复写入圆角连接',
-);
-legacyEffect.setFxParam('bloom.trailAlpha', 0);
-legacyEffect.updateConfig({ themeColor: '#FF6969' });
-legacyEffect.context.strokeStyles = [];
-legacyNow = flushFrames(dom, legacyNow, 1);
-const themedLegacyGradientChannels = [0, 31, 62].map((index) =>
-  getCssChannels(legacyEffect.context.strokeStyles[index]).slice(0, 3));
-
-legacyEffect.setThemeColor('');
-legacyEffect.context.strokeStyles = [];
-legacyNow = flushFrames(dom, legacyNow, 1);
-const restoredLegacyGradientChannels = [0, 31, 62].map((index) =>
-  getCssChannels(legacyEffect.context.strokeStyles[index]).slice(0, 3));
-
-assert(
-  JSON.stringify(themedLegacyGradientChannels) !==
-      JSON.stringify(legacyGradientChannels) &&
-    JSON.stringify(restoredLegacyGradientChannels) ===
-      JSON.stringify(legacyGradientChannels) &&
-    legacyEffect.getConfig().themeColor === DEFAULT_THEME_COLOR,
-  'updateConfig 与 setThemeColor 共享状态且不会污染 Legacy 默认渐变',
-);
-assert(
-  dom.appendedCanvases.includes(legacyEffect.contrastCanvas) &&
-    legacyEffect.contrastCanvas.style.display === 'none',
-  'Legacy 初始实例预挂载并隐藏对比层，便于运行时安全切回增强模式',
-);
-legacyEffect.updateConfig({ renderingMode: 'enhanced' });
-legacyNow = flushFrames(dom, legacyNow, 1);
-const restoredEnhancedTrailData = legacyEffect.currentTrailStroke
-  .trailFrameData;
-const enhancedClickGeometry = legacyEffect.getFxConfig();
-
-assert(
-  legacyEffect.canvas.style.mixBlendMode === '' &&
-    legacyEffect.contrastCanvas.style.display === '' &&
-    legacyEffect.getConfig().resolvedBloomBackend === 'software' &&
-    enhancedClickGeometry.disk.radius === UNITY_FX_TOUCH.disk.radius &&
-    enhancedClickGeometry.rings.radiusMin ===
-      UNITY_FX_TOUCH.rings.radiusMin &&
-    enhancedClickGeometry.rings.radiusMax ===
-      UNITY_FX_TOUCH.rings.radiusMax &&
-    restoredEnhancedTrailData.pointEnergies.length === 64 &&
-    restoredEnhancedTrailData.segmentEnergies.length === 63,
-  'Legacy 实例运行时切回增强模式会恢复预乘输出、对比层与 Unity 尺度',
-);
-legacyEffect.pointerCancel(92);
-legacyEffect.updateConfig({ renderingMode: 'legacy' });
-const restoredLegacyClickGeometry = legacyEffect.getFxConfig();
-assert(
-  legacyEffect.canvas.style.mixBlendMode === '' &&
-    legacyEffect.canvas.style.zIndex === '2147483647' &&
-    legacyEffect.contrastCanvas.style.display === 'none' &&
-    legacyEffect.getConfig().resolvedBloomBackend === 'legacy' &&
-    restoredLegacyClickGeometry.disk.radius === legacyClickGeometry.disk.radius &&
-    restoredLegacyClickGeometry.rings.radiusMin ===
-      legacyClickGeometry.rings.radiusMin &&
-    restoredLegacyClickGeometry.rings.radiusMax ===
-      legacyClickGeometry.rings.radiusMax,
-  '切回 Legacy 时保持 Unity 尺度并隐藏增强模式对比层',
-);
-legacyWave.ageMs = 100;
-legacyEffect.context.drawImageCalls = [];
-legacyWave.drawBase(
-  legacyEffect.context,
-  1,
-  1,
-  true,
-  'browser-overlay',
-  2,
-);
-const dprTwoDiskDraw = legacyEffect.context.drawImageCalls.find((call) =>
-  call.args[0]?.width === 512 && call.args.length === 9);
-
-legacyWave.ageMs = 300;
-legacyEffect.context.drawImageCalls = [];
-legacyWave.drawRings(
-  legacyEffect.context,
-  1,
-  1,
-  true,
-  true,
-  legacyRingRasterizer,
-  2,
-  'browser-overlay',
-);
-const dprTwoRingDraws = legacyEffect.context.drawImageCalls.filter((call) =>
-  call.args[0] === legacyRingRasterizer.canvas);
-
-assert(
-  dprTwoDiskDraw?.shadowBlur === legacyClickGeometry.bloom.diskBlur * 2 &&
-    dprTwoRingDraws.length === UNITY_FX_TOUCH.rings.count &&
-    dprTwoRingDraws.every((call) =>
-      call.shadowBlur === legacyClickGeometry.bloom.ringBlur * 2),
-  'Native 与 Legacy 点击模糊按 DPR 保持相同 CSS 光晕范围',
-);
-legacyEffect.destroy();
-assert(legacyEffect.destroyed, 'Legacy 实例可正常结束完整生命周期并销毁');
 
 console.log(`\n✅ ${passed} 项 FX_Touch 移植检查通过\n`);
