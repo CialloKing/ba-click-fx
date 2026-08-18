@@ -252,7 +252,7 @@ export function applyOverlayAlphaPolicyToImageData(
     }
     else if (bloomCompositing === 'source-over')
     {
-      // Native/Legacy 阴影与清晰层以 source-over 组成 Alpha 并集：
+      // Native 阴影与清晰层以 source-over 组成 Alpha 并集：
       // 1 - A总 = (1 - A清晰) * (1 - A辉光)。清晰层已不透明时
       // visual-max 必然选择它，无需再恢复被完全遮住的辉光 Alpha。
       bloomAlpha = sceneAlpha >= 1

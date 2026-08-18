@@ -50,7 +50,7 @@
 - Dissolve rings (MeshTri), centre disk (ring), click shards (Ring 3/4), drag trail (TrailRenderer)
 - All particle parameters locked to the game's original values: colour curves, size curves, rotation speed, dissolve thresholds, HDR intensity
 - Canvas 2D, Full WebGL2, and WebGPU share the reviewed effect geometry with zero external runtime dependencies
-- Seven demo rendering choices: WebGPU, WebGPU HDR (experimental), Full WebGL2 (default), WebGL2 Bloom, Software Bloom, Native Glow, and Legacy
+- Six demo rendering choices: WebGPU, WebGPU HDR (experimental), Full WebGL2 (default), WebGL2 Bloom, Software Bloom, and Native Glow
 - WebGPU uses an `rgba16float` linear Scene and multi-level Bloom; the ordinary mode forces a standard SDR Canvas, while the HDR mode may request `extended` output that preserves highlights above SDR white
 - An unavailable or lost WebGPU device falls back to Full WebGL2, then through Canvas 2D, Software Bloom, and Native Glow
 - Advanced hosts can place the core in a Worker with direct `OffscreenCanvas`, Full WebGL2, manual input, and explicit sizing
@@ -89,17 +89,15 @@ const fx = new BAClickFX();
 ### 3. CDN
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.0/dist/ba-click-fx.iife.js"></script>
-<script>
-  const fx = new BAClickFX.BAClickFX();
+<script type="module">
+  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.1/dist/ba-click-fx.js';
+  const fx = new BAClickFX();
 </script>
 ```
 
-The IIFE build exposes the module as `BAClickFX`; the constructor is at `BAClickFX.BAClickFX`.
-
 ### 4. Direct Download
 
-Download from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) (`ba-click-fx.js`, `ba-click-fx.iife.js`, `ba-click-fx.cjs`, `ba-click-fx.d.ts`):
+Download the ESM builds from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) (`ba-click-fx.js`, `config.js`, `worker.js`, and their `.d.ts` declarations):
 
 ```html
 <canvas id="myCanvas"></canvas>
@@ -144,7 +142,7 @@ new BAClickFX(options?: {
   scale?: number,                // default 1
   opacity?: number,              // default 1
   themeColor?: string,           // six-digit hex, default #4ca7ff
-  themeColorMode?: 'hue-only' | 'relative-oklch', // public-library default: hue-only
+  themeColorMode?: 'hue-only' | 'relative-oklch', // public-library default: relative-oklch
   outputCompositing?: 'scene' | 'browser-overlay', // default scene
   overlayAlphaPolicy?: 'coverage' | 'visual-max', // default coverage
   overlayColorCompensation?: 'none' | 'bright-core', // default none
@@ -165,7 +163,6 @@ new BAClickFX(options?: {
   webgpuHdrWhiteCore?: number,   // Extended white-core strength 0..1, default 0.6
   webgpuHdrWhiteStart?: number,  // Extended white-core start 0..15.99, default 1
   webgpuHdrWhiteEnd?: number,    // Extended white-core end 0.01..16, default 5
-  renderingMode?: 'enhanced' | 'legacy', // default enhanced
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // default webgl2
   softwareBloomEnabled?: boolean, // compatibility alias: true = software, false = native
   isolatedCompositing?: boolean,  // default false; true enables non-game white-background compatibility
@@ -178,19 +175,18 @@ new BAClickFX(options?: {
 
 `touchAction` accepts CSS `touch-action` keywords and space-separated combinations, including `none`, `pan-x`, `pan-y`, `pan-left`, `pan-right`, `pan-up`, `pan-down`, and `pinch-zoom`. DOM input installs capture Touch arbitration only when the policy must block a direction or pinch; `auto`, `manipulation`, and combinations that explicitly allow every axis and pinch retain the browser's compositor-friendly scrolling. When an overlay Canvas is not hit-testable, the library locks the gesture direction at its first meaningful move and applies `inputFilter` to exclude host controls; `inputSource: 'manual'` does not install these DOM listeners.
 
-`effectBackend` decides whether WebGPU or WebGL2 owns the complete crisp scene and Bloom. `webgpuPreferHdr` only controls whether the final WebGPU Canvas attempts Extended HDR; `false` forces Standard SDR. The Canvas 2D path then uses `bloomBackend` to select its Bloom implementation. The demo exposes seven direct combinations:
+`effectBackend` decides whether WebGPU or WebGL2 owns the complete crisp scene and Bloom. `webgpuPreferHdr` only controls whether the final WebGPU Canvas attempts Extended HDR; `false` forces Standard SDR. The Canvas 2D path then uses `bloomBackend` to select its Bloom implementation. The demo exposes six direct combinations:
 
 | Demo choice | API configuration | Behaviour |
 |---|---|---|
-| WebGPU | `{ effectBackend: 'webgpu', webgpuPreferHdr: false, renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Formal ordinary WebGPU mode. It configures only the browser-preferred Standard SDR Canvas and never requests `toneMapping: extended`, while retaining the Unity-aligned linear Scene and MXFinalBloom |
-| WebGPU HDR (experimental) | `{ effectBackend: 'webgpu', webgpuPreferHdr: true, renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Requests WebGPU asynchronously and prefers `rgba16float + toneMapping: extended`; if HDR Canvas configuration is unavailable it keeps WebGPU with standard SDR output, while an unavailable or lost device falls back to Full WebGL2 |
-| Full WebGL2 | `{ effectBackend: 'webgl2', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Default; builds the complete Scene, Coverage, and MXFinalBloom output in one WebGL2 HDR pipeline; falls back to the Canvas 2D chain on failure |
-| WebGL2 Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'webgl2' }` | Compatibility selector; when the GPU is available it reuses the same complete HDR Scene as Full WebGL2, then falls back through the Canvas 2D Software / Native chain on failure |
-| Software Bloom | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'software' }` | Compatibility implementation using an 8-bit Canvas mask, pixel readback, and full-viewport Float32 Bloom buffers |
-| Native Glow | `{ effectBackend: 'canvas2d', renderingMode: 'enhanced', bloomBackend: 'native' }` | Uses Canvas 2D `shadowBlur`; cheaper, but visually different from post-process Bloom |
-| Legacy | `{ effectBackend: 'canvas2d', renderingMode: 'legacy' }` | Uses Unity material energy and texture profiles with Canvas `shadowBlur` compatibility glow; WebGL backend requests are ignored |
+| WebGPU | `{ effectBackend: 'webgpu', webgpuPreferHdr: false, bloomBackend: 'webgl2' }` | Formal ordinary WebGPU mode. It configures only the browser-preferred Standard SDR Canvas and never requests `toneMapping: extended`, while retaining the Unity-aligned linear Scene and MXFinalBloom |
+| WebGPU HDR (experimental) | `{ effectBackend: 'webgpu', webgpuPreferHdr: true, bloomBackend: 'webgl2' }` | Requests WebGPU asynchronously and prefers `rgba16float + toneMapping: extended`; if HDR Canvas configuration is unavailable it keeps WebGPU with standard SDR output, while an unavailable or lost device falls back to Full WebGL2 |
+| Full WebGL2 | `{ effectBackend: 'webgl2', bloomBackend: 'webgl2' }` | Default; builds the complete Scene, Coverage, and MXFinalBloom output in one WebGL2 HDR pipeline; falls back to the Canvas 2D chain on failure |
+| WebGL2 Bloom | `{ effectBackend: 'canvas2d', bloomBackend: 'webgl2' }` | Compatibility selector; when the GPU is available it reuses the same complete HDR Scene as Full WebGL2, then falls back through the Canvas 2D Software / Native chain on failure |
+| Software Bloom | `{ effectBackend: 'canvas2d', bloomBackend: 'software' }` | Compatibility implementation using an 8-bit Canvas mask, pixel readback, and full-viewport Float32 Bloom buffers |
+| Native Glow | `{ effectBackend: 'canvas2d', bloomBackend: 'native' }` | Uses Canvas 2D `shadowBlur`; cheaper, but visually different from post-process Bloom |
 
-The demo exposes Isolated Compositing as a separate switch beside the seven rendering choices. It is disabled by default and orthogonal to the rendering backend: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
+The demo exposes Isolated Compositing as a separate switch beside the six rendering choices. It is disabled by default and orthogonal to the rendering backend: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
 
 WebGPU availability does not imply HDR display output. Only `getConfig().resolvedWebGPUOutputMode === 'extended'` means that the Canvas negotiated extended dynamic range, encodes the linear HDR result as extended sRGB, and preserves highlights above SDR white. `'standard'` means the WebGPU Scene and Bloom are running but the final Canvas remains SDR, `'pending'` means device or first-frame work is in progress, and `'unavailable'` means no WebGPU output is active. Visible super-white highlights additionally require an HDR display, system HDR enabled, browser support for WebGPU HDR Canvas, and successful `rgba16float + toneMapping: extended` configuration.
 
@@ -271,7 +267,7 @@ These compatibility controls have separate responsibilities. `isolatedCompositin
 
 ### Compositing Reference and Linear Compositing
 
-`setCompositingReference()` supplies the renderer with a real opaque raster reference that pixel-matches the content beneath the effect; it does not set or modify the host page's CSS background. `scene + setCompositingReference()` is the precise known-background path. Strict final-RGB Scene equivalence may only be claimed when WebGPU, Full WebGL2, or WebGL2 Bloom successfully resolved to the GPU receives that known reference. Native Glow and Legacy use a Canvas Final Pass; Software Bloom continues to use the normal DOM-background path. Those capability-limited fallback paths must not be treated as pixel-equivalent to the complete GPU Scene or Unity.
+`setCompositingReference()` supplies the renderer with a real opaque raster reference that pixel-matches the content beneath the effect; it does not set or modify the host page's CSS background. `scene + setCompositingReference()` is the precise known-background path. Strict final-RGB Scene equivalence may only be claimed when WebGPU, Full WebGL2, or WebGL2 Bloom successfully resolved to the GPU receives that known reference. Native Glow uses a Canvas Final Pass; Software Bloom continues to use the normal DOM-background path. Those capability-limited fallback paths must not be treated as pixel-equivalent to the complete GPU Scene or Unity.
 
 The real desktop is normally invisible to a transparent overlay. `setCompositingReference(null)` clears the reference and enters the unknown-background path; the renderer can then only emit an alpha-bearing overlay for the host or operating system to composite later. An unknown background cannot mathematically reproduce Unity's result over a known opaque HDR Scene. `browser-overlay` keeps alpha derived from independent Coverage and Bloom transport quantities and makes their allocation an explicit `overlayAlphaPolicy`; it does not remove that information boundary.
 
@@ -562,7 +558,7 @@ Pausing cancels the active pointer, ignores `boom()` and every automatic or manu
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify one dot-path; returns `true` on success and `false` when rejected |
 | `setFxParams(patch, options?)` | Validate and batch-apply a dot-path patch through the public Schema, returning per-entry results |
 | `getFxConfig()` | Deep copy of current FX configuration |
-| `resetFxConfig()` | Reset all FX parameters to the current Enhanced or Legacy mode baseline |
+| `resetFxConfig()` | Reset all FX parameters to the Unity baseline |
 | `getConfig()` | Current config; besides Full Effect and Bloom resolution, `resolvedWebGPUOutputMode` independently reports `extended`, `standard`, `pending`, or `unavailable` |
 
 The main canvas dispatches `baclickfxeffectbackendchange` and `baclickfxbackendchange` when the Full Effect and Bloom resolution states change. Use the exported event names to track deferred probing, runtime fallback, WebGPU device loss, and WebGL context recovery:
@@ -597,7 +593,7 @@ fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 
 ### Parameter Schema and Batch Updates
 
-The library exports the read-only `FX_PARAM_SCHEMA`, the current `FX_PARAM_SCHEMA_VERSION`, and `FX_PARAM_MIGRATIONS`. Each public scalar path describes its type, hard bounds, default, unit, group, stable display order, localisation keys, recommended control range, linked parameters, and Enhanced/Legacy mode baselines. Hosts can build settings UIs without copying an independent control list. `step` and `display.step` only guide host UI controls. `setFxParam()` / `setFxParams()` do not quantise or round to those steps; they validate type, finiteness, and the hard `min` / `max` bounds. Hosts that require integer controls should round before submission.
+The library exports the read-only `FX_PARAM_SCHEMA`, the current `FX_PARAM_SCHEMA_VERSION`, and `FX_PARAM_MIGRATIONS`. Each public scalar path describes its type, hard bounds, default, unit, group, stable display order, localisation keys, recommended control range, and linked parameters. Hosts can build settings UIs without copying an independent control list. `step` and `display.step` only guide host UI controls. `setFxParam()` / `setFxParams()` do not quantise or round to those steps; they validate type, finiteness, and the hard `min` / `max` bounds. Hosts that require integer controls should round before submission.
 
 The current `FX_PARAM_SCHEMA_VERSION` is `2`. The old `bloom.scatter` value has no proven visual equivalence to MXFinalBloom's `bloom.diffusion`. Migrating from version `0` to `1` therefore renames the path to `bloom.diffusion`, explicitly restores the Unity default value `7`, and reports both `renamed` and `defaulted` in `normalized`. Version `1` to `2` is an empty migration that does not rewrite existing paths and uses the default value `0` for the new `shards.roundness` path. Persisted patches should pass their original `schemaVersion`, allowing the library to apply `FX_PARAM_MIGRATIONS` in order. A future version, a missing migration chain, or a post-migration conflict is rejected explicitly rather than being dropped silently.
 
@@ -651,11 +647,11 @@ if (migrated.committed)
 
 The package-level `applyFxParamPatch()` uses the game defaults as its private validation baseline and accepts only `schemaVersion` and `strict`. It neither mutates an instance nor exposes the complete Unity configuration tree. Here, `committed` means that the candidate patch is safe to persist; only instance-level `setFxParams()` installs configuration into the current renderer. Mode resets remain an instance-level operation through `reset: true`.
 
-The result contains `applied`, `normalized`, `rejected`, `committed`, and `schemaVersion`. `applied` contains the accepted final paths and values; `normalized` records renames, default restoration, numeric clamping, and Boolean coercion; `rejected` gives the path, original value, and reason; `committed` says whether the candidate configuration was actually installed. The default `strict: false` commits valid entries and reports rejected ones. With `strict: true`, one rejected entry rolls back the entire batch and `applied` is empty. `reset: true` first restores the current Enhanced or Legacy mode baseline and then applies the same patch; even an empty patch commits the reset. `setFxParam()` reuses this validation with strict single-entry semantics.
+The result contains `applied`, `normalized`, `rejected`, `committed`, and `schemaVersion`. `applied` contains the accepted final paths and values; `normalized` records renames, default restoration, numeric clamping, and Boolean coercion; `rejected` gives the path, original value, and reason; `committed` says whether the candidate configuration was actually installed. The default `strict: false` commits valid entries and reports rejected ones. With `strict: true`, one rejected entry rolls back the entire batch and `applied` is empty. `reset: true` first restores the Unity baseline and then applies the same patch; even an empty patch commits the reset. `setFxParam()` reuses this validation with strict single-entry semantics.
 
 `themeColor` and `themeColorMode` are both instance configuration state. They can be supplied to the constructor or `updateConfig()`; `setThemeColor()` and `setThemeColorMode()` use the same normalisation path; and `getConfig()` returns their current values. Only six-digit hexadecimal colours are accepted. An empty string or invalid colour restores the exported `DEFAULT_THEME_COLOR` (`#4ca7ff`). An invalid mode is rejected: `setThemeColorMode()` returns `false` and leaves the current mode unchanged. Neither setting mutates the Unity parameter baseline in `UNITY_FX_TOUCH` or `FX_PARAM_SCHEMA`.
 
-The public library exports `DEFAULT_THEME_COLOR_MODE` as `hue-only` to preserve existing configurations and pixel output. This mode applies only the theme colour's HSL hue difference to the original Unity colours, retaining their authored saturation, lightness, and HDR emission energy. Existing configurations without a `themeColorMode` field are interpreted the same way. The demo selects the recommended `relative-oklch` mode only for new users without saved settings; it does not silently migrate a persisted mode.
+The public library exports `DEFAULT_THEME_COLOR_MODE` as `relative-oklch`, applying a complete relative OKLCH mapping to the theme colour. Hosts that need the previous hue-only behaviour must explicitly pass `themeColorMode: 'hue-only'`; the demo uses the new default whenever no explicit mode is persisted.
 
 `relative-oklch` uses the default game blue `#4ca7ff` as its reference and maps the theme colour's relative OKLCH hue, chroma, and perceptual-lightness changes onto the original Unity colours. Lightness adjusts linear-RGB HDR emission energy before Bloom prefiltering, so a darker theme naturally emits less energy above the Bloom threshold instead of dimming an already-generated halo in the Final Pass. For a transparent overlay transported with `source-over` against an unknown background, the engine separately limits Coverage Alpha by the target colour's peak sRGB channel so that dark themes cannot become solid occluding shapes; this limit does not scale Scene, Screen/Plus-lighter, or HDR emission energy. The default game blue must remain an identity mapping and preserve the default Unity pixels. A pure-black theme has zero emissive energy and creates no black mask or residual halo in an unknown-background transparent overlay. A known Scene still preserves the Unity material's original alpha-blending semantics.
 
@@ -668,7 +664,7 @@ fx.setFxParam('shards.roundness', 0.5);
 
 Click glow can be tuned independently from the trail. This scale changes only
 the ring and center-disk Bloom emission in enhanced mode; Native Glow uses the
-same scale through a monotonic bounded-alpha mapping, while Legacy keeps its
+same scale through a monotonic bounded-alpha mapping:
 compatibility output:
 
 ```js
@@ -738,7 +734,7 @@ The trail follows the same rendering chain as the Unity source asset:
 | Geometry and core | Draw the original 2.7px HDR strip directly, then let Bloom expand it into a soft core |
 | Gradient and Stretch UV | The gradient is reversed into the web's oldest-to-newest point order; texture U is mapped separately as `1 - progress`, keeping Unity's `U=0` at the newest point |
 | Full WebGL2 texture | Upload the complete `512×512 RGB` `FX_TEX_Trail_03` and sample it per fragment with the source sRGB, Bilinear, Repeat, and no-mipmap settings; decode sRGB to Linear before multiplying by the Gradient and material intensity `23.968628` |
-| Canvas compatibility texture | Software Bloom, Native Glow, and Legacy use a compact 2D LUT approximation of longitudinal brightness, transverse feathering, and non-zero edges to avoid costly software triangle texture rasterisation |
+| Canvas compatibility texture | Software Bloom and Native Glow use a compact 2D LUT approximation of longitudinal brightness, transverse feathering, and non-zero edges to avoid costly software triangle texture rasterisation |
 | Bloom | Ring, disk, trail, and triangle-shard HDR emission is processed by the selected Bloom backend |
 
 Full WebGL2 and a WebGL2 Bloom frame that resolves successfully to the GPU use the same complete texture batch: a regular segment submits only two textured triangles, corner inserts retain the corner U, and the single-triangle cap tip stays at `V=0.5`. The complete RGB texture preserves per-channel and top/bottom-asymmetric detail that cannot be represented by a symmetric scalar profile. Capability-limited Canvas paths preserve parameters, geometry, lifetime, and overall energy relationships, but do not claim per-texture-pixel equivalence.
@@ -785,7 +781,6 @@ The software backend uses one full-viewport mip pyramid and reuses its Float32 b
 | WebGL2 Bloom | On GPU success, reuses the same complete floating-point Scene as Full WebGL2; the difference is its Canvas 2D request state and Software / Native failure-fallback contract |
 | Software Bloom | The Bloom pyramid uses Float32 buffers, but its input comes from an 8-bit Canvas; a transparent overlay can only approximate Bloom with residual Coverage and cannot preserve arbitrary HDR RGB independently |
 | Native Glow | A bounded Canvas `shadowBlur` approximation without `RGBA16F`, threshold prefiltering, or cumulative multi-level upsampling; it does not equal MXFinalBloom |
-| Legacy | Retains compatibility parameter mappings and the older Canvas compositing style; reset restores its Legacy baseline, while glow remains constrained by `shadowBlur` and Canvas blending |
 
 Consequently, “ported from the Unity project” describes the source of parameter values, texture sampling, curves, blend intent, and the known-Scene complete GPU implementations. It does not mean every browser backend, arbitrary web background, or transparent desktop composition can be pixel-identical to an in-game screenshot. Fallbacks prioritise lifecycle, geometry relationships, monotonic Coverage, and availability without pretending that missing HDR Scene or display capabilities exist.
 
@@ -857,7 +852,7 @@ ba-click-fx/
 │   ├── webgpu-effect.js   # WebGPU Scene, Bloom pyramid, and Final Pass
 │   ├── webgpu-shaders.js  # WGSL geometry and post-process shaders
 │   ├── webgl2-effect.js  # Shared Full WebGL2 / WebGL2 Bloom Scene and Final Pass
-│   ├── webgl2-canvas-scene.js # Canvas Scene Final Pass for Native / Legacy
+│   ├── webgl2-canvas-scene.js # Canvas Scene Final Pass for Native
 │   ├── webgl2-bloom.js   # WebGL2 Bloom reference and regression baseline
 │   └── style.css         # Demo page styles
 ├── scripts/
@@ -866,7 +861,7 @@ ba-click-fx/
 ├── test/
 │   └── smoke.js          # Port, backend-state, and lifecycle verification
 ├── index.html            # Demo page
-├── dist/                 # Build output (ESM / CJS / IIFE)
+├── dist/                 # Build output (ESM)
 └── package.json
 ```
 
@@ -875,7 +870,7 @@ ba-click-fx/
 - **Isolated compositing layer:** disabled by default; enable the transparent isolated group explicitly to preserve colour on non-game pure-white web backgrounds.
 - **WebGPU Scene:** asynchronously requests a device and uses an `rgba16float` linear Scene with WGSL Bloom; ordinary mode stays on Standard SDR, while HDR mode preserves real super-white highlights only after successful `extended` output and falls back to WebGL2 on device failure.
 - **Full WebGL2 Scene:** complete geometry, Coverage, background, and MXFinalBloom resolve through one HDR pipeline and one output pass.
-- **Canvas Scene Final Pass:** Native Glow and Legacy reuse a Canvas-built Scene approximation; with a supplied background they share background attenuation and colour encoding, without claiming complete-WebGL2 floating-point precision.
+- **Canvas Scene Final Pass:** Native Glow reuses a Canvas-built Scene approximation; with a supplied background it shares background attenuation and colour encoding, without claiming complete-WebGL2 floating-point precision.
 - **Main FX layer:** Canvas paths accumulate emission with `lighter` internally and use premultiplied-alpha overlay output to avoid a second CSS brightness increase.
 - **Light-background compatibility layer:** defaults to zero strength; set it explicitly to 0.35 to add a non-Bloom `darken` canvas for visibility on pure white.
 - **Software Bloom:** full-viewport working canvases plus a Float32 MXFinalBloom pyramid, with a `shadowBlur` fallback when pixel readback is unavailable.
@@ -904,7 +899,7 @@ npm run test:browser:built
 npm run test:browser:webgpu:optional
 ```
 
-The focused count gate reuses the complete browser matrix's assertions and can run even when an unrelated pixel case fails first. The standard matrix covers the WebGL2, Canvas, and Legacy paths; the separate optional WebGPU runtime gate checks the same count contract whenever a device is available. If the resource audit and cross-backend count assertions all pass, investigate pixel conversion, DPR, timing, colour space, compositing, and Bloom. Do not rewrite confirmed Unity values to match a visual symptom.
+The focused count gate reuses the complete browser matrix's assertions and can run even when an unrelated pixel case fails first. The standard matrix covers the WebGL2 and Canvas paths; the separate optional WebGPU runtime gate checks the same count contract whenever a device is available. If the resource audit and cross-backend count assertions all pass, investigate pixel conversion, DPR, timing, colour space, compositing, and Bloom. Do not rewrite confirmed Unity values to match a visual symptom.
 
 ```bash
 git clone https://github.com/CialloKing/ba-click-fx.git

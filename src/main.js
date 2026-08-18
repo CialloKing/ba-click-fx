@@ -925,7 +925,7 @@ window.addEventListener('blur', () =>
   manualPointerId = null;
 });
 
-// ── 渲染模式 → effectBackend + renderingMode + bloomBackend ─────────
+// ── 渲染模式 → effectBackend + bloomBackend ───────────────────────────
 const ctrlRenderMode = document.getElementById('ctrlRenderMode');
 const DEFAULT_RENDER_MODE = 'full-webgl2';
 const dynamicRangeQuery = typeof window.matchMedia === 'function'
@@ -942,49 +942,37 @@ const RENDER_MODE_CONFIGS = Object.freeze(
     {
       effectBackend: 'webgpu',
       webgpuPreferHdr: false,
-      renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     },
     'full-webgpu':
     {
       effectBackend: 'webgpu',
       webgpuPreferHdr: true,
-      renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     },
     'full-webgl2':
     {
       effectBackend: 'webgl2',
       webgpuPreferHdr: true,
-      renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     },
     'software-bloom':
     {
       effectBackend: 'canvas2d',
       webgpuPreferHdr: true,
-      renderingMode: 'enhanced',
       bloomBackend: 'software',
     },
     'webgl2-bloom':
     {
       effectBackend: 'canvas2d',
       webgpuPreferHdr: true,
-      renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     },
     'native-bloom':
     {
       effectBackend: 'canvas2d',
       webgpuPreferHdr: true,
-      renderingMode: 'enhanced',
       bloomBackend: 'native',
-    },
-    legacy:
-    {
-      effectBackend: 'canvas2d',
-      webgpuPreferHdr: true,
-      renderingMode: 'legacy',
     },
   },
 );
@@ -1125,8 +1113,8 @@ function updateWebGPUDiagnosticDetails(
   dynamicRangeHigh,
 )
 {
-  const requested = snapshot.renderingMode !== 'legacy' &&
-    (snapshot.effectBackend === 'webgpu' || snapshot.effectBackend === 'auto');
+  const requested =
+    snapshot.effectBackend === 'webgpu' || snapshot.effectBackend === 'auto';
   const renderer = requested ? effect.webgpuEffectRenderer : null;
   const manager = renderer?.deviceManager ?? null;
   const diagnostics = manager?.diagnostics ?? null;
@@ -1532,18 +1520,14 @@ function updateRenderBackendStatus()
     webgpu: webgpuLabel,
     webgl2: d.renderWebGL2Bloom,
     native: d.renderNativeBloom,
-    legacy: d.renderLegacy,
   };
-  const useEffectBackend = snapshot.renderingMode !== 'legacy' &&
-    snapshot.effectBackend !== 'canvas2d';
+  const useEffectBackend = snapshot.effectBackend !== 'canvas2d';
   const resolved = useEffectBackend
     ? snapshot.resolvedEffectBackend
     : snapshot.resolvedBloomBackend;
   const expected = useEffectBackend
     ? snapshot.effectBackend
-    : snapshot.renderingMode === 'legacy'
-      ? 'legacy'
-      : snapshot.bloomBackend;
+    : snapshot.bloomBackend;
   const webGL2Label = useEffectBackend
     ? d.renderFullWebGL2
     : d.renderWebGL2Bloom;
@@ -2218,10 +2202,10 @@ bindRange('ctrlBloomDiskAlpha', 'outBloomDiskAlpha', (v) =>
 // ── 主题颜色 ────────────────────────────────────────────────────────────
 const THEME_COLOR_MODE_STORAGE_KEY = 'bafx-ctrlThemeColorMode';
 const DEFAULT_DEMO_THEME_COLOR_MODE = 'relative-oklch';
-const LEGACY_THEME_COLOR_MODE = 'hue-only';
+const COMPAT_THEME_COLOR_MODE = 'hue-only';
 const THEME_COLOR_MODES = new Set([
   DEFAULT_DEMO_THEME_COLOR_MODE,
-  LEGACY_THEME_COLOR_MODE,
+  COMPAT_THEME_COLOR_MODE,
 ]);
 const ctrlColor = document.getElementById('ctrlColor');
 const ctrlThemeColorMode = document.getElementById('ctrlThemeColorMode');
@@ -2426,7 +2410,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
     formatDissolveDirection(1);
 
   effect.resetFxConfig();
-  // 库默认保留兼容的 hue-only；展示页重置明确选择推荐的新映射模式。
+  // 展示页重置明确选择推荐的新映射模式。
   applyThemeColorMode(DEFAULT_DEMO_THEME_COLOR_MODE, false);
   effect.setThemeColor('#4ca7ff');
   effect.setPaused(false);
@@ -2697,7 +2681,6 @@ const I18N = {
     renderSoftwareBloom: '软件 Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: '原生辉光',
-    renderLegacy: 'Legacy',
     renderAutoBloom: '自动选择',
     renderBackendLabel: '实际后端',
     renderCanvasOutputLabel: 'Canvas 输出',
@@ -2843,13 +2826,13 @@ const I18N = {
     btnApplyBg: '应用背景',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
-    introP2: '从 Unity FX_Touch.prefab 逐参数移植，默认使用纯 WebGL2，可选标准 WebGPU 与 WebGPU 真实 HDR，并提供 WebGL2 Bloom、软件 Bloom、原生辉光和 Legacy 回退路径。零外部运行时依赖。',
+    introP2: '从 Unity FX_Touch.prefab 逐参数移植，默认使用纯 WebGL2，可选标准 WebGPU 与 WebGPU 真实 HDR，并提供 WebGL2 Bloom、软件 Bloom和原生辉光回退路径。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.0/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx@1.3.1</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script type="module"&gt;\nimport { BAClickFX } from \'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.1/dist/ba-click-fx.js\';\nconst fx = new BAClickFX();\n&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introWebGPUFAQContent: '<p><strong>WebGPU 一定会显示真实 HDR 吗？</strong> 不会。只有 <code>resolvedWebGPUOutputMode === \'extended\'</code> 才表示 Canvas 会以扩展 sRGB 编码保留超过 SDR 白色的高光；还需要 HDR 显示器、系统 HDR 和浏览器 WebGPU HDR Canvas 同时可用。</p>',
     introMobileTouchFAQContent: '<p><strong>移动端浏览器滑动时为什么没有轨迹拖尾？</strong> “触摸行为”为“自动”或“直接操作”时，浏览器会优先接管滚动并发送 <code>pointercancel</code>，拖尾随之中止。将控制面板中的“触摸行为”切换为“禁止默认手势”，即可在任意滑动方向持续触发拖尾；页面仍需单轴滚动时，可选择“仅横向平移”或“仅纵向平移”，库只在浏览器未接管的方向保留拖尾。此设置也会改变页面的原生滚动与缩放手势。</p>',
-    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 页面主题始终由 CSS 单独显示。“特效背景参考”可选“匹配当前页面”或“未知透明背景”：前者把内置主题或已解码图片传入渲染器，后者调用 <code>setCompositingReference(null)</code> 并保留透明宿主的 Coverage 合同。纯白主题在关闭“隔离合成”时保留接近游戏原始的低可见度；开启后会自动使用 <code>lightBackgroundContrastAlpha: 0.35</code> 补足网页白底可见性。已解码图片通过 <code>setCompositingReference(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光/Legacy 的 Canvas Final Pass。跨域图片必须允许 CORS；本地图片选择器会生成当前页面的 <code>blob:</code> URL，不需要 CORS，但刷新后需要重新选择。手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。</p><p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；WebView2、Electron 等透明宿主显式使用 <code>browser-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应通过 <code>setCompositingReference()</code> 提供给渲染器。</p><p><strong>纯白背景下特效颜色太浅？</strong> 关闭“隔离合成”时会保留游戏原始的低可见度表现；开启后，展示页自动叠加不参与 Bloom 的淡青对比轮廓，使效果在常见网页白底上保持可见。其他宿主也可按需显式设置 <code>lightBackgroundContrastAlpha</code>。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
+    introFAQContent: '<p><strong>和蔚蓝档案有关吗？</strong> 粉丝向视觉特效库，粒子参数从游戏 Unity Prefab 逐项提取。</p><p><strong>需要素材或 WebGL？</strong> 特效本身不需要图片素材。默认使用纯 WebGL2；能力不足时会自动回退 Canvas 2D、软件 Bloom 与原生辉光。</p><p><strong>内置主题和自定义图片背景怎样参与游戏式合成？</strong> 页面主题始终由 CSS 单独显示。“特效背景参考”可选“匹配当前页面”或“未知透明背景”：前者把内置主题或已解码图片传入渲染器，后者调用 <code>setCompositingReference(null)</code> 并保留透明宿主的 Coverage 合同。纯白主题在关闭“隔离合成”时保留接近游戏原始的低可见度；开启后会自动使用 <code>lightBackgroundContrastAlpha: 0.35</code> 补足网页白底可见性。已解码图片通过 <code>setCompositingReference(image, { fit: \'cover\' })</code> 提供给纯 WebGL2、WebGL2 Bloom，以及原生辉光的 Canvas Final Pass。跨域图片必须允许 CORS；本地图片选择器会生成当前页面的 <code>blob:</code> URL，不需要 CORS，但刷新后需要重新选择。手输 <code>file://</code> 会交给允许读取本地协议且允许作为 Canvas/WebGL 纹理使用的受信任桌面宿主；普通 HTTP/HTTPS 页面仍受浏览器本地资源权限限制，请使用本地图片选择器。</p><p><strong>透明桌面应怎样选择合成模式？</strong> 展示页和严格游戏还原保留默认 <code>scene</code>；WebView2、Electron 等透明宿主显式使用 <code>browser-overlay</code>。未知背景下，标准 <code>source-over</code> 无法同时实现严格 Unity 加色、纯 Coverage Alpha 和白底绝不变暗；隔离合成不会读取桌面，已知背景应通过 <code>setCompositingReference()</code> 提供给渲染器。</p><p><strong>纯白背景下特效颜色太浅？</strong> 关闭“隔离合成”时会保留游戏原始的低可见度表现；开启后，展示页自动叠加不参与 Bloom 的淡青对比轮廓，使效果在常见网页白底上保持可见。其他宿主也可按需显式设置 <code>lightBackgroundContrastAlpha</code>。</p><p><strong>能用在博客或个人主页吗？</strong> 可以，支持 npm、CDN 和 script 引入。</p>',
     introHostApiSummary: '宿主控制 API / Host Control API',
   },
   en: {
@@ -2900,7 +2883,7 @@ const I18N = {
     outputCompositingTransparentOverlay: 'Transparent Overlay',
     labelOverlayAlphaPolicy: 'Overlay Alpha Policy',
     overlayAlphaPolicyCoverage: 'Coverage Transport Sum',
-    overlayAlphaPolicyVisualMax: 'Legacy Visual Maximum',
+    overlayAlphaPolicyVisualMax: 'Visual Maximum',
     labelOverlayColorCompensation: 'Overlay Color Compensation',
     overlayColorCompensationNone: 'None',
     overlayColorCompensationBrightCore: 'Light-background Bright Core',
@@ -2961,7 +2944,6 @@ const I18N = {
     renderSoftwareBloom: 'Software Bloom',
     renderWebGL2Bloom: 'WebGL2 Bloom',
     renderNativeBloom: 'Native Glow',
-    renderLegacy: 'Legacy',
     renderAutoBloom: 'Auto',
     renderBackendLabel: 'Active Backend',
     renderCanvasOutputLabel: 'Canvas Output',
@@ -3107,13 +3089,13 @@ const I18N = {
     btnApplyBg: 'Apply',
     introTitle: 'ba-click-fx',
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
-    introP2: 'Ported from Unity FX_Touch.prefab with Full WebGL2 by default, optional standard WebGPU and real WebGPU HDR, plus WebGL2 Bloom, Software Bloom, Native Glow, and Legacy fallbacks. Zero runtime dependencies.',
+    introP2: 'Ported from Unity FX_Touch.prefab with Full WebGL2 by default, optional standard WebGPU and real WebGPU HDR, plus WebGL2 Bloom, Software Bloom, and Native Glow fallbacks. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script src="https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.0/dist/ba-click-fx.iife.js"&gt;&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx@1.3.1</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script type="module"&gt;\nimport { BAClickFX } from \'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.1/dist/ba-click-fx.js\';\nconst fx = new BAClickFX();\n&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introWebGPUFAQContent: '<p><strong>Does WebGPU always produce real HDR?</strong> No. Only <code>resolvedWebGPUOutputMode === \'extended\'</code> means the Canvas preserves highlights above SDR white in extended sRGB; an HDR display, system HDR, and browser WebGPU HDR Canvas support are also required.</p>',
     introMobileTouchFAQContent: '<p><strong>Why does dragging fail to leave a trail in a mobile browser?</strong> With Touch Action set to Auto or Manipulation, the browser owns native scrolling and sends <code>pointercancel</code>, which ends the trail. Switch Touch Action to Disable Default Gestures to keep trails active in every drag direction. If the page still needs one-axis scrolling, choose Pan X Only or Pan Y Only; the library keeps the trail only in directions the browser does not take over. This setting also changes native page scroll and zoom gestures.</p>',
-    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How do built-in themes and custom images join the game-style composite?</strong> The page theme always remains a separate CSS concern. Effect Reference offers Current Page or Unknown Background: the former supplies a built-in theme or decoded image to the renderer, while the latter calls <code>setCompositingReference(null)</code> and preserves the Coverage contract for a transparent host. With Isolated Compositing off, Pure White keeps the lower-visibility result closest to the game original. With it on, the demo automatically uses <code>lightBackgroundContrastAlpha: 0.35</code> to keep the effect visible on ordinary web white backgrounds. Decoded images are passed to <code>setCompositingReference(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native/Legacy Canvas Final Pass. Cross-origin images must allow CORS. The local-image picker creates a page-session <code>blob:</code> URL, so it needs no CORS but must be selected again after a reload. A typed <code>file://</code> URL is passed through for desktop hosts that permit both local-protocol reads and Canvas/WebGL texture use; regular HTTP/HTTPS pages remain subject to browser local-resource permissions and should use the local-image picker.</p><p><strong>Which compositing mode should a transparent desktop use?</strong> The demo and strict game reproduction keep the default <code>scene</code>; transparent hosts such as WebView2 and Electron select <code>browser-overlay</code> explicitly. Over an unknown background, standard <code>source-over</code> cannot simultaneously provide strict Unity additive RGB, pure Coverage alpha, and no white-background darkening. Isolation cannot read desktop pixels; provide a known background with <code>setCompositingReference()</code>.</p><p><strong>Effects look washed out on a pure white background?</strong> With Isolated Compositing off, the demo preserves the game-original lower-visibility result. With it on, the demo adds a pale-cyan contrast outline outside Bloom so the effect remains visible on ordinary web white backgrounds. Other hosts can set <code>lightBackgroundContrastAlpha</code> explicitly as needed.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
+    introFAQContent: '<p><strong>Is it related to Blue Archive?</strong> A fan-made VFX library with parameters extracted from the game Unity Prefab.</p><p><strong>Needs assets or WebGL?</strong> The effect itself needs no image assets. Full WebGL2 is the default; unsupported environments fall back to Canvas 2D, Software Bloom, and Native Glow.</p><p><strong>How do built-in themes and custom images join the game-style composite?</strong> The page theme always remains a separate CSS concern. Effect Reference offers Current Page or Unknown Background: the former supplies a built-in theme or decoded image to the renderer, while the latter calls <code>setCompositingReference(null)</code> and preserves the Coverage contract for a transparent host. With Isolated Compositing off, Pure White keeps the lower-visibility result closest to the game original. With it on, the demo automatically uses <code>lightBackgroundContrastAlpha: 0.35</code> to keep the effect visible on ordinary web white backgrounds. Decoded images are passed to <code>setCompositingReference(image, { fit: \'cover\' })</code> for Full WebGL2, WebGL2 Bloom, and the Native Canvas Final Pass. Cross-origin images must allow CORS. The local-image picker creates a page-session <code>blob:</code> URL, so it needs no CORS but must be selected again after a reload. A typed <code>file://</code> URL is passed through for desktop hosts that permit both local-protocol reads and Canvas/WebGL texture use; regular HTTP/HTTPS pages remain subject to browser local-resource permissions and should use the local-image picker.</p><p><strong>Which compositing mode should a transparent desktop use?</strong> The demo and strict game reproduction keep the default <code>scene</code>; transparent hosts such as WebView2 and Electron select <code>browser-overlay</code> explicitly. Over an unknown background, standard <code>source-over</code> cannot simultaneously provide strict Unity additive RGB, pure Coverage alpha, and no white-background darkening. Isolation cannot read desktop pixels; provide a known background with <code>setCompositingReference()</code>.</p><p><strong>Effects look washed out on a pure white background?</strong> With Isolated Compositing off, the demo preserves the game-original lower-visibility result. With it on, the demo adds a pale-cyan contrast outline outside Bloom so the effect remains visible on ordinary web white backgrounds. Other hosts can set <code>lightBackgroundContrastAlpha</code> explicitly as needed.</p><p><strong>Can I use it on my blog?</strong> Yes — npm, CDN, and direct script tag are all supported.</p>',
     introHostApiSummary: 'Host Control API / 宿主控制 API',
   },
 };
@@ -3363,7 +3345,6 @@ function switchLanguage(lang)
     'software-bloom': d.renderSoftwareBloom,
     'webgl2-bloom': d.renderWebGL2Bloom,
     'native-bloom': d.renderNativeBloom,
-    'legacy': d.renderLegacy,
   };
 
   document.querySelectorAll('#ctrlRenderMode option').forEach((opt) =>
@@ -3924,14 +3905,14 @@ switchLanguage(currentLang);
   }
 
   const nativeTrailAlphaStorageKey = 'bafx-ctrlBloomTrailAlpha';
-  const legacyTrailCalibration = localStorage.getItem('bafx-ctrlBloomTrail');
+  const previousTrailCalibration = localStorage.getItem('bafx-ctrlBloomTrail');
 
   if (
     localStorage.getItem(nativeTrailAlphaStorageKey) === null &&
-    legacyTrailCalibration !== null
+    previousTrailCalibration !== null
   )
   {
-    const calibration = Number.parseFloat(legacyTrailCalibration);
+    const calibration = Number.parseFloat(previousTrailCalibration);
 
     if (Number.isFinite(calibration))
     {
@@ -3963,17 +3944,14 @@ switchLanguage(currentLang);
     }
   });
 
-  // 恢复主题颜色。旧版本只保存颜色，因此缺少模式且存在颜色时必须继续
-  // 使用 hue-only；完全没有主题颜色记录的新安装使用推荐的新模式。
+  // 恢复主题颜色；缺少显式模式时统一采用当前推荐的相对 OKLCH 映射。
   const savedColor = localStorage.getItem('bafx-ctrlColor');
   const savedThemeColorMode = localStorage.getItem(
     THEME_COLOR_MODE_STORAGE_KEY,
   );
   const restoredThemeColorMode = THEME_COLOR_MODES.has(savedThemeColorMode)
     ? savedThemeColorMode
-    : savedColor !== null
-      ? LEGACY_THEME_COLOR_MODE
-      : DEFAULT_DEMO_THEME_COLOR_MODE;
+    : DEFAULT_DEMO_THEME_COLOR_MODE;
   const restoredColor = savedColor && /^#[0-9a-f]{6}$/i.test(savedColor)
     ? savedColor
     : '#4ca7ff';
