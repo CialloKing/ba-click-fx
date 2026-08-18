@@ -33,7 +33,8 @@ export default defineConfig(
       output:
       {
         exports: 'named',
-        inlineDynamicImports: Boolean(selectedEntry),
+        // 单入口发布文件必须自包含；多入口构建保留默认的共享分包行为。
+        codeSplitting: selectedEntry ? false : undefined,
       },
     },
   },
