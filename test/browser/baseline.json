@@ -130,34 +130,6 @@
         0,
         0
       ]
-    },
-    "legacy": {
-      "meanRed": 0.01157,
-      "meanGreen": 0.018321,
-      "meanBlue": 0.03371,
-      "meanAlpha": 0.004644,
-      "meanEnergy": 0.03371,
-      "visibleRatio": 0.033711,
-      "maximumAlpha": 0.980392,
-      "boundsWidth": 56,
-      "boundsHeight": 56,
-      "centerAlpha": 0.564706,
-      "centerRgb": [
-        0.67451,
-        0.894118,
-        1
-      ],
-      "radialAlpha": [
-        0.564706,
-        0.560784,
-        0.537255,
-        0.109804,
-        0.058824,
-        0.007843,
-        0,
-        0,
-        0
-      ]
     }
   }
 }

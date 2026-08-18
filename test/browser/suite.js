@@ -21,7 +21,6 @@ const MODE_CONFIGS = Object.freeze(
     'full-webgl2':
     {
       effectBackend: 'webgl2',
-      renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
       expectedEffectBackend: 'webgl2',
       expectedBloomBackend: 'webgl2',
@@ -29,7 +28,6 @@ const MODE_CONFIGS = Object.freeze(
     'webgl2-bloom':
     {
       effectBackend: 'canvas2d',
-      renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
       expectedEffectBackend: 'canvas2d',
       expectedBloomBackend: 'webgl2',
@@ -37,7 +35,6 @@ const MODE_CONFIGS = Object.freeze(
     'software-bloom':
     {
       effectBackend: 'canvas2d',
-      renderingMode: 'enhanced',
       bloomBackend: 'software',
       expectedEffectBackend: 'canvas2d',
       expectedBloomBackend: 'software',
@@ -45,18 +42,9 @@ const MODE_CONFIGS = Object.freeze(
     native:
     {
       effectBackend: 'canvas2d',
-      renderingMode: 'enhanced',
       bloomBackend: 'native',
       expectedEffectBackend: 'canvas2d',
       expectedBloomBackend: 'native',
-    },
-    legacy:
-    {
-      effectBackend: 'canvas2d',
-      renderingMode: 'legacy',
-      bloomBackend: 'native',
-      expectedEffectBackend: 'canvas2d',
-      expectedBloomBackend: 'legacy',
     },
   },
 );
@@ -102,40 +90,8 @@ window.cancelAnimationFrame = (id) =>
 };
 
 window.__BACLICKFX_PIXEL_PROGRESS__ = 'importing-runtime';
-const runtimeKind = new URLSearchParams(window.location.search)
-  .get('runtime') === 'iife'
-  ? 'iife'
-  : 'source';
-
-async function loadIifeRuntime()
-{
-  const script = document.createElement('script');
-
-  script.src = '/dist/ba-click-fx.iife.js';
-  script.async = true;
-  await new Promise((resolve, reject) =>
-  {
-    script.addEventListener('load', resolve, { once: true });
-    script.addEventListener(
-      'error',
-      () => reject(new Error(`IIFE 运行时加载失败: ${script.src}`)),
-      { once: true },
-    );
-    document.head.appendChild(script);
-  });
-
-  // HTTP 成功也可能是 Vite 的 HTML 回退，必须验证真实包根导出。
-  if (typeof window.BAClickFX?.BAClickFX !== 'function')
-  {
-    throw new Error('IIFE 运行时没有暴露 BAClickFX.BAClickFX');
-  }
-
-  return window.BAClickFX;
-}
-
-const runtimeExports = runtimeKind === 'iife'
-  ? await loadIifeRuntime()
-  : await import('../../src/fx.js');
+const runtimeKind = 'source';
+const runtimeExports = await import('../../src/fx.js');
 const {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
@@ -848,7 +804,6 @@ async function prepareEffect(specification)
       specification.lightBackgroundContrastAlpha ?? 0,
     maxDpr: 2,
     effectBackend: mode.effectBackend,
-    renderingMode: mode.renderingMode,
     bloomBackend: mode.bloomBackend,
   };
 
@@ -1109,7 +1064,6 @@ async function runCase(specification)
       resolvedEffectBackend: snapshot.resolvedEffectBackend,
       requestedBloomBackend: snapshot.bloomBackend,
       resolvedBloomBackend: snapshot.resolvedBloomBackend,
-      renderingMode: snapshot.renderingMode,
     },
     expectedRoute:
     {
@@ -2326,14 +2280,14 @@ async function runBackendFailureChain(specification)
     effect._drawCanvasFallbackFrame.bind(effect);
   let nativeFallbackDrawCount = 0;
 
-  effect._drawCanvasFallbackFrame = (scale, useNativeBloom, legacy) =>
+  effect._drawCanvasFallbackFrame = (scale, useNativeBloom) =>
   {
-    if (useNativeBloom && !legacy)
+    if (useNativeBloom)
     {
       nativeFallbackDrawCount++;
     }
 
-    return originalDrawCanvasFallbackFrame(scale, useNativeBloom, legacy);
+    return originalDrawCanvasFallbackFrame(scale, useNativeBloom);
   };
 
   if (mode === 'full-webgl2')

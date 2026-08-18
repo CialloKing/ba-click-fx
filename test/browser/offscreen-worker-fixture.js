@@ -13,7 +13,6 @@ function getState()
     backingWidth: fx.canvas.width,
     backingHeight: fx.canvas.height,
     effectBackend: config.effectBackend,
-    renderingMode: config.renderingMode,
     resolvedEffectBackend: config.resolvedEffectBackend,
     destroyed: fx.destroyed,
   };
