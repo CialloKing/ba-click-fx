@@ -208,7 +208,7 @@ verify(
   /\['ctrlBloomTrailAlpha', 'outBloomTrailAlpha', 0\.18, false\]/.test(mainJs) &&
     /\['ctrlBloomTrailAlpha', 'bloom\.trailAlpha'\]/.test(mainJs) &&
     /ctrlBloomTrailAlpha: d\.labelBloomTrailAlpha/.test(mainJs) &&
-    /legacyTrailCalibration[\s\S]*?calibration \* 0\.18/.test(mainJs),
+    /previousTrailCalibration[\s\S]*?calibration \* 0\.18/.test(mainJs),
   'Native 拖尾辉光 Alpha 支持重置、双语、持久化与旧设置迁移',
 );
 const preciseRangeSteps =
@@ -468,9 +468,7 @@ const renderModeValues = [...renderModeSelect.matchAll(/<option value="([^"]+)"/
 function hasRenderModeConfig(mode, expected)
 {
   const escapedMode = mode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const keyPattern = mode === 'legacy'
-    ? "(?:'legacy'|legacy)"
-    : `'${escapedMode}'`;
+  const keyPattern = `'${escapedMode}'`;
   // 展示页配置采用多行对象；先限制到单个模式块，避免跨块字段误匹配。
   const configSource = mainJs.match(
     new RegExp(`${keyPattern}:\\s*\\{([\\s\\S]*?)\\n\\s*\\},?`),
@@ -494,9 +492,8 @@ verify(
     'webgl2-bloom',
     'software-bloom',
     'native-bloom',
-    'legacy',
   ]),
-  '展示页按 WebGPU、WebGPU HDR、纯 WebGL2、WebGL2 Bloom、Software、Native 与 Legacy 排列七档渲染开关',
+  '展示页按 WebGPU、WebGPU HDR、纯 WebGL2、WebGL2 Bloom、Software 与 Native 排列六档渲染开关',
 );
 verify(
   /<option value="full-webgl2" selected>/.test(renderModeSelect) &&
@@ -508,47 +505,36 @@ verify(
     {
       effectBackend: 'webgpu',
       webgpuPreferHdr: false,
-      renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     }) &&
     hasRenderModeConfig('full-webgpu',
     {
       effectBackend: 'webgpu',
       webgpuPreferHdr: true,
-      renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     }) &&
     hasRenderModeConfig('full-webgl2',
     {
       effectBackend: 'webgl2',
       webgpuPreferHdr: true,
-      renderingMode: 'enhanced',
       bloomBackend: 'webgl2',
     }) &&
     hasRenderModeConfig('webgl2-bloom',
       {
         effectBackend: 'canvas2d',
-        renderingMode: 'enhanced',
         bloomBackend: 'webgl2',
       }) &&
     hasRenderModeConfig('software-bloom',
       {
         effectBackend: 'canvas2d',
-        renderingMode: 'enhanced',
         bloomBackend: 'software',
       }) &&
     hasRenderModeConfig('native-bloom',
       {
         effectBackend: 'canvas2d',
-        renderingMode: 'enhanced',
         bloomBackend: 'native',
-      }) &&
-    hasRenderModeConfig('legacy',
-      {
-        effectBackend: 'canvas2d',
-        renderingMode: 'legacy',
       }),
-  '展示页七档开关映射到对应的完整特效、WebGPU 输出偏好、渲染模式与 Bloom API',
+  '展示页六档开关映射到对应的完整特效、WebGPU 输出偏好与 Bloom API',
 );
 verify(
   /<option value="full-webgpu-sdr">WebGPU<\/option>/.test(
@@ -1248,12 +1234,12 @@ verify(
   '展示页首次加载与重置都使用游戏基准蓝',
 );
 verify(
-  /DEFAULT_THEME_COLOR_MODE = 'hue-only'/.test(configJs) &&
+  /DEFAULT_THEME_COLOR_MODE = 'relative-oklch'/.test(configJs) &&
     /themeColorMode: DEFAULT_THEME_COLOR_MODE/.test(configJs) &&
     /\['hue-only', 'relative-oklch'\]/.test(configJs) &&
     /setThemeColorMode\(mode\)/.test(engineJs) &&
     /DEFAULT_THEME_COLOR_MODE,/.test(engineJs),
-  '公共库保留 hue-only 默认并导出相对 OKLCH 主题模式 API',
+  '公共库默认使用相对 OKLCH 并导出主题模式 API',
 );
 verify(
   /id="ctrlThemeColorMode"/.test(indexHtml) &&
@@ -1265,16 +1251,16 @@ verify(
 );
 verify(
   /bafx-ctrlThemeColorMode/.test(mainJs) &&
-    /savedColor !== null[\s\S]*?LEGACY_THEME_COLOR_MODE[\s\S]*?DEFAULT_DEMO_THEME_COLOR_MODE/.test(mainJs) &&
+    /restoredThemeColorMode/.test(mainJs) &&
     /applyThemeColorMode\(DEFAULT_DEMO_THEME_COLOR_MODE, false\)/.test(mainJs) &&
     /applyThemeColorMode\(restoredThemeColorMode\)/.test(mainJs),
-  '主题映射模式支持新用户默认、旧颜色兼容迁移、持久化与重置',
+  '主题映射模式支持新用户默认、持久化与重置',
 );
 verify(
   /BAClickFXThemeColorMode = 'hue-only' \| 'relative-oklch'/.test(
     typeDefinitions,
   ) &&
-    /DEFAULT_THEME_COLOR_MODE: 'hue-only'/.test(typeDefinitions) &&
+    /DEFAULT_THEME_COLOR_MODE: 'relative-oklch'/.test(typeDefinitions) &&
     /setThemeColorMode\(mode: BAClickFXThemeColorMode\): boolean/.test(
       typeDefinitions,
     ) &&
@@ -1285,7 +1271,7 @@ verify(
 verify(
   /isolatedCompositing: false/.test(configJs) &&
     /lightBackgroundContrastAlpha: 0/.test(configJs) &&
-    /typeof overrides\.isolatedCompositing === 'boolean'/.test(configJs),
+    /isolatedCompositing: value => typeof value === 'boolean'/.test(configJs),
   '严格默认关闭网页兼容合成，createConfig 仍接受布尔覆盖值',
 );
 verify(

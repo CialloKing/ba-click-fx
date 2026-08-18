@@ -20,7 +20,6 @@ verify(
   'npm CLI path is unavailable; run this check through npm run verify:pack',
 );
 
-// check 会在 prepublishOnly 中运行；忽略生命周期脚本可避免 pack 再次递归触发 prepack。
 const output = execFileSync(
   process.execPath,
   [npmCli, 'pack', '--dry-run', '--json', '--ignore-scripts'],
@@ -40,10 +39,12 @@ const expectedFiles = [
   'README.en.md',
   'README.md',
   'THIRD_PARTY_NOTICES.md',
-  'dist/ba-click-fx.cjs',
   'dist/ba-click-fx.d.ts',
-  'dist/ba-click-fx.iife.js',
   'dist/ba-click-fx.js',
+  'dist/config.d.ts',
+  'dist/config.js',
+  'dist/worker.d.ts',
+  'dist/worker.js',
   'package.json',
 ].sort();
 const packedFiles = packageResult.files.map((file) => file.path).sort();
@@ -56,4 +57,4 @@ verify(
   `packed file list differs from the expected list:\n${packedFiles.join('\n')}`,
 );
 
-console.log(`\u2714 npm package contains exactly ${expectedFiles.length} expected files`);
+console.log(`\u2714 npm package contains exactly ${expectedFiles.length} ESM files`);

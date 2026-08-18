@@ -3,12 +3,13 @@ import
   defineConfig,
 } from 'vite';
 
-const LIB_FILE_NAMES =
+const libraryEntries =
 {
-  es: 'ba-click-fx.js',
-  cjs: 'ba-click-fx.cjs',
-  iife: 'ba-click-fx.iife.js',
+  'ba-click-fx': 'src/fx.js',
+  config: 'src/config.js',
+  worker: 'src/worker.js',
 };
+const selectedEntry = process.env.BA_CLICK_FX_LIB_ENTRY;
 
 export default defineConfig(
 {
@@ -21,16 +22,18 @@ export default defineConfig(
     copyPublicDir: false,
     lib:
     {
-      entry: 'src/fx.js',
-      name: 'BAClickFX',
-      formats: ['es', 'cjs', 'iife'],
-      fileName: format => LIB_FILE_NAMES[format],
+      entry: selectedEntry
+        ? libraryEntries[selectedEntry]
+        : libraryEntries,
+      formats: ['es'],
+      fileName: (_format, entryName) => `${selectedEntry ?? entryName}.js`,
     },
     rollupOptions:
     {
       output:
       {
         exports: 'named',
+        inlineDynamicImports: Boolean(selectedEntry),
       },
     },
   },

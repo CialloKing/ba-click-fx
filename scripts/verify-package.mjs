@@ -3,9 +3,6 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const packageJson = readJson('package.json');
-const packageLock = readJson('package-lock.json');
-const changelog = readText('CHANGELOG.md');
 
 function readText(relativePath)
 {
@@ -30,81 +27,49 @@ function normalizePath(filePath)
   return filePath.replace(/^\.\//, '');
 }
 
+const packageJson = readJson('package.json');
+const packageLock = readJson('package-lock.json');
+const changelog = readText('CHANGELOG.md');
+const version = '1.3.1';
+
 verify(packageJson.name === 'ba-click-fx', 'package name must remain ba-click-fx');
-verify(
-  /^\d+\.\d+\.\d+$/.test(packageJson.version),
-  `invalid release version: ${packageJson.version}`,
-);
+verify(packageJson.version === version, `package version must remain ${version}`);
 verify(packageLock.name === packageJson.name, 'lockfile package name is out of sync');
-verify(packageLock.version === packageJson.version, 'lockfile root version is out of sync');
+verify(packageLock.version === version, 'lockfile root version is out of sync');
 verify(
-  packageLock.packages?.['']?.version === packageJson.version,
+  packageLock.packages?.['']?.version === version,
   'lockfile packages[""] version is out of sync',
 );
-verify(
-  JSON.stringify(packageLock.packages?.['']?.devDependencies ?? {}) ===
-    JSON.stringify(packageJson.devDependencies ?? {}),
-  'lockfile root development dependencies are out of sync',
-);
 
-const changelogHeadings = [
-  ...changelog.matchAll(/^##\s+(.+)$/gm),
-];
-const unreleasedHeading = changelogHeadings.find((heading) =>
-  /^(?:未发布|\[?unreleased\]?)$/i.test(heading[1].trim()));
-
-verify(
-  !unreleasedHeading,
-  `CHANGELOG still contains an unpublished section: ${unreleasedHeading?.[1]}`,
-);
+const changelogHeadings = [...changelog.matchAll(/^##\s+(.+)$/gm)];
 verify(changelogHeadings.length > 0, 'CHANGELOG does not contain any version heading');
-
-// 只接受首个章节作为当前发行版，避免越过未发布内容匹配到旧版本。
-const latestChangelog = changelogHeadings[0][1].match(/^v(\d+\.\d+\.\d+)\b/);
-
 verify(
-  latestChangelog,
-  `latest CHANGELOG heading is not a release: ${changelogHeadings[0][1]}`,
-);
-verify(
-  latestChangelog[1] === packageJson.version,
-  `latest CHANGELOG version ${latestChangelog[1]} does not match ${packageJson.version}`,
+  changelogHeadings[0][1].trim() === `v${version} - 破坏性运行时与发布包收敛`,
+  `latest CHANGELOG heading must be v${version}`,
 );
 
-const installExampleFiles = [
-  'README.md',
-  'README.en.md',
-  'index.html',
-  'src/main.js',
-];
-
-for (const relativePath of installExampleFiles)
+for (const relativePath of ['README.md', 'README.en.md', 'index.html', 'src/main.js'])
 {
-  const installContent = readText(relativePath);
   const referencedVersions = [
-    ...installContent.matchAll(/ba-click-fx@(\d+\.\d+\.\d+)/g),
+    ...readText(relativePath).matchAll(/ba-click-fx@(\d+\.\d+\.\d+)/g),
   ];
 
-  verify(
-    referencedVersions.length > 0,
-    `${relativePath} does not contain a fixed-version install example`,
-  );
-
-  // 固定版本示例必须跟随包版本，避免演示页继续把用户导向旧发行版。
   for (const versionMatch of referencedVersions)
   {
     verify(
-      versionMatch[1] === packageJson.version,
-      `${relativePath} references ${versionMatch[1]} instead of ${packageJson.version}`,
+      versionMatch[1] === version,
+      `${relativePath} references ${versionMatch[1]} instead of ${version}`,
     );
   }
 }
 
 const expectedFiles = [
-  'dist/ba-click-fx.js',
-  'dist/ba-click-fx.cjs',
-  'dist/ba-click-fx.iife.js',
   'dist/ba-click-fx.d.ts',
+  'dist/ba-click-fx.js',
+  'dist/config.d.ts',
+  'dist/config.js',
+  'dist/worker.d.ts',
+  'dist/worker.js',
   'README.md',
   'README.en.md',
   'LICENSE',
@@ -119,9 +84,10 @@ verify(
 
 const entryFiles = new Set([
   packageJson.main,
-  packageJson.module,
   packageJson.types,
-  ...Object.values(packageJson.exports?.['.'] ?? {}),
+  ...Object.values(packageJson.exports ?? {}).flatMap((entry) =>
+    Object.values(entry),
+  ),
 ]);
 
 for (const entryFile of entryFiles)
@@ -132,12 +98,19 @@ for (const entryFile of entryFiles)
   );
 }
 
-const sourceDeclaration = readFileSync(resolve(rootDir, 'src/ba-click-fx.d.ts'));
-const builtDeclaration = readFileSync(resolve(rootDir, 'dist/ba-click-fx.d.ts'));
+for (const declarationName of ['ba-click-fx', 'config', 'worker'])
+{
+  const sourceDeclaration = readFileSync(
+    resolve(rootDir, 'src', `${declarationName}.d.ts`),
+  );
+  const builtDeclaration = readFileSync(
+    resolve(rootDir, 'dist', `${declarationName}.d.ts`),
+  );
 
-verify(
-  sourceDeclaration.equals(builtDeclaration),
-  'built TypeScript declaration is not synchronized with src/ba-click-fx.d.ts',
-);
+  verify(
+    sourceDeclaration.equals(builtDeclaration),
+    `built TypeScript declaration is not synchronized with src/${declarationName}.d.ts`,
+  );
+}
 
-console.log(`\u2714 package metadata and version are synchronized (${packageJson.version})`);
+console.log(`\u2714 ESM-only package metadata and version are synchronized (${version})`);

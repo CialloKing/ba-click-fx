@@ -99,7 +99,7 @@ declare module 'ba-click-fx'
     opacity?: number;
     /** 主题色，默认游戏蓝 '#4ca7ff'；仅接受六位十六进制颜色。 */
     themeColor?: string;
-    /** 主题颜色映射模式；公共库默认为兼容旧版的 'hue-only'。 */
+    /** 主题颜色映射模式；公共库默认为 'relative-oklch'。 */
     themeColorMode?: BAClickFXThemeColorMode;
     /**
      * 输出合成，默认 'scene'。已知背景的精确路径应配合
@@ -454,7 +454,7 @@ declare module 'ba-click-fx'
 
     /**
      * 提供与特效下方实际画面逐像素匹配的已解码不透明栅格合成参考。纯
-     * WebGL2 与 WebGL2 Bloom 在同一线性 HDR Scene 合成；Native / Legacy
+     * WebGL2 与 WebGL2 Bloom 在同一线性 HDR Scene 合成；Native
      * 使用 Canvas Final Pass。
      * 当前仅支持居中 cover。调用方负责图片 CORS，并须在替换或销毁前
      * 保持可释放源有效以支持 Context 恢复。Canvas、Video 等动态源上传

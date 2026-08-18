@@ -9,20 +9,28 @@
     "node": ">=18"
   },
   "sideEffects": false,
-  "main": "./dist/ba-click-fx.cjs",
-  "module": "./dist/ba-click-fx.js",
+  "main": "./dist/ba-click-fx.js",
   "types": "./dist/ba-click-fx.d.ts",
   "exports": {
     ".": {
       "types": "./dist/ba-click-fx.d.ts",
-      "import": "./dist/ba-click-fx.js",
-      "require": "./dist/ba-click-fx.cjs"
+      "default": "./dist/ba-click-fx.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "default": "./dist/worker.js"
     }
   },
   "files": [
     "dist/ba-click-fx.js",
-    "dist/ba-click-fx.cjs",
-    "dist/ba-click-fx.iife.js",
+    "dist/config.js",
+    "dist/config.d.ts",
+    "dist/worker.js",
+    "dist/worker.d.ts",
     "dist/ba-click-fx.d.ts",
     "README.md",
     "README.en.md",
