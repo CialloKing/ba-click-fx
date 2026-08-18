@@ -15,7 +15,6 @@ import { createServer as createViteServer } from 'vite';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const fixturePath = '/test/browser/fixture.html';
-const iifeBundlePath = join(rootDir, 'dist', 'ba-click-fx.iife.js');
 const baselinePath = join(rootDir, 'test', 'browser', 'baseline.json');
 const artifactDir = join(rootDir, 'test-results', 'browser-pixels');
 const optional = process.argv.includes('--optional');
@@ -26,7 +25,6 @@ const modeNames = [
   'webgl2-bloom',
   'software-bloom',
   'native',
-  'legacy',
 ];
 const themeColorContractModes = [
   'native',
@@ -87,10 +85,7 @@ const metrics =
   fullscreenScrollbarGutter:
   {
     source: null,
-    iife: null,
   },
-  iifeSmoke: null,
-  iifeMobileTouch: null,
   demoTimeScaleControls: null,
   demoMobileTouch: null,
   demoControlPanelStructure: null,
@@ -1200,7 +1195,7 @@ function validateTransparentContractTransitions(mode, phases)
 
   const roundTripPixels = roundTrip.pixels.transparent;
 
-  // Native/Legacy 的 Canvas blur 在重复栅格时会改变少量 1/255 边缘像素；
+  // Native Canvas blur 在重复栅格时会改变少量 1/255 边缘像素；
   // 中心、峰值和生命周期保持严格，低能全画面均值沿用后端切换的 8% 容差。
   assert(
     roundTrip.config.overlayAlphaPolicy === 'coverage' &&
@@ -2922,7 +2917,7 @@ async function validateContrastCompositing(
   );
 }
 
-async function openFixture(browserInstance, baseUrl, dpr, runtimeKind = 'source')
+async function openFixture(browserInstance, baseUrl, dpr)
 {
   const context = await browserInstance.newContext(
     {
@@ -3012,10 +3007,6 @@ async function openFixture(browserInstance, baseUrl, dpr, runtimeKind = 'source'
   currentPage = page;
   const fixtureUrl = new URL(`${baseUrl}${fixturePath}`);
 
-  if (runtimeKind === 'iife')
-  {
-    fixtureUrl.searchParams.set('runtime', runtimeKind);
-  }
   await page.goto(fixtureUrl.href, { waitUntil: 'load' });
 
   try
@@ -3198,426 +3189,6 @@ async function collectLifecycleTimeline(page, mode, variant, sampleTimes)
   }
 
   return timelines;
-}
-
-async function runIifeSmoke(browserInstance, baseUrl)
-{
-  currentLabel = 'iife-fixture-startup';
-  const session = await openFixture(browserInstance, baseUrl, 1, 'iife');
-  const page = session.page;
-
-  currentPage = page;
-
-  try
-  {
-    const runtimeContract = await page.evaluate(() =>
-      ({
-        constructorType: typeof window.BAClickFX?.BAClickFX,
-        runtimeKind: window.browserPixelSuite.runtimeKind,
-      }));
-
-    assert(
-      runtimeContract.runtimeKind === 'iife' &&
-        runtimeContract.constructorType === 'function',
-      '构建后 IIFE 夹具没有使用包根运行时',
-      runtimeContract,
-    );
-
-    currentLabel = 'iife-fullscreen-scrollbar-gutter';
-    const fullscreenScrollbarGutter = await page.evaluate(
-      () => window.browserPixelSuite.runFullscreenScrollbarGutterContract(),
-    );
-
-    validateFullscreenScrollbarGutter(fullscreenScrollbarGutter, 1);
-    metrics.fullscreenScrollbarGutter.iife = fullscreenScrollbarGutter;
-
-    currentLabel = 'iife-transparent-click-trail';
-    const basic = await page.evaluate(
-      (input) => window.browserPixelSuite.runCase(input),
-      {
-        mode: 'full-webgl2',
-        opacity: 1,
-        isolatedCompositing: true,
-        background: 'checker',
-        outputCompositing: 'browser-overlay',
-        shadow: false,
-        containStrict: false,
-      },
-    );
-
-    validateBasicCase(basic, 1);
-    assert(
-      basic.runtime.waveCount > 0 && basic.runtime.trailPointCount >= 2,
-      '构建后 IIFE 没有同时创建点击与拖尾输出',
-      basic.runtime,
-    );
-
-    const trailFailureChains = {};
-
-    for (const mode of ['full-webgl2', 'webgl2-bloom'])
-    {
-      const results = new Map();
-
-      for (const opacity of opacities)
-      {
-        currentLabel =
-          `iife-${mode}-trail-backend-failure-chain-opacity-${opacity}`;
-        const failureChain = await page.evaluate(
-          (input) => window.browserPixelSuite.runBackendFailureChain(input),
-          {
-            mode,
-            opacity,
-            trailOnly: true,
-          },
-        );
-
-        results.set(opacity, failureChain);
-      }
-
-      validateTrailBackendFailureChain(mode, results);
-      trailFailureChains[mode] = Object.fromEntries(results);
-    }
-    const reentrantNative = {};
-
-    for (const mode of ['full-webgl2', 'webgl2-bloom'])
-    {
-      currentLabel = `iife-${mode}-backend-reentrant-native`;
-      const result = await page.evaluate(
-        (input) => window.browserPixelSuite.runBackendReentrantNative(input),
-        mode,
-      );
-
-      validateBackendReentrantNative(mode, result);
-      reentrantNative[mode] = result;
-    }
-
-    metrics.iifeSmoke =
-    {
-      basic,
-      fullscreenScrollbarGutter,
-      reentrantNative,
-      runtimeContract,
-      trailFailureChains,
-    };
-    assert(
-      session.pageErrors.length === 0 &&
-        session.consoleErrors.length === 0 &&
-        session.failedResources.length === 0,
-      '构建后 IIFE 浏览器夹具出现未处理异常',
-      {
-        consoleErrors: session.consoleErrors,
-        failedResources: session.failedResources,
-        pageErrors: session.pageErrors,
-      },
-    );
-  }
-  finally
-  {
-    // 页面在主断言失败后可能已被 HMR/浏览器回收；清理不能覆盖原始错误。
-    await page.evaluate(() => window.browserPixelSuite?.dispose());
-    await session.context.close();
-  }
-}
-
-async function runIifeMobileTouchSmoke(browserInstance, baseUrl)
-{
-  currentLabel = 'iife-mobile-touch-none';
-  const context = await browserInstance.newContext(
-    {
-      colorScheme: 'dark',
-      deviceScaleFactor: 2,
-      hasTouch: true,
-      isMobile: true,
-      viewport:
-      {
-        width: 390,
-        height: 844,
-      },
-    },
-  );
-  await context.addInitScript(() =>
-  {
-    // Chromium 仍会派发底层触摸事件，但库初始化时必须把该环境识别为
-    // Touch-only，确保构建产物真实走 TouchEvent fallback。
-    Object.defineProperty(window, 'PointerEvent',
-      {
-        configurable: true,
-        value: undefined,
-      });
-  });
-  const page = await context.newPage();
-  const pageErrors = [];
-  const consoleErrors = [];
-
-  page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('console', (message) =>
-  {
-    if (message.type() === 'error')
-    {
-      consoleErrors.push(message.text());
-    }
-  });
-
-  try
-  {
-    currentPage = page;
-    const fixtureUrl = new URL(`${baseUrl}${fixturePath}`);
-
-    fixtureUrl.searchParams.set('runtime', 'iife');
-    await page.goto(fixtureUrl.href, { waitUntil: 'load' });
-    await page.waitForFunction(
-      () => window.__BACLICKFX_PIXEL_READY__ === true,
-    );
-    const runtimeContract = await page.evaluate(() =>
-    {
-      const stage = document.getElementById('stage');
-      const content = document.createElement('div');
-
-      stage.replaceChildren(content);
-      stage.style.cssText = [
-        'position: fixed',
-        'left: 20px',
-        'top: 120px',
-        'width: 320px',
-        'height: 320px',
-        'padding: 0',
-        'overflow: auto',
-        'touch-action: auto',
-      ].join(';');
-      content.style.cssText = 'width: 700px; height: 700px';
-      content.addEventListener('touchmove', (event) =>
-      {
-        event.stopPropagation();
-      },
-      {
-        passive: true,
-      });
-      window.__iifeMobileEffect = new window.BAClickFX.BAClickFX(
-        {
-          bloomBackend: 'native',
-          clickEnabled: false,
-          effectBackend: 'canvas2d',
-          inputSource: 'dom',
-          touchAction: 'none',
-          trailEnabled: true,
-          trailAlways: false,
-        },
-      );
-      window.__iifeMobileEffect.setFxParam('trail.lifetimeMs', 2000);
-      window.__iifeMobileEvents = [];
-
-      for (const type of [
-        'pointerdown',
-        'pointermove',
-        'pointerup',
-        'pointercancel',
-      ])
-      {
-        window.addEventListener(
-          type,
-          () => window.__iifeMobileEvents.push(type),
-          { capture: true },
-        );
-      }
-
-      return {
-        constructorType: typeof window.BAClickFX?.BAClickFX,
-        runtimeKind: window.browserPixelSuite.runtimeKind,
-      };
-    });
-
-    assert(
-      runtimeContract.runtimeKind === 'iife' &&
-        runtimeContract.constructorType === 'function',
-      '移动触摸夹具没有加载构建后 IIFE',
-      runtimeContract,
-    );
-    const cdp = await context.newCDPSession(page);
-
-    await cdp.send('Input.dispatchTouchEvent',
-      {
-        type: 'touchStart',
-        touchPoints:
-        [
-          { x: 280, y: 260, id: 1, radiusX: 1, radiusY: 1, force: 1 },
-        ],
-      });
-    for (const x of [250, 220, 180, 140, 100, 60])
-    {
-      await cdp.send('Input.dispatchTouchEvent',
-        {
-          type: 'touchMove',
-          touchPoints:
-          [
-            { x, y: 260, id: 1, radiusX: 1, radiusY: 1, force: 1 },
-          ],
-        });
-      await new Promise((resolve) => setTimeout(resolve, 16));
-    }
-    await cdp.send('Input.dispatchTouchEvent',
-      {
-        type: 'touchEnd',
-        touchPoints: [],
-      });
-    await page.waitForTimeout(30);
-    const result = await page.evaluate(() =>
-    {
-      const effect = window.__iifeMobileEffect;
-      const stage = document.getElementById('stage');
-
-      return {
-        action: effect.getConfig().touchAction,
-        events: window.__iifeMobileEvents,
-        pointCounts: effect.trailStrokes.map((stroke) => stroke.points.length),
-        scrollLeft: stage.scrollLeft,
-        scrollTop: stage.scrollTop,
-        strokeCount: effect.trailStrokes.length,
-        usesTouchInputFallback: effect.usesTouchInputFallback,
-      };
-    });
-
-    assert(
-      result.action === 'none' &&
-        result.usesTouchInputFallback &&
-        result.events[0] === 'pointerdown' &&
-        result.events.includes('pointerup') &&
-        !result.events.includes('pointercancel') &&
-        result.strokeCount > 0 &&
-        result.pointCounts[0] > 2 &&
-        result.scrollLeft === 0 &&
-        result.scrollTop === 0,
-      '构建后 IIFE 在移动触摸下没有保留拖尾生命周期',
-      result,
-    );
-    assert(
-      pageErrors.length === 0 && consoleErrors.length === 0,
-      '构建后 IIFE 移动触摸夹具出现未处理异常',
-      { consoleErrors, pageErrors },
-    );
-
-    const closedShadowContract = await page.evaluate(() =>
-    {
-      const host = document.createElement('div');
-      const root = host.attachShadow({ mode: 'closed' });
-      const target = document.createElement('div');
-
-      host.id = 'iife-mobile-closed-shadow-host';
-      host.style.cssText = [
-        'position: fixed',
-        'left: 20px',
-        'top: 500px',
-        'width: 320px',
-        'height: 260px',
-        'z-index: 2147483000',
-      ].join(';');
-      target.style.cssText = [
-        'display: block',
-        'width: 100%',
-        'height: 100%',
-        'touch-action: none',
-      ].join(';');
-      root.append(target);
-      document.body.append(host);
-
-      window.__iifeClosedShadowFilterCalls = 0;
-      window.__iifeClosedShadowEffect =
-        new window.BAClickFX.BAClickFX(
-          {
-            target,
-            bloomBackend: 'native',
-            clickEnabled: false,
-            effectBackend: 'canvas2d',
-            inputSource: 'dom',
-            touchAction: 'none',
-            trailEnabled: true,
-            trailAlways: false,
-            inputFilter(event)
-            {
-              window.__iifeClosedShadowFilterCalls++;
-              return event.target === target;
-            },
-          },
-        );
-      window.__iifeClosedShadowEffect.setFxParam(
-        'trail.lifetimeMs',
-        2000,
-      );
-
-      return {
-        usesTouchInputFallback:
-          window.__iifeClosedShadowEffect.usesTouchInputFallback,
-      };
-    });
-    const closedShadowCdp = await context.newCDPSession(page);
-    await closedShadowCdp.send('Input.dispatchTouchEvent',
-      {
-        type: 'touchStart',
-        touchPoints:
-        [
-          { x: 280, y: 620, id: 2, radiusX: 1, radiusY: 1, force: 1 },
-        ],
-      });
-    for (const x of [250, 220, 180, 140, 100, 60])
-    {
-      await closedShadowCdp.send('Input.dispatchTouchEvent',
-        {
-          type: 'touchMove',
-          touchPoints:
-          [
-            { x, y: 620, id: 2, radiusX: 1, radiusY: 1, force: 1 },
-          ],
-        });
-      await new Promise((resolve) => setTimeout(resolve, 16));
-    }
-    await closedShadowCdp.send('Input.dispatchTouchEvent',
-      {
-        type: 'touchEnd',
-        touchPoints: [],
-      });
-    await page.waitForTimeout(30);
-    const closedShadowResult = await page.evaluate(() =>
-    {
-      const effect = window.__iifeClosedShadowEffect;
-      const result =
-      {
-        filterCalls: window.__iifeClosedShadowFilterCalls,
-        pointCounts: effect.trailStrokes.map((stroke) => stroke.points.length),
-        strokeCount: effect.trailStrokes.length,
-        usesTouchInputFallback: effect.usesTouchInputFallback,
-      };
-
-      effect.destroy();
-      document.getElementById('iife-mobile-closed-shadow-host')?.remove();
-      delete window.__iifeClosedShadowEffect;
-      return result;
-    });
-    assert(
-      closedShadowContract.usesTouchInputFallback &&
-        closedShadowResult.filterCalls === 1 &&
-        closedShadowResult.strokeCount > 0 &&
-        closedShadowResult.pointCounts[0] > 2,
-      '构建后 IIFE Touch-only closed Shadow 没有建立拖尾',
-      { closedShadowContract, closedShadowResult },
-    );
-    metrics.iifeMobileTouch =
-    {
-      result,
-      runtimeContract,
-      closedShadowContract,
-      closedShadowResult,
-    };
-  }
-  finally
-  {
-    await page.evaluate(() =>
-    {
-      window.__iifeMobileEffect?.destroy();
-      window.browserPixelSuite?.dispose();
-      delete window.__iifeMobileEffect;
-    }).catch(() => {});
-    await context.close();
-    currentPage = null;
-  }
 }
 
 async function runDemoTimeScaleControlSmoke(browserInstance, baseUrl)
@@ -4796,8 +4367,8 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
     });
     await page.reload({ waitUntil: 'load' });
     await page.waitForFunction(() =>
-      window.BAClickFXDemo?.getConfig().themeColorMode === 'hue-only');
-    const migratedLegacyTheme = await page.evaluate(() =>
+      window.BAClickFXDemo?.getConfig().themeColorMode === 'relative-oklch');
+    const restoredDefaultTheme = await page.evaluate(() =>
     ({
       color: window.BAClickFXDemo.getConfig().themeColor,
       config: window.BAClickFXDemo.getConfig().themeColorMode,
@@ -4812,12 +4383,12 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
         resetThemeMode.config === 'relative-oklch' &&
         resetThemeMode.control === 'relative-oklch' &&
         resetThemeMode.stored === null &&
-        migratedLegacyTheme.color === '#330000' &&
-        migratedLegacyTheme.config === 'hue-only' &&
-        migratedLegacyTheme.control === 'hue-only' &&
-        migratedLegacyTheme.stored === 'hue-only',
-      '主题映射没有正确持久化、重置，或旧颜色记录被静默重新解释',
-      { persistedThemeMode, resetThemeMode, migratedLegacyTheme },
+        restoredDefaultTheme.color === '#330000' &&
+        restoredDefaultTheme.config === 'relative-oklch' &&
+        restoredDefaultTheme.control === 'relative-oklch' &&
+        restoredDefaultTheme.stored === 'relative-oklch',
+      '主题映射没有正确持久化、重置，或缺少模式时未使用新默认',
+      { persistedThemeMode, resetThemeMode, restoredDefaultTheme },
     );
 
     // 其余控制面板门禁从推荐的新安装默认继续，避免兼容迁移状态污染测试。
@@ -4831,7 +4402,7 @@ async function runDemoControlPanelStructureSmoke(browserInstance, baseUrl)
     {
       persistedThemeMode,
       resetThemeMode,
-      migratedLegacyTheme,
+      restoredDefaultTheme,
     };
 
     const independentTrailAlphaControls = await page.evaluate(() =>
@@ -6795,7 +6366,7 @@ async function runMatrix(browserInstance, baseUrl, baseline)
         },
       );
 
-      if (mode === 'native' || mode === 'legacy')
+      if (mode === 'native')
       {
         for (const variant of ['click-only', 'trail-only'])
         {
@@ -7508,7 +7079,7 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     }
   }
 
-  for (const mode of ['native', 'legacy'])
+  for (const mode of ['native'])
   {
     for (const variant of ['click-only', 'trail-only'])
     {
@@ -7621,10 +7192,6 @@ async function main()
       existsSync(baselinePath) || calibrate,
       `缺少数值特征基线: ${baselinePath}`,
     );
-    assert(
-      existsSync(iifeBundlePath),
-      `缺少构建后 IIFE: ${iifeBundlePath}；请先运行 npm run build`,
-    );
   }
   const baseline = existsSync(baselinePath)
     ? JSON.parse(readFileSync(baselinePath, 'utf8'))
@@ -7682,8 +7249,6 @@ async function main()
     return;
   }
 
-  await runIifeSmoke(browser, baseUrl);
-  await runIifeMobileTouchSmoke(browser, baseUrl);
   await runDemoMobileTouchSmoke(browser, baseUrl);
   await runDemoTimeScaleControlSmoke(browser, baseUrl);
   await runDemoControlPanelStructureSmoke(browser, baseUrl);

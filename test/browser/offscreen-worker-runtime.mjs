@@ -203,17 +203,31 @@ async function main()
       window.offscreenWorkerTest.request('state'));
 
     assert.equal(activeState.resolvedEffectBackend, 'webgl2');
+    let routeSwitchError = null;
+
+    try
+    {
+      await page.evaluate(() =>
+        window.offscreenWorkerTest.request(
+          'updateConfig',
+          {
+            effectBackend: 'canvas2d',
+          },
+        ));
+    }
+    catch (error)
+    {
+      routeSwitchError = String(error?.message ?? error);
+    }
+
+    assert.match(
+      routeSwitchError ?? '',
+      /无法切换 OffscreenCanvas context 类型/,
+    );
     const lockedRouteState = await page.evaluate(() =>
-      window.offscreenWorkerTest.request(
-        'updateConfig',
-        {
-          effectBackend: 'canvas2d',
-          renderingMode: 'legacy',
-        },
-      ));
+      window.offscreenWorkerTest.request('state'));
 
     assert.equal(lockedRouteState.effectBackend, 'webgl2');
-    assert.equal(lockedRouteState.renderingMode, 'enhanced');
     assert.equal(lockedRouteState.resolvedEffectBackend, 'webgl2');
 
     await page.waitForTimeout(750);
