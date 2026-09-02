@@ -98,12 +98,9 @@ function renderDataReadme(repository)
 
 This orphan branch is maintained by GitHub Actions.
 
-- \`stars.csv\` stores one Star-count point per Asia/Shanghai calendar day.
+- \`stars.csv\` stores Star-count history by Asia/Shanghai calendar date.
 - \`star-history.svg\` is generated deterministically from the CSV data.
-- \`reconstructed\` rows are derived from the \`starred_at\` timestamps of
-  users who still star the repository at bootstrap time. They cannot recover
-  removed Stars or historical decreases.
-- \`observed\` rows are repository-count snapshots taken after tracking began.
+- GitHub Actions updates the repository Star count once per day.
 
 Generated files should not be edited manually.
 `;
@@ -360,7 +357,7 @@ export function renderStarHistorySvg(rows, repository)
     return renderEmptySvg(repository);
   }
 
-  const margin = { bottom: 58, left: 70, right: 30, top: 82 };
+  const margin = { bottom: 58, left: 70, right: 30, top: 64 };
   const plotWidth = SVG_WIDTH - margin.left - margin.right;
   const plotHeight = SVG_HEIGHT - margin.top - margin.bottom;
   const firstTime = Date.parse(`${rows[0].date}T00:00:00.000Z`);
@@ -379,11 +376,6 @@ export function renderStarHistorySvg(rows, repository)
 
     return { x, y };
   };
-  const observedStart = rows.findIndex((row) => row.source === 'observed');
-  const reconstructedRows = observedStart < 0
-    ? rows
-    : rows.slice(0, observedStart + 1);
-  const observedRows = observedStart < 0 ? [] : rows.slice(observedStart);
   const yGrid = [];
 
   for (let stars = 0; stars <= yMaximum; stars += tickStep)
@@ -409,7 +401,7 @@ export function renderStarHistorySvg(rows, repository)
   const lines = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_RENDER_WIDTH}" height="${SVG_RENDER_HEIGHT}" viewBox="0 0 ${SVG_WIDTH} ${SVG_HEIGHT}" role="img" aria-labelledby="title desc">`,
     `  <title id="title">${title}</title>`,
-    `  <desc id="desc">Star history through ${latest.date}. Reconstructed values are dashed and observed values are solid.</desc>`,
+    `  <desc id="desc">Star history through ${latest.date}.</desc>`,
     '  <rect x="0.5" y="0.5" width="719" height="359" rx="8" fill="#ffffff" stroke="#d0d7de"/>',
     `  <text x="${margin.left}" y="38" fill="#24292f" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="26" font-weight="600">${title}</text>`,
     `  <text x="${SVG_WIDTH - margin.right}" y="38" text-anchor="end" fill="#24292f" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22" font-weight="600">${latest.stars} Stars</text>`,
@@ -418,38 +410,14 @@ export function renderStarHistorySvg(rows, repository)
     ...xLabels,
   ];
 
-  if (reconstructedRows.length > 0 && rows[0].source === 'reconstructed')
+  if (rows.length > 1)
   {
-    if (reconstructedRows.length > 1)
-    {
-      lines.push(`  <path data-source="reconstructed" d="${makePath(reconstructedRows, pointForRow)}" fill="none" stroke="#bf8700" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 6" vector-effect="non-scaling-stroke"/>`);
-    }
-    else
-    {
-      const reconstructedPoint = pointForRow(reconstructedRows[0]);
-
-      lines.push(`  <circle data-source="reconstructed" cx="${formatNumber(reconstructedPoint.x)}" cy="${formatNumber(reconstructedPoint.y)}" r="4.5" fill="#bf8700" stroke="#ffffff" stroke-width="2" vector-effect="non-scaling-stroke"/>`);
-    }
-
-    lines.push(`  <line x1="${margin.left}" y1="61" x2="${margin.left + 28}" y2="61" stroke="#bf8700" stroke-width="3" stroke-dasharray="8 6"/>`);
-    lines.push(`  <text x="${margin.left + 38}" y="68" fill="#57606a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">API reconstruction</text>`);
+    lines.push(`  <path data-series="stars" d="${makePath(rows, pointForRow)}" fill="none" stroke="#0969da" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`);
   }
 
-  if (observedRows.length > 0)
-  {
-    const legendX = rows[0].source === 'reconstructed' ? margin.left + 226 : margin.left;
+  const latestPoint = pointForRow(latest);
 
-    if (observedRows.length > 1)
-    {
-      lines.push(`  <path data-source="observed" d="${makePath(observedRows, pointForRow)}" fill="none" stroke="#0969da" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`);
-    }
-
-    const observedPoint = pointForRow(observedRows.at(-1));
-
-    lines.push(`  <circle data-source="observed" cx="${formatNumber(observedPoint.x)}" cy="${formatNumber(observedPoint.y)}" r="4.5" fill="#0969da" stroke="#ffffff" stroke-width="2" vector-effect="non-scaling-stroke"/>`);
-    lines.push(`  <line x1="${legendX}" y1="61" x2="${legendX + 28}" y2="61" stroke="#0969da" stroke-width="3"/>`);
-    lines.push(`  <text x="${legendX + 38}" y="68" fill="#57606a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">Daily observations</text>`);
-  }
+  lines.push(`  <circle data-series="stars" cx="${formatNumber(latestPoint.x)}" cy="${formatNumber(latestPoint.y)}" r="4.5" fill="#0969da" stroke="#ffffff" stroke-width="2" vector-effect="non-scaling-stroke"/>`);
 
   lines.push('</svg>');
   return `${lines.join('\n')}\n`;

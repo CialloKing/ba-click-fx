@@ -152,19 +152,22 @@ const secondSvg = renderStarHistorySvg(decreasedObservation.rows, 'CialloKing/ba
 
 assert.equal(firstSvg, secondSvg);
 assert.match(firstSvg, /width="960" height="480" viewBox="0 0 720 360"/);
-assert.match(firstSvg, /data-source="reconstructed"[^>]+stroke-dasharray/);
-assert.match(firstSvg, /data-source="observed"/);
+const historyPaths = firstSvg.match(/<path data-series="stars" d="([^"]+)"/g) ?? [];
+
+assert.equal(historyPaths.length, 1);
+assert.equal(historyPaths[0].match(/\bL\b/g)?.length, decreasedObservation.rows.length - 1);
+assert.doesNotMatch(firstSvg, /stroke-dasharray|data-source=|reconstruct|observ/i);
 assert.match(firstSvg, /text-anchor="start"[^>]*>2026-08-30<\/text>/);
 assert.match(firstSvg, /text-anchor="end"[^>]*>2026-09-04<\/text>/);
-check(true, 'SVG 输出确定、固定尺寸，并区分虚线回溯与实线观测');
+check(true, 'SVG 输出确定、固定尺寸，并使用单条连续实线');
 
 const singlePointSvg = renderStarHistorySvg(
   [{ date: '2026-09-02', stars: 1, source: 'reconstructed', observedAt: '' }],
   'CialloKing/ba-click-fx',
 );
 
-assert.match(singlePointSvg, /<circle data-source="reconstructed"/);
-check(true, '只有一个回溯点时仍绘制可见标记');
+assert.match(singlePointSvg, /<circle data-series="stars"/);
+check(true, '只有一个历史点时仍绘制可见标记');
 
 console.log('\n文件级生成与幂等');
 const generatedDirectory = mkdtempSync(join(tmpdir(), 'ba-click-fx-star-generated-'));
@@ -185,6 +188,10 @@ try
   assert.equal(bootstrapResult.changed, true);
   assert.deepEqual(bootstrapResult.changedFiles.sort(),
     ['README.md', 'star-history.svg', 'stars.csv']);
+  assert.doesNotMatch(
+    readFileSync(join(generatedDirectory, 'README.md'), 'utf8'),
+    /reconstructed|observed|Stargazers API/i,
+  );
 
   const observeOptions = makeRuntimeOptions(
     {
