@@ -13,6 +13,7 @@ const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const mainJs = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8');
 const readmeZh = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
 const readmeEn = fs.readFileSync(path.join(root, 'README.en.md'), 'utf8');
+const readmes = [readmeZh, readmeEn];
 const themeBackgroundJs = fs.readFileSync(
   path.join(root, 'src', 'theme-background.js'),
   'utf8',
@@ -85,6 +86,18 @@ function getFunctionSource(source, name)
 
   return '';
 }
+
+const starBadge = '[![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx.svg)](https://github.com/CialloKing/ba-click-fx/stargazers)';
+const starChartUrl = 'https://raw.githubusercontent.com/CialloKing/ba-click-fx/refs/heads/star-history/star-history.svg';
+const starDataUrl = 'https://github.com/CialloKing/ba-click-fx/blob/star-history/stars.csv';
+
+verify(
+  readmes.every((readme) =>
+    readme.includes(starBadge) &&
+      readme.includes(starChartUrl) &&
+      readme.includes(starDataUrl)),
+  '中英文 README 同步 Star 徽章、历史图与 CSV 链接',
+);
 
 verify(/setFxParam/.test(mainJs), '控制面板通过 setFxParam 修改参数，不绕过引擎');
 const panelMarkup = indexHtml.match(

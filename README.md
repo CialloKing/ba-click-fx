@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)
+[![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx.svg)](https://github.com/CialloKing/ba-click-fx/stargazers)
 [![npm version](https://img.shields.io/npm/v/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
 [![npm downloads](https://img.shields.io/npm/dm/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-安装-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami) [![Edge Add-on](https://img.shields.io/badge/Edge_Add--on-安装-0078D7?logo=microsoftedge&logoColor=white)](https://microsoftedge.microsoft.com/addons/detail/ba-click-fx/gocfepocmghimclocjafcihcplnpjpkc) [![Firefox Add-on](https://img.shields.io/badge/Firefox_Add--on-安装-FF7139?logo=firefoxbrowser&logoColor=white)](https://addons.mozilla.org/zh-CN/firefox/addon/ba-click-fx/)
@@ -41,6 +42,7 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 - [和其他项目的区别](#和其他项目的区别)
 - [项目结构](#项目结构)
 - [开发说明](#开发说明)
+- [Star 历史](#star-历史)
 - [致谢](#致谢)
 - [许可](#许可)
 
@@ -934,6 +936,20 @@ npm run check
 ```
 
 `check` 会按顺序完成构建、测试、演示同步、版本/入口、npm 精确文件清单和本地包安装检查。
+
+---
+
+## Star 历史
+
+本仓库从 2026-09-03 起每天保存一次 Star 总数快照。图中的虚线部分根据 Stargazers API 返回的当前用户 `starred_at` 时间回溯重建，只能表示初始化时仍保留的 Star，无法恢复已经取消的 Star 或过去的真实下降；实线部分是启用记录后的每日观测值。
+
+<p align="center">
+  <a href="https://github.com/CialloKing/ba-click-fx/blob/star-history/stars.csv">
+    <img src="https://raw.githubusercontent.com/CialloKing/ba-click-fx/refs/heads/star-history/star-history.svg" alt="ba-click-fx Star 数量历史图，虚线表示 API 回溯重建，实线表示每日观测" width="960">
+  </a>
+</p>
+
+[查看 CSV 原始数据](https://github.com/CialloKing/ba-click-fx/blob/star-history/stars.csv)。漏跑日期保持缺失，不使用插值或伪造快照补齐。
 
 ---
 

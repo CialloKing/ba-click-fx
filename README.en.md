@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)
+[![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx.svg)](https://github.com/CialloKing/ba-click-fx/stargazers)
 [![npm version](https://img.shields.io/npm/v/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
 [![npm downloads](https://img.shields.io/npm/dm/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami) [![Edge Add-on](https://img.shields.io/badge/Edge_Add--on-Install-0078D7?logo=microsoftedge&logoColor=white)](https://microsoftedge.microsoft.com/addons/detail/ba-click-fx/gocfepocmghimclocjafcihcplnpjpkc) [![Firefox Add-on](https://img.shields.io/badge/Firefox_Add--on-Install-FF7139?logo=firefoxbrowser&logoColor=white)](https://addons.mozilla.org/zh-CN/firefox/addon/ba-click-fx/)
@@ -39,6 +40,7 @@
 - [How It Differs](#how-it-differs)
 - [Project Structure](#project-structure)
 - [Development](#development)
+- [Star History](#star-history)
 - [Credits](#credits)
 - [License](#license)
 
@@ -909,6 +911,20 @@ npm run dev
 npm run build
 npm test
 ```
+
+---
+
+## Star History
+
+This repository records one Star-count snapshot per day starting on 2026-09-03. The dashed part of the chart is reconstructed from the `starred_at` timestamps returned by the Stargazers API. It only represents users who still starred the repository at bootstrap time, so it cannot recover removed Stars or historical decreases. The solid part contains daily observations recorded after tracking began.
+
+<p align="center">
+  <a href="https://github.com/CialloKing/ba-click-fx/blob/star-history/stars.csv">
+    <img src="https://raw.githubusercontent.com/CialloKing/ba-click-fx/refs/heads/star-history/star-history.svg" alt="ba-click-fx Star history; dashed values are API reconstructions and solid values are daily observations" width="960">
+  </a>
+</p>
+
+[View the raw CSV data](https://github.com/CialloKing/ba-click-fx/blob/star-history/stars.csv). Missed dates remain absent; no interpolated or fabricated snapshots are inserted.
 
 ---
 
