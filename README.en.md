@@ -916,11 +916,11 @@ npm test
 
 ## Star History
 
-This repository records one Star-count snapshot per day starting on 2026-09-03. The dashed part of the chart is reconstructed from the `starred_at` timestamps returned by the Stargazers API. It only represents users who still starred the repository at bootstrap time, so it cannot recover removed Stars or historical decreases. The solid part contains daily observations recorded after tracking began.
+This repository maintains its Star-count history on the dedicated `star-history` branch and updates it once per day.
 
 <p align="center">
   <a href="https://github.com/CialloKing/ba-click-fx/blob/star-history/stars.csv">
-    <img src="https://raw.githubusercontent.com/CialloKing/ba-click-fx/refs/heads/star-history/star-history.svg" alt="ba-click-fx Star history; dashed values are API reconstructions and solid values are daily observations" width="960">
+    <img src="https://raw.githubusercontent.com/CialloKing/ba-click-fx/refs/heads/star-history/star-history.svg" alt="ba-click-fx Star history" width="960">
   </a>
 </p>
 

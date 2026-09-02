@@ -941,11 +941,11 @@ npm run check
 
 ## Star 历史
 
-本仓库从 2026-09-03 起每天保存一次 Star 总数快照。图中的虚线部分根据 Stargazers API 返回的当前用户 `starred_at` 时间回溯重建，只能表示初始化时仍保留的 Star，无法恢复已经取消的 Star 或过去的真实下降；实线部分是启用记录后的每日观测值。
+本仓库在独立的 `star-history` 分支维护 Star 数量历史，并由定时任务每天更新一次。
 
 <p align="center">
   <a href="https://github.com/CialloKing/ba-click-fx/blob/star-history/stars.csv">
-    <img src="https://raw.githubusercontent.com/CialloKing/ba-click-fx/refs/heads/star-history/star-history.svg" alt="ba-click-fx Star 数量历史图，虚线表示 API 回溯重建，实线表示每日观测" width="960">
+    <img src="https://raw.githubusercontent.com/CialloKing/ba-click-fx/refs/heads/star-history/star-history.svg" alt="ba-click-fx Star 数量历史图" width="960">
   </a>
 </p>
 
