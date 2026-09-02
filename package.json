@@ -81,6 +81,7 @@
     "test:bloom": "node test/software-bloom.js",
     "test:webgpu": "node test/webgpu-device.js && node test/webgpu-effect-state.js && node test/webgpu-diagnostics.js && node test/webgpu-shaders.js",
     "test:config": "node test/config-schema.js && node test/fx-param-patch.js && node test/range-snap.js",
+    "test:star-history": "node test/star-history.js",
     "test:browser:built": "node test/browser/run.mjs && node test/browser/offscreen-worker-runtime.mjs",
     "test:browser:offscreen": "node test/browser/offscreen-worker-runtime.mjs",
     "test:browser:unity-counts": "node test/browser/run.mjs --unity-counts-only",
@@ -93,8 +94,8 @@
     "verify:package": "node scripts/verify-package.mjs",
     "verify:pack": "node scripts/verify-pack.mjs",
     "verify:tarball": "node scripts/verify-tarball.mjs",
-    "check:fast": "npm run test:config && npm run test:themes && npm run test:webgpu && npm run test:source && npm run test:worker && node scripts/verify-sync.cjs",
-    "check": "npm run build && npm run test:bloom && npm run test:webgpu && npm run test:config && npm run test:themes && npm run test:source && npm test && npm run verify:sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
+    "check:fast": "npm run test:config && npm run test:themes && npm run test:webgpu && npm run test:source && npm run test:worker && npm run test:star-history && node scripts/verify-sync.cjs",
+    "check": "npm run build && npm run test:bloom && npm run test:webgpu && npm run test:config && npm run test:themes && npm run test:source && npm test && npm run test:star-history && npm run verify:sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
     "check:release": "npm run check && npm run test:browser:built && npm run test:browser:webgpu:optional",
     "prepack": "npm run build",
     "prepublishOnly": "npm run check:release"
