@@ -1,5 +1,10 @@
 ﻿# Changelog
 
+## v1.3.2 - 同步 FX_Touch 渲染合同
+
+- 按 Unity 材质队列统一 Canvas、Canvas Scene、WebGL2 与 WebGPU 的提交顺序，使 Tri2 碎片稳定覆盖同帧的圆环与拖尾。
+- 扩展 Unity 外部资源门禁，持续校验四个材质队列、三个 Touch Shader 状态与固定 UI Pass 深度覆盖。
+
 ## v1.3.1 - 破坏性运行时与发布包收敛
 
 - 移除 Legacy 渲染模式与运行时切换，只保留统一的 Unity Canvas/WebGL/WebGPU 后端路径。

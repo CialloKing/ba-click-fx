@@ -100,7 +100,7 @@ const fx = new BAClickFX();
 
 ```html
 <script type="module">
-  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.1/dist/ba-click-fx.js';
+  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.2/dist/ba-click-fx.js';
   const fx = new BAClickFX();
 </script>
 ```
