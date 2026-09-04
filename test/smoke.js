@@ -19,6 +19,9 @@ let createHash = null;
 let fxSourceText = null;
 let webgl2EffectSourceText = null;
 let webgl2BloomSourceText = null;
+let WebGL2EffectRenderer = null;
+let WebGPUEffectRenderer = null;
+let verifyRenderQueueOrder = null;
 
 if (sourceMode)
 {
@@ -27,6 +30,8 @@ if (sourceMode)
   trailTextureSource = await import('../src/trail-texture.js');
   trailCoverageSource = await import('../src/trail-coverage.js');
   triangleTextureSource = await import('../src/triangle-texture.js');
+  ({ WebGL2EffectRenderer } = await import('../src/webgl2-effect.js'));
+  ({ WebGPUEffectRenderer } = await import('../src/webgpu-effect.js'));
   ({ createHash } = await import('node:crypto'));
   const { readFileSync } = await import('node:fs');
 
@@ -1328,6 +1333,169 @@ if (sourceMode)
       ),
     'Canvas 与 WebGL2 只保留圆角 Coverage，不叠加旧尖三角 Alpha',
   );
+
+  verifyRenderQueueOrder = () =>
+  {
+    const canvasQueueOrder = [];
+    const canvasQueueEffect = new BAClickFX(
+    {
+      effectBackend: 'canvas2d',
+      bloomBackend: 'native',
+      inputSource: 'manual',
+    },
+  );
+
+  Object.assign(canvasQueueEffect,
+    {
+      _prepareCanvasSceneBackend: () => false,
+      _updateTrail: () => canvasQueueOrder.push('trail'),
+      _updateWaves: () => canvasQueueOrder.push('base'),
+      _drawWaveRings: () => canvasQueueOrder.push('ring'),
+      _updateShards: () => canvasQueueOrder.push('triangle'),
+      _renderLightBackgroundContrast: () => {},
+      _finalizeCanvasOverlayAlpha: () => {},
+      _hasVisibleEffects: () => false,
+    });
+  canvasQueueEffect._renderFrame(0);
+  canvasQueueEffect.destroy();
+
+  const canvasSceneQueueOrder = [];
+  const canvasSceneQueueEffect = Object.assign(
+    Object.create(BAClickFX.prototype),
+    {
+      canvasSceneRenderer:
+      {
+        available: true,
+        contextLost: false,
+        beginFrame() {},
+        render()
+        {
+          return true;
+        },
+      },
+      context: {},
+      dpr: 1,
+      fxConfig: {},
+      waves:
+      [{
+        drawDiskLayer()
+        {
+          canvasSceneQueueOrder.push('disk');
+        },
+        appendCanvasSceneCoverage() {},
+        drawAdditiveBase()
+        {
+          canvasSceneQueueOrder.push('generic');
+        },
+        drawRings()
+        {
+          canvasSceneQueueOrder.push('ring');
+        },
+      }],
+      shards:
+      [{
+        draw()
+        {
+          canvasSceneQueueOrder.push('triangle');
+        },
+      }],
+      _drawCanvasTrails: () => canvasSceneQueueOrder.push('trail'),
+      _getEffectiveOpacity: () => 1,
+    },
+  );
+  canvasSceneQueueEffect._renderCanvasSceneEffects(1, false);
+
+  const webglQueueOrder = [];
+  const webglRenderer = Object.create(WebGL2EffectRenderer.prototype);
+  const webgl = new Proxy(
+  {
+    getUniformLocation()
+    {
+      return 0;
+    },
+    drawArrays()
+    {
+      webglQueueOrder.push('ring');
+    },
+  },
+  {
+    get(target, property)
+    {
+      if (property in target)
+      {
+        return target[property];
+      }
+
+      return () => {};
+    },
+  });
+
+  Object.assign(webglRenderer,
+    {
+      gl: webgl,
+      programs: { dissolveRing: {} },
+      displayWidth: 100,
+      displayHeight: 100,
+      sceneDiskVertexCount: 0,
+      trailVertexCount: 0,
+      vertexCount: 0,
+      ringVertexCount: 3,
+      triangleVertexCount: 3,
+      trailVertexData: new Float32Array(64),
+      ringVertexData: new Float32Array(64),
+      triangleVertexData: new Float32Array(64),
+      ringTexture: {},
+      ringVao: {},
+      ringBuffer: {},
+      _drawTexturedAdditiveBatch(vertexCount)
+      {
+        if (vertexCount > 0)
+        {
+          webglQueueOrder.push('triangle');
+        }
+      },
+    });
+  webglRenderer._drawGeometryBatches({}, false);
+
+  const webgpuQueueOrder = [];
+  const webgpuRenderer = Object.create(WebGPUEffectRenderer.prototype);
+
+  Object.assign(webgpuRenderer,
+    {
+      pipelines:
+      {
+        disk: {},
+        trailScene: {},
+        genericScene: {},
+        ringScene: {},
+        triangleScene: {},
+      },
+      textures: {},
+      sceneDiskVertexCount: 0,
+      trailVertexCount: 0,
+      vertexCount: 0,
+      ringVertexCount: 1,
+      triangleVertexCount: 1,
+      _writeGeometryUniform() {},
+      _drawBatch(_pass, _pipeline, _uniform, name, _data, vertexCount)
+      {
+        if (vertexCount > 0)
+        {
+          webgpuQueueOrder.push(name);
+        }
+      },
+    });
+  webgpuRenderer._drawGeometry({}, {}, false);
+
+    assert(
+      canvasQueueOrder.join(',') === 'trail,base,ring,triangle' &&
+        canvasSceneQueueOrder.join(',') ===
+          'trail,disk,generic,ring,triangle' &&
+        webglQueueOrder.join(',') === 'ring,triangle' &&
+        webgpuQueueOrder.join(',') === 'ring,triangle',
+      'Canvas、Canvas Scene、WebGL2 与 WebGPU 均先提交 4499 层再提交 Tri2',
+    );
+  };
 }
 assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');
 assert(
@@ -1689,6 +1857,9 @@ assertThrowsTypeError(
 
 console.log('\n指针生命周期');
 const dom = installDom();
+
+verifyRenderQueueOrder?.();
+
 const paramApiEffect = new BAClickFX(
   {
     effectBackend: 'canvas2d',

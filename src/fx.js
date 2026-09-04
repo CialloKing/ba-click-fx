@@ -7977,6 +7977,13 @@ export class BAClickFX
         useNativeBloom,
         drawCanvasDuringUpdate,
       );
+
+      if (drawCanvasDuringUpdate)
+      {
+        // Tri3 与 Cross2、Trail 同为 4499，必须先于 4550 的 Tri2 碎片提交。
+        this._drawWaveRings(scale, useNativeBloom);
+      }
+
       this._updateShards(
         this.clickTimeMs,
         this.trailTimeMs,
@@ -8046,17 +8053,9 @@ export class BAClickFX
           this._setCanvasSceneVisible(canvasSceneRendered);
           this._setCanvasOutputVisible(!canvasSceneRendered);
         }
-        else if (!useWebGL2Bloom)
+        else if (!useWebGL2Bloom && deferNativeVisualMaxDraw)
         {
-          if (deferNativeVisualMaxDraw)
-          {
-            this._drawCanvasFallbackFrame(scale, useNativeBloom);
-          }
-          else
-          {
-            // Tri3 材质队列为 4499，必须覆盖 queue 3000 的点击碎片和圆盘。
-            this._drawWaveRings(scale, useNativeBloom);
-          }
+          this._drawCanvasFallbackFrame(scale, useNativeBloom);
         }
       }
 
@@ -10620,6 +10619,17 @@ export class BAClickFX
         );
       }
 
+      // Dissolve MeshTri 与 Cross2、Trail 同为 4499，先完成这一队列。
+      for (const wave of this.waves)
+      {
+        wave.appendWebGLSceneAdditiveLayer(
+          renderer,
+          scale,
+          this._getEffectiveOpacity(),
+        );
+      }
+
+      // Tri2 的 RenderQueue=4550，必须在全部 4499 材质之后提交。
       for (const shard of this.shards)
       {
         shard.appendWebGLScene(
@@ -10627,16 +10637,6 @@ export class BAClickFX
           scale,
           this._getEffectiveOpacity(),
           this.fxConfig,
-        );
-      }
-
-      // Dissolve MeshTri 的 RenderQueue=4499；最后提交以保留 Unity 覆盖顺序。
-      for (const wave of this.waves)
-      {
-        wave.appendWebGLSceneAdditiveLayer(
-          renderer,
-          scale,
-          this._getEffectiveOpacity(),
         );
       }
 
@@ -10786,16 +10786,6 @@ export class BAClickFX
         }
       }
 
-      for (const shard of this.shards)
-      {
-        shard.draw(
-          this.context,
-          scale,
-          this._getEffectiveOpacity(),
-          this.fxConfig,
-        );
-      }
-
       for (const wave of this.waves)
       {
         wave.drawAdditiveBase(
@@ -10806,7 +10796,7 @@ export class BAClickFX
         );
       }
 
-      // Tri3 材质队列为 4499，始终覆盖 queue 3000 的圆盘和碎片。
+      // Tri3 与 Cross2、Trail 同为 4499，先完成这一队列。
       this._drawWaveRings(
         scale,
         useNativeBloom,
@@ -10815,6 +10805,18 @@ export class BAClickFX
         'coverage',
         1,
       );
+
+      // Tri2 的 RenderQueue=4550，必须在全部 4499 材质之后提交。
+      for (const shard of this.shards)
+      {
+        shard.draw(
+          this.context,
+          scale,
+          this._getEffectiveOpacity(),
+          this.fxConfig,
+        );
+      }
+
       return renderer.render(this.canvas);
     }
     catch (error)
@@ -10974,6 +10976,16 @@ export class BAClickFX
       );
     }
 
+    this._drawWaveRings(
+      scale,
+      useNativeBloom,
+      false,
+      outputCompositing,
+      overlayColorCompensation,
+      overlayAlphaLimit,
+    );
+
+    // Tri2 的 RenderQueue=4550，必须在全部 4499 材质之后提交。
     for (const shard of this.shards)
     {
       shard.draw(
@@ -10986,15 +10998,6 @@ export class BAClickFX
         overlayAlphaLimit,
       );
     }
-
-    this._drawWaveRings(
-      scale,
-      useNativeBloom,
-      false,
-      outputCompositing,
-      overlayColorCompensation,
-      overlayAlphaLimit,
-    );
   }
 
   _drawCanvasTrails(

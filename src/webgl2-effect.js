@@ -2443,8 +2443,8 @@ export class WebGL2EffectRenderer
       gl.drawArrays(gl.TRIANGLES, 0, this.sceneDiskVertexCount);
     }
 
-    // Trail 与 Cross2 同属 Queue 3000；先画 Cross2，再提交 Trail 的
-    // One/One 材质，随后才是其余加色粒子和三角碎片。
+    // Trail 与 Cross2 同属 Queue 4499；先画 Cross2，再提交 Trail 的
+    // One/One 材质，随后完成同队列的其余加色粒子。
     this._drawTexturedAdditiveBatch(
       this.trailVertexCount,
       this.trailVertexData.subarray(
@@ -2507,26 +2507,6 @@ export class WebGL2EffectRenderer
       gl.drawArrays(gl.TRIANGLES, 0, this.vertexCount);
     }
 
-    if (this.triangleVertexCount > 0)
-    {
-      this._drawTexturedAdditiveBatch(
-        this.triangleVertexCount,
-        this.triangleVertexData.subarray(
-          0,
-          this.triangleVertexCount * COMPONENTS_PER_TRIANGLE_VERTEX,
-        ),
-        this.triangleBuffer,
-        this.triangleVao,
-        transparentOverlay
-          ? this.triangleOverlayTexture
-          : this.triangleTexture,
-        transparentOverlay,
-        true,
-        false,
-        true,
-      );
-    }
-
     if (this.ringVertexCount > 0)
     {
       const ringProgram = this.programs.dissolveRing;
@@ -2579,6 +2559,27 @@ export class WebGL2EffectRenderer
         gl.DYNAMIC_DRAW,
       );
       gl.drawArrays(gl.TRIANGLES, 0, this.ringVertexCount);
+    }
+
+    // Tri2 的 Queue 4550 高于其余 FX_Touch 材质，最后绘制三角碎片。
+    if (this.triangleVertexCount > 0)
+    {
+      this._drawTexturedAdditiveBatch(
+        this.triangleVertexCount,
+        this.triangleVertexData.subarray(
+          0,
+          this.triangleVertexCount * COMPONENTS_PER_TRIANGLE_VERTEX,
+        ),
+        this.triangleBuffer,
+        this.triangleVao,
+        transparentOverlay
+          ? this.triangleOverlayTexture
+          : this.triangleTexture,
+        transparentOverlay,
+        true,
+        false,
+        true,
+      );
     }
 
     gl.disable(gl.BLEND);

@@ -828,6 +828,19 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     this._drawBatch(
       pass,
       transparentOverlay
+        ? this.pipelines.ringOverlay
+        : this.pipelines.ringScene,
+      uniform,
+      'ring',
+      this.ringVertexData,
+      this.ringVertexCount,
+      COMPONENTS_PER_RING_VERTEX,
+      this.textures.ring,
+    );
+    // Tri2 的 Queue 4550 高于其余 FX_Touch 材质，最后绘制三角碎片。
+    this._drawBatch(
+      pass,
+      transparentOverlay
         ? this.pipelines.triangleOverlay
         : this.pipelines.triangleScene,
       uniform,
@@ -838,18 +851,6 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       transparentOverlay
         ? this.textures.triangleOverlay
         : this.textures.triangle,
-    );
-    this._drawBatch(
-      pass,
-      transparentOverlay
-        ? this.pipelines.ringOverlay
-        : this.pipelines.ringScene,
-      uniform,
-      'ring',
-      this.ringVertexData,
-      this.ringVertexCount,
-      COMPONENTS_PER_RING_VERTEX,
-      this.textures.ring,
     );
   }
 
