@@ -885,7 +885,7 @@ ba-click-fx/
 
 ## Development
 
-Local development and CI use **Node.js 24 LTS**. The currently verified toolchain is Node.js `24.19.0` (Krypton) with npm `11.17.0`. The `node >=18` entry in `package.json` remains the runtime compatibility floor for consumers of the built library; it is not the development-toolchain version.
+This project requires **Node.js 24 LTS or newer**. The currently verified local and CI toolchain is Node.js `24.19.0` (Krypton) with npm `11.17.0`. The requirement applies to source builds and Node.js tooling around the built library.
 
 ### Unity source-of-truth gate
 
