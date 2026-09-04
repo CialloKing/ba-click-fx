@@ -10,6 +10,17 @@ const FLOAT_TOLERANCE = 1e-5;
 const CURRENT_UI_ORTHOGRAPHIC_SIZE = 1;
 // 历史值只用于明确拒绝错误基线；审计输入始终是新版工程。
 const HISTORICAL_PREVIEW_ORTHOGRAPHIC_SIZE = 1.35;
+const MATERIAL_RENDER_QUEUE_REFERENCES = [
+  ['FX_MAT_Touch_Cross2.mat', 'FX_MAT_Touch_Cross2', 4499],
+  ['FX_MAT_Touch_Tri 2.mat', 'FX_MAT_Touch_Tri 2', 4550],
+  ['FX_MAT_Touch_Tri3.mat', 'FX_MAT_Touch_Tri3', 4499],
+  ['FX_MAT_TouchFXTrail.mat', 'FX_MAT_TouchFXTrail', 4499],
+];
+const TOUCH_SHADER_REFERENCES = [
+  ['BaTouchAdditive.shader', 'One One'],
+  ['BaTouchAlphaBlendAdd.shader', 'One OneMinusSrcAlpha'],
+  ['BaTouchDissolve.shader', 'SrcAlpha One, One One'],
+];
 
 function parseArguments(argv)
 {
@@ -81,6 +92,22 @@ function readNumber(source, field)
   }
 
   return Number(match[1]);
+}
+
+function readShaderDirective(source, directive, label)
+{
+  const matches = [...source.matchAll(
+    new RegExp(`^\\s*${directive}\\s+(.+?)\\s*$`, 'gm'),
+  )];
+
+  if (matches.length !== 1)
+  {
+    throw new Error(
+      `${label} 应有且仅有一个 ${directive} 指令，实际为 ${matches.length}`,
+    );
+  }
+
+  return matches[0][1];
 }
 
 function readVector(source, field)
@@ -471,6 +498,14 @@ async function main()
     'Scripts',
     'BaGameBloomRendererFeature.cs',
   );
+  const materialDirectory = path.join(
+    projectPath,
+    'Assets',
+    'Imported',
+    'FX_Touch',
+    'Materials',
+  );
+  const shaderDirectory = path.join(projectPath, 'Assets', 'Shaders');
   const bloomAuditPath = path.join(projectPath, 'Reference', '光晕还原审计.md');
   const [
     prefab,
@@ -480,6 +515,8 @@ async function main()
     baselineScene,
     bloomRendererSource,
     bloomAudit,
+    materialSources,
+    touchShaderSources,
   ] =
     await Promise.all([
       readFile(prefabPath, 'utf8'),
@@ -489,7 +526,57 @@ async function main()
       readFile(baselineScenePath, 'utf8'),
       readFile(bloomRendererPath, 'utf8'),
       readFile(bloomAuditPath, 'utf8'),
+      Promise.all(MATERIAL_RENDER_QUEUE_REFERENCES.map(([fileName]) =>
+        readFile(path.join(materialDirectory, fileName), 'utf8'))),
+      Promise.all(TOUCH_SHADER_REFERENCES.map(([fileName]) =>
+        readFile(path.join(shaderDirectory, fileName), 'utf8'))),
     ]);
+
+  for (let index = 0; index < MATERIAL_RENDER_QUEUE_REFERENCES.length; index++)
+  {
+    const [, expectedName, expectedQueue] =
+      MATERIAL_RENDER_QUEUE_REFERENCES[index];
+    const materialSource = materialSources[index];
+
+    assert.equal(
+      readString(materialSource, 'm_Name'),
+      expectedName,
+      `${expectedName} 材质名称`,
+    );
+    assert.equal(
+      readNumber(materialSource, 'm_CustomRenderQueue'),
+      expectedQueue,
+      `${expectedName} 渲染队列`,
+    );
+  }
+
+  for (let index = 0; index < TOUCH_SHADER_REFERENCES.length; index++)
+  {
+    const [fileName, expectedBlend] = TOUCH_SHADER_REFERENCES[index];
+    const shaderSource = touchShaderSources[index];
+
+    assert.equal(
+      readShaderDirective(shaderSource, 'Blend', fileName),
+      expectedBlend,
+      `${fileName} Blend`,
+    );
+    assert.equal(
+      readShaderDirective(shaderSource, 'Cull', fileName),
+      'Back',
+      `${fileName} Cull`,
+    );
+    assert.equal(
+      readShaderDirective(shaderSource, 'ZWrite', fileName),
+      'Off',
+      `${fileName} ZWrite`,
+    );
+    assert.equal(
+      readShaderDirective(shaderSource, 'ZTest', fileName),
+      'LEqual',
+      `${fileName} ZTest`,
+    );
+  }
+
   const documents = splitUnityDocuments(prefab);
   const gameObjectNames = new Map(
     documents
@@ -550,6 +637,14 @@ async function main()
     bloomRendererSource,
     'Matrix4x4.Ortho',
   );
+  const renderStateBlockArguments = readCSharpInvocationArguments(
+    bloomRendererSource,
+    'RenderStateBlock',
+  );
+  const depthStateArguments = readCSharpInvocationArguments(
+    bloomRendererSource,
+    'DepthState',
+  );
 
   if (uiProjectionArguments.length !== 6)
   {
@@ -591,6 +686,16 @@ async function main()
     uiProjectionTop,
     CURRENT_UI_ORTHOGRAPHIC_SIZE,
     'BaGameBloomRendererFeature 固定 UI Pass 上边界',
+  );
+  assert.deepEqual(
+    renderStateBlockArguments,
+    ['RenderStateMask.Depth'],
+    'BaGameBloomRendererFeature 必须启用 UI Pass 深度状态覆盖',
+  );
+  assert.deepEqual(
+    depthStateArguments,
+    ['false', 'CompareFunction.Always'],
+    'BaGameBloomRendererFeature UI Pass 必须关闭深度写入并始终通过测试',
   );
 
   const worldToReferencePixels = UNITY_FX_TOUCH.referenceHeight /
@@ -764,7 +869,7 @@ async function main()
   }
 
   console.log(
-    'Unity 外部资源审计通过：共享渲染参数与新版固定 UI Pass 基线一致',
+    'Unity 外部资源审计通过：共享渲染参数、材质队列、Shader 状态与固定 UI Pass 基线一致',
   );
   console.log(JSON.stringify(
     {
