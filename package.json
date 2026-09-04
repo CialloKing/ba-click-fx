@@ -101,8 +101,8 @@
     "prepublishOnly": "npm run check:release"
   },
   "devDependencies": {
-    "playwright-core": "^1.62.0",
+    "playwright-core": "^1.62.1",
     "typescript": "^7.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.2.2"
   }
 }
