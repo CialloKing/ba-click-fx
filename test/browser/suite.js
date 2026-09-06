@@ -90,8 +90,16 @@ window.cancelAnimationFrame = (id) =>
 };
 
 window.__BACLICKFX_PIXEL_PROGRESS__ = 'importing-runtime';
-const runtimeKind = 'source';
-const runtimeExports = await import('../../src/fx.js');
+// Default browser coverage targets the built package; source coverage is opt-in.
+const runtimeKind = new URLSearchParams(window.location.search).get('runtime') ===
+  'source'
+  ? 'source'
+  : 'dist';
+const runtimeExports = await import(
+  runtimeKind === 'source'
+    ? '../../src/fx.js'
+    : '../../dist/ba-click-fx.js',
+);
 const {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,

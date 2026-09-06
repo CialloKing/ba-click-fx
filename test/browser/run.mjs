@@ -14,13 +14,16 @@ import { chromium } from 'playwright-core';
 import { createServer as createViteServer } from 'vite';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const fixturePath = '/test/browser/fixture.html';
 const baselinePath = join(rootDir, 'test', 'browser', 'baseline.json');
 const artifactDir = join(rootDir, 'test-results', 'browser-pixels');
 const optional = process.argv.includes('--optional');
 const calibrate = process.argv.includes('--calibrate');
 const unityCountsOnly = process.argv.includes('--unity-counts-only');
 const demoOnly = process.argv.includes('--demo-only');
+const sourceRuntime = process.argv.includes('--source');
+const fixturePath = sourceRuntime
+  ? '/test/browser/fixture.html?runtime=source'
+  : '/test/browser/fixture.html?runtime=dist';
 const modeNames = [
   'full-webgl2',
   'webgl2-bloom',
