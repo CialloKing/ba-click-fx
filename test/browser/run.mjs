@@ -20,6 +20,7 @@ const artifactDir = join(rootDir, 'test-results', 'browser-pixels');
 const optional = process.argv.includes('--optional');
 const calibrate = process.argv.includes('--calibrate');
 const unityCountsOnly = process.argv.includes('--unity-counts-only');
+const demoOnly = process.argv.includes('--demo-only');
 const modeNames = [
   'full-webgl2',
   'webgl2-bloom',
@@ -7186,7 +7187,7 @@ async function main()
     throw new Error(message);
   }
 
-  if (!unityCountsOnly)
+  if (!unityCountsOnly && !demoOnly)
   {
     assert(
       existsSync(baselinePath) || calibrate,
@@ -7249,11 +7250,23 @@ async function main()
     return;
   }
 
-  await runDemoMobileTouchSmoke(browser, baseUrl);
-  await runDemoTimeScaleControlSmoke(browser, baseUrl);
-  await runDemoControlPanelStructureSmoke(browser, baseUrl);
-  await runDemoBackgroundFileSmoke(browser, baseUrl);
-  await runDemoPureWhiteIsolationSmoke(browser, baseUrl);
+  if (demoOnly)
+  {
+    await runDemoMobileTouchSmoke(browser, baseUrl);
+    await runDemoTimeScaleControlSmoke(browser, baseUrl);
+    await runDemoControlPanelStructureSmoke(browser, baseUrl);
+    await runDemoBackgroundFileSmoke(browser, baseUrl);
+    await runDemoPureWhiteIsolationSmoke(browser, baseUrl);
+    const durationMs = performance.now() - startedAt;
+
+    console.log(
+      `\nDemo 浏览器专项检查完成：${assertionCount} 项断言，` +
+        `${(durationMs / 1000).toFixed(2)} 秒。`,
+    );
+    console.log(`浏览器：${browserVersion}`);
+    return;
+  }
+
   const calibration = await runMatrix(browser, baseUrl, baseline);
   const durationMs = performance.now() - startedAt;
 

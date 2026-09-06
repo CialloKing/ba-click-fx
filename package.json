@@ -83,6 +83,7 @@
     "test:config": "node test/config-schema.js && node test/fx-param-patch.js && node test/range-snap.js",
     "test:star-history": "node test/star-history.js",
     "test:browser:built": "node test/browser/run.mjs && node test/browser/offscreen-worker-runtime.mjs",
+    "test:browser:demo": "node test/browser/run.mjs --demo-only",
     "test:browser:offscreen": "node test/browser/offscreen-worker-runtime.mjs",
     "test:browser:unity-counts": "node test/browser/run.mjs --unity-counts-only",
     "test:browser:webgpu": "node test/browser/webgpu-runtime.mjs",
