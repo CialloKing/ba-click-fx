@@ -881,7 +881,9 @@ ba-click-fx/
 │   ├── build.mjs         # 构建脚本
 │   └── verify-*.mjs/cjs  # 发布校验脚本
 ├── test/
-│   └── smoke.js          # 移植、后端状态与生命周期验证
+│   ├── smoke.js          # dist 运行时接线与生命周期验证
+│   ├── source-contract.js # 源码入口与 Unity 资源静态合同
+│   └── browser/          # 核心、生命周期、Demo 与 Unity 浏览器门禁
 ├── index.html            # 演示页面
 ├── dist/                 # 构建输出
 │   ├── ba-click-fx.js    # ESM 库
@@ -920,9 +922,9 @@ ba-click-fx/
 
 ```powershell
 npm run verify:unity-reference -- --project "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab"
-npm run test:browser:unity-counts
-npm run build
-npm run test:browser:built
+npm run test:browser:unity
+npm run test:browser
+npm run test:browser:lifecycle
 npm run test:browser:webgpu:optional
 ```
 

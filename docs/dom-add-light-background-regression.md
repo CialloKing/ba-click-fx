@@ -168,7 +168,7 @@ Canvas 回退没有 Unity 的浮点 Scene Final Pass，内部多贡献叠加仍�
 - [ ] 已执行下列命令并全部通过。
 
 ```powershell
-npm run test:source
+npm run test:source-contract
 npm run test:bloom
 npm run test:config
 npm run test:browser

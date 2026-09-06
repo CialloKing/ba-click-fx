@@ -861,7 +861,9 @@ ba-click-fx/
 │   ├── build.mjs         # Build script
 │   └── verify-*.mjs/cjs  # Release verification
 ├── test/
-│   └── smoke.js          # Port, backend-state, and lifecycle verification
+│   ├── smoke.js          # dist runtime wiring and lifecycle verification
+│   ├── source-contract.js # source entry and Unity resource contracts
+│   └── browser/          # core, lifecycle, Demo, and Unity browser gates
 ├── index.html            # Demo page
 ├── dist/                 # Build output (ESM)
 └── package.json
@@ -895,9 +897,9 @@ Before changing Unity-derived parameters, projection conversion, or particle cre
 
 ```powershell
 npm run verify:unity-reference -- --project "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab"
-npm run test:browser:unity-counts
-npm run build
-npm run test:browser:built
+npm run test:browser:unity
+npm run test:browser
+npm run test:browser:lifecycle
 npm run test:browser:webgpu:optional
 ```
 

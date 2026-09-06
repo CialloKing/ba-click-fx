@@ -61,14 +61,14 @@ npm run verify:unity-reference -- --project "D:\WebProjects\BA鼠标输入与点
 资源审计通过后，先运行可独立执行的五后端数量门禁：
 
 ```powershell
-npm run test:browser:unity-counts
+npm run test:browser:unity
 ```
 
-该命令与完整浏览器矩阵复用同一数量断言函数，因此不会因 IIFE、像素基线或其他透明合成用例先失败而跳过数量验证。完整构建后像素回归仍应另行执行：
+该命令与完整浏览器矩阵复用同一数量断言函数，因此不会因 IIFE、像素基线或其他透明合成用例先失败而跳过数量验证。默认浏览器门禁会先构建 dist，再执行核心矩阵与真实 Worker；生命周期和 WebGPU 仍单独执行：
 
 ```powershell
-npm run build
-npm run test:browser:built
+npm run test:browser
+npm run test:browser:lifecycle
 npm run test:browser:webgpu:optional
 ```
 
