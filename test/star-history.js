@@ -95,7 +95,6 @@ assert.deepEqual(reconstructed,
     { date: '2026-09-02', stars: 3, source: 'reconstructed', observedAt: '' },
   ],
 );
-check(true, '回溯值按自然日累计，并排除首次观测当天的近似值');
 
 const firstObservation = upsertObservedStarCount(reconstructed,
   {
@@ -116,7 +115,6 @@ assert.equal(
   serializeStarHistoryCsv(repeatedObservation.rows),
   serializeStarHistoryCsv(firstObservation.rows),
 );
-check(true, '同日同值观测保持时间戳和 CSV 字节不变');
 
 const decreasedObservation = upsertObservedStarCount(firstObservation.rows,
   {
@@ -126,7 +124,6 @@ const decreasedObservation = upsertObservedStarCount(firstObservation.rows,
   });
 
 assert.equal(decreasedObservation.rows.at(-1).stars, 54);
-check(true, '跨日观测允许 Star 数下降且不填造缺失日期');
 
 console.log('\nCSV 与 SVG 合同');
 const csv = serializeStarHistoryCsv(decreasedObservation.rows);
@@ -145,7 +142,6 @@ for (const invalidCsv of [
 {
   assert.throws(() => parseStarHistoryCsv(invalidCsv));
 }
-check(true, 'CSV 严格拒绝错误表头、日期、数量、来源和时间戳');
 
 const firstSvg = renderStarHistorySvg(decreasedObservation.rows, 'CialloKing/ba-click-fx');
 const secondSvg = renderStarHistorySvg(decreasedObservation.rows, 'CialloKing/ba-click-fx');
@@ -159,7 +155,6 @@ assert.equal(historyPaths[0].match(/\bL\b/g)?.length, decreasedObservation.rows.
 assert.doesNotMatch(firstSvg, /stroke-dasharray|data-source=|reconstruct|observ/i);
 assert.match(firstSvg, /text-anchor="start"[^>]*>2026-08-30<\/text>/);
 assert.match(firstSvg, /text-anchor="end"[^>]*>2026-09-04<\/text>/);
-check(true, 'SVG 输出确定、固定尺寸，并使用单条连续实线');
 
 const singlePointSvg = renderStarHistorySvg(
   [{ date: '2026-09-02', stars: 1, source: 'reconstructed', observedAt: '' }],
@@ -167,7 +162,6 @@ const singlePointSvg = renderStarHistorySvg(
 );
 
 assert.match(singlePointSvg, /<circle data-series="stars"/);
-check(true, '只有一个历史点时仍绘制可见标记');
 
 console.log('\n文件级生成与幂等');
 const generatedDirectory = mkdtempSync(join(tmpdir(), 'ba-click-fx-star-generated-'));
@@ -216,7 +210,6 @@ try
   {
     assert.equal(readFileSync(join(generatedDirectory, name), 'utf8'), content);
   }
-  check(true, 'bootstrap、首次观测和同日空跑保持三份生成文件稳定');
 }
 finally
 {
@@ -250,7 +243,6 @@ try
   );
   assert.equal(readFileSync(csvPath, 'utf8'), beforeApiFailureCsv);
   assert.equal(readFileSync(svgPath, 'utf8'), 'SVG sentinel\n');
-  check(true, 'CSV 校验或 API 失败时不改写已有 CSV/SVG');
 }
 finally
 {

@@ -75,7 +75,6 @@ check(FX_PARAM_SCHEMA_VERSION === 2, 'Schema 版本固定为 2');
 check(FX_PARAM_SCHEMA.length === 66, '保留 66 个公开标量参数');
 assertDeepFrozen(FX_PARAM_SCHEMA, 'FX_PARAM_SCHEMA');
 assertDeepFrozen(FX_PARAM_MIGRATIONS, 'FX_PARAM_MIGRATIONS');
-check(true, 'Schema 与迁移元数据均为深只读');
 
 const serializedContract = JSON.stringify(
   {
@@ -150,7 +149,6 @@ for (const descriptor of FX_PARAM_SCHEMA)
   }
 }
 
-check(true, '所有描述符都匹配 Unity 默认值与展示边界');
 
 const bloomThresholdDescriptor = FX_PARAM_SCHEMA.find(
   (descriptor) => descriptor.path === 'bloom.threshold',
@@ -161,14 +159,12 @@ const bloomClampDescriptor = FX_PARAM_SCHEMA.find(
 
 assert.equal(bloomThresholdDescriptor?.unit, 'gamma-hdr');
 assert.equal(bloomClampDescriptor?.unit, 'gamma-hdr');
-check(true, 'Bloom Threshold 与 Clamp 都从 Gamma 配置换算到 Linear');
 
 console.log('\nUnity 基线与版本迁移');
 assert.equal(
   FX_PARAM_SCHEMA.every((descriptor) => !Object.hasOwn(descriptor, 'modeDefaults')),
   true,
 );
-check(true, '参数描述符只保留 Unity 基线');
 assertConfigError(
   () => createConfig({ renderingMode: 'enhanced' }),
   '构造配置拒绝已移除的 renderingMode',
@@ -202,7 +198,6 @@ assert.deepEqual(
     },
   ],
 );
-check(true, '0 -> 1 保留旧参数迁移，1 -> 2 使用新增参数默认值');
 
 console.log('\n主题色配置契约');
 check(

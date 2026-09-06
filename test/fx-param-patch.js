@@ -56,8 +56,6 @@ assert.equal(basicResult.nextConfig.disk.radius, 1);
 assert.equal(basicResult.nextConfig.rings.arcSamples, 95.25);
 assert.equal(basicResult.nextConfig.bloom.intensity, 10);
 assert.deepEqual(baseline, baselineSnapshot);
-check(true, '数值按 Schema 边界钳制且不按 step 量化');
-check(true, '候选配置不会原地修改 baseline');
 
 console.log('\n旧版本迁移与路径冲突');
 
@@ -96,7 +94,6 @@ for (const scatter of [0, 0.35, 1, 1.01, 7, Number.MAX_VALUE])
   );
   assert.equal(migrationResult.nextConfig.bloom.diffusion, 7);
 }
-check(true, 'Schema 0 的 scatter 合法值都会恢复 diffusion 默认值');
 
 const invalidScatterValues =
 [
@@ -132,7 +129,6 @@ for (const [scatter, expectedReason] of invalidScatterValues)
   assert.equal(invalidMigrationResult.nextConfig.rings.count, 2);
   assert.equal(invalidMigrationResult.nextConfig.bloom.diffusion, 7);
 }
-check(true, '非严格模式拒绝非法 scatter 源值并继续应用合法项');
 
 for (const [scatter, expectedReason] of invalidScatterValues)
 {
@@ -157,7 +153,6 @@ for (const [scatter, expectedReason] of invalidScatterValues)
   assert.ok(Object.is(strictInvalidMigrationResult.rejected[0].value, scatter));
   assert.equal(strictInvalidMigrationResult.rejected[0].reason, expectedReason);
 }
-check(true, 'strict 模式遇到任一非法 scatter 源值时整批回滚');
 
 const migrationConflictResult = applyFxParamPatch(
   {
@@ -182,7 +177,6 @@ assert.equal(
   migrationConflictResult.rejected[0].targetPath,
   'bloom.diffusion',
 );
-check(true, '新旧路径同时存在时显式新路径优先');
 
 const strictMigrationConflictResult = applyFxParamPatch(
   {
@@ -199,7 +193,6 @@ const strictMigrationConflictResult = applyFxParamPatch(
 assert.equal(strictMigrationConflictResult.committed, false);
 assert.deepEqual(strictMigrationConflictResult.applied, []);
 assert.deepEqual(strictMigrationConflictResult.nextConfig, baseline);
-check(true, 'strict 模式会原子回滚新旧路径迁移冲突');
 
 console.log('\n类型校验与非严格部分应用');
 
@@ -238,8 +231,6 @@ assert.deepEqual(
 );
 assert.equal(typeResult.nextConfig.hit.enabled, false);
 assert.equal(typeResult.nextConfig.flare.enabled, true);
-check(true, 'boolean 接受有限 number 并使用 JavaScript 真值语义');
-check(true, '非严格模式只应用类型与路径合法的参数');
 
 const booleanNanResult = applyFxParamPatch(
   {
@@ -250,7 +241,6 @@ const booleanNanResult = applyFxParamPatch(
 
 assert.equal(booleanNanResult.committed, false);
 assert.equal(booleanNanResult.rejected[0].reason, 'non-finite-number');
-check(true, 'boolean 拒绝非有限 number');
 
 console.log('\n严格回滚与重置基线');
 
@@ -270,7 +260,6 @@ assert.deepEqual(strictResult.applied, []);
 assert.deepEqual(strictResult.nextConfig, baseline);
 assert.notEqual(strictResult.nextConfig, baseline);
 assert.notEqual(strictResult.nextConfig.rings, baseline.rings);
-check(true, 'strict 任一拒绝会回滚整批并返回 baseline 深拷贝');
 
 const resetBaseline = createBaseline();
 resetBaseline.trail.width = 4;
@@ -293,7 +282,6 @@ assert.equal(resetResult.nextConfig.bloom.trailAlpha, 0);
 assert.equal(resetResult.nextConfig.trail.trailOpacity, 0.375);
 assert.deepEqual(resetBaseline, resetBaselineSnapshot);
 assert.notEqual(resetResult.nextConfig, resetBaseline);
-check(true, 'reset 从调用方基线构造候选且不原地修改该基线');
 
 const strictResetResult = applyFxParamPatch(
   {
@@ -309,7 +297,6 @@ const strictResetResult = applyFxParamPatch(
 
 assert.equal(strictResetResult.committed, false);
 assert.deepEqual(strictResetResult.nextConfig, baseline);
-check(true, 'strict reset 失败时回到当前 baseline 而非重置基线');
 
 console.log('\n输入边界');
 
@@ -326,7 +313,6 @@ assert.equal(
   invalidSchemaResult.rejected[0].reason,
   'unsupported-schema-version',
 );
-check(true, '拒绝当前库无法解释的 Schema 版本');
 
 const emptyResetResult = applyFxParamPatch(
   {},
@@ -339,6 +325,5 @@ const emptyResetResult = applyFxParamPatch(
 
 assert.equal(emptyResetResult.committed, true);
 assert.deepEqual(emptyResetResult.nextConfig, resetBaseline);
-check(true, '空补丁仍可原子提交调用方提供的重置基线');
 
 console.log(`\n参数补丁测试完成：${passed} 项通过。`);

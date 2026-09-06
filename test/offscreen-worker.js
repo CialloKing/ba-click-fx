@@ -182,11 +182,9 @@ assert(upResult === true, 'pointerUp succeeded in manual mode');
 
 // 測試 boom API
 fx.boom(300, 400);
-assert(true, 'fx.boom executed without throwing');
 
 // 測試暫停與銷毀
 fx.setPaused(true, { clear: true });
-assert(true, 'fx.setPaused executed successfully');
 
 fx.destroy();
 assert(fx.destroyed === true, 'fx.destroy executed and set destroyed flag');
