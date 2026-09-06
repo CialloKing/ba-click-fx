@@ -42,6 +42,11 @@ jobs:
         working-directory: history
         run: git pull --rebase origin star-history
 
+      # Keep repository-statistics validation with the workflow that owns its data.
+      - name: Test Star history updater
+        working-directory: source
+        run: npm run test:star-history
+
       - name: Update Star history
         working-directory: source
         env:
