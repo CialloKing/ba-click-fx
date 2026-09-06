@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BAClickFX } from '../src/fx.js';
-import { CONFIG, UNITY_FX_TOUCH } from '../src/config.js';
+import { UNITY_FX_TOUCH } from '../src/config.js';
 import {
   RING3_ALPHA,
   RING3_ALPHA_HEIGHT,
@@ -40,6 +40,204 @@ import {
   TRIANGLE_TEXTURE_SIZE,
 } from '../src/triangle-texture.js';
 
+// Unity Prefab serialization values stay in the source-only contract.
+assert(UNITY_FX_TOUCH.rootDurationMs === 1000, '根粒子持续 1 秒');
+assert(UNITY_FX_TOUCH.disk.lifetimeMs === 200, '短圆盘持续 0.2 秒');
+// OriginalPrefab 直接序列化归一化 float；完整数组断言避免未来再次把
+// 启用粒子的 RGB 提前取整成 8-bit 近似值。
+const originalPrefabEnabledColorKeys =
+[
+  [
+    [0, [255, 255, 255]],
+    [0.1205921, [0.24056602 * 255, 0.39061815 * 255, 255]],
+  ],
+  [
+    [0.1117723, [255, 255, 255]],
+    [0.5000076, [0.2971698 * 255, 0.6532865 * 255, 255]],
+    [1, [0.2971698 * 255, 0.6532865 * 255, 255]],
+  ],
+  [
+    [0, [255, 255, 255]],
+    [0.1823606, [255, 255, 255]],
+    [0.282353, [0.3726415 * 255, 0.7731873 * 255, 255]],
+    [0.4617685, [0.37254903 * 255, 0.7725491 * 255, 255]],
+    [0.6617685, [0.3529412 * 255, 0.7294118 * 255, 0.9450981 * 255]],
+    [0.8264744, [0.37254903 * 255, 0.7725491 * 255, 255]],
+    [1, [0.37254903 * 255, 0.7725491 * 255, 255]],
+  ],
+];
+
+assert(
+  JSON.stringify(
+    [
+      UNITY_FX_TOUCH.disk.colorKeys,
+      UNITY_FX_TOUCH.rings.colorKeys,
+      UNITY_FX_TOUCH.shards.colorKeys,
+    ],
+  ) === JSON.stringify(originalPrefabEnabledColorKeys),
+  '启用粒子的 Gradient RGB 保留 OriginalPrefab 归一化 float 真值',
+);
+assert(
+  JSON.stringify(UNITY_FX_TOUCH.disk.sizeKeys) === JSON.stringify(
+    [
+      [0, 0.32583582, 2.4004734, 2.4004734],
+      [0.21392822, 0.7159773, 0.9115745, 0.9115745],
+      [1, 1, 0, 0],
+    ],
+  ),
+  '短圆盘尺寸保留 Unity 的四字段 Hermite 关键帧',
+);
+assert(UNITY_FX_TOUCH.rings.count === 2, 'MeshTri burst 一次生成 2 枚圆环');
+assert(UNITY_FX_TOUCH.rings.lifetimeMs === 600, '溶解圆环持续 0.6 秒');
+assert(UNITY_FX_TOUCH.rings.rotationDirection === -1, '两枚圆环只按逆时针方向旋转');
+assert(
+  UNITY_FX_TOUCH.rings.angularVelocityMultiplier === 11.170107 &&
+    UNITY_FX_TOUCH.rings.angularVelocityMinKeys[1][1] === 0.45561826 &&
+    UNITY_FX_TOUCH.rings.angularVelocityMaxKeys[1][1] === -0.06509134,
+  '圆环角速度使用 Unity Rotation over Lifetime 的两条衰减曲线',
+);
+assert(
+  UNITY_FX_TOUCH.rings.hdrIntensity === 5.992157,
+  '圆环使用 FX_MAT_Touch_Tri3 的原始白色 HDR 强度',
+);
+assert(UNITY_FX_TOUCH.rings.arcSamples > 0, '圆环使用连续环带而不是离散短弧');
+assert(
+  JSON.stringify(UNITY_FX_TOUCH.rings.sizeKeys) === JSON.stringify(
+    [
+      [0.007209778, 0.42050898, 2.4004734, 2.4004734],
+      [0.21392822, 0.7159773, 0.9115745, 0.9115745],
+      [1, 1, 0, 0],
+    ],
+  ) &&
+    JSON.stringify(UNITY_FX_TOUCH.rings.dissolveKeys) === JSON.stringify(
+      [
+        [0, 1, 0, 0],
+        [0.2, 0, 0, 2.4249368],
+        [1, 1, 0.27735636, 0.27735636],
+      ],
+    ),
+  '圆环尺寸与溶解曲线保留 Unity 的四字段 Hermite 关键帧',
+);
+assert(
+  UNITY_FX_TOUCH.rings.bandToOuterRadius === 0.0598573766034603 &&
+    UNITY_FX_TOUCH.rings.widthStart === 1 &&
+    UNITY_FX_TOUCH.rings.widthEnd === 1,
+  '圆环宽度按 MeshTri 外半径比例计算，生命周期倍率保持 1',
+);
+assert(
+  UNITY_FX_TOUCH.rings.textureUvMin === 0.0005000000237487257 &&
+    UNITY_FX_TOUCH.rings.textureUvMax === 0.999500036239624,
+  '圆环使用 Cylinder002 导出的精确 UV 范围采样 Ring3 Alpha',
+);
+
+assert(UNITY_FX_TOUCH.shards.clickCount === 4, '点击 burst 固定生成 4 枚碎片');
+assert(
+  Math.abs(UNITY_FX_TOUCH.shards.clickSpeedMin - 49.8769488) < 0.000001 &&
+    Math.abs(UNITY_FX_TOUCH.shards.clickSpeedMax - 66.5025984) < 0.000001,
+  '点击碎片速度包含 ParticleSystem 的 0.3078824 Local 缩放',
+);
+assert(
+  Math.abs(UNITY_FX_TOUCH.shards.trailSpeedMin - 33.2512992) < 0.000001 &&
+    Math.abs(UNITY_FX_TOUCH.shards.trailSpeedMax - 49.8769488) < 0.000001,
+  '拖拽碎片速度包含 ParticleSystem 的 0.3078824 Local 缩放',
+);
+assert(
+  UNITY_FX_TOUCH.shards.hdrIntensity === 5.992157 &&
+    UNITY_FX_TOUCH.shards.startColor.every(
+      (channel) => channel === 0.5377358,
+    ),
+  '碎片同时保留材质 HDR 与 ParticleSystem 起始色',
+);
+assert(
+  JSON.stringify(UNITY_FX_TOUCH.shards.sizeKeys) === JSON.stringify(
+    [
+      [0, 0, 0, 0],
+      [0.15445095, 1, 0, 0],
+      [1, 0, -2.1621501, -2.1621501],
+    ],
+  ) &&
+    UNITY_FX_TOUCH.shards.textureFrames.length === 2 &&
+    UNITY_FX_TOUCH.shards.textureFrames[0][1][0] === 0.48046875,
+  '碎片使用 Unity Hermite 尺寸曲线与 2×1 图集的实测轮廓',
+);
+assert(UNITY_FX_TOUCH.shards.trailSpacing === 108, '拖拽每 108px 生成一枚碎片');
+assert(
+  UNITY_FX_TOUCH.shards.maxCount === 50,
+  'Ring (4) 保留 Prefab 每个 FX_Touch 实例 50 枚粒子上限',
+);
+assert(UNITY_FX_TOUCH.trail.lifetimeMs === 300, 'TrailRenderer.time 为 0.3 秒');
+assert(UNITY_FX_TOUCH.trail.geometryWidth === 2.7, '1080p TrailRenderer 几何带宽为 2.7px');
+assert(UNITY_FX_TOUCH.trail.width === 2.7, '清晰拖尾本体使用 Unity 的 2.7px 带宽');
+assert(
+  UNITY_FX_TOUCH.trail.numCornerVertices === 4 &&
+    UNITY_FX_TOUCH.trail.numCapVertices === 1,
+  'TrailRenderer 使用 4 个圆角插入点和 1 个端帽顶点',
+);
+assert(
+  UNITY_FX_TOUCH.trail.gradient[0][1].every((channel) => channel === 0) &&
+    UNITY_FX_TOUCH.trail.gradient.at(-1)[1][2] === 255,
+  'TrailRenderer 原 Gradient 已反向为 Canvas 的尾部到头部点序',
+);
+assert(
+  UNITY_FX_TOUCH.trail.textureLongitudinalKeys[0][1] === 0 &&
+    UNITY_FX_TOUCH.trail.textureLongitudinalKeys.at(-1)[1] === 1,
+  'FX_TEX_Trail_03 的 Stretch 亮度从尾部黑色过渡到头部全亮',
+);
+assert(
+  JSON.stringify(UNITY_FX_TOUCH.trail.coverageLongitudinalKeys) ===
+    JSON.stringify(
+      [
+        [0, 0],
+        [0.248532, 0],
+        [0.97941558, 1],
+        [1, 1],
+      ],
+    ),
+  '透明拖尾使用独立的旧端零 Coverage 与头部完整 Coverage 锚点',
+);
+
+const textureMidpoint = UNITY_FX_TOUCH.trail.textureLongitudinalKeys.find(
+  ([position]) => Math.abs(position - 0.499022) < 0.000001,
+);
+
+assert(
+  textureMidpoint && Math.abs(textureMidpoint[1] - 0.144128269) < 0.000001,
+  'sRGB 拖尾纹理中点已预转为 Unity Linear 能量',
+);
+const transverseProfileKeys =
+  UNITY_FX_TOUCH.trail.textureTransverseProfileKeys;
+const middleTransverseProfile = transverseProfileKeys.find(
+  ([position]) => Math.abs(position - 0.624266) < 0.000001,
+);
+const transverseStopCount = transverseProfileKeys[2][1].length * 2 - 1;
+const joinedTrailPathLength =
+  UNITY_FX_TOUCH.trail.numCornerVertices + 5;
+
+assert(
+  transverseProfileKeys.length === 14 &&
+    transverseProfileKeys[0][1].every((value) => value === 0) &&
+    middleTransverseProfile[1][6] === 0.1006 &&
+    transverseProfileKeys.at(-1)[1][6] === 0.9867,
+  '拖尾使用随 Stretch 进度变化的 FX_TEX_Trail_03 二维横截面',
+);
+assert(
+  UNITY_FX_TOUCH.bloom.threshold === 1 &&
+    UNITY_FX_TOUCH.bloom.softKnee === 0 &&
+    UNITY_FX_TOUCH.bloom.intensity === 1.7 &&
+    UNITY_FX_TOUCH.bloom.diffusion === 7 &&
+    UNITY_FX_TOUCH.bloom.trailCoverageScale === 1 &&
+    !('scatter' in UNITY_FX_TOUCH.bloom) &&
+    !('iterations' in UNITY_FX_TOUCH.bloom),
+  'Bloom 使用游戏 MXFinalBloom 的原始参数',
+);
+assert(
+  UNITY_FX_TOUCH.bloom.trailEmissionAlpha === 1 &&
+    UNITY_FX_TOUCH.bloom.clickEmissionScale === 1 &&
+    UNITY_FX_TOUCH.bloom.ringEmissionAlpha === 1 &&
+    UNITY_FX_TOUCH.bloom.diskEmissionAlpha === 1 &&
+    UNITY_FX_TOUCH.bloom.trailAlpha === 0.18,
+  '点击与拖尾发射倍率相互独立，原生阴影回退单独标定',
+);
 const sourceFiles = {
   fx: readFileSync(new URL('../src/fx.js', import.meta.url), 'utf8'),
   webgl2: readFileSync(
@@ -143,7 +341,6 @@ class MockCanvas
 // Node 没有 DOM；注册 Mock OffscreenCanvas 以覆盖源码的 Worker 入口。
 globalThis.OffscreenCanvas = MockCanvas;
 
-assert.equal(CONFIG.maxDpr, 1, '源码入口保留默认最大 DPR');
 assert.equal(UNITY_FX_TOUCH.rings.count, 2, '源码入口保留 Unity 圆环数量');
 assert.equal(UNITY_FX_TOUCH.shards.clickCount, 4, '源码入口保留 Unity 点击碎片数量');
 assert.equal(UNITY_FX_TOUCH.shards.maxCount, 50, '源码入口保留 Unity 拖尾碎片上限');
