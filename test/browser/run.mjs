@@ -20,6 +20,15 @@ const optional = process.argv.includes('--optional');
 const calibrate = process.argv.includes('--calibrate');
 const unityCountsOnly = process.argv.includes('--unity-counts-only');
 const demoOnly = process.argv.includes('--demo-only');
+const suiteArgument = process.argv.find((argument) =>
+  argument.startsWith('--suite='));
+const requestedSuite = suiteArgument?.slice('--suite='.length) ??
+  (unityCountsOnly ? 'unity' : demoOnly ? 'demo' : 'full');
+const suite = ['full', 'core', 'lifecycle', 'demo', 'unity'].includes(
+  requestedSuite,
+)
+  ? requestedSuite
+  : 'full';
 const sourceRuntime = process.argv.includes('--source');
 const fixturePath = sourceRuntime
   ? '/test/browser/fixture.html?runtime=source'
@@ -6234,8 +6243,54 @@ async function runHostCompositingAccuracy(page)
   };
 }
 
-async function runMatrix(browserInstance, baseUrl, baseline)
+async function runEffectLifecycleContracts(page, mode)
 {
+  const timelines =
+  {
+    click: await collectLifecycleTimeline(
+      page,
+      mode,
+      'click',
+      lifecycleSampleTimes,
+    ),
+    disk: await collectLifecycleTimeline(
+      page,
+      mode,
+      'disk',
+      [0, 40, 79, 120, 199, 300],
+    ),
+    trail: await collectLifecycleTimeline(
+      page,
+      mode,
+      'trail',
+      lifecycleSampleTimes,
+    ),
+    hit: await collectLifecycleTimeline(
+      page,
+      mode,
+      'hit',
+      [0, 40, 79, 120],
+    ),
+    noHit: await collectLifecycleTimeline(
+      page,
+      mode,
+      'noHit',
+      [0, 40, 79, 120],
+    ),
+  };
+
+  currentLabel = `${mode}__effect-lifecycle`;
+  validateEffectLifecycle(mode, timelines);
+  metrics.effectLifecycle[mode] = Object.fromEntries(
+    Object.entries(timelines).map(([variant, timeline]) =>
+      [variant, Object.fromEntries(timeline)]),
+  );
+}
+
+async function runMatrix(browserInstance, baseUrl, baseline, selectedSuite = 'full')
+{
+  const runCore = selectedSuite === 'full' || selectedSuite === 'core';
+  const runLifecycle = selectedSuite === 'full' || selectedSuite === 'lifecycle';
   const caseResults = new Map();
   const calibration =
   {
@@ -6266,6 +6321,8 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     modes: {},
   };
 
+  if (runCore)
+  {
   for (const dpr of devicePixelRatios)
   {
     currentLabel = `fixture-startup-dpr-${dpr}`;
@@ -6705,48 +6762,12 @@ async function runMatrix(browserInstance, baseUrl, baseline)
           );
       }
 
-      for (const mode of modeNames)
+      if (selectedSuite === 'full')
       {
-        const timelines =
+        for (const mode of modeNames)
         {
-          click: await collectLifecycleTimeline(
-            page,
-            mode,
-            'click',
-            lifecycleSampleTimes,
-          ),
-          disk: await collectLifecycleTimeline(
-            page,
-            mode,
-            'disk',
-            [0, 40, 79, 120, 199, 300],
-          ),
-          trail: await collectLifecycleTimeline(
-            page,
-            mode,
-            'trail',
-            lifecycleSampleTimes,
-          ),
-          hit: await collectLifecycleTimeline(
-            page,
-            mode,
-            'hit',
-            [0, 40, 79, 120],
-          ),
-          noHit: await collectLifecycleTimeline(
-            page,
-            mode,
-            'noHit',
-            [0, 40, 79, 120],
-          ),
-        };
-
-        currentLabel = `${mode}__effect-lifecycle`;
-        validateEffectLifecycle(mode, timelines);
-        metrics.effectLifecycle[mode] = Object.fromEntries(
-          Object.entries(timelines).map(([variant, timeline]) =>
-            [variant, Object.fromEntries(timeline)]),
-        );
+          await runEffectLifecycleContracts(page, mode);
+        }
       }
 
     }
@@ -6762,7 +6783,10 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     await page.evaluate(() => window.browserPixelSuite.dispose());
     await session.context.close();
   }
+  }
 
+  if (runLifecycle)
+  {
   currentLabel = 'trail-texture-resource-fixture-startup';
   const trailResourceSession = await openFixture(browserInstance, baseUrl, 1);
 
@@ -6801,6 +6825,10 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     const contextResults = new Map();
 
     currentPage = contextSession.page;
+    if (selectedSuite === 'lifecycle')
+    {
+      await runEffectLifecycleContracts(contextSession.page, mode);
+    }
     for (const opacity of opacities)
     {
       currentLabel = `${mode}__context-lifecycle-opacity-${opacity}`;
@@ -7065,7 +7093,10 @@ async function runMatrix(browserInstance, baseUrl, baseline)
     await contextSession.page.evaluate(() => window.browserPixelSuite.dispose());
     await contextSession.context.close();
   }
+  }
 
+  if (runCore)
+  {
   for (const mode of modeNames)
   {
     for (const isolatedCompositing of isolationModes)
@@ -7094,6 +7125,7 @@ async function runMatrix(browserInstance, baseUrl, baseline)
         `${mode}/${variant}`,
       );
     }
+  }
   }
 
   return calibration;
@@ -7190,7 +7222,12 @@ async function main()
     throw new Error(message);
   }
 
-  if (!unityCountsOnly && !demoOnly)
+  const isUnitySuite = suite === 'unity' || unityCountsOnly;
+  const isDemoSuite = suite === 'demo' || demoOnly;
+
+  const needsBaseline = suite === 'full' || suite === 'core';
+
+  if (needsBaseline)
   {
     assert(
       existsSync(baselinePath) || calibrate,
@@ -7240,7 +7277,7 @@ async function main()
   );
   const startedAt = performance.now();
 
-  if (unityCountsOnly)
+  if (isUnitySuite)
   {
     await runUnityCountGate(browser, baseUrl);
     const durationMs = performance.now() - startedAt;
@@ -7252,8 +7289,7 @@ async function main()
     console.log(`浏览器：${browserVersion}`);
     return;
   }
-
-  if (demoOnly)
+  if (isDemoSuite)
   {
     await runDemoMobileTouchSmoke(browser, baseUrl);
     await runDemoTimeScaleControlSmoke(browser, baseUrl);
@@ -7270,7 +7306,7 @@ async function main()
     return;
   }
 
-  const calibration = await runMatrix(browser, baseUrl, baseline);
+  const calibration = await runMatrix(browser, baseUrl, baseline, suite);
   const durationMs = performance.now() - startedAt;
 
   if (calibrate)
