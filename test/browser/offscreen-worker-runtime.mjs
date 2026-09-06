@@ -1,89 +1,12 @@
 import assert from 'node:assert/strict';
-import { accessSync, constants } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { createServer as createNetServer } from 'node:net';
-import { chromium } from 'playwright-core';
-import { createServer as createViteServer } from 'vite';
+import { resolve } from 'node:path';
+import {
+  findChromiumExecutable,
+  launchChromium,
+  startViteServer,
+} from './harness.mjs';
 
 const rootDir = resolve(import.meta.dirname, '../..');
-
-function findExecutable()
-{
-  const programFiles = process.env.ProgramFiles;
-  const programFilesX86 = process.env['ProgramFiles(x86)'];
-  const localAppData = process.env.LOCALAPPDATA;
-  const candidates =
-  [
-    process.env.BACLICKFX_CHROMIUM_PATH,
-    programFilesX86 && join(
-      programFilesX86,
-      'Microsoft',
-      'Edge',
-      'Application',
-      'msedge.exe',
-    ),
-    programFiles && join(
-      programFiles,
-      'Microsoft',
-      'Edge',
-      'Application',
-      'msedge.exe',
-    ),
-    localAppData && join(
-      localAppData,
-      'Microsoft',
-      'Edge',
-      'Application',
-      'msedge.exe',
-    ),
-    programFiles && join(
-      programFiles,
-      'Google',
-      'Chrome',
-      'Application',
-      'chrome.exe',
-    ),
-    '/usr/bin/google-chrome',
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-  ];
-
-  for (const candidate of candidates)
-  {
-    if (!candidate)
-    {
-      continue;
-    }
-
-    try
-    {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    }
-    catch
-    {
-      // Continue with the next system browser candidate.
-    }
-  }
-
-  return null;
-}
-
-async function getAvailablePort()
-{
-  const probe = createNetServer();
-
-  await new Promise((resolvePromise, rejectPromise) =>
-  {
-    probe.once('error', rejectPromise);
-    probe.listen(0, '127.0.0.1', resolvePromise);
-  });
-  const { port } = probe.address();
-
-  await new Promise((resolvePromise) => probe.close(resolvePromise));
-  return port;
-}
 
 async function waitForWorkerPixels(
   page,
@@ -113,7 +36,7 @@ async function waitForWorkerPixels(
 
 async function main()
 {
-  const executablePath = findExecutable();
+  const executablePath = findChromiumExecutable();
 
   if (!executablePath)
   {
@@ -122,40 +45,12 @@ async function main()
     );
   }
 
-  const port = await getAvailablePort();
-  const vite = await createViteServer(
-    {
-      appType: 'spa',
-      clearScreen: false,
-      logLevel: 'error',
-      root: rootDir,
-      server:
-      {
-        host: '127.0.0.1',
-        port,
-        strictPort: true,
-      },
-    },
-  );
+  const { baseUrl, server: vite } = await startViteServer(rootDir);
   let browser = null;
 
   try
   {
-    await vite.listen();
-    browser = await chromium.launch(
-      {
-        executablePath,
-        headless: true,
-        args:
-        [
-          '--disable-background-networking',
-          '--disable-extensions',
-          '--force-color-profile=srgb',
-          '--ignore-gpu-blocklist',
-          '--use-angle=swiftshader',
-        ],
-      },
-    );
+    browser = await launchChromium(executablePath);
     const page = await browser.newPage(
       { viewport: { width: 360, height: 280 } },
     );
@@ -170,7 +65,7 @@ async function main()
     });
     page.on('pageerror', (error) => browserErrors.push(error.message));
     await page.goto(
-      `http://127.0.0.1:${port}/test/browser/offscreen-worker.html`,
+      `${baseUrl}/test/browser/offscreen-worker.html`,
       { waitUntil: 'load' },
     );
     const ready = await page.evaluate(() => window.offscreenWorkerReady);
