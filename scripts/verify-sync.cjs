@@ -9,6 +9,11 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
+const requestedScope = process.env.BA_CLICK_FX_VERIFY_SCOPE ?? 'all';
+const verifyScope = ['all', 'demo', 'runtime'].includes(requestedScope)
+  ? requestedScope
+  : 'all';
+let activeScope = 'demo';
 const indexHtml = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const mainJs = fs.readFileSync(path.join(root, 'src', 'main.js'), 'utf8');
 const readmeZh = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
@@ -40,6 +45,11 @@ const typeDefinitions = fs.readFileSync(
 
 function verify(condition, message)
 {
+  if (verifyScope !== 'all' && verifyScope !== activeScope)
+  {
+    return;
+  }
+
   if (!condition)
   {
     throw new Error(`[verify-sync] ${message}`);
@@ -1246,6 +1256,10 @@ verify(
     /effect\.setThemeColor\('#4ca7ff'\)/.test(mainJs),
   '展示页首次加载与重置都使用游戏基准蓝',
 );
+
+// 展示页合同位于前半段，公共库与运行时合同从这里开始。
+activeScope = 'runtime';
+
 verify(
   /DEFAULT_THEME_COLOR_MODE = 'relative-oklch'/.test(configJs) &&
     /themeColorMode: DEFAULT_THEME_COLOR_MODE/.test(configJs) &&
@@ -1254,6 +1268,10 @@ verify(
     /DEFAULT_THEME_COLOR_MODE,/.test(engineJs),
   '公共库默认使用相对 OKLCH 并导出主题模式 API',
 );
+
+// 主题控件、持久化和 README 文案属于 Demo/文档合同；运行时入口只检查
+// 公共配置、类型声明与引擎实现，避免同一条 UI 正则在两个门禁重复执行。
+activeScope = 'demo';
 verify(
   /id="ctrlThemeColorMode"/.test(indexHtml) &&
     /value="relative-oklch" selected/.test(indexHtml) &&
@@ -1281,6 +1299,8 @@ verify(
     /relative-oklch/.test(readmeEn),
   '主题映射模式已同步类型声明与中英文文档',
 );
+
+activeScope = 'runtime';
 verify(
   /isolatedCompositing: false/.test(configJs) &&
     /lightBackgroundContrastAlpha: 0/.test(configJs) &&

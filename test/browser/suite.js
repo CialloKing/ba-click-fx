@@ -90,16 +90,9 @@ window.cancelAnimationFrame = (id) =>
 };
 
 window.__BACLICKFX_PIXEL_PROGRESS__ = 'importing-runtime';
-// Default browser coverage targets the built package; source coverage is opt-in.
-const runtimeKind = new URLSearchParams(window.location.search).get('runtime') ===
-  'source'
-  ? 'source'
-  : 'dist';
-const runtimeExports = await import(
-  runtimeKind === 'source'
-    ? '../../src/fx.js'
-    : '../../dist/ba-click-fx.js',
-);
+// Browser pixels are release-gated against the built runtime; source contracts
+// cover static source/resource parity without duplicating this matrix.
+const runtimeExports = await import('../../dist/ba-click-fx.js');
 const {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
@@ -2928,7 +2921,7 @@ function getStageClip()
 
 window.browserPixelSuite = Object.freeze(
   {
-    runtimeKind,
+    runtimeKind: 'dist',
     modeNames: Object.keys(MODE_CONFIGS),
     beginTransparentContractTransitions,
     runCase,
