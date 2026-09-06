@@ -97,10 +97,9 @@
     "verify:demo-sync": "node scripts/verify-demo-sync.cjs",
     "verify:unity-reference": "node scripts/verify-unity-reference.mjs",
     "verify:package": "node scripts/verify-package.mjs",
-    "verify:pack": "node scripts/verify-pack.mjs",
     "verify:tarball": "node scripts/verify-tarball.mjs",
     "check:fast": "npm test && npm run verify:runtime-sync",
-    "check": "npm run build && npm test && npm run verify:runtime-sync && npm run verify:demo-sync && npm run verify:package && npm run verify:pack && npm run verify:tarball",
+    "check": "npm run build && npm test && npm run verify:runtime-sync && npm run verify:demo-sync && npm run verify:package && npm run verify:tarball",
     "check:release": "npm run check && npm run test:browser:core && npm run test:browser:worker && npm run test:browser:lifecycle && npm run test:browser:demo && npm run test:browser:unity && npm run test:browser:webgpu:optional",
     "prepack": "npm run build",
     "prepublishOnly": "npm run check:release"

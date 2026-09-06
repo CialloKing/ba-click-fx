@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -11,10 +12,24 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const packageJson = JSON.parse(readFileSync(resolve(rootDir, 'package.json'), 'utf8'));
 const npmCli = process.env.npm_execpath;
 const typescriptCompiler = resolve(rootDir, 'node_modules', 'typescript', 'bin', 'tsc');
 const temporaryRoot = resolve(tmpdir());
 const temporaryDirectory = mkdtempSync(join(temporaryRoot, 'ba-click-fx-'));
+const expectedPackageFiles = [
+  'LICENSE',
+  'README.en.md',
+  'README.md',
+  'THIRD_PARTY_NOTICES.md',
+  'dist/ba-click-fx.d.ts',
+  'dist/ba-click-fx.js',
+  'dist/config.d.ts',
+  'dist/config.js',
+  'dist/worker.d.ts',
+  'dist/worker.js',
+  'package.json',
+].sort();
 const requiredRuntimeMethods = [
   'boom',
   'pointerDown',
@@ -143,7 +158,22 @@ try
 
   verify(Array.isArray(packResult) && packResult.length === 1, 'npm pack returned an invalid result');
 
-  const tarballPath = resolve(temporaryDirectory, packResult[0].filename);
+  const packageResult = packResult[0];
+  // 同一次真实打包同时验证清单与消费行为，避免另跑 dry-run。
+  const packedFiles = packageResult.files.map((file) => file.path).sort();
+
+  verify(packageResult.name === packageJson.name, 'packed package name is incorrect');
+  verify(packageResult.version === packageJson.version, 'packed package version is incorrect');
+  verify(
+    packageResult.entryCount === expectedPackageFiles.length,
+    `packed package must contain exactly ${expectedPackageFiles.length} files`,
+  );
+  verify(
+    JSON.stringify(packedFiles) === JSON.stringify(expectedPackageFiles),
+    `packed file list differs from the expected list:\n${packedFiles.join('\n')}`,
+  );
+
+  const tarballPath = resolve(temporaryDirectory, packageResult.filename);
   const consumerDirectory = join(temporaryDirectory, 'consumer');
 
   verify(existsSync(tarballPath), 'npm pack did not create the expected tarball');
