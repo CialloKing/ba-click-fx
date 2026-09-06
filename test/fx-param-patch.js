@@ -8,15 +8,6 @@ import assert from 'node:assert/strict';
 import { UNITY_FX_TOUCH } from '../src/config.js';
 import { applyFxParamPatch } from '../src/fx-param-patch.js';
 
-let passed = 0;
-
-function check(condition, message)
-{
-  assert.ok(condition, message);
-  passed++;
-  console.log(`  ✓ ${message}`);
-}
-
 function createBaseline()
 {
   return structuredClone(UNITY_FX_TOUCH);
@@ -326,4 +317,4 @@ const emptyResetResult = applyFxParamPatch(
 assert.equal(emptyResetResult.committed, true);
 assert.deepEqual(emptyResetResult.nextConfig, resetBaseline);
 
-console.log(`\n参数补丁测试完成：${passed} 项通过。`);
+console.log('\n参数补丁测试完成。');
