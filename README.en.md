@@ -914,6 +914,8 @@ npm run build
 npm test
 ```
 
+Test entry points are grouped by responsibility. `npm test` runs `test:unit`, `test:source-contract`, `test:runtime`, and `test:worker` once each; the default `test:browser` covers only the dist pixel matrix and the real Worker. Run lifecycle, Demo, Unity-count, and optional WebGPU checks separately with `test:browser:lifecycle`, `test:browser:demo`, `test:browser:unity`, and `test:browser:webgpu:optional`.
+
 ---
 
 ## Star History

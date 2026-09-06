@@ -939,6 +939,8 @@ npm run check
 
 `check` 会按顺序完成构建、测试、演示同步、版本/入口、npm 精确文件清单和本地包安装检查。
 
+测试入口按职责分组：`npm test` 依次运行 `test:unit`、`test:source-contract`、`test:runtime` 与 `test:worker`；默认 `test:browser` 只运行 dist 核心像素矩阵和真实 Worker。生命周期、Demo、Unity 数量和可选 WebGPU 使用 `test:browser:lifecycle`、`test:browser:demo`、`test:browser:unity` 与 `test:browser:webgpu:optional` 单独执行。
+
 ---
 
 ## Star 历史
