@@ -165,9 +165,10 @@ npm run check:release
 需要重新校准时，只能在上述检查完成后执行：
 
 ```powershell
-npm run test:browser:built -- --calibrate
+npm run build
+npm run test:browser:core -- --calibrate
 git diff -- test/browser/baseline.json
-npm run test:browser:built
+npm run test:browser:core
 ```
 
 ## 快速排查命令

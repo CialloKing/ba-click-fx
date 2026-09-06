@@ -1,38 +1,32 @@
-import { spawnSync } from 'node:child_process';
 import {
-  accessSync,
-  constants,
   existsSync,
-  mkdirSync,
   readFileSync,
-  writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { createServer as createNetServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright-core';
-import { createServer as createViteServer } from 'vite';
+import {
+  findChromiumExecutable,
+  getExecutableVersion,
+  launchChromium,
+  startViteServer,
+  writeFailureArtifacts,
+} from './harness.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const baselinePath = join(rootDir, 'test', 'browser', 'baseline.json');
 const artifactDir = join(rootDir, 'test-results', 'browser-pixels');
 const optional = process.argv.includes('--optional');
 const calibrate = process.argv.includes('--calibrate');
-const unityCountsOnly = process.argv.includes('--unity-counts-only');
-const demoOnly = process.argv.includes('--demo-only');
 const suiteArgument = process.argv.find((argument) =>
   argument.startsWith('--suite='));
 const requestedSuite = suiteArgument?.slice('--suite='.length) ??
-  (unityCountsOnly ? 'unity' : demoOnly ? 'demo' : 'full');
+  'full';
 const suite = ['full', 'core', 'lifecycle', 'demo', 'unity'].includes(
   requestedSuite,
 )
   ? requestedSuite
   : 'full';
-const sourceRuntime = process.argv.includes('--source');
-const fixturePath = sourceRuntime
-  ? '/test/browser/fixture.html?runtime=source'
-  : '/test/browser/fixture.html?runtime=dist';
+const fixturePath = '/test/browser/fixture.html?runtime=dist';
 const modeNames = [
   'full-webgl2',
   'webgl2-bloom',
@@ -123,146 +117,6 @@ function assert(condition, message, detail = null)
   }
 
   assertionCount++;
-}
-
-function findExecutable(candidates)
-{
-  for (const candidate of candidates)
-  {
-    if (!candidate)
-    {
-      continue;
-    }
-
-    try
-    {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    }
-    catch
-    {
-      // 继续检查下一个系统安装位置。
-    }
-  }
-
-  return null;
-}
-
-function findChromiumExecutable()
-{
-  const explicit = process.env.BACLICKFX_CHROMIUM_PATH;
-
-  if (explicit)
-  {
-    // CI 显式路径失效时必须失败，不能静默改用另一个浏览器。
-    return findExecutable([explicit]);
-  }
-
-  const programFiles = process.env.ProgramFiles;
-  const programFilesX86 = process.env['ProgramFiles(x86)'];
-  const localAppData = process.env.LOCALAPPDATA;
-  const candidates = [
-    programFilesX86 && join(
-      programFilesX86,
-      'Microsoft',
-      'Edge',
-      'Application',
-      'msedge.exe',
-    ),
-    programFiles && join(
-      programFiles,
-      'Microsoft',
-      'Edge',
-      'Application',
-      'msedge.exe',
-    ),
-    localAppData && join(
-      localAppData,
-      'Microsoft',
-      'Edge',
-      'Application',
-      'msedge.exe',
-    ),
-    programFiles && join(
-      programFiles,
-      'Google',
-      'Chrome',
-      'Application',
-      'chrome.exe',
-    ),
-    programFilesX86 && join(
-      programFilesX86,
-      'Google',
-      'Chrome',
-      'Application',
-      'chrome.exe',
-    ),
-    '/usr/bin/microsoft-edge',
-    '/usr/bin/microsoft-edge-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  ];
-
-  return findExecutable(candidates);
-}
-
-function getExecutableVersion(executablePath)
-{
-  if (process.platform === 'win32')
-  {
-    const escapedPath = executablePath.replaceAll("'", "''");
-    const result = spawnSync(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-Command',
-        `(Get-Item -LiteralPath '${escapedPath}').VersionInfo.ProductVersion`,
-      ],
-      {
-        encoding: 'utf8',
-      },
-    );
-
-    return result.stdout.trim() || 'unknown';
-  }
-
-  const result = spawnSync(executablePath, ['--version'],
-    {
-      encoding: 'utf8',
-    });
-
-  return result.stdout.trim() || result.stderr.trim() || 'unknown';
-}
-
-async function getAvailablePort()
-{
-  const probe = createNetServer();
-
-  await new Promise((resolvePromise, rejectPromise) =>
-  {
-    probe.once('error', rejectPromise);
-    probe.listen(0, '127.0.0.1', resolvePromise);
-  });
-  const address = probe.address();
-
-  await new Promise((resolvePromise, rejectPromise) =>
-  {
-    probe.close((error) =>
-    {
-      if (error)
-      {
-        rejectPromise(error);
-        return;
-      }
-
-      resolvePromise();
-    });
-  });
-  return address.port;
 }
 
 function relativeDifference(left, right)
@@ -7160,48 +7014,6 @@ async function runUnityCountGate(browserInstance, baseUrl)
   }
 }
 
-async function writeFailureArtifacts(error)
-{
-  mkdirSync(artifactDir, { recursive: true });
-  const safeLabel = currentLabel.replaceAll(/[^a-zA-Z0-9_.-]+/g, '-');
-
-  if (currentPage)
-  {
-    try
-    {
-      await currentPage.screenshot(
-        {
-          animations: 'disabled',
-          fullPage: true,
-          path: join(artifactDir, `${safeLabel}.png`),
-        },
-      );
-    }
-    catch (screenshotError)
-    {
-      metrics.screenshotError = screenshotError.message;
-    }
-  }
-
-  writeFileSync(
-    join(artifactDir, 'failure.json'),
-    `${JSON.stringify(
-      {
-        label: currentLabel,
-        error:
-        {
-          message: error.message,
-          stack: error.stack,
-          detail: error.detail ?? null,
-        },
-        metrics,
-      },
-      null,
-      2,
-    )}\n`,
-  );
-}
-
 async function main()
 {
   const executablePath = findChromiumExecutable();
@@ -7222,8 +7034,8 @@ async function main()
     throw new Error(message);
   }
 
-  const isUnitySuite = suite === 'unity' || unityCountsOnly;
-  const isDemoSuite = suite === 'demo' || demoOnly;
+  const isUnitySuite = suite === 'unity';
+  const isDemoSuite = suite === 'demo';
 
   const needsBaseline = suite === 'full' || suite === 'core';
 
@@ -7241,40 +7053,10 @@ async function main()
   metrics.environment.executablePath = executablePath;
   metrics.environment.browserVersion = browserVersion;
   metrics.environment.node = process.version;
-  const availablePort = await getAvailablePort();
-
-  vite = await createViteServer(
-    {
-      appType: 'spa',
-      clearScreen: false,
-      logLevel: 'error',
-      root: rootDir,
-      server:
-      {
-        host: '127.0.0.1',
-        port: availablePort,
-        strictPort: true,
-      },
-    },
-  );
-  await vite.listen();
-  const address = vite.httpServer.address();
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-
-  browser = await chromium.launch(
-    {
-      args:
-      [
-        '--disable-background-networking',
-        '--disable-extensions',
-        '--force-color-profile=srgb',
-        '--ignore-gpu-blocklist',
-        '--use-angle=swiftshader',
-      ],
-      executablePath,
-      headless: true,
-    },
-  );
+  const viteRuntime = await startViteServer(rootDir);
+  vite = viteRuntime.server;
+  const baseUrl = viteRuntime.baseUrl;
+  browser = await launchChromium(executablePath);
   const startedAt = performance.now();
 
   if (isUnitySuite)
@@ -7328,7 +7110,13 @@ try
 }
 catch (error)
 {
-  await writeFailureArtifacts(error);
+  await writeFailureArtifacts({
+    artifactDir,
+    currentLabel,
+    currentPage,
+    metrics,
+    error,
+  });
   console.error(`\n[browser-pixels] FAIL (${currentLabel}): ${error.message}`);
 
   if (error.detail)
