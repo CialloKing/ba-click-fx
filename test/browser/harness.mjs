@@ -194,6 +194,12 @@ export function launchChromium(executablePath)
   );
 }
 
+export async function closeBrowserRuntime({ browser, vite })
+{
+  await browser?.close().catch(() => {});
+  await vite?.close().catch(() => {});
+}
+
 export async function writeFailureArtifacts({
   artifactDir,
   currentLabel,
@@ -241,4 +247,3 @@ export async function writeFailureArtifacts({
     )}\n`,
   );
 }
-

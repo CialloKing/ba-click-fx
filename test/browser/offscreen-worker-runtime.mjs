@@ -36,13 +36,21 @@ async function waitForWorkerPixels(
 
 async function main()
 {
+  const optional = process.argv.includes('--optional');
   const executablePath = findChromiumExecutable();
 
   if (!executablePath)
   {
-    throw new Error(
-      'No Chrome or Edge found; set BACLICKFX_CHROMIUM_PATH for the OffscreenCanvas test',
-    );
+    const message =
+      'No Chrome or Edge found; set BACLICKFX_CHROMIUM_PATH for the OffscreenCanvas test';
+
+    if (optional)
+    {
+      console.warn(`[browser-worker] SKIP: ${message}`);
+      return;
+    }
+
+    throw new Error(message);
   }
 
   const { baseUrl, server: vite } = await startViteServer(rootDir);

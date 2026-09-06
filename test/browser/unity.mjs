@@ -1,3 +1,4 @@
 import { runBrowserSuite } from './run-suite.mjs';
+import { runUnitySuite } from './unity-suite.mjs';
 
-runBrowserSuite('unity');
+await runBrowserSuite('unity', runUnitySuite);

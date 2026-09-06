@@ -1,3 +1,4 @@
 import { runBrowserSuite } from './run-suite.mjs';
+import { runDemoSuite } from './demo-suite.mjs';
 
-runBrowserSuite('demo');
+await runBrowserSuite('demo', runDemoSuite);
