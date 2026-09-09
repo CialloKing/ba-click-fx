@@ -210,6 +210,31 @@ To preserve the already reviewed colour, transparency, and edge sampling, a succ
 
 `outputCompositing: 'scene'` is the default and preserves Unity's direct additive RGB semantics for a Scene render target. The demo and integrations that require strict game reproduction should use it together with a `setCompositingReference()` image that pixel-matches the displayed background; this is the contract under which the complete GPU paths evaluate Scene RGB precisely. `'browser-overlay'` is selected explicitly by transparent desktop hosts such as BASpark, WebView2, and Electron. HDR emission and Bloom energy remain independent, while final alpha is no longer inferred from the largest final RGB channel.
 
+### Recommended Web Integration: Unknown-Background Compositing
+
+Most ordinary web pages cannot reliably read and upload the real pixels beneath the effect on every frame. Layered CSS backgrounds, scrolling content, animation, video, cross-origin images, and browser security rules all make a live background reference unavailable. When the host cannot provide an opaque `setCompositingReference()` image that matches the effect position pixel for pixel, use this combination for web integration:
+
+| Demo option | API configuration | Purpose |
+|---|---|---|
+| Output Compositing: **Transparent Overlay** | `outputCompositing: 'browser-overlay'` | Emits an independent alpha-bearing overlay for the web host to composite once |
+| Effect Reference: **Unknown Transparent Background (Compatibility)** | Omit the reference, or call `setCompositingReference(null)` | Does not assume that the library can read the page background |
+| Host Compositing: **DOM Add (Approximate)** | `hostCompositing: 'screen'` | Recommended default for unknown mid-tone, light, or changing backdrops; the increment contracts over light content |
+| Host Compositing: **Plus-lighter (Original Additive)** | `hostCompositing: 'plus-lighter'` | Suited to black, dark, or controlled hosts; preserves more aggressive additive output but saturates early over light content |
+
+Minimal example (`screen` and `plus-lighter` are alternatives chosen by the page backdrop):
+
+```js
+const fx = new BAClickFX(
+{
+  outputCompositing: 'browser-overlay',
+  hostCompositing: 'screen', // DOM Add (Approximate); use 'plus-lighter' for dark hosts
+});
+
+fx.setCompositingReference(null);
+```
+
+This path is an SDR visual approximation at the browser/DOM boundary, not a pixel-equivalent reproduction of Unity's linear HDR Scene. Use the default `scene` path only when a live, pixel-matched background reference is available or the host performs the composite in a linear HDR render target.
+
 Four orthogonal options further define transparent output over an unknown background. Alpha allocation and colour compensation never switch one another implicitly:
 
 | Configuration | Contract |

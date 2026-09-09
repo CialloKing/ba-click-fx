@@ -230,6 +230,31 @@ WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutp
 
 `outputCompositing: 'scene'` 是默认值，保持 Unity 面向 Scene Render Target 的直接加色 RGB 语义。展示页和要求严格游戏还原的集成都应使用该模式，并通过 `setCompositingReference()` 提供与实际底图逐像素匹配的已知背景；这是完整 GPU 路径精确求值 Scene RGB 的合同。`'browser-overlay'` 供 BASpark、WebView2、Electron 等透明桌面宿主显式选择，HDR 发射和 Bloom 能量仍独立计算，最终 Alpha 不再由最终 RGB 最大通道决定。
 
+### 网页集成推荐：未知背景输出合成
+
+大多数普通网页无法在每一帧可靠读取并上传特效下方的真实背景像素：CSS 多层背景、滚动内容、动画、视频、跨域图片和浏览器安全策略都会使“实时背景参考”不可用。若宿主不能提供与特效位置逐像素匹配的不透明 `setCompositingReference()`，网页集成建议使用下面这组配置：
+
+| 展示页选项 | API 配置 | 用途 |
+|---|---|---|
+| 输出合成：**透明覆盖层** | `outputCompositing: 'browser-overlay'` | 输出带 Alpha 的独立覆盖层，由网页宿主完成最后一次合成 |
+| 特效背景参考：**未知透明背景（兼容）** | 不提供参考，或调用 `setCompositingReference(null)` | 不假设库能够读到页面背景 |
+| 宿主合成：**DOM Add（近似）** | `hostCompositing: 'screen'` | 推荐默认选择；适合未知的中灰、浅色或变化背景，亮底会自动收敛 |
+| 宿主合成：**Plus-lighter（原始加色）** | `hostCompositing: 'plus-lighter'` | 适合黑色、暗色或可控宿主，保留更激进的加色；亮底容易提前饱和 |
+
+最小示例（`screen` 与 `plus-lighter` 按页面底色二选一）：
+
+```js
+const fx = new BAClickFX(
+{
+  outputCompositing: 'browser-overlay',
+  hostCompositing: 'screen', // DOM Add（近似）；暗色宿主可改为 'plus-lighter'
+});
+
+fx.setCompositingReference(null);
+```
+
+这条路径是浏览器/DOM 的 SDR 视觉近似，不是对 Unity 线性 HDR Scene 的逐像素复现。只有能够提供实时、逐像素匹配的背景参考，或由宿主在线性 HDR Render Target 中合成时，才应使用默认的 `scene` 精确路径。
+
 未知背景下的透明输出由四项正交配置继续细分。Alpha 分配与颜色补偿互不隐式切换：
 
 | 配置 | 合同 |
