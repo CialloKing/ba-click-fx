@@ -963,6 +963,15 @@ npm test
 
 Test entry points are grouped by responsibility. `npm test` runs `test:unit`, `test:source-contract`, `test:runtime`, and `test:worker` once each; the default `test:browser` covers only the dist pixel matrix and the real Worker. Run lifecycle, Demo, Unity-count, and optional WebGPU checks separately with `test:browser:lifecycle`, `test:browser:demo`, `test:browser:unity`, and `test:browser:webgpu:optional`.
 
+Before a release, run:
+
+```bash
+npm ci
+npm run check
+```
+
+`check` runs the build, tests, demo synchronization, version/entry-point checks, exact npm file-list validation, and local package-install checks in order.
+
 ---
 
 ## Star History

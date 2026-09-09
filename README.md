@@ -961,6 +961,19 @@ npm run test:browser:webgpu:optional
 
 资源审计与跨后端数量门禁通过后，再检查像素换算、DPR、时序、颜色空间、宿主合成和 Bloom；不要为了迎合视觉现象改写已经确认的 Unity 数值。
 
+从源码开始开发：
+
+```bash
+git clone https://github.com/CialloKing/ba-click-fx.git
+cd ba-click-fx
+npm install
+npm run dev
+npm run build
+npm test
+```
+
+测试入口按职责分组：`npm test` 依次运行 `test:unit`、`test:source-contract`、`test:runtime` 与 `test:worker`；默认 `test:browser` 只运行 dist 核心像素矩阵和真实 Worker。生命周期、Demo、Unity 数量和可选 WebGPU 使用 `test:browser:lifecycle`、`test:browser:demo`、`test:browser:unity` 与 `test:browser:webgpu:optional` 单独执行。
+
 发布前统一执行：
 
 ```bash
@@ -969,8 +982,6 @@ npm run check
 ```
 
 `check` 会按顺序完成构建、测试、演示同步、版本/入口、npm 精确文件清单和本地包安装检查。
-
-测试入口按职责分组：`npm test` 依次运行 `test:unit`、`test:source-contract`、`test:runtime` 与 `test:worker`；默认 `test:browser` 只运行 dist 核心像素矩阵和真实 Worker。生命周期、Demo、Unity 数量和可选 WebGPU 使用 `test:browser:lifecycle`、`test:browser:demo`、`test:browser:unity` 与 `test:browser:webgpu:optional` 单独执行。
 
 ---
 
