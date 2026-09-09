@@ -20,11 +20,11 @@ A parameter-level port of the **Blue Archive** UI click effect and cursor trail 
 > 🖱 点击、拖拽或移动鼠标即可预览特效。Click, drag, or move your mouse on the demo page to preview.
 
 <p align="center">
-  <img src="https://github.com/CialloKing/ba-click-fx/releases/download/v1.2.12/ba-click-fx-demo.gif" alt="demo" width="45%">
+  <img src="https://github.com/CialloKing/ba-click-fx/releases/download/v1.2.12/ba-click-fx-demo.gif" alt="demo（历史录制）" width="45%">
   &nbsp;&nbsp;
   <img src="./docs/assets/blue-archive-reference.gif" alt="game reference" width="45%">
 </p>
-<p align="center"><sub>ba-click-fx 项目演示（左） · 游戏内效果参考（右，仅用于效果对比）</sub></p>
+<p align="center"><sub>ba-click-fx 项目演示（左，v1.2.12 历史录制） · 游戏内效果参考（右，仅用于效果对比）</sub></p>
 
 > 🖥 **桌面版（Windows 测试版）**：[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) 使用 C++ / Win32 API / Direct3D 11 从零实现同样的特效，详见[桌面版](#桌面版windows-测试版)章节。
 
@@ -110,13 +110,18 @@ const fx = new BAClickFX();
 
 从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载 ESM 构建产物（`ba-click-fx.js`、`config.js`、`worker.js` 及对应 `.d.ts` 声明）：
 
+本包和 CDN 构建仅提供 ESM。浏览器直接引入时需要 `type="module"`；`require()` 和普通 `<script>` 标签不是当前发布格式，需要先由 bundler 打包。
+
 ```html
-<canvas id="myCanvas"></canvas>
+<div id="fx-host"></div>
+<style>#fx-host { position: relative; min-height: 240px; }</style>
 <script type="module">
   import { BAClickFX } from './ba-click-fx.js';
-  const fx = new BAClickFX({ target: '#myCanvas' });
+  const fx = new BAClickFX({ target: '#fx-host' });
 </script>
 ```
+
+省略 `target` 会创建全屏覆盖层；普通网页容器应使用定位元素。已有 `HTMLCanvasElement` 适合需要自行管理单张 Canvas 的宿主，但会关闭多层 DOM 合成并使完整 GPU/Bloom 路径安全降级。
 
 ---
 
@@ -131,6 +136,16 @@ const fx = new BAClickFX();
 | 宿主合成：**DOM Add（近似）** | `hostCompositing: 'screen'` | 推荐默认选择；适合未知的中灰、浅色或变化背景，亮底会自动收敛 |
 | 宿主合成：**Plus-lighter（原始加色）** | `hostCompositing: 'plus-lighter'` | 适合黑色、暗色或可控宿主，保留更激进的加色；亮底容易提前饱和 |
 
+宿主表面决定最后一次混合发生在哪里：
+
+| 宿主表面 | API 配置 | 合成边界 |
+|---|---|---|
+| DOM 背景（默认） | `hostCompositingSurface: 'dom-backdrop'` | 库拥有的覆盖层可由 DOM 执行 `screen` / `plus-lighter` |
+| 透明窗口 | `hostCompositingSurface: 'transparent-window'` | CSS 混合无法跨越操作系统窗口边界；未知背景下独立混合会解析为 `source-over` |
+| 原生合成器 | `hostCompositingSurface: 'native'` | 由外部 WebView/原生合成器执行最终混合，外部 Canvas 的样式仍由宿主管理 |
+
+在 `browser-overlay`、未知背景且请求 `screen` 或 `plus-lighter` 时，透明窗口会在 `getConfig()` 中报告 `resolvedHostCompositing: 'source-over'`，并设置 `compositingWarning` 为 `screen-requires-visible-backdrop` 或 `plus-lighter-requires-visible-backdrop`。已提供有效合成参考时同样恢复 `source-over`，避免重复混合。
+
 最小示例（`screen` 与 `plus-lighter` 按页面底色二选一）：
 
 ```js
@@ -138,6 +153,7 @@ const fx = new BAClickFX(
 {
   outputCompositing: 'browser-overlay',
   hostCompositing: 'screen', // DOM Add（近似）；暗色宿主可改为 'plus-lighter'
+  hostCompositingSurface: 'dom-backdrop',
 });
 
 fx.setCompositingReference(null);
@@ -162,21 +178,10 @@ fx.setCompositingReference(null);
 
 ## 常见用法
 
-挂载到指定 canvas：
-
 ```js
-const fx = new BAClickFX({ target: '#myCanvas' });
-```
+const fx = new BAClickFX();
 
-手动触发点击特效：
-
-```js
 fx.boom(window.innerWidth / 2, window.innerHeight / 2);
-```
-
-页面卸载时销毁：
-
-```js
 fx.destroy();
 ```
 
@@ -198,6 +203,7 @@ new BAClickFX(options?: {
   overlayColorCompensation?: 'none' | 'bright-core', // 覆盖层颜色补偿，默认 none
   overlayAlphaLimit?: number,      // 网页覆盖层 Alpha 上限，默认 250/255
   hostCompositing?: 'source-over' | 'screen' | 'plus-lighter', // 宿主合成，默认 source-over
+  hostCompositingSurface?: 'dom-backdrop' | 'transparent-window' | 'native', // 最终宿主表面，默认 dom-backdrop
   clickEnabled?: boolean,         // 启用点击特效，默认 true
   trailEnabled?: boolean,         // 启用拖尾，默认 true
   trailAlways?: boolean,          // 移动鼠标即显示拖尾（无需按下），默认 false
@@ -214,7 +220,6 @@ new BAClickFX(options?: {
   webgpuHdrWhiteStart?: number,   // Extended 白核起点 0~15.99，默认 1
   webgpuHdrWhiteEnd?: number,     // Extended 白核终点 0.01~16，默认 5
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // Bloom 后端，默认 webgl2
-  softwareBloomEnabled?: boolean, // 兼容旧 API：true 等同 software，false 等同 native
   isolatedCompositing?: boolean,  // 隔离合成，默认 false；true 为非游戏白底兼容选项
   lightBackgroundContrastAlpha?: number, // 浅色背景兼容层强度，默认 0
   maxDpr?: number,                // 最大设备像素比，默认 1；可按设备性能显式提高
@@ -222,6 +227,8 @@ new BAClickFX(options?: {
   inputFilter?: (e: PointerEvent) => boolean,
 })
 ```
+
+旧版 `softwareBloomEnabled` 已从当前配置 API 删除；传入该字段会抛出 `TypeError`。请使用 `bloomBackend: 'software'` 或 `bloomBackend: 'native'`，需要自动选择时使用 `'auto'`。
 
 `touchAction` 接受 CSS `touch-action` 关键字及组合，例如 `none`、`pan-x`、`pan-y`、`pan-left`、`pan-right`、`pan-up`、`pan-down`、`pinch-zoom` 和它们的空格组合。DOM 自动输入只在策略需要禁止某个方向或缩放时注册 capture Touch 仲裁监听；`auto`、`manipulation` 与显式允许全部方向/缩放的组合保留浏览器原生快速滚动。覆盖层 Canvas 不参与命中测试时，库会在首次可判定方向的移动时锁定本次手势，并通过 `inputFilter` 排除宿主控件；`inputSource: 'manual'` 不注册这些 DOM 监听。
 
@@ -252,7 +259,7 @@ WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutp
 
 显式 `effectBackend: 'webgpu'` 和 `'auto'` 都按 WebGPU → WebGL2 → Canvas 2D 的顺序解析完整特效后端。默认值仍为稳定的 `'webgl2'`，因此升级不会自动改变现有页面的渲染后端。
 
-`bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。默认值 `'webgl2'` 采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。为兼容 1.2.13 及更早版本，构造参数或 `createConfig()` 只要显式提供 `bloomBackend` / `softwareBloomEnabled` 而未提供 `effectBackend`，就继续保留 `effectBackend: 'canvas2d'` 的配置和回退状态合同；显式 `effectBackend` 始终优先。若同时传入 `bloomBackend` 和旧字段 `softwareBloomEnabled`，以 `bloomBackend` 为准；旧字段仍保持 `true` 等价于 `'software'`、`false` 等价于 `'native'`。
+`bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。默认值 `'webgl2'` 采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。`effectBackend` 显式提供时始终优先决定完整特效后端，Bloom 仍由 `bloomBackend` 单独选择。
 
 为保持已经验收的颜色、透明度和边缘采样，WebGL2 Bloom 在 GPU 成功时会有意复用 `WebGL2EffectRenderer` 的完整 Scene，而不是上传一份 8 位 Canvas Scene。因此它与纯 WebGL2 的成功帧使用相同 Shader 和像素管线，也不会预先栅格随后被隐藏的 Canvas。两者的区别是兼容合同：WebGL2 Bloom 仍保留 `effectBackend: 'canvas2d'` 请求及其 Software / Native 回退链，纯 WebGL2 则由完整特效后端直接接管。
 
@@ -272,6 +279,8 @@ WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutp
 | `hostCompositing: 'plus-lighter'` | 未知背景下的独立 Add 载荷合同。渲染器输出完整加色载荷并由宿主执行一次 `plus-lighter`，因此忽略 `overlayAlphaPolicy`、`overlayColorCompensation` 与 `overlayAlphaLimit` |
 
 旧的 `unknownBackgroundAppearance` 已从构造参数、`updateConfig()`、`getConfig()` 和类型声明中删除。颜色补偿只由 `overlayColorCompensation` 控制，Alpha 分配只由 `overlayAlphaPolicy` 控制，两者不会再通过兼容镜像隐式联动。
+
+`hostCompositingSurface` 会与输出模式和合成参考一起解析实际宿主合同。`getConfig()` 返回调用方请求的 `requestedHostCompositing`、实际生效的 `resolvedHostCompositing`、`hostCompositingSurface` 和 `compositingWarning`；`getEffectiveHostCompositing()` 只返回实际生效模式。宿主合成状态变化时，主 Canvas 会派发 `HOST_COMPOSITING_CHANGE_EVENT`（事件名 `baclickfxhostcompositingchange`）。
 
 `screen` 和 `plus-lighter` 都只是 SDR DOM 合成近似，并受浏览器色彩管理和实现差异影响。Unity 的最终画面是把背景与特效在线性 HDR 中合成后统一编码；未知桌面像素不在覆盖层进程内，因此没有任何单张透明载荷能对所有背景逐像素等价。`screen` 在黑底保留完整载荷，并在背景接近白色时自动减少增量，是展示页“DOM Add（近似）”和未知中高亮背景的推荐选择。`plus-lighter` 保留给已知黑色或暗色宿主；它把 sRGB 载荷直接相加，在亮底会提前饱和。
 
@@ -307,6 +316,7 @@ const fx = new BAClickFX(
   overlayColorCompensation: 'none',
   overlayAlphaLimit: 250 / 255,
   hostCompositing: 'source-over',
+  hostCompositingSurface: 'transparent-window',
   lightBackgroundContrastAlpha: 0,
 });
 ```
@@ -609,7 +619,7 @@ fx.setPaused(false);
 | `setFxParams(patch, options?)` | 按 Schema 验证并批量应用点号路径补丁，返回逐项处理结果 |
 | `getFxConfig()` | 返回当前完整特效配置深拷贝 |
 | `resetFxConfig()` | 重置所有特效参数为 Unity 基线 |
-| `getConfig()` | 返回当前实例配置；除完整特效和 Bloom 的解析结果外，`resolvedWebGPUOutputMode` 独立报告 `extended`、`standard`、`pending` 或 `unavailable` |
+| `getConfig()` | 返回当前实例配置；除完整特效和 Bloom 的解析结果外，还报告 WebGPU 输出和宿主合成的实际状态 |
 
 后端解析状态发生变化时，主 Canvas 会分别派发 `baclickfxeffectbackendchange` 和 `baclickfxbackendchange`。可使用导出的事件名持续同步延迟探测、运行时回退、WebGPU Device 丢失和 WebGL Context 恢复：
 
@@ -618,6 +628,7 @@ import {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
   EFFECT_BACKEND_CHANGE_EVENT,
+  HOST_COMPOSITING_CHANGE_EVENT,
 } from 'ba-click-fx';
 
 const fx = new BAClickFX(
@@ -636,6 +647,15 @@ fx.canvas.addEventListener(EFFECT_BACKEND_CHANGE_EVENT, (event) =>
 fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 {
   console.log(event.detail.resolvedBloomBackend);
+});
+
+fx.canvas.addEventListener(HOST_COMPOSITING_CHANGE_EVENT, (event) =>
+{
+  console.log(event.detail.requestedHostCompositing);
+  console.log(event.detail.resolvedHostCompositing);
+  console.log(event.detail.hostCompositingSurface);
+  console.log(event.detail.compositingWarning);
+  console.log(fx.getEffectiveHostCompositing());
 });
 ```
 

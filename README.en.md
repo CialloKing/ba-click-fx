@@ -18,11 +18,11 @@
 > 🖱 Click, drag, or move your mouse on the demo page to preview.
 
 <p align="center">
-  <img src="https://github.com/CialloKing/ba-click-fx/releases/download/v1.2.12/ba-click-fx-demo.gif" alt="demo" width="45%">
+  <img src="https://github.com/CialloKing/ba-click-fx/releases/download/v1.2.12/ba-click-fx-demo.gif" alt="demo (historical recording)" width="45%">
   &nbsp;&nbsp;
   <img src="./docs/assets/blue-archive-reference.gif" alt="game reference" width="45%">
 </p>
-<p align="center"><sub>ba-click-fx demo (left) · In-game reference (right)</sub></p>
+<p align="center"><sub>ba-click-fx demo (left, v1.2.12 historical recording) · In-game reference (right)</sub></p>
 
 > 🖥 **Desktop (Windows test build):** [ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) reimplements the same effect from scratch in C++ / Win32 API / Direct3D 11. See the [Desktop Edition](#desktop-edition-windows-test-build) section.
 
@@ -102,13 +102,18 @@ const fx = new BAClickFX();
 
 Download the ESM builds from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) (`ba-click-fx.js`, `config.js`, `worker.js`, and their `.d.ts` declarations):
 
+The package and CDN builds are ESM-only. Browser direct imports require `type="module"`; `require()` and ordinary `<script>` tags are not published formats and must be bundled first.
+
 ```html
-<canvas id="myCanvas"></canvas>
+<div id="fx-host"></div>
+<style>#fx-host { position: relative; min-height: 240px; }</style>
 <script type="module">
   import { BAClickFX } from './ba-click-fx.js';
-  const fx = new BAClickFX({ target: '#myCanvas' });
+  const fx = new BAClickFX({ target: '#fx-host' });
 </script>
 ```
+
+Omitting `target` creates a full-screen overlay. A normal web container should establish a positioning context. An existing `HTMLCanvasElement` is intended for hosts that manage one Canvas themselves, but it disables multi-layer DOM compositing and safely downgrades the complete GPU/Bloom path.
 
 ---
 
@@ -123,6 +128,16 @@ Most ordinary web pages cannot reliably read and upload the real pixels beneath 
 | Host Compositing: **DOM Add (Approximate)** | `hostCompositing: 'screen'` | Recommended default for unknown mid-tone, light, or changing backdrops; the increment contracts over light content |
 | Host Compositing: **Plus-lighter (Original Additive)** | `hostCompositing: 'plus-lighter'` | Suited to black, dark, or controlled hosts; preserves more aggressive additive output but saturates early over light content |
 
+The host surface determines where the final blend occurs:
+
+| Host surface | API configuration | Compositing boundary |
+|---|---|---|
+| DOM backdrop (default) | `hostCompositingSurface: 'dom-backdrop'` | A library-owned overlay can let the DOM apply `screen` / `plus-lighter` |
+| Transparent window | `hostCompositingSurface: 'transparent-window'` | CSS blending cannot cross the operating-system window boundary; unknown-background independent blending resolves to `source-over` |
+| Native compositor | `hostCompositingSurface: 'native'` | An external WebView/native compositor performs the final blend; the host still owns external Canvas styles |
+
+With `browser-overlay`, an unknown background, and a requested `screen` or `plus-lighter`, a transparent window reports `resolvedHostCompositing: 'source-over'` through `getConfig()` and sets `compositingWarning` to `screen-requires-visible-backdrop` or `plus-lighter-requires-visible-backdrop`. An active compositing reference likewise restores `source-over` to prevent a second blend.
+
 Minimal example (`screen` and `plus-lighter` are alternatives chosen by the page backdrop):
 
 ```js
@@ -130,6 +145,7 @@ const fx = new BAClickFX(
 {
   outputCompositing: 'browser-overlay',
   hostCompositing: 'screen', // DOM Add (Approximate); use 'plus-lighter' for dark hosts
+  hostCompositingSurface: 'dom-backdrop',
 });
 
 fx.setCompositingReference(null);
@@ -155,7 +171,8 @@ The current release is the **first test build (Alpha)**, and its support contrac
 ## Common Usage
 
 ```js
-const fx = new BAClickFX({ target: '#myCanvas' });
+const fx = new BAClickFX();
+
 fx.boom(window.innerWidth / 2, window.innerHeight / 2);
 fx.destroy();
 ```
@@ -178,6 +195,7 @@ new BAClickFX(options?: {
   overlayColorCompensation?: 'none' | 'bright-core', // default none
   overlayAlphaLimit?: number,    // overlay alpha limit, default 250/255
   hostCompositing?: 'source-over' | 'screen' | 'plus-lighter', // default source-over
+  hostCompositingSurface?: 'dom-backdrop' | 'transparent-window' | 'native', // final host surface, default dom-backdrop
   clickEnabled?: boolean,        // default true
   trailEnabled?: boolean,        // default true
   trailAlways?: boolean,         // default false
@@ -194,7 +212,6 @@ new BAClickFX(options?: {
   webgpuHdrWhiteStart?: number,  // Extended white-core start 0..15.99, default 1
   webgpuHdrWhiteEnd?: number,    // Extended white-core end 0.01..16, default 5
   bloomBackend?: 'auto' | 'software' | 'webgl2' | 'native', // default webgl2
-  softwareBloomEnabled?: boolean, // compatibility alias: true = software, false = native
   isolatedCompositing?: boolean,  // default false; true enables non-game white-background compatibility
   lightBackgroundContrastAlpha?: number, // light-background compatibility strength, default 0
   maxDpr?: number,               // default 1; raise explicitly for capable devices
@@ -202,6 +219,8 @@ new BAClickFX(options?: {
   inputFilter?: (e: PointerEvent) => boolean,
 })
 ```
+
+The old `softwareBloomEnabled` field has been removed from the current configuration API; passing it throws `TypeError`. Use `bloomBackend: 'software'` or `bloomBackend: 'native'`, or use `'auto'` for automatic selection.
 
 `touchAction` accepts CSS `touch-action` keywords and space-separated combinations, including `none`, `pan-x`, `pan-y`, `pan-left`, `pan-right`, `pan-up`, `pan-down`, and `pinch-zoom`. DOM input installs capture Touch arbitration only when the policy must block a direction or pinch; `auto`, `manipulation`, and combinations that explicitly allow every axis and pinch retain the browser's compositor-friendly scrolling. When an overlay Canvas is not hit-testable, the library locks the gesture direction at its first meaningful move and applies `inputFilter` to exclude host controls; `inputSource: 'manual'` does not install these DOM listeners.
 
@@ -232,7 +251,7 @@ The demo's UI HDR controls are demo-only. In addition to an effect that actually
 
 Explicit `effectBackend: 'webgpu'` and `'auto'` both resolve the complete-effect backend in WebGPU → WebGL2 → Canvas 2D order. The default remains the stable `'webgl2'`, so upgrading does not silently switch existing pages to WebGPU.
 
-`bloomBackend: 'auto'` tries WebGL2 first, then Software Bloom, then Native Glow. The default `'webgl2'` uses the same fallback chain; explicit `'software'` falls back to Native Glow when pixel readback is unavailable. For compatibility with 1.2.13 and earlier, constructor options or `createConfig()` that explicitly provide `bloomBackend` / `softwareBloomEnabled` without `effectBackend` retain the `effectBackend: 'canvas2d'` configuration and fallback-state contract; an explicit `effectBackend` always wins. If both `bloomBackend` and the old `softwareBloomEnabled` field are provided, `bloomBackend` wins. The compatibility field still maps `true` to `'software'` and `false` to `'native'`.
+`bloomBackend: 'auto'` tries WebGL2 first, then Software Bloom, then Native Glow. The default `'webgl2'` uses the same fallback chain; explicit `'software'` falls back to Native Glow when pixel readback is unavailable. An explicit `effectBackend` always decides the complete-effect backend, while Bloom remains independently selected by `bloomBackend`.
 
 To preserve the already reviewed colour, transparency, and edge sampling, a successful WebGL2 Bloom frame intentionally reuses the complete `WebGL2EffectRenderer` Scene instead of uploading an 8-bit Canvas Scene. It therefore uses the same shaders and pixel pipeline as Full WebGL2 and does not pre-rasterise a Canvas that will be hidden. The distinction is the compatibility contract: WebGL2 Bloom retains the `effectBackend: 'canvas2d'` request and its Software / Native fallback chain, while Full WebGL2 is owned directly by the complete-effect backend.
 
@@ -252,6 +271,8 @@ Four orthogonal options further define transparent output over an unknown backgr
 | `hostCompositing: 'plus-lighter'` | Independent Add-payload contract for unknown backgrounds. The renderer emits the complete additive payload for the host to composite once with `plus-lighter`, so `overlayAlphaPolicy`, `overlayColorCompensation`, and `overlayAlphaLimit` are ignored |
 
 The old `unknownBackgroundAppearance` field has been removed from constructor options, `updateConfig()`, `getConfig()`, and the type declarations. Colour compensation is controlled only by `overlayColorCompensation`, while alpha allocation is controlled only by `overlayAlphaPolicy`; no compatibility mirror links the two settings.
+
+`hostCompositingSurface` resolves the actual host contract together with the output mode and compositing reference. `getConfig()` reports the caller's `requestedHostCompositing`, the effective `resolvedHostCompositing`, `hostCompositingSurface`, and `compositingWarning`; `getEffectiveHostCompositing()` returns only the effective mode. The main Canvas dispatches `HOST_COMPOSITING_CHANGE_EVENT` (event name `baclickfxhostcompositingchange`) when this state changes.
 
 Both `screen` and `plus-lighter` are SDR DOM-compositing approximations and vary with browser colour management and implementation details. Unity composites the backdrop and effect together in linear HDR before one final encoding step. An unknown desktop is outside the overlay process, so no single transparent payload can be pixel-equivalent over every backdrop. `screen` preserves the full payload over black and automatically reduces its increment towards white; it is used by the demo's “DOM Add (Approximate)” option and is recommended for unknown mid-tone or light backdrops. `plus-lighter` remains available for known black or dark hosts, but directly adds the sRGB payload and saturates early over light content.
 
@@ -287,6 +308,7 @@ const fx = new BAClickFX(
   overlayColorCompensation: 'none',
   overlayAlphaLimit: 250 / 255,
   hostCompositing: 'source-over',
+  hostCompositingSurface: 'transparent-window',
   lightBackgroundContrastAlpha: 0,
 });
 ```
@@ -589,7 +611,7 @@ Pausing cancels the active pointer, ignores `boom()` and every automatic or manu
 | `setFxParams(patch, options?)` | Validate and batch-apply a dot-path patch through the public Schema, returning per-entry results |
 | `getFxConfig()` | Deep copy of current FX configuration |
 | `resetFxConfig()` | Reset all FX parameters to the Unity baseline |
-| `getConfig()` | Current config; besides Full Effect and Bloom resolution, `resolvedWebGPUOutputMode` independently reports `extended`, `standard`, `pending`, or `unavailable` |
+| `getConfig()` | Current config; besides Full Effect and Bloom resolution, it reports the effective WebGPU output and host-compositing state |
 
 The main canvas dispatches `baclickfxeffectbackendchange` and `baclickfxbackendchange` when the Full Effect and Bloom resolution states change. Use the exported event names to track deferred probing, runtime fallback, WebGPU device loss, and WebGL context recovery:
 
@@ -598,6 +620,7 @@ import {
   BAClickFX,
   BLOOM_BACKEND_CHANGE_EVENT,
   EFFECT_BACKEND_CHANGE_EVENT,
+  HOST_COMPOSITING_CHANGE_EVENT,
 } from 'ba-click-fx';
 
 const fx = new BAClickFX(
@@ -616,6 +639,15 @@ fx.canvas.addEventListener(EFFECT_BACKEND_CHANGE_EVENT, (event) =>
 fx.canvas.addEventListener(BLOOM_BACKEND_CHANGE_EVENT, (event) =>
 {
   console.log(event.detail.resolvedBloomBackend);
+});
+
+fx.canvas.addEventListener(HOST_COMPOSITING_CHANGE_EVENT, (event) =>
+{
+  console.log(event.detail.requestedHostCompositing);
+  console.log(event.detail.resolvedHostCompositing);
+  console.log(event.detail.hostCompositingSurface);
+  console.log(event.detail.compositingWarning);
+  console.log(fx.getEffectiveHostCompositing());
 });
 ```
 
