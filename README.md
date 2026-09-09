@@ -42,7 +42,7 @@
 - [项目结构](#项目结构)
 - [开发说明](#开发说明)
 - [Star 历史](#star-历史)
-- [致谢](#致谢)
+- [致谢与第三方许可](#致谢与第三方许可)
 - [许可](#许可)
 
 ---
@@ -177,7 +177,10 @@ fx.setCompositingReference(null);
 const fx = new BAClickFX();
 
 fx.boom(window.innerWidth / 2, window.innerHeight / 2);
-fx.destroy();
+setTimeout(() =>
+{
+  fx.destroy();
+}, 1500);
 ```
 
 ---

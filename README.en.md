@@ -42,7 +42,7 @@
 - [Project Structure](#project-structure)
 - [Development](#development)
 - [Star History](#star-history)
-- [Credits](#credits)
+- [Acknowledgements and Third-Party Licenses](#acknowledgements-and-third-party-licenses)
 - [License](#license)
 
 ---
@@ -171,7 +171,10 @@ Installation packages, build instructions, test status, and architecture decisio
 const fx = new BAClickFX();
 
 fx.boom(window.innerWidth / 2, window.innerHeight / 2);
-fx.destroy();
+setTimeout(() =>
+{
+  fx.destroy();
+}, 1500);
 ```
 
 ---
