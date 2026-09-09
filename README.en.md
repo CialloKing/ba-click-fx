@@ -157,14 +157,11 @@ This path is an SDR visual approximation at the browser/DOM boundary, not a pixe
 
 ## Desktop Edition (Windows Test Build)
 
-[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) is an independently implemented Windows-native desktop edition. It does not reuse this project's JavaScript / WebGL / WebGPU code; instead it reimplements the same Blue Archive click effect and cursor trail from scratch with **C++20, Win32 API, Direct3D 11, HLSL, and DirectComposition**. Unity/game assets remain the visual ground truth, while the web version only serves as the behavioural and parameter-semantics reference.
+[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) is an independently implemented Windows-native edition and does not reuse this project's JavaScript / WebGL / WebGPU runtime.
 
-The current release is the **first test build (Alpha)**, and its support contract covers the single-primary-monitor FX-only / SDR path only:
+It is still the **first test build (Alpha)**. The verified support boundary is single-primary-monitor, FX-only, SDR: the overlay is click-through and never steals focus, can be exited from the notification-area menu or with `Ctrl+Alt+F12`, and the Control Center can pause/resume effects and adjust the core effect parameters. Do not infer multi-monitor, HDR, capture, or recording support from this build.
 
-- Single-file runtime: the Visual C++ runtime is statically linked, and only Windows system components such as D3D11, DirectComposition, WIC, and D3DCompiler are used
-- The overlay is click-through and never steals focus; quit via the notification-area icon's right-click menu, or press `Ctrl+Alt+F12`
-- Ships with a standalone Control Center (`BAFX.ControlCenter.exe`, pure Win32 Common Controls, no Windows App SDK): it connects to the Host over a local Named Pipe and can pause/resume effects as well as tweak effect size, trail length/width, Bloom strength/quality, and more
-- Build and tests are driven by CMake presets (Visual Studio 2026 + Windows SDK); architecture and decision documents live in `ARCHITECTURE.md` and `docs/adr` of the desktop repository
+Installation packages, build instructions, test status, and architecture decisions belong to the [external desktop repository](https://github.com/CialloKing/ba-click-fx-desktop).
 
 ---
 
@@ -278,7 +275,7 @@ Both `screen` and `plus-lighter` are SDR DOM-compositing approximations and vary
 
 For a library-owned overlay, the selected host blend is applied once to the complete layer group. With a caller-owned `<canvas>`, the library emits the independent full payload without modifying `mix-blend-mode`; CSS, WebView, or native host compositing remains the caller's responsibility. Strict agreement with Unity requires a matching compositing reference so the complete WebGPU/WebGL2 backend can evaluate the linear HDR Scene, or a host that performs the final composite in a linear HDR render target. An active reference restores a normal `source-over` output and prevents a second host blend.
 
-> Maintainer note: never lower the shared Bloom intensity to hide light-background overexposure. Read the [DOM Add light-background overexposure postmortem](https://github.com/CialloKing/ba-click-fx/blob/main/docs/dom-add-light-background-regression.md) (Chinese) before changing host compositing, transparent payloads, or light-background pixel baselines.
+The [DOM Add light-background overexposure postmortem](https://github.com/CialloKing/ba-click-fx/blob/main/docs/dom-add-light-background-regression.md) (Chinese) records the root cause and host-selection contract. Use `screen` for unknown mid-tone or light backdrops, use `plus-lighter` only after confirming a black or dark host, and do not lower Bloom intensity to hide a host-compositing error.
 
 `isolatedCompositing` defaults to `false`, so canvases mount directly into the target or page. With `true`, the library-owned main FX canvas, WebGPU/WebGL2 canvases, and light-background compatibility canvas resolve inside one transparent isolated group before that group is composited over the page. This prevents the browser from resolving compatibility layers independently against pure white and losing cyan-blue contrast. The default `source-over` contract does not blend again at the outer boundary; an explicitly selected independent full-payload contract applies its chosen `screen` or `plus-lighter` blend once to the complete group. Isolated compositing is a non-game web compatibility option and can be changed at runtime through `updateConfig()`.
 
@@ -807,31 +804,19 @@ Shards scatter along the trail at distance intervals.
 
 The WebGPU backend uses its own WGSL Scene, `rgba16float` emission targets, and multi-level Bloom pyramid while reusing the reviewed CPU particle mesh builders from WebGL2. It creates no WebGL context and uploads no Canvas 2D intermediate. Scene rendering, prefiltering, downsampling, cumulative upsampling, and the Final Pass are submitted entirely through WebGPU. In `extended` mode the Final Pass encodes linear RGB as extended sRGB without clipping super-white values; `standard` uses the same encoding limited to SDR along with the existing transparency contract.
 
-Full WebGL2 and WebGL2 Bloom share `WebGL2EffectRenderer`, HDR emission parameters, and Bloom settings, and both build ring, disk, trail, and shard geometry directly on the GPU. They then follow the game's `Hidden/MXFinalBloom` path — four-tap prefiltering, Box4 mips, cumulative upsampling, and linear multiplication by the CPU-converted exposure — and output the crisp Scene, Coverage, and Bloom in one Final Pass. WebGL2 Bloom remains a compatibility selector with separate backend state and a Canvas fallback chain, but successful frames no longer build or upload an 8-bit Canvas Scene.
+Full WebGL2 and WebGL2 Bloom share `WebGL2EffectRenderer`, HDR emission parameters, and Bloom settings, and build ring, disk, trail, and shard geometry on the GPU. Successful frames output the crisp Scene, Coverage, and Bloom in one Final Pass; WebGL2 Bloom still retains its separate compatibility fallback chain without building or uploading a hidden 8-bit Canvas Scene.
 
-Both `bloom.threshold` and `bloom.clamp` are converted with Unity's `GammaToLinearSpace` before the linear-HDR prefilter. Clamp is then limited to the shader `half` maximum of `65504`, so the serialized default `65472` resolves to `65504`. `bloom.intensity` is a serialized exposure scale: the CPU first evaluates `2^(Intensity / 10) - 1` (about `0.125058` for the default `1.7`), then the shader multiplies Bloom by that linear value.
-
-> Maintainer note: passing `1.7` directly to the Final Pass amplifies Bloom by about 13.6 times. Before changing Intensity, the Final Pass, shader uniforms, or pixel baselines, read the [Bloom Intensity 13.6x overexposure regression postmortem](https://github.com/CialloKing/ba-click-fx/blob/main/docs/bloom-intensity-regression.md) (Chinese).
-
-> Maintainer note: every upsample pass must four-tap the accumulated coarse level, then center-sample and add the current fine level. Reversing them hardens the near field and distorts the halo falloff. Before changing mip names, texture bindings, texel sizes, or the upsample shader, read the [Bloom upsample texture-order regression postmortem](https://github.com/CialloKing/ba-click-fx/blob/main/docs/bloom-upsample-order-regression.md) (Chinese).
+Bloom thresholding, exposure conversion, mip construction, and cumulative upsampling follow the Unity `Hidden/MXFinalBloom` contract. Before changing that math or any pixel baseline, read the [Bloom Intensity 13.6x overexposure regression postmortem](https://github.com/CialloKing/ba-click-fx/blob/main/docs/bloom-intensity-regression.md) (Chinese) and the [Bloom upsample texture-order regression postmortem](https://github.com/CialloKing/ba-click-fx/blob/main/docs/bloom-upsample-order-regression.md) (Chinese).
 
 WebGPU availability is determined by actually requesting an adapter and device, creating a `webgpu` Canvas context, and building the resource pipelines. HDR output is decided separately by whether `rgba16float + toneMapping: extended` succeeds in `configure()`. WebGL2 availability still requires a context, `EXT_color_buffer_float`, and a valid `RGBA16F` framebuffer. Full Effect state uses `effectBackend` / `resolvedEffectBackend`, WebGPU output uses `resolvedWebGPUOutputMode`, and Bloom uses `bloomBackend` / `resolvedBloomBackend`; asynchronous probing, first-frame submission, and recovery validation briefly report `pending`. Device or context loss immediately removes the old GPU Canvas, and the next backend takes ownership only after its complete resource chain succeeds.
 
 ### JavaScript Software Bloom
 
-When `bloomBackend: 'software'` is selected explicitly or WebGL2 is unavailable, the renderer draws HDR emission into a full-viewport mask, reads the pixels back, and reproduces the main MXFinalBloom structure in JavaScript:
-
-1. Decode the 8-bit mask into reusable Float32 RGB buffers.
-2. Run four-tap threshold prefiltering to produce half-resolution mip0.
-3. Build a Box4 mip pyramid whose level count is derived from `bloom.diffusion`.
-4. Accumulate upward by four-tapping the accumulated coarse level, then center-sampling and adding the current fine level; the two inputs are not interchangeable.
-5. Convert `bloom.intensity` with the game's CPU exposure mapping, multiply by the resulting linear value, then perform final four-tap sampling and the additive sRGB composite.
+When `bloomBackend: 'software'` is selected explicitly or WebGL2 is unavailable, the renderer draws HDR emission into a full-viewport mask and uses reusable Float32 mip buffers to approximate the main MXFinalBloom structure in JavaScript. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`, while trail emission is blurred in a local offscreen buffer. This path preserves parameters, geometry, lifetime, and overall energy relationships, but its 8-bit Canvas input and premultiplied-alpha transport prevent a claim of pixel equivalence with the complete GPU Scene. Its threshold, exposure, and upsample contract is maintained in the Bloom postmortems above.
 
 The default `isolatedCompositing: false` composites output layers directly against the DOM background; Unity's additive output necessarily loses colour and contrast on pure white. With `true`, the output layers first resolve inside a transparent group, then composite their coloured result and alpha over the page. This does not change the Bloom algorithm and exists only as a non-game compatibility path for pure-white web backgrounds. Use `setCompositingReference()` when the background must participate in the same linear Scene as it does in the game; isolation is not a substitute for background sampling.
 
 `lightBackgroundContrastAlpha` defaults to `0`, so no visible silhouette outside the game resource is added. Setting it to `0.35` gives a library-owned overlay an independent pale-cyan `darken` mask above the main FX layer. The mask neither receives nor generates Bloom and exists only to recover a crisp silhouette on pure white. It and isolated compositing are both non-game web compatibility options. An existing Canvas supplied as the target can receive neither this separate backdrop-compositing layer nor isolated compositing.
-
-The software backend uses one full-viewport mip pyramid and reuses its Float32 buffers between frames while limiting emission readback to the geometry's actual subregion. It shares the WebGL2 backend's mip-count formula, SampleScale, four-tap sampling, and CPU-converted linear intensity multiplier, but its input first passes through an 8-bit Canvas encoding and transparent output is constrained by premultiplied alpha. If Canvas pixel readback/writeback is unavailable, rings and disks fall back to native `shadowBlur`, while trail emission is blurred once in a local offscreen buffer.
 
 ### Backend Capability Boundaries
 
@@ -876,7 +861,7 @@ Use `overlayAlphaPolicy: 'visual-max'`. It takes the larger of crisp Scene Cover
 
 ### Which configuration should a transparent desktop host use?
 
-The recommended default is `effectBackend: 'webgl2'`, `bloomBackend: 'webgl2'`, `outputCompositing: 'browser-overlay'`, `overlayAlphaPolicy: 'coverage'`, `overlayColorCompensation: 'none'`, `overlayAlphaLimit: 250 / 255`, `hostCompositing: 'source-over'`, and `lightBackgroundContrastAlpha: 0`. Select only `'visual-max'` when a lower-occlusion, v1.2.15-style visual approximation is required. Independently enable `'bright-core'` over unknown light backgrounds to compensate only emission- and Bloom-gated high-energy cores. When a DOM approximation must not darken the backdrop, use `'screen'` for unknown mid-tone, light, or changing backgrounds and reserve `'plus-lighter'` for black or dark backgrounds. Neither uses the alpha policy, colour compensation, or alpha limit. Strict Unity agreement requires a matching background reference or a host-side linear HDR composite. A host selecting WebGPU should also listen for backend-resolution events and read `resolvedWebGPUOutputMode`, because device or context loss enters a compatibility fallback. Fallbacks preserve the transparency contract but cannot promise real HDR or the exact same Bloom as a complete GPU path.
+The recommended default is `effectBackend: 'webgl2'`, `bloomBackend: 'webgl2'`, `outputCompositing: 'browser-overlay'`, `overlayAlphaPolicy: 'coverage'`, `overlayColorCompensation: 'none'`, `overlayAlphaLimit: 250 / 255`, `hostCompositing: 'source-over'`, `hostCompositingSurface: 'transparent-window'`, and `lightBackgroundContrastAlpha: 0`. Select only `'visual-max'` when a lower-occlusion, v1.2.15-style visual approximation is required. Independently enable `'bright-core'` over unknown light backgrounds to compensate only emission- and Bloom-gated high-energy cores. When a DOM approximation must not darken the backdrop, use `'screen'` for unknown mid-tone, light, or changing backgrounds and reserve `'plus-lighter'` for black or dark backgrounds. Neither uses the alpha policy, colour compensation, or alpha limit. Strict Unity agreement requires a matching background reference or a host-side linear HDR composite. A host selecting WebGPU should also listen for backend-resolution events and read `resolvedWebGPUOutputMode`, because device or context loss enters a compatibility fallback. Fallbacks preserve the transparency contract but cannot promise real HDR or the exact same Bloom as a complete GPU path.
 
 ---
 
@@ -947,23 +932,22 @@ ba-click-fx/
 
 ## Development
 
-This project requires **Node.js 24 LTS or newer**. The currently verified local and CI toolchain is Node.js `24.19.0` (Krypton) with npm `11.17.0`. The requirement applies to source builds and Node.js tooling around the built library.
+`package.json` requires Node.js `>=24.0.0`; CI is pinned to Node.js `24.19.0`. This version requirement applies only to source builds and CI tooling; browsers using the built ESM package do not need Node.js.
 
 ### Unity source-of-truth gate
 
-The current `UnityMouseFxLab` is the only fixed UI Pass baseline: `Matrix4x4.Ortho(-aspect, aspect, -1, 1)` is equivalent to `orthographicSize = 1.0`. The `1.35` camera in the old `提取资产2` project belongs to an earlier preview scene and cannot override the newer machine-code and serialized-resource evidence. The Prefab contract is 2 rings, 4 click shards, and at most 50 trail shards per press instance.
-
-Before changing Unity-derived parameters, projection conversion, or particle creation, read the [Unity fixed UI Pass source-of-truth and verification contract](https://github.com/CialloKing/ba-click-fx/blob/main/docs/unity-reference-baseline.md), then run:
+Before changing Unity-derived parameters, projection conversion, or particle creation, read the [Unity fixed UI Pass source-of-truth and verification contract](https://github.com/CialloKing/ba-click-fx/blob/main/docs/unity-reference-baseline.md) (Chinese). That document contains the fixed UI Pass, particle-count gate, project-path requirement, and triage order; the README keeps only the entry points:
 
 ```powershell
-npm run verify:unity-reference -- --project "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab"
+$unityProject = '<path-to-UnityMouseFxLab>'
+npm run verify:unity-reference -- --project $unityProject
 npm run test:browser:unity
 npm run test:browser
 npm run test:browser:lifecycle
 npm run test:browser:webgpu:optional
 ```
 
-The focused count gate reuses the complete browser matrix's assertions and can run even when an unrelated pixel case fails first. The standard matrix covers the WebGL2 and Canvas paths; the separate optional WebGPU runtime gate checks the same count contract whenever a device is available. If the resource audit and cross-backend count assertions all pass, investigate pixel conversion, DPR, timing, colour space, compositing, and Bloom. Do not rewrite confirmed Unity values to match a visual symptom.
+After the resource audit and cross-backend count gate pass, investigate pixel conversion, DPR, timing, colour space, host compositing, and Bloom; do not rewrite confirmed Unity values to match a visual symptom.
 
 ```bash
 git clone https://github.com/CialloKing/ba-click-fx.git
