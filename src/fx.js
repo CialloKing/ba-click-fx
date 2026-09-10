@@ -735,10 +735,21 @@ function scaleNativeBloomAlpha(alpha, bloomCfg)
   // 原生阴影没有 GPU Final Pass 的线性合成阶段；将 Unity 曝光倍率
   // 映射为等效重复覆盖次数，保留低亮度层次并避免直接乘 Alpha 溢出。
   const exposure = resolveUnityBloomIntensity(bloomCfg?.intensity);
+  const defaultExposure = resolveUnityBloomIntensity(1.7);
   const effectiveScale = Math.max(0, bloomCfg?.clickEmissionScale) *
-    (1 + exposure);
+    exposure / Math.max(defaultExposure, 0.000001) * 8;
 
   return scaleNativeGlowAlpha(alpha, effectiveScale);
+}
+
+function resolveNativeBlurRadius(radius, bloomCfg, scale, dpr)
+{
+  // MXFinalBloom 的 diffusion 会增加多级 mip 的支撑范围；Canvas 只有一次
+  // Gaussian shadow，因此按默认 diffusion=7 标定为 1.65 倍，并随配置单调变化。
+  const diffusion = Math.max(0, Number(bloomCfg?.diffusion) || 0);
+  const diffusionScale = 1 + 0.65 * diffusion / 7;
+
+  return Math.max(0, radius) * diffusionScale * scale * dpr;
 }
 
 function srgbToLinearChannel(channel)
@@ -2150,7 +2161,12 @@ function drawDissolvedCircle(
     useNativeBloom
       ? {
           // Canvas shadowBlur 不跟随当前变换矩阵，必须显式换算到物理像素。
-          blur: bloomCfg.ringBlur * scale * dpr,
+          blur: resolveNativeBlurRadius(
+            bloomCfg.ringBlur,
+            bloomCfg,
+            scale,
+            dpr,
+          ),
           color: ringGlowColor,
         }
       : null,
@@ -2335,12 +2351,36 @@ function drawDisk(
   }
   else
   {
-    context.shadowColor = colorToCss(color, shadowAlpha);
+    context.shadowColor = colorToCanvasOutputCss(
+      color,
+      shadowAlpha,
+      outputCompositing === 'scene',
+    );
   }
   // Canvas shadowBlur 不受 DPR 变换影响；按物理像素缩放才能保持 CSS 尺寸。
   context.shadowBlur = useNativeBloom
-    ? bloomCfg.diskBlur * scale * dpr
+    ? resolveNativeBlurRadius(bloomCfg.diskBlur, bloomCfg, scale, dpr)
     : 0;
+  if (useNativeBloom && context.shadowBlur > 0)
+  {
+    // shadowBlur 在浏览器中有上限；先绘制较窄的一层保留近场亮度，
+    // 再绘制配置层承担远场扩散，避免单一卷积把中心冲淡。
+    context.save();
+    context.globalAlpha = textureAlpha * 0.45;
+    context.shadowBlur *= 0.55;
+    context.drawImage(
+      textureCanvas,
+      0,
+      0,
+      CIRCLE_TEXTURE_SIZE,
+      CIRCLE_TEXTURE_SIZE,
+      -radius,
+      -radius,
+      radius * 2,
+      radius * 2,
+    );
+    context.restore();
+  }
   context.drawImage(
     textureCanvas,
     0,
@@ -2371,7 +2411,12 @@ function drawDiskNativeGlow(
     diskCfg.sizeKeys,
     progress,
   ) * scale;
-  const blur = bloomCfg.diskBlur * scale * dpr;
+  const blur = resolveNativeBlurRadius(
+    bloomCfg.diskBlur,
+    bloomCfg,
+    scale,
+    dpr,
+  );
 
   if (radius <= 0 || blur <= 0)
   {
@@ -2392,6 +2437,12 @@ function drawDiskNativeGlow(
   // 保留零偏移阴影的完整内外卷积，而不会重新遮挡宿主背景。
   context.fillStyle = 'rgb(0, 0, 0)';
   context.shadowColor = colorToCanvasOutputCss(color, shadowAlpha, true);
+  // Chromium 会限制极大的 shadowBlur；补一层较窄的卷积，近似 GPU
+  // Bloom 的高频 mip，并把中心到外缘的能量曲线拉得更平滑。
+  context.globalAlpha = 0.45;
+  context.shadowBlur = blur * 0.55;
+  context.fill();
+  context.globalAlpha = 1;
   context.shadowBlur = blur;
   context.fill();
   context.restore();
