@@ -2366,9 +2366,9 @@ function drawDisk(
     // shadowBlur 在浏览器中有上限；先绘制较窄的一层保留近场亮度，
     // 再绘制配置层承担远场扩散，避免单一卷积把中心冲淡。
     context.save();
-    context.globalAlpha = textureAlpha * 0.45;
+    context.globalAlpha = textureAlpha * 0.2;
     context.shadowBlur *= 0.55;
-    for (let layer = 0; layer < 5; layer++)
+    for (let layer = 0; layer < 3; layer++)
     {
       context.drawImage(
         textureCanvas,
