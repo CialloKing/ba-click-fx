@@ -742,6 +742,65 @@ function scaleNativeBloomAlpha(alpha, bloomCfg)
   return scaleNativeGlowAlpha(alpha, effectiveScale);
 }
 
+const NATIVE_BLOOM_COLOR_ATTENUATION = Object.freeze([0.42, 0.42, 0.79]);
+
+function nativeBloomColorCss(
+  color,
+  alpha,
+  outputCompositing,
+  linearOutput,
+  overlayColorCompensation = 'none',
+  overlayAlphaLimit = 1,
+  opacity = 1,
+)
+{
+  const safeAlpha = clamp01(alpha);
+  const attenuated = colorToLinearEnergy(color, 1, true).map(
+    (channel, index) => channel * NATIVE_BLOOM_COLOR_ATTENUATION[index],
+  );
+
+  if (outputCompositing === 'browser-overlay')
+  {
+    return linearEnergyToOverlayCss(
+      attenuated,
+      safeAlpha,
+      safeAlpha,
+      overlayColorCompensation,
+      overlayAlphaLimit,
+      opacity,
+    );
+  }
+
+  if (outputCompositing === 'host-additive')
+  {
+    return linearEnergyToHostAdditiveCss(
+      attenuated,
+      safeAlpha,
+      safeAlpha,
+    );
+  }
+
+  if (!linearOutput)
+  {
+    return colorToCss(
+      color.map((channel, index) =>
+        channel * NATIVE_BLOOM_COLOR_ATTENUATION[index]),
+      safeAlpha,
+    );
+  }
+
+  // Native Canvas 的 Alpha 代表卷积传输量，不能再用它推导 RGB；
+  // 以未衰减线性能量的最大通道作归一化，保留独立 Alpha 并压低明度。
+  const sourceMaximum = Math.max(...colorToLinearEnergy(color, 1, true));
+  const safeMaximum = Math.max(sourceMaximum, 0.000001);
+  const red = clamp01(attenuated[0] / safeMaximum);
+  const green = clamp01(attenuated[1] / safeMaximum);
+  const blue = clamp01(attenuated[2] / safeMaximum);
+
+  return `rgba(${Math.round(red * 255)}, ${Math.round(green * 255)}, ${
+    Math.round(blue * 255)}, ${safeAlpha})`;
+}
+
 function resolveNativeBlurRadius(radius, bloomCfg, scale, dpr)
 {
   // MXFinalBloom 的 diffusion 会增加多级 mip 的支撑范围；Canvas 只有一次
@@ -2121,35 +2180,15 @@ function drawDissolvedCircle(
     opacity * bloomCfg.ringAlpha,
     bloomCfg,
   );
-  let ringGlowColor;
-
-  if (outputCompositing === 'browser-overlay')
-  {
-    ringGlowColor = linearEnergyToOverlayCss(
-      colorToLinearEnergy(particleColor, 1, true),
-      ringGlowAlpha,
-      ringGlowAlpha,
-      overlayColorCompensation,
-      overlayAlphaLimit,
-      opacity,
-    );
-  }
-  else if (outputCompositing === 'host-additive')
-  {
-    ringGlowColor = linearEnergyToHostAdditiveCss(
-      colorToLinearEnergy(particleColor, 1, true),
-      ringGlowAlpha,
-      ringGlowAlpha,
-    );
-  }
-  else
-  {
-    ringGlowColor = colorToCanvasOutputCss(
-      particleColor,
-      ringGlowAlpha,
-      linearNativeGlow,
-    );
-  }
+  const ringGlowColor = nativeBloomColorCss(
+    particleColor,
+    ringGlowAlpha,
+    outputCompositing,
+    linearNativeGlow,
+    overlayColorCompensation,
+    overlayAlphaLimit,
+    opacity,
+  );
 
   fillDissolvedRing(
     context,
@@ -2330,33 +2369,15 @@ function drawDisk(
     opacity * bloomCfg.diskAlpha,
     bloomCfg,
   );
-  if (outputCompositing === 'browser-overlay')
-  {
-    context.shadowColor = linearEnergyToOverlayCss(
-      colorToLinearEnergy(color, 1, true),
-      shadowAlpha,
-      shadowAlpha,
-      overlayColorCompensation,
-      overlayAlphaLimit,
-      opacity,
-    );
-  }
-  else if (outputCompositing === 'host-additive')
-  {
-    context.shadowColor = linearEnergyToHostAdditiveCss(
-      colorToLinearEnergy(color, 1, true),
-      shadowAlpha,
-      shadowAlpha,
-    );
-  }
-  else
-  {
-    context.shadowColor = colorToCanvasOutputCss(
-      color,
-      shadowAlpha,
-      outputCompositing === 'scene',
-    );
-  }
+  context.shadowColor = nativeBloomColorCss(
+    color,
+    shadowAlpha,
+    outputCompositing,
+    outputCompositing === 'scene',
+    overlayColorCompensation,
+    overlayAlphaLimit,
+    opacity,
+  );
   // Canvas shadowBlur 不受 DPR 变换影响；按物理像素缩放才能保持 CSS 尺寸。
   context.shadowBlur = useNativeBloom
     ? resolveNativeBlurRadius(bloomCfg.diskBlur, bloomCfg, scale, dpr)
@@ -2439,7 +2460,12 @@ function drawDiskNativeGlow(
   // 黑色源在 lighter 下不增加 RGB；Final Pass 不读取其 Alpha，因此可以
   // 保留零偏移阴影的完整内外卷积，而不会重新遮挡宿主背景。
   context.fillStyle = 'rgb(0, 0, 0)';
-  context.shadowColor = colorToCanvasOutputCss(color, shadowAlpha, true);
+  context.shadowColor = nativeBloomColorCss(
+    color,
+    shadowAlpha,
+    'scene',
+    true,
+  );
   // Chromium 会限制极大的 shadowBlur；补一层较窄的卷积，近似 GPU
   // Bloom 的高频 mip，并把中心到外缘的能量曲线拉得更平滑。
   context.globalAlpha = 0.45;
