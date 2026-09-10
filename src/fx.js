@@ -2368,17 +2368,20 @@ function drawDisk(
     context.save();
     context.globalAlpha = textureAlpha * 0.45;
     context.shadowBlur *= 0.55;
-    context.drawImage(
-      textureCanvas,
-      0,
-      0,
-      CIRCLE_TEXTURE_SIZE,
-      CIRCLE_TEXTURE_SIZE,
-      -radius,
-      -radius,
-      radius * 2,
-      radius * 2,
-    );
+    for (let layer = 0; layer < 5; layer++)
+    {
+      context.drawImage(
+        textureCanvas,
+        0,
+        0,
+        CIRCLE_TEXTURE_SIZE,
+        CIRCLE_TEXTURE_SIZE,
+        -radius,
+        -radius,
+        radius * 2,
+        radius * 2,
+      );
+    }
     context.restore();
   }
   context.drawImage(
