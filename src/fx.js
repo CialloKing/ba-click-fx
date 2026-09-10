@@ -47,7 +47,10 @@ import {
   createRelativeOklchTheme,
 } from './theme-color.js';
 import { applyFxParamPatch as prepareFxParamPatch } from './fx-param-patch.js';
-import { gammaToLinear } from './bloom-color-space.js';
+import {
+  gammaToLinear,
+  resolveUnityBloomIntensity,
+} from './bloom-color-space.js';
 import {
   SoftwareBloomRenderer,
   calculateBloomContribution,
@@ -727,6 +730,17 @@ function scaleNativeGlowAlpha(alpha, emissionScale)
   return 1 - (1 - baseAlpha) ** safeScale;
 }
 
+function scaleNativeBloomAlpha(alpha, bloomCfg)
+{
+  // 原生阴影没有 GPU Final Pass 的线性合成阶段；将 Unity 曝光倍率
+  // 映射为等效重复覆盖次数，保留低亮度层次并避免直接乘 Alpha 溢出。
+  const exposure = resolveUnityBloomIntensity(bloomCfg?.intensity);
+  const effectiveScale = Math.max(0, bloomCfg?.clickEmissionScale) *
+    (1 + exposure);
+
+  return scaleNativeGlowAlpha(alpha, effectiveScale);
+}
+
 function srgbToLinearChannel(channel)
 {
   const normalized = clamp01(channel / 255);
@@ -1004,6 +1018,8 @@ function linearEnergyToNativeTrailBloomCss(
   overlayAlphaLimit = 1,
 )
 {
+  // GPU Final Pass 会把 Unity 序列化 Intensity 转为线性曝光倍率；原生
+  // Canvas 没有独立合成阶段，因此必须在写入模糊源前应用同一倍率。
   const sourceScale = clamp01(opacity) * Math.max(0, intensity);
   const source = color.map((channel) => Math.max(0, channel * sourceScale));
   const brightness = Math.max(...source);
@@ -2090,9 +2106,9 @@ function drawDissolvedCircle(
   context.save();
   context.translate(ring.x, ring.y);
   context.rotate(ring.rotation);
-  const ringGlowAlpha = scaleNativeGlowAlpha(
+  const ringGlowAlpha = scaleNativeBloomAlpha(
     opacity * bloomCfg.ringAlpha,
-    bloomCfg.clickEmissionScale,
+    bloomCfg,
   );
   let ringGlowColor;
 
@@ -2294,9 +2310,9 @@ function drawDisk(
   context.translate(wave.x, wave.y);
   context.rotate(wave.diskRotation);
   context.globalAlpha = textureAlpha;
-  const shadowAlpha = scaleNativeGlowAlpha(
+  const shadowAlpha = scaleNativeBloomAlpha(
     opacity * bloomCfg.diskAlpha,
-    bloomCfg.clickEmissionScale,
+    bloomCfg,
   );
   if (outputCompositing === 'browser-overlay')
   {
@@ -2363,9 +2379,9 @@ function drawDiskNativeGlow(
   }
 
   const color = evaluateColor(diskCfg.colorKeys, progress);
-  const shadowAlpha = scaleNativeGlowAlpha(
+  const shadowAlpha = scaleNativeBloomAlpha(
     opacity * bloomCfg.diskAlpha,
-    bloomCfg.clickEmissionScale,
+    bloomCfg,
   );
 
   context.save();
