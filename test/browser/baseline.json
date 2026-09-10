@@ -104,20 +104,20 @@
       ]
     },
     "native": {
-      "meanRed": 0.014936,
-      "meanGreen": 0.024033,
-      "meanBlue": 0.064738,
+      "meanRed": 0.009678,
+      "meanGreen": 0.016312,
+      "meanBlue": 0.059379,
       "meanAlpha": 0.006981,
-      "meanEnergy": 0.064738,
-      "visibleRatio": 0.06474,
+      "meanEnergy": 0.059379,
+      "visibleRatio": 0.064427,
       "maximumAlpha": 0.980392,
       "boundsWidth": 78,
       "boundsHeight": 78,
       "centerAlpha": 0.72549,
       "centerRgb": [
-        0.631373,
-        0.847059,
-        1
+        0.611765,
+        0.827451,
+        0.976471
       ],
       "radialAlpha": [
         0.72549,
