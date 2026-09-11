@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * 检查展示页、控制面板与双语 README 的同步合同。
+ * 检查展示页、控制面板与双语文档的同步合同。
  * 运行时配置和引擎实现合同由 verify-runtime-sync.cjs 单独负责。
  */
 
@@ -10,16 +10,75 @@ const {
   readText,
   verify,
 } = require('./verify-sync.cjs');
+const { existsSync } = require('node:fs');
+const { dirname, relative, resolve } = require('node:path');
 
 const indexHtml = readText('index.html');
 const mainJs = readText('src/main.js');
 const readmeZh = readText('README.md');
 const readmeEn = readText('README.en.md');
 const readmes = [readmeZh, readmeEn];
+const apiZh = readText('docs/api-reference.md');
+const apiEn = readText('docs/api-reference.en.md');
+const renderingZh = readText('docs/rendering-guide.md');
+const renderingEn = readText('docs/rendering-guide.en.md');
 const themeBackgroundJs = readText('src/theme-background.js');
 const rangeSnapJs = readText('src/range-snap.js');
 const styleCss = readText('src/style.css');
 const typeDefinitions = readText('src/ba-click-fx.d.ts');
+
+// 检查仓库内目标，避免专题拆分后 GitHub/npm 上的跳转悄悄失效。
+const documentationFiles = ['README.md', 'README.en.md',
+  ...['api-reference', 'rendering-guide', 'worker-guide'].flatMap((name) =>
+    [`docs/${name}.md`, `docs/${name}.en.md`])];
+const repositoryLink = 'https://github.com/CialloKing/ba-click-fx/blob/main/';
+const root = resolve(__dirname, '..');
+function documentationText(text)
+{
+  return text.replace(/^```[^\n]*\n[\s\S]*?^```[ \t]*$/gm, '');
+}
+function documentationAnchors(text)
+{
+  const counts = new Map();
+  const headings = [...documentationText(text).matchAll(/^#{1,6} (.+)$/gm)].map((match) =>
+  {
+    const slug = match[1].toLowerCase()
+      .replace(/[^\p{L}\p{N}_\- ]/gu, '').replace(/ /g, '-');
+    const count = counts.get(slug) || 0;
+    counts.set(slug, count + 1);
+    return count ? `${slug}-${count}` : slug;
+  });
+  return [...headings, ...[...documentationText(text).matchAll(/<a id="([^"]+)"><\/a>/g)]
+    .map((match) => match[1])];
+}
+for (const file of documentationFiles)
+{
+  const text = documentationText(readText(file));
+  const links = [...text.matchAll(/\]\(([^\s)]+)\)|(?:href|src)="([^"]+)"/g)];
+  for (const match of links)
+  {
+    const link = match[1] || match[2];
+    const inRepository = link.startsWith(repositoryLink);
+    if (!inRepository && /^[a-z]+:/i.test(link))
+    {
+      continue;
+    }
+    const [path, anchor] = (inRepository ? link.slice(repositoryLink.length) : link).split('#');
+    const target = path
+      ? resolve(inRepository ? root : dirname(resolve(root, file)), decodeURIComponent(path))
+      : resolve(root, file);
+    if (!existsSync(target))
+    {
+      throw new Error(`[verify-docs] ${file}: missing target ${link}`);
+    }
+    if (anchor && target.endsWith('.md') &&
+      !documentationAnchors(readText(relative(root, target))).includes(decodeURIComponent(anchor)))
+    {
+      throw new Error(`[verify-docs] ${file}: missing anchor ${link}`);
+    }
+  }
+}
+verify(true, '双语 README 与专题文档的目录和仓库链接有效');
 
 const starBadge = '[![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx.svg)](https://github.com/CialloKing/ba-click-fx/stargazers)';
 const starChartUrl = 'https://raw.githubusercontent.com/CialloKing/ba-click-fx/refs/heads/star-history/star-history.svg';
@@ -216,8 +275,8 @@ verify(
     /document\.getElementById\('ctrlDpr'\)\.value = String\(CONFIG\.maxDpr\)/.test(mainJs) &&
     /document\.getElementById\('outDpr'\)\.textContent = CONFIG\.maxDpr\.toFixed\(2\)/.test(mainJs) &&
     /maxDpr:\s*CONFIG\.maxDpr/.test(mainJs) &&
-    /最大设备像素比，默认 1/.test(readmeZh) &&
-    /maxDpr\?: number,\s+\/\/ default 1/.test(readmeEn),
+    /最大设备像素比，默认 1/.test(apiZh) &&
+    /maxDpr\?: number,\s+\/\/ default 1/.test(apiEn),
   '公共库与展示页统一默认最大 DPR 为 1',
 );
 
@@ -365,10 +424,10 @@ verify(
 verify(
   /inputSamplingRate\?: number/.test(typeDefinitions) &&
     /setInputSamplingRate\(rateHz: number\): boolean/.test(typeDefinitions) &&
-    /inputSamplingRate: 30/.test(readmeZh) &&
-    /inputSamplingRate: 30/.test(readmeEn) &&
-    /1\.\.1000/.test(readmeZh) &&
-    /1\.\.1000/.test(readmeEn),
+    /inputSamplingRate: 30/.test(apiZh) &&
+    /inputSamplingRate: 30/.test(apiEn) &&
+    /1\.\.1000/.test(apiZh) &&
+    /1\.\.1000/.test(apiEn),
   '输入采样率公共 API 已同步类型声明与中英文文档',
 );
 verify(
@@ -551,10 +610,10 @@ verify(
 );
 verify(
   /resolvedWebGPUOutputMode === \\'extended\\'/.test(mainJs) &&
-    /resolvedWebGPUOutputMode === 'extended'/.test(readmeZh) &&
-    /resolvedWebGPUOutputMode === 'extended'/.test(readmeEn) &&
-    /rgba16float \+ toneMapping: extended/.test(readmeZh) &&
-    /rgba16float \+ toneMapping: extended/.test(readmeEn),
+    /resolvedWebGPUOutputMode === 'extended'/.test(renderingZh) &&
+    /resolvedWebGPUOutputMode === 'extended'/.test(renderingEn) &&
+    /rgba16float \+ toneMapping: extended/.test(renderingZh) &&
+    /rgba16float \+ toneMapping: extended/.test(renderingEn),
   '展示页与中英文文档明确只有 extended WebGPU Canvas 代表真实 HDR',
 );
 const hdrPresentationPresetSelect = indexHtml.match(
@@ -672,10 +731,10 @@ verify(
     !/effect\.updateConfig|setFxParams?|webgpuHdrBrightness/.test(
       applyHdrUiSettingsSource,
     ) &&
-    /展示页的“UI HDR”是演示站点私有功能/.test(readmeZh) &&
-    /The demo's UI HDR controls are demo-only/.test(readmeEn) &&
-    /dynamic-range-limit: no-limit/.test(readmeZh) &&
-    /dynamic-range-limit: no-limit/.test(readmeEn) &&
+    /展示页的“UI HDR”是演示站点私有功能/.test(renderingZh) &&
+    /The demo's UI HDR controls are demo-only/.test(renderingEn) &&
+    /dynamic-range-limit: no-limit/.test(renderingZh) &&
+    /dynamic-range-limit: no-limit/.test(renderingEn) &&
     !/hdrUi/i.test(typeDefinitions),
   'UI HDR 严格依赖 Extended 与 CSS HDR，且保持为展示页私有能力',
 );
@@ -1193,8 +1252,8 @@ verify(
     /setThemeColorMode\(mode: BAClickFXThemeColorMode\): boolean/.test(
       typeDefinitions,
     ) &&
-    /relative-oklch/.test(readmeZh) &&
-    /relative-oklch/.test(readmeEn),
+    /relative-oklch/.test(apiZh) &&
+    /relative-oklch/.test(apiEn),
   '主题映射模式已同步类型声明与中英文文档',
 );
 

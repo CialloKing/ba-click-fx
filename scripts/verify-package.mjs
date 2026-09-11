@@ -49,7 +49,11 @@ verify(
   `latest CHANGELOG heading must be v${version}`,
 );
 
-for (const relativePath of ['README.md', 'README.en.md', 'index.html', 'src/main.js'])
+for (const relativePath of [
+  'README.md', 'README.en.md', 'index.html', 'src/main.js',
+  ...['api-reference', 'rendering-guide', 'worker-guide'].flatMap((name) =>
+    [`docs/${name}.md`, `docs/${name}.en.md`]),
+])
 {
   const referencedVersions = [
     ...readText(relativePath).matchAll(/ba-click-fx@(\d+\.\d+\.\d+)/g),
