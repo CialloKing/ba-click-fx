@@ -35,14 +35,18 @@ let state = null;
 async function validateNativeSceneGlow(page)
 {
   // 以实际 DOM 合成的已知背景对照，避免只比较 Alpha 基线却漏掉色带和色偏。
-  for (const [background, maximumError] of [['black', 0.7], ['color', 0.3]])
+  for (const [background, sampleTimeMs, scale, maximumError] of [
+    ['black', 120, 1, 0.7], ['color', 120, 1, 0.3],
+    // 覆盖光盘消失后的大圆环；小尺寸的早期帧无法发现环内集中光斑。
+    ['color', 220, 4, 1.5], ['color', 300, 4, 1.5],
+  ])
   {
     const screenshots = [];
     for (const mode of ['full-webgl2', 'native'])
     {
-      state.currentLabel = `native-scene-glow__${background}__${mode}`;
+      state.currentLabel = `native-scene-glow__${background}__${sampleTimeMs}__${mode}`;
       await page.evaluate((specification) => window.browserPixelSuite.runCase(specification),
-        { mode, opacity: 1, background, includeTrail: false, sampleTimeMs: 120 });
+        { mode, opacity: 1, background, includeTrail: false, sampleTimeMs, scale });
       const result = await page.evaluate((value) =>
         window.browserPixelSuite.setTransparentContractReference(value), background);
       assert(result.reference.accepted, '原生 Scene 对照必须成功设置背景参考');
@@ -50,7 +54,7 @@ async function validateNativeSceneGlow(page)
     }
     const difference = await compareScreenshotBuffers(page, ...screenshots);
     assert(difference.target.meanAbsoluteRgbError < maximumError,
-      `原生点击光晕偏离 WebGL2：${background}`, difference);
+      `原生点击光晕偏离 WebGL2：${background} / ${sampleTimeMs}ms / scale=${scale}`, difference);
   }
 }
 
