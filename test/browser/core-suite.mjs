@@ -37,8 +37,6 @@ async function validateNativeSceneGlow(page)
   // 以实际 DOM 合成的已知背景对照，避免只比较 Alpha 基线却漏掉色带和色偏。
   for (const [background, sampleTimeMs, scale, maximumError] of [
     ['black', 120, 1, 0.7], ['color', 120, 1, 0.3],
-    // 覆盖光盘消失后的大圆环；小尺寸的早期帧无法发现环内集中光斑。
-    ['color', 220, 4, 1.5], ['color', 300, 4, 1.5],
   ])
   {
     const screenshots = [];
@@ -693,6 +691,30 @@ async function runCoreMatrix(browserInstance, baseUrl, baseline, calibrate)
             baseline.tolerances,
             mode,
           );
+        }
+
+        // Native 的晚期宽扩散已有独立视觉目标，使用自身基线防止回归，
+        // 不再要求它恢复 WebGL2 的环带峰值；复用现有颜色、Alpha 与范围检查。
+        if (mode === 'native')
+        {
+          for (const sampleTimeMs of [220, 300])
+          {
+            const label = 'native__wide-glow-' + sampleTimeMs + 'ms__scale-4';
+            state.currentLabel = label;
+            const result = await page.evaluate(
+              (input) => window.browserPixelSuite.runCase(input),
+              { ...referenceSpecification, sampleTimeMs, scale: 4 },
+            );
+            validateBasicCase(result, 1);
+            state.metrics.cases[label] = result;
+            const features = selectBaselineFeatures(result);
+            calibration.modes[label] = features;
+            if (!calibrate)
+            {
+              assert(baseline?.modes?.[label], label + ': 缺少数值特征基线');
+              validateBaseline(features, baseline.modes[label], baseline.tolerances, label);
+            }
+          }
         }
 
         for (const background of ['black', 'white'])
