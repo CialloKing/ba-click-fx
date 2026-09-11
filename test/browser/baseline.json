@@ -104,30 +104,30 @@
       ]
     },
     "native": {
-      "meanRed": 0.009678,
-      "meanGreen": 0.016312,
-      "meanBlue": 0.059379,
-      "meanAlpha": 0.006981,
-      "meanEnergy": 0.059379,
-      "visibleRatio": 0.064427,
+      "meanRed": 0.014368,
+      "meanGreen": 0.024877,
+      "meanBlue": 0.109524,
+      "meanAlpha": 0.013472,
+      "meanEnergy": 0.109524,
+      "visibleRatio": 0.111133,
       "maximumAlpha": 0.980392,
-      "boundsWidth": 78,
-      "boundsHeight": 78,
-      "centerAlpha": 0.72549,
+      "boundsWidth": 104,
+      "boundsHeight": 104,
+      "centerAlpha": 0.980392,
       "centerRgb": [
-        0.611765,
-        0.827451,
-        0.976471
+        0.305882,
+        0.47451,
+        1
       ],
       "radialAlpha": [
-        0.72549,
-        0.713725,
-        0.694118,
-        0.203922,
-        0.12549,
-        0.047059,
-        0.011765,
-        0,
+        0.980392,
+        0.980392,
+        0.980392,
+        0.415686,
+        0.286275,
+        0.133333,
+        0.062745,
+        0.003922,
         0
       ]
     }

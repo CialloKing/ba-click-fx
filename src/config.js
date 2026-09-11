@@ -363,13 +363,13 @@ export const UNITY_FX_TOUCH = Object.freeze(
       // Gradient × Stretch 纹理产生，不能再用全局 Alpha 把头部一并压暗。
       trailEmissionAlpha: 1,
       // 点击专用倍率只缩放圆环与光盘的辉光源，不改变清晰几何或拖尾。
-      // 原生辉光后端复用同一倍率缩放 shadowBlur 的颜色 Alpha。
+      // 原生辉光后端在材质采样后、阈值提取前应用同一发射倍率。
       clickEmissionScale: 1,
       // FX_MAT_Touch_Tri3 的材质 Alpha 为 1；Bloom 不再用全局 Alpha
       // 压低圆环发射能量。
       ringEmissionAlpha: 1,
       diskEmissionAlpha: 1,
-      // 以下 Alpha 只用于无法回读像素时的原生模糊回退。
+      // 以下宽度与 Alpha 只校准原生光晕回退，不改变清晰材质。
       ringBlur: 80,
       ringAlpha: 0.35,
       diskBlur: 65,

@@ -32,6 +32,28 @@ const {
 
 let state = null;
 
+async function validateNativeSceneGlow(page)
+{
+  // 以实际 DOM 合成的已知背景对照，避免只比较 Alpha 基线却漏掉色带和色偏。
+  for (const [background, maximumError] of [['black', 0.7], ['color', 0.3]])
+  {
+    const screenshots = [];
+    for (const mode of ['full-webgl2', 'native'])
+    {
+      state.currentLabel = `native-scene-glow__${background}__${mode}`;
+      await page.evaluate((specification) => window.browserPixelSuite.runCase(specification),
+        { mode, opacity: 1, background, includeTrail: false, sampleTimeMs: 120 });
+      const result = await page.evaluate((value) =>
+        window.browserPixelSuite.setTransparentContractReference(value), background);
+      assert(result.reference.accepted, '原生 Scene 对照必须成功设置背景参考');
+      screenshots.push(await captureContrastScreenshot(page));
+    }
+    const difference = await compareScreenshotBuffers(page, ...screenshots);
+    assert(difference.target.meanAbsoluteRgbError < maximumError,
+      `原生点击光晕偏离 WebGL2：${background}`, difference);
+  }
+}
+
 async function runTransparentCompositingTransitions(page, mode)
 {
   const transition = (input) => page.evaluate(
@@ -616,6 +638,7 @@ async function runCoreMatrix(browserInstance, baseUrl, baseline, calibrate)
 
     if (dpr === 1)
     {
+      await validateNativeSceneGlow(page);
 
       for (const mode of modeNames)
       {

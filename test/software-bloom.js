@@ -18,6 +18,11 @@ import {
   upsampleAndMixBloom,
 } from '../src/software-bloom.js';
 import { UNITY_FX_TOUCH } from '../src/config.js';
+import {
+  addNativeBloomSample,
+  createNativeBloomProfile,
+  createNativeBloomSource,
+} from '../src/native-bloom.js';
 import { WebGL2BloomRenderer } from '../src/webgl2-bloom.js';
 import { WebGL2EffectRenderer } from '../src/webgl2-effect.js';
 import {
@@ -1833,5 +1838,33 @@ assert(
 );
 
 geometryRenderer.destroy();
+
+const nativeSettings = UNITY_FX_TOUCH.bloom;
+const nativeSource = createNativeBloomSource(nativeSettings);
+addNativeBloomSample(nativeSource, [2, 4, 8], 20, 16);
+const nativeProfile = createNativeBloomProfile([nativeSource], 320, 240, 1, nativeSettings);
+const nativeStrong = createNativeBloomProfile([nativeSource], 320, 240, 1,
+  { ...nativeSettings, intensity: nativeSettings.intensity * 2 });
+assert(nativeProfile.stops.every((stop, index) =>
+  stop.energy.every((channel) => channel <= stop.transport) &&
+    (index === 0 || stop.transport <= nativeProfile.stops[index - 1].transport)),
+'原生光晕保留独立传输上界，并从中心向外平滑衰减');
+assert(nativeProfile.stops.slice(0, -1).every((stop, index) =>
+  approximatelyEqual(stop.energy[0] / stop.energy[2], 0.25) &&
+    nativeStrong.stops[index].energy[2] > stop.energy[2]),
+'原生光晕保持材质色比，高强度在线性空间继续增亮');
+assert(createNativeBloomProfile([nativeSource], 320, 240, 1,
+  { ...nativeSettings, intensity: 0 }) === null,
+'零强度原生辉光不生成光晕');
+for (const settings of [
+  { ...nativeSettings, threshold: 4 },
+  { ...nativeSettings, clamp: 0 },
+])
+{
+  const source = createNativeBloomSource(settings);
+  addNativeBloomSample(source, [2, 4, 8], 20, 16);
+  assert(createNativeBloomProfile([source], 320, 240, 1, settings) === null,
+    '原生辉光遵循线性 Threshold 与 Clamp，不让低能材质发光');
+}
 
 console.log(`\n✅ ${passed} 项 Software Bloom 数值检查通过\n`);

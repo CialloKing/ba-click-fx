@@ -1024,6 +1024,7 @@ assert(
   '三角形碎片在主 Canvas 也不设置阴影',
 );
 const nativeShadowStart = effect.context.fillShadowBlurs.length;
+const nativeRadialStart = effect.context.radialGradients.length;
 const nativeStrokeStart = effect.context.strokeShadowBlurs.length;
 const nativeFilterStart = effect.context.strokeFilters.length;
 const nativeLinearGradientStart = effect.context.linearGradients.length;
@@ -1062,8 +1063,9 @@ assert(
 assert(
   effect.context.fillShadowBlurs
     .slice(nativeShadowStart)
-    .some((blur) => blur > 0),
-  '关闭软件 Bloom 后圆环与圆盘仍回退为原生 shadowBlur',
+    .every((blur) => blur === 0) &&
+    effect.context.radialGradients.length > nativeRadialStart,
+  '原生点击光晕独立绘制，清晰圆环与光盘不再重复叠加阴影',
 );
 assert(
   effect.context.strokeShadowBlurs
@@ -4154,22 +4156,10 @@ assert(
 );
 clickGlowResetEffect.boom(960, 540);
 flushFrames(dom, performance.now(), 1);
-const disabledNativeGlowIndices = clickGlowResetEffect.context.fillShadowBlurs
-  .reduce((indices, blur, index) =>
-  {
-    if (blur > 0)
-    {
-      indices.push(index);
-    }
-
-    return indices;
-  }, []);
-
 assert(
-  disabledNativeGlowIndices.length > 0 &&
-    disabledNativeGlowIndices.every((index) =>
-      getCssAlpha(clickGlowResetEffect.context.fillShadowColors[index]) === 0),
-  '点击发射倍率为零时原生圆环与光盘只关闭阴影、不移除清晰几何',
+  clickGlowResetEffect.context.radialGradients.length === 0 &&
+    clickGlowResetEffect.context.drawImageCalls.length > 0,
+  '点击发射倍率为零时只关闭光晕、不移除清晰几何',
 );
 clickGlowResetEffect.clear();
 clickGlowResetEffect.setFxParam('bloom.clickEmissionScale', 4);
@@ -4177,23 +4167,13 @@ clickGlowResetEffect.context.fillShadowBlurs = [];
 clickGlowResetEffect.context.fillShadowColors = [];
 clickGlowResetEffect.boom(960, 540);
 flushFrames(dom, performance.now(), 1);
-const boostedNativeGlowAlphas = clickGlowResetEffect.context.fillShadowBlurs
-  .reduce((alphas, blur, index) =>
-  {
-    if (blur > 0)
-    {
-      alphas.push(getCssAlpha(
-        clickGlowResetEffect.context.fillShadowColors[index],
-      ));
-    }
-
-    return alphas;
-  }, []);
-
+const boostedNativeGlowAlphas = clickGlowResetEffect.context.radialGradients
+  .flatMap(({ gradient }) => gradient.stops.map(([, color]) => getCssAlpha(color)));
 assert(
   boostedNativeGlowAlphas.length > 0 &&
-    boostedNativeGlowAlphas.every((alpha) => alpha > 0 && alpha < 1),
-  '原生辉光在滑块上限仍保持单调余量，不会提前钳制为不透明阴影',
+    boostedNativeGlowAlphas.some((alpha) => alpha > 0 && alpha < 1) &&
+    boostedNativeGlowAlphas.at(-1) === 0,
+  '高强度原生辉光仍保留半透明外缘并平滑衰减到零',
 );
 clickGlowResetEffect.resetFxConfig();
 assert(
