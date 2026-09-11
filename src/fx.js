@@ -69,6 +69,7 @@ import { WebGPUEffectRenderer } from './webgpu-effect.js';
 import { WebGL2CanvasSceneRenderer } from './webgl2-canvas-scene.js';
 import {
   addNativeBloomSample,
+  createNativeBloomAngularMask,
   createNativeBloomProfile,
   createNativeBloomSource,
 } from './native-bloom.js';
@@ -5609,6 +5610,7 @@ export class BAClickFX
     };
     this.nativeTrailBloomSurface = undefined;
     this.nativeClickBloomSurface = null;
+    this.nativeClickBloomMaskSurface = null;
 
     this.width = 0;
     this.height = 0;
@@ -9264,6 +9266,14 @@ export class BAClickFX
       this.nativeClickBloomSurface.canvas.height = 0;
       this.nativeClickBloomSurface = null;
     }
+    if (this.nativeClickBloomMaskSurface)
+    {
+      this.nativeClickBloomMaskSurface.canvas.width = 0;
+      this.nativeClickBloomMaskSurface.canvas.height = 0;
+      this.nativeClickBloomMaskSurface.angularCanvas.width = 0;
+      this.nativeClickBloomMaskSurface.angularCanvas.height = 0;
+      this.nativeClickBloomMaskSurface = null;
+    }
   }
 
   _getBloomRenderer(index)
@@ -10996,10 +11006,11 @@ export class BAClickFX
           const geometry = resolveRingGeometry(ring, ringProgress, scale, ringCfg);
           const source = createNativeBloomSource(settings);
           source.blurScale = settings.ringBlur / 80;
-          let weightedX = 0;
-          let weightedY = 0;
+          source.radius = geometry.radius;
+          source.width = geometry.width;
+          source.angularMass = new Float64Array(64);
           const radialSamples = Math.max(1, Math.round(ringCfg.radialSamples));
-          const angularSamples = 32;
+          const angularSamples = source.angularMass.length;
           // GPU 在阈值提取前先缩小 Scene；亚像素环带会与周围黑色平均。
           // 同时扩大样本面积以守恒能量，避免细碎溶解末期仍发出完整圆形光雾。
           const prefilterCoverage = Math.min(1, Math.max(0.000001,
@@ -11020,50 +11031,147 @@ export class BAClickFX
             const previousMass = source.transport;
             addNativeBloomSample(source, material.map((channel) => channel * coverage),
               area, geometry.radius * geometry.radius);
-            const mass = source.transport - previousMass;
             const u = (sample + 0.5) / angularSamples;
-            const angle = (ringCfg.dissolveDirection >= 0 ? u : 1 - u) * TAU + ring.rotation;
-            weightedX += Math.cos(angle) * geometry.radius * mass;
-            weightedY += Math.sin(angle) * geometry.radius * mass;
+            const angle = (ringCfg.dissolveDirection >= 0 ? u : 1 - u) + ring.rotation / TAU;
+            const position = ((angle % 1 + 1) % 1) * angularSamples;
+            const index = Math.floor(position);
+            const fraction = position - index;
+            const mass = source.transport - previousMass;
+            source.angularMass[index] += mass * (1 - fraction);
+            source.angularMass[(index + 1) % angularSamples] += mass * fraction;
           }
-          source.offsetX = weightedX / Math.max(source.transport, 0.000001);
-          source.offsetY = weightedY / Math.max(source.transport, 0.000001);
           sources.push(source);
         }
       }
 
-      // 光盘消失后，溶解环的发光中心已移到残存弧段。保留每枚环的质心
-      // 与中心矩，避免把局部残光重新铺成一个填满点击中心的完整圆斑。
-      const groups = diskProgress < 1 ? [sources] : sources.map((source) => [{
-        ...source,
-        moment: Math.max(0, source.moment - source.transport *
-          (source.offsetX ** 2 + source.offsetY ** 2)),
-      }]);
-      for (const group of groups)
+      const x = wave.x;
+      const y = wave.y;
+      const profile = createNativeBloomProfile(sources, this.width, this.height, this.dpr, settings);
+      if (!profile)
       {
-        const offsetX = diskProgress < 1 ? 0 : group[0].offsetX;
-        const offsetY = diskProgress < 1 ? 0 : group[0].offsetY;
-        const x = wave.x + offsetX;
-        const y = wave.y + offsetY;
-        const profile = createNativeBloomProfile(group, this.width, this.height, this.dpr, settings);
-        if (!profile)
+        continue;
+      }
+      const angular = createNativeBloomAngularMask(sources, this.dpr, settings);
+      let drawContext = context;
+      let size = 0;
+      if (angular && typeof context.createConicGradient === 'function')
+      {
+        if (!this.nativeClickBloomMaskSurface)
         {
-          continue;
+          const canvas = createCanvas();
+          const maskContext = canvas.getContext('2d');
+          const angularCanvas = createCanvas();
+          const angularContext = angularCanvas.getContext('2d');
+          if (maskContext && angularContext)
+          {
+            this.nativeClickBloomMaskSurface = {
+              canvas, context: maskContext, angularCanvas, angularContext,
+            };
+          }
         }
-        const gradient = context.createRadialGradient(x, y, 0, x, y, profile.radius);
-        for (const stop of profile.stops)
+        if (this.nativeClickBloomMaskSurface)
         {
-          const color = outputCompositing === 'scene'
-            ? linearEnergyToAdditiveCss(stop.energy, 1)
-            : outputCompositing === 'browser-overlay'
-              ? linearEnergyToOverlayCss(stop.energy, 1, linearToSrgb(stop.transport),
-                  'none', this._getEffectiveOverlayAlphaLimit(), opacity)
-              : linearEnergyToHostAdditiveCss(stop.energy, 1, linearToSrgb(stop.transport));
-          gradient.addColorStop(stop.position, color);
+          const { canvas, context: maskContext } = this.nativeClickBloomMaskSurface;
+          size = Math.min(512, Math.max(1, Math.ceil(profile.radius * 2 * this.dpr)));
+          const capacity = 2 ** Math.ceil(Math.log2(size));
+          if (canvas.width < capacity || canvas.height < capacity)
+          {
+            canvas.width = capacity;
+            canvas.height = capacity;
+          }
+          maskContext.setTransform(1, 0, 0, 1, 0, 0);
+          maskContext.clearRect(0, 0, size, size);
+          const pixelScale = size / (profile.radius * 2);
+          maskContext.setTransform(pixelScale, 0, 0, pixelScale,
+            (profile.radius - x) * pixelScale, (profile.radius - y) * pixelScale);
+          maskContext.globalAlpha = 1;
+          maskContext.globalCompositeOperation = 'source-over';
+          drawContext = maskContext;
         }
-        context.fillStyle = gradient;
-        context.fillRect(x - profile.radius, y - profile.radius,
-          profile.radius * 2, profile.radius * 2);
+      }
+      const gain = drawContext === context ? 1 : angular.gain;
+      const gradient = drawContext.createRadialGradient(x, y, 0, x, y, profile.radius);
+      for (const stop of profile.stops)
+      {
+        const color = outputCompositing === 'scene'
+          ? linearEnergyToAdditiveCss(stop.energy, gain)
+          : outputCompositing === 'browser-overlay'
+            ? linearEnergyToOverlayCss(stop.energy, gain, linearToSrgb(stop.transport * gain),
+                'none', this._getEffectiveOverlayAlphaLimit(), opacity)
+            : linearEnergyToHostAdditiveCss(stop.energy, gain, linearToSrgb(stop.transport * gain));
+        gradient.addColorStop(stop.position, color);
+      }
+      drawContext.fillStyle = gradient;
+      drawContext.fillRect(x - profile.radius, y - profile.radius,
+        profile.radius * 2, profile.radius * 2);
+      if (drawContext !== context)
+      {
+        const { angularCanvas, angularContext } = this.nativeClickBloomMaskSurface;
+        if (angularCanvas.width !== drawContext.canvas.width ||
+            angularCanvas.height !== drawContext.canvas.height)
+        {
+          angularCanvas.width = drawContext.canvas.width;
+          angularCanvas.height = drawContext.canvas.height;
+        }
+        angularContext.setTransform(1, 0, 0, 1, 0, 0);
+        angularContext.clearRect(0, 0, size, size);
+        const center = size / 2;
+        const mask = angularContext.createConicGradient(0, center, center);
+        for (let index = 0; index <= angular.values.length; index++)
+        {
+          mask.addColorStop(index / angular.values.length,
+            `rgba(255, 255, 255, ${angular.values[index % angular.values.length]})`);
+        }
+        angularContext.globalCompositeOperation = 'source-over';
+        angularContext.fillStyle = mask;
+        angularContext.fillRect(0, 0, size, size);
+        // 圆心处各方向的扩散应混合为均值；整幅使用锥形遮罩会留下扇形暗缝。
+        const blendRadius = Math.max(1, angular.radius / profile.radius * center * 0.85);
+        for (const uniform of [false, true])
+        {
+          const blend = angularContext.createRadialGradient(
+            center, center, 0, center, center, blendRadius,
+          );
+          const alpha = uniform ? 1 / angular.gain : 1;
+          blend.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+          blend.addColorStop(1, 'rgba(255, 255, 255, 0)');
+          angularContext.globalCompositeOperation = uniform ? 'lighter' : 'destination-out';
+          angularContext.fillStyle = blend;
+          angularContext.fillRect(0, 0, size, size);
+        }
+        // 角向遮罩只应约束发光环附近；将整张 conic mask 施加到
+        // 径向 profile 会把每条亮弧拉成贯穿中心与外圈的锥形光束。
+        // 在环外渐进补回均匀 Alpha，让远场由径向 Gaussian 决定形状。
+        const outerFadeStart = Math.min(
+          center * 0.98,
+          Math.max(blendRadius, angular.radius / profile.radius * center * 1.15),
+        );
+        const outerUniform = angularContext.createRadialGradient(
+          center, center, outerFadeStart,
+          center, center, center,
+        );
+        const outerClear = angularContext.createRadialGradient(
+          center, center, outerFadeStart,
+          center, center, center,
+        );
+        outerClear.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        outerClear.addColorStop(1, 'rgba(255, 255, 255, 1)');
+        // 先移除残留的角向分量，再补回统一均值；单纯 lighter
+        // 会把低 Alpha 均值叠加到原锥形遮罩上，无法消除扇区暗缝。
+        angularContext.globalCompositeOperation = 'destination-out';
+        angularContext.fillStyle = outerClear;
+        angularContext.fillRect(0, 0, size, size);
+        outerUniform.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        outerUniform.addColorStop(1,
+          `rgba(255, 255, 255, ${1 / angular.gain})`);
+        angularContext.globalCompositeOperation = 'lighter';
+        angularContext.fillStyle = outerUniform;
+        angularContext.fillRect(0, 0, size, size);
+        drawContext.setTransform(1, 0, 0, 1, 0, 0);
+        drawContext.globalCompositeOperation = 'destination-in';
+        drawContext.drawImage(angularCanvas, 0, 0);
+        context.drawImage(drawContext.canvas, 0, 0, size, size,
+          x - profile.radius, y - profile.radius, profile.radius * 2, profile.radius * 2);
       }
     }
     context.restore();
