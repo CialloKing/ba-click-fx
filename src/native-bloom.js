@@ -145,7 +145,7 @@ export function createNativeBloomProfile(sources, width, height, dpr, settings)
       // GPU Bloom 的多级下采样会把环带能量向内外共同扩散；仅使用
       // 几何宽度方差会保留过窄空心环，Native 视觉上因此明显发硬。
       : Math.max((source.width ?? 0) ** 2 / 12,
-        sourceRadius * sourceRadius * 0.22);
+        sourceRadius * sourceRadius * 0.9);
 
     for (let level = 0; level < levels; level++)
     {
