@@ -69,7 +69,6 @@ import { WebGPUEffectRenderer } from './webgpu-effect.js';
 import { WebGL2CanvasSceneRenderer } from './webgl2-canvas-scene.js';
 import {
   addNativeBloomSample,
-  createNativeBloomAngularMask,
   createNativeBloomProfile,
   createNativeBloomSource,
 } from './native-bloom.js';
@@ -11051,7 +11050,9 @@ export class BAClickFX
       {
         continue;
       }
-      const angular = createNativeBloomAngularMask(sources, this.dpr, settings);
+      // Native 使用与 Software Bloom 一致的各向同性径向扩散；角向环带
+      // 遮罩会把稀疏弧段重新勾勒成圆环，导致与 GPU Bloom 视觉差异明显。
+      const angular = null;
       let drawContext = context;
       let size = 0;
       if (angular && typeof context.createConicGradient === 'function')
