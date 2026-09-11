@@ -11125,6 +11125,21 @@ export class BAClickFX
         angularContext.globalCompositeOperation = 'source-over';
         angularContext.fillStyle = mask;
         angularContext.fillRect(0, 0, size, size);
+        // 角向信息只保留在实际环带，禁止 conic mask 从圆心贯穿到
+        // 远场；否则稀疏弧段会形成明显的锥形暗束。
+        const ringCenter = angular.radius / profile.radius * center;
+        const ringBand = Math.max(4, ringCenter * 0.35);
+        const annulus = angularContext.createRadialGradient(
+          center, center, Math.max(0, ringCenter - ringBand),
+          center, center, ringCenter + ringBand,
+        );
+        annulus.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        annulus.addColorStop(0.18, 'rgba(255, 255, 255, 1)');
+        annulus.addColorStop(0.82, 'rgba(255, 255, 255, 1)');
+        annulus.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        angularContext.globalCompositeOperation = 'destination-in';
+        angularContext.fillStyle = annulus;
+        angularContext.fillRect(0, 0, size, size);
         // 圆心处各方向的扩散应混合为均值；整幅使用锥形遮罩会留下扇形暗缝。
         const blendRadius = Math.max(1, angular.radius / profile.radius * center * 0.85);
         for (const uniform of [false, true])
