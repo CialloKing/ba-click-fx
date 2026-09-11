@@ -399,152 +399,232 @@ fx.pointerUp(7);
 
 主线程负责读取真实 Canvas 几何、把 DOM 坐标转换为 Canvas 局部 CSS 像素，并转发尺寸、DPR 和指针生命周期：
 
-```js
-// main.js
-const canvas = document.querySelector('#fx');
-const worker = new Worker(new URL('./fx-worker.js', import.meta.url),
-{
-  type: 'module',
-});
+完整示例使用显式 CSS 尺寸的 Canvas。`touch-action: none` 让该画布内的手势交给特效处理；需要原生滚动时应调整此值。两个模块需通过 Vite 等 bundler 构建，以解析 Worker 中的包导入。直接使用浏览器原生模块时，Worker 内不能保留裸包名，应改用绝对 ESM 地址 `https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.3/dist/worker.js`。
 
-function post(type, payload = {})
-{
-  worker.postMessage({ type, payload });
-}
-
-function getViewport()
-{
-  const rect = canvas.getBoundingClientRect();
-
-  return {
-    width: rect.width,
-    height: rect.height,
-    dpr: Math.min(window.devicePixelRatio || 1, 2),
-  };
-}
-
-function getPointer(event)
-{
-  const rect = canvas.getBoundingClientRect();
-
-  return {
-    x: event.clientX - rect.left,
-    y: event.clientY - rect.top,
-    pointerId: event.pointerId,
-    pointerType: event.pointerType,
-  };
-}
-
-const offscreen = canvas.transferControlToOffscreen();
-
-worker.postMessage(
-  {
-    type: 'init',
-    payload: { canvas: offscreen, ...getViewport() },
-  },
-  [offscreen],
-);
-
-const resizeObserver = new ResizeObserver(() => post('resize', getViewport()));
-
-resizeObserver.observe(canvas);
-worker.addEventListener('message', (event) =>
-{
-  if (event.data.type === 'destroyed')
-  {
-    resizeObserver.disconnect();
-    worker.terminate();
-  }
-});
-canvas.addEventListener('pointerdown', (event) =>
-  post('pointerDown', getPointer(event)));
-window.addEventListener('pointermove', (event) =>
-  post('pointerMove', getPointer(event)));
-window.addEventListener('pointerup', (event) =>
-  post('pointerUp', { pointerId: event.pointerId }));
-window.addEventListener('pointercancel', (event) =>
-  post('pointerCancel', { pointerId: event.pointerId }));
-
-// 其他公开控制也沿同一宿主协议转发。
-function boom(x, y)
-{
-  post('boom', { x, y });
-}
-
-function setOpacity(opacity)
-{
-  post('updateConfig', { opacity });
-}
-
-function setPaused(paused, clear = false)
-{
-  post('setPaused', { paused, options: { clear } });
-}
-
-// 卸载时先让实例释放资源，收到确认后再由宿主终止 Worker。
-function destroy()
-{
-  post('destroy');
-}
+```html
+<canvas id="fx"></canvas>
+<style>
+  #fx { display: block; width: 100%; height: 320px; touch-action: none; }
+</style>
+<script type="module" src="./main.js"></script>
 ```
 
-Worker 导入普通 ESM 构建，使用 `manual` 输入并显式选择纯 WebGL2：
+```js
+// main.js — bundle this module and fx-worker.js with Vite or an equivalent bundler.
+export function mountWorkerFX(canvas)
+{
+  const worker = new Worker(new URL('./fx-worker.js', import.meta.url),
+  {
+    type: 'module',
+  });
+  const input = new AbortController();
+  let stopped = false;
+  let resolveDestroyed;
+  const destroyed = new Promise((resolve) => { resolveDestroyed = resolve; });
+
+  function post(type, payload = {})
+  {
+    if (!stopped)
+    {
+      worker.postMessage({ type, payload });
+    }
+  }
+
+  function getViewport()
+  {
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      width: rect.width,
+      height: rect.height,
+      dpr: Math.min(window.devicePixelRatio || 1, 2),
+    };
+  }
+
+  function getPointer(event)
+  {
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+    };
+  }
+
+  const resizeObserver = new ResizeObserver(() => post('resize', getViewport()));
+
+  function stopInput()
+  {
+    stopped = true;
+    input.abort();
+    resizeObserver.disconnect();
+  }
+
+  function finish()
+  {
+    stopInput();
+    worker.removeEventListener('message', onMessage);
+    worker.removeEventListener('error', onError);
+    worker.removeEventListener('messageerror', onError);
+    worker.terminate();
+    resolveDestroyed();
+  }
+
+  function onMessage(event)
+  {
+    if (event.data.type === 'destroyed')
+    {
+      finish();
+    }
+    else if (event.data.type === 'error')
+    {
+      console.error(event.data.message);
+      finish();
+    }
+  }
+
+  function onError(event)
+  {
+    console.error('FX Worker failed', event);
+    finish();
+  }
+
+  worker.addEventListener('message', onMessage);
+  worker.addEventListener('error', onError);
+  worker.addEventListener('messageerror', onError);
+
+  try
+  {
+    const offscreen = canvas.transferControlToOffscreen();
+    worker.postMessage(
+      { type: 'init', payload: { canvas: offscreen, ...getViewport() } },
+      [offscreen],
+    );
+  }
+  catch (error)
+  {
+    finish();
+    throw error;
+  }
+
+  resizeObserver.observe(canvas);
+  const options = { signal: input.signal };
+  window.addEventListener('resize', () => post('resize', getViewport()), options);
+  canvas.addEventListener('pointerdown', (event) =>
+  {
+    if (event.isPrimary && event.button === 0)
+    {
+      post('pointerDown', getPointer(event));
+    }
+  }, options);
+  window.addEventListener('pointermove', (event) =>
+    post('pointerMove', getPointer(event)), options);
+  window.addEventListener('pointerup', (event) =>
+    post('pointerUp', { pointerId: event.pointerId }), options);
+  window.addEventListener('pointercancel', (event) =>
+    post('pointerCancel', { pointerId: event.pointerId }), options);
+  window.addEventListener('blur', () => post('pointerCancel'), options);
+
+  return {
+    boom: (x, y) => post('boom', { x, y }),
+    updateConfig: (patch) => post('updateConfig', patch),
+    setPaused: (paused, clear = false) =>
+      post('setPaused', { paused, options: { clear } }),
+    resize: () => post('resize', getViewport()),
+    destroy()
+    {
+      if (!stopped)
+      {
+        // Stop producers first, but keep the acknowledgement listener alive.
+        stopInput();
+        worker.postMessage({ type: 'destroy', payload: {} });
+      }
+      return destroyed;
+    },
+  };
+}
+
+export const fx = mountWorkerFX(document.querySelector('#fx'));
+// On unmount: await fx.destroy(); use a new Canvas for the next mount.
+```
+
+Worker 使用专用包入口，并仅处理宿主显式转发的协议：
 
 ```js
 // fx-worker.js
-import { BAClickFX } from 'ba-click-fx';
+import { BAClickFX } from 'ba-click-fx/worker';
 
 let fx = null;
 
 self.addEventListener('message', (event) =>
 {
-  const { type, payload } = event.data;
+  const { type, payload = {} } = event.data;
 
-  switch (type)
+  try
   {
-    case 'init':
+    if (type === 'init')
+    {
       fx = new BAClickFX(
-        {
-          target: payload.canvas,
-          inputSource: 'manual',
-          effectBackend: 'webgl2',
-          maxDpr: 2,
-        },
-      );
+      {
+        target: payload.canvas,
+        inputSource: 'manual',
+        effectBackend: 'webgl2',
+        maxDpr: 2,
+      });
       fx.resize(payload.width, payload.height, payload.dpr);
-      break;
-    case 'resize':
-      fx.resize(payload.width, payload.height, payload.dpr);
-      break;
-    case 'pointerDown':
-      fx.pointerDown(payload);
-      break;
-    case 'pointerMove':
-      fx.pointerMove(payload);
-      break;
-    case 'pointerUp':
-      fx.pointerUp(payload.pointerId);
-      break;
-    case 'pointerCancel':
-      fx.pointerCancel(payload.pointerId);
-      break;
-    case 'boom':
-      fx.boom(payload.x, payload.y);
-      break;
-    case 'updateConfig':
-      fx.updateConfig(payload);
-      break;
-    case 'setPaused':
-      fx.setPaused(payload.paused, payload.options);
-      break;
-    case 'destroy':
+      return;
+    }
+    if (type === 'destroy')
+    {
       fx?.destroy();
       fx = null;
       self.postMessage({ type: 'destroyed' });
-      break;
+      return;
+    }
+    if (!fx)
+    {
+      return;
+    }
+    switch (type)
+    {
+      case 'resize':
+        fx.resize(payload.width, payload.height, payload.dpr);
+        break;
+      case 'pointerDown':
+        fx.pointerDown(payload);
+        break;
+      case 'pointerMove':
+        fx.pointerMove(payload);
+        break;
+      case 'pointerUp':
+        fx.pointerUp(payload.pointerId);
+        break;
+      case 'pointerCancel':
+        fx.pointerCancel(payload.pointerId);
+        break;
+      case 'boom':
+        fx.boom(payload.x, payload.y);
+        break;
+      case 'updateConfig':
+        fx.updateConfig(payload);
+        break;
+      case 'setPaused':
+        fx.setPaused(payload.paused, payload.options);
+        break;
+    }
+  }
+  catch (error)
+  {
+    fx?.destroy();
+    fx = null;
+    self.postMessage({ type: 'error', message: String(error) });
   }
 });
 ```
+
+卸载时调用 `await fx.destroy()`：先停止输入和尺寸转发，等待 Worker 释放实例的确认，再终止 Worker。重复调用复用同一个完成 Promise，Worker 异常也会清理宿主监听。重新挂载必须使用新 Canvas，因为已转移的画布不能再次转移；宿主检测到额外的显示环境变化时，可调用 `fx.resize()` 重新发送尺寸和 DPR。
 
 `resize(width, height, dpr)` 的宽高与 manual 输入坐标都使用 Canvas 局部 CSS 像素；库再按 `dpr` 调整实际 backing store，且 DPR 仍受 `maxDpr` 限制。`OffscreenCanvas` 没有 DOM 布局信息，因此 Worker 中不会自动获知 CSS resize 或设备 DPR 变化。
 
@@ -692,28 +772,61 @@ console.log(FX_PARAM_SCHEMA.length, FX_PARAM_SCHEMA_VERSION, result);
 
 设置页也可以在不创建 DOM 或渲染实例时迁移并校验持久化补丁：
 
+持久化时同时保存版本与补丁，例如 `{ schemaVersion: 0, patch: { "bloom.scatter": 0.35 } }`。读取时使用记录的版本，不假设它已经是当前版本。以下模块仅在迁移成功时写回；JSON、Schema 或迁移错误都会保留原记录并报告原因。没有版本字段的旧数据应由宿主提供已知的原版本，不能猜测。
+
 ```js
-const storedPatch =
+import { applyFxParamPatch } from 'ba-click-fx';
+
+// Store the version with the patch so a future library can migrate it.
+export function migrateStoredFx(storage = localStorage)
 {
-  'bloom.scatter': 0.35,
-};
-const migrated = applyFxParamPatch(
-  storedPatch,
+  const key = 'ba-click-fx';
+  try
   {
-    schemaVersion: 0,
-    strict: true,
-  },
-);
+    const raw = storage.getItem(key);
+    if (raw === null)
+    {
+      return null;
+    }
+    const stored = JSON.parse(raw);
+    if (!stored || !Number.isInteger(stored.schemaVersion) ||
+      stored.schemaVersion < 0 || !stored.patch ||
+      typeof stored.patch !== 'object' || Array.isArray(stored.patch))
+    {
+      throw new TypeError('Expected { schemaVersion, patch }');
+    }
 
-if (migrated.committed)
-{
-  const normalizedPatch = Object.fromEntries(
-    migrated.applied.map(({ path, value }) => [path, value]),
-  );
+    const migrated = applyFxParamPatch(stored.patch,
+    {
+      schemaVersion: stored.schemaVersion,
+      strict: true,
+    });
+    if (!migrated.committed)
+    {
+      console.error('FX patch rejected', migrated.rejected);
+      return null;
+    }
 
-  localStorage.setItem('ba-click-fx', JSON.stringify(normalizedPatch));
+    const record =
+    {
+      schemaVersion: migrated.schemaVersion,
+      patch: Object.fromEntries(
+        migrated.applied.map(({ path, value }) => [path, value]),
+      ),
+    };
+    storage.setItem(key, JSON.stringify(record));
+    return record;
+  }
+  catch (error)
+  {
+    // Invalid JSON or unavailable storage must not overwrite the saved record.
+    console.error('FX settings could not be restored', error);
+    return null;
+  }
 }
 ```
+
+浏览器中调用 `const restored = migrateStoredFx();`；返回记录后，通过 `fx.setFxParams(restored.patch, { schemaVersion: restored.schemaVersion, strict: true, reset: true })` 应用到实例。
 
 包根 `applyFxParamPatch()` 固定以游戏默认参数作为内部校验基线，只接受 `schemaVersion` 与 `strict`，不会修改实例，也不会公开完整 Unity 配置树。此处 `committed` 表示候选补丁可以安全写回存储；实例级 `setFxParams()` 的 `committed` 才表示配置已提交到当前渲染实例。模式重置仍由实例级 `reset: true` 负责。
 

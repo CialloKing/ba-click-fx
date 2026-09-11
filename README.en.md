@@ -393,152 +393,232 @@ Worker means a browser `DedicatedWorker` here, not Node.js `worker_threads`. Nod
 
 The main thread reads the real Canvas geometry, converts DOM coordinates into Canvas-local CSS pixels, and forwards size, DPR, and pointer lifecycle changes:
 
-```js
-// main.js
-const canvas = document.querySelector('#fx');
-const worker = new Worker(new URL('./fx-worker.js', import.meta.url),
-{
-  type: 'module',
-});
+This complete example uses a Canvas with an explicit CSS size. `touch-action: none` gives the effect control of gestures inside that Canvas; change it if the host needs native scrolling. Bundle both modules with Vite or an equivalent bundler so the Worker package import resolves. The bare package specifier does not work in an unbundled browser Worker; in that case use the absolute ESM URL `https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.3/dist/worker.js`.
 
-function post(type, payload = {})
-{
-  worker.postMessage({ type, payload });
-}
-
-function getViewport()
-{
-  const rect = canvas.getBoundingClientRect();
-
-  return {
-    width: rect.width,
-    height: rect.height,
-    dpr: Math.min(window.devicePixelRatio || 1, 2),
-  };
-}
-
-function getPointer(event)
-{
-  const rect = canvas.getBoundingClientRect();
-
-  return {
-    x: event.clientX - rect.left,
-    y: event.clientY - rect.top,
-    pointerId: event.pointerId,
-    pointerType: event.pointerType,
-  };
-}
-
-const offscreen = canvas.transferControlToOffscreen();
-
-worker.postMessage(
-  {
-    type: 'init',
-    payload: { canvas: offscreen, ...getViewport() },
-  },
-  [offscreen],
-);
-
-const resizeObserver = new ResizeObserver(() => post('resize', getViewport()));
-
-resizeObserver.observe(canvas);
-worker.addEventListener('message', (event) =>
-{
-  if (event.data.type === 'destroyed')
-  {
-    resizeObserver.disconnect();
-    worker.terminate();
-  }
-});
-canvas.addEventListener('pointerdown', (event) =>
-  post('pointerDown', getPointer(event)));
-window.addEventListener('pointermove', (event) =>
-  post('pointerMove', getPointer(event)));
-window.addEventListener('pointerup', (event) =>
-  post('pointerUp', { pointerId: event.pointerId }));
-window.addEventListener('pointercancel', (event) =>
-  post('pointerCancel', { pointerId: event.pointerId }));
-
-// Other public controls can use the same host protocol.
-function boom(x, y)
-{
-  post('boom', { x, y });
-}
-
-function setOpacity(opacity)
-{
-  post('updateConfig', { opacity });
-}
-
-function setPaused(paused, clear = false)
-{
-  post('setPaused', { paused, options: { clear } });
-}
-
-// During teardown, let the instance release resources before the host terminates the Worker.
-function destroy()
-{
-  post('destroy');
-}
+```html
+<canvas id="fx"></canvas>
+<style>
+  #fx { display: block; width: 100%; height: 320px; touch-action: none; }
+</style>
+<script type="module" src="./main.js"></script>
 ```
 
-The Worker imports the normal ESM build, selects manual input, and pins Full WebGL2 explicitly:
+```js
+// main.js — bundle this module and fx-worker.js with Vite or an equivalent bundler.
+export function mountWorkerFX(canvas)
+{
+  const worker = new Worker(new URL('./fx-worker.js', import.meta.url),
+  {
+    type: 'module',
+  });
+  const input = new AbortController();
+  let stopped = false;
+  let resolveDestroyed;
+  const destroyed = new Promise((resolve) => { resolveDestroyed = resolve; });
+
+  function post(type, payload = {})
+  {
+    if (!stopped)
+    {
+      worker.postMessage({ type, payload });
+    }
+  }
+
+  function getViewport()
+  {
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      width: rect.width,
+      height: rect.height,
+      dpr: Math.min(window.devicePixelRatio || 1, 2),
+    };
+  }
+
+  function getPointer(event)
+  {
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+    };
+  }
+
+  const resizeObserver = new ResizeObserver(() => post('resize', getViewport()));
+
+  function stopInput()
+  {
+    stopped = true;
+    input.abort();
+    resizeObserver.disconnect();
+  }
+
+  function finish()
+  {
+    stopInput();
+    worker.removeEventListener('message', onMessage);
+    worker.removeEventListener('error', onError);
+    worker.removeEventListener('messageerror', onError);
+    worker.terminate();
+    resolveDestroyed();
+  }
+
+  function onMessage(event)
+  {
+    if (event.data.type === 'destroyed')
+    {
+      finish();
+    }
+    else if (event.data.type === 'error')
+    {
+      console.error(event.data.message);
+      finish();
+    }
+  }
+
+  function onError(event)
+  {
+    console.error('FX Worker failed', event);
+    finish();
+  }
+
+  worker.addEventListener('message', onMessage);
+  worker.addEventListener('error', onError);
+  worker.addEventListener('messageerror', onError);
+
+  try
+  {
+    const offscreen = canvas.transferControlToOffscreen();
+    worker.postMessage(
+      { type: 'init', payload: { canvas: offscreen, ...getViewport() } },
+      [offscreen],
+    );
+  }
+  catch (error)
+  {
+    finish();
+    throw error;
+  }
+
+  resizeObserver.observe(canvas);
+  const options = { signal: input.signal };
+  window.addEventListener('resize', () => post('resize', getViewport()), options);
+  canvas.addEventListener('pointerdown', (event) =>
+  {
+    if (event.isPrimary && event.button === 0)
+    {
+      post('pointerDown', getPointer(event));
+    }
+  }, options);
+  window.addEventListener('pointermove', (event) =>
+    post('pointerMove', getPointer(event)), options);
+  window.addEventListener('pointerup', (event) =>
+    post('pointerUp', { pointerId: event.pointerId }), options);
+  window.addEventListener('pointercancel', (event) =>
+    post('pointerCancel', { pointerId: event.pointerId }), options);
+  window.addEventListener('blur', () => post('pointerCancel'), options);
+
+  return {
+    boom: (x, y) => post('boom', { x, y }),
+    updateConfig: (patch) => post('updateConfig', patch),
+    setPaused: (paused, clear = false) =>
+      post('setPaused', { paused, options: { clear } }),
+    resize: () => post('resize', getViewport()),
+    destroy()
+    {
+      if (!stopped)
+      {
+        // Stop producers first, but keep the acknowledgement listener alive.
+        stopInput();
+        worker.postMessage({ type: 'destroy', payload: {} });
+      }
+      return destroyed;
+    },
+  };
+}
+
+export const fx = mountWorkerFX(document.querySelector('#fx'));
+// On unmount: await fx.destroy(); use a new Canvas for the next mount.
+```
+
+The Worker uses the dedicated package entry and accepts only the explicit host protocol:
 
 ```js
 // fx-worker.js
-import { BAClickFX } from 'ba-click-fx';
+import { BAClickFX } from 'ba-click-fx/worker';
 
 let fx = null;
 
 self.addEventListener('message', (event) =>
 {
-  const { type, payload } = event.data;
+  const { type, payload = {} } = event.data;
 
-  switch (type)
+  try
   {
-    case 'init':
+    if (type === 'init')
+    {
       fx = new BAClickFX(
-        {
-          target: payload.canvas,
-          inputSource: 'manual',
-          effectBackend: 'webgl2',
-          maxDpr: 2,
-        },
-      );
+      {
+        target: payload.canvas,
+        inputSource: 'manual',
+        effectBackend: 'webgl2',
+        maxDpr: 2,
+      });
       fx.resize(payload.width, payload.height, payload.dpr);
-      break;
-    case 'resize':
-      fx.resize(payload.width, payload.height, payload.dpr);
-      break;
-    case 'pointerDown':
-      fx.pointerDown(payload);
-      break;
-    case 'pointerMove':
-      fx.pointerMove(payload);
-      break;
-    case 'pointerUp':
-      fx.pointerUp(payload.pointerId);
-      break;
-    case 'pointerCancel':
-      fx.pointerCancel(payload.pointerId);
-      break;
-    case 'boom':
-      fx.boom(payload.x, payload.y);
-      break;
-    case 'updateConfig':
-      fx.updateConfig(payload);
-      break;
-    case 'setPaused':
-      fx.setPaused(payload.paused, payload.options);
-      break;
-    case 'destroy':
+      return;
+    }
+    if (type === 'destroy')
+    {
       fx?.destroy();
       fx = null;
       self.postMessage({ type: 'destroyed' });
-      break;
+      return;
+    }
+    if (!fx)
+    {
+      return;
+    }
+    switch (type)
+    {
+      case 'resize':
+        fx.resize(payload.width, payload.height, payload.dpr);
+        break;
+      case 'pointerDown':
+        fx.pointerDown(payload);
+        break;
+      case 'pointerMove':
+        fx.pointerMove(payload);
+        break;
+      case 'pointerUp':
+        fx.pointerUp(payload.pointerId);
+        break;
+      case 'pointerCancel':
+        fx.pointerCancel(payload.pointerId);
+        break;
+      case 'boom':
+        fx.boom(payload.x, payload.y);
+        break;
+      case 'updateConfig':
+        fx.updateConfig(payload);
+        break;
+      case 'setPaused':
+        fx.setPaused(payload.paused, payload.options);
+        break;
+    }
+  }
+  catch (error)
+  {
+    fx?.destroy();
+    fx = null;
+    self.postMessage({ type: 'error', message: String(error) });
   }
 });
 ```
+
+Call `await fx.destroy()` during unmount. It stops input and resize forwarding immediately, waits for the Worker to release the instance, then terminates the Worker. Repeated calls share the same completion promise; Worker errors also clean up host listeners. Remount with a new Canvas because an already transferred Canvas cannot be transferred again. `fx.resize()` explicitly resends dimensions and DPR when the host detects an additional display change.
 
 The width and height passed to `resize(width, height, dpr)`, as well as manual input coordinates, are Canvas-local CSS pixels. The library scales the backing store by `dpr`, still capped by `maxDpr`. An `OffscreenCanvas` has no DOM layout information, so a Worker cannot discover CSS resize or device-DPR changes automatically.
 
@@ -686,28 +766,61 @@ console.log(FX_PARAM_SCHEMA.length, FX_PARAM_SCHEMA_VERSION, result);
 
 A settings page can also migrate and validate persisted patches without creating DOM state or a renderer instance:
 
+Persist the patch together with its schema version, for example `{ schemaVersion: 0, patch: { "bloom.scatter": 0.35 } }`. Read the saved version rather than assuming it is current. The following module migrates and writes back only on success; JSON, schema, and migration errors retain the original record and report the reason. Unversioned legacy data needs the version known by its host; do not guess it.
+
 ```js
-const storedPatch =
+import { applyFxParamPatch } from 'ba-click-fx';
+
+// Store the version with the patch so a future library can migrate it.
+export function migrateStoredFx(storage = localStorage)
 {
-  'bloom.scatter': 0.35,
-};
-const migrated = applyFxParamPatch(
-  storedPatch,
+  const key = 'ba-click-fx';
+  try
   {
-    schemaVersion: 0,
-    strict: true,
-  },
-);
+    const raw = storage.getItem(key);
+    if (raw === null)
+    {
+      return null;
+    }
+    const stored = JSON.parse(raw);
+    if (!stored || !Number.isInteger(stored.schemaVersion) ||
+      stored.schemaVersion < 0 || !stored.patch ||
+      typeof stored.patch !== 'object' || Array.isArray(stored.patch))
+    {
+      throw new TypeError('Expected { schemaVersion, patch }');
+    }
 
-if (migrated.committed)
-{
-  const normalizedPatch = Object.fromEntries(
-    migrated.applied.map(({ path, value }) => [path, value]),
-  );
+    const migrated = applyFxParamPatch(stored.patch,
+    {
+      schemaVersion: stored.schemaVersion,
+      strict: true,
+    });
+    if (!migrated.committed)
+    {
+      console.error('FX patch rejected', migrated.rejected);
+      return null;
+    }
 
-  localStorage.setItem('ba-click-fx', JSON.stringify(normalizedPatch));
+    const record =
+    {
+      schemaVersion: migrated.schemaVersion,
+      patch: Object.fromEntries(
+        migrated.applied.map(({ path, value }) => [path, value]),
+      ),
+    };
+    storage.setItem(key, JSON.stringify(record));
+    return record;
+  }
+  catch (error)
+  {
+    // Invalid JSON or unavailable storage must not overwrite the saved record.
+    console.error('FX settings could not be restored', error);
+    return null;
+  }
 }
 ```
+
+In a browser, call `const restored = migrateStoredFx();`; when it returns a record, apply `fx.setFxParams(restored.patch, { schemaVersion: restored.schemaVersion, strict: true, reset: true })` to the instance.
 
 The package-level `applyFxParamPatch()` uses the game defaults as its private validation baseline and accepts only `schemaVersion` and `strict`. It neither mutates an instance nor exposes the complete Unity configuration tree. Here, `committed` means that the candidate patch is safe to persist; only instance-level `setFxParams()` installs configuration into the current renderer. Mode resets remain an instance-level operation through `reset: true`.
 
