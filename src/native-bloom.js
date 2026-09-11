@@ -142,7 +142,10 @@ export function createNativeBloomProfile(sources, width, height, dpr, settings)
     const sourceRadius = source.radius ?? 0;
     const sourceVariance = source.radius === undefined
       ? source.moment / source.transport * 0.5
-      : (source.width ?? 0) ** 2 / 12;
+      // GPU Bloom 的多级下采样会把环带能量向内外共同扩散；仅使用
+      // 几何宽度方差会保留过窄空心环，Native 视觉上因此明显发硬。
+      : Math.max((source.width ?? 0) ** 2 / 12,
+        sourceRadius * sourceRadius * 0.22);
 
     for (let level = 0; level < levels; level++)
     {
