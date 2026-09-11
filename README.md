@@ -99,7 +99,7 @@ const fx = new BAClickFX();
 
 ```html
 <script type="module">
-  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.2/dist/ba-click-fx.js';
+  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.3/dist/ba-click-fx.js';
   const fx = new BAClickFX();
 </script>
 ```
@@ -243,7 +243,7 @@ new BAClickFX(options?: {
 
 展示页在六档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与渲染后端正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
 
-原生点击辉光从共享材质、Circle 纹理与圆环溶解数据估算发射能量，应用 Threshold、Soft Knee、Clamp 和曝光强度，再按视口、DPR 与 Diffusion 近似多级扩散。光晕独立叠加，不会为增亮而重复绘制光盘；原生 `opacity` 在光晕生成后应用，避免半透明时光晕突然消失。已知背景的 Canvas Final Pass 使用单独的半分辨率 sRGB 光晕缓冲，减轻暗部色带。该路径仍使用源面积和形状矩近似，细碎弧段、重叠点击与 HDR 高亮不会与 WebGPU/WebGL2 逐像素一致。
+原生点击辉光从共享材质、Circle 纹理与圆环溶解数据估算发射能量，应用 Threshold、Soft Knee、Clamp 和曝光强度，再按视口、DPR 与 Diffusion 近似多级扩散。圆环保留空心半径，并在光盘消失后按可见弧段分配光晕，避免大环内侧出现集中光斑。光晕独立叠加，不会为增亮而重复绘制光盘；原生 `opacity` 在光晕生成后应用，避免半透明时光晕突然消失。已知背景的 Canvas Final Pass 使用单独的半分辨率 sRGB 光晕缓冲，减轻暗部色带。源面积、环带卷积和角向扩散仍采用近似，细碎弧段、重叠点击与 HDR 高亮不会与 WebGPU/WebGL2 逐像素一致。
 
 WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 已协商扩展动态范围，并会把线性 HDR 结果编码为扩展 sRGB、保留超过 SDR 白色的高光；`'standard'` 表示 WebGPU Scene 与 Bloom 正常运行，但最终 Canvas 仍是 SDR；`'pending'` 表示正在申请设备或提交首帧；`'unavailable'` 表示当前没有可用的 WebGPU 输出。真正看到超白高光还需要 HDR 显示器、系统已开启 HDR、浏览器实现 WebGPU HDR Canvas，以及 `rgba16float + toneMapping: extended` 配置成功。
 

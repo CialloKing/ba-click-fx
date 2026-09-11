@@ -93,7 +93,7 @@ const fx = new BAClickFX();
 
 ```html
 <script type="module">
-  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.2/dist/ba-click-fx.js';
+  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.3/dist/ba-click-fx.js';
   const fx = new BAClickFX();
 </script>
 ```
@@ -237,7 +237,7 @@ The old `softwareBloomEnabled` field has been removed from the current configura
 
 The demo exposes Isolated Compositing as a separate switch beside the six rendering choices. It is disabled by default and orthogonal to the rendering backend: it changes only the final CSS compositing boundary for the canvases, not Bloom thresholds, filtering, colour calculations, or Bloom compute cost.
 
-Native click glow estimates emission from the shared materials, Circle texture, and dissolved rings. It applies Threshold, Soft Knee, Clamp, and exposure before approximating multiple scales from the viewport, DPR, and Diffusion. Halos are added separately without redrawing the disk; native `opacity` is applied afterward to avoid abrupt disappearance at partial opacity. With a known background, the Canvas Final Pass uses a separate half-resolution sRGB halo buffer to reduce dark banding. Source area and shape moments remain approximations, so fragmented arcs, overlapping clicks, and HDR highlights are not pixel-equivalent to WebGPU/WebGL2.
+Native click glow estimates emission from the shared materials, Circle texture, and dissolved rings. It applies Threshold, Soft Knee, Clamp, and exposure before approximating multiple scales from the viewport, DPR, and Diffusion. Rings retain their hollow radius, and after the disk fades, halos follow the visible arcs to avoid a concentrated glow inside large rings. Halos are added separately without redrawing the disk; native `opacity` is applied afterward to avoid abrupt disappearance at partial opacity. With a known background, the Canvas Final Pass uses a separate half-resolution sRGB halo buffer to reduce dark banding. Source area, ring convolution, and angular diffusion remain approximations, so fragmented arcs, overlapping clicks, and HDR highlights are not pixel-equivalent to WebGPU/WebGL2.
 
 WebGPU availability does not imply HDR display output. Only `getConfig().resolvedWebGPUOutputMode === 'extended'` means that the Canvas negotiated extended dynamic range, encodes the linear HDR result as extended sRGB, and preserves highlights above SDR white. `'standard'` means the WebGPU Scene and Bloom are running but the final Canvas remains SDR, `'pending'` means device or first-frame work is in progress, and `'unavailable'` means no WebGPU output is active. Visible super-white highlights additionally require an HDR display, system HDR enabled, browser support for WebGPU HDR Canvas, and successful `rgba16float + toneMapping: extended` configuration.
 
