@@ -1,12 +1,10 @@
 ﻿# Changelog
 
-## 未发布 - 优化原生辉光
+## v1.3.2 - 同步 FX_Touch 渲染合同
 
 - 原生点击辉光从共享材质和溶解纹理估算多尺度扩散，响应 Bloom 阈值、曝光、Clamp 与发射参数，移除固定颜色衰减和光盘重复绘制。
 - 已知背景的 Canvas Final Pass 单独采样 sRGB 光晕，减轻暗部色带；透明回退保持光盘色比，光晕透明度连续变化。
 - 修复原生拖尾忽略 Bloom 强度、发射 Alpha 和 Clamp 的问题，补充像素对照并更新原生基线。
-
-## v1.3.2 - 同步 FX_Touch 渲染合同
 
 - 按 Unity 材质队列统一 Canvas、Canvas Scene、WebGL2 与 WebGPU 的提交顺序，使 Tri2 碎片稳定覆盖同帧的圆环与拖尾。
 - 扩展 Unity 外部资源门禁，持续校验四个材质队列、三个 Touch Shader 状态与固定 UI Pass 深度覆盖。
