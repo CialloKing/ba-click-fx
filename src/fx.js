@@ -11054,13 +11054,7 @@ export class BAClickFX
       const angular = createNativeBloomAngularMask(sources, this.dpr, settings);
       let drawContext = context;
       let size = 0;
-      // 稀疏溶解弧段的角向遮罩会把径向辉光拉成明显锥束；此时
-      // 保持各向同性的近似辉光，避免缺口沿半径投影成暗扇区。
-      const angularMinimum = angular
-        ? Math.min(...angular.values)
-        : 0;
-      const useAngularMask = angular && angularMinimum >= 0.2;
-      if (useAngularMask && typeof context.createConicGradient === 'function')
+      if (angular && typeof context.createConicGradient === 'function')
       {
         if (!this.nativeClickBloomMaskSurface)
         {
