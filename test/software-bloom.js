@@ -18,6 +18,12 @@ import {
   upsampleAndMixBloom,
 } from '../src/software-bloom.js';
 import { UNITY_FX_TOUCH } from '../src/config.js';
+import {
+  addNativeBloomSample,
+  createNativeBloomAngularMask,
+  createNativeBloomProfile,
+  createNativeBloomSource,
+} from '../src/native-bloom.js';
 import { WebGL2BloomRenderer } from '../src/webgl2-bloom.js';
 import { WebGL2EffectRenderer } from '../src/webgl2-effect.js';
 import {
@@ -1833,5 +1839,50 @@ assert(
 );
 
 geometryRenderer.destroy();
+
+const nativeSettings = UNITY_FX_TOUCH.bloom;
+const nativeSource = createNativeBloomSource(nativeSettings);
+addNativeBloomSample(nativeSource, [2, 4, 8], 20, 16);
+const nativeProfile = createNativeBloomProfile([nativeSource], 320, 240, 1, nativeSettings);
+const nativeStrong = createNativeBloomProfile([nativeSource], 320, 240, 1,
+  { ...nativeSettings, intensity: nativeSettings.intensity * 2 });
+const nativeRing = { ...nativeSource, radius: 64, width: 2,
+  angularMass: new Float64Array(64) };
+nativeRing.angularMass[0] = nativeRing.transport;
+const ringProfile = createNativeBloomProfile([nativeRing], 640, 512, 1, nativeSettings);
+const ringPeak = ringProfile.stops.reduce((peak, stop) =>
+  stop.transport > peak.transport ? stop : peak);
+assert(Math.abs(ringPeak.position * ringProfile.radius - nativeRing.radius) < 3 &&
+  ringProfile.stops[0].transport < ringPeak.transport * 0.1,
+'原生大圆环光晕沿环带达到峰值，不聚成圆心光团');
+const angularMask = createNativeBloomAngularMask([nativeRing], 1, nativeSettings);
+assert(angularMask.values[0] > angularMask.values[32] * 10 &&
+  approximatelyEqual(angularMask.values[1], angularMask.values[63]) &&
+  approximatelyEqual(angularMask.values.reduce((sum, value) => sum + value, 0) *
+    angularMask.gain / 64, 1),
+'原生弧段光晕保留方向、跨越角度接缝平滑且保持总能量');
+assert(createNativeBloomAngularMask([nativeRing, nativeSource], 1, nativeSettings) === null,
+'原生光盘尚未消失时不受圆环缺口遮罩裁剪');
+assert(nativeProfile.stops.every((stop, index) =>
+  stop.energy.every((channel) => channel <= stop.transport) &&
+    (index === 0 || stop.transport <= nativeProfile.stops[index - 1].transport)),
+'原生光晕保留独立传输上界，并从中心向外平滑衰减');
+assert(nativeProfile.stops.slice(0, -1).every((stop, index) =>
+  approximatelyEqual(stop.energy[0] / stop.energy[2], 0.25) &&
+    nativeStrong.stops[index].energy[2] > stop.energy[2]),
+'原生光晕保持材质色比，高强度在线性空间继续增亮');
+assert(createNativeBloomProfile([nativeSource], 320, 240, 1,
+  { ...nativeSettings, intensity: 0 }) === null,
+'零强度原生辉光不生成光晕');
+for (const settings of [
+  { ...nativeSettings, threshold: 4 },
+  { ...nativeSettings, clamp: 0 },
+])
+{
+  const source = createNativeBloomSource(settings);
+  addNativeBloomSample(source, [2, 4, 8], 20, 16);
+  assert(createNativeBloomProfile([source], 320, 240, 1, settings) === null,
+    '原生辉光遵循线性 Threshold 与 Clamp，不让低能材质发光');
+}
 
 console.log(`\n✅ ${passed} 项 Software Bloom 数值检查通过\n`);

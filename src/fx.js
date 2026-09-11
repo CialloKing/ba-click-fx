@@ -47,7 +47,11 @@ import {
   createRelativeOklchTheme,
 } from './theme-color.js';
 import { applyFxParamPatch as prepareFxParamPatch } from './fx-param-patch.js';
-import { gammaToLinear } from './bloom-color-space.js';
+import {
+  gammaToLinear,
+  resolveUnityBloomClamp,
+  resolveUnityBloomIntensity,
+} from './bloom-color-space.js';
 import {
   SoftwareBloomRenderer,
   calculateBloomContribution,
@@ -63,6 +67,11 @@ import {
 import { WebGL2EffectRenderer } from './webgl2-effect.js';
 import { WebGPUEffectRenderer } from './webgpu-effect.js';
 import { WebGL2CanvasSceneRenderer } from './webgl2-canvas-scene.js';
+import {
+  addNativeBloomSample,
+  createNativeBloomProfile,
+  createNativeBloomSource,
+} from './native-bloom.js';
 import { sampleRing3Alpha } from './ring3-alpha.js';
 import {
   CIRCLE_TEXTURE_SIZE,
@@ -717,16 +726,6 @@ function colorToCss(color, alpha = 1)
   return `rgba(${red}, ${green}, ${blue}, ${clamp01(alpha)})`;
 }
 
-function scaleNativeGlowAlpha(alpha, emissionScale)
-{
-  const baseAlpha = clamp01(alpha);
-  const safeScale = Math.max(0, emissionScale);
-
-  // Canvas 阴影只能使用 0..1 Alpha。按重复覆盖的等效增益映射，可让
-  // 0..4 的控制范围保持单调，同时确保倍率 1 精确保留原生标定值。
-  return 1 - (1 - baseAlpha) ** safeScale;
-}
-
 function srgbToLinearChannel(channel)
 {
   const normalized = clamp01(channel / 255);
@@ -1004,8 +1003,14 @@ function linearEnergyToNativeTrailBloomCss(
   overlayAlphaLimit = 1,
 )
 {
-  const sourceScale = clamp01(opacity) * Math.max(0, intensity);
-  const source = color.map((channel) => Math.max(0, channel * sourceScale));
+  // GPU Final Pass 会把 Unity 序列化 Intensity 转为线性曝光倍率；原生
+  // Canvas 没有独立合成阶段，因此必须在写入模糊源前应用同一倍率。
+  const sourceScale = clamp01(opacity) * Math.max(0, intensity) *
+    bloomCfg.trailEmissionAlpha;
+  const exposure = resolveUnityBloomIntensity(bloomCfg.intensity) /
+    resolveUnityBloomIntensity(1.7);
+  const source = color.map((channel) => Math.min(resolveUnityBloomClamp(bloomCfg.clamp),
+    Math.max(0, channel * sourceScale)));
   const brightness = Math.max(...source);
 
   if (brightness <= 0)
@@ -1024,14 +1029,14 @@ function linearEnergyToNativeTrailBloomCss(
     return 'rgba(0, 0, 0, 0)';
   }
 
-  const contributionScale = contribution / brightness;
+  const contributionScale = contribution / brightness * exposure;
   const brightPass = source.map((channel) => channel * contributionScale);
 
   if (outputCompositing === 'browser-overlay')
   {
     // Native blur 的 Alpha 取自几何 Coverage，而不是 HDR 明度；发射倍率只
     // 改变 RGB，不能把透明桌面的轨迹变成实心遮挡。
-    const coverage = clamp01(coverageOpacity);
+    const coverage = clamp01(coverageOpacity * exposure * bloomCfg.trailEmissionAlpha);
 
     return linearEnergyToOverlayCss(
       brightPass,
@@ -1444,6 +1449,7 @@ function prepareLinearTintedTextureCanvas(
   frameIndex = 0,
   compensation = 0,
   shape = null,
+  preserveCoverageColor = false,
 )
 {
   const safeContribution = Math.max(0, Number(contribution) || 0);
@@ -1497,6 +1503,7 @@ function prepareLinearTintedTextureCanvas(
     safeCompensation,
     roundness,
     useTextureAlpha,
+    preserveCoverageColor,
   ].join(',');
 
   if (frame.key === key)
@@ -1513,9 +1520,19 @@ function prepareLinearTintedTextureCanvas(
   const flipVertical = frameSlot === 1;
   const encodeChannel = (sourceOffset, channel, straightDivisor) =>
   {
+    // 原生透明回退与 GPU Scene Overlay 一样，先将线性 RGB 等比收敛到
+    // Coverage 容量。逐通道截断会把蓝色光盘变成青白色。
+    let energyScale = 1;
+    if (preserveCoverageColor)
+    {
+      const maximum = Math.max(...safeMaterialEnergy.map((value, index) =>
+        value * sourceEnergyRgb[sourceOffset + index] * safeContribution));
+      energyScale = Math.min(1, srgbToLinearChannel(straightDivisor * 255) /
+        Math.max(maximum, 0.000001));
+    }
     const linear = clamp01(
       sourceEnergyRgb[sourceOffset + channel] *
-        safeMaterialEnergy[channel] * safeContribution,
+        safeMaterialEnergy[channel] * safeContribution * energyScale,
     );
     const lookupIndex = Math.round(
       linear * (LINEAR_TO_SRGB_LUT_SIZE - 1),
@@ -1954,12 +1971,13 @@ function fillDissolvedRing(
   threshold,
   ringCfg,
   colorForLuminance,
-  nativeShadow = null,
 )
 {
   const radialSamples = Math.max(1, Math.round(ringCfg.radialSamples));
   const innerEdge = Math.max(0, radius - width * 0.5);
   const bandWidth = width / radialSamples;
+  context.shadowBlur = 0;
+  context.shadowColor = 'transparent';
 
   for (let band = 0; band < radialSamples; band++)
   {
@@ -1988,15 +2006,6 @@ function fillDissolvedRing(
       continue;
     }
 
-    // 只有中线带产生一次原生 shadow，避免多条 V 采样带重复叠亮光晕。
-    const isCenterBand = band === Math.floor(radialSamples * 0.5);
-
-    context.shadowBlur = isCenterBand && nativeShadow
-      ? nativeShadow.blur
-      : 0;
-    context.shadowColor = isCenterBand && nativeShadow
-      ? nativeShadow.color
-      : 'transparent';
     context.beginPath();
     context.arc(0, 0, outerRadius, 0, TAU, false);
     context.arc(0, 0, innerRadius, TAU, 0, true);
@@ -2044,9 +2053,7 @@ function drawDissolvedCircle(
 )
 {
   const ringCfg = fxConfig.rings;
-  const bloomCfg = fxConfig.bloom;
   const geometry = resolveRingGeometry(ring, progress, scale, ringCfg);
-  const particleColor = evaluateColor(ringCfg.colorKeys, progress);
 
   if (geometry.width <= 0.001)
   {
@@ -2060,7 +2067,7 @@ function drawDissolvedCircle(
     progress,
     ringCfg.hdrIntensity,
   );
-  // Canvas 只替换 Bloom 为 shadow；Tri3 本体仍必须保留原材质的
+  // Canvas 独立近似 Bloom；Tri3 本体仍必须保留原材质的
   // Linear 色彩空间与 HDR 强度，否则清晰环带会比 Unity 明显偏蓝、偏暗。
   const colorForLuminance = (luminance) =>
   {
@@ -2068,9 +2075,13 @@ function drawDissolvedCircle(
 
     if (outputCompositing === 'browser-overlay')
     {
+      const energyScale = useNativeBloom
+        ? Math.min(1, srgbToLinearChannel(coverage * 255) /
+            Math.max(Math.max(...materialEnergy) * coverage, 0.000001))
+        : 1;
       return linearEnergyToOverlayCss(
         materialEnergy,
-        coverage,
+        coverage * energyScale,
         coverage,
         overlayColorCompensation,
         overlayAlphaLimit,
@@ -2090,39 +2101,6 @@ function drawDissolvedCircle(
   context.save();
   context.translate(ring.x, ring.y);
   context.rotate(ring.rotation);
-  const ringGlowAlpha = scaleNativeGlowAlpha(
-    opacity * bloomCfg.ringAlpha,
-    bloomCfg.clickEmissionScale,
-  );
-  let ringGlowColor;
-
-  if (outputCompositing === 'browser-overlay')
-  {
-    ringGlowColor = linearEnergyToOverlayCss(
-      colorToLinearEnergy(particleColor, 1, true),
-      ringGlowAlpha,
-      ringGlowAlpha,
-      overlayColorCompensation,
-      overlayAlphaLimit,
-      opacity,
-    );
-  }
-  else if (outputCompositing === 'host-additive')
-  {
-    ringGlowColor = linearEnergyToHostAdditiveCss(
-      colorToLinearEnergy(particleColor, 1, true),
-      ringGlowAlpha,
-      ringGlowAlpha,
-    );
-  }
-  else
-  {
-    ringGlowColor = colorToCanvasOutputCss(
-      particleColor,
-      ringGlowAlpha,
-      linearNativeGlow,
-    );
-  }
 
   fillDissolvedRing(
     context,
@@ -2131,13 +2109,6 @@ function drawDissolvedCircle(
     geometry.threshold,
     ringCfg,
     colorForLuminance,
-    useNativeBloom
-      ? {
-          // Canvas shadowBlur 不跟随当前变换矩阵，必须显式换算到物理像素。
-          blur: bloomCfg.ringBlur * scale * dpr,
-          color: ringGlowColor,
-        }
-      : null,
   );
 
   context.restore();
@@ -2250,6 +2221,8 @@ function drawDisk(
         coverageAlpha,
         0,
         compensation,
+        null,
+        useNativeBloom,
       );
     }
   }
@@ -2294,37 +2267,7 @@ function drawDisk(
   context.translate(wave.x, wave.y);
   context.rotate(wave.diskRotation);
   context.globalAlpha = textureAlpha;
-  const shadowAlpha = scaleNativeGlowAlpha(
-    opacity * bloomCfg.diskAlpha,
-    bloomCfg.clickEmissionScale,
-  );
-  if (outputCompositing === 'browser-overlay')
-  {
-    context.shadowColor = linearEnergyToOverlayCss(
-      colorToLinearEnergy(color, 1, true),
-      shadowAlpha,
-      shadowAlpha,
-      overlayColorCompensation,
-      overlayAlphaLimit,
-      opacity,
-    );
-  }
-  else if (outputCompositing === 'host-additive')
-  {
-    context.shadowColor = linearEnergyToHostAdditiveCss(
-      colorToLinearEnergy(color, 1, true),
-      shadowAlpha,
-      shadowAlpha,
-    );
-  }
-  else
-  {
-    context.shadowColor = colorToCss(color, shadowAlpha);
-  }
-  // Canvas shadowBlur 不受 DPR 变换影响；按物理像素缩放才能保持 CSS 尺寸。
-  context.shadowBlur = useNativeBloom
-    ? bloomCfg.diskBlur * scale * dpr
-    : 0;
+  context.shadowBlur = 0;
   context.drawImage(
     textureCanvas,
     0,
@@ -2336,48 +2279,6 @@ function drawDisk(
     radius * 2,
     radius * 2,
   );
-  context.restore();
-}
-
-function drawDiskNativeGlow(
-  context,
-  wave,
-  progress,
-  scale,
-  opacity,
-  fxConfig = UNITY_FX_TOUCH,
-  dpr = 1,
-)
-{
-  const diskCfg = fxConfig.disk;
-  const bloomCfg = fxConfig.bloom;
-  const radius = diskCfg.radius * evaluateUnityHermiteCurve(
-    diskCfg.sizeKeys,
-    progress,
-  ) * scale;
-  const blur = bloomCfg.diskBlur * scale * dpr;
-
-  if (radius <= 0 || blur <= 0)
-  {
-    return;
-  }
-
-  const color = evaluateColor(diskCfg.colorKeys, progress);
-  const shadowAlpha = scaleNativeGlowAlpha(
-    opacity * bloomCfg.diskAlpha,
-    bloomCfg.clickEmissionScale,
-  );
-
-  context.save();
-  context.globalCompositeOperation = 'lighter';
-  context.beginPath();
-  context.arc(wave.x, wave.y, radius, 0, TAU);
-  // 黑色源在 lighter 下不增加 RGB；Final Pass 不读取其 Alpha，因此可以
-  // 保留零偏移阴影的完整内外卷积，而不会重新遮挡宿主背景。
-  context.fillStyle = 'rgb(0, 0, 0)';
-  context.shadowColor = colorToCanvasOutputCss(color, shadowAlpha, true);
-  context.shadowBlur = blur;
-  context.fill();
   context.restore();
 }
 
@@ -3308,24 +3209,6 @@ class ClickWave
         outputCompositing,
         overlayColorCompensation,
         overlayAlphaLimit,
-      );
-    }
-  }
-
-  drawDiskGlow(context, scale, opacity, dpr = 1)
-  {
-    const diskProgress = this.ageMs / this.fx.disk.lifetimeMs;
-
-    if (diskProgress < 1)
-    {
-      drawDiskNativeGlow(
-        context,
-        this,
-        diskProgress,
-        scale,
-        opacity,
-        this.fx,
-        dpr,
       );
     }
   }
@@ -4960,6 +4843,8 @@ function drawNativeTrailBloom(
     opacity <= 0 ||
     bloomCfg.trailAlpha <= 0 ||
     bloomCfg.trailEmission <= 0 ||
+    bloomCfg.trailEmissionAlpha <= 0 ||
+    bloomCfg.intensity <= 0 ||
     typeof context.filter !== 'string' ||
     !surface?.context ||
     !hasDrawableNativeTrailEnergy(trailData, trailCfg)
@@ -4979,8 +4864,14 @@ function drawNativeTrailBloom(
     startCapIsTransparent && firstVisibleSegmentOffset >= 0
       ? firstVisibleSegmentOffset + 1
       : 1;
-  const blurRadius = Math.max(0, trailCfg.outerGlowWidth * scale);
-  const halfWidth = Math.max(0.5, trailCfg.geometryWidth * scale * 0.5);
+  // 与 WebGL Bloom 的覆盖宽度保持一致；Native 直接模糊过窄几何会
+  // 形成中心亮线和两侧断裂的光晕，尤其在低 DPR 下更明显。
+  const bloomWidth = Math.max(0.5,
+    trailCfg.geometryWidth * bloomCfg.trailCoverageScale);
+  // GPU 金字塔的近场半径约为几何外扩的一半；过大的 Canvas blur
+  // 会在高能量尾端叠成椭圆光斑，和 WebGL2/WebGPU 的细长拖尾不一致。
+  const blurRadius = Math.max(0, trailCfg.outerGlowWidth * scale * 0.65);
+  const halfWidth = bloomWidth * scale * 0.5;
   const margin = Math.ceil(blurRadius * 3 + halfWidth + 2);
   let minimumX = Infinity;
   let minimumY = Infinity;
@@ -5043,7 +4934,7 @@ function drawNativeTrailBloom(
     opacity,
     trailCfg,
     {
-      width: trailCfg.geometryWidth,
+      width: bloomWidth,
       materialIntensity: bloomCfg.trailEmission,
       colorAtIntensity: (
         color,
@@ -5723,6 +5614,8 @@ export class BAClickFX
       bloomPixels: 0,
     };
     this.nativeTrailBloomSurface = undefined;
+    this.nativeClickBloomSurface = null;
+    this.nativeClickBloomMaskSurface = null;
 
     this.width = 0;
     this.height = 0;
@@ -7991,6 +7884,11 @@ export class BAClickFX
         drawCanvasDuringUpdate,
       );
 
+      if (drawCanvasDuringUpdate && useNativeBloom)
+      {
+        this._drawNativeClickBloom(scale);
+      }
+
       if (useGpuClickEffects)
       {
         if (!this._renderGPUClickEffects(effectBackend, scale))
@@ -9082,6 +8980,7 @@ export class BAClickFX
 
   _destroyCanvasSceneRenderer()
   {
+    this._releaseNativeClickBloomSurface();
     this.canvasSceneCanvas?.removeEventListener(
       'webglcontextlost',
       this._onCanvasSceneContextLost,
@@ -9339,6 +9238,7 @@ export class BAClickFX
     this.webglEffectRenderer?.releaseFrameResources();
     this.webglBloomRenderer?.releaseFrameResources();
     this.canvasSceneRenderer?.releaseFrameResources();
+    this._releaseNativeClickBloomSurface();
     this._setCanvasOutputVisible(true);
   }
 
@@ -9350,6 +9250,7 @@ export class BAClickFX
     this._setCanvasSceneVisible(false);
     this.webglBloomRenderer?.releaseFrameResources();
     this.canvasSceneRenderer?.releaseFrameResources();
+    this._releaseNativeClickBloomSurface();
 
     if (!this.webglEffectVisible && !this.webgpuEffectVisible)
     {
@@ -9360,6 +9261,24 @@ export class BAClickFX
   _usesSoftwareBloom()
   {
     return this._resolveBloomBackend() === 'software';
+  }
+
+  _releaseNativeClickBloomSurface()
+  {
+    if (this.nativeClickBloomSurface)
+    {
+      this.nativeClickBloomSurface.canvas.width = 0;
+      this.nativeClickBloomSurface.canvas.height = 0;
+      this.nativeClickBloomSurface = null;
+    }
+    if (this.nativeClickBloomMaskSurface)
+    {
+      this.nativeClickBloomMaskSurface.canvas.width = 0;
+      this.nativeClickBloomMaskSurface.canvas.height = 0;
+      this.nativeClickBloomMaskSurface.angularCanvas.width = 0;
+      this.nativeClickBloomMaskSurface.angularCanvas.height = 0;
+      this.nativeClickBloomMaskSurface = null;
+    }
   }
 
   _getBloomRenderer(index)
@@ -10772,20 +10691,6 @@ export class BAClickFX
         );
       }
 
-      if (useNativeBloom)
-      {
-        // 原生阴影模拟最终 Bloom，必须位于所有 source-over 圆盘之后。
-        for (const wave of this.waves)
-        {
-          wave.drawDiskGlow(
-            this.context,
-            scale,
-            this._getEffectiveOpacity(),
-            this.dpr,
-          );
-        }
-      }
-
       for (const wave of this.waves)
       {
         wave.drawAdditiveBase(
@@ -10817,7 +10722,33 @@ export class BAClickFX
         );
       }
 
-      return renderer.render(this.canvas);
+      if (useNativeBloom)
+      {
+        if (!this.nativeClickBloomSurface)
+        {
+          const canvas = createCanvas();
+          const context = canvas.getContext('2d');
+          if (!context)
+          {
+            return false;
+          }
+          this.nativeClickBloomSurface = { canvas, context };
+        }
+        const { canvas, context } = this.nativeClickBloomSurface;
+        const width = Math.max(1, Math.ceil(this.canvas.width * 0.5));
+        const height = Math.max(1, Math.ceil(this.canvas.height * 0.5));
+        if (canvas.width !== width || canvas.height !== height)
+        {
+          canvas.width = width;
+          canvas.height = height;
+        }
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.clearRect(0, 0, width, height);
+        context.setTransform(width / this.width, 0, 0, height / this.height, 0, 0);
+        this._drawNativeClickBloom(scale, context, 'host-additive');
+      }
+      return renderer.render(this.canvas,
+        useNativeBloom ? this.nativeClickBloomSurface.canvas : null);
     }
     catch (error)
     {
@@ -10998,6 +10929,274 @@ export class BAClickFX
         overlayAlphaLimit,
       );
     }
+
+    if (useNativeBloom)
+    {
+      this._drawNativeClickBloom(scale);
+    }
+  }
+
+  _drawNativeClickBloom(
+    scale,
+    context = this.context,
+    outputCompositing = this._getCanvasOutputCompositing(),
+  )
+  {
+    const settings = this.fxConfig.bloom;
+    const opacity = this._getEffectiveOpacity();
+
+    if (settings.intensity <= 0 || settings.clickEmissionScale <= 0 || opacity <= 0)
+    {
+      return;
+    }
+
+    const emission = settings.clickEmissionScale;
+    context.save();
+    // 光晕是独立的 Final Bloom 增量，不能重画 Cross2 本体或让后来的圆盘
+    // 遮住先前的光晕；所有清晰材质提交完毕后只进行一次加色。
+    context.globalCompositeOperation = 'lighter';
+    // 原生路径先确定发光源，再应用宿主透明度，避免半透明时细环因
+    // 近似预过滤跌出阈值而突然失去整层 Bloom。
+    context.globalAlpha = opacity;
+    context.shadowBlur = 0;
+
+    for (const wave of this.waves)
+    {
+      const sources = [];
+      const diskCfg = this.fxConfig.disk;
+      const diskProgress = wave.ageMs / diskCfg.lifetimeMs;
+
+      if (diskProgress < 1 && settings.diskAlpha > 0 && settings.diskBlur > 0)
+      {
+        const radius = diskCfg.radius * evaluateUnityHermiteCurve(
+          diskCfg.sizeKeys, diskProgress,
+        ) * scale;
+        const material = evaluateSrgbGradientEnergy(
+          diskCfg.colorKeys, diskProgress,
+          settings.diskEmission * emission * settings.diskEmissionAlpha,
+        );
+        const source = createNativeBloomSource(settings);
+        source.blurScale = settings.diskBlur / 65;
+        // 小型固定网格来自原 Circle_01，保留纹理面积与 HDR RGB。
+        // Cross2 生命周期 Alpha 只衰减背景，不应提前削弱 Bloom 发射。
+        const samples = 16;
+        const area = (2 * radius / samples) ** 2 * settings.diskAlpha / 0.65;
+        for (let y = 0; y < samples; y++)
+        {
+          for (let x = 0; x < samples; x++)
+          {
+            const u = (x + 0.5) / samples;
+            const v = (y + 0.5) / samples;
+            const offset = (Math.floor(v * CIRCLE_TEXTURE_SIZE) *
+              CIRCLE_TEXTURE_SIZE + Math.floor(u * CIRCLE_TEXTURE_SIZE)) * 4;
+            const color = material.map((channel, index) => channel *
+              srgbToLinearChannel(CIRCLE_TEXTURE_RGBA[offset + index]));
+            const distanceSquared = ((u * 2 - 1) ** 2 + (v * 2 - 1) ** 2) * radius ** 2;
+            addNativeBloomSample(source, color, area, distanceSquared);
+          }
+        }
+        sources.push(source);
+      }
+
+      const ringCfg = this.fxConfig.rings;
+      const ringProgress = wave.ageMs / ringCfg.lifetimeMs;
+      if (ringProgress < 1 && settings.ringAlpha > 0 && settings.ringBlur > 0)
+      {
+        const material = evaluateSrgbGradientEnergy(
+          ringCfg.colorKeys, ringProgress,
+          ringCfg.hdrIntensity * emission * settings.ringEmissionAlpha,
+        );
+        for (const ring of wave.rings)
+        {
+          const geometry = resolveRingGeometry(ring, ringProgress, scale, ringCfg);
+          const source = createNativeBloomSource(settings);
+          source.blurScale = settings.ringBlur / 80;
+          source.radius = geometry.radius;
+          source.width = geometry.width;
+          source.angularMass = new Float64Array(64);
+          const radialSamples = Math.max(1, Math.round(ringCfg.radialSamples));
+          const angularSamples = source.angularMass.length;
+          // GPU 在阈值提取前先缩小 Scene；亚像素环带会与周围黑色平均。
+          // 同时扩大样本面积以守恒能量，避免细碎溶解末期仍发出完整圆形光雾。
+          const prefilterCoverage = Math.min(1, Math.max(0.000001,
+            geometry.width * this.dpr * settings.resolutionScale * 0.75));
+          const area = TAU * geometry.radius * geometry.width / angularSamples *
+            settings.ringAlpha / 0.35 / prefilterCoverage;
+          for (let sample = 0; sample < angularSamples; sample++)
+          {
+            let coverage = 0;
+            for (let band = 0; band < radialSamples; band++)
+            {
+              coverage += evaluateRingLuminance(
+                (sample + 0.5) / angularSamples, (band + 0.5) / radialSamples,
+                geometry.threshold, ringCfg,
+              );
+            }
+            coverage *= prefilterCoverage / radialSamples;
+            const previousMass = source.transport;
+            addNativeBloomSample(source, material.map((channel) => channel * coverage),
+              area, geometry.radius * geometry.radius);
+            const u = (sample + 0.5) / angularSamples;
+            const angle = (ringCfg.dissolveDirection >= 0 ? u : 1 - u) + ring.rotation / TAU;
+            const position = ((angle % 1 + 1) % 1) * angularSamples;
+            const index = Math.floor(position);
+            const fraction = position - index;
+            const mass = source.transport - previousMass;
+            source.angularMass[index] += mass * (1 - fraction);
+            source.angularMass[(index + 1) % angularSamples] += mass * fraction;
+          }
+          sources.push(source);
+        }
+      }
+
+      const x = wave.x;
+      const y = wave.y;
+      const profile = createNativeBloomProfile(sources, this.width, this.height, this.dpr, settings);
+      if (!profile)
+      {
+        continue;
+      }
+      // Native 使用与 Software Bloom 一致的各向同性径向扩散；角向环带
+      // 遮罩会把稀疏弧段重新勾勒成圆环，导致与 GPU Bloom 视觉差异明显。
+      const angular = null;
+      let drawContext = context;
+      let size = 0;
+      if (angular && typeof context.createConicGradient === 'function')
+      {
+        if (!this.nativeClickBloomMaskSurface)
+        {
+          const canvas = createCanvas();
+          const maskContext = canvas.getContext('2d');
+          const angularCanvas = createCanvas();
+          const angularContext = angularCanvas.getContext('2d');
+          if (maskContext && angularContext)
+          {
+            this.nativeClickBloomMaskSurface = {
+              canvas, context: maskContext, angularCanvas, angularContext,
+            };
+          }
+        }
+        if (this.nativeClickBloomMaskSurface)
+        {
+          const { canvas, context: maskContext } = this.nativeClickBloomMaskSurface;
+          size = Math.min(512, Math.max(1, Math.ceil(profile.radius * 2 * this.dpr)));
+          const capacity = 2 ** Math.ceil(Math.log2(size));
+          if (canvas.width < capacity || canvas.height < capacity)
+          {
+            canvas.width = capacity;
+            canvas.height = capacity;
+          }
+          maskContext.setTransform(1, 0, 0, 1, 0, 0);
+          maskContext.clearRect(0, 0, size, size);
+          const pixelScale = size / (profile.radius * 2);
+          maskContext.setTransform(pixelScale, 0, 0, pixelScale,
+            (profile.radius - x) * pixelScale, (profile.radius - y) * pixelScale);
+          maskContext.globalAlpha = 1;
+          maskContext.globalCompositeOperation = 'source-over';
+          drawContext = maskContext;
+        }
+      }
+      const gain = drawContext === context ? 1 : angular.gain;
+      const gradient = drawContext.createRadialGradient(x, y, 0, x, y, profile.radius);
+      for (const stop of profile.stops)
+      {
+        const color = outputCompositing === 'scene'
+          ? linearEnergyToAdditiveCss(stop.energy, gain)
+          : outputCompositing === 'browser-overlay'
+            ? linearEnergyToOverlayCss(stop.energy, gain, linearToSrgb(stop.transport * gain),
+                'none', this._getEffectiveOverlayAlphaLimit(), opacity)
+            : linearEnergyToHostAdditiveCss(stop.energy, gain, linearToSrgb(stop.transport * gain));
+        gradient.addColorStop(stop.position, color);
+      }
+      drawContext.fillStyle = gradient;
+      drawContext.fillRect(x - profile.radius, y - profile.radius,
+        profile.radius * 2, profile.radius * 2);
+      if (drawContext !== context)
+      {
+        const { angularCanvas, angularContext } = this.nativeClickBloomMaskSurface;
+        if (angularCanvas.width !== drawContext.canvas.width ||
+            angularCanvas.height !== drawContext.canvas.height)
+        {
+          angularCanvas.width = drawContext.canvas.width;
+          angularCanvas.height = drawContext.canvas.height;
+        }
+        angularContext.setTransform(1, 0, 0, 1, 0, 0);
+        angularContext.clearRect(0, 0, size, size);
+        const center = size / 2;
+        const mask = angularContext.createConicGradient(0, center, center);
+        for (let index = 0; index <= angular.values.length; index++)
+        {
+          mask.addColorStop(index / angular.values.length,
+            `rgba(255, 255, 255, ${angular.values[index % angular.values.length]})`);
+        }
+        angularContext.globalCompositeOperation = 'source-over';
+        angularContext.fillStyle = mask;
+        angularContext.fillRect(0, 0, size, size);
+        // 角向信息只保留在实际环带，禁止 conic mask 从圆心贯穿到
+        // 远场；否则稀疏弧段会形成明显的锥形暗束。
+        const ringCenter = angular.radius / profile.radius * center;
+        const ringBand = Math.max(4, ringCenter * 0.35);
+        const annulus = angularContext.createRadialGradient(
+          center, center, Math.max(0, ringCenter - ringBand),
+          center, center, ringCenter + ringBand,
+        );
+        annulus.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        annulus.addColorStop(0.18, 'rgba(255, 255, 255, 1)');
+        annulus.addColorStop(0.82, 'rgba(255, 255, 255, 1)');
+        annulus.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        angularContext.globalCompositeOperation = 'destination-in';
+        angularContext.fillStyle = annulus;
+        angularContext.fillRect(0, 0, size, size);
+        // 圆心处各方向的扩散应混合为均值；整幅使用锥形遮罩会留下扇形暗缝。
+        const blendRadius = Math.max(1, angular.radius / profile.radius * center * 0.85);
+        for (const uniform of [false, true])
+        {
+          const blend = angularContext.createRadialGradient(
+            center, center, 0, center, center, blendRadius,
+          );
+          const alpha = uniform ? 1 / angular.gain : 1;
+          blend.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+          blend.addColorStop(1, 'rgba(255, 255, 255, 0)');
+          angularContext.globalCompositeOperation = uniform ? 'lighter' : 'destination-out';
+          angularContext.fillStyle = blend;
+          angularContext.fillRect(0, 0, size, size);
+        }
+        // 角向遮罩只应约束发光环附近；将整张 conic mask 施加到
+        // 径向 profile 会把每条亮弧拉成贯穿中心与外圈的锥形光束。
+        // 在环外渐进补回均匀 Alpha，让远场由径向 Gaussian 决定形状。
+        const outerFadeStart = Math.min(
+          center * 0.98,
+          Math.max(blendRadius, angular.radius / profile.radius * center * 1.15),
+        );
+        const outerUniform = angularContext.createRadialGradient(
+          center, center, outerFadeStart,
+          center, center, center,
+        );
+        const outerClear = angularContext.createRadialGradient(
+          center, center, outerFadeStart,
+          center, center, center,
+        );
+        outerClear.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        outerClear.addColorStop(1, 'rgba(255, 255, 255, 1)');
+        // 先移除残留的角向分量，再补回统一均值；单纯 lighter
+        // 会把低 Alpha 均值叠加到原锥形遮罩上，无法消除扇区暗缝。
+        angularContext.globalCompositeOperation = 'destination-out';
+        angularContext.fillStyle = outerClear;
+        angularContext.fillRect(0, 0, size, size);
+        outerUniform.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        outerUniform.addColorStop(1,
+          `rgba(255, 255, 255, ${1 / angular.gain})`);
+        angularContext.globalCompositeOperation = 'lighter';
+        angularContext.fillStyle = outerUniform;
+        angularContext.fillRect(0, 0, size, size);
+        drawContext.setTransform(1, 0, 0, 1, 0, 0);
+        drawContext.globalCompositeOperation = 'destination-in';
+        drawContext.drawImage(angularCanvas, 0, 0);
+        context.drawImage(drawContext.canvas, 0, 0, size, size,
+          x - profile.radius, y - profile.radius, profile.radius * 2, profile.radius * 2);
+      }
+    }
+    context.restore();
   }
 
   _drawCanvasTrails(
@@ -12073,6 +12272,7 @@ export class BAClickFX
       // 未知背景合同不需要 Canvas Final Pass；立即归还其全尺寸上传纹理，
       // 保留静态 Program 供下次参考图接入。
       this.canvasSceneRenderer?.releaseFrameResources();
+      this._releaseNativeClickBloomSurface();
     }
 
     this._requestRender();

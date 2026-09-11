@@ -99,7 +99,7 @@ const fx = new BAClickFX();
 
 ```html
 <script type="module">
-  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.2/dist/ba-click-fx.js';
+  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.3/dist/ba-click-fx.js';
   const fx = new BAClickFX();
 </script>
 ```
@@ -239,9 +239,11 @@ new BAClickFX(options?: {
 | 纯 WebGL2 | `{ effectBackend: 'webgl2', bloomBackend: 'webgl2' }` | 默认；完整 Scene、Coverage 与 MXFinalBloom 均在一个 WebGL2 HDR 管线中完成；失败时回退 Canvas 2D 链 |
 | WebGL2 Bloom | `{ effectBackend: 'canvas2d', bloomBackend: 'webgl2' }` | 兼容选择器；GPU 可用时复用与纯 WebGL2 相同的完整 HDR Scene，失败时沿 Canvas 2D 的 Software / Native 链回退 |
 | 软件 Bloom | `{ effectBackend: 'canvas2d', bloomBackend: 'software' }` | 兼容实现，使用 8 位 Canvas 遮罩、像素回读和全视口 Float32 Bloom 缓冲 |
-| 原生辉光 | `{ effectBackend: 'canvas2d', bloomBackend: 'native' }` | 使用 Canvas 2D `shadowBlur`，开销较低但观感与后处理 Bloom 不同 |
+| 原生辉光 | `{ effectBackend: 'canvas2d', bloomBackend: 'native' }` | 使用 Canvas 2D 多尺度光晕近似点击 Bloom，拖尾使用局部模糊；无需回读画布，仍与完整 GPU 后处理存在差异 |
 
 展示页在六档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与渲染后端正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
+
+原生点击辉光从共享材质、Circle 纹理与圆环溶解数据估算发射能量，应用 Threshold、Soft Knee、Clamp 和曝光强度，再按视口、DPR 与 Diffusion 近似多级扩散。圆环保留空心半径，并在光盘消失后按可见弧段分配光晕，避免大环内侧出现集中光斑。光晕独立叠加，不会为增亮而重复绘制光盘；原生 `opacity` 在光晕生成后应用，避免半透明时光晕突然消失。已知背景的 Canvas Final Pass 使用单独的半分辨率 sRGB 光晕缓冲，减轻暗部色带。源面积、环带卷积和角向扩散仍采用近似，细碎弧段、重叠点击与 HDR 高亮不会与 WebGPU/WebGL2 逐像素一致。
 
 WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 已协商扩展动态范围，并会把线性 HDR 结果编码为扩展 sRGB、保留超过 SDR 白色的高光；`'standard'` 表示 WebGPU Scene 与 Bloom 正常运行，但最终 Canvas 仍是 SDR；`'pending'` 表示正在申请设备或提交首帧；`'unavailable'` 表示当前没有可用的 WebGPU 输出。真正看到超白高光还需要 HDR 显示器、系统已开启 HDR、浏览器实现 WebGPU HDR Canvas，以及 `rgba16float + toneMapping: extended` 配置成功。
 
@@ -821,7 +823,7 @@ WebGPU 可用性由实际申请 Adapter/Device、创建 `webgpu` Canvas Context 
 
 ### JavaScript 软件 Bloom
 
-显式选择 `bloomBackend: 'software'` 或 WebGL2 不可用时，软件后端会把 HDR 发射亮度绘制到全视口遮罩，使用可复用的 Float32 mip 缓冲在 JavaScript 中近似 MXFinalBloom；像素读回/写回不可用时，圆环和光盘退回原生 `shadowBlur`，拖尾在局部离屏缓冲中模糊。该路径保留参数、几何、生命周期和总体能量关系，但受 8 位 Canvas 输入与预乘 Alpha 限制，不能宣称与完整 GPU Scene 逐像素等价。其阈值、曝光和上采样合同与上面的 Bloom 复盘文档同步。
+显式选择 `bloomBackend: 'software'` 或 WebGL2 不可用时，软件后端会把 HDR 发射亮度绘制到全视口遮罩，使用可复用的 Float32 mip 缓冲在 JavaScript 中近似 MXFinalBloom；像素读回/写回不可用时，圆环和光盘退回原生多尺度光晕，拖尾在局部离屏缓冲中模糊。该路径保留参数、几何、生命周期和总体能量关系，但受 8 位 Canvas 输入与预乘 Alpha 限制，不能宣称与完整 GPU Scene 逐像素等价。其阈值、曝光和上采样合同与上面的 Bloom 复盘文档同步。
 
 默认的 `isolatedCompositing: false` 让输出层直接与 DOM 背景合成；在纯白背景上，Unity 加色结果必然失去颜色和对比度。设为 `true` 后，各输出层会先在透明组内合成，再将带颜色与 Alpha 的结果覆盖到页面。这不会改变 Bloom 算法，只是用于纯白网页背景的非游戏兼容路径。需要按游戏方式让背景参与线性 Scene 计算时，应使用 `setCompositingReference()`，而不是把隔离合成当作背景采样替代品。
 
@@ -836,7 +838,7 @@ WebGPU 可用性由实际申请 Adapter/Device、创建 `webgpu` Canvas Context 
 | 纯 WebGL2 | 默认选择器；在提供匹配背景时，把几何、Coverage、HDR Scene 与 MXFinalBloom 全部保留在同一浮点管线中 |
 | WebGL2 Bloom | GPU 成功时复用与纯 WebGL2 相同的完整浮点 Scene；区别是保留 Canvas 2D 请求状态和 Software / Native 失败回退合同 |
 | 软件 Bloom | Bloom 金字塔使用 Float32 缓冲，但输入来自 8 位 Canvas；透明覆盖层只能用剩余 Coverage 近似承载 Bloom，不能独立保存任意 HDR RGB |
-| 原生辉光 | 使用 Canvas `shadowBlur` 的有界近似，不具备 `RGBA16F`、阈值预过滤和多级累积上采样，观感不会等同 MXFinalBloom |
+| 原生辉光 | 采样材质发射与溶解形状，按相同阈值和曝光生成 Canvas 多尺度近似；不具备完整 `RGBA16F` Scene 与逐像素累积上采样 |
 
 因此，“严格根据 Unity 工程还原”指参数、纹理采样、曲线、混合意图及完整 GPU 已知 Scene 路径的实现依据；它不表示浏览器所有后端、任意网页背景和透明桌面合成都能逐像素等同游戏截图。回退链优先保证生命周期、几何关系、Coverage 单调性和可用性，不伪装缺失的 HDR Scene 或显示能力。
 
@@ -934,7 +936,7 @@ ba-click-fx/
 - **Canvas Scene Final Pass**：原生辉光复用 Canvas 生成的 Scene 近似；提供场景背景时统一执行背景衰减与颜色编码，但不宣称具备完整 WebGL2 的浮点精度
 - **主特效层**：Canvas 路径内部以 `lighter` 累积发射能量，最终覆盖层使用预乘 Alpha 输出，避免 CSS 二次加亮
 - **浅色背景兼容层**：默认强度为 0；可显式设为 0.35，使用不参与 Bloom 的 `darken` Canvas 提升纯白背景可见性
-- **软件 Bloom**：全视口工作画布 + Float32 MXFinalBloom 金字塔；像素读回不可用时回退 `shadowBlur`
+- **软件 Bloom**：全视口工作画布 + Float32 MXFinalBloom 金字塔；像素读回不可用时回退原生多尺度光晕
 - **WebGL2 Bloom**：兼容选择器在 GPU 成功时复用完整 WebGL2 Scene，不重复栅格隐藏 Canvas；能力不足时沿 Software / Native 链降级
 - **资源生命周期**：WebGPU Device 或 WebGL Context 丢失立即回退；模式切换释放全尺寸帧目标并保留仍可复用的静态 GPU 资源
 - **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`

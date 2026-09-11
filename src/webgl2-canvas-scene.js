@@ -75,6 +75,8 @@ const FINAL_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 uniform sampler2D u_effect;
+uniform sampler2D u_bloom;
+uniform bool u_hasBloom;
 uniform sampler2D u_coverage;
 uniform sampler2D u_background;
 uniform vec2 u_backgroundUvScale;
@@ -114,6 +116,12 @@ void main()
   // DOM Canvas 上传保持顶行原点，所有浏览器统一在 Shader 中翻转。
   vec2 canvasUv = vec2(v_uv.x, 1.0 - v_uv.y);
   vec3 effectLinear = texture(u_effect, canvasUv).rgb;
+  if (u_hasBloom)
+  {
+    // 原生光晕以 sRGB 保存，采样器恢复线性能量，避免低亮度先量化为
+    // 8 位 Linear 后被最终 Gamma 编码放大成色带和可见抖动。
+    effectLinear += texture(u_bloom, canvasUv).rgb;
+  }
   float coverage = clamp(texture(u_coverage, v_uv).r, 0.0, 1.0);
   vec2 backgroundUv = (v_uv - 0.5) * u_backgroundUvScale + 0.5;
 
@@ -289,6 +297,7 @@ export class WebGL2CanvasSceneRenderer
     this.coverageVao = null;
     this.coverageBuffer = null;
     this.effectTexture = null;
+    this.bloomTexture = null;
     this.coverageTexture = null;
     this.coverageFramebuffer = null;
     this.circleTexture = null;
@@ -474,11 +483,13 @@ export class WebGL2CanvasSceneRenderer
     if (gl && !this.contextLost)
     {
       gl.deleteTexture(this.effectTexture);
+      gl.deleteTexture(this.bloomTexture);
       gl.deleteTexture(this.coverageTexture);
       gl.deleteFramebuffer(this.coverageFramebuffer);
     }
 
     this.effectTexture = null;
+    this.bloomTexture = null;
     this.coverageTexture = null;
     this.coverageFramebuffer = null;
   }
@@ -899,7 +910,7 @@ export class WebGL2CanvasSceneRenderer
     appendCorner(-radius, radius, 0, 1);
   }
 
-  _uploadEffectCanvas(effectCanvas)
+  _uploadEffectCanvas(effectCanvas, texture = this.effectTexture, encoded = false)
   {
     const gl = this.gl;
     const previousFlipY = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL);
@@ -913,20 +924,28 @@ export class WebGL2CanvasSceneRenderer
     try
     {
       this._discardPendingErrors();
-      gl.bindTexture(gl.TEXTURE_2D, this.effectTexture);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
       // 主 Canvas 的 RGB 必须作为已合成的预乘线性能量上传。
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
       gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
-      gl.texSubImage2D(
-        gl.TEXTURE_2D,
-        0,
-        0,
-        0,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        effectCanvas,
-      );
+      if (encoded)
+      {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8,
+          gl.RGBA, gl.UNSIGNED_BYTE, effectCanvas);
+      }
+      else
+      {
+        gl.texSubImage2D(
+          gl.TEXTURE_2D,
+          0,
+          0,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          effectCanvas,
+        );
+      }
 
       return gl.getError() === gl.NO_ERROR;
     }
@@ -1008,7 +1027,7 @@ export class WebGL2CanvasSceneRenderer
     return [1, sourceAspect / displayAspect];
   }
 
-  _drawFinal()
+  _drawFinal(hasBloom = false)
   {
     const gl = this.gl;
     const backgroundUvScale = this._getBackgroundUvScale();
@@ -1031,6 +1050,10 @@ export class WebGL2CanvasSceneRenderer
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.backgroundTexture);
     gl.uniform1i(gl.getUniformLocation(this.finalProgram, 'u_background'), 2);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, this.bloomTexture ?? this.effectTexture);
+    gl.uniform1i(gl.getUniformLocation(this.finalProgram, 'u_bloom'), 3);
+    gl.uniform1i(gl.getUniformLocation(this.finalProgram, 'u_hasBloom'), hasBloom ? 1 : 0);
     gl.uniform2f(
       gl.getUniformLocation(this.finalProgram, 'u_backgroundUvScale'),
       backgroundUvScale[0],
@@ -1040,7 +1063,7 @@ export class WebGL2CanvasSceneRenderer
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  render(effectCanvas)
+  render(effectCanvas, bloomCanvas = null)
   {
     if (
       !this.available ||
@@ -1065,8 +1088,24 @@ export class WebGL2CanvasSceneRenderer
     try
     {
       this._discardPendingErrors();
+      if (bloomCanvas)
+      {
+        if (!this.bloomTexture)
+        {
+          this.bloomTexture = this.gl.createTexture();
+          if (!this.bloomTexture)
+          {
+            return false;
+          }
+          configureTexture(this.gl, this.bloomTexture, this.gl.LINEAR);
+        }
+        if (!this._uploadEffectCanvas(bloomCanvas, this.bloomTexture, true))
+        {
+          return false;
+        }
+      }
       this._drawCoverage();
-      this._drawFinal();
+      this._drawFinal(bloomCanvas !== null);
       // flush 只提交命令，不等待 GPU；避免延后到下一次主线程事件才显示。
       this.gl.flush();
       return this.gl.getError() === this.gl.NO_ERROR;
@@ -1101,6 +1140,7 @@ export class WebGL2CanvasSceneRenderer
     this.coverageVao = null;
     this.coverageBuffer = null;
     this.effectTexture = null;
+    this.bloomTexture = null;
     this.coverageTexture = null;
     this.coverageFramebuffer = null;
     this.circleTexture = null;
