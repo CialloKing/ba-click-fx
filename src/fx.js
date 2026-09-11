@@ -4868,7 +4868,9 @@ function drawNativeTrailBloom(
   // 形成中心亮线和两侧断裂的光晕，尤其在低 DPR 下更明显。
   const bloomWidth = Math.max(0.5,
     trailCfg.geometryWidth * bloomCfg.trailCoverageScale);
-  const blurRadius = Math.max(0, trailCfg.outerGlowWidth * scale * 0.8);
+  // GPU 金字塔的近场半径约为几何外扩的一半；过大的 Canvas blur
+  // 会在高能量尾端叠成椭圆光斑，和 WebGL2/WebGPU 的细长拖尾不一致。
+  const blurRadius = Math.max(0, trailCfg.outerGlowWidth * scale * 0.5);
   const halfWidth = bloomWidth * scale * 0.5;
   const margin = Math.ceil(blurRadius * 3 + halfWidth + 2);
   let minimumX = Infinity;
