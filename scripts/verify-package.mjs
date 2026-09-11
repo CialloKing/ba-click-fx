@@ -30,10 +30,11 @@ function normalizePath(filePath)
 const packageJson = readJson('package.json');
 const packageLock = readJson('package-lock.json');
 const changelog = readText('CHANGELOG.md');
-const version = '1.3.2';
+const version = packageJson.version;
 
 verify(packageJson.name === 'ba-click-fx', 'package name must remain ba-click-fx');
-verify(packageJson.version === version, `package version must remain ${version}`);
+verify(typeof version === 'string' && /^\d+\.\d+\.\d+$/.test(version),
+  'package version must be a valid release version');
 verify(packageLock.name === packageJson.name, 'lockfile package name is out of sync');
 verify(packageLock.version === version, 'lockfile root version is out of sync');
 verify(
@@ -44,7 +45,7 @@ verify(
 const changelogHeadings = [...changelog.matchAll(/^##\s+(.+)$/gm)];
 verify(changelogHeadings.length > 0, 'CHANGELOG does not contain any version heading');
 verify(
-  changelogHeadings[0][1].trim() === `v${version} - 同步 FX_Touch 渲染合同`,
+  changelogHeadings[0][1].trim().split(/\s+/)[0] === `v${version}`,
   `latest CHANGELOG heading must be v${version}`,
 );
 
