@@ -11,7 +11,7 @@
 
 **从 Blue Archive Unity UI/FX_Touch 逐参数移植的网页点击特效与光标拖尾动画库。**
 
-`ba-click-fx` 将游戏《蔚蓝档案》的 `FX_Touch.prefab` 中 ParticleSystem 和 TrailRenderer 的完整参数——颜色曲线、大小曲线、旋转速度、溶解阈值、HDR 强度、TrailRenderer 时间与宽度——逐项还原到 Web。默认由 **纯 WebGL2** 接管完整 Scene、Coverage 与 MXFinalBloom；可选普通 WebGPU 标准 SDR 输出，或在浏览器和显示链支持时使用 WebGPU HDR 输出真实超白高光。能力不足时自动回退 WebGL2、Canvas 2D、软件 Bloom 与原生辉光。零外部运行时依赖。
+`ba-click-fx` 将游戏《蔚蓝档案》的 `FX_Touch.prefab` 中 ParticleSystem 和 TrailRenderer 的完整参数——颜色曲线、大小曲线、旋转速度、溶解阈值、HDR 强度、TrailRenderer 时间与宽度——逐项还原到 Web。默认由 **纯 WebGL2** 接管完整 Scene、Coverage 与 MXFinalBloom；可选普通 WebGPU 标准 SDR 输出，或在浏览器和显示链支持时使用 WebGPU HDR 输出真实超白高光。能力不足时自动回退 WebGL2，再使用 Canvas 2D 与原生辉光；软件 Bloom 仅显式选择时启用。零外部运行时依赖。
 
 **在线演示：** [ba-click-fx.cialloking.top](https://ba-click-fx.cialloking.top)
 
@@ -51,11 +51,11 @@
 
 - 从 Unity FX_Touch.prefab 逐参数移植，非"相似风格"模拟
 - 溶解圆环（MeshTri）、中心光盘（ring）、点击碎片（Ring 3/4）、拖尾轨迹（TrailRenderer）
-- 所有粒子参数锁定为游戏原始值：颜色渐变、大小曲线、旋转速度、溶解阈值、HDR 强度
+- 默认粒子参数来自游戏 Unity 原始资源：颜色渐变、大小曲线、旋转速度、溶解阈值、HDR 强度
 - Canvas 2D、纯 WebGL2 与 WebGPU 共用已经验证的特效几何，无外部运行时依赖
 - 六种展示页渲染选择：WebGPU、WebGPU HDR（实验）、纯 WebGL2（默认）、WebGL2 Bloom、软件 Bloom、原生辉光
 - WebGPU 使用 `rgba16float` 线性 Scene 与多级 Bloom；普通模式强制标准 SDR Canvas，HDR 模式才尝试 `extended` 输出并保留超过 SDR 白色的高光
-- WebGPU 不可用或 Device 丢失时自动回退完整 WebGL2，再沿 Canvas 2D、软件 Bloom、原生辉光链降级
+- WebGPU 不可用或 Device 丢失时自动回退完整 WebGL2，再降级为 Canvas 2D 与原生辉光
 - 核心可由高级宿主放入 Worker，直接使用 `OffscreenCanvas`、纯 WebGL2、手动输入与显式尺寸同步
 - 支持浏览器插件、npm、CDN、直接下载四种接入方式
 - 主题色支持兼容的 HSL 色相偏移和推荐的相对 OKLCH 完整颜色映射
@@ -237,13 +237,13 @@ new BAClickFX(options?: {
 | WebGPU | `{ effectBackend: 'webgpu', webgpuPreferHdr: false, bloomBackend: 'webgl2' }` | 正式的普通 WebGPU 模式；只配置浏览器首选 Standard SDR Canvas，不请求 `toneMapping: extended`，同时保留与 Unity 对齐的线性 Scene 与 MXFinalBloom |
 | WebGPU HDR（实验） | `{ effectBackend: 'webgpu', webgpuPreferHdr: true, bloomBackend: 'webgl2' }` | 异步申请 WebGPU，并优先配置 `rgba16float + toneMapping: extended`；HDR Canvas 不可用时继续使用 WebGPU 标准 SDR 输出，Device 不可用或丢失时回退完整 WebGL2 |
 | 纯 WebGL2 | `{ effectBackend: 'webgl2', bloomBackend: 'webgl2' }` | 默认；完整 Scene、Coverage 与 MXFinalBloom 均在一个 WebGL2 HDR 管线中完成；失败时回退 Canvas 2D 链 |
-| WebGL2 Bloom | `{ effectBackend: 'canvas2d', bloomBackend: 'webgl2' }` | 兼容选择器；GPU 可用时复用与纯 WebGL2 相同的完整 HDR Scene，失败时沿 Canvas 2D 的 Software / Native 链回退 |
+| WebGL2 Bloom | `{ effectBackend: 'canvas2d', bloomBackend: 'webgl2' }` | 兼容选择器；GPU 可用时复用与纯 WebGL2 相同的完整 HDR Scene，失败时回退 Canvas 2D 与原生辉光 |
 | 软件 Bloom | `{ effectBackend: 'canvas2d', bloomBackend: 'software' }` | 兼容实现，使用 8 位 Canvas 遮罩、像素回读和全视口 Float32 Bloom 缓冲 |
 | 原生辉光 | `{ effectBackend: 'canvas2d', bloomBackend: 'native' }` | 使用 Canvas 2D 多尺度光晕近似点击 Bloom，拖尾使用局部模糊；无需回读画布，仍与完整 GPU 后处理存在差异 |
 
 展示页在六档渲染选项之外提供独立的“隔离合成”开关。该开关默认关闭，与渲染后端正交；它只控制多张 Canvas 的最终 CSS 合成边界，不改变 Bloom 阈值、模糊或颜色计算，也不是降低 Bloom 计算量的性能开关。
 
-原生点击辉光从共享材质、Circle 纹理与圆环溶解数据估算发射能量，应用 Threshold、Soft Knee、Clamp 和曝光强度，再按视口、DPR 与 Diffusion 近似多级扩散。圆环保留空心半径，并在光盘消失后按可见弧段分配光晕，避免大环内侧出现集中光斑。光晕独立叠加，不会为增亮而重复绘制光盘；原生 `opacity` 在光晕生成后应用，避免半透明时光晕突然消失。已知背景的 Canvas Final Pass 使用单独的半分辨率 sRGB 光晕缓冲，减轻暗部色带。源面积、环带卷积和角向扩散仍采用近似，细碎弧段、重叠点击与 HDR 高亮不会与 WebGPU/WebGL2 逐像素一致。
+原生点击辉光从共享材质、Circle 纹理与圆环溶解数据估算发射能量，应用 Threshold、Soft Knee、Clamp 和曝光强度，再按视口、DPR 与 Diffusion 近似多级扩散。圆环能量按半径与宽度估算，再做各向同性径向扩散；当前不按可见弧段施加角向遮罩。光晕独立叠加，不会为增亮而重复绘制光盘；原生 `opacity` 在光晕生成后应用，避免半透明时光晕突然消失。已知背景的 Canvas Final Pass 使用单独的半分辨率 sRGB 光晕缓冲，减轻暗部色带。源面积、环带卷积和径向扩散仍采用近似，细碎弧段、重叠点击与 HDR 高亮不会与 WebGPU/WebGL2 逐像素一致。
 
 WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutputMode === 'extended'` 才表示 Canvas 已协商扩展动态范围，并会把线性 HDR 结果编码为扩展 sRGB、保留超过 SDR 白色的高光；`'standard'` 表示 WebGPU Scene 与 Bloom 正常运行，但最终 Canvas 仍是 SDR；`'pending'` 表示正在申请设备或提交首帧；`'unavailable'` 表示当前没有可用的 WebGPU 输出。真正看到超白高光还需要 HDR 显示器、系统已开启 HDR、浏览器实现 WebGPU HDR Canvas，以及 `rgba16float + toneMapping: extended` 配置成功。
 
@@ -259,9 +259,9 @@ WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutp
 
 显式 `effectBackend: 'webgpu'` 和 `'auto'` 都按 WebGPU → WebGL2 → Canvas 2D 的顺序解析完整特效后端。默认值仍为稳定的 `'webgl2'`，因此升级不会自动改变现有页面的渲染后端。
 
-`bloomBackend: 'auto'` 会优先尝试 WebGL2，失败时依次使用软件 Bloom 和原生辉光。默认值 `'webgl2'` 采用相同回退链；显式选择 `'software'` 时，像素回读不可用则回退原生辉光。`effectBackend` 显式提供时始终优先决定完整特效后端，Bloom 仍由 `bloomBackend` 单独选择。
+`bloomBackend: 'auto'` 和默认值 `'webgl2'` 优先尝试 GPU，失败时直接回退原生辉光，不自动启用软件 Bloom。只有显式选择 `'software'` 时才使用软件 Bloom，像素回读不可用则回退原生辉光。完整 GPU Scene 成功时由该后端统一计算 Bloom；`bloomBackend` 决定 Canvas 2D 路径的 Bloom 选择。
 
-为保持已经验收的颜色、透明度和边缘采样，WebGL2 Bloom 在 GPU 成功时会有意复用 `WebGL2EffectRenderer` 的完整 Scene，而不是上传一份 8 位 Canvas Scene。因此它与纯 WebGL2 的成功帧使用相同 Shader 和像素管线，也不会预先栅格随后被隐藏的 Canvas。两者的区别是兼容合同：WebGL2 Bloom 仍保留 `effectBackend: 'canvas2d'` 请求及其 Software / Native 回退链，纯 WebGL2 则由完整特效后端直接接管。
+为保持已经验收的颜色、透明度和边缘采样，WebGL2 Bloom 在 GPU 成功时会有意复用 `WebGL2EffectRenderer` 的完整 Scene，而不是上传一份 8 位 Canvas Scene。因此它与纯 WebGL2 的成功帧使用相同 Shader 和像素管线，也不会预先栅格随后被隐藏的 Canvas。两者的区别是兼容合同：WebGL2 Bloom 仍保留 `effectBackend: 'canvas2d'` 请求及其 Native 回退链，纯 WebGL2 则由完整特效后端直接接管。
 
 `outputCompositing: 'scene'` 是默认值，保持 Unity 面向 Scene Render Target 的直接加色 RGB 语义。展示页和要求严格游戏还原的集成都应使用该模式，并通过 `setCompositingReference()` 提供与实际底图逐像素匹配的已知背景；这是完整 GPU 路径精确求值 Scene RGB 的合同。`'browser-overlay'` 供 BASpark、WebView2、Electron 等透明桌面宿主显式选择，HDR 发射和 Bloom 能量仍独立计算，最终 Alpha 不再由最终 RGB 最大通道决定。
 
@@ -290,7 +290,7 @@ WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutp
 
 `isolatedCompositing` 默认是 `false`，各 Canvas 直接挂载到目标容器或页面。设为 `true` 后，库拥有的主特效层、WebGPU/WebGL2 层和浅色背景兼容层会先在透明隔离组内解析，再将整个组覆盖到页面上，避免浏览器分别把兼容层与纯白页面合成后丢失蓝青色对比。默认 `source-over` 合同不会在外层再次混合；只有显式选择独立完整载荷时，完整图层组才执行一次所选的 `screen` 或 `plus-lighter`。隔离合成是非游戏的网页白底兼容选项，可通过 `updateConfig()` 在运行时切换。
 
-若 `target` 是已有的 `HTMLCanvasElement`，库无法安全插入完整特效、Bloom、对比和隔离所需的额外 DOM 图层，因此完整特效的 `'webgpu'` / `'webgl2'` / `'auto'` 会回退 `canvas2d`，Bloom 的 `'webgl2'` / `'auto'` 会回退软件 Bloom，`isolatedCompositing` 也会被强制降级为 `false`；`getConfig()` 返回降级后的实际配置。直接传入的 `OffscreenCanvas` 是一个有意支持的例外：纯 WebGL2 可以直接拥有该画布，显式 `'canvas2d'` 也可以工作，但无法使用依赖 DOM/CSS 多图层的 WebGPU、隔离合成等能力。外部 Canvas 的 CSS 和最终宿主合成始终由调用方负责。默认全屏覆盖层不受 `HTMLCanvasElement` 限制；普通容器也可以使用，但必须自行建立定位上下文（通常设置 `position: relative`）。
+若 `target` 是已有的 `HTMLCanvasElement`，库无法安全插入完整特效、Bloom、对比和隔离所需的额外 DOM 图层，因此完整特效的 `'webgpu'` / `'webgl2'` / `'auto'` 会回退 `canvas2d`，Bloom 的 `'webgl2'` / `'auto'` 会回退原生辉光，`isolatedCompositing` 也会被强制降级为 `false`。`getConfig()` 中的 `effectBackend` / `bloomBackend` 保留请求值，实际后端请读取 `resolvedEffectBackend` / `resolvedBloomBackend`。直接传入的 `OffscreenCanvas` 是一个有意支持的例外：纯 WebGL2 可以直接拥有该画布，显式 `'canvas2d'` 也可以工作，但无法使用依赖 DOM/CSS 多图层的 WebGPU、隔离合成等能力。外部 Canvas 的 CSS 和最终宿主合成始终由调用方负责。默认全屏覆盖层不受 `HTMLCanvasElement` 限制；普通容器也可以使用，但必须自行建立定位上下文（通常设置 `position: relative`）。
 
 隔离根按 `BAClickFX` 实例独立创建和销毁。同一页面的多个隔离实例不会跨根混合内部兼容层；一个实例切换模式或销毁也不会移动、删除其他实例的 Canvas。
 
@@ -609,8 +609,8 @@ fx.setPaused(false);
 | `setInputSamplingRate(rateHz)` | 设置移动输入采样率上限；接受 `0` 或 `1..1000`，成功返回 `true` |
 | `setCompositingReference(source, { fit: 'cover' })` | 设置各渲染后端共享的已知栅格合成参考；传入 `null` 清除参考并进入未知背景路径 |
 | `clear()` | 清除全部视觉对象 |
-| `clearTrail()` | 仅清除拖尾和碎片 |
-| `destroy()` | 销毁实例，移除事件监听和 Canvas |
+| `clearTrail()` | 清除拖尾及拖尾碎片，保留点击特效与点击碎片 |
+| `destroy()` | 销毁实例并移除其监听；仅移除库创建的 Canvas |
 | `updateConfig({...})` | 运行时更新基础配置、输入来源/采样率、时间倍率、完整特效/Bloom 后端、DPR 与触摸行为 |
 | `setThemeColor('#4ca7ff')` | 设置并保存主题色；非法值恢复默认游戏蓝 |
 | `setThemeColorMode(mode)` | 切换主题颜色映射模式；接受 `hue-only` 或 `relative-oklch`，成功返回 `true` |
@@ -732,7 +732,7 @@ fx.setTriangleRoundness(0.5);
 fx.setFxParam('shards.roundness', 0.5);
 ```
 
-点击辉光可独立于轨迹调节。该倍率只改变增强模式下圆环和中心光盘的
+点击辉光可独立于轨迹调节。该倍率只改变圆环和中心光盘的
 Bloom 发射；原生辉光使用保持单调的有界 Alpha 映射：
 
 ```js
@@ -823,7 +823,7 @@ WebGPU 可用性由实际申请 Adapter/Device、创建 `webgpu` Canvas Context 
 
 ### JavaScript 软件 Bloom
 
-显式选择 `bloomBackend: 'software'` 或 WebGL2 不可用时，软件后端会把 HDR 发射亮度绘制到全视口遮罩，使用可复用的 Float32 mip 缓冲在 JavaScript 中近似 MXFinalBloom；像素读回/写回不可用时，圆环和光盘退回原生多尺度光晕，拖尾在局部离屏缓冲中模糊。该路径保留参数、几何、生命周期和总体能量关系，但受 8 位 Canvas 输入与预乘 Alpha 限制，不能宣称与完整 GPU Scene 逐像素等价。其阈值、曝光和上采样合同与上面的 Bloom 复盘文档同步。
+仅在显式选择 `bloomBackend: 'software'` 时，软件后端会把 HDR 发射亮度绘制到全视口遮罩，使用可复用的 Float32 mip 缓冲在 JavaScript 中近似 MXFinalBloom；像素读回/写回不可用时，圆环和光盘退回原生多尺度光晕，拖尾在局部离屏缓冲中模糊。该路径保留参数、几何、生命周期和总体能量关系，但受 8 位 Canvas 输入与预乘 Alpha 限制，不能宣称与完整 GPU Scene 逐像素等价。其阈值、曝光和上采样合同与上面的 Bloom 复盘文档同步。
 
 默认的 `isolatedCompositing: false` 让输出层直接与 DOM 背景合成；在纯白背景上，Unity 加色结果必然失去颜色和对比度。设为 `true` 后，各输出层会先在透明组内合成，再将带颜色与 Alpha 的结果覆盖到页面。这不会改变 Bloom 算法，只是用于纯白网页背景的非游戏兼容路径。需要按游戏方式让背景参与线性 Scene 计算时，应使用 `setCompositingReference()`，而不是把隔离合成当作背景采样替代品。
 
@@ -836,7 +836,7 @@ WebGPU 可用性由实际申请 Adapter/Device、创建 `webgpu` Canvas Context 
 | WebGPU Extended HDR | `rgba16float + toneMapping: extended` 成功时，Scene、Coverage 与 MXFinalBloom 保留在线性浮点管线中，最终 Canvas 可提交超过 SDR 白色的高光 |
 | WebGPU Standard | WebGPU Scene 与 Bloom 仍在浮点管线中运行，但最终 Canvas 使用浏览器首选标准格式并压缩到 SDR；不能声称真实 HDR 输出 |
 | 纯 WebGL2 | 默认选择器；在提供匹配背景时，把几何、Coverage、HDR Scene 与 MXFinalBloom 全部保留在同一浮点管线中 |
-| WebGL2 Bloom | GPU 成功时复用与纯 WebGL2 相同的完整浮点 Scene；区别是保留 Canvas 2D 请求状态和 Software / Native 失败回退合同 |
+| WebGL2 Bloom | GPU 成功时复用与纯 WebGL2 相同的完整浮点 Scene；区别是保留 Canvas 2D 请求状态和 Native 失败回退合同 |
 | 软件 Bloom | Bloom 金字塔使用 Float32 缓冲，但输入来自 8 位 Canvas；透明覆盖层只能用剩余 Coverage 近似承载 Bloom，不能独立保存任意 HDR RGB |
 | 原生辉光 | 采样材质发射与溶解形状，按相同阈值和曝光生成 Canvas 多尺度近似；不具备完整 `RGBA16F` Scene 与逐像素累积上采样 |
 
@@ -884,7 +884,7 @@ Unity 的点击特效使用加色混合；接近白色的目标已经没有足�
 
 - 游戏风格的溶解圆环、中心光盘和碎片爆发
 - 参数级还原 Unity ParticleSystem 颜色/大小/旋转曲线
-- 拖尾从尾部到头部连续消散，而不是整条轨迹同时淡出
+- 旧轨迹点先消失，拖尾沿路径连续缩短，而不是整条轨迹同时淡出
 - 粒子尺寸随画布高度持续缩放，保持 Unity UI 相对比例
 - 20+ 个可调参数 + 自定义主题色，适合微调偏好
 
@@ -937,7 +937,7 @@ ba-click-fx/
 - **主特效层**：Canvas 路径内部以 `lighter` 累积发射能量，最终覆盖层使用预乘 Alpha 输出，避免 CSS 二次加亮
 - **浅色背景兼容层**：默认强度为 0；可显式设为 0.35，使用不参与 Bloom 的 `darken` Canvas 提升纯白背景可见性
 - **软件 Bloom**：全视口工作画布 + Float32 MXFinalBloom 金字塔；像素读回不可用时回退原生多尺度光晕
-- **WebGL2 Bloom**：兼容选择器在 GPU 成功时复用完整 WebGL2 Scene，不重复栅格隐藏 Canvas；能力不足时沿 Software / Native 链降级
+- **WebGL2 Bloom**：兼容选择器在 GPU 成功时复用完整 WebGL2 Scene，不重复栅格隐藏 Canvas；能力不足时直接回退原生辉光
 - **资源生命周期**：WebGPU Device 或 WebGL Context 丢失立即回退；模式切换释放全尺寸帧目标并保留仍可复用的静态 GPU 资源
 - **按需渲染**：无活跃特效时自动停止 `requestAnimationFrame`
 - **零外部依赖**：仅使用浏览器原生 Canvas 2D / WebGL2 / WebGPU API，不引入第三方运行时
@@ -976,14 +976,14 @@ npm test
 
 测试入口按职责分组：`npm test` 依次运行 `test:unit`、`test:source-contract`、`test:runtime` 与 `test:worker`；默认 `test:browser` 只运行 dist 核心像素矩阵和真实 Worker。生命周期、Demo、Unity 数量和可选 WebGPU 使用 `test:browser:lifecycle`、`test:browser:demo`、`test:browser:unity` 与 `test:browser:webgpu:optional` 单独执行。
 
-发布前统一执行：
+日常完整检查执行 `npm run check`；发布前执行包含浏览器验证的完整门禁：
 
 ```bash
 npm ci
-npm run check
+npm run check:release
 ```
 
-`check` 会按顺序完成构建、测试、演示同步、版本/入口、npm 精确文件清单和本地包安装检查。
+`check` 完成构建、测试、运行时与演示文档同步、版本/入口、npm 精确文件清单和本地包安装检查。`check:release` 还执行核心像素、Worker、生命周期、Demo、Unity 数量及可选 WebGPU 浏览器验证；`npm publish` 的 `prepublishOnly` 使用同一入口。
 
 ---
 
