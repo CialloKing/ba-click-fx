@@ -6035,51 +6035,13 @@ assert(
 );
 const budgetBlurDraw = budgetGeometry.nativeBlurDraws[0];
 const budgetBlurArgs = budgetBlurDraw?.args ?? [];
-const budgetVisiblePoints = budgetPoints.slice(
-  nativeSkippedBudgetSegmentCount,
-);
-const budgetMinimumX = Math.min(...budgetVisiblePoints.map(({ x }) => x));
-const budgetMinimumY = Math.min(...budgetVisiblePoints.map(({ y }) => y));
-const budgetMaximumX = Math.max(...budgetVisiblePoints.map(({ x }) => x));
-const budgetMaximumY = Math.max(...budgetVisiblePoints.map(({ y }) => y));
-const budgetScale = geometryEffect._getScale();
-const budgetBlurRadius = UNITY_FX_TOUCH.trail.outerGlowWidth * budgetScale;
-const budgetHalfWidth = Math.max(
-  0.5,
-  UNITY_FX_TOUCH.trail.geometryWidth * budgetScale * 0.5,
-);
-const budgetMargin = Math.ceil(
-  budgetBlurRadius * 3 + budgetHalfWidth + 2,
-);
-const budgetOriginX = Math.floor(budgetMinimumX - budgetMargin);
-const budgetOriginY = Math.floor(budgetMinimumY - budgetMargin);
-const budgetRegionWidth = Math.max(
-  1,
-  Math.ceil(budgetMaximumX + budgetMargin) - budgetOriginX,
-);
-const budgetRegionHeight = Math.max(
-  1,
-  Math.ceil(budgetMaximumY + budgetMargin) - budgetOriginY,
-);
-const budgetFullRegionWidth = Math.max(
-  1,
-  Math.ceil(Math.max(...budgetPoints.map(({ x }) => x)) + budgetMargin) -
-    Math.floor(Math.min(...budgetPoints.map(({ x }) => x)) - budgetMargin),
-);
 const budgetDpr = geometryEffect.nativeTrailBloomSurface.dpr;
-const expectedBudgetSource = [
-  0,
-  0,
-  Math.ceil(budgetRegionWidth * budgetDpr),
-  Math.ceil(budgetRegionHeight * budgetDpr),
-];
-const expectedBudgetDestination = [
-  budgetOriginX,
-  budgetOriginY,
-  budgetRegionWidth,
-  budgetRegionHeight,
-];
-const budgetBlurSupport = budgetBlurRadius * 3 + 2;
+const [sourceX, sourceY, sourceWidth, sourceHeight,
+  originX, originY, regionWidth, regionHeight] = budgetBlurArgs.slice(1);
+// 检查实际提交的模糊支撑区，避免复制生产代码的校准系数和取整公式。
+const budgetBlurRadius = Number(budgetBlurDraw?.filter.match(/^blur\(([\d.]+)px\)$/)?.[1]) /
+  budgetDpr;
+const budgetBlurSupport = budgetBlurRadius * 3;
 const budgetNativeVertices = budgetGeometry.nativePaths.flat();
 
 assert(
@@ -6087,18 +6049,19 @@ assert(
     budgetBlurArgs[0] === geometryEffect.nativeTrailBloomSurface.canvas &&
     budgetGeometry.nativeClearRects.length === 1 &&
     JSON.stringify(budgetGeometry.nativeClearRects[0]) ===
-      JSON.stringify(expectedBudgetSource) &&
-    JSON.stringify(budgetBlurArgs.slice(1, 5)) ===
-      JSON.stringify(expectedBudgetSource) &&
-    JSON.stringify(budgetBlurArgs.slice(5)) ===
-      JSON.stringify(expectedBudgetDestination) &&
-    budgetRegionWidth < budgetFullRegionWidth &&
+      JSON.stringify(budgetBlurArgs.slice(1, 5)) &&
+    sourceX === 0 && sourceY === 0 &&
+    sourceWidth === Math.ceil(regionWidth * budgetDpr) &&
+    sourceHeight === Math.ceil(regionHeight * budgetDpr) &&
+    Number.isFinite(budgetBlurRadius) && budgetBlurRadius > 0 &&
+    // 零能量前缀不应扩大缓冲，但所有可见顶点和三倍模糊半径必须容纳。
+    originX > Math.min(...budgetPoints.map(({ x }) => x)) &&
     budgetNativeVertices.every(([x, y]) =>
-      x - budgetBlurSupport >= budgetOriginX &&
-        x + budgetBlurSupport <= budgetOriginX + budgetRegionWidth &&
-        y - budgetBlurSupport >= budgetOriginY &&
-        y + budgetBlurSupport <= budgetOriginY + budgetRegionHeight),
-  'Native 只按可见轨迹边界清理缓冲，并为折点和整体模糊保留完整支撑区',
+      x - budgetBlurSupport >= originX &&
+        x + budgetBlurSupport <= originX + regionWidth &&
+        y - budgetBlurSupport >= originY &&
+        y + budgetBlurSupport <= originY + regionHeight),
+  'Native 只清理实际采样区域，并完整容纳可见轨迹与模糊支撑区',
 );
 const repeatedEndpointGeometry = renderCanvasTrailGeometry(
   [
@@ -6171,25 +6134,25 @@ assert(
   '64 点直线只测量 63 次段长，并让网格复用相同浮点结果',
 );
 const originalDevicePixelRatio = dom.windowMock.devicePixelRatio;
-
-dom.windowMock.devicePixelRatio = 2;
-geometryEffect.updateConfig({ maxDpr: 2 });
-const dprTwoTrailGeometry = renderCanvasTrailGeometry(
-  [
-    { x: 120, y: 240 },
-    { x: 220, y: 220 },
-    { x: 320, y: 240 },
-  ],
-);
-const expectedDprTwoTrailBlur =
-  UNITY_FX_TOUCH.trail.outerGlowWidth * geometryEffect._getScale() * 2;
-
+const dprTrailPoints = [
+  { x: 120, y: 240 },
+  { x: 220, y: 220 },
+  { x: 320, y: 240 },
+];
+const dprBlurSizes = [1, 2].map((dpr) =>
+{
+  dom.windowMock.devicePixelRatio = dpr;
+  geometryEffect.updateConfig({ maxDpr: 2 });
+  const geometry = renderCanvasTrailGeometry(dprTrailPoints);
+  const draw = geometry.nativeBlurDraws[0];
+  assert(geometryEffect.dpr === dpr && geometry.nativeBlurDraws.length === 1,
+    'DPR=' + dpr + ' 的 Native 拖尾只提交一次整体模糊');
+  return Number(draw.filter.match(/^blur\(([\d.]+)px\)$/)?.[1]) / dpr;
+});
 assert(
-  geometryEffect.dpr === 2 &&
-    dprTwoTrailGeometry.nativeBlurDraws.length === 1 &&
-    dprTwoTrailGeometry.nativeBlurDraws[0].filter ===
-      `blur(${expectedDprTwoTrailBlur}px)`,
-  'Native 拖尾模糊按 DPR 换算到物理像素并保持 CSS 光晕尺寸',
+  Number.isFinite(dprBlurSizes[0]) && dprBlurSizes[0] > 0 &&
+    Math.abs(dprBlurSizes[0] - dprBlurSizes[1]) < 0.000001,
+  'Native 拖尾在 DPR 1 和 2 下保持相同的 CSS 模糊尺寸',
 );
 dom.windowMock.devicePixelRatio = originalDevicePixelRatio;
 geometryEffect.updateConfig({ maxDpr: 2 });

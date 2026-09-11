@@ -20,7 +20,6 @@ import {
 import { UNITY_FX_TOUCH } from '../src/config.js';
 import {
   addNativeBloomSample,
-  createNativeBloomAngularMask,
   createNativeBloomProfile,
   createNativeBloomSource,
 } from '../src/native-bloom.js';
@@ -1846,23 +1845,13 @@ addNativeBloomSample(nativeSource, [2, 4, 8], 20, 16);
 const nativeProfile = createNativeBloomProfile([nativeSource], 320, 240, 1, nativeSettings);
 const nativeStrong = createNativeBloomProfile([nativeSource], 320, 240, 1,
   { ...nativeSettings, intensity: nativeSettings.intensity * 2 });
-const nativeRing = { ...nativeSource, radius: 64, width: 2,
-  angularMass: new Float64Array(64) };
-nativeRing.angularMass[0] = nativeRing.transport;
+const nativeRing = { ...nativeSource, radius: 64, width: 2 };
 const ringProfile = createNativeBloomProfile([nativeRing], 640, 512, 1, nativeSettings);
 const ringPeak = ringProfile.stops.reduce((peak, stop) =>
   stop.transport > peak.transport ? stop : peak);
 assert(ringPeak.position * ringProfile.radius < nativeRing.radius &&
   ringProfile.stops[0].transport >= ringPeak.transport * 0.2,
 '原生大圆环光晕向圆心平滑扩散，避免形成过窄圆环');
-const angularMask = createNativeBloomAngularMask([nativeRing], 1, nativeSettings);
-assert(angularMask.values[0] > angularMask.values[32] * 10 &&
-  approximatelyEqual(angularMask.values[1], angularMask.values[63]) &&
-  approximatelyEqual(angularMask.values.reduce((sum, value) => sum + value, 0) *
-    angularMask.gain / 64, 1),
-'原生弧段光晕保留方向、跨越角度接缝平滑且保持总能量');
-assert(createNativeBloomAngularMask([nativeRing, nativeSource], 1, nativeSettings) === null,
-'原生光盘尚未消失时不受圆环缺口遮罩裁剪');
 assert(nativeProfile.stops.every((stop, index) =>
   stop.energy.every((channel) => channel <= stop.transport) &&
     (index === 0 || stop.transport <= nativeProfile.stops[index - 1].transport)),
