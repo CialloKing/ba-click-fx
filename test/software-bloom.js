@@ -1852,9 +1852,9 @@ nativeRing.angularMass[0] = nativeRing.transport;
 const ringProfile = createNativeBloomProfile([nativeRing], 640, 512, 1, nativeSettings);
 const ringPeak = ringProfile.stops.reduce((peak, stop) =>
   stop.transport > peak.transport ? stop : peak);
-assert(Math.abs(ringPeak.position * ringProfile.radius - nativeRing.radius) < 3 &&
-  ringProfile.stops[0].transport < ringPeak.transport * 0.1,
-'原生大圆环光晕沿环带达到峰值，不聚成圆心光团');
+assert(ringPeak.position * ringProfile.radius < nativeRing.radius &&
+  ringProfile.stops[0].transport >= ringPeak.transport * 0.2,
+'原生大圆环光晕向圆心平滑扩散，避免形成过窄圆环');
 const angularMask = createNativeBloomAngularMask([nativeRing], 1, nativeSettings);
 assert(angularMask.values[0] > angularMask.values[32] * 10 &&
   approximatelyEqual(angularMask.values[1], angularMask.values[63]) &&
