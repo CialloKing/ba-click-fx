@@ -4864,8 +4864,12 @@ function drawNativeTrailBloom(
     startCapIsTransparent && firstVisibleSegmentOffset >= 0
       ? firstVisibleSegmentOffset + 1
       : 1;
-  const blurRadius = Math.max(0, trailCfg.outerGlowWidth * scale);
-  const halfWidth = Math.max(0.5, trailCfg.geometryWidth * scale * 0.5);
+  // 与 WebGL Bloom 的覆盖宽度保持一致；Native 直接模糊过窄几何会
+  // 形成中心亮线和两侧断裂的光晕，尤其在低 DPR 下更明显。
+  const bloomWidth = Math.max(0.5,
+    trailCfg.geometryWidth * bloomCfg.trailCoverageScale);
+  const blurRadius = Math.max(0, trailCfg.outerGlowWidth * scale * 0.8);
+  const halfWidth = bloomWidth * scale * 0.5;
   const margin = Math.ceil(blurRadius * 3 + halfWidth + 2);
   let minimumX = Infinity;
   let minimumY = Infinity;
@@ -4928,7 +4932,7 @@ function drawNativeTrailBloom(
     opacity,
     trailCfg,
     {
-      width: trailCfg.geometryWidth,
+      width: bloomWidth,
       materialIntensity: bloomCfg.trailEmission,
       colorAtIntensity: (
         color,
