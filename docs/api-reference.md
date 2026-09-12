@@ -51,32 +51,109 @@ new BAClickFX(options?: {
 
 `target` 和 `inputFilter` 仅在构造时设置。后端、合成与 HDR 的选择规则见 [渲染指南](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md)。
 
+构造成功会返回新实例。配置校验失败会抛出 `TypeError`；缺少浏览器/Worker 环境、目标不存在或无法创建所需 Canvas 上下文等初始化失败会抛出错误。SSR 应在客户端挂载时创建实例；Worker 必须显式传入 `OffscreenCanvas`。
+
+## 类型签名摘要
+
+以下声明用于查阅；实际接入时从包导入对应 API，无需重新声明。构造选项、指针输入、配置快照和批量处理结果等类型的完整字段见 [TypeScript 声明](https://github.com/CialloKing/ba-click-fx/blob/main/src/ba-click-fx.d.ts)。
+
+```ts
+import type {
+  BAClickFXCompositingReferenceOptions,
+  BAClickFXConfigSnapshot,
+  BAClickFXHostCompositing,
+  BAClickFXOptions,
+  BAClickFXParamPatchOptions,
+  BAClickFXParamPatchResult,
+  BAClickFXParamValue,
+  BAClickFXPauseOptions,
+  BAClickFXPointerInput,
+  BAClickFXStandalonePatchOptions,
+  BAClickFXThemeColorMode,
+  BAClickFXUpdateOptions,
+} from 'ba-click-fx';
+
+declare class BAClickFX
+{
+  constructor(options?: BAClickFXOptions);
+  readonly canvas: HTMLCanvasElement | OffscreenCanvas;
+  readonly width: number;
+  readonly height: number;
+  resize(width?: number, height?: number, dpr?: number): void;
+  boom(x?: number, y?: number): void;
+  pointerDown(input: BAClickFXPointerInput): boolean;
+  pointerMove(input: BAClickFXPointerInput): boolean;
+  pointerUp(pointerId?: number): boolean;
+  pointerCancel(pointerId?: number): boolean;
+  setPaused(paused: boolean, options?: BAClickFXPauseOptions): void;
+  setCompositingReference(
+    source: TexImageSource | null,
+    options?: BAClickFXCompositingReferenceOptions,
+  ): boolean;
+  getEffectiveHostCompositing(): BAClickFXHostCompositing;
+  updateConfig(overrides: BAClickFXUpdateOptions): BAClickFXConfigSnapshot;
+  setThemeColor(hex: string): void;
+  setThemeColorMode(mode: BAClickFXThemeColorMode): boolean;
+  setInputSamplingRate(rateHz: number): boolean;
+  setFxParam(path: string, value: BAClickFXParamValue): boolean;
+  setTriangleRoundness(roundness: number): boolean;
+  setFxParams(
+    patch: Readonly<Record<string, BAClickFXParamValue>>,
+    options?: BAClickFXParamPatchOptions,
+  ): BAClickFXParamPatchResult;
+  getFxConfig(): Record<string, unknown>;
+  resetFxConfig(): void;
+  clearTrail(): void;
+  clear(): void;
+  getConfig(): BAClickFXConfigSnapshot;
+  destroy(): void;
+}
+
+declare function applyFxParamPatch(
+  patch: Readonly<Record<string, unknown>>,
+  options?: BAClickFXStandalonePatchOptions,
+): BAClickFXParamPatchResult;
+```
+
+`canvas` 是实例的主画布；只读的 `width` / `height` 表示当前 Canvas 局部 CSS 像素尺寸，不是乘以 DPR 后的像素缓冲尺寸。返回 `void` 的方法不提供成功标志，也不表示下一帧已完成绘制。
+
 ## 实例方法
 
 | 方法 | 说明 |
 |---|---|
 | `resize(width?, height?, dpr?)` | 显式同步 Canvas 的 CSS 尺寸与 DPR，主要用于 Worker / OffscreenCanvas 宿主 |
-| `boom(x, y)` | 在指定坐标触发单次点击特效，不创建拖尾状态 |
-| `pointerDown(input)` | 开始一次点击和拖尾生命周期 |
-| `pointerMove(input)` | 为当前逻辑指针追加拖尾采样点 |
-| `pointerUp(pointerId?)` | 正常结束指针，已有拖尾自然消失 |
-| `pointerCancel(pointerId?)` | 强制取消指针并立即移除当前轨迹 |
+| `boom(x?, y?)` | 触发单次点击特效；省略坐标时使用画布中心，不创建拖尾状态 |
+| `pointerDown(input)` | 开始一次点击和拖尾生命周期；返回是否接受输入 |
+| `pointerMove(input)` | 为当前逻辑指针追加拖尾采样点；返回是否接受输入，限频跳过仍返回 `true` |
+| `pointerUp(pointerId?)` | 正常结束匹配的指针；成功返回 `true`，已有拖尾自然消失 |
+| `pointerCancel(pointerId?)` | 强制取消匹配的指针并立即移除当前轨迹；成功返回 `true` |
 | `setPaused(paused, options?)` | 暂停或恢复输入与动画调度，可选在暂停时清屏 |
 | `setInputSamplingRate(rateHz)` | 设置移动输入采样率上限；接受 `0` 或 `1..1000`，成功返回 `true` |
-| `setCompositingReference(source, { fit: 'cover' })` | 设置各渲染后端共享的已知栅格合成参考；传入 `null` 清除参考并进入未知背景路径 |
+| `setCompositingReference(source, { fit: 'cover' })` | 返回参考是否被接受；传入 `null` 清除参考，返回 `false` 时旧参考保持不变 |
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 清除拖尾及拖尾碎片，保留点击特效与点击碎片 |
 | `destroy()` | 销毁实例并移除其监听；仅移除库创建的 Canvas |
-| `updateConfig({...})` | 运行时更新基础配置、输入来源/采样率、时间倍率、完整特效/Bloom 后端、DPR 与触摸行为 |
+| `updateConfig({...})` | 运行时更新配置并返回配置快照；`target` 与 `inputFilter` 仅在构造时设置 |
 | `setThemeColor('#4ca7ff')` | 更新当前实例的主题色；非法值恢复默认游戏蓝 |
 | `setThemeColorMode(mode)` | 切换主题颜色映射模式；接受 `hue-only` 或 `relative-oklch`，成功返回 `true` |
-| `setTriangleRoundness(value)` | 设置三角碎片圆角比例；与 `setFxParam('shards.roundness', value)` 等价 |
+| `setTriangleRoundness(value)` | 设置三角碎片圆角比例；与 `setFxParam('shards.roundness', value)` 等价，返回是否成功提交 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 修改单个点号路径；成功返回 `true`，拒绝时返回 `false` |
 | `setFxParams(patch, options?)` | 按 Schema 验证并批量应用点号路径补丁，返回逐项处理结果 |
 | `getFxConfig()` | 返回当前完整特效配置深拷贝 |
 | `resetFxConfig()` | 重置所有特效参数为 Unity 基线 |
 | `getConfig()` | 返回当前实例配置；除完整特效和 Bloom 的解析结果外，还报告 WebGPU 输出和宿主合成的实际状态 |
 | `getEffectiveHostCompositing()` | 返回实际生效的宿主合成模式 |
+
+### 返回值与失败条件
+
+- `boom()` 的 `x` / `y` 分别默认使用 `width / 2` / `height / 2`；暂停、销毁或关闭点击时不生成效果。`resize()` 省略尺寸或 DPR 时使用可测量的布局及环境值，DPR 仍受 `maxDpr` 限制；Worker 应显式传入尺寸。
+- 指针方法返回 `false` 表示当前状态不接受输入，例如暂停、销毁、非法输入或指针不匹配；`pointerDown()` 还会拒绝另一次尚未结束的按下，`pointerMove()` 在关闭拖尾时也返回 `false`。返回 `true` 不保证追加了可见轨迹点。
+- `setInputSamplingRate()` / `setThemeColorMode()` 接受合法值时返回 `true`；非法值或实例销毁时返回 `false`。`setFxParam()` / `setTriangleRoundness()` 返回是否提交成功，有限的越界数值按 Schema 钳制；`setThemeColor()` 返回 `void`，非法颜色恢复默认值。
+- `setCompositingReference()` 返回参考是否被接受；无效源、不支持的 `fit`、渲染器拒绝或实例销毁时返回 `false`。接受不等于当前输出路径已使用参考，实际合成模式见 `getEffectiveHostCompositing()`。
+- `updateConfig()` 成功时返回与 `getConfig()` 同结构的配置快照。配置对象、字段或值未通过校验时抛出 `TypeError`；实例已销毁或要求切换直接 OffscreenCanvas 的上下文类型时抛出错误。`getFxConfig()` 返回独立的深拷贝。
+- `setFxParams()` 与独立的 `applyFxParamPatch()` 返回包含 `committed`、`applied`、`normalized`、`rejected`、`schemaVersion` 的处理结果，详见[批量写入与迁移](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#参数-schema-与批量写入)。实例销毁后的 `setFxParams()` 返回 `committed: false`，拒绝原因为 `destroyed`。
+
+### 后端与合成事件
 
 后端解析状态发生变化时，主 Canvas 会分别派发 `baclickfxeffectbackendchange` 和 `baclickfxbackendchange`。可使用导出的事件名持续同步延迟探测、运行时回退、WebGPU Device 丢失和 WebGL Context 恢复：
 

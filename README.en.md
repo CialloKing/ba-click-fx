@@ -186,7 +186,7 @@ These are library defaults; the recommended web integration explicitly overrides
 | Method | Description |
 |---|---|
 | `resize(width?, height?, dpr?)` | Explicitly synchronize Canvas CSS size and DPR, primarily for Worker / OffscreenCanvas hosts |
-| `boom(x, y)` | Trigger one click effect without creating trail state |
+| `boom(x?, y?)` | Trigger one click effect; omitted coordinates default to the canvas centre, without creating trail state |
 | `pointerDown(input)` | Start one click-and-trail lifecycle |
 | `pointerMove(input)` | Append a trail sample for the current logical pointer |
 | `pointerUp(pointerId?)` | End the pointer normally and let its trail decay |
@@ -197,7 +197,7 @@ These are library defaults; the recommended web integration explicitly overrides
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail points and trail shards; preserve click effects and click shards |
 | `destroy()` | Destroy the instance and its listeners; remove only library-created canvases |
-| `updateConfig({...})` | Update base config, input source/rate, time scales, Full Effect/Bloom backends, DPR, and touch behaviour at runtime |
+| `updateConfig({...})` | Update runtime configuration and return a configuration snapshot; `target` and `inputFilter` are constructor-only |
 | `setThemeColor('#4ca7ff')` | Update the current instance's theme colour; invalid input restores the default game blue |
 | `setThemeColorMode(mode)` | Switch the theme-colour mapping mode; accepts `hue-only` or `relative-oklch` and returns `true` on success |
 | `setTriangleRoundness(value)` | Set the triangle-shard roundness ratio; equivalent to `setFxParam('shards.roundness', value)` |

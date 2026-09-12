@@ -186,7 +186,7 @@ fx.destroy();
 | 方法 | 说明 |
 |---|---|
 | `resize(width?, height?, dpr?)` | 显式同步 Canvas 的 CSS 尺寸与 DPR，主要用于 Worker / OffscreenCanvas 宿主 |
-| `boom(x, y)` | 在指定坐标触发单次点击特效，不创建拖尾状态 |
+| `boom(x?, y?)` | 触发单次点击特效；省略坐标时使用画布中心，不创建拖尾状态 |
 | `pointerDown(input)` | 开始一次点击和拖尾生命周期 |
 | `pointerMove(input)` | 为当前逻辑指针追加拖尾采样点 |
 | `pointerUp(pointerId?)` | 正常结束指针，已有拖尾自然消失 |
@@ -197,7 +197,7 @@ fx.destroy();
 | `clear()` | 清除全部视觉对象 |
 | `clearTrail()` | 清除拖尾及拖尾碎片，保留点击特效与点击碎片 |
 | `destroy()` | 销毁实例并移除其监听；仅移除库创建的 Canvas |
-| `updateConfig({...})` | 运行时更新基础配置、输入来源/采样率、时间倍率、完整特效/Bloom 后端、DPR 与触摸行为 |
+| `updateConfig({...})` | 运行时更新配置并返回配置快照；`target` 与 `inputFilter` 仅在构造时设置 |
 | `setThemeColor('#4ca7ff')` | 更新当前实例的主题色；非法值恢复默认游戏蓝 |
 | `setThemeColorMode(mode)` | 切换主题颜色映射模式；接受 `hue-only` 或 `relative-oklch`，成功返回 `true` |
 | `setTriangleRoundness(value)` | 设置三角碎片圆角比例；与 `setFxParam('shards.roundness', value)` 等价 |

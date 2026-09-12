@@ -51,32 +51,109 @@ The old `softwareBloomEnabled` field has been removed from the current configura
 
 `target` and `inputFilter` are constructor-only. For backend, compositing, and HDR selection, see [the rendering guide](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md).
 
+Construction returns a new instance on success. Configuration validation failures throw `TypeError`; initialisation failures such as a missing browser/Worker environment, missing target, or unavailable required Canvas context throw an error. With SSR, create the instance on client mount; Worker hosts must explicitly supply an `OffscreenCanvas`.
+
+## Type Signature Summary
+
+These declarations are for reference; import the actual APIs from the package instead of redeclaring them. See the [TypeScript declarations](https://github.com/CialloKing/ba-click-fx/blob/main/src/ba-click-fx.d.ts) for the complete fields of constructor options, pointer inputs, configuration snapshots, and batch results.
+
+```ts
+import type {
+  BAClickFXCompositingReferenceOptions,
+  BAClickFXConfigSnapshot,
+  BAClickFXHostCompositing,
+  BAClickFXOptions,
+  BAClickFXParamPatchOptions,
+  BAClickFXParamPatchResult,
+  BAClickFXParamValue,
+  BAClickFXPauseOptions,
+  BAClickFXPointerInput,
+  BAClickFXStandalonePatchOptions,
+  BAClickFXThemeColorMode,
+  BAClickFXUpdateOptions,
+} from 'ba-click-fx';
+
+declare class BAClickFX
+{
+  constructor(options?: BAClickFXOptions);
+  readonly canvas: HTMLCanvasElement | OffscreenCanvas;
+  readonly width: number;
+  readonly height: number;
+  resize(width?: number, height?: number, dpr?: number): void;
+  boom(x?: number, y?: number): void;
+  pointerDown(input: BAClickFXPointerInput): boolean;
+  pointerMove(input: BAClickFXPointerInput): boolean;
+  pointerUp(pointerId?: number): boolean;
+  pointerCancel(pointerId?: number): boolean;
+  setPaused(paused: boolean, options?: BAClickFXPauseOptions): void;
+  setCompositingReference(
+    source: TexImageSource | null,
+    options?: BAClickFXCompositingReferenceOptions,
+  ): boolean;
+  getEffectiveHostCompositing(): BAClickFXHostCompositing;
+  updateConfig(overrides: BAClickFXUpdateOptions): BAClickFXConfigSnapshot;
+  setThemeColor(hex: string): void;
+  setThemeColorMode(mode: BAClickFXThemeColorMode): boolean;
+  setInputSamplingRate(rateHz: number): boolean;
+  setFxParam(path: string, value: BAClickFXParamValue): boolean;
+  setTriangleRoundness(roundness: number): boolean;
+  setFxParams(
+    patch: Readonly<Record<string, BAClickFXParamValue>>,
+    options?: BAClickFXParamPatchOptions,
+  ): BAClickFXParamPatchResult;
+  getFxConfig(): Record<string, unknown>;
+  resetFxConfig(): void;
+  clearTrail(): void;
+  clear(): void;
+  getConfig(): BAClickFXConfigSnapshot;
+  destroy(): void;
+}
+
+declare function applyFxParamPatch(
+  patch: Readonly<Record<string, unknown>>,
+  options?: BAClickFXStandalonePatchOptions,
+): BAClickFXParamPatchResult;
+```
+
+`canvas` is the instance's main canvas. Read-only `width` / `height` report its current local CSS pixel dimensions, not the DPR-scaled backing-store dimensions. Methods returning `void` provide no success flag and do not imply that the next frame has finished rendering.
+
 ## Instance Methods
 
 | Method | Description |
 |---|---|
 | `resize(width?, height?, dpr?)` | Explicitly synchronize Canvas CSS size and DPR, primarily for Worker / OffscreenCanvas hosts |
-| `boom(x, y)` | Trigger one click effect without creating trail state |
-| `pointerDown(input)` | Start one click-and-trail lifecycle |
-| `pointerMove(input)` | Append a trail sample for the current logical pointer |
-| `pointerUp(pointerId?)` | End the pointer normally and let its trail decay |
-| `pointerCancel(pointerId?)` | Force-cancel the pointer and remove its current trail immediately |
+| `boom(x?, y?)` | Trigger one click effect; omitted coordinates default to the canvas centre, without creating trail state |
+| `pointerDown(input)` | Start one click-and-trail lifecycle; return whether the input was accepted |
+| `pointerMove(input)` | Append a trail sample for the current logical pointer; return whether input was accepted, including `true` for rate-limited samples |
+| `pointerUp(pointerId?)` | End the matching pointer normally; return `true` on success and let its existing trail fade |
+| `pointerCancel(pointerId?)` | Cancel the matching pointer and immediately remove the current trail; return `true` on success |
 | `setPaused(paused, options?)` | Pause or resume input and animation scheduling, optionally clearing on pause |
 | `setInputSamplingRate(rateHz)` | Set the move-input sampling-rate limit; accepts `0` or `1..1000` and returns `true` on success |
-| `setCompositingReference(source, { fit: 'cover' })` | Share a known raster compositing reference across rendering backends; pass `null` to clear it and enter the unknown-background path |
+| `setCompositingReference(source, { fit: 'cover' })` | Return whether the reference was accepted; pass `null` to clear it. A `false` result leaves the previous reference unchanged |
 | `clear()` | Remove all visual objects |
 | `clearTrail()` | Clear trail points and trail shards; preserve click effects and click shards |
 | `destroy()` | Destroy the instance and its listeners; remove only library-created canvases |
-| `updateConfig({...})` | Update base config, input source/rate, time scales, Full Effect/Bloom backends, DPR, and touch behaviour at runtime |
+| `updateConfig({...})` | Update runtime configuration and return a configuration snapshot; `target` and `inputFilter` are constructor-only |
 | `setThemeColor('#4ca7ff')` | Update the current instance's theme colour; invalid input restores the default game blue |
 | `setThemeColorMode(mode)` | Switch the theme-colour mapping mode; accepts `hue-only` or `relative-oklch` and returns `true` on success |
-| `setTriangleRoundness(value)` | Set the triangle-shard roundness ratio; equivalent to `setFxParam('shards.roundness', value)` |
+| `setTriangleRoundness(value)` | Set the triangle-shard roundness ratio; equivalent to `setFxParam('shards.roundness', value)` and returns whether the change was committed |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify one dot-path; returns `true` on success and `false` when rejected |
 | `setFxParams(patch, options?)` | Validate and batch-apply a dot-path patch through the public Schema, returning per-entry results |
 | `getFxConfig()` | Deep copy of current FX configuration |
 | `resetFxConfig()` | Reset all FX parameters to the Unity baseline |
 | `getConfig()` | Current config; besides Full Effect and Bloom resolution, it reports the effective WebGPU output and host-compositing state |
 | `getEffectiveHostCompositing()` | Return the effective host compositing mode |
+
+### Return Values and Failure Conditions
+
+- `boom()` defaults `x` / `y` independently to `width / 2` / `height / 2`; it produces no effect while paused, destroyed, or clicks are disabled. When dimensions or DPR are omitted, `resize()` uses measurable layout and environment values, with DPR capped by `maxDpr`; Worker hosts should supply explicit dimensions.
+- Pointer methods return `false` when the current state rejects input, for example while paused or destroyed, for invalid input, or for a pointer mismatch. `pointerDown()` also rejects another unfinished press; `pointerMove()` also returns `false` when trails are disabled. A `true` result does not guarantee a visible trail point was appended.
+- `setInputSamplingRate()` / `setThemeColorMode()` return `true` for accepted values and `false` for invalid values or destroyed instances. `setFxParam()` / `setTriangleRoundness()` report whether the change was committed; finite out-of-range numbers are clamped by the Schema. `setThemeColor()` returns `void` and restores the default for invalid colours.
+- `setCompositingReference()` reports whether the reference was accepted. Invalid sources, unsupported `fit` values, renderer rejection, or destroyed instances return `false`. Acceptance does not mean the current output path uses the reference; inspect `getEffectiveHostCompositing()` for the effective blend.
+- `updateConfig()` returns a configuration snapshot with the same structure as `getConfig()`. A configuration object, field, or value that fails validation throws `TypeError`; a destroyed instance or a requested change of direct OffscreenCanvas context type throws an error. `getFxConfig()` returns an independent deep copy.
+- `setFxParams()` and standalone `applyFxParamPatch()` return `committed`, `applied`, `normalized`, `rejected`, and `schemaVersion`; see [batch updates and migration](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#parameter-schema-and-batch-updates). On a destroyed instance, `setFxParams()` returns `committed: false` with rejection reason `destroyed`.
+
+### Backend and Compositing Events
 
 The main canvas dispatches `baclickfxeffectbackendchange` and `baclickfxbackendchange` when the Full Effect and Bloom resolution states change. Use the exported event names to track deferred probing, runtime fallback, WebGPU device loss, and WebGL context recovery:
 

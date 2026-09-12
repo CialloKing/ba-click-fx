@@ -80,6 +80,27 @@ for (const file of documentationFiles)
 }
 verify(true, '双语 README 与专题文档的目录和仓库链接有效');
 
+// 签名直接对照公共声明，防止文档遗漏方法、可选参数或返回类型。
+function apiSignatureDeclarations(source)
+{
+  const text = source.replace(/\/\*\*[\s\S]*?\*\//g, '');
+  const instance = text.match(/(?:export|declare) class BAClickFX\s*\{[\s\S]*?^ {0,2}\}/m);
+  const patch = text.match(/(?:export|declare) function applyFxParamPatch\([\s\S]*?\): BAClickFXParamPatchResult;/);
+  return instance && patch
+    ? [instance[0], patch[0]].join('\n').replace(/\b(?:export|declare)\s+/g, '').replace(/\s+/g, '')
+    : '';
+}
+const expectedApiSignatures = apiSignatureDeclarations(typeDefinitions);
+verify(
+  expectedApiSignatures.length > 0 && [apiZh, apiEn].every((document) =>
+  {
+    const summary = [...document.matchAll(/^```ts\r?\n([\s\S]*?)^```/gm)]
+      .find((match) => match[1].includes('declare class BAClickFX'));
+    return summary && apiSignatureDeclarations(summary[1]) === expectedApiSignatures;
+  }),
+  '双语 API 摘要与公开构造、只读属性、方法及独立补丁函数签名一致',
+);
+
 const starBadge = '[![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx.svg)](https://github.com/CialloKing/ba-click-fx/stargazers)';
 const starChartUrl = 'https://raw.githubusercontent.com/CialloKing/ba-click-fx/refs/heads/star-history/star-history.svg';
 const starDataUrl = 'https://github.com/CialloKing/ba-click-fx/blob/star-history/stars.csv';
