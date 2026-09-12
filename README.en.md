@@ -306,7 +306,7 @@ npm ci
 npm run dev
 ```
 
-While the development server runs, use another terminal for checks:
+Run daily checks independently; starting the development server is not required:
 
 ```bash
 npm run check
@@ -334,7 +334,7 @@ Compared to generic cursor effects:
 - Parameter-level reproduction of Unity ParticleSystem curves
 - Older trail points disappear first, shortening the trail along its path rather than fading it all at once
 - Particle sizes keep scaling with canvas height to preserve Unity UI proportions
-- 20+ tunable parameters + custom theme colour
+- Dozens of tunable parameters and a custom theme colour
 
 Related projects:
 

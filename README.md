@@ -306,7 +306,7 @@ npm ci
 npm run dev
 ```
 
-开发服务器启动后，在另一个终端执行检查：
+日常检查可独立运行，无需先启动开发服务器：
 
 ```bash
 npm run check
@@ -334,9 +334,9 @@ npm run check
 - 参数级还原 Unity ParticleSystem 颜色/大小/旋转曲线
 - 旧轨迹点先消失，拖尾沿路径连续缩短，而不是整条轨迹同时淡出
 - 粒子尺寸随画布高度持续缩放，保持 Unity UI 相对比例
-- 20+ 个可调参数 + 自定义主题色，适合微调偏好
+- 数十项可调参数与自定义主题色，适合微调偏好
 
-Related projects:
+相关项目：
 
 - [VanillaNahida/BA-Spark-Cursor](https://github.com/VanillaNahida/BA-Spark-Cursor)
 - [DoomVoss/BASpark](https://github.com/DoomVoss/BASpark)
