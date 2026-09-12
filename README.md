@@ -111,12 +111,10 @@ const fx = new BAClickFX();
 
 ### 网页集成建议：未知背景输出合成
 
-普通网页通常无法提供与页面内容逐像素匹配的背景参考，推荐以下配置。它与库默认的 `scene + source-over` 不同，需显式设置：
+普通未知背景网页可在上方任一初始化示例之后、同一模块内执行以下代码。它直接更新已有的 `fx`，保留原来的挂载目标与导入路径。库默认配置仍是 `scene + source-over`：
 
 ```js
-import { BAClickFX } from 'ba-click-fx';
-
-const fx = new BAClickFX(
+fx.updateConfig(
 {
   outputCompositing: 'browser-overlay',
   hostCompositing: 'screen',
@@ -134,12 +132,23 @@ const fx = new BAClickFX(
 fx.updateConfig({ trailAlways: true });
 fx.setThemeColor('#ff80b5');
 fx.updateConfig({ scale: 0.8, opacity: 0.7 });
-fx.setFxParam('bloom.intensity', 1.7);
-fx.boom(fx.width / 2, fx.height / 2);
-fx.updateConfig({ clickEnabled: true, trailEnabled: true });
+// 调弱辉光；默认强度为 1.7。
+fx.setFxParam('bloom.intensity', 1.2);
 ```
 
-将 `clickEnabled` 或 `trailEnabled` 设为 `false` 可关闭对应效果。 `boom()` 使用 Canvas 局部 CSS 像素坐标。主题色只接受六位十六进制值；非法值恢复默认游戏蓝。主题色仅更新当前实例；刷新后恢复需要宿主自行保存、读取并应用。
+在当前画布中心触发一次点击：
+
+```js
+fx.boom();
+```
+
+按需关闭点击，并保留拖尾：
+
+```js
+fx.updateConfig({ clickEnabled: false, trailEnabled: true });
+```
+
+两个开关分别控制对应效果，设回 `true` 即可重新开启。`boom()` 使用 Canvas 局部 CSS 像素坐标。主题色只接受六位十六进制值；非法值恢复默认游戏蓝。主题色仅更新当前实例；刷新后恢复需要宿主自行保存、读取并应用。
 
 ### 采样率与播放速度
 
@@ -152,11 +161,23 @@ fx.updateConfig({ clickTimeScale: 1.5, trailTimeScale: 0.8 });
 
 ### 暂停与卸载清理
 
+按实际需要选择操作。需要暂停并清屏时：
+
 ```js
 fx.setPaused(true, { clear: true });
+```
+
+需要恢复输入与动画时：
+
+```js
 fx.setPaused(false);
-fx.clearTrail();
-fx.clear();
+```
+
+仅清除拖尾时调用 `fx.clearTrail()`；清空全部效果时调用 `fx.clear()`。这两个操作不会暂停实例。
+
+仅在组件卸载或不再使用该实例时：
+
+```js
 fx.destroy();
 ```
 

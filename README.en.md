@@ -111,12 +111,10 @@ Source: [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extens
 
 ### Recommended Web Integration: Unknown-Background Compositing
 
-Ordinary pages usually cannot provide a pixel-matched compositing reference. Set the following combination explicitly; library defaults remain `scene + source-over`:
+For ordinary pages with an unknown background, run the following code in the same module after any initialisation example above. It updates the existing `fx`, preserving its target and import path. Library defaults remain `scene + source-over`:
 
 ```js
-import { BAClickFX } from 'ba-click-fx';
-
-const fx = new BAClickFX(
+fx.updateConfig(
 {
   outputCompositing: 'browser-overlay',
   hostCompositing: 'screen',
@@ -134,12 +132,23 @@ These examples reuse the `fx` instance above. Trails require a held pointer by d
 fx.updateConfig({ trailAlways: true });
 fx.setThemeColor('#ff80b5');
 fx.updateConfig({ scale: 0.8, opacity: 0.7 });
-fx.setFxParam('bloom.intensity', 1.7);
-fx.boom(fx.width / 2, fx.height / 2);
-fx.updateConfig({ clickEnabled: true, trailEnabled: true });
+// Reduce glow intensity; the default is 1.7.
+fx.setFxParam('bloom.intensity', 1.2);
 ```
 
-Set `clickEnabled` or `trailEnabled` to `false` to disable the corresponding effect. `boom()` takes Canvas-local CSS pixel coordinates. Theme colours accept six-digit hexadecimal values; invalid values restore the default game blue. Theme colours update only the current instance; restoring them after a refresh requires the host to save, read, and apply them.
+To trigger one click effect at the canvas centre:
+
+```js
+fx.boom();
+```
+
+To disable clicks while keeping trails enabled:
+
+```js
+fx.updateConfig({ clickEnabled: false, trailEnabled: true });
+```
+
+Each switch controls its own effect; set it to `true` to enable that effect again. `boom()` takes Canvas-local CSS pixel coordinates. Theme colours accept six-digit hexadecimal values; invalid values restore the default game blue. Theme colours update only the current instance; restoring them after a refresh requires the host to save, read, and apply them.
 
 ### Sampling and Playback Speed
 
@@ -152,11 +161,23 @@ The sampling rate accepts `0` (unlimited) or `1..1000` Hz and limits movement in
 
 ### Pause and Unmount Cleanup
 
+Choose the operation for the current situation. To pause and clear the screen:
+
 ```js
 fx.setPaused(true, { clear: true });
+```
+
+When ready to resume input and animation:
+
+```js
 fx.setPaused(false);
-fx.clearTrail();
-fx.clear();
+```
+
+To clear trails, call `fx.clearTrail()`; to clear all effects, call `fx.clear()`. Neither operation pauses the instance.
+
+Only when unmounting the component or finishing with the instance:
+
+```js
 fx.destroy();
 ```
 
