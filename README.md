@@ -46,8 +46,6 @@
 
 ## 使用方式
 
-<a id="2-npm-安装"></a>
-
 ### npm
 
 ```bash
@@ -59,7 +57,7 @@ import { BAClickFX } from 'ba-click-fx';
 const fx = new BAClickFX();
 ```
 
-<a id="3-cdn-引入"></a>
+普通未知背景网页请接着应用[推荐配置](#网页集成建议未知背景输出合成)：显式设置 `browser-overlay + screen + dom-backdrop`。
 
 ### CDN
 
@@ -70,7 +68,7 @@ const fx = new BAClickFX();
 </script>
 ```
 
-<a id="4-直接下载"></a>
+普通网页使用 CDN 时，也请应用下方的[推荐配置](#网页集成建议未知背景输出合成)。
 
 ### 直接下载
 
@@ -87,9 +85,9 @@ const fx = new BAClickFX();
 </script>
 ```
 
-省略 `target` 会创建全屏覆盖层；普通网页容器应使用定位元素。已有 `HTMLCanvasElement` 适合需要自行管理单张 Canvas 的宿主，但会关闭多层 DOM 合成并使完整 GPU/Bloom 路径安全降级。
+普通网页容器同样建议应用[推荐配置](#网页集成建议未知背景输出合成)；上面仅展示最小初始化。
 
-<a id="1-浏览器插件"></a>
+省略 `target` 会创建全屏覆盖层；普通网页容器应使用定位元素。已有 `HTMLCanvasElement` 适合需要自行管理单张 Canvas 的宿主，但会关闭多层 DOM 合成并使完整 GPU/Bloom 路径安全降级。
 
 ### 浏览器插件
 
@@ -212,97 +210,63 @@ fx.destroy();
 
 ## 专题文档
 
-以下入口保留原章节名称，便于旧链接继续访问。专题均提供中英文版本。
+### API 与参数
 
-### 合成参考与线性合成
+[构造、方法与返回值](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md) · [手动输入](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#宿主输入与指针生命周期) · [Schema 与持久化](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#参数-schema-与批量写入) · [主题色](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#主题颜色)
 
-[合成参考与线性合成](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#合成参考与线性合成)
+### 渲染与合成
 
-### 宿主输入与指针生命周期
+[后端、HDR 与背景合成](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md) · [点击与拖尾](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#效果说明) · [项目架构](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#项目结构)
 
-[宿主输入与指针生命周期](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#宿主输入与指针生命周期)
+### Worker 接入
 
-### 宿主拥有的 Worker 与 OffscreenCanvas
-
-[Worker 完整示例与清理流程](https://github.com/CialloKing/ba-click-fx/blob/main/docs/worker-guide.md)
-
-### 独立时间倍率
-
-[独立时间倍率说明](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#独立时间倍率)
-
-### 暂停与恢复
-
-[暂停、恢复与按需渲染](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#暂停与恢复)
-
-### 参数 Schema 与批量写入
-
-[参数 Schema、迁移与持久化示例](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#参数-schema-与批量写入)
-
-### 常用可调特效参数（完整清单以 FX_PARAM_SCHEMA 为准）
-
-[常用参数表与默认值](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#常用可调特效参数完整清单以-fx_param_schema-为准)
-
-### 效果说明
-
-[点击、拖尾及后端能力边界](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#效果说明)
-
-#### 点击特效
-
-[点击特效](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#点击特效)
-
-#### 拖尾轨迹
-
-[拖尾轨迹](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#拖尾轨迹)
-
-#### Bloom 渲染后端
-
-[Bloom 渲染后端](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#bloom-渲染后端)
-
-#### JavaScript 软件 Bloom
-
-[JavaScript 软件 Bloom](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#javascript-软件-bloom)
-
-#### 后端能力边界
-
-[后端能力边界](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#后端能力边界)
-
-### 项目结构
-
-[项目结构与渲染架构](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#项目结构)
-
-#### 架构特点
-
-[架构特点](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#架构特点)
+[完整接入示例](https://github.com/CialloKing/ba-click-fx/blob/main/docs/worker-guide.md)：主线程与 Worker、尺寸和坐标同步、销毁与能力边界。
 
 ## 常见问题
 
-### WebGPU 模式一定会显示真实 HDR 吗？
+### 常见接入
 
-不会。只有 `resolvedWebGPUOutputMode === 'extended'` 表示 Canvas 协商成功；还需要显示器、系统和浏览器支持。普通 WebGPU SDR 模式使用 `webgpuPreferHdr: false`。
+#### 为什么只移动鼠标没有拖尾？
 
-### 移动端浏览器滑动时为什么没有轨迹拖尾？
+设置 `fx.updateConfig({ trailAlways: true })`，并确认 `trailEnabled` 为 `true`。默认拖尾需要按住指针；仅移动时不会显示。见[拖尾、主题色和开关](#拖尾主题色和开关)。
 
-展示页默认的“触摸行为：自动”会保留浏览器原生滚动；浏览器接管手势后发送 `pointercancel`，当前拖尾会中止。把控制面板中的“触摸行为”切换为“禁止默认手势”即可在任意滑动方向持续触发拖尾，对应 API 为 `touchAction: 'none'`。页面仍需单轴滚动时，可选择“仅横向平移”或“仅纵向平移”；浏览器允许的方向继续滚动并中止拖尾，未被浏览器接管的方向保留拖尾。该设置也会改变页面原生滚动与缩放手势。
+#### 移动端浏览器滑动时为什么没有轨迹拖尾？
 
-### 为什么纯白背景上的颜色变淡？
+需要全方向拖尾时设置 `touchAction: 'none'`，展示页对应“触摸行为：禁止默认手势”。默认 `auto` 保留原生滚动，浏览器接管手势后会发送 `pointercancel` 并中止拖尾；仍需单轴滚动时选择 `pan-x` 或 `pan-y`，被接管的方向仍会中止拖尾。该设置会改变页面滚动与缩放手势。见[触摸策略](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#构造函数)。
 
-白色背景已经没有继续增亮的通道空间。普通未知背景网页先使用上面的推荐配置；若保留 `scene` 输出且需要非游戏的颜色保留，可显式启用隔离合成。原理与选择见 [渲染指南](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md)。
+#### 容器里的特效尺寸或位置不对怎么办？
 
-### 隔离合成能否替代合成参考？
+为目标容器设置 `position: relative` 和可见的非零宽高，例如 `min-height: 240px`；`target` 指向该容器。隐藏容器显示后可调用 `fx.resize()` 重新同步尺寸。见[容器接入示例](#直接下载)与[尺寸 API](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#实例方法)。
 
-不能。隔离只改变 DOM 图层的合成边界。严格已知 Scene 计算需要实际匹配的背景参考，详见 [setCompositingReference()](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#合成参考与线性合成)。
+#### 组件挂载和卸载时如何管理实例？
 
-### 未知背景上能否同时得到严格 Unity 加色、纯 Coverage Alpha，并保证白底绝不变暗？
+在客户端挂载后创建一次实例，在卸载时调用 `fx.destroy()`；重新挂载时创建新实例，避免重复初始化。SSR 不应在服务端创建实例。见[暂停与卸载清理](#暂停与卸载清理)。
 
-不能同时保证，原因及透明输出合同见 [输出与宿主合成](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)。
+### 渲染与兼容
 
-### 如何恢复接近 v1.2.15 的透明覆盖层观感？
+#### 为什么纯白背景上的颜色变淡？
 
-透明覆盖层可显式选择 `overlayAlphaPolicy: 'visual-max'`；颜色补偿独立控制。详见 [透明输出策略](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)。
+普通未知背景网页先使用[推荐配置](#网页集成建议未知背景输出合成)。白底没有继续增亮的通道空间；若保留 `scene` 输出且需要非游戏的颜色保留，可显式启用隔离合成。见[输出与宿主合成](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)。
 
-### 透明桌面宿主应该使用什么配置？
+#### WebGPU 模式一定会显示真实 HDR 吗？
 
-[透明窗口配置与能力边界](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)。
+先检查 `fx.getConfig().resolvedWebGPUOutputMode === 'extended'`。仅选择 WebGPU 不保证真实 HDR，还需要显示器、系统和浏览器支持；普通 SDR 模式使用 `webgpuPreferHdr: false`。见[WebGPU 与 HDR](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#webgpu-与-hdr)。
+
+#### 隔离合成能否替代合成参考？
+
+不能。需要严格已知 Scene 计算时，应提供实际匹配的背景参考；隔离只改变 DOM 图层的合成边界。见[合成参考与线性合成](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#合成参考与线性合成)。
+
+#### 未知背景上能否同时得到严格 Unity 加色、纯 Coverage Alpha，并保证白底绝不变暗？
+
+不能同时保证。需要严格 Unity 加色时，使用 `scene` 并提供逐像素匹配的已知背景参考；未知背景网页使用推荐覆盖层配置。原理见[输出与宿主合成](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)。
+
+#### 如何恢复接近 v1.2.15 的透明覆盖层观感？
+
+透明覆盖层可显式选择 `overlayAlphaPolicy: 'visual-max'`；颜色补偿独立控制。详见[透明输出策略](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)。
+
+#### 透明桌面宿主应该使用什么配置？
+
+设置 `outputCompositing: 'browser-overlay'`、`hostCompositingSurface: 'transparent-window'` 和 `hostCompositing: 'source-over'`。CSS 混合不能跨越操作系统窗口边界。见[透明窗口配置与能力边界](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)。
 
 ## 开发说明
 

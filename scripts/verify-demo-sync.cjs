@@ -80,6 +80,22 @@ for (const file of documentationFiles)
 }
 verify(true, '双语 README 与专题文档的目录和仓库链接有效');
 
+for (let index = 0; index < documentationFiles.length; index += 2)
+{
+  const pair = documentationFiles.slice(index, index + 2);
+  const texts = pair.map(readText);
+  const headingLevels = texts.map((text) =>
+    [...documentationText(text).matchAll(/^(#{1,6}) /gm)].map((match) => match[1]).join(','));
+  verify(
+    headingLevels[0] === headingLevels[1] && texts.every((text, language) =>
+    {
+      const counterpart = pair[1 - language];
+      return ['', './', repositoryLink].some((prefix) => text.includes(`](${prefix}${counterpart})`));
+    }),
+    `${pair[0]} 双语章节层级与语言切换入口一致`,
+  );
+}
+
 // 签名直接对照公共声明，防止文档遗漏方法、可选参数或返回类型。
 function apiSignatureDeclarations(source)
 {

@@ -46,8 +46,6 @@ Click, drag, or move the pointer to preview. The historical GIF is a visual refe
 
 ## Installation
 
-<a id="2-npm"></a>
-
 ### npm
 
 ```bash
@@ -59,7 +57,7 @@ import { BAClickFX } from 'ba-click-fx';
 const fx = new BAClickFX();
 ```
 
-<a id="3-cdn"></a>
+For ordinary unknown-background pages, also apply the [recommended configuration](#recommended-web-integration-unknown-background-compositing): explicitly set `browser-overlay + screen + dom-backdrop`.
 
 ### CDN
 
@@ -70,7 +68,7 @@ const fx = new BAClickFX();
 </script>
 ```
 
-<a id="4-direct-download"></a>
+When using the CDN on an ordinary page, also apply the [recommended configuration](#recommended-web-integration-unknown-background-compositing) below.
 
 ### Direct Download
 
@@ -87,9 +85,9 @@ The package and CDN builds are ESM-only. Browser direct imports require `type="m
 </script>
 ```
 
-Omitting `target` creates a full-screen overlay. A normal web container should establish a positioning context. An existing `HTMLCanvasElement` is intended for hosts that manage one Canvas themselves, but it disables multi-layer DOM compositing and safely downgrades the complete GPU/Bloom path.
+Ordinary page containers should also use the [recommended configuration](#recommended-web-integration-unknown-background-compositing); the example above shows minimal initialisation.
 
-<a id="1-browser-extension"></a>
+Omitting `target` creates a full-screen overlay. A normal web container should establish a positioning context. An existing `HTMLCanvasElement` is intended for hosts that manage one Canvas themselves, but it disables multi-layer DOM compositing and safely downgrades the complete GPU/Bloom path.
 
 ### Browser Extension
 
@@ -212,97 +210,63 @@ Backend state may be `pending` during lazy probing. Read `resolvedEffectBackend`
 
 ## Detailed Documentation
 
-The entries below preserve the old section names for existing links. Each guide is available in Chinese and English.
+### API and Parameters
 
-### Compositing Reference and Linear Compositing
+[Constructor, methods, and return values](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md) · [Manual input](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#host-input-and-pointer-lifecycle) · [Schema and storage](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#parameter-schema-and-batch-updates) · [Theme colours](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#theme-colours)
 
-[Compositing Reference and Linear Compositing](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#compositing-reference-and-linear-compositing)
+### Rendering and Compositing
 
-### Host Input and Pointer Lifecycle
+[Backends, HDR, and background compositing](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md) · [Click effects and trails](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#effects) · [Architecture](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#project-structure)
 
-[Host Input and Pointer Lifecycle](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#host-input-and-pointer-lifecycle)
+### Worker Integration
 
-### Host-owned Worker and OffscreenCanvas
-
-[Complete Worker example and teardown](https://github.com/CialloKing/ba-click-fx/blob/main/docs/worker-guide.en.md)
-
-### Independent Time Scales
-
-[Independent time scales](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#independent-time-scales)
-
-### Pause and Resume
-
-[Pause, resume, and on-demand rendering](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#pause-and-resume)
-
-### Parameter Schema and Batch Updates
-
-[Schema, migration, and persistence examples](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#parameter-schema-and-batch-updates)
-
-### Common Tunable FX Parameters (see FX_PARAM_SCHEMA for the complete list)
-
-[Common parameter table and defaults](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#common-tunable-fx-parameters-see-fx_param_schema-for-the-complete-list)
-
-### Effects
-
-[Click FX, trails, and backend boundaries](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#effects)
-
-#### Click FX
-
-[Click FX](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#click-fx)
-
-#### Cursor Trail
-
-[Cursor Trail](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#cursor-trail)
-
-#### Bloom Rendering Backends
-
-[Bloom Rendering Backends](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#bloom-rendering-backends)
-
-#### JavaScript Software Bloom
-
-[JavaScript Software Bloom](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#javascript-software-bloom)
-
-#### Backend Capability Boundaries
-
-[Backend Capability Boundaries](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#backend-capability-boundaries)
-
-### Project Structure
-
-[Project structure and rendering architecture](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#project-structure)
-
-#### Architecture
-
-[Architecture](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#architecture)
+[Complete integration example](https://github.com/CialloKing/ba-click-fx/blob/main/docs/worker-guide.en.md): main thread and Worker, size and coordinate synchronisation, cleanup, and capability boundaries.
 
 ## FAQ
 
-### Does WebGPU mode always produce real HDR?
+### Getting Started
 
-No. Only `resolvedWebGPUOutputMode === 'extended'` indicates successful Canvas negotiation, and display, system, and browser support are still required. Ordinary WebGPU SDR mode uses `webgpuPreferHdr: false`.
+#### Why is there no trail when I only move the pointer?
 
-### Why does dragging fail to leave a trail in a mobile browser?
+Set `fx.updateConfig({ trailAlways: true })` and ensure `trailEnabled` is `true`. By default, trails require a pressed pointer; moving alone does not display one. See [trails, colours, and switches](#trails-colours-and-switches).
 
-The demo defaults Touch Action to Auto so native browser scrolling remains available. Once the browser takes over the gesture it sends `pointercancel`, ending the current trail. Switch Touch Action to Disable Default Gestures to keep trails active in every drag direction; the equivalent API is `touchAction: 'none'`. If the page still needs one-axis scrolling, choose Pan X Only or Pan Y Only: browser-allowed directions continue to scroll and end the trail, while directions the browser does not take over retain it. This setting also changes native page scroll and zoom gestures.
+#### Why does dragging fail to leave a trail in a mobile browser?
 
-### Why does the effect lose colour on a pure-white background?
+For trails in every drag direction, set `touchAction: 'none'`; the demo calls this Touch Action: Disable Default Gestures. The default `auto` preserves native scrolling; when the browser takes over a gesture, it sends `pointercancel` and ends the trail. If one-axis scrolling is still needed, use `pan-x` or `pan-y`; browser-owned directions still end the trail. This setting changes native scroll and zoom gestures. See [touch policies](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#constructor).
 
-A white background has no channel headroom left for additive light. For ordinary unknown-background pages, start with the recommended configuration above. If keeping `scene` output, isolated compositing offers a non-game colour-preservation option. See [the rendering guide](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md).
+#### How do I fix effect size or placement inside a container?
 
-### Can isolated compositing replace a compositing reference?
+Give the target container `position: relative` and visible, non-zero dimensions, for example `min-height: 240px`, and point `target` to it. After showing a hidden container, call `fx.resize()` to synchronise its size. See the [container example](#direct-download) and [size API](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#instance-methods).
 
-No. Isolation changes only the DOM layer boundary. Exact known-Scene evaluation requires a matching background reference; see [setCompositingReference()](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#compositing-reference-and-linear-compositing).
+#### How should components manage mounting and cleanup?
 
-### Can an unknown background have strict Unity additive RGB, pure Coverage alpha, and no white-background darkening at the same time?
+Create one instance after client mount and call `fx.destroy()` on unmount. Create a new instance when mounting again and avoid duplicate initialisation. With SSR, do not construct an instance on the server. See [pause and unmount cleanup](#pause-and-unmount-cleanup).
 
-These guarantees cannot all hold simultaneously; see [Output and Host Compositing](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#output-and-host-compositing).
+### Rendering and Compatibility
 
-### How can I restore the transparent-overlay appearance of v1.2.15?
+#### Why does the effect lose colour on a pure-white background?
+
+Start with the [recommended configuration](#recommended-web-integration-unknown-background-compositing) for ordinary unknown-background pages. White has no channel headroom left for additive light. If keeping `scene` output, isolated compositing offers a non-game colour-preservation option. See [output and host compositing](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#output-and-host-compositing).
+
+#### Does WebGPU mode always produce real HDR?
+
+First check `fx.getConfig().resolvedWebGPUOutputMode === 'extended'`. Selecting WebGPU alone does not guarantee real HDR; display, system, and browser support are also required. Ordinary SDR mode uses `webgpuPreferHdr: false`. See [WebGPU and HDR](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#webgpu-and-hdr).
+
+#### Can isolated compositing replace a compositing reference?
+
+No. For exact known-Scene evaluation, provide a matching background reference; isolation changes only the DOM layer boundary. See [compositing reference and linear compositing](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#compositing-reference-and-linear-compositing).
+
+#### Can an unknown background have strict Unity additive RGB, pure Coverage alpha, and no white-background darkening at the same time?
+
+These guarantees cannot all hold simultaneously. For strict Unity additive results, use `scene` with a pixel-matched known background reference; use the recommended overlay configuration for unknown-background pages. See [output and host compositing](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#output-and-host-compositing) for the reasoning.
+
+#### How can I restore the transparent-overlay appearance of v1.2.15?
 
 For transparent overlays, select `overlayAlphaPolicy: 'visual-max'`; colour compensation is independent. See [overlay output policies](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#output-and-host-compositing).
 
-### Which configuration should a transparent desktop host use?
+#### Which configuration should a transparent desktop host use?
 
-[Transparent-window configuration and boundaries](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#output-and-host-compositing).
+Set `outputCompositing: 'browser-overlay'`, `hostCompositingSurface: 'transparent-window'`, and `hostCompositing: 'source-over'`. CSS blending cannot cross an operating-system window boundary. See [transparent-window configuration and boundaries](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#output-and-host-compositing).
 
 ## Development
 
