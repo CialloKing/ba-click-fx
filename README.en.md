@@ -325,10 +325,6 @@ npm run check
 
 Browser checks require Chrome / Edge; set `BACLICKFX_CHROMIUM_PATH` to select an executable.
 
-### Unity source-of-truth gate
-
-Before changing Unity parameters or projection, read [the Unity source-of-truth gate](https://github.com/CialloKing/ba-click-fx/blob/main/docs/unity-reference-baseline.md) (Chinese).
-
 ## Desktop Edition (Windows Test Build)
 
 [ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) is an independently implemented Windows-native edition and does not reuse this project's JavaScript / WebGL / WebGPU runtime.

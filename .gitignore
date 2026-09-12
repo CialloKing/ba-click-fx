@@ -40,6 +40,9 @@ lerna-debug.log*
 PUBLISH.md
 docs/assets/ba-click-fx-demo.gif
 
+# Local Unity reference notes
+/docs/unity-reference-baseline.md
+
 # Agent / AI
 .reasonix
 reasonix.toml

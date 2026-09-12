@@ -325,10 +325,6 @@ npm run check
 
 浏览器检查需要 Chrome / Edge，可用 `BACLICKFX_CHROMIUM_PATH` 指定路径。
 
-### Unity 资源真值门禁
-
-修改 Unity 参数或投影逻辑前，先阅读 [Unity 真值门禁](https://github.com/CialloKing/ba-click-fx/blob/main/docs/unity-reference-baseline.md)。
-
 ## 桌面版（Windows 测试版）
 
 [ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) 是独立实现的 Windows 原生桌面版，不复用本项目的 JavaScript / WebGL / WebGPU 运行时。
