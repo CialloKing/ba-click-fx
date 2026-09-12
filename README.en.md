@@ -27,6 +27,7 @@ Click, drag, or move the pointer to preview. The historical GIF is a visual refe
 - [Features](#features)
 - [Installation](#installation)
 - [Common Usage](#common-usage)
+- [Web Integration](#recommended-web-integration-unknown-background-compositing)
 - [API Reference](#api-reference)
 - [Detailed Documentation](#detailed-documentation)
 - [FAQ](#faq)
@@ -111,7 +112,9 @@ Source: [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extens
 
 ### Recommended Web Integration: Unknown-Background Compositing
 
-For ordinary pages with an unknown background, run the following code in the same module after any initialisation example above. It updates the existing `fx`, preserving its target and import path. Library defaults remain `scene + source-over`:
+For ordinary pages, use `browser-overlay + screen + dom-backdrop`. Layered CSS backgrounds, scrolling content, animation, video, and cross-origin resources usually prevent the host from supplying an opaque reference that matches the pixels beneath the effect on every frame. The library does not automatically read the page background.
+
+Run the following code in the same module after any initialisation example above. It updates the existing `fx`, preserving its target and import path. Library defaults remain `scene + source-over`; the recommended configuration must be set explicitly:
 
 ```js
 fx.updateConfig(
@@ -120,9 +123,53 @@ fx.updateConfig(
   hostCompositing: 'screen',
   hostCompositingSurface: 'dom-backdrop',
 });
+
+// New instances have no reference by default; clear any previous reference when reusing one.
+fx.setCompositingReference(null);
 ```
 
-`screen` is an SDR approximation for unknown, mid-tone, or light DOM backdrops. Consider `plus-lighter` only for a known dark host. Transparent desktop windows should use `transparent-window + source-over`; CSS blending cannot cross an operating-system window boundary. See [the rendering guide](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md).
+#### Choosing a Background and Blend Mode
+
+Use these corresponding options in the online demo before applying them to your page:
+
+| Demo option | API configuration | When to use it |
+|---|---|---|
+| Output Compositing: **Transparent Overlay** | `outputCompositing: 'browser-overlay'` | Emits an independent alpha-bearing overlay for the host to composite once |
+| Effect Reference: **Unknown Background** | Omit the reference, or call `setCompositingReference(null)` | Use when a pixel-matched page reference cannot be supplied continuously; does not change the page's CSS background |
+| Host Compositing: **DOM Add (Approximate)** | `hostCompositing: 'screen'` | Recommended for ordinary pages with unknown, mid-tone, light, or changing backdrops; the added brightness contracts over light content |
+| Host Compositing: **Plus-lighter (Original Additive)** | `hostCompositing: 'plus-lighter'` | Consider only for known black or dark backdrops; stronger addition saturates early over light content |
+
+Choose either `screen` or `plus-lighter`. Pure white has no headroom for further brightening, so `screen` cannot guarantee colour contrast on white either. Check the backdrop and blend mode before adjusting glow intensity. While either blend is effective, `overlayAlphaPolicy`, `overlayColorCompensation`, and `overlayAlphaLimit` do not participate in that output path.
+
+#### Host Surface and Effective State
+
+`hostCompositingSurface` describes where the final blend occurs; choose it to match the actual host:
+
+| Host surface | API configuration | Compositing boundary |
+|---|---|---|
+| Ordinary DOM backdrop (default) | `hostCompositingSurface: 'dom-backdrop'` | The DOM applies `screen` / `plus-lighter` once to the library-created overlay |
+| Transparent desktop window | `hostCompositingSurface: 'transparent-window'` | Pair with `hostCompositing: 'source-over'`; CSS blending cannot cross the operating-system window boundary |
+| External native compositor | `hostCompositingSurface: 'native'` | The host performs the final blend; this setting does not connect a native compositor automatically |
+
+For ordinary pages, prefer the default fullscreen overlay or a [positioned container](#direct-download). With an existing Canvas, the library does not change its `mix-blend-mode`; the host owns the final CSS or native blend. An existing `HTMLCanvasElement` also limits the complete GPU/Bloom path; see [mounting and output boundaries](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#output-and-host-compositing).
+
+A requested configuration value may differ from the effective value. Read the current snapshot when diagnosing the output:
+
+```js
+const state = fx.getConfig();
+console.table({
+  requested: state.requestedHostCompositing,
+  resolved: state.resolvedHostCompositing,
+  surface: state.hostCompositingSurface,
+  warning: state.compositingWarning,
+});
+```
+
+You can also read the current mode directly with `fx.getEffectiveHostCompositing()`. With `browser-overlay` and an unknown background in a transparent window, a request for `screen` / `plus-lighter` resolves to `source-over` and reports `screen-requires-visible-backdrop` / `plus-lighter-requires-visible-backdrop`. This means the host surface cannot perform the requested blend.
+
+A compositing reference restores `source-over` only when the current output path **actually uses** it, preventing a second blend. A `true` result from `setCompositingReference()` means the reference was accepted; read the effective state again after changing the backend or reference.
+
+The recommended web configuration is an **SDR visual approximation** at the browser/DOM boundary. For strict Unity Scene RGB, use `scene` with a live, pixel-matched background reference on the complete WebGPU/WebGL2 path, or have the host composite in a linear HDR render target. See [compositing reference and linear compositing](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#compositing-reference-and-linear-compositing) for reference loading, cropping, and backend capabilities.
 
 ### Trails, Colours, and Switches
 
