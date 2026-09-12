@@ -22,12 +22,20 @@ Click, drag, or move the pointer to preview. The historical GIF is a visual refe
 </p>
 <p align="center"><sub>ba-click-fx demo (left, v1.2.12 historical recording) · In-game reference (right)</sub></p>
 
+## Desktop Edition (Windows Test Build)
+
+[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) is an independently implemented Windows-native edition and does not reuse this project's JavaScript / WebGL / WebGPU runtime.
+
+The verified support boundary is single-primary-monitor, FX-only, SDR: the overlay is click-through and never steals focus, can be exited from the notification-area menu or with `Ctrl+Alt+F12`, and the Control Center can pause/resume effects and adjust the core effect parameters. Do not infer multi-monitor, HDR, capture, or recording support from this build.
+
+Installation packages, build instructions, test status, and architecture decisions belong to the [external desktop repository](https://github.com/CialloKing/ba-click-fx-desktop).
+
 ## Table of Contents
 
+- [Desktop Edition (Windows Test Build)](#desktop-edition-windows-test-build)
 - [Features](#features)
 - [Installation](#installation)
 - [Web Integration](#recommended-web-integration-unknown-background-compositing)
-- [Desktop Edition (Windows)](#desktop-edition-windows)
 - [Common Usage](#common-usage)
 - [API Reference](#api-reference)
 - [Detailed Documentation](#detailed-documentation)
@@ -169,14 +177,6 @@ You can also read the current mode directly with `fx.getEffectiveHostCompositing
 A compositing reference restores `source-over` only when the current output path **actually uses** it, preventing a second blend. A `true` result from `setCompositingReference()` means the reference was accepted; read the effective state again after changing the backend or reference.
 
 The recommended web configuration is an **SDR visual approximation** at the browser/DOM boundary. For strict Unity Scene RGB, use `scene` with a live, pixel-matched background reference on the complete WebGPU/WebGL2 path, or have the host composite in a linear HDR render target. See [compositing reference and linear compositing](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#compositing-reference-and-linear-compositing) for reference loading, cropping, and backend capabilities.
-
-## Desktop Edition (Windows)
-
-[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) is an independently implemented Windows-native edition and does not reuse this project's JavaScript / WebGL / WebGPU runtime.
-
-The verified support boundary is single-primary-monitor, FX-only, SDR: the overlay is click-through and never steals focus, can be exited from the notification-area menu or with `Ctrl+Alt+F12`, and the Control Center can pause/resume effects and adjust the core effect parameters. Do not infer multi-monitor, HDR, capture, or recording support from this build.
-
-Installation packages, build instructions, test status, and architecture decisions belong to the [external desktop repository](https://github.com/CialloKing/ba-click-fx-desktop).
 
 ## Common Usage
 

@@ -22,12 +22,20 @@
 </p>
 <p align="center"><sub>ba-click-fx 项目演示（左，v1.2.12 历史录制） · 游戏内效果参考（右，仅用于效果对比）</sub></p>
 
+## 桌面版（Windows 测试版）
+
+[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) 是独立实现的 Windows 原生桌面版，不复用本项目的 JavaScript / WebGL / WebGPU 运行时。
+
+已验证的支持边界是单主屏、FX-only、SDR：覆盖层鼠标穿透且不抢焦点，可通过通知区域菜单或 `Ctrl+Alt+F12` 退出；Control Center 可暂停/恢复并调整核心效果参数。不要据此推断多屏、HDR、捕获或录制能力已经受支持。
+
+桌面版的安装包、构建方式、测试状态和架构决策请以[外部仓库](https://github.com/CialloKing/ba-click-fx-desktop)为准。
+
 ## 目录
 
+- [桌面版（Windows 测试版）](#桌面版windows-测试版)
 - [特性](#特性)
 - [使用方式](#使用方式)
 - [网页集成建议](#网页集成建议未知背景输出合成)
-- [桌面版（Windows）](#桌面版windows)
 - [常见用法](#常见用法)
 - [API 文档](#api-文档)
 - [专题文档](#专题文档)
@@ -169,14 +177,6 @@ console.table({
 合成参考只有在当前输出路径**实际使用**时，才使宿主混合恢复 `source-over`，避免重复混合。`setCompositingReference()` 返回 `true` 仅表示参考被接受；切换后端或参考后，应重新读取实际状态。
 
 推荐网页配置属于浏览器/DOM 的 **SDR 视觉近似**。需要严格 Unity Scene RGB 时，使用 `scene`，向完整 WebGPU/WebGL2 路径提供实时、逐像素匹配的背景参考，或由宿主在线性 HDR Render Target 中合成。参考的加载、裁切和后端能力见[合成参考与线性合成](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#合成参考与线性合成)。
-
-## 桌面版（Windows）
-
-[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) 是独立实现的 Windows 原生桌面版，不复用本项目的 JavaScript / WebGL / WebGPU 运行时。
-
-已验证的支持边界是单主屏、FX-only、SDR：覆盖层鼠标穿透且不抢焦点，可通过通知区域菜单或 `Ctrl+Alt+F12` 退出；Control Center 可暂停/恢复并调整核心效果参数。不要据此推断多屏、HDR、捕获或录制能力已经受支持。
-
-桌面版的安装包、构建方式、测试状态和架构决策请以[外部仓库](https://github.com/CialloKing/ba-click-fx-desktop)为准。
 
 ## 常见用法
 
