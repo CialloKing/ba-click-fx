@@ -72,9 +72,15 @@ When using the CDN on an ordinary page, also apply the [recommended configuratio
 
 ### Direct Download
 
-Download the ESM builds from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) (`ba-click-fx.js`, `config.js`, `worker.js`, and their `.d.ts` declarations):
+Download the ESM files and matching declarations from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases), or use the links below:
 
-The package and CDN builds are ESM-only. Browser direct imports require `type="module"`; `require()` and ordinary `<script>` tags are not published formats and must be bundled first.
+| Entry | JavaScript | TypeScript |
+|---|---|---|
+| Main | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/ba-click-fx.d.ts) |
+| Config | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/config.d.ts) |
+| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/worker.d.ts) |
+
+The package and CDN builds are ESM-only. For static browser imports, use `type="module"` and obtain the API through `import`; no IIFE or UMD global build is provided. Serve downloaded files alongside your page over HTTP(S).
 
 ```html
 <div id="fx-host"></div>

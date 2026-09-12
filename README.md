@@ -72,9 +72,15 @@ const fx = new BAClickFX();
 
 ### 直接下载
 
-从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载 ESM 构建产物（`ba-click-fx.js`、`config.js`、`worker.js` 及对应 `.d.ts` 声明）：
+从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载 ESM 文件及配套类型声明，也可直接使用以下链接：
 
-本包和 CDN 构建仅提供 ESM。浏览器直接引入时需要 `type="module"`；`require()` 和普通 `<script>` 标签不是当前发布格式，需要先由 bundler 打包。
+| 入口 | JavaScript | TypeScript |
+|---|---|---|
+| 主入口 | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/ba-click-fx.d.ts) |
+| 配置 | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/config.d.ts) |
+| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/worker.d.ts) |
+
+本包和 CDN 构建仅提供 ESM。浏览器静态导入使用 `type="module"`，通过 `import` 获取 API；不提供 IIFE 或 UMD 全局脚本。下载文件应与页面一起通过 HTTP(S) 服务访问。
 
 ```html
 <div id="fx-host"></div>

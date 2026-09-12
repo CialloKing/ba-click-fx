@@ -57,6 +57,8 @@ for (const relativePath of [
 {
   const referencedVersions = [
     ...readText(relativePath).matchAll(/ba-click-fx@(\d+\.\d+\.\d+)/g),
+    // 构建附件跟随包版本更新；历史 GIF 的版本不受此约束。
+    ...readText(relativePath).matchAll(/ba-click-fx\/releases\/download\/v(\d+\.\d+\.\d+)\/(?:ba-click-fx|config|worker)\.(?:js|d\.ts)(?=[)\s"?#]|$)/g),
   ];
 
   for (const versionMatch of referencedVersions)
