@@ -26,13 +26,14 @@
 
 - [特性](#特性)
 - [使用方式](#使用方式)
-- [常见用法](#常见用法)
 - [网页集成建议](#网页集成建议未知背景输出合成)
+- [桌面版（Windows 测试版）](#桌面版windows-测试版)
+- [常见用法](#常见用法)
 - [API 文档](#api-文档)
 - [专题文档](#专题文档)
 - [常见问题](#常见问题)
 - [开发说明](#开发说明)
-- [桌面版与相关项目](#桌面版windows-测试版)
+- [和其他项目的区别](#和其他项目的区别)
 - [Star 历史](#star-历史)
 - [致谢与许可](#致谢与第三方许可)
 
@@ -108,9 +109,7 @@ const fx = new BAClickFX();
 
 源代码：[ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension)
 
-## 常见用法
-
-### 网页集成建议：未知背景输出合成
+## 网页集成建议：未知背景输出合成
 
 普通网页建议使用 `browser-overlay + screen + dom-backdrop`。CSS 多层背景、滚动内容、动画、视频和跨域资源，使宿主通常无法逐帧提供与特效下方内容逐像素匹配的不透明背景参考；库也不会自动读取页面背景。
 
@@ -128,7 +127,7 @@ fx.updateConfig(
 fx.setCompositingReference(null);
 ```
 
-#### 背景与混合如何选择
+### 背景与混合如何选择
 
 可在在线演示中按下表选择对应选项，再应用到网页：
 
@@ -141,7 +140,7 @@ fx.setCompositingReference(null);
 
 `screen` 与 `plus-lighter` 二选一。纯白背景没有继续增亮的空间，`screen` 也不能保证白底上的颜色对比。先检查背景与混合方式，再调整辉光强度；这两种混合生效时，`overlayAlphaPolicy`、`overlayColorCompensation` 和 `overlayAlphaLimit` 不参与该输出路径。
 
-#### 宿主表面与实际生效状态
+### 宿主表面与实际生效状态
 
 `hostCompositingSurface` 描述最后一次混合发生的位置，应按实际宿主选择：
 
@@ -170,6 +169,16 @@ console.table({
 合成参考只有在当前输出路径**实际使用**时，才使宿主混合恢复 `source-over`，避免重复混合。`setCompositingReference()` 返回 `true` 仅表示参考被接受；切换后端或参考后，应重新读取实际状态。
 
 推荐网页配置属于浏览器/DOM 的 **SDR 视觉近似**。需要严格 Unity Scene RGB 时，使用 `scene`，向完整 WebGPU/WebGL2 路径提供实时、逐像素匹配的背景参考，或由宿主在线性 HDR Render Target 中合成。参考的加载、裁切和后端能力见[合成参考与线性合成](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#合成参考与线性合成)。
+
+## 桌面版（Windows 测试版）
+
+[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) 是独立实现的 Windows 原生桌面版，不复用本项目的 JavaScript / WebGL / WebGPU 运行时。
+
+当前仍是**首个测试版本（Alpha）**，已验证的支持边界是单主屏、FX-only、SDR：覆盖层鼠标穿透且不抢焦点，可通过通知区域菜单或 `Ctrl+Alt+F12` 退出；Control Center 可暂停/恢复并调整核心效果参数。不要据此推断多屏、HDR、捕获或录制能力已经受支持。
+
+桌面版的安装包、构建方式、测试状态和架构决策请以[外部仓库](https://github.com/CialloKing/ba-click-fx-desktop)为准。
+
+## 常见用法
 
 ### 拖尾、主题色和开关
 
@@ -362,14 +371,6 @@ npm run check
 `check` 执行构建、测试、同步校验和打包安装检查。核心像素与 Worker 浏览器验证可单独运行 `npm run test:browser`。
 
 浏览器检查需要 Chrome / Edge，可用 `BACLICKFX_CHROMIUM_PATH` 指定路径。
-
-## 桌面版（Windows 测试版）
-
-[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) 是独立实现的 Windows 原生桌面版，不复用本项目的 JavaScript / WebGL / WebGPU 运行时。
-
-当前仍是**首个测试版本（Alpha）**，已验证的支持边界是单主屏、FX-only、SDR：覆盖层鼠标穿透且不抢焦点，可通过通知区域菜单或 `Ctrl+Alt+F12` 退出；Control Center 可暂停/恢复并调整核心效果参数。不要据此推断多屏、HDR、捕获或录制能力已经受支持。
-
-桌面版的安装包、构建方式、测试状态和架构决策请以[外部仓库](https://github.com/CialloKing/ba-click-fx-desktop)为准。
 
 ## 和其他项目的区别
 

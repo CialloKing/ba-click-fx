@@ -26,13 +26,14 @@ Click, drag, or move the pointer to preview. The historical GIF is a visual refe
 
 - [Features](#features)
 - [Installation](#installation)
-- [Common Usage](#common-usage)
 - [Web Integration](#recommended-web-integration-unknown-background-compositing)
+- [Desktop Edition (Windows Test Build)](#desktop-edition-windows-test-build)
+- [Common Usage](#common-usage)
 - [API Reference](#api-reference)
 - [Detailed Documentation](#detailed-documentation)
 - [FAQ](#faq)
 - [Development](#development)
-- [Desktop and Related Projects](#desktop-edition-windows-test-build)
+- [How It Differs](#how-it-differs)
 - [Star History](#star-history)
 - [Acknowledgements and Licenses](#acknowledgements-and-third-party-licenses)
 
@@ -108,9 +109,7 @@ Install the browser extension for any of the supported stores:
 
 Source: [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extension).
 
-## Common Usage
-
-### Recommended Web Integration: Unknown-Background Compositing
+## Recommended Web Integration: Unknown-Background Compositing
 
 For ordinary pages, use `browser-overlay + screen + dom-backdrop`. Layered CSS backgrounds, scrolling content, animation, video, and cross-origin resources usually prevent the host from supplying an opaque reference that matches the pixels beneath the effect on every frame. The library does not automatically read the page background.
 
@@ -128,7 +127,7 @@ fx.updateConfig(
 fx.setCompositingReference(null);
 ```
 
-#### Choosing a Background and Blend Mode
+### Choosing a Background and Blend Mode
 
 Use these corresponding options in the online demo before applying them to your page:
 
@@ -141,7 +140,7 @@ Use these corresponding options in the online demo before applying them to your 
 
 Choose either `screen` or `plus-lighter`. Pure white has no headroom for further brightening, so `screen` cannot guarantee colour contrast on white either. Check the backdrop and blend mode before adjusting glow intensity. While either blend is effective, `overlayAlphaPolicy`, `overlayColorCompensation`, and `overlayAlphaLimit` do not participate in that output path.
 
-#### Host Surface and Effective State
+### Host Surface and Effective State
 
 `hostCompositingSurface` describes where the final blend occurs; choose it to match the actual host:
 
@@ -170,6 +169,16 @@ You can also read the current mode directly with `fx.getEffectiveHostCompositing
 A compositing reference restores `source-over` only when the current output path **actually uses** it, preventing a second blend. A `true` result from `setCompositingReference()` means the reference was accepted; read the effective state again after changing the backend or reference.
 
 The recommended web configuration is an **SDR visual approximation** at the browser/DOM boundary. For strict Unity Scene RGB, use `scene` with a live, pixel-matched background reference on the complete WebGPU/WebGL2 path, or have the host composite in a linear HDR render target. See [compositing reference and linear compositing](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#compositing-reference-and-linear-compositing) for reference loading, cropping, and backend capabilities.
+
+## Desktop Edition (Windows Test Build)
+
+[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) is an independently implemented Windows-native edition and does not reuse this project's JavaScript / WebGL / WebGPU runtime.
+
+It is still the **first test build (Alpha)**. The verified support boundary is single-primary-monitor, FX-only, SDR: the overlay is click-through and never steals focus, can be exited from the notification-area menu or with `Ctrl+Alt+F12`, and the Control Center can pause/resume effects and adjust the core effect parameters. Do not infer multi-monitor, HDR, capture, or recording support from this build.
+
+Installation packages, build instructions, test status, and architecture decisions belong to the [external desktop repository](https://github.com/CialloKing/ba-click-fx-desktop).
+
+## Common Usage
 
 ### Trails, Colours, and Switches
 
@@ -362,14 +371,6 @@ npm run check
 `check` runs the build, tests, synchronization checks, and package-install checks. Use `npm run test:browser` for the core-pixel and Worker browser checks.
 
 Browser checks require Chrome / Edge; set `BACLICKFX_CHROMIUM_PATH` to select an executable.
-
-## Desktop Edition (Windows Test Build)
-
-[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) is an independently implemented Windows-native edition and does not reuse this project's JavaScript / WebGL / WebGPU runtime.
-
-It is still the **first test build (Alpha)**. The verified support boundary is single-primary-monitor, FX-only, SDR: the overlay is click-through and never steals focus, can be exited from the notification-area menu or with `Ctrl+Alt+F12`, and the Control Center can pause/resume effects and adjust the core effect parameters. Do not infer multi-monitor, HDR, capture, or recording support from this build.
-
-Installation packages, build instructions, test status, and architecture decisions belong to the [external desktop repository](https://github.com/CialloKing/ba-click-fx-desktop).
 
 ## How It Differs
 
