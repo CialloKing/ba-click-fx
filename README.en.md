@@ -135,7 +135,7 @@ fx.boom(fx.width / 2, fx.height / 2);
 fx.updateConfig({ clickEnabled: true, trailEnabled: true });
 ```
 
-Set `clickEnabled` or `trailEnabled` to `false` to disable the corresponding effect. `boom()` takes Canvas-local CSS pixel coordinates. Theme colours accept six-digit hexadecimal values; invalid values restore the default game blue.
+Set `clickEnabled` or `trailEnabled` to `false` to disable the corresponding effect. `boom()` takes Canvas-local CSS pixel coordinates. Theme colours accept six-digit hexadecimal values; invalid values restore the default game blue. Theme colours update only the current instance; restoring them after a refresh requires the host to save, read, and apply them.
 
 ### Sampling and Playback Speed
 
@@ -198,7 +198,7 @@ These are library defaults; the recommended web integration explicitly overrides
 | `clearTrail()` | Clear trail points and trail shards; preserve click effects and click shards |
 | `destroy()` | Destroy the instance and its listeners; remove only library-created canvases |
 | `updateConfig({...})` | Update base config, input source/rate, time scales, Full Effect/Bloom backends, DPR, and touch behaviour at runtime |
-| `setThemeColor('#4ca7ff')` | Set and persist the theme colour; invalid input restores the default game blue |
+| `setThemeColor('#4ca7ff')` | Update the current instance's theme colour; invalid input restores the default game blue |
 | `setThemeColorMode(mode)` | Switch the theme-colour mapping mode; accepts `hue-only` or `relative-oklch` and returns `true` on success |
 | `setTriangleRoundness(value)` | Set the triangle-shard roundness ratio; equivalent to `setFxParam('shards.roundness', value)` |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify one dot-path; returns `true` on success and `false` when rejected |

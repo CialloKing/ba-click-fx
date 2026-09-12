@@ -476,7 +476,7 @@ declare module 'ba-click-fx'
      */
     updateConfig(overrides: BAClickFXUpdateOptions): BAClickFXConfigSnapshot;
 
-    /** 设置并保存主题色；传入空字符串或非法值恢复默认游戏蓝。 */
+    /** 更新当前实例的主题色，不自动持久化；传入空字符串或非法值恢复默认游戏蓝。 */
     setThemeColor(hex: string): void;
 
     /** 设置主题颜色映射模式；非法值返回 false 且保持当前模式不变。 */

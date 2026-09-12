@@ -68,7 +68,7 @@ new BAClickFX(options?: {
 | `clearTrail()` | 清除拖尾及拖尾碎片，保留点击特效与点击碎片 |
 | `destroy()` | 销毁实例并移除其监听；仅移除库创建的 Canvas |
 | `updateConfig({...})` | 运行时更新基础配置、输入来源/采样率、时间倍率、完整特效/Bloom 后端、DPR 与触摸行为 |
-| `setThemeColor('#4ca7ff')` | 设置并保存主题色；非法值恢复默认游戏蓝 |
+| `setThemeColor('#4ca7ff')` | 更新当前实例的主题色；非法值恢复默认游戏蓝 |
 | `setThemeColorMode(mode)` | 切换主题颜色映射模式；接受 `hue-only` 或 `relative-oklch`，成功返回 `true` |
 | `setTriangleRoundness(value)` | 设置三角碎片圆角比例；与 `setFxParam('shards.roundness', value)` 等价 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 修改单个点号路径；成功返回 `true`，拒绝时返回 `false` |
@@ -294,6 +294,8 @@ export function migrateStoredFx(storage = localStorage)
 返回对象包含 `applied`、`normalized`、`rejected`、`committed` 和 `schemaVersion`：`applied` 是最终接受的路径和值；`normalized` 记录路径重命名、旧值恢复默认、数值钳制或布尔转换；`rejected` 给出路径、原值和原因；`committed` 表示候选配置是否真正提交。默认 `strict: false` 会提交合法项并报告拒绝项；`strict: true` 只要出现一个拒绝项就回滚整批，且 `applied` 为空。`reset: true` 会先恢复 Unity 基线，再应用同一批补丁；即使补丁为空，也会提交该重置。`setFxParam()` 复用相同校验并采用严格单项语义。
 
 ## 主题颜色
+
+主题色只更新当前实例，不会自动写入浏览器存储。需要刷新后恢复时，由宿主保存 `themeColor` 与 `themeColorMode`，重新读取后通过构造参数或 `updateConfig()` 应用。
 
 `themeColor` 和 `themeColorMode` 都是实例配置状态：可在构造参数或 `updateConfig()` 中设置，`setThemeColor()` 与 `setThemeColorMode()` 使用同一规范化路径，`getConfig()` 会返回当前值。主题色只接受六位十六进制颜色；空字符串或非法值恢复导出的 `DEFAULT_THEME_COLOR`（`#4ca7ff`）。非法主题颜色模式会被拒绝，`setThemeColorMode()` 返回 `false` 并保持当前模式不变。两项配置都不会改写 `UNITY_FX_TOUCH` 或 `FX_PARAM_SCHEMA` 的 Unity 参数基线。
 

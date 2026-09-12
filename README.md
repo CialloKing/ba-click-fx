@@ -135,7 +135,7 @@ fx.boom(fx.width / 2, fx.height / 2);
 fx.updateConfig({ clickEnabled: true, trailEnabled: true });
 ```
 
-将 `clickEnabled` 或 `trailEnabled` 设为 `false` 可关闭对应效果。 `boom()` 使用 Canvas 局部 CSS 像素坐标。主题色只接受六位十六进制值；非法值恢复默认游戏蓝。
+将 `clickEnabled` 或 `trailEnabled` 设为 `false` 可关闭对应效果。 `boom()` 使用 Canvas 局部 CSS 像素坐标。主题色只接受六位十六进制值；非法值恢复默认游戏蓝。主题色仅更新当前实例；刷新后恢复需要宿主自行保存、读取并应用。
 
 ### 采样率与播放速度
 
@@ -198,7 +198,7 @@ fx.destroy();
 | `clearTrail()` | 清除拖尾及拖尾碎片，保留点击特效与点击碎片 |
 | `destroy()` | 销毁实例并移除其监听；仅移除库创建的 Canvas |
 | `updateConfig({...})` | 运行时更新基础配置、输入来源/采样率、时间倍率、完整特效/Bloom 后端、DPR 与触摸行为 |
-| `setThemeColor('#4ca7ff')` | 设置并保存主题色；非法值恢复默认游戏蓝 |
+| `setThemeColor('#4ca7ff')` | 更新当前实例的主题色；非法值恢复默认游戏蓝 |
 | `setThemeColorMode(mode)` | 切换主题颜色映射模式；接受 `hue-only` 或 `relative-oklch`，成功返回 `true` |
 | `setTriangleRoundness(value)` | 设置三角碎片圆角比例；与 `setFxParam('shards.roundness', value)` 等价 |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | 修改单个点号路径；成功返回 `true`，拒绝时返回 `false` |

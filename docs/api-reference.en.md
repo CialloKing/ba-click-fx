@@ -68,7 +68,7 @@ The old `softwareBloomEnabled` field has been removed from the current configura
 | `clearTrail()` | Clear trail points and trail shards; preserve click effects and click shards |
 | `destroy()` | Destroy the instance and its listeners; remove only library-created canvases |
 | `updateConfig({...})` | Update base config, input source/rate, time scales, Full Effect/Bloom backends, DPR, and touch behaviour at runtime |
-| `setThemeColor('#4ca7ff')` | Set and persist the theme colour; invalid input restores the default game blue |
+| `setThemeColor('#4ca7ff')` | Update the current instance's theme colour; invalid input restores the default game blue |
 | `setThemeColorMode(mode)` | Switch the theme-colour mapping mode; accepts `hue-only` or `relative-oklch` and returns `true` on success |
 | `setTriangleRoundness(value)` | Set the triangle-shard roundness ratio; equivalent to `setFxParam('shards.roundness', value)` |
 | `setFxParam('rings.hdrIntensity', 5.992157)` | Modify one dot-path; returns `true` on success and `false` when rejected |
@@ -294,6 +294,8 @@ The package-level `applyFxParamPatch()` uses the game defaults as its private va
 The result contains `applied`, `normalized`, `rejected`, `committed`, and `schemaVersion`. `applied` contains the accepted final paths and values; `normalized` records renames, default restoration, numeric clamping, and Boolean coercion; `rejected` gives the path, original value, and reason; `committed` says whether the candidate configuration was actually installed. The default `strict: false` commits valid entries and reports rejected ones. With `strict: true`, one rejected entry rolls back the entire batch and `applied` is empty. `reset: true` first restores the Unity baseline and then applies the same patch; even an empty patch commits the reset. `setFxParam()` reuses this validation with strict single-entry semantics.
 
 ## Theme Colours
+
+Theme colours update only the current instance; the library does not automatically write them to browser storage. To restore them after a refresh, the host must save `themeColor` and `themeColorMode`, read them back, and apply them through the constructor or `updateConfig()`.
 
 `themeColor` and `themeColorMode` are both instance configuration state. They can be supplied to the constructor or `updateConfig()`; `setThemeColor()` and `setThemeColorMode()` use the same normalisation path; and `getConfig()` returns their current values. Only six-digit hexadecimal colours are accepted. An empty string or invalid colour restores the exported `DEFAULT_THEME_COLOR` (`#4ca7ff`). An invalid mode is rejected: `setThemeColorMode()` returns `false` and leaves the current mode unchanged. Neither setting mutates the Unity parameter baseline in `UNITY_FX_TOUCH` or `FX_PARAM_SCHEMA`.
 

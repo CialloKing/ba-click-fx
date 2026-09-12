@@ -23,7 +23,7 @@
 | 透明窗口 | `hostCompositingSurface: 'transparent-window'` | CSS 混合无法跨越操作系统窗口边界；未知背景下独立混合会解析为 `source-over` |
 | 原生合成器 | `hostCompositingSurface: 'native'` | 由外部 WebView/原生合成器执行最终混合，外部 Canvas 的样式仍由宿主管理 |
 
-在 `browser-overlay`、未知背景且请求 `screen` 或 `plus-lighter` 时，透明窗口会在 `getConfig()` 中报告 `resolvedHostCompositing: 'source-over'`，并设置 `compositingWarning` 为 `screen-requires-visible-backdrop` 或 `plus-lighter-requires-visible-backdrop`。已提供有效合成参考时同样恢复 `source-over`，避免重复混合。
+在 `browser-overlay`、未知背景且请求 `screen` 或 `plus-lighter` 时，透明窗口会在 `getConfig()` 中报告 `resolvedHostCompositing: 'source-over'`，并设置 `compositingWarning` 为 `screen-requires-visible-backdrop` 或 `plus-lighter-requires-visible-backdrop`。只有当前输出路径实际使用合成参考时，才恢复 `source-over`，避免重复混合。`setCompositingReference()` 返回 `true` 仅表示参考已被接受，不保证当前路径已使用它；通过 `getEffectiveHostCompositing()` 或 `getConfig().resolvedHostCompositing` 判断实际宿主合成模式。
 
 以下为推荐组合，库默认配置仍是 `scene + source-over`。
 
@@ -106,7 +106,7 @@ WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutp
 
 `screen` 和 `plus-lighter` 都只是 SDR DOM 合成近似，并受浏览器色彩管理和实现差异影响。Unity 的最终画面是把背景与特效在线性 HDR 中合成后统一编码；未知桌面像素不在覆盖层进程内，因此没有任何单张透明载荷能对所有背景逐像素等价。`screen` 在黑底保留完整载荷，并在背景接近白色时自动减少增量，是展示页“DOM Add（近似）”和未知中高亮背景的推荐选择。`plus-lighter` 保留给已知黑色或暗色宿主；它把 sRGB 载荷直接相加，在亮底会提前饱和。
 
-库创建覆盖层时会在完整图层组上执行一次所选宿主混合；若 `target` 是调用方传入的 `<canvas>`，库只输出独立完整载荷，不会修改该元素的 `mix-blend-mode`，最终 CSS、WebView 或原生合成由宿主负责。要严格匹配 Unity 的 `Blend One One`、`Blend SrcAlpha One, One One` 等结果，必须提供匹配背景参考让完整 WebGPU/WebGL2 后端在线性 HDR Scene 中求值，或由宿主在线性 HDR Render Target 中执行合成。若已激活合成参考，库会回到已知 Scene 的普通 `source-over` 最终输出，避免重复混合。
+库创建覆盖层时会在完整图层组上执行一次所选宿主混合；若 `target` 是调用方传入的 `<canvas>`，库只输出独立完整载荷，不会修改该元素的 `mix-blend-mode`，最终 CSS、WebView 或原生合成由宿主负责。要严格匹配 Unity 的 `Blend One One`、`Blend SrcAlpha One, One One` 等结果，必须提供匹配背景参考让完整 WebGPU/WebGL2 后端在线性 HDR Scene 中求值，或由宿主在线性 HDR Render Target 中执行合成。当当前输出路径实际使用合成参考时，库会回到已知 Scene 的普通 `source-over` 最终输出，避免重复混合。仅保存参考源、但当前路径尚未使用它时，不会因此撤销宿主混合。
 
 亮底过曝的根因和 DOM Add 选择规则见 [DOM Add 亮底过曝回归复盘](https://github.com/CialloKing/ba-click-fx/blob/main/docs/dom-add-light-background-regression.md)。使用 `screen` 处理未知中高亮背景，使用 `plus-lighter` 前先确认宿主是黑色或暗色；不要通过降低 Bloom 强度掩盖宿主合成问题。
 
