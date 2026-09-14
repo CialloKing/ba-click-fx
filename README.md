@@ -142,64 +142,22 @@ const fx = new BAClickFX(
 
 ## 网页集成建议：未知背景输出合成
 
-普通网页建议使用 `browser-overlay + screen + dom-backdrop`。CSS 多层背景、滚动内容、动画、视频和跨域资源，使宿主通常无法逐帧提供与特效下方内容逐像素匹配的不透明背景参考；库也不会自动读取页面背景。
+上方示例已使用普通网页推荐的 `browser-overlay + screen + dom-backdrop`，无需追加配置。库默认值仍是 `scene + source-over`，也不会自动读取网页背景。
 
-上方初始化示例已包含推荐配置。库默认配置仍是 `scene + source-over`；只有需要将已有实例切换到推荐配置时，才执行以下代码：
-
-```js
-fx.updateConfig(
-{
-  outputCompositing: 'browser-overlay',
-  hostCompositing: 'screen',
-  hostCompositingSurface: 'dom-backdrop',
-});
-
-// 新实例默认没有背景参考；复用实例时清除之前设置的参考。
-fx.setCompositingReference(null);
-```
-
-### 背景与混合如何选择
-
-可在在线演示中按下表选择对应选项，再应用到网页：
+可在在线演示中按下表选择对应选项：
 
 | 展示页选项 | API 配置 | 适用情况 |
 |---|---|---|
-| 输出合成：**透明覆盖层** | `outputCompositing: 'browser-overlay'` | 输出带 Alpha 的独立覆盖层，由宿主完成最后一次合成 |
-| 特效背景参考：**未知透明背景（兼容）** | 不提供参考，或 `setCompositingReference(null)` | 无法持续提供逐像素匹配的页面背景时使用；不会修改页面 CSS 背景 |
-| 宿主合成：**DOM Add（近似）** | `hostCompositing: 'screen'` | 普通网页推荐；适合未知、中灰、浅色或变化的背景，亮底上的增亮幅度会收敛 |
-| 宿主合成：**Plus-lighter（原始加色）** | `hostCompositing: 'plus-lighter'` | 仅在已知黑色或暗色背景上考虑；加色更强，亮底容易提前饱和 |
+| 输出合成：**透明覆盖层** | `outputCompositing: 'browser-overlay'` | 输出独立覆盖层，由网页完成最终合成 |
+| 特效背景参考：**未知透明背景（兼容）** | 不提供参考，或 `setCompositingReference(null)` | 无法持续提供逐像素匹配的页面背景时使用 |
+| 宿主合成：**DOM Add（近似）** | `hostCompositing: 'screen'` | 普通网页推荐，适合未知、中灰、浅色或变化的背景 |
+| 宿主合成：**Plus-lighter（原始加色）** | `hostCompositing: 'plus-lighter'` | 仅在已知黑色或暗色背景上考虑；亮底容易提前饱和 |
 
-`screen` 与 `plus-lighter` 二选一。纯白背景没有继续增亮的空间，`screen` 也不能保证白底上的颜色对比。先检查背景与混合方式，再调整辉光强度；这两种混合生效时，`overlayAlphaPolicy`、`overlayColorCompensation` 和 `overlayAlphaLimit` 不参与该输出路径。
+`screen` 与 `plus-lighter` 二选一。纯白背景没有继续增亮的空间，`screen` 也不能保证白底上的颜色对比；先检查背景与混合方式，再调整辉光强度。
 
-### 宿主表面与实际生效状态
+新实例默认没有背景参考；复用曾设置参考的实例时，调用 `fx.setCompositingReference(null)` 清除旧参考。推荐配置属于浏览器/DOM 的 SDR 视觉近似；严格 Unity Scene RGB 需要匹配的已知背景或宿主线性 HDR 合成。
 
-`hostCompositingSurface` 描述最后一次混合发生的位置，应按实际宿主选择：
-
-| 宿主表面 | API 配置 | 合成边界 |
-|---|---|---|
-| 普通 DOM 背景（默认） | `hostCompositingSurface: 'dom-backdrop'` | 库创建的覆盖层由 DOM 执行一次 `screen` / `plus-lighter` 混合 |
-| 透明桌面窗口 | `hostCompositingSurface: 'transparent-window'` | 配合 `hostCompositing: 'source-over'`；CSS 混合无法跨越操作系统窗口边界 |
-| 外部原生合成器 | `hostCompositingSurface: 'native'` | 由宿主执行最终混合；设置此值不会自动接入原生合成器 |
-
-普通网页优先使用默认全屏覆盖层或[定位容器](#直接下载)。若传入已有 Canvas，库不会修改它的 `mix-blend-mode`，最终 CSS 或原生合成由宿主负责；已有 `HTMLCanvasElement` 还会限制完整 GPU/Bloom 路径，见[挂载与输出边界](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)。
-
-配置中的请求值不一定等于实际生效值。排查显示问题时读取当前快照：
-
-```js
-const state = fx.getConfig();
-console.table({
-  requested: state.requestedHostCompositing,
-  resolved: state.resolvedHostCompositing,
-  surface: state.hostCompositingSurface,
-  warning: state.compositingWarning,
-});
-```
-
-也可用 `fx.getEffectiveHostCompositing()` 直接读取当前模式。`browser-overlay` 在未知背景的透明窗口上请求 `screen` / `plus-lighter` 时，会解析为 `source-over`，并报告 `screen-requires-visible-backdrop` / `plus-lighter-requires-visible-backdrop`。这表示宿主表面无法执行所请求的混合。
-
-合成参考只有在当前输出路径**实际使用**时，才使宿主混合恢复 `source-over`，避免重复混合。`setCompositingReference()` 返回 `true` 仅表示参考被接受；切换后端或参考后，应重新读取实际状态。
-
-推荐网页配置属于浏览器/DOM 的 **SDR 视觉近似**。需要严格 Unity Scene RGB 时，使用 `scene`，向完整 WebGPU/WebGL2 路径提供实时、逐像素匹配的背景参考，或由宿主在线性 HDR Render Target 中合成。参考的加载、裁切和后端能力见[合成参考与线性合成](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#合成参考与线性合成)。
+[宿主表面与状态诊断](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)介绍已有 Canvas、透明窗口、实际生效模式和 Alpha 选项的边界；[合成参考与线性合成](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#合成参考与线性合成)说明已知背景的接入方式。
 
 ## 常见用法
 

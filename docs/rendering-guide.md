@@ -104,6 +104,18 @@ WebGPU 可用不等于屏幕 HDR 可用。只有 `getConfig().resolvedWebGPUOutp
 
 `hostCompositingSurface` 会与输出模式和合成参考一起解析实际宿主合同。`getConfig()` 返回调用方请求的 `requestedHostCompositing`、实际生效的 `resolvedHostCompositing`、`hostCompositingSurface` 和 `compositingWarning`；`getEffectiveHostCompositing()` 只返回实际生效模式。宿主合成状态变化时，主 Canvas 会派发 `HOST_COMPOSITING_CHANGE_EVENT`（事件名 `baclickfxhostcompositingchange`）。
 
+配置中的请求值不一定等于实际生效值。切换后端或参考后，读取当前快照进行诊断：
+
+```js
+const state = fx.getConfig();
+console.table({
+  requested: state.requestedHostCompositing,
+  resolved: state.resolvedHostCompositing,
+  surface: state.hostCompositingSurface,
+  warning: state.compositingWarning,
+});
+```
+
 `screen` 和 `plus-lighter` 都只是 SDR DOM 合成近似，并受浏览器色彩管理和实现差异影响。Unity 的最终画面是把背景与特效在线性 HDR 中合成后统一编码；未知桌面像素不在覆盖层进程内，因此没有任何单张透明载荷能对所有背景逐像素等价。`screen` 在黑底保留完整载荷，并在背景接近白色时自动减少增量，是展示页“DOM Add（近似）”和未知中高亮背景的推荐选择。`plus-lighter` 保留给已知黑色或暗色宿主；它把 sRGB 载荷直接相加，在亮底会提前饱和。
 
 库创建覆盖层时会在完整图层组上执行一次所选宿主混合；若 `target` 是调用方传入的 `<canvas>`，库只输出独立完整载荷，不会修改该元素的 `mix-blend-mode`，最终 CSS、WebView 或原生合成由宿主负责。要严格匹配 Unity 的 `Blend One One`、`Blend SrcAlpha One, One One` 等结果，必须提供匹配背景参考让完整 WebGPU/WebGL2 后端在线性 HDR Scene 中求值，或由宿主在线性 HDR Render Target 中执行合成。当当前输出路径实际使用合成参考时，库会回到已知 Scene 的普通 `source-over` 最终输出，避免重复混合。仅保存参考源、但当前路径尚未使用它时，不会因此撤销宿主混合。

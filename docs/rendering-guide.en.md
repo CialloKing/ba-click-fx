@@ -104,6 +104,18 @@ The old `unknownBackgroundAppearance` field has been removed from constructor op
 
 `hostCompositingSurface` resolves the actual host contract together with the output mode and compositing reference. `getConfig()` reports the caller's `requestedHostCompositing`, the effective `resolvedHostCompositing`, `hostCompositingSurface`, and `compositingWarning`; `getEffectiveHostCompositing()` returns only the effective mode. The main Canvas dispatches `HOST_COMPOSITING_CHANGE_EVENT` (event name `baclickfxhostcompositingchange`) when this state changes.
 
+A requested configuration value may differ from the effective value. After changing the backend or reference, read the current snapshot to diagnose the output:
+
+```js
+const state = fx.getConfig();
+console.table({
+  requested: state.requestedHostCompositing,
+  resolved: state.resolvedHostCompositing,
+  surface: state.hostCompositingSurface,
+  warning: state.compositingWarning,
+});
+```
+
 Both `screen` and `plus-lighter` are SDR DOM-compositing approximations and vary with browser colour management and implementation details. Unity composites the backdrop and effect together in linear HDR before one final encoding step. An unknown desktop is outside the overlay process, so no single transparent payload can be pixel-equivalent over every backdrop. `screen` preserves the full payload over black and automatically reduces its increment towards white; it is used by the demo's “DOM Add (Approximate)” option and is recommended for unknown mid-tone or light backdrops. `plus-lighter` remains available for known black or dark hosts, but directly adds the sRGB payload and saturates early over light content.
 
 For a library-owned overlay, the selected host blend is applied once to the complete layer group. With a caller-owned `<canvas>`, the library emits the independent full payload without modifying `mix-blend-mode`; CSS, WebView, or native host compositing remains the caller's responsibility. Strict agreement with Unity requires a matching compositing reference so the complete WebGPU/WebGL2 backend can evaluate the linear HDR Scene, or a host that performs the final composite in a linear HDR render target. When the current output path actually uses the reference, it restores a normal `source-over` output and prevents a second host blend. Merely retaining an accepted source without using it in the current path does not disable the host blend.
