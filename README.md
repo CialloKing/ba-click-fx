@@ -82,15 +82,17 @@ const fx = new BAClickFX();
 
 ### 直接下载
 
-从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载 ESM 文件及配套类型声明，也可直接使用以下链接：
+从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载所需的 ESM 入口。普通网页只需主入口 `ba-click-fx.js`；类型声明的使用方式见表后说明。
 
-| 入口 | JavaScript | TypeScript |
+| 入口 | JavaScript | 类型声明（包名导入） |
 |---|---|---|
 | 主入口 | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/ba-click-fx.d.ts) |
 | 配置 | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/config.d.ts) |
 | Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/worker.d.ts) |
 
-本包和 CDN 构建仅提供 ESM。浏览器静态导入使用 `type="module"`，通过 `import` 获取 API；不提供 IIFE 或 UMD 全局脚本。下载文件应与页面一起通过 HTTP(S) 服务访问。
+**TypeScript：** 推荐使用上方的 [npm 方式](#npm)，通过 `import { BAClickFX } from 'ba-click-fx'` 自动获取类型；需要自托管时，由构建工具生成并部署静态文件。当前下载的主声明使用 `declare module 'ba-click-fx'`，配置和 Worker 声明也引用该包名。仅把 `.d.ts` 放在下载的 JS 旁边，不能为 `import ... from './ba-click-fx.js'` 提供可直接使用的模块类型，会出现 TS2306（声明文件不是模块）。
+
+本包和 CDN 构建仅提供 ESM。以下是浏览器 JavaScript 示例：使用 `type="module"` 和 `import`，将下载文件与页面一起通过 HTTP(S) 服务访问；不提供 IIFE 或 UMD 全局脚本。
 
 ```html
 <div id="fx-host"></div>

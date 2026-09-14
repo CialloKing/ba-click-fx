@@ -82,15 +82,17 @@ When using the CDN on an ordinary page, also apply the [recommended configuratio
 
 ### Direct Download
 
-Download the ESM files and matching declarations from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases), or use the links below:
+Download the ESM entries you need from [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases). Ordinary pages only need the main `ba-click-fx.js` entry; see the note below the table before using the declarations.
 
-| Entry | JavaScript | TypeScript |
+| Entry | JavaScript | Declarations (package imports) |
 |---|---|---|
 | Main | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/ba-click-fx.d.ts) |
 | Config | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/config.d.ts) |
 | Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.3/worker.d.ts) |
 
-The package and CDN builds are ESM-only. For static browser imports, use `type="module"` and obtain the API through `import`; no IIFE or UMD global build is provided. Serve downloaded files alongside your page over HTTP(S).
+**TypeScript:** Use the [npm setup](#npm) above with `import { BAClickFX } from 'ba-click-fx'` for automatic type resolution. For self-hosting, build and deploy the static files with your bundler. The downloaded main declaration currently uses `declare module 'ba-click-fx'`, and the Config and Worker declarations also reference that package name. Placing the `.d.ts` beside the downloaded JS does not make it a usable module declaration for `import ... from './ba-click-fx.js'`; that import produces TS2306 (the declaration file is not a module).
+
+The package and CDN builds are ESM-only. The browser JavaScript example below uses `type="module"` and `import`. Serve downloaded files alongside your page over HTTP(S); no IIFE or UMD global build is provided.
 
 ```html
 <div id="fx-host"></div>
