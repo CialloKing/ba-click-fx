@@ -24,11 +24,11 @@ Click, drag, or move the pointer to preview. The historical GIF is a visual refe
 
 ## Desktop Edition (Windows Test Build)
 
-[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) is an independently implemented Windows-native edition and does not reuse this project's JavaScript / WebGL / WebGPU runtime.
+[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) is an independently implemented native edition for Windows 10/11 x64, with click effects, mouse trails, a Control Center, background-aware rendering, and transparent FX output for OBS.
 
-The verified support boundary is single-primary-monitor, FX-only, SDR: the overlay is click-through and never steals focus, can be exited from the notification-area menu or with `Ctrl+Alt+F12`, and the Control Center can pause/resume effects and adjust the core effect parameters. Do not infer multi-monitor, HDR, capture, or recording support from this build.
+Control effects through the Control Center or notification-area menu. Global shortcuts are unbound by default and can be configured in the Control Center. Current manual visual review covers a single primary SDR display; background capture and OBS output have additional environment requirements.
 
-Installation packages, build instructions, test status, and architecture decisions belong to the [external desktop repository](https://github.com/CialloKing/ba-click-fx-desktop).
+The desktop edition does not reuse this project's JavaScript / WebGL / WebGPU runtime. See the [desktop repository](https://github.com/CialloKing/ba-click-fx-desktop) for downloads, usage, and the current support scope.
 
 ## Table of Contents
 

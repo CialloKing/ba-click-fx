@@ -24,11 +24,11 @@
 
 ## 桌面版（Windows 测试版）
 
-[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) 是独立实现的 Windows 原生桌面版，不复用本项目的 JavaScript / WebGL / WebGPU 运行时。
+[ba-click-fx-desktop](https://github.com/CialloKing/ba-click-fx-desktop) 是独立实现的 Windows 10/11 x64 原生桌面版，提供点击特效、鼠标拖尾、Control Center、背景感知和 OBS 透明特效输出。
 
-已验证的支持边界是单主屏、FX-only、SDR：覆盖层鼠标穿透且不抢焦点，可通过通知区域菜单或 `Ctrl+Alt+F12` 退出；Control Center 可暂停/恢复并调整核心效果参数。不要据此推断多屏、HDR、捕获或录制能力已经受支持。
+通过 Control Center 或通知区域菜单控制特效启停；全局快捷键默认未绑定，可在控制中心配置。当前人工特效审核以单主屏 SDR 为准，背景捕获与 OBS 输出需满足相应环境要求。
 
-桌面版的安装包、构建方式、测试状态和架构决策请以[外部仓库](https://github.com/CialloKing/ba-click-fx-desktop)为准。
+桌面版不复用本项目的 JavaScript / WebGL / WebGPU 运行时。安装包、使用方式和最新支持范围请以[桌面仓库](https://github.com/CialloKing/ba-click-fx-desktop)为准。
 
 ## 目录
 
