@@ -222,55 +222,21 @@ fx.destroy();
 
 ## API 文档
 
-此处提供速查；完整签名、返回值和运行时规则见 [API 参考](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md)。
+常用 API 速查如下。完整的[构造选项与默认值](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#构造函数)、[方法签名与返回值](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.md#实例方法)集中在 API 参考中。
 
-### 构造函数
-
-以下默认值属于库本身；推荐网页集成配置需要显式覆盖对应选项。
-
-| 配置 | 默认值 | 说明 |
-|---|---|---|
-| `target` | 全屏覆盖层 | 定位容器、已有 Canvas 或 OffscreenCanvas |
-| `scale` / `opacity` | `1` / `1` | 大小倍率 / 不透明度 |
-| `themeColor` | `#4ca7ff` | 六位十六进制颜色 |
-| `themeColorMode` | `relative-oklch` | 完整颜色映射；`hue-only` 保留旧色相偏移 |
-| `clickEnabled` / `trailEnabled` | `true` / `true` | 分别控制点击和拖尾 |
-| `trailAlways` | `false` | 设为 `true` 后无需按下即可显示拖尾 |
-| `effectBackend` / `bloomBackend` | `webgl2` / `webgl2` | GPU 失败回退原生辉光；软件 Bloom 仅显式选择 |
-| `outputCompositing` | `scene` | 普通未知背景网页推荐显式使用 `browser-overlay` |
-| `hostCompositing` | `source-over` | 推荐网页覆盖层配合使用 `screen` |
-| `hostCompositingSurface` | `dom-backdrop` | 透明桌面窗口使用 `transparent-window` |
-| `maxDpr` | `1` | 最大设备像素比；提高后会增加渲染开销 |
-| `touchAction` | `auto` | 默认保留浏览器原生手势 |
-
-### 实例方法
-
-| 方法 | 说明 |
+| API | 用途 |
 |---|---|
-| `resize(width?, height?, dpr?)` | 显式同步 Canvas 的 CSS 尺寸与 DPR，主要用于 Worker / OffscreenCanvas 宿主 |
-| `boom(x?, y?)` | 触发单次点击特效；省略坐标时使用画布中心，不创建拖尾状态 |
-| `pointerDown(input)` | 开始一次点击和拖尾生命周期 |
-| `pointerMove(input)` | 为当前逻辑指针追加拖尾采样点 |
-| `pointerUp(pointerId?)` | 正常结束指针，已有拖尾自然消失 |
-| `pointerCancel(pointerId?)` | 强制取消指针并立即移除当前轨迹 |
-| `setPaused(paused, options?)` | 暂停或恢复输入与动画调度，可选在暂停时清屏 |
-| `setInputSamplingRate(rateHz)` | 设置移动输入采样率上限；接受 `0` 或 `1..1000`，成功返回 `true` |
-| `setCompositingReference(source, { fit: 'cover' })` | 设置各渲染后端共享的已知栅格合成参考；传入 `null` 清除参考并进入未知背景路径 |
-| `clear()` | 清除全部视觉对象 |
-| `clearTrail()` | 清除拖尾及拖尾碎片，保留点击特效与点击碎片 |
-| `destroy()` | 销毁实例并移除其监听；仅移除库创建的 Canvas |
-| `updateConfig({...})` | 运行时更新配置并返回配置快照；`target` 与 `inputFilter` 仅在构造时设置 |
-| `setThemeColor('#4ca7ff')` | 更新当前实例的主题色；非法值恢复默认游戏蓝 |
-| `setThemeColorMode(mode)` | 切换主题颜色映射模式；接受 `hue-only` 或 `relative-oklch`，成功返回 `true` |
-| `setTriangleRoundness(value)` | 设置三角碎片圆角比例；与 `setFxParam('shards.roundness', value)` 等价 |
-| `setFxParam('rings.hdrIntensity', 5.992157)` | 修改单个点号路径；成功返回 `true`，拒绝时返回 `false` |
-| `setFxParams(patch, options?)` | 按 Schema 验证并批量应用点号路径补丁，返回逐项处理结果 |
-| `getFxConfig()` | 返回当前完整特效配置深拷贝 |
-| `resetFxConfig()` | 重置所有特效参数为 Unity 基线 |
-| `getConfig()` | 返回当前实例配置；除完整特效和 Bloom 的解析结果外，还报告 WebGPU 输出和宿主合成的实际状态 |
-| `getEffectiveHostCompositing()` | 返回实际生效的宿主合成模式 |
+| `new BAClickFX(options?)` | 创建实例；省略 `target` 时使用全屏覆盖层 |
+| `updateConfig(patch)` | 更新基础选项并返回快照；`target` 与 `inputFilter` 仅在构造时设置 |
+| `setThemeColor(color)` | 设置六位十六进制主题色；非法值恢复默认游戏蓝 |
+| `setFxParam(path, value)` | 调整一个特效参数；成功返回 `true`，拒绝返回 `false` |
+| `boom(x?, y?)` | 触发单次点击；使用画布局部 CSS 像素坐标，省略时取中心 |
+| `setPaused(paused, options?)` | 暂停或恢复；`{ clear: true }` 可在暂停时清屏 |
+| `clear()` / `clearTrail()` | 清空全部效果 / 仅清空拖尾及其碎片；不暂停实例 |
+| `getConfig()` | 查询当前配置、实际后端和宿主合成状态 |
+| `destroy()` | 卸载时释放资源与监听，仅移除库创建的 Canvas |
 
-后端能力延迟探测期间状态可能为 `pending`。用 `getConfig()` 的 `resolvedEffectBackend` / `resolvedBloomBackend` 读取实际后端，使用导出的后端变化事件跟踪回退和恢复。
+后端延迟探测期间可能为 `pending`；从 `getConfig()` 的 `resolvedEffectBackend` / `resolvedBloomBackend` 读取实际结果。手动输入、批量调参、配置重置及状态事件见下方专题文档。
 
 ## 专题文档
 

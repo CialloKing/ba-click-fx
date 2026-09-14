@@ -222,55 +222,21 @@ fx.destroy();
 
 ## API Reference
 
-This is a quick reference; complete signatures, return values, and runtime rules are in [the API reference](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md).
+Use this table for common operations. The API reference contains the complete [constructor options and defaults](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#constructor) and [method signatures and return values](https://github.com/CialloKing/ba-click-fx/blob/main/docs/api-reference.en.md#instance-methods).
 
-### Constructor
-
-These are library defaults; the recommended web integration explicitly overrides the relevant options.
-
-| Option | Default | Description |
-|---|---|---|
-| `target` | Fullscreen overlay | A positioned container, existing Canvas, or OffscreenCanvas |
-| `scale` / `opacity` | `1` / `1` | Size multiplier / opacity |
-| `themeColor` | `#4ca7ff` | Six-digit hexadecimal colour |
-| `themeColorMode` | `relative-oklch` | Full colour mapping; `hue-only` keeps the legacy hue shift |
-| `clickEnabled` / `trailEnabled` | `true` / `true` | Independent effect switches |
-| `trailAlways` | `false` | Set `true` for a trail without holding a button |
-| `effectBackend` / `bloomBackend` | `webgl2` / `webgl2` | GPU failure falls back to Native Glow; Software is opt-in |
-| `outputCompositing` | `scene` | Ordinary unknown-background pages should choose `browser-overlay` |
-| `hostCompositing` | `source-over` | Use `screen` with the recommended web overlay |
-| `hostCompositingSurface` | `dom-backdrop` | Use `transparent-window` for a transparent desktop window |
-| `maxDpr` | `1` | Maximum device pixel ratio; higher values cost more rendering work |
-| `touchAction` | `auto` | Preserve native gestures by default |
-
-### Instance Methods
-
-| Method | Description |
+| API | Purpose |
 |---|---|
-| `resize(width?, height?, dpr?)` | Explicitly synchronize Canvas CSS size and DPR, primarily for Worker / OffscreenCanvas hosts |
-| `boom(x?, y?)` | Trigger one click effect; omitted coordinates default to the canvas centre, without creating trail state |
-| `pointerDown(input)` | Start one click-and-trail lifecycle |
-| `pointerMove(input)` | Append a trail sample for the current logical pointer |
-| `pointerUp(pointerId?)` | End the pointer normally and let its trail decay |
-| `pointerCancel(pointerId?)` | Force-cancel the pointer and remove its current trail immediately |
-| `setPaused(paused, options?)` | Pause or resume input and animation scheduling, optionally clearing on pause |
-| `setInputSamplingRate(rateHz)` | Set the move-input sampling-rate limit; accepts `0` or `1..1000` and returns `true` on success |
-| `setCompositingReference(source, { fit: 'cover' })` | Share a known raster compositing reference across rendering backends; pass `null` to clear it and enter the unknown-background path |
-| `clear()` | Remove all visual objects |
-| `clearTrail()` | Clear trail points and trail shards; preserve click effects and click shards |
-| `destroy()` | Destroy the instance and its listeners; remove only library-created canvases |
-| `updateConfig({...})` | Update runtime configuration and return a configuration snapshot; `target` and `inputFilter` are constructor-only |
-| `setThemeColor('#4ca7ff')` | Update the current instance's theme colour; invalid input restores the default game blue |
-| `setThemeColorMode(mode)` | Switch the theme-colour mapping mode; accepts `hue-only` or `relative-oklch` and returns `true` on success |
-| `setTriangleRoundness(value)` | Set the triangle-shard roundness ratio; equivalent to `setFxParam('shards.roundness', value)` |
-| `setFxParam('rings.hdrIntensity', 5.992157)` | Modify one dot-path; returns `true` on success and `false` when rejected |
-| `setFxParams(patch, options?)` | Validate and batch-apply a dot-path patch through the public Schema, returning per-entry results |
-| `getFxConfig()` | Deep copy of current FX configuration |
-| `resetFxConfig()` | Reset all FX parameters to the Unity baseline |
-| `getConfig()` | Current config; besides Full Effect and Bloom resolution, it reports the effective WebGPU output and host-compositing state |
-| `getEffectiveHostCompositing()` | Return the effective host compositing mode |
+| `new BAClickFX(options?)` | Create an instance; omitting `target` creates a fullscreen overlay |
+| `updateConfig(patch)` | Update base options and return a snapshot; `target` and `inputFilter` are constructor-only |
+| `setThemeColor(color)` | Set a six-digit hexadecimal theme colour; invalid input restores the default game blue |
+| `setFxParam(path, value)` | Adjust one FX parameter; return `true` on success or `false` when rejected |
+| `boom(x?, y?)` | Trigger one click using canvas-local CSS pixels; omitted coordinates default to the centre |
+| `setPaused(paused, options?)` | Pause or resume; `{ clear: true }` also clears on pause |
+| `clear()` / `clearTrail()` | Clear all effects / only trails and trail shards, without pausing |
+| `getConfig()` | Read current configuration, resolved backends, and host-compositing state |
+| `destroy()` | Release resources and listeners on unmount, removing only library-created canvases |
 
-Backend state may be `pending` during lazy probing. Read `resolvedEffectBackend` / `resolvedBloomBackend` from `getConfig()` for the actual backend, and use the exported backend-change events to follow fallback and recovery.
+Backend state may be `pending` during lazy probing; read `resolvedEffectBackend` / `resolvedBloomBackend` from `getConfig()` for the actual result. See the detailed guides below for manual input, batch parameter updates, configuration resets, and state-change events.
 
 ## Detailed Documentation
 
