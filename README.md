@@ -56,6 +56,8 @@
 
 ## 使用方式
 
+以下三种方式任选其一，示例已包含普通网页推荐的覆盖层配置。点击页面或按住指针拖动即可看到效果；无需按下的拖尾见[常见用法](#拖尾主题色和开关)。
+
 ### npm
 
 ```bash
@@ -64,21 +66,33 @@ npm install ba-click-fx
 
 ```js
 import { BAClickFX } from 'ba-click-fx';
-const fx = new BAClickFX();
+
+const fx = new BAClickFX(
+{
+  outputCompositing: 'browser-overlay',
+  hostCompositing: 'screen',
+  hostCompositingSurface: 'dom-backdrop',
+});
 ```
 
-普通未知背景网页请接着应用[推荐配置](#网页集成建议未知背景输出合成)：显式设置 `browser-overlay + screen + dom-backdrop`。
+将代码放入 Vite 等构建工具的客户端入口；组件框架中在挂载后创建实例，卸载时调用 `fx.destroy()`。
 
 ### CDN
 
 ```html
 <script type="module">
   import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.3/dist/ba-click-fx.js';
-  const fx = new BAClickFX();
+
+  const fx = new BAClickFX(
+  {
+    outputCompositing: 'browser-overlay',
+    hostCompositing: 'screen',
+    hostCompositingSurface: 'dom-backdrop',
+  });
 </script>
 ```
 
-普通网页使用 CDN 时，也请应用下方的[推荐配置](#网页集成建议未知背景输出合成)。
+将这段代码放在页面的 `</body>` 前。
 
 ### 直接下载
 
@@ -99,11 +113,18 @@ const fx = new BAClickFX();
 <style>#fx-host { position: relative; min-height: 240px; }</style>
 <script type="module">
   import { BAClickFX } from './ba-click-fx.js';
-  const fx = new BAClickFX({ target: '#fx-host' });
+
+  const fx = new BAClickFX(
+  {
+    target: '#fx-host',
+    outputCompositing: 'browser-overlay',
+    hostCompositing: 'screen',
+    hostCompositingSurface: 'dom-backdrop',
+  });
 </script>
 ```
 
-普通网页容器同样建议应用[推荐配置](#网页集成建议未知背景输出合成)；上面仅展示最小初始化。
+将 `ba-click-fx.js` 放在页面同目录，在容器内点击或拖动即可预览。
 
 省略 `target` 会创建全屏覆盖层；普通网页容器应使用定位元素。已有 `HTMLCanvasElement` 适合需要自行管理单张 Canvas 的宿主，但会关闭多层 DOM 合成并使完整 GPU/Bloom 路径安全降级。
 
@@ -123,7 +144,7 @@ const fx = new BAClickFX();
 
 普通网页建议使用 `browser-overlay + screen + dom-backdrop`。CSS 多层背景、滚动内容、动画、视频和跨域资源，使宿主通常无法逐帧提供与特效下方内容逐像素匹配的不透明背景参考；库也不会自动读取页面背景。
 
-在上方任一初始化示例之后、同一模块内执行以下代码。它直接更新已有的 `fx`，保留原来的挂载目标与导入路径。库默认配置仍是 `scene + source-over`，推荐配置需要显式设置：
+上方初始化示例已包含推荐配置。库默认配置仍是 `scene + source-over`；只有需要将已有实例切换到推荐配置时，才执行以下代码：
 
 ```js
 fx.updateConfig(

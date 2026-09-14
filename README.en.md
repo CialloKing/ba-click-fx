@@ -56,6 +56,8 @@ The desktop edition does not reuse this project's JavaScript / WebGL / WebGPU ru
 
 ## Installation
 
+Choose one of the three setups below. Each example includes the recommended overlay configuration for ordinary pages. Click the page or drag while holding a pointer to see the effect; see [common usage](#trails-colours-and-switches) for trails without pressing.
+
 ### npm
 
 ```bash
@@ -64,21 +66,33 @@ npm install ba-click-fx
 
 ```js
 import { BAClickFX } from 'ba-click-fx';
-const fx = new BAClickFX();
+
+const fx = new BAClickFX(
+{
+  outputCompositing: 'browser-overlay',
+  hostCompositing: 'screen',
+  hostCompositingSurface: 'dom-backdrop',
+});
 ```
 
-For ordinary unknown-background pages, also apply the [recommended configuration](#recommended-web-integration-unknown-background-compositing): explicitly set `browser-overlay + screen + dom-backdrop`.
+Place this code in the client entry of a build tool such as Vite. In a component framework, create the instance after mounting and call `fx.destroy()` on unmount.
 
 ### CDN
 
 ```html
 <script type="module">
   import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.3/dist/ba-click-fx.js';
-  const fx = new BAClickFX();
+
+  const fx = new BAClickFX(
+  {
+    outputCompositing: 'browser-overlay',
+    hostCompositing: 'screen',
+    hostCompositingSurface: 'dom-backdrop',
+  });
 </script>
 ```
 
-When using the CDN on an ordinary page, also apply the [recommended configuration](#recommended-web-integration-unknown-background-compositing) below.
+Place this snippet just before the page's closing `</body>` tag.
 
 ### Direct Download
 
@@ -99,11 +113,18 @@ The package and CDN builds are ESM-only. The browser JavaScript example below us
 <style>#fx-host { position: relative; min-height: 240px; }</style>
 <script type="module">
   import { BAClickFX } from './ba-click-fx.js';
-  const fx = new BAClickFX({ target: '#fx-host' });
+
+  const fx = new BAClickFX(
+  {
+    target: '#fx-host',
+    outputCompositing: 'browser-overlay',
+    hostCompositing: 'screen',
+    hostCompositingSurface: 'dom-backdrop',
+  });
 </script>
 ```
 
-Ordinary page containers should also use the [recommended configuration](#recommended-web-integration-unknown-background-compositing); the example above shows minimal initialisation.
+Place `ba-click-fx.js` beside the page, then click or drag inside the container to preview the effect.
 
 Omitting `target` creates a full-screen overlay. A normal web container should establish a positioning context. An existing `HTMLCanvasElement` is intended for hosts that manage one Canvas themselves, but it disables multi-layer DOM compositing and safely downgrades the complete GPU/Bloom path.
 
@@ -123,7 +144,7 @@ Source: [ba-click-fx-extension](https://github.com/CialloKing/ba-click-fx-extens
 
 For ordinary pages, use `browser-overlay + screen + dom-backdrop`. Layered CSS backgrounds, scrolling content, animation, video, and cross-origin resources usually prevent the host from supplying an opaque reference that matches the pixels beneath the effect on every frame. The library does not automatically read the page background.
 
-Run the following code in the same module after any initialisation example above. It updates the existing `fx`, preserving its target and import path. Library defaults remain `scene + source-over`; the recommended configuration must be set explicitly:
+The initialisation examples above already include the recommended configuration. Library defaults remain `scene + source-over`; use the following code only when switching an existing instance to the recommended configuration:
 
 ```js
 fx.updateConfig(
