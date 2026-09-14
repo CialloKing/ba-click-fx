@@ -343,10 +343,6 @@ fx.destroy();
 
 不能同时保证。需要严格 Unity 加色时，使用 `scene` 并提供逐像素匹配的已知背景参考；未知背景网页使用推荐覆盖层配置。原理见[输出与宿主合成](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)。
 
-#### 如何恢复接近 v1.2.15 的透明覆盖层观感？
-
-透明覆盖层可显式选择 `overlayAlphaPolicy: 'visual-max'`；颜色补偿独立控制。详见[透明输出策略](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)。
-
 #### 透明桌面宿主应该使用什么配置？
 
 设置 `outputCompositing: 'browser-overlay'`、`hostCompositingSurface: 'transparent-window'` 和 `hostCompositing: 'source-over'`。CSS 混合不能跨越操作系统窗口边界。见[透明窗口配置与能力边界](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.md#输出与宿主合成)。

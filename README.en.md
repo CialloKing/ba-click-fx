@@ -343,10 +343,6 @@ No. For exact known-Scene evaluation, provide a matching background reference; i
 
 These guarantees cannot all hold simultaneously. For strict Unity additive results, use `scene` with a pixel-matched known background reference; use the recommended overlay configuration for unknown-background pages. See [output and host compositing](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#output-and-host-compositing) for the reasoning.
 
-#### How can I restore the transparent-overlay appearance of v1.2.15?
-
-For transparent overlays, select `overlayAlphaPolicy: 'visual-max'`; colour compensation is independent. See [overlay output policies](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#output-and-host-compositing).
-
 #### Which configuration should a transparent desktop host use?
 
 Set `outputCompositing: 'browser-overlay'`, `hostCompositingSurface: 'transparent-window'`, and `hostCompositing: 'source-over'`. CSS blending cannot cross an operating-system window boundary. See [transparent-window configuration and boundaries](https://github.com/CialloKing/ba-click-fx/blob/main/docs/rendering-guide.en.md#output-and-host-compositing).
