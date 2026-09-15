@@ -1,0 +1,56 @@
+name: Update npm downloads
+
+on:
+  workflow_dispatch:
+  schedule:
+    # UTC 03:23，即北京时间 11:23，避开整点高峰。
+    - cron: '23 3 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: npm-downloads
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.19.0'
+
+      - name: Test download counter
+        run: npm run test:npm-downloads
+
+      - name: Update npm download count
+        run: npm run update:npm-downloads
+
+      - name: Commit updated badge
+        shell: bash
+        run: |
+          # 先暂存，首次创建的未跟踪文件也会参与差异判断。
+          git add -- badges/npm-downloads.json
+
+          if git diff --cached --quiet
+          then
+            echo "No download badge change."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "更新 npm 历史累计下载量徽章"
+
+          # 保留统计期间进入 main 的其他提交；冲突时失败，不强推。
+          git pull --rebase origin main
+          git push origin HEAD:main

@@ -16,6 +16,7 @@ jobs:
           node-version: '24.19.0'
           cache: 'npm'
       - run: npm ci
+      - run: npm run test:npm-downloads
       - run: npm run check
 
   browser-pixels:

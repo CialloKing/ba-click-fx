@@ -4,7 +4,7 @@
 [![Build](https://github.com/CialloKing/ba-click-fx/actions/workflows/build.yml/badge.svg)](https://github.com/CialloKing/ba-click-fx/actions)
 [![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx.svg)](https://github.com/CialloKing/ba-click-fx/stargazers)
 [![npm version](https://img.shields.io/npm/v/ba-click-fx.svg)](https://www.npmjs.com/package/ba-click-fx)
-[![npm total downloads](https://img.shields.io/npm/dt/ba-click-fx.svg?label=total%20downloads)](https://www.npmjs.com/package/ba-click-fx)
+[![npm lifetime downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FCialloKing%2Fba-click-fx%2Fmain%2Fbadges%2Fnpm-downloads.json&logo=npm)](https://www.npmjs.com/package/ba-click-fx)
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-安装-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/clphaaacolnifhgmeblfeofapccgoami) [![Edge Add-on](https://img.shields.io/badge/Edge_Add--on-安装-0078D7?logo=microsoftedge&logoColor=white)](https://microsoftedge.microsoft.com/addons/detail/ba-click-fx/gocfepocmghimclocjafcihcplnpjpkc) [![Firefox Add-on](https://img.shields.io/badge/Firefox_Add--on-安装-FF7139?logo=firefoxbrowser&logoColor=white)](https://addons.mozilla.org/zh-CN/firefox/addon/ba-click-fx/)
 
 > 📖 [English version](./README.en.md)
@@ -314,6 +314,8 @@ npm run check
 `check` 执行构建、测试、同步校验和打包安装检查。核心像素与 Worker 浏览器验证可单独运行 `npm run test:browser`。
 
 浏览器检查需要 Chrome / Edge，可用 `BACLICKFX_CHROMIUM_PATH` 指定路径。
+
+下载量徽章每天按自然年重新累计首次发布至 UTC 昨日的 npm 下载量；手动更新与统计规则见[下载量统计说明](https://github.com/CialloKing/ba-click-fx/blob/main/badges/README.md)。
 
 ## 和其他项目的区别
 
