@@ -84,6 +84,8 @@
     "test:webgpu": "node test/webgpu-device.js && node test/webgpu-effect-state.js && node test/webgpu-diagnostics.js && node test/webgpu-shaders.js",
     "test:config": "node test/config-schema.js && node test/fx-param-patch.js && node test/range-snap.js",
     "test:star-history": "node test/star-history.js",
+    "test:npm-downloads": "node --test test/npm-downloads.js",
+    "update:npm-downloads": "node scripts/update-npm-downloads.mjs",
     "test:browser:core": "node test/browser/core.mjs",
     "test:browser:lifecycle": "node test/browser/lifecycle.mjs",
     "test:browser:demo": "node test/browser/demo.mjs",
