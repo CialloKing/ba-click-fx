@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 
 const PACKAGE_NAME = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).name;
 const BADGE_PATH = fileURLToPath(new URL('../badges/npm-downloads.json', import.meta.url));
@@ -121,7 +122,11 @@ export async function updateNpmDownloads(
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))
 {
-  updateNpmDownloads().catch((error) =>
+  // 允许工作流把生成数据写入独立检出的统计分支。
+  const { values } = parseArgs({ options: { output: { type: 'string', default: BADGE_PATH } } });
+
+  verify(values.output.length > 0, 'output path is empty');
+  updateNpmDownloads({ outputPath: resolve(values.output) }).catch((error) =>
   {
     console.error(error);
     process.exitCode = 1;
