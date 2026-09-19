@@ -6,6 +6,9 @@ dist
 dist-ssr
 test-results
 
+# Local download badge preview; published data lives on stats.
+/badges/npm-downloads.json
+
 # Environment
 .env
 .env.*
