@@ -296,6 +296,8 @@ Set `outputCompositing: 'browser-overlay'`, `hostCompositingSurface: 'transparen
 
 ## Development
 
+This project is primarily generated and iterated with AI (**no hand-written code whatsoever**), with runtime testing, parameter tuning, and visual calibration.
+
 Source development requires Node.js `>=24.0.0`; CI uses `24.19.0`. Browsers consuming built ESM do not require Node.js.
 
 ```bash
