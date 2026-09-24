@@ -137,6 +137,12 @@ if (
 {
   throw new Error('config subpath exports are incomplete');
 }
+
+if ('BAClickFX' in config || 'applyFxParamPatch' in config)
+{
+  throw new Error('config subpath must not expose the runtime engine');
+}
+console.log(JSON.stringify(Object.keys(config)));
 `;
 }
 
@@ -202,11 +208,11 @@ try
       { cwd: consumerDirectory, stdio: 'pipe' },
     );
   }
-  execFileSync(
+  const configValueExports = JSON.parse(execFileSync(
     process.execPath,
     ['--input-type=module', '--eval', configContractSource()],
-    { cwd: consumerDirectory, stdio: 'pipe' },
-  );
+    { cwd: consumerDirectory, encoding: 'utf8', stdio: 'pipe' },
+  ));
 
   const installedRoot = join(consumerDirectory, 'node_modules', 'ba-click-fx');
   verify(
@@ -240,7 +246,9 @@ try
 } from 'ba-click-fx';
 import {
   normalizeThemeColorMode,
+  type BAClickFX as ConfigInstance,
 } from 'ba-click-fx/config';
+import * as configEntry from 'ba-click-fx/config';
 import {
   BAClickFX as WorkerBAClickFX,
 } from 'ba-click-fx/worker';
@@ -253,6 +261,7 @@ const options: BAClickFXOptions =
   bloomBackend: 'webgl2',
 };
 const instance = new BAClickFX(options);
+const configInstance: ConfigInstance = instance;
 const workerInstance: WorkerBAClickFX = instance;
 const defaultInstance: BAClickFXDefault = new BAClickFXDefault();
 const config: BAClickFXConfig = instance.getConfig();
@@ -264,6 +273,13 @@ const color: string = DEFAULT_THEME_COLOR;
 const defaultConfigColor: string = CONFIG.themeColor;
 
 void [workerInstance, defaultInstance, config, defaults, themeMode, normalizedMode, version, color, defaultConfigColor];
+// 实际运行时导出必须全部可作为值使用，避免只覆盖一个辅助函数。
+void [${configValueExports.map(name => `configEntry.${name}`).join(', ')}];
+void configInstance;
+// @ts-expect-error 配置入口只复用构造器的类型，不提供构造器值。
+void configEntry.BAClickFX;
+// @ts-expect-error 独立补丁 API 仅由主入口和 Worker 提供。
+void configEntry.applyFxParamPatch;
 instance.destroy();
 `;
   const typeScriptConfig =
