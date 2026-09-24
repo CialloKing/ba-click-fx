@@ -6847,22 +6847,42 @@ export class BAClickFX
       resolvePositiveFinite(overrideDpr, resolvePositiveFinite(defaultDpr, 1)),
       this.config.maxDpr,
     );
+    const pixelWidth = Math.round(width * dpr);
+    const pixelHeight = Math.round(height * dpr);
+    const layers = [
+      [this.canvas, this.context],
+      [this.contrastCanvas, this.contrastContext],
+    ];
+
+    if (
+      this.width === width && this.height === height && this.dpr === dpr &&
+      layers.every(([canvas]) => !canvas ||
+        (canvas.width === pixelWidth && canvas.height === pixelHeight))
+    )
+    {
+      return;
+    }
 
     this.width = width;
     this.height = height;
     this.dpr = dpr;
-    this.canvas.width = Math.round(width * dpr);
-    this.canvas.height = Math.round(height * dpr);
-    if (this.context)
+    for (const [canvas, context] of layers)
     {
-      this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    if (this.contrastCanvas && this.contrastContext)
-    {
-      this.contrastCanvas.width = this.canvas.width;
-      this.contrastCanvas.height = this.canvas.height;
-      this.contrastContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (!canvas)
+      {
+        continue;
+      }
+      // 即使赋入相同值也会清空 Canvas；暂停时没有下一帧可以恢复像素。
+      if (canvas.width !== pixelWidth)
+      {
+        canvas.width = pixelWidth;
+      }
+      if (canvas.height !== pixelHeight)
+      {
+        canvas.height = pixelHeight;
+      }
+      // DPR 改变后物理尺寸可能仍相同，坐标变换必须独立更新。
+      context?.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     // WebGL RenderTarget 可能很大，只在真正进入 WebGL 渲染帧时调整，

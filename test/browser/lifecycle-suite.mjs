@@ -84,6 +84,19 @@ async function runLifecycleMatrix(browserInstance, baseUrl)
     trailTextureResourceLifecycle,
   );
   state.metrics.trailTextureResourceLifecycle = trailTextureResourceLifecycle;
+  state.metrics.pausedResize = {};
+  for (const mode of ['native', 'software-bloom'])
+  {
+    state.currentLabel = `${mode}__paused-resize`;
+    const result = await trailResourceSession.page.evaluate(
+      value => window.browserPixelSuite.runPausedResizeContract(value), mode,
+    );
+    assert(
+      result.visible && result.unchanged && result.paused && result.pendingFrames === 0,
+      '同尺寸 resize 必须保留暂停像素且不重新申请动画帧', result,
+    );
+    state.metrics.pausedResize[mode] = result;
+  }
   assert(
     trailResourceSession.pageErrors.length === 0 &&
       trailResourceSession.consoleErrors.length === 0,

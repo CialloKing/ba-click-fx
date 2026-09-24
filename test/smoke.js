@@ -724,6 +724,30 @@ assert(
     scrollbarGutterEffect.dpr === CONFIG.maxDpr,
   '公开 resize 对非法尺寸与 DPR 回退到实测环境值',
 );
+flushFrames(dom, performance.now(), 1);
+scrollbarGutterEffect.resize();
+assert(dom.frames.size === 0, '相同尺寸 resize 不重新申请空闲帧');
+scrollbarGutterEffect.resize(1600.1, 900, 1);
+assert(
+  scrollbarGutterEffect.width === 1600.1 &&
+    scrollbarGutterEffect.canvas.width === 1600 && dom.frames.size === 1,
+  '取整物理尺寸不变时仍更新逻辑宽度并请求重绘',
+);
+flushFrames(dom, performance.now(), 1);
+scrollbarGutterEffect.resize(1600, 900, 0.9999);
+assert(
+  scrollbarGutterEffect.canvas.width === 1600 &&
+    scrollbarGutterEffect.canvas.height === 900 &&
+    scrollbarGutterEffect.context.currentTransform[0] === 0.9999 &&
+    dom.frames.size === 1,
+  '取整物理尺寸不变时仍更新 DPR 坐标变换',
+);
+scrollbarGutterEffect.contrastCanvas.width = 1;
+scrollbarGutterEffect.resize(1600, 900, 0.9999);
+assert(
+  scrollbarGutterEffect.contrastCanvas.width === 1600,
+  '逻辑尺寸未变时仍修复对比画布的缓冲尺寸',
+);
 scrollbarGutterEffect.destroy();
 
 dom.setCanvasBounds({ width: 0, height: 0 });

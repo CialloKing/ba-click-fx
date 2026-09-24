@@ -1024,6 +1024,28 @@ async function runFullscreenScrollbarGutterContract()
   }
 }
 
+async function runPausedResizeContract(mode)
+{
+  const { effect } = await prepareEffect(
+    { mode, opacity: 1, outputCompositing: 'browser-overlay', includeTrail: false },
+  );
+  effect.setPaused(true);
+  const readPixels = () => new Uint8Array(effect.context.getImageData(
+    0, 0, effect.canvas.width, effect.canvas.height,
+  ).data);
+  const before = readPixels();
+  effect.resize();
+  window.dispatchEvent(new Event('resize'));
+  const after = readPixels();
+  return {
+    visible: before.some(value => value > 0),
+    unchanged: before.length === after.length &&
+      before.every((value, index) => value === after[index]),
+    paused: effect.paused,
+    pendingFrames: animationFrames.size,
+  };
+}
+
 async function runCase(specification)
 {
   const fixture = await prepareEffect(specification);
@@ -2925,6 +2947,7 @@ window.browserPixelSuite = Object.freeze(
     modeNames: Object.keys(MODE_CONFIGS),
     beginTransparentContractTransitions,
     runCase,
+    runPausedResizeContract,
     runCompositingReferenceReset,
     runContextLifecycle,
     runThemeColorContract,
