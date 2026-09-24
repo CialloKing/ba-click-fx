@@ -6863,6 +6863,7 @@ export class BAClickFX
       return;
     }
 
+    this._releaseSoftwareBloomFrame();
     this.width = width;
     this.height = height;
     this.dpr = dpr;
@@ -7817,6 +7818,12 @@ export class BAClickFX
       !useCanvasScene &&
       this._hasCachedSoftwareBloomFrame(scale);
 
+    if (!useSoftwareBloom && !reuseCachedSoftwareBloom)
+    {
+      // 故障同一时刻仍可复用完整输出；输入推进或 GPU 接管后归还快照。
+      this._releaseSoftwareBloomFrame();
+    }
+
     if (reuseCachedSoftwareBloom)
     {
       // Software 回读刚失败但输入尚未推进时，复用上一张完整 Bloom。
@@ -8071,6 +8078,7 @@ export class BAClickFX
     else
     {
       this.lastFrameTime = null;
+      this._releaseSoftwareBloomFrame();
     }
   }
 
@@ -9267,6 +9275,7 @@ export class BAClickFX
 
   _releaseBackendFrameResources()
   {
+    this._releaseSoftwareBloomFrame();
     // 配置事务已经选择了新的渲染链；先撤下所有旧输出，再释放仅与
     // 画布尺寸绑定的目标。下一帧只会为实际接管输出的后端重新分配。
     this._setWebGPUEffectVisible(false);
@@ -9283,6 +9292,7 @@ export class BAClickFX
 
   _releaseBloomBackendFrameResources()
   {
+    this._releaseSoftwareBloomFrame();
     // 完整 GPU Scene 已接管时，Bloom 配置只是回退策略，不能
     // 为它释放当前 Effect 目标；这里只清理 Canvas 回退链的帧资源。
     this._setWebGLBloomVisible(false);
@@ -10183,6 +10193,19 @@ export class BAClickFX
     ].join(':');
   }
 
+  _releaseSoftwareBloomFrame()
+  {
+    const canvas = this.lastSoftwareBloomFrame?.canvas;
+
+    this.lastSoftwareBloomFrame = null;
+    if (canvas && canvas !== this.canvas)
+    {
+      // 解除引用之外也归还像素缓冲，宿主保留已销毁实例时不继续占用整屏内存。
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  }
+
   _cacheSoftwareBloomFrame(scale)
   {
     if (
@@ -10202,7 +10225,7 @@ export class BAClickFX
 
     if (!context)
     {
-      this.lastSoftwareBloomFrame = null;
+      this._releaseSoftwareBloomFrame();
       return;
     }
 
@@ -10235,7 +10258,7 @@ export class BAClickFX
     }
     catch
     {
-      this.lastSoftwareBloomFrame = null;
+      this._releaseSoftwareBloomFrame();
       return;
     }
 
@@ -11980,7 +12003,7 @@ export class BAClickFX
     if (transparentContractChanged)
     {
       // 故障回退快照携带最终 Alpha/颜色合同，切换后不得复用旧模式像素。
-      this.lastSoftwareBloomFrame = null;
+      this._releaseSoftwareBloomFrame();
     }
 
     if (Number.isFinite(overrides.maxDpr))
@@ -12106,6 +12129,7 @@ export class BAClickFX
   /** 立即清除所有视觉对象。 */
   clear()
   {
+    this._releaseSoftwareBloomFrame();
     this.waves.length = 0;
     this.shards.length = 0;
     this.trailStrokes.length = 0;
@@ -12287,7 +12311,7 @@ export class BAClickFX
 
     this.compositingReferenceSource = source;
     this.compositingReferenceFit = fit;
-    this.lastSoftwareBloomFrame = null;
+    this._releaseSoftwareBloomFrame();
     // 只有当前输出链真正消费参考时才撤销宿主 Add；Software/Native/外部
     // Canvas 仍按未知背景传输完整 Add 载荷。
     this._requestCompositingMountRefresh();
@@ -12432,6 +12456,13 @@ export class BAClickFX
       this.contrastCanvas?.remove();
       this.canvas.remove();
       this.overlayRoot?.remove();
+      this.canvas.width = 0;
+      this.canvas.height = 0;
+      if (this.contrastCanvas)
+      {
+        this.contrastCanvas.width = 0;
+        this.contrastCanvas.height = 0;
+      }
     }
 
     this.webglBloomCanvas = null;

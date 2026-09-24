@@ -5334,6 +5334,51 @@ assert(
 );
 softwareFailureEffect.destroy();
 
+console.log('\nSoftware Bloom 快照释放');
+dom.setCanvasBounds({ width: 320, height: 240 });
+for (const [label, invalidate] of [
+  ['清屏', effect => effect.clear()],
+  ['尺寸变化', effect => effect.resize(321, 240)],
+  ['合成配置变化', effect => effect.updateConfig({ overlayAlphaLimit: 0.7 })],
+  ['合成参考变化', effect => effect.setCompositingReference(null)],
+  ['离开软件后端', effect => effect.updateConfig({ bloomBackend: 'native' })],
+  ['自然结束', () => flushFrames(dom, performance.now() + 2000, 1)],
+  ['销毁', effect => effect.destroy()],
+])
+{
+  const effect = new BAClickFX(
+    { effectBackend: 'canvas2d', bloomBackend: 'software', outputCompositing: 'browser-overlay' },
+  );
+  effect.boom(160, 120);
+  flushFrames(dom, performance.now(), 1);
+  const snapshot = effect.lastSoftwareBloomFrame?.canvas;
+  assert(snapshot?.width === 320, `${label}前已生成真实软件快照`);
+  effect.resize();
+  assert(effect.lastSoftwareBloomFrame?.canvas === snapshot, '相同尺寸保留有效快照');
+  invalidate(effect);
+  assert(
+    effect.lastSoftwareBloomFrame === null && snapshot.width === 0 && snapshot.height === 0,
+    `${label}解除快照引用并归还缓冲`,
+  );
+  effect.destroy();
+  effect.destroy();
+  assert(
+    effect.canvas.width === 0 && effect.canvas.height === 0 &&
+      effect.contrastCanvas.width === 0 && effect.contrastCanvas.height === 0,
+    '重复销毁安全且归还自有主画布和对比画布缓冲',
+  );
+}
+const retainedHostCanvas = new CanvasMock(null, { left: 0, top: 0, width: 320, height: 240 });
+const externalCanvasEffect = new BAClickFX(
+  { target: retainedHostCanvas, effectBackend: 'canvas2d', bloomBackend: 'native' },
+);
+externalCanvasEffect.destroy();
+assert(
+  retainedHostCanvas.width === 320 && retainedHostCanvas.height === 240 && !retainedHostCanvas.removed,
+  '销毁外部 Canvas 实例保留宿主画布尺寸和所有权',
+);
+dom.setCanvasBounds({ width: 1920, height: 1080 });
+
 console.log('\nSoftware Bloom 全视口工作区');
 const regionEffect = new BAClickFX({ bloomBackend: 'software' });
 

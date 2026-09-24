@@ -95,6 +95,11 @@ async function runLifecycleMatrix(browserInstance, baseUrl)
       result.visible && result.unchanged && result.paused && result.pendingFrames === 0,
       '同尺寸 resize 必须保留暂停像素且不重新申请动画帧', result,
     );
+    assert(
+      result.snapshotReleased && result.ownedBuffersReleased &&
+        (mode !== 'software-bloom' || result.hadSnapshot),
+      '重复销毁必须归还真实 Canvas 和软件快照缓冲', result,
+    );
     state.metrics.pausedResize[mode] = result;
   }
   assert(

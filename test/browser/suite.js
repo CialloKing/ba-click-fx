@@ -1037,12 +1037,23 @@ async function runPausedResizeContract(mode)
   effect.resize();
   window.dispatchEvent(new Event('resize'));
   const after = readPixels();
-  return {
+  const result = {
     visible: before.some(value => value > 0),
     unchanged: before.length === after.length &&
       before.every((value, index) => value === after[index]),
     paused: effect.paused,
     pendingFrames: animationFrames.size,
+  };
+  const snapshot = effect.lastSoftwareBloomFrame?.canvas;
+  effect.destroy();
+  effect.destroy();
+  return {
+    ...result,
+    hadSnapshot: !!snapshot,
+    snapshotReleased: effect.lastSoftwareBloomFrame === null &&
+      (!snapshot || (snapshot.width === 0 && snapshot.height === 0)),
+    ownedBuffersReleased: effect.canvas.width === 0 && effect.canvas.height === 0 &&
+      effect.contrastCanvas.width === 0 && effect.contrastCanvas.height === 0,
   };
 }
 
