@@ -3413,6 +3413,69 @@ assert(
 coalescedEffect.pointerCancel(70);
 coalescedEffect.destroy();
 
+console.log('\n输入布局读取预算');
+const inputLayoutEffect = new BAClickFX(
+  { effectBackend: 'canvas2d', bloomBackend: 'native', clickEnabled: false },
+);
+let inputLayoutReads = 0;
+const originalInputRect = inputLayoutEffect.canvas.getBoundingClientRect.bind(
+  inputLayoutEffect.canvas,
+);
+inputLayoutEffect.canvas.getBoundingClientRect = () =>
+{
+  inputLayoutReads++;
+  return originalInputRect();
+};
+const layoutInput = { pointerId: 71, pointerType: 'mouse', clientX: 100, clientY: 100 };
+for (let index = 0; index < 1000; index++)
+{
+  dom.windowMock.dispatch('pointermove', layoutInput);
+}
+assert(inputLayoutReads === 0, '1000 次无效空闲移动不读取布局');
+inputLayoutEffect.pointerDown({ x: 100, y: 100, pointerId: 71 });
+const layoutSampleStart = performance.now();
+dom.setCurrentTime(layoutSampleStart + 1000);
+dom.windowMock.dispatch('pointermove',
+  {
+    ...layoutInput,
+    getCoalescedEvents: () => Array.from({ length: 100 }, (_, index) =>
+      ({ ...layoutInput, clientX: 100 + index * 6, timeStamp: layoutSampleStart + index * 3 })),
+  },
+);
+assert(
+  inputLayoutReads === 1 && inputLayoutEffect.lastPointerPosition.x === 694,
+  '100 个有效合并样本共享一次布局测量并保留末点',
+);
+inputLayoutEffect.setInputSamplingRate(60);
+inputLayoutEffect.pointerMove({ x: 700, y: 100, pointerId: 71 });
+const acceptedLayoutSampleTime = inputLayoutEffect.lastInputSampleSourceTime;
+inputLayoutReads = 0;
+dom.windowMock.dispatch('pointermove', layoutInput);
+dom.windowMock.dispatch('pointermove', { ...layoutInput, pointerId: 72 });
+dom.windowMock.dispatch('pointermove', { ...layoutInput, clientX: Number.NaN });
+assert(
+  inputLayoutReads === 0 &&
+    inputLayoutEffect.lastInputSampleSourceTime === acceptedLayoutSampleTime,
+  '限频、异指针和非法坐标不读取布局或推进采样相位',
+);
+dom.setCurrentTime(performance.now() + 20);
+dom.windowMock.dispatch('pointermove', { ...layoutInput, clientY: Number.NaN });
+dom.windowMock.dispatch('pointermove', layoutInput);
+assert(
+  inputLayoutReads === 1 && inputLayoutEffect.lastPointerPosition.x === 100 &&
+    inputLayoutEffect.lastInputSampleSourceTime === performance.now(),
+  '时间间隔到期后的非法样本不占用下一有效样本的名额',
+);
+inputLayoutEffect.setInputSamplingRate(0);
+dom.setCanvasBounds({ left: 40 });
+dom.windowMock.dispatch('pointermove', { ...layoutInput, clientX: 180 });
+assert(
+  inputLayoutReads === 2 && inputLayoutEffect.lastPointerPosition.x === 140,
+  '后续 DOM 事件重新测量布局并跟随容器移动',
+);
+dom.setCanvasBounds({ left: 0 });
+inputLayoutEffect.destroy();
+
 console.log('\n输入采样率');
 const unlimitedSamplingStart = performance.now() + 1000;
 

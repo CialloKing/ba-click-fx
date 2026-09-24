@@ -6910,10 +6910,8 @@ export class BAClickFX
     };
   }
 
-  _getPointerPosition(event)
+  _getPointerPosition(event, rect = this._getCanvasRect())
   {
-    const rect = this._getCanvasRect();
-
     return {
       x: clamp(event.clientX - rect.left, 0, this.width),
       y: clamp(event.clientY - rect.top, 0, this.height),
@@ -6946,9 +6944,9 @@ export class BAClickFX
     };
   }
 
-  _getDomPointerInput(event, fallbackEvent = event)
+  _getDomPointerInput(event, fallbackEvent = event, rect)
   {
-    const position = this._getPointerPosition(event);
+    const position = this._getPointerPosition(event, rect);
     const pointerType = event.pointerType || fallbackEvent.pointerType || 'mouse';
 
     return {
@@ -7306,7 +7304,10 @@ export class BAClickFX
 
   _handlePointerMove(event)
   {
-    if (this.destroyed || this.paused || !this.config.trailEnabled)
+    if (
+      this.destroyed || this.paused || !this.config.trailEnabled ||
+      (this.activePointerId === null && !this.config.trailAlways)
+    )
     {
       return;
     }
@@ -7326,21 +7327,42 @@ export class BAClickFX
     const events = coalesced.length > 0 ? coalesced : [event];
     const sourceNow = performance.now();
     const trailNow = this._getTrailInputTime(sourceNow);
+    let rect;
 
     for (const sample of events)
     {
+      const pointerId = sample.pointerId ?? event.pointerId ?? 1;
+      const pointerType = sample.pointerType || event.pointerType || 'mouse';
+      if (
+        !Number.isFinite(sample.clientX) || !Number.isFinite(sample.clientY) ||
+        !Number.isFinite(pointerId) ||
+        (pointerType !== 'mouse' && pointerType !== 'touch' && pointerType !== 'pen') ||
+        (this.activePointerId !== null && pointerId !== this.activePointerId)
+      )
+      {
+        continue;
+      }
       const sampleSourceTime = this._getDomInputSourceTime(
         sample.timeStamp ?? event.timeStamp,
         sourceNow,
       );
+      if (
+        this.activePointerId !== null &&
+        !this._isInputSampleDue(sampleSourceTime)
+      )
+      {
+        continue;
+      }
       const sampleTime = this._getDomTrailSampleTime(
         sampleSourceTime,
         sourceNow,
         trailNow,
       );
 
+      // 一次 DOM 事件的合并样本共享布局；跨事件重新测量以跟随滚动。
+      rect ??= this._getCanvasRect();
       this._pointerMoveAtTime(
-        this._getDomPointerInput(sample, event),
+        this._getDomPointerInput(sample, event, rect),
         sampleTime,
         sampleSourceTime,
       );
@@ -7418,30 +7440,27 @@ export class BAClickFX
     return true;
   }
 
-  _acceptInputSample(inputSourceTime)
+  _isInputSampleDue(inputSourceTime)
   {
     const rate = this.config.inputSamplingRate;
 
-    if (rate <= 0)
-    {
-      return true;
-    }
+    return rate <= 0 || !Number.isFinite(this.lastInputSampleSourceTime) ||
+      inputSourceTime - this.lastInputSampleSourceTime >= 1000 / rate;
+  }
 
-    if (!Number.isFinite(this.lastInputSampleSourceTime))
-    {
-      this.lastInputSampleSourceTime = inputSourceTime;
-      return true;
-    }
-
-    const intervalMs = 1000 / rate;
-
-    if (inputSourceTime - this.lastInputSampleSourceTime < intervalMs)
+  _acceptInputSample(inputSourceTime)
+  {
+    if (!this._isInputSampleDue(inputSourceTime))
     {
       return false;
     }
 
-    // 即使空间位移不足 minVertexDistance，也要推进独立的时间采样相位。
-    this.lastInputSampleSourceTime = inputSourceTime;
+    if (this.config.inputSamplingRate > 0)
+    {
+      // 预检查不推进时钟；只有有效指针接受后才提交时间采样相位。
+      // 即使空间位移不足 minVertexDistance，也保持现有的时间限频语义。
+      this.lastInputSampleSourceTime = inputSourceTime;
+    }
     return true;
   }
 
