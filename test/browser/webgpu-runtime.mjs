@@ -277,6 +277,9 @@ async function runDirectCase(page, specification)
       canvas,
       { preferHdr: specificationInPage.preferHdr },
     );
+    window.__BACLICKFX_WEBGPU_CASES__ ??= new Map();
+    window.__BACLICKFX_WEBGPU_CASES__.set(specificationInPage.id,
+      { renderer, canvas, specification: specificationInPage });
     const ready = await renderer.ready;
 
     if (!ready)
@@ -397,11 +400,7 @@ async function runDirectCase(page, specification)
       'uncapturederror',
       handleUncapturedError,
     );
-    window.__BACLICKFX_WEBGPU_CASES__ ??= new Map();
-    window.__BACLICKFX_WEBGPU_CASES__.set(
-      specificationInPage.id,
-      { renderer, canvas, background },
-    );
+    window.__BACLICKFX_WEBGPU_CASES__.get(specificationInPage.id).background = background;
     return {
       ready,
       referenceSet,
@@ -459,6 +458,8 @@ async function runSdrColorProbe(page, preferHdr)
     canvas.style.height = '96px';
     document.body.appendChild(canvas);
     const renderer = new WebGPUEffectRenderer(canvas, { preferHdr: preferHdrInPage });
+    window.__BACLICKFX_WEBGPU_COLOR_PROBE__ ??= new Map();
+    window.__BACLICKFX_WEBGPU_COLOR_PROBE__.set(preferHdrInPage, { renderer, canvas });
     const ready = await renderer.ready;
 
     if (!ready)
@@ -501,11 +502,6 @@ async function runSdrColorProbe(page, preferHdr)
     );
 
     await renderer.device.queue.onSubmittedWorkDone();
-    window.__BACLICKFX_WEBGPU_COLOR_PROBE__ ??= new Map();
-    window.__BACLICKFX_WEBGPU_COLOR_PROBE__.set(
-      preferHdrInPage,
-      { renderer, canvas },
-    );
     return {
       ready,
       resized,
@@ -2151,6 +2147,7 @@ async function runDemoHdrUiIntegration(page, origin)
     `UI HDR 亮度调整或持久化错误: ${adjustedDetail}`,
   );
   const effectIsolation = await runDemoHdrUiEffectIsolation(page);
+  currentStage = 'demo-hdr-ui-mode-switch-and-device-loss';
 
   await selectDemoRenderMode(page, 'full-webgl2');
   const switched = await readDemoHdrUiState(page);
@@ -2439,9 +2436,22 @@ async function main()
     {
       metrics.runtime = await page?.evaluate(() =>
       {
-        const effect = window.BAClickFXDemo;
+        const effect = window.BAClickFXDemo ??
+          window.__BACLICKFX_WEBGPU_INTEGRATION__?.effect ??
+          window.__BACLICKFX_WEBGPU_THEME_CONTRACT__?.effect;
+        const directRenderers = [
+          ...window.__BACLICKFX_WEBGPU_CASES__?.entries() ?? [],
+          ...window.__BACLICKFX_WEBGPU_COLOR_PROBE__?.entries() ?? [],
+        ].map(([id, entry]) => ({
+          id, specification: entry.specification,
+          status: entry.renderer.status,
+          diagnostics: entry.renderer.deviceManager.diagnostics,
+          outputMode: entry.renderer.deviceManager.outputMode,
+          stats: entry.renderer.stats,
+        }));
         return {
           url: location.href,
+          directRenderers,
           config: effect?.getConfig(),
           diagnostics: effect?.webgpuEffectRenderer?.deviceManager?.diagnostics,
           paused: effect?.paused,

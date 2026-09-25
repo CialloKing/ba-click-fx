@@ -159,7 +159,8 @@ try
       else
       {
         results.webgpu = { skipped: false, outputMode: gpu.deviceManager.outputMode,
-          adapter: gpu.deviceManager.adapter?.info ?? null };
+          adapter: Object.fromEntries(['vendor', 'architecture', 'device', 'description'].map(key =>
+            [key, gpu.deviceManager.adapter?.info?.[key] ?? null])) };
         for (const separateEmission of [false, true])
         {
           const settings = { ...UNITY_FX_TOUCH.bloom, outputCompositing: 'scene',
