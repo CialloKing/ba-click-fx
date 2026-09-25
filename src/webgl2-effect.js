@@ -987,6 +987,8 @@ export class WebGL2EffectRenderer
     this.ringVertexData = new Float32Array(
       INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_RING_VERTEX,
     );
+    this._ringCosine = null;
+    this._ringSine = null;
     this.triangleVertexCount = 0;
     this.triangleVertexData = new Float32Array(
       INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRIANGLE_VERTEX,
@@ -3464,8 +3466,14 @@ export class WebGL2EffectRenderer
     const segments = clamp(Math.round(segmentCount), 32, 512);
     const innerEdge = Math.max(0, radius - width * 0.5);
     const bandWidth = width / bands;
-    const cosine = new Float64Array(segments + 1);
-    const sine = new Float64Array(segments + 1);
+    if (!this._ringCosine || this._ringCosine.length < segments + 1)
+    {
+      // 工作表只随采样容量增长；逐环复用，避免每帧产生短命 TypedArray。
+      this._ringCosine = new Float64Array(segments + 1);
+      this._ringSine = new Float64Array(segments + 1);
+    }
+    const cosine = this._ringCosine;
+    const sine = this._ringSine;
     const coverageOpacity = clamp(opacity, 0, 1);
     const safeThreshold = Number.isFinite(dissolveThreshold)
       ? clamp(dissolveThreshold, 0, 1)
@@ -4282,11 +4290,18 @@ export class WebGL2EffectRenderer
     this.gl.clear(this.gl.COLOR_BUFFER_BIT);
   }
 
+  _releaseRingScratch()
+  {
+    this._ringCosine = null;
+    this._ringSine = null;
+  }
+
   destroy()
   {
     this.canvas?.removeEventListener?.('webglcontextlost', this._onContextLost);
     this.canvas?.removeEventListener?.('webglcontextrestored', this._onContextRestored);
     this._deleteResources();
+    this._releaseRingScratch();
     this.available = false;
     this.contextLost = false;
     this.vertexCount = 0;

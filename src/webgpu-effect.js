@@ -1594,6 +1594,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
 
     this._setRendererStatus('destroyed');
     this._deleteTargets();
+    this._releaseRingScratch();
 
     for (const entry of Object.values(this.vertexBuffers))
     {

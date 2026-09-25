@@ -56,7 +56,12 @@ async function verifyUnavailableCase(
     `${label} 必须在构造完成后通知一次 unavailable`,
   );
 
+  renderer.addDissolveRing(100, 100, 50, 10, 0, 8, 96, [1, 1, 1], 1, 0.5, 0, 1, 1);
+  assert.ok(renderer._ringCosine instanceof Float64Array, 'WebGPU 复用父类圆环工作缓冲');
   renderer.destroy();
+  renderer.destroy();
+  assert.equal(renderer._ringCosine, null, 'WebGPU 重复销毁释放圆环余弦缓冲');
+  assert.equal(renderer._ringSine, null, 'WebGPU 重复销毁释放圆环正弦缓冲');
 }
 
 const unhandledRejections = [];

@@ -5,6 +5,7 @@
  * 可以脱离 DOM 验证。
  */
 
+import { createHash } from 'node:crypto';
 import {
   calculateBloomContribution,
   decodeCoverageMask,
@@ -1768,7 +1769,43 @@ assert(
       )),
   'WebGL2 将同一圆角比例传给完整碎片 Quad 的全部顶点',
 );
+// 优化前记录的完整顶点字节，覆盖默认/边界拓扑、旋转与溶解方向。
+for (const [bands, segments, rotation, direction, vertices, hash] of [
+  [1, 0, 0.7, 1, 192, 'd29a4eaaa91999729403ec823aa2f4d70c1ad15ce3200ec0cacd6e18d84527b0'],
+  [8, 96, 0.35, -1, 4608, '66f1fa7e406a83d7a985a4d9e74b45999f1b9da01caceecdf4cdaff7c74c97c2'],
+  [32, 1000, -0.4, 1, 98304, '435354765eead28b8d88e748194347329ae16a6882f3b73f1ef9ab90c1cefb9d'],
+  [8, 32, 0.35, -1, 1536, '73d75e3929eb28e47a77d0bf129a987705e16e79d8ca45d0ad71e227a7616bf9'],
+  [8, 96, 0.35, -1, 4608, '66f1fa7e406a83d7a985a4d9e74b45999f1b9da01caceecdf4cdaff7c74c97c2'],
+])
+{
+  const previousCosine = fullGeometryRenderer._ringCosine;
+  const previousSine = fullGeometryRenderer._ringSine;
+  fullGeometryRenderer.beginFrame();
+  fullGeometryRenderer.addDissolveRing(
+    100, 110, 50, 10, rotation, bands, segments, [1, 0.6, 2], 0.7, 0.5, 0.1, 0.9, direction,
+  );
+  const bytes = Buffer.from(
+    fullGeometryRenderer.ringVertexData.buffer, 0, fullGeometryRenderer.ringVertexCount * 9 * 4,
+  );
+  assert(
+    fullGeometryRenderer.ringVertexCount === vertices &&
+      createHash('sha256').update(bytes).digest('hex') === hash,
+    `圆环 ${bands}×${segments} 的顶点字节与优化前一致`,
+  );
+  if (previousCosine?.length >= Math.max(32, Math.min(512, segments)) + 1)
+  {
+    assert(
+      fullGeometryRenderer._ringCosine === previousCosine &&
+        fullGeometryRenderer._ringSine === previousSine,
+      '跨帧生成相同或更小圆环时复用工作缓冲',
+    );
+  }
+}
 fullGeometryRenderer.destroy();
+assert(
+  fullGeometryRenderer._ringCosine === null && fullGeometryRenderer._ringSine === null,
+  'WebGL2 销毁时释放圆环工作缓冲',
+);
 
 geometryRenderer.beginFrame();
 const headCenterToEdge =
