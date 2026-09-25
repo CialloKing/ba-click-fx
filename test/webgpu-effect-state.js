@@ -65,12 +65,86 @@ async function verifyUnavailableCase(
 }
 
 const unhandledRejections = [];
+
+async function verifyResourceReuse()
+{
+  // 只替换被测的资源工厂和队列，不模拟着色器或 GPU 光栅化。
+  const renderer = new WebGPUEffectRenderer(createCanvas(() => null), { gpu: {} });
+  await renderer.ready;
+  let groups = 0;
+  let views = 0;
+  const writes = [];
+  renderer.device = {
+    createBindGroup: descriptor => ({ ...descriptor, serial: ++groups }),
+    queue: { writeBuffer: (uniform, offset, data) => writes.push({ uniform, data: data.slice(0) }) },
+  };
+  renderer.sampler = {};
+  const pipeline = { getBindGroupLayout: () => 'layout' };
+  const texture = { createView: () => ({ serial: ++views }) };
+  const uniform = {};
+  const geometry = renderer._createGeometryBindGroup('scene:ring', pipeline, uniform, texture);
+  const pass = renderer._createFullscreenBindGroup('prefilter', pipeline, uniform, 'source');
+  for (let i = 0; i < 20; i++)
+  {
+    assert.equal(renderer._createGeometryBindGroup('scene:ring', pipeline, uniform, texture), geometry);
+    assert.equal(renderer._createFullscreenBindGroup('prefilter', pipeline, uniform, 'source'), pass);
+  }
+  assert.equal(groups, 2, '稳定绘制位置不重复创建绑定组');
+  assert.equal(views, 1, '静态纹理跨 Pass 只创建一个视图');
+  renderer._createGeometryBindGroup('bloom:ring', pipeline, {}, texture);
+  assert.equal(views, 1);
+  const oldSampler = renderer.sampler;
+  renderer.sampler = {};
+  assert.notEqual(renderer._createGeometryBindGroup('scene:ring', pipeline, uniform, texture), geometry);
+  const replacementPipeline = { getBindGroupLayout: () => 'new-layout' };
+  const replacement = renderer._createGeometryBindGroup('scene:ring', replacementPipeline, uniform, texture);
+  assert.equal(replacement.layout, 'new-layout');
+  assert.equal(renderer.bindGroups.size, 3, '替换资源不积累历史组合');
+  renderer._invalidateBindGroups(replacementPipeline);
+  assert.equal(renderer.bindGroups.has('scene:ring'), false);
+  renderer._invalidateBindGroups('source');
+  assert.equal(renderer.bindGroups.has('prefilter'), false);
+  const noUniform = renderer._createFullscreenBindGroup('coverage', pipeline, null, 'source');
+  assert.deepEqual(noUniform.entries.map(entry => entry.binding), [1, 2]);
+  renderer.sampler = oldSampler;
+
+  const firstPass = renderer._createPassUniform({ texelX: 8, hasScene: true, extendedOutput: true,
+    hdrBrightness: 7, backgroundScaleX: 0.5 });
+  const defaultPass = renderer._createPassUniform();
+  assert.equal(firstPass, defaultPass, '后处理 Uniform 复用同一个工作缓冲');
+  const floats = new Float32Array(defaultPass);
+  const integers = new Uint32Array(defaultPass);
+  assert.equal(floats[0], 1);
+  assert.equal(floats[2], 1);
+  assert.equal(floats[22], 1);
+  assert.deepEqual([...integers.subarray(11, 18)], Array(7).fill(0), '完整覆盖上一个 Pass 的标志');
+  renderer.displayWidth = 320;
+  renderer.displayHeight = 240;
+  const scratch = renderer.geometryUniformScratch;
+  renderer._writeGeometryUniform(uniform, true, { disk: 3, ring: 4 });
+  renderer._writeGeometryUniform({}, false);
+  assert.equal(renderer.geometryUniformScratch, scratch);
+  assert.equal(new Float32Array(writes[0].data)[2], 3, '后续工作面写入不改变已提交的 Uniform');
+  assert.deepEqual([...new Float32Array(writes[1].data)], [320, 240, 1, 1, 0, 0, 0, 0]);
+
+  renderer._deleteTargets();
+  assert.equal(renderer.bindGroups.size, 0, '释放目标时不持有旧目标绑定');
+  renderer._createGeometryBindGroup('scene:ring', pipeline, uniform, texture);
+  renderer._handleDeviceState('lost', { failure: new Error('test loss') });
+  assert.equal(renderer.bindGroups.size, 0, '设备丢失时清理绑定引用');
+  assert.equal(renderer.textureViews.has(texture), false);
+  renderer.destroy();
+  renderer.destroy();
+  assert.equal(renderer.geometryUniformScratch, null);
+  assert.equal(renderer.passUniformScratch, null);
+}
 const onUnhandledRejection = (reason) => unhandledRejections.push(reason);
 
 process.on('unhandledRejection', onUnhandledRejection);
 
 try
 {
+  await verifyResourceReuse();
   await verifyUnavailableCase(
     'WebGPU API 缺失',
     {},

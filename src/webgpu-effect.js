@@ -41,6 +41,11 @@ const COMPONENTS_PER_RING_VERTEX = 9;
 const COMPONENTS_PER_TEXTURED_VERTEX = 9;
 const PASS_UNIFORM_SIZE = 96;
 const GEOMETRY_UNIFORM_SIZE = 32;
+function createUniformScratch(size)
+{
+  const data = new ArrayBuffer(size);
+  return { data, floats: new Float32Array(data), integers: new Uint32Array(data) };
+}
 const HDR_FORMAT = 'rgba16float';
 const TEXTURE_USAGE = globalThis.GPUTextureUsage ??
 {
@@ -290,6 +295,10 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     this.finalUniform = null;
     this.vertexBuffers = {};
     this.textures = {};
+    this.textureViews = new WeakMap();
+    this.bindGroups = new Map();
+    this.geometryUniformScratch = createUniformScratch(GEOMETRY_UNIFORM_SIZE);
+    this.passUniformScratch = createUniformScratch(PASS_UNIFORM_SIZE);
     this.pipelines = null;
     this.finalPipeline = null;
     this.finalPipelineFormat = null;
@@ -349,6 +358,8 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
   {
     if (status === 'lost')
     {
+      this.bindGroups?.clear();
+      this.textureViews = new WeakMap();
       this.available = false;
       this.contextLost = true;
       this._setRendererStatus('lost', manager.failure);
@@ -629,9 +640,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
 
   _createPassUniform(values = {})
   {
-    const data = new ArrayBuffer(PASS_UNIFORM_SIZE);
-    const floats = new Float32Array(data);
-    const integers = new Uint32Array(data);
+    const { data, floats, integers } = this.passUniformScratch;
 
     floats[0] = values.texelX ?? 1;
     floats[1] = values.texelY ?? 1;
@@ -683,9 +692,9 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
 
   _writeGeometryUniform(uniform, transparentOverlay, scales = {})
   {
-    const data = new ArrayBuffer(GEOMETRY_UNIFORM_SIZE);
-    const floats = new Float32Array(data);
-    const integers = new Uint32Array(data);
+    const { data, floats, integers } = this.geometryUniformScratch;
+    // CPU 工作面可复用；每个 Pass 的 GPU Uniform 仍然独立，避免覆盖已编码命令。
+    floats.fill(0);
 
     floats[0] = this.displayWidth;
     floats[1] = this.displayHeight;
@@ -734,27 +743,64 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     return entry.buffer;
   }
 
-  _createGeometryBindGroup(pipeline, uniform, texture = null)
+  _invalidateBindGroups(resource)
   {
-    const entries =
-    [
-      { binding: 0, resource: { buffer: uniform } },
-    ];
-
-    if (texture)
+    if (!resource)
     {
-      entries.push(
-        { binding: 1, resource: texture.createView() },
-        { binding: 2, resource: this.sampler },
-      );
+      return;
+    }
+    for (const [slot, cached] of this.bindGroups)
+    {
+      if (cached.pipeline === resource || cached.uniform === resource ||
+        cached.sources.includes(resource))
+      {
+        this.bindGroups.delete(slot);
+      }
+    }
+  }
+
+  _getBindGroup(slot, pipeline, uniform, sources, geometry = false)
+  {
+    const cached = this.bindGroups.get(slot);
+    if (cached && cached.pipeline === pipeline && cached.uniform === uniform &&
+      cached.sampler === this.sampler && cached.sources.length === sources.length &&
+      cached.sources.every((source, index) => source === sources[index]))
+    {
+      return cached.group;
+    }
+    const entries = [];
+    if (uniform)
+    {
+      entries.push({ binding: 0, resource: { buffer: uniform } });
+    }
+    if (!geometry)
+    {
+      entries.push({ binding: 1, resource: this.sampler });
+    }
+    for (let index = 0; index < sources.length; index++)
+    {
+      entries.push({ binding: index + (geometry ? 1 : 2), resource: sources[index] });
+    }
+    if (geometry && sources.length > 0)
+    {
+      entries.push({ binding: 2, resource: this.sampler });
     }
 
-    return this.device.createBindGroup(
-      {
-        layout: pipeline.getBindGroupLayout(0),
-        entries,
-      },
-    );
+    const group = this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries });
+    // 每个绘制位置只保存当前组合，不能随背景或 HDR 切换累积历史资源。
+    this.bindGroups.set(slot, { pipeline, uniform, sampler: this.sampler, sources, group });
+    return group;
+  }
+
+  _createGeometryBindGroup(slot, pipeline, uniform, texture = null)
+  {
+    let view = texture && this.textureViews.get(texture);
+    if (texture && !view)
+    {
+      view = texture.createView();
+      this.textureViews.set(texture, view);
+    }
+    return this._getBindGroup(slot, pipeline, uniform, view ? [view] : [], true);
   }
 
   _drawBatch(
@@ -783,7 +829,10 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     pass.setPipeline(pipeline);
     pass.setBindGroup(
       0,
-      this._createGeometryBindGroup(pipeline, uniform, texture),
+      this._createGeometryBindGroup(
+        `${uniform === this.bloomGeometryUniform ? 'bloom' : 'scene'}:${name}`,
+        pipeline, uniform, texture,
+      ),
     );
     pass.setVertexBuffer(0, buffer);
     pass.draw(count);
@@ -855,6 +904,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
   }
 
   _createFullscreenBindGroup(
+    slot,
     pipeline,
     uniform,
     source0,
@@ -863,31 +913,14 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     source3 = null,
   )
   {
-    const entries = [{ binding: 1, resource: this.sampler }];
     const sources = [source0, source1, source2, source3];
-
-    // 自动布局会剔除 WGSL 未读取的 uniform，不能提交不存在的 binding 0。
-    if (uniform)
+    const end = sources.findIndex(source => !source);
+    if (end >= 0)
     {
-      entries.unshift({ binding: 0, resource: { buffer: uniform } });
+      sources.length = end;
     }
-
-    for (let index = 0; index < sources.length; index++)
-    {
-      if (!sources[index])
-      {
-        break;
-      }
-
-      entries.push({ binding: index + 2, resource: sources[index] });
-    }
-
-    return this.device.createBindGroup(
-      {
-        layout: pipeline.getBindGroupLayout(0),
-        entries,
-      },
-    );
+    // 自动布局会剔除未使用的 Uniform；沿用各 Pass 的实际绑定合同。
+    return this._getBindGroup(slot, pipeline, uniform, sources);
   }
 
   _drawFullscreen(
@@ -915,7 +948,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     pass.setPipeline(pipeline);
     pass.setBindGroup(
       0,
-      this._createFullscreenBindGroup(pipeline, uniform, ...sources),
+      this._createFullscreenBindGroup(label, pipeline, uniform, ...sources),
     );
     pass.draw(3);
     pass.end();
@@ -938,6 +971,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     pass.setBindGroup(
       0,
       this._createFullscreenBindGroup(
+        'background',
         this.pipelines.background,
         this.backgroundUniform,
         this.sceneBackgroundView,
@@ -981,6 +1015,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
 
   _deleteTargets()
   {
+    this.bindGroups.clear();
     destroyTexture(this.sourceTarget);
     destroyTexture(this.bloomSourceTarget);
     destroyTexture(this.sceneOverlayTarget);
@@ -1092,6 +1127,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       return true;
     }
 
+    this._invalidateBindGroups(this.finalPipeline);
     this.finalPipeline = this._createFullscreenPipeline(
       'fragmentFinal',
       format,
@@ -1198,6 +1234,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
           height: this.sceneBackgroundHeight,
         },
       );
+      this._invalidateBindGroups(this.sceneBackgroundView);
       this.sceneBackgroundTexture?.destroy?.();
       this.sceneBackgroundTexture = texture;
       this.sceneBackgroundView = texture.createView();
@@ -1215,6 +1252,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
   {
     if (source === null)
     {
+      this._invalidateBindGroups(this.sceneBackgroundView);
       this.sceneBackgroundTexture?.destroy?.();
       this.sceneBackgroundTexture = null;
       this.sceneBackgroundView = null;
@@ -1268,6 +1306,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       return true;
     }
 
+    this._invalidateBindGroups(this.bloomSourceTarget?.view);
     destroyTexture(this.bloomSourceTarget);
     this.bloomSourceTarget = createTarget(
       this.device,
@@ -1316,6 +1355,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       }
       else
       {
+        this._invalidateBindGroups(this.bloomSourceTarget?.view);
         destroyTexture(this.bloomSourceTarget);
         this.bloomSourceTarget = null;
       }
@@ -1595,6 +1635,9 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     this._setRendererStatus('destroyed');
     this._deleteTargets();
     this._releaseRingScratch();
+    this.textureViews = new WeakMap();
+    this.geometryUniformScratch = null;
+    this.passUniformScratch = null;
 
     for (const entry of Object.values(this.vertexBuffers))
     {
