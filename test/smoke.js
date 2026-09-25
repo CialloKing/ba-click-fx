@@ -3477,7 +3477,8 @@ dom.setCanvasBounds({ left: 0 });
 inputLayoutEffect.destroy();
 
 console.log('\n输入采样率');
-const unlimitedSamplingStart = performance.now() + 1000;
+// 整数起点使 100/1000 ms 边界可精确表示，避免真实启动时刻的尾数改变限频断言。
+const unlimitedSamplingStart = Math.ceil(performance.now()) + 1000;
 
 dom.setCurrentTime(unlimitedSamplingStart);
 const unlimitedSamplingEffect = new BAClickFX(
