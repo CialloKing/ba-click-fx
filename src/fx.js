@@ -3859,6 +3859,13 @@ function createTrailPoint(x, y, bornAt)
   };
 }
 
+function invalidateTrailPoints(stroke)
+{
+  stroke.pointsVersion = (stroke.pointsVersion ?? 0) + 1;
+  stroke.trailFrameData = null;
+  stroke.trailFrameCache = null;
+}
+
 function hasVisibleTrailPoints(points)
 {
   for (let index = 1; index < points.length; index++)
@@ -3911,37 +3918,39 @@ function createTrailFrameData(
   trailCfg,
   materialIntensity = null,
   cacheSegmentLengths = materialIntensity !== null,
+  sharedData = null,
 )
 {
-  // Canvas 与 WebGL2 共享同一份段长测量，避免后端切换改变轨迹采样。
-  const measurement = measureTrail(points, cacheSegmentLengths);
-  const pointProgresses = measurement.distances.map((distanceAlongTrail) =>
-    measurement.totalLength > 0
-      ? distanceAlongTrail / measurement.totalLength
-      : 0);
-  const segmentProgresses = new Array(Math.max(0, points.length - 1));
-
-  for (let index = 1; index < points.length; index++)
+  if (!sharedData)
   {
-    segmentProgresses[index - 1] = measurement.totalLength > 0
-      ? (measurement.distances[index - 1] + measurement.distances[index]) *
-        0.5 / measurement.totalLength
-      : 0;
+    // 重建时保留原来的求和顺序；GPU 当帧回退则补材质，不再次测量。
+    const measurement = measureTrail(points, cacheSegmentLengths);
+    const pointProgresses = measurement.distances.map((distanceAlongTrail) =>
+      measurement.totalLength > 0
+        ? distanceAlongTrail / measurement.totalLength
+        : 0);
+    const segmentProgresses = new Array(Math.max(0, points.length - 1));
+
+    for (let index = 1; index < points.length; index++)
+    {
+      segmentProgresses[index - 1] = measurement.totalLength > 0
+        ? (measurement.distances[index - 1] + measurement.distances[index]) *
+          0.5 / measurement.totalLength
+        : 0;
+    }
+
+    const coverageKeys = trailCfg.coverageLongitudinalKeys;
+    sharedData = {
+      measurement,
+      pointProgresses,
+      segmentProgresses,
+      pointCoverageFactors: pointProgresses.map((progress) =>
+        evaluateTrailLongitudinalCoverage(coverageKeys, progress)),
+      segmentCoverageFactors: segmentProgresses.map((progress) =>
+        evaluateTrailLongitudinalCoverage(coverageKeys, progress)),
+    };
   }
-
-  const coverageKeys = trailCfg.coverageLongitudinalKeys;
-  const pointCoverageFactors = pointProgresses.map((progress) =>
-    evaluateTrailLongitudinalCoverage(coverageKeys, progress));
-  const segmentCoverageFactors = segmentProgresses.map((progress) =>
-    evaluateTrailLongitudinalCoverage(coverageKeys, progress));
-  const sharedData =
-  {
-    measurement,
-    pointProgresses,
-    segmentProgresses,
-    pointCoverageFactors,
-    segmentCoverageFactors,
-  };
+  const { measurement, pointProgresses, segmentProgresses } = sharedData;
 
   if (materialIntensity === null)
   {
@@ -5628,6 +5637,8 @@ export class BAClickFX
     this.dpr = 1;
     this.fxConfig = structuredClone(UNITY_FX_TOUCH);
     this._gradientEnergyCache = new WeakMap();
+    this._fxConfigVersion = 0;
+    this._themeVersion = 0;
     this._themeHueShift = computeThemeHueShift(this.config.themeColor);
     this._relativeOklchTheme = this.config.themeColorMode === 'relative-oklch'
       ? createRelativeOklchTheme(this.config.themeColor)
@@ -6829,6 +6840,7 @@ export class BAClickFX
 
     Object.assign(this.fxConfig, nextConfig);
     this._gradientEnergyCache = new WeakMap();
+    this._fxConfigVersion++;
   }
 
   resize(width, height, dpr)
@@ -7491,6 +7503,7 @@ export class BAClickFX
       active: true,
       ownerId: this.activeTrailOwnerId,
       points,
+      pointsVersion: 0,
     };
     this.trailStrokes.push(this.currentTrailStroke);
   }
@@ -7555,6 +7568,7 @@ export class BAClickFX
         this.lastPointerPosition.y,
         now,
       ));
+      invalidateTrailPoints(this.currentTrailStroke);
       this.lastPointerTime = now;
       this.trailDistanceSinceShard = 0;
     }
@@ -7591,6 +7605,7 @@ export class BAClickFX
 
       this.currentTrailStroke.points.push(createTrailPoint(x, y, bornAt));
     }
+    invalidateTrailPoints(this.currentTrailStroke);
 
     this._spawnTrailShards(
       from,
@@ -7714,6 +7729,7 @@ export class BAClickFX
 
       if (discardCurrentStroke || this.currentTrailStroke.points.length < 2)
       {
+        invalidateTrailPoints(this.currentTrailStroke);
         // 单点不能形成 TrailRenderer 几何，保留它只会让 RAF 空转。
         const strokeIndex = this.trailStrokes.indexOf(this.currentTrailStroke);
 
@@ -9596,11 +9612,7 @@ export class BAClickFX
         continue;
       }
 
-      const trailData = stroke.trailFrameData ?? createTrailFrameData(
-        stroke.points,
-        this.fxConfig.trail,
-        bloomCfg.trailEmission,
-      );
+      const trailData = this._getTrailFrameData(stroke, bloomCfg.trailEmission);
       const trailOpacity = this._getEffectiveOpacity() *
         (this.fxConfig.trail.trailOpacity ?? 1) *
         bloomCfg.trailEmissionAlpha;
@@ -11304,18 +11316,7 @@ export class BAClickFX
         continue;
       }
 
-      if (
-        !Array.isArray(stroke.trailFrameData?.segmentEnergies)
-      )
-      {
-        // WebGL2 正常帧只缓存网格测量；Context 或 GPU 当帧失败时，
-        // Canvas 回退在唯一入口按需恢复旧 LUT 数据，避免正常帧重复计算。
-        stroke.trailFrameData = createTrailFrameData(
-          stroke.points,
-          this.fxConfig.trail,
-          this.fxConfig.bloom.trailEmission,
-        );
-      }
+      this._getTrailFrameData(stroke, this.fxConfig.bloom.trailEmission);
 
       drawTrail(
         this.context,
@@ -11382,6 +11383,49 @@ export class BAClickFX
     this._setResolvedBloomBackend('native');
   }
 
+  _getTrailFrameData(stroke, materialIntensity)
+  {
+    const cached = stroke.trailFrameCache;
+    const valid = cached && cached.points === stroke.points &&
+      cached.pointsVersion === stroke.pointsVersion &&
+      cached.configVersion === this._fxConfigVersion &&
+      cached.themeVersion === this._themeVersion &&
+      cached.hueShift === themeHueShift && cached.relativeTheme === relativeOklchTheme;
+    let data = valid ? stroke.trailFrameData : null;
+    if (!data)
+    {
+      data = createTrailFrameData(stroke.points, this.fxConfig.trail, materialIntensity, true);
+      stroke.trailFrameCache = {
+        points: stroke.points,
+        pointsVersion: stroke.pointsVersion,
+        configVersion: this._fxConfigVersion,
+        themeVersion: this._themeVersion,
+        // 后端事件可在帧内改主题；版本之外还记录本次实际使用的渲染上下文。
+        hueShift: themeHueShift,
+        relativeTheme: relativeOklchTheme,
+        materialIntensity,
+      };
+    }
+    else if (materialIntensity !== null &&
+      (cached.materialIntensity !== materialIntensity || !Array.isArray(data.segmentEnergies)))
+    {
+      // 几何缓存可跨后端复用，材质只在 Canvas 路径确实需要时补齐。
+      data = createTrailFrameData(stroke.points, this.fxConfig.trail, materialIntensity, true, data);
+      cached.materialIntensity = materialIntensity;
+    }
+    stroke.trailFrameData = data;
+    return data;
+  }
+
+  _clearTrailStrokes()
+  {
+    for (const stroke of this.trailStrokes)
+    {
+      invalidateTrailPoints(stroke);
+    }
+    this.trailStrokes.length = 0;
+  }
+
   _updateTrail(
     trailTimeMs,
     scale,
@@ -11410,6 +11454,7 @@ export class BAClickFX
         // 连续 shift 会为每个过期点搬移整个数组；一次 splice 保持相同行为，
         // 快速拖动产生数百顶点时不会在每帧形成 O(n²) 开销。
         stroke.points.splice(0, expiredPointCount);
+        invalidateTrailPoints(stroke);
       }
 
       if (stroke.points.length >= 2)
@@ -11418,16 +11463,12 @@ export class BAClickFX
           ? null
           : this.fxConfig.bloom.trailEmission;
 
-        stroke.trailFrameData = createTrailFrameData(
-          stroke.points,
-          this.fxConfig.trail,
-          materialIntensity,
-          true,
-        );
+        this._getTrailFrameData(stroke, materialIntensity);
       }
       else
       {
         stroke.trailFrameData = null;
+        stroke.trailFrameCache = null;
       }
 
       if (!stroke.active && stroke.points.length < 2)
@@ -11663,6 +11704,7 @@ export class BAClickFX
     // 映射只缓存到所属实例；两个渲染入口会随主题上下文一起保存与恢复。
     this._gradientEnergyCache = new WeakMap();
     this.config.themeColor = themeColor;
+    this._themeVersion++;
     this._themeHueShift = computeThemeHueShift(themeColor);
     this._relativeOklchTheme = this.config.themeColorMode === 'relative-oklch'
       ? createRelativeOklchTheme(themeColor)
@@ -11679,6 +11721,7 @@ export class BAClickFX
 
     this.config.themeColorMode = mode;
     this._gradientEnergyCache = new WeakMap();
+    this._themeVersion++;
     this._relativeOklchTheme = mode === 'relative-oklch'
       ? createRelativeOklchTheme(this.config.themeColor)
       : null;
@@ -12127,7 +12170,7 @@ export class BAClickFX
   /** 清除拖尾顶点和拖拽产生的碎片，不影响仍在播放的点击。 */
   clearTrail()
   {
-    this.trailStrokes.length = 0;
+    this._clearTrailStrokes();
     this.currentTrailStroke = null;
     this.shards = this.shards.filter((shard) => shard.kind !== 'trail');
     this.trailShardCounts.clear();
@@ -12149,7 +12192,7 @@ export class BAClickFX
     this._releaseSoftwareBloomFrame();
     this.waves.length = 0;
     this.shards.length = 0;
-    this.trailStrokes.length = 0;
+    this._clearTrailStrokes();
     this.currentTrailStroke = null;
     this.trailShardCounts.clear();
     this.lastInputSampleSourceTime = null;

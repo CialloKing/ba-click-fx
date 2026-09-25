@@ -5730,8 +5730,10 @@ const fallbackFrameData = deferredTrailDataEffect.trailStrokes[0].trailFrameData
 
 assert(
   fallbackFrameData.pointEnergies.length === 2 &&
-    fallbackFrameData.segmentTransverseProfiles.length === 1,
-  'WebGL2 失败转入 Canvas 时按需恢复完整拖尾 LUT 数据',
+    fallbackFrameData.segmentTransverseProfiles.length === 1 &&
+    fallbackFrameData.measurement === texturedFrameData.measurement &&
+    fallbackFrameData.pointProgresses === texturedFrameData.pointProgresses,
+  'WebGL2 失败转入 Canvas 时补齐材质并复用同一份几何测量',
 );
 deferredTrailDataEffect.destroy();
 
@@ -6370,5 +6372,103 @@ assert(outerCacheEffect._gradientEnergyCache.has(outerCacheEffect.fxConfig.rings
   '重入的异色实例故障回退后恢复外层颜色缓存上下文');
 outerCacheEffect.destroy();
 innerCacheEffect.destroy();
+
+console.log('\n拖尾跨帧缓存');
+cacheDom.setCurrentTime(0);
+const trailCacheEffect = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+  inputSource: 'manual', clickEnabled: false });
+trailCacheEffect.setFxParam('shards.maxCount', 0);
+trailCacheEffect.pointerDown({ x: 10, y: 10, pointerId: 10 });
+cacheDom.setCurrentTime(10);
+trailCacheEffect.pointerMove({ x: 110, y: 70, pointerId: 10 });
+const cachedStroke = trailCacheEffect.currentTrailStroke;
+trailCacheEffect._updateTrail(10, 1, false, false, true);
+const initialTrailData = cachedStroke.trailFrameData;
+const savedHypot = Math.hypot;
+let cachedMeasurements = 0;
+try
+{
+  Math.hypot = (...args) => { cachedMeasurements++; return savedHypot(...args); };
+  for (let i = 0; i < 10; i++) trailCacheEffect._updateTrail(20 + i, 1, false, false, true);
+}
+finally { Math.hypot = savedHypot; }
+assert(cachedMeasurements === 0 && cachedStroke.trailFrameData === initialTrailData,
+  '点集未变且未过期的连续帧不重新测量或分配拖尾数据');
+trailCacheEffect._drawCanvasTrails(1, false);
+const materialData = cachedStroke.trailFrameData;
+trailCacheEffect._getTrailFrameData(cachedStroke, trailCacheEffect.fxConfig.bloom.trailEmission * 2);
+assert(cachedStroke.trailFrameData.measurement === materialData.measurement &&
+  JSON.stringify(cachedStroke.trailFrameData.segmentEnergies) !== JSON.stringify(materialData.segmentEnergies),
+  '材质强度变化只重建材质，保留测量与覆盖率数据');
+let previousTrailData = cachedStroke.trailFrameData;
+trailCacheEffect.setFxParam('trail.width', 9);
+trailCacheEffect._updateTrail(30, 1, false, false, true);
+assert(cachedStroke.trailFrameData !== previousTrailData, '特效参数提交后重建轨迹缓存');
+previousTrailData = cachedStroke.trailFrameData;
+trailCacheEffect.setThemeColor('#ff6600');
+trailCacheEffect._renderFrame(30);
+assert(cachedStroke.trailFrameData !== previousTrailData, '主题变化后的实际渲染重建轨迹材质');
+const pausedData = cachedStroke.trailFrameData;
+cacheDom.setCurrentTime(30);
+trailCacheEffect.setPaused(true);
+cacheDom.setCurrentTime(100);
+trailCacheEffect._renderFrame(100);
+trailCacheEffect.setPaused(false);
+trailCacheEffect._renderFrame(100);
+assert(cachedStroke.trailFrameData === pausedData, '暂停恢复且点集未变时复用轨迹缓存');
+
+trailCacheEffect.clearTrail();
+assert(cachedStroke.trailFrameData === null && cachedStroke.trailFrameCache === null,
+  '清轨迹时解除缓存及其依赖引用');
+trailCacheEffect.pointerDown({ x: 10, y: 10, pointerId: 11 });
+cacheDom.setCurrentTime(110);
+trailCacheEffect.pointerMove({ x: 110, y: 70, pointerId: 11 });
+const appendedStroke = trailCacheEffect.currentTrailStroke;
+trailCacheEffect._updateTrail(trailCacheEffect.trailTimeMs, 1, false, false, true);
+const beforeAppend = appendedStroke.trailFrameData;
+const beforeVersion = appendedStroke.pointsVersion;
+cacheDom.setCurrentTime(150);
+trailCacheEffect.pointerMove({ x: 180, y: 130, pointerId: 11 });
+trailCacheEffect._updateTrail(trailCacheEffect.trailTimeMs, 1, false, false, true);
+assert(appendedStroke.pointsVersion > beforeVersion && appendedStroke.trailFrameData !== beforeAppend,
+  '有效移动追加轨迹点后重建缓存');
+const beforeExpiry = appendedStroke.points.length;
+const cutoff = appendedStroke.points[0].bornAt + trailCacheEffect.fxConfig.trail.lifetimeMs + 1;
+trailCacheEffect._updateTrail(cutoff, 1, false, false, true);
+assert(appendedStroke.points.length < beforeExpiry && appendedStroke.points.length > 1,
+  '缓存命中不阻止时间推进与部分过期点裁剪');
+trailCacheEffect._updateTrail(cutoff + 1000, 1, false, false, true);
+assert(appendedStroke.trailFrameData === null, '轨迹完全过期后释放缓存');
+const expiredVersion = appendedStroke.pointsVersion;
+trailCacheEffect._ensureCurrentTrailStroke(cutoff + 1001);
+assert(appendedStroke.pointsVersion > expiredVersion && appendedStroke.points.length === 1,
+  '空轨迹重新播种时更新版本');
+trailCacheEffect.destroy();
+assert(appendedStroke.trailFrameData === null && appendedStroke.trailFrameCache === null,
+  '销毁时解除保留轨迹的缓存引用');
+
+cacheDom.setCurrentTime(0);
+const reentrantTrailEffect = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+  inputSource: 'manual', clickEnabled: false });
+reentrantTrailEffect.setFxParam('shards.maxCount', 0);
+reentrantTrailEffect.pointerDown({ x: 10, y: 10, pointerId: 12 });
+reentrantTrailEffect.pointerMove({ x: 110, y: 70, pointerId: 12 });
+const drawCachedTrails = reentrantTrailEffect._drawCanvasTrails;
+let changeThemeDuringDraw = true;
+reentrantTrailEffect._drawCanvasTrails = function(...args)
+{
+  if (changeThemeDuringDraw)
+  {
+    changeThemeDuringDraw = false;
+    this.setThemeColor('#ff6600');
+  }
+  return drawCachedTrails.apply(this, args);
+};
+reentrantTrailEffect._renderFrame(10);
+const oldContextColors = JSON.stringify(reentrantTrailEffect.currentTrailStroke.trailFrameData.segmentEnergies);
+reentrantTrailEffect._renderFrame(10);
+assert(JSON.stringify(reentrantTrailEffect.currentTrailStroke.trailFrameData.segmentEnergies) !== oldContextColors,
+  '帧内重入改主题后，下一帧不能把旧主题计算结果误认为新缓存');
+reentrantTrailEffect.destroy();
 
 console.log(`\n✅ ${passed} 项 FX_Touch 移植检查通过\n`);
