@@ -6292,4 +6292,83 @@ geometryEffect.pointerCancel(91);
 geometryEffect.destroy();
 
 
+console.log('\n颜色渐变缓存');
+const cacheDom = installDom();
+for (const [themeColor, themeColorMode] of [
+  [DEFAULT_THEME_COLOR, 'hue-only'], ['#ff6600', 'hue-only'], ['#ff66cc', 'relative-oklch'],
+])
+{
+  cacheDom.setCurrentTime(0);
+  const cachedEffect = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+    themeColor, themeColorMode });
+  cachedEffect.boom(100, 100);
+  cachedEffect._renderFrame(40);
+  const keys = cachedEffect.fxConfig.rings.colorKeys;
+  const converted = cachedEffect._gradientEnergyCache.get(keys);
+  assert(Array.isArray(converted), `${themeColorMode} 缓存转换后的渐变关键帧`);
+  const colors = JSON.stringify(converted);
+  cachedEffect._renderFrame(60);
+  assert(cachedEffect._gradientEnergyCache.get(keys) === converted &&
+    JSON.stringify(converted) === colors, '改变粒子年龄复用转换结果且不修改关键帧');
+  const oldCache = cachedEffect._gradientEnergyCache;
+  cachedEffect.setFxParams({ 'rings.hdrIntensity': 'invalid' }, { strict: true });
+  assert(cachedEffect._gradientEnergyCache === oldCache, '失败的参数事务保留颜色缓存');
+  cachedEffect.setFxParam('rings.hdrIntensity', 4);
+  assert(cachedEffect._gradientEnergyCache !== oldCache, '成功的参数事务失效颜色缓存');
+  cachedEffect._renderFrame(60);
+  const changedCache = cachedEffect._gradientEnergyCache;
+  cachedEffect.resetFxConfig();
+  assert(cachedEffect._gradientEnergyCache !== changedCache, '重置特效参数失效颜色缓存');
+  cachedEffect.setThemeColor('#55ff66');
+  cachedEffect._renderFrame(60);
+  assert(JSON.stringify(cachedEffect._gradientEnergyCache.get(cachedEffect.fxConfig.rings.colorKeys)) !== colors,
+    '主题切换后的转换结果不会复用旧颜色');
+  const themeCache = cachedEffect._gradientEnergyCache;
+  cachedEffect.setThemeColorMode(themeColorMode === 'hue-only' ? 'relative-oklch' : 'hue-only');
+  assert(cachedEffect._gradientEnergyCache !== themeCache, '主题模式切换失效颜色缓存');
+  cachedEffect.destroy();
+  assert(cachedEffect._gradientEnergyCache === null, '销毁时解除渐变缓存引用');
+}
+cacheDom.setCurrentTime(0);
+const outerCacheEffect = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native' });
+const innerCacheEffect = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+  themeColor: '#ff66cc', themeColorMode: 'relative-oklch' });
+outerCacheEffect.boom(100, 100);
+innerCacheEffect.boom(100, 100);
+innerCacheEffect._renderFrame(40);
+const nativeDraw = outerCacheEffect._drawNativeClickBloom;
+const innerFallback = innerCacheEffect._drawCanvasFallbackFrame;
+let injectFailure = true;
+innerCacheEffect._drawCanvasFallbackFrame = function(...args)
+{
+  if (injectFailure)
+  {
+    injectFailure = false;
+    throw new Error('expected cache context test failure');
+  }
+  return innerFallback.apply(this, args);
+};
+outerCacheEffect._drawNativeClickBloom = function(...args)
+{
+  this._gradientEnergyCache.delete(this.fxConfig.rings.colorKeys);
+  innerCacheEffect._restoreCanvasOutputAfterContextLoss('native');
+  return nativeDraw.apply(this, args);
+};
+const savedCacheWarning = console.warn;
+try
+{
+  console.warn = (...args) =>
+  {
+    if (!String(args[1]?.message).includes('expected cache context')) savedCacheWarning(...args);
+  };
+  outerCacheEffect._renderFrame(40);
+}
+finally { console.warn = savedCacheWarning; }
+assert(outerCacheEffect._gradientEnergyCache.has(outerCacheEffect.fxConfig.rings.colorKeys) &&
+  !innerCacheEffect._gradientEnergyCache.has(outerCacheEffect.fxConfig.rings.colorKeys) &&
+  !outerCacheEffect._gradientEnergyCache.has(innerCacheEffect.fxConfig.rings.colorKeys),
+  '重入的异色实例故障回退后恢复外层颜色缓存上下文');
+outerCacheEffect.destroy();
+innerCacheEffect.destroy();
+
 console.log(`\n✅ ${passed} 项 FX_Touch 移植检查通过\n`);

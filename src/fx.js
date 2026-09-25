@@ -349,6 +349,7 @@ function hslToRgb(h, s, l)
 
 let themeHueShift = 0;
 let relativeOklchTheme = null;
+let gradientEnergyCache = null;
 const BASE_BLUE = [76, 167, 255];
 const BASE_BLUE_HUE = rgbToHsl(BASE_BLUE[0] / 255, BASE_BLUE[1] / 255, BASE_BLUE[2] / 255)[0];
 
@@ -777,11 +778,16 @@ function evaluateSrgbGradientEnergy(
   startColor = null,
 )
 {
-  const linearKeys = keys.map(([time, color]) =>
-  [
-    time,
-    applyThemeColor(color).map(srgbToLinearChannel),
-  ]);
+  let linearKeys = gradientEnergyCache?.get(keys);
+  if (!linearKeys)
+  {
+    linearKeys = keys.map(([time, color]) =>
+    [
+      time,
+      applyThemeColor(color).map(srgbToLinearChannel),
+    ]);
+    gradientEnergyCache?.set(keys, linearKeys);
+  }
   const safeIntensity = Math.max(0, intensity);
   const linearStartColor = startColor
     ? startColor.map((channel) => srgbToLinearChannel(channel * 255))
@@ -5621,6 +5627,7 @@ export class BAClickFX
     this.height = 0;
     this.dpr = 1;
     this.fxConfig = structuredClone(UNITY_FX_TOUCH);
+    this._gradientEnergyCache = new WeakMap();
     this._themeHueShift = computeThemeHueShift(this.config.themeColor);
     this._relativeOklchTheme = this.config.themeColorMode === 'relative-oklch'
       ? createRelativeOklchTheme(this.config.themeColor)
@@ -6821,6 +6828,7 @@ export class BAClickFX
     }
 
     Object.assign(this.fxConfig, nextConfig);
+    this._gradientEnergyCache = new WeakMap();
   }
 
   resize(width, height, dpr)
@@ -7878,6 +7886,7 @@ export class BAClickFX
     // 推入当前实例的主题变换，渲染完成后恢复，保证多实例安全。
     const prevHueShift = themeHueShift;
     const previousRelativeOklchTheme = relativeOklchTheme;
+    const previousGradientEnergyCache = gradientEnergyCache;
     let contextSaved = false;
 
     this.canvasNativeSceneAlphaSnapshot = null;
@@ -7893,6 +7902,7 @@ export class BAClickFX
       }
       themeHueShift = this._themeHueShift;
       relativeOklchTheme = this._relativeOklchTheme;
+      gradientEnergyCache = this._gradientEnergyCache;
       // 透明 Canvas 无法独立保存 Additive RGB 与 Coverage Alpha；在 residual
       // Coverage Final Pass 完成前保留兼容 source-over，避免多个粒子把 Alpha 相加。
       if (this.context)
@@ -8060,6 +8070,7 @@ export class BAClickFX
       this.renderingFrame = false;
       themeHueShift = prevHueShift;
       relativeOklchTheme = previousRelativeOklchTheme;
+      gradientEnergyCache = previousGradientEnergyCache;
 
       if (contextSaved)
       {
@@ -10872,6 +10883,7 @@ export class BAClickFX
     const scale = this._getScale();
     const previousHueShift = themeHueShift;
     const previousRelativeOklchTheme = relativeOklchTheme;
+    const previousGradientEnergyCache = gradientEnergyCache;
     let resolvedBloomBackend = bloomBackend;
 
     this._setResolvedBloomBackend(resolvedBloomBackend);
@@ -10890,6 +10902,7 @@ export class BAClickFX
       contextSaved = true;
       themeHueShift = this._themeHueShift;
       relativeOklchTheme = this._relativeOklchTheme;
+      gradientEnergyCache = this._gradientEnergyCache;
       this._drawCanvasFallbackFrame(
         scale,
         resolvedBloomBackend === 'native',
@@ -10935,6 +10948,7 @@ export class BAClickFX
     {
       themeHueShift = previousHueShift;
       relativeOklchTheme = previousRelativeOklchTheme;
+      gradientEnergyCache = previousGradientEnergyCache;
 
       if (contextSaved)
       {
@@ -11646,6 +11660,8 @@ export class BAClickFX
   {
     const themeColor = normalizeThemeColor(hex, DEFAULT_THEME_COLOR);
 
+    // 映射只缓存到所属实例；两个渲染入口会随主题上下文一起保存与恢复。
+    this._gradientEnergyCache = new WeakMap();
     this.config.themeColor = themeColor;
     this._themeHueShift = computeThemeHueShift(themeColor);
     this._relativeOklchTheme = this.config.themeColorMode === 'relative-oklch'
@@ -11662,6 +11678,7 @@ export class BAClickFX
     }
 
     this.config.themeColorMode = mode;
+    this._gradientEnergyCache = new WeakMap();
     this._relativeOklchTheme = mode === 'relative-oklch'
       ? createRelativeOklchTheme(this.config.themeColor)
       : null;
@@ -12405,6 +12422,7 @@ export class BAClickFX
     }
 
     this.destroyed = true;
+    this._gradientEnergyCache = null;
     if (typeof window !== 'undefined')
     {
       window.removeEventListener('resize', this._onResize);
