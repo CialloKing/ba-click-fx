@@ -93,6 +93,7 @@
     "test:browser:worker": "node test/browser/offscreen-worker-runtime.mjs",
     "test:browser:webgpu": "node test/browser/webgpu-runtime.mjs",
     "test:browser:webgpu:optional": "node test/browser/webgpu-runtime.mjs --optional",
+    "benchmark:runtime": "node scripts/benchmark-runtime.mjs",
     "test:browser": "npm run build && npm run test:browser:core && npm run test:browser:worker",
     "test:browser:optional": "npm run build && npm run test:browser:core -- --optional && npm run test:browser:worker -- --optional",
     "verify:runtime-sync": "node scripts/verify-runtime-sync.cjs",

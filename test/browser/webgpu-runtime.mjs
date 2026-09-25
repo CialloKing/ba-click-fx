@@ -4,12 +4,14 @@ import { join, resolve } from 'node:path';
 import { createServer as createNetServer } from 'node:net';
 import { chromium } from 'playwright-core';
 import { createServer as createViteServer } from 'vite';
+import { writeFailureArtifacts } from './harness.mjs';
 
 const rootDir = resolve(import.meta.dirname, '../..');
 const FIXTURE_WIDTH = 320;
 const FIXTURE_HEIGHT = 240;
 const TRAIL_SHARD_LIMIT_SEGMENTS = 24;
 const OPTIONAL = process.argv.includes('--optional');
+let currentStage = 'startup';
 const DIRECT_CASES = [1, 2].flatMap((dpr) =>
   ['scene', 'browser-overlay'].flatMap((outputCompositing) =>
     [true, false].map((preferHdr) =>
@@ -1694,6 +1696,7 @@ async function runDemoHdrUiEffectIsolation(page)
   );
 
   await setDemoHdrUiEnabled(page, true);
+  currentStage = 'demo-hdr-isolation-restore-controls';
   await page.fill('#ctrlWebGPUHdrBrightness', original.effectBrightness);
   await page.fill('#ctrlHdrUiBrightness', original.uiBrightness);
   await page.evaluate((saved) =>
@@ -2315,6 +2318,8 @@ async function main()
     },
   );
   let browser = null;
+  let page = null;
+  const browserErrors = [];
 
   try
   {
@@ -2332,11 +2337,9 @@ async function main()
         ],
       },
     );
-    const page = await browser.newPage(
+    page = await browser.newPage(
       { viewport: { width: FIXTURE_WIDTH, height: FIXTURE_HEIGHT } },
     );
-    const browserErrors = [];
-
     page.on('console', (message) =>
     {
       const text = message.text();
@@ -2373,9 +2376,11 @@ async function main()
 
     for (const specification of DIRECT_CASES)
     {
+      currentStage = specification.id;
       direct.push(await runDirectCase(page, specification));
     }
 
+    currentStage = 'sdr-color-probes';
     const colorProbes =
     {
       preferred: await runSdrColorProbe(page, true),
@@ -2384,8 +2389,11 @@ async function main()
 
     assertSdrColorParity(colorProbes.preferred, colorProbes.standard);
 
+    currentStage = 'theme-color-contract';
     const themeColorContract = await runWebGPUThemeColorContract(page);
+    currentStage = 'runtime-integration';
     const integration = await runIntegration(page);
+    currentStage = 'demo-hdr-ui';
     const demoHdrUi = await runDemoHdrUiIntegration(
       page,
       `http://127.0.0.1:${port}/`,
@@ -2422,6 +2430,50 @@ async function main()
       null,
       2,
     ));
+  }
+  catch (error)
+  {
+    // 在关闭页面前保留状态；诊断失败不得覆盖真正的断言或 GPU 错误。
+    const metrics = { executablePath, browserErrors };
+    try
+    {
+      metrics.runtime = await page?.evaluate(() =>
+      {
+        const effect = window.BAClickFXDemo;
+        return {
+          url: location.href,
+          config: effect?.getConfig(),
+          diagnostics: effect?.webgpuEffectRenderer?.deviceManager?.diagnostics,
+          paused: effect?.paused,
+          hdrUiState: document.body.dataset.hdrUiState,
+          controls: Object.fromEntries([
+            'ctrlWebGPUHdrBrightness', 'ctrlHdrUiBrightness', 'ctrlHdrUiEnabled',
+          ].map(id =>
+          {
+            const control = document.getElementById(id);
+            return [id, control ? {
+              disabled: control.disabled, value: control.value, checked: control.checked,
+            } : null];
+          })),
+        };
+      });
+    }
+    catch (captureError)
+    {
+      metrics.captureError = captureError.message;
+    }
+    try
+    {
+      await writeFailureArtifacts({
+        artifactDir: join(rootDir, 'test-results/browser-pixels/webgpu'),
+        currentLabel: currentStage, currentPage: page, metrics, error,
+      });
+    }
+    catch (artifactError)
+    {
+      console.error('WebGPU 失败产物写入失败:', artifactError.message);
+    }
+    throw error;
   }
   finally
   {
