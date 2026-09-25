@@ -808,20 +808,11 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     pipeline,
     uniform,
     name,
-    data,
     count,
-    components,
     texture = null,
   )
   {
-    const buffer = this._ensureVertexBuffer(
-      name,
-      data,
-      count,
-      components,
-    );
-
-    if (!buffer)
+    if (count <= 0)
     {
       return;
     }
@@ -834,7 +825,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
         pipeline, uniform, texture,
       ),
     );
-    pass.setVertexBuffer(0, buffer);
+    pass.setVertexBuffer(0, this.vertexBuffers[name].buffer);
     pass.draw(count);
   }
 
@@ -846,9 +837,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       this.pipelines.disk,
       uniform,
       'disk',
-      this.sceneDiskVertexData,
       this.sceneDiskVertexCount,
-      COMPONENTS_PER_DISK_VERTEX,
       this.textures.circle,
     );
     this._drawBatch(
@@ -858,9 +847,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
         : this.pipelines.trailScene,
       uniform,
       'trail',
-      this.trailVertexData,
       this.trailVertexCount,
-      COMPONENTS_PER_TEXTURED_VERTEX,
       this.textures.trail,
     );
     this._drawBatch(
@@ -870,9 +857,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
         : this.pipelines.genericScene,
       uniform,
       'generic',
-      this.vertexData,
       this.vertexCount,
-      COMPONENTS_PER_VERTEX,
     );
     this._drawBatch(
       pass,
@@ -881,9 +866,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
         : this.pipelines.ringScene,
       uniform,
       'ring',
-      this.ringVertexData,
       this.ringVertexCount,
-      COMPONENTS_PER_RING_VERTEX,
       this.textures.ring,
     );
     // Tri2 的 Queue 4550 高于其余 FX_Touch 材质，最后绘制三角碎片。
@@ -894,9 +877,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
         : this.pipelines.triangleScene,
       uniform,
       'triangle',
-      this.triangleVertexData,
       this.triangleVertexCount,
-      COMPONENTS_PER_TEXTURED_VERTEX,
       transparentOverlay
         ? this.textures.triangleOverlay
         : this.textures.triangle,
@@ -1326,6 +1307,18 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
 
     try
     {
+      // 同一次 Scene 提交的清晰层和发光层只改变 Uniform，共享这次上传。
+      // 每次调用仍重新上传，允许宿主在 beginFrame 之后继续修改几何再提交。
+      this._ensureVertexBuffer('disk', this.sceneDiskVertexData,
+        this.sceneDiskVertexCount, COMPONENTS_PER_DISK_VERTEX);
+      this._ensureVertexBuffer('trail', this.trailVertexData,
+        this.trailVertexCount, COMPONENTS_PER_TEXTURED_VERTEX);
+      this._ensureVertexBuffer('generic', this.vertexData,
+        this.vertexCount, COMPONENTS_PER_VERTEX);
+      this._ensureVertexBuffer('ring', this.ringVertexData,
+        this.ringVertexCount, COMPONENTS_PER_RING_VERTEX);
+      this._ensureVertexBuffer('triangle', this.triangleVertexData,
+        this.triangleVertexCount, COMPONENTS_PER_TEXTURED_VERTEX);
       const encoder = this.device.createCommandEncoder(
         { label: 'BA Click FX WebGPU scene commands' },
       );

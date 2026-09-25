@@ -140,11 +140,72 @@ async function verifyResourceReuse()
 }
 const onUnhandledRejection = (reason) => unhandledRejections.push(reason);
 
+async function verifySceneUploads()
+{
+  const renderer = new WebGPUEffectRenderer(createCanvas(() => null), { gpu: {} });
+  await renderer.ready;
+  const uploads = [];
+  const draws = [];
+  let boundBuffer;
+  const pass = {
+    setPipeline() {}, setBindGroup() {}, end() {},
+    setVertexBuffer: (_, buffer) => { boundBuffer = buffer; },
+    draw: count => draws.push([boundBuffer.label, count]),
+  };
+  renderer.device = {
+    createBuffer: descriptor => ({ ...descriptor, destroy() {} }),
+    createBindGroup: descriptor => descriptor,
+    createCommandEncoder: () => ({ beginRenderPass: () => pass, finish() {} }),
+    queue: {
+      submit() {},
+      writeBuffer(buffer, offset, data, dataOffset, size)
+      {
+        if (buffer.label?.endsWith(' vertices'))
+        {
+          uploads.push({ label: buffer.label, data: new Uint8Array(data, dataOffset, size).slice() });
+        }
+      },
+    },
+  };
+  const pipeline = { getBindGroupLayout() {} };
+  renderer.pipelines = Object.fromEntries(
+    ['disk', 'trailScene', 'genericScene', 'ringScene', 'triangleScene'].map(name => [name, pipeline]),
+  );
+  renderer.geometryUniform = {};
+  renderer.bloomGeometryUniform = {};
+  renderer.available = true;
+  renderer.sourceWidth = 320;
+  renderer.sourceHeight = 240;
+  const target = () => ({ width: 320, height: 240, view: {}, texture: { destroy() {} } });
+  renderer.sourceTarget = target();
+  renderer.bloomSourceTarget = target();
+  for (const key of ['sceneDiskVertexCount', 'trailVertexCount', 'vertexCount',
+    'ringVertexCount', 'triangleVertexCount']) renderer[key] = 3;
+  const settings = { outputCompositing: 'scene', diskEmissionScale: 2, ringEmissionScale: 3 };
+  assert.equal(renderer.renderScene(settings), true);
+  assert.equal(uploads.length, 5, '清晰与发光两次绘制每种几何只上传一次');
+  assert.deepEqual(draws.slice(0, 5), draws.slice(5), '两层保持相同的几何及绘制顺序');
+  renderer.ringVertexData[0] = 123;
+  assert.equal(renderer.renderScene(settings), true);
+  assert.equal(uploads.length, 10, '再次调用 renderScene 必须重新提交修改后的几何');
+  assert.equal(new Float32Array(uploads[8].data.buffer)[0], 123);
+  const buffer = renderer.vertexBuffers.ring.buffer;
+  renderer.beginFrame();
+  assert.equal(renderer.renderScene(settings), true);
+  assert.equal(uploads.length, 10, '空批次不上传旧缓冲');
+  renderer.ringVertexCount = 3;
+  assert.equal(renderer.renderScene(settings), true);
+  assert.equal(uploads.length, 11);
+  assert.equal(renderer.vertexBuffers.ring.buffer, buffer, '容量足够时复用 GPU 顶点缓冲');
+  renderer.destroy();
+}
+
 process.on('unhandledRejection', onUnhandledRejection);
 
 try
 {
   await verifyResourceReuse();
+  await verifySceneUploads();
   await verifyUnavailableCase(
     'WebGPU API 缺失',
     {},
@@ -189,4 +250,4 @@ finally
   process.removeListener('unhandledRejection', onUnhandledRejection);
 }
 
-console.log('WebGPU Renderer 构造期失败状态测试通过：3 项');
+console.log('WebGPU Renderer 状态、资源复用与场景提交测试通过');
