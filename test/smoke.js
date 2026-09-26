@@ -678,6 +678,63 @@ function flushFrames(dom, startTime, count, frameMs = 1000 / 60)
 console.log('\n指针生命周期');
 const dom = installDom();
 
+const nativeGoldenRecords = [];
+const goldenRandom = Math.random;
+const goldenTime = performance.now();
+const goldenDpr = dom.windowMock.devicePixelRatio;
+const goldenFloat64 = globalThis.Float64Array;
+let nativeGoldenAllocations = 0;
+try
+{
+  Math.random = () => 0.5;
+  globalThis.Float64Array = new Proxy(goldenFloat64, {
+    construct(target, args) { nativeGoldenAllocations++; return new target(...args); },
+  });
+  for (const [themeColor, themeColorMode] of [
+    ['#4ca7ff', 'relative-oklch'], ['#ff8800', 'hue-only'], ['#ff6699', 'relative-oklch'],
+  ])
+  {
+    for (const dpr of [1, 2])
+    {
+      for (const customized of [false, true])
+      {
+        for (const age of [40, 120, 220, 500])
+        {
+          dom.setCurrentTime(1000);
+          dom.windowMock.devicePixelRatio = dpr;
+          const fx = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+            trailEnabled: false, inputSource: 'manual', themeColor, themeColorMode, maxDpr: 2 });
+          if (customized) fx.setFxParams({ 'bloom.threshold': 0.8, 'bloom.diffusion': 8, 'rings.radialSamples': 2 });
+          const draw = fx._drawNativeClickBloom;
+          fx._drawNativeClickBloom = function (...args)
+          {
+            this.context.radialGradients.length = 0;
+            draw.apply(this, args);
+            nativeGoldenRecords.push(this.context.radialGradients);
+          };
+          fx.boom(960, 540);
+          fx._renderFrame(1000 + age);
+          fx.destroy();
+        }
+      }
+    }
+  }
+}
+finally
+{
+  Math.random = goldenRandom;
+  dom.setCurrentTime(goldenTime);
+  dom.windowMock.devicePixelRatio = goldenDpr;
+  globalThis.Float64Array = goldenFloat64;
+}
+const nativeGoldenHash = (await import('node:crypto')).createHash('sha256')
+  .update(JSON.stringify(nativeGoldenRecords)).digest('hex');
+
+assert(nativeGoldenRecords.length === 48 && nativeGoldenHash === '476422967f2cfd253492ba77a952918af5b4c7393ee12c39678cce27b8f0f44a',
+  'Native 在 48 组年龄、主题、DPR 和参数组合下的渐变数值与优化前完全一致');
+assert(nativeGoldenAllocations === 1,
+  'Native 多实例只分配一次固定纹理采样表，不再逐环分配角向工作数组');
+
 
 console.log('\n全屏坐标尺寸');
 const fullscreenTestDevicePixelRatio = dom.windowMock.devicePixelRatio;

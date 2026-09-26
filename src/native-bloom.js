@@ -21,8 +21,10 @@ export function createNativeBloomSource(settings)
 
 export function addNativeBloomSample(source, color, area, radiusSquared)
 {
-  const channels = color.map((channel) => Math.min(source.clampMax, Math.max(0, channel)));
-  const brightness = Math.max(...channels);
+  const red = Math.min(source.clampMax, Math.max(0, color[0]));
+  const green = Math.min(source.clampMax, Math.max(0, color[1]));
+  const blue = Math.min(source.clampMax, Math.max(0, color[2]));
+  const brightness = Math.max(red, green, blue);
 
   if (brightness <= 0 || area <= 0)
   {
@@ -36,10 +38,9 @@ export function addNativeBloomSample(source, color, area, radiusSquared)
   );
   const mass = contribution * area;
 
-  for (let channel = 0; channel < 3; channel++)
-  {
-    source.energy[channel] += channels[channel] / brightness * mass;
-  }
+  source.energy[0] += red / brightness * mass;
+  source.energy[1] += green / brightness * mass;
+  source.energy[2] += blue / brightness * mass;
   source.transport += mass;
   source.moment += radiusSquared * mass;
 }
@@ -63,56 +64,6 @@ function sampleRingKernel(distance, radius, variance)
   }
   return Math.exp(-((distance - radius) ** 2) / (2 * variance)) *
     integral * step / (3 * Math.PI);
-}
-
-export function createNativeBloomAngularMask(sources, dpr, settings)
-{
-  const active = sources.filter((source) => source.transport > 0);
-  if (active.length === 0 || active.some((source) => !source.angularMass))
-  {
-    return null;
-  }
-
-  const count = 64;
-  const values = new Float64Array(count);
-  let total = 0;
-  let radiusMass = 0;
-  for (const source of active)
-  {
-    total += source.transport;
-    radiusMass += source.radius * source.transport;
-    // 原生近场以几像素为支撑，缺口边缘也必须渐变，不能用硬扇形裁剪光晕。
-    const sigma = Math.max(1, count / (2 * Math.PI) *
-      2.5 / (Math.max(1, source.radius) * dpr * settings.resolutionScale));
-    const reach = Math.min(count / 2, Math.ceil(sigma * 3));
-    const weights = [];
-    let weightSum = 0;
-    for (let offset = -reach; offset <= reach; offset++)
-    {
-      const weight = Math.exp(-0.5 * (offset / sigma) ** 2);
-      weights.push(weight);
-      weightSum += weight;
-    }
-    for (let index = 0; index < count; index++)
-    {
-      for (let offset = -reach; offset <= reach; offset++)
-      {
-        values[index] += source.angularMass[(index + offset + count) % count] *
-          weights[offset + reach] / weightSum;
-      }
-    }
-  }
-  const peak = Math.max(...values);
-  if (peak <= 0)
-  {
-    return null;
-  }
-  return {
-    // 径向部分按峰值补偿，Alpha 遮罩只分配角向能量，不降低剩余亮弧的强度。
-    gain: peak * count / total,
-    radius: radiusMass / total,
-    values: Array.from(values, (value) => value / peak),
-  };
 }
 
 export function createNativeBloomProfile(sources, width, height, dpr, settings)

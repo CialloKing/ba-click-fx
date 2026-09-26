@@ -739,6 +739,36 @@ function srgbToLinearChannel(channel)
   return ((normalized + 0.055) / 1.055) ** 2.4;
 }
 
+const NATIVE_BLOOM_DISK_SAMPLES = 16;
+let nativeCircleBloomSamples = null;
+
+function getNativeCircleBloomSamples()
+{
+  if (!nativeCircleBloomSamples)
+  {
+    // 固定纹理与网格不随实例或主题改变；Float64 保留原 JavaScript 数值精度。
+    const count = NATIVE_BLOOM_DISK_SAMPLES;
+    const samples = new Float64Array(count * count * 4);
+    let destination = 0;
+    for (let y = 0; y < count; y++)
+    {
+      for (let x = 0; x < count; x++)
+      {
+        const u = (x + 0.5) / count;
+        const v = (y + 0.5) / count;
+        const offset = (Math.floor(v * CIRCLE_TEXTURE_SIZE) *
+          CIRCLE_TEXTURE_SIZE + Math.floor(u * CIRCLE_TEXTURE_SIZE)) * 4;
+        samples[destination++] = srgbToLinearChannel(CIRCLE_TEXTURE_RGBA[offset]);
+        samples[destination++] = srgbToLinearChannel(CIRCLE_TEXTURE_RGBA[offset + 1]);
+        samples[destination++] = srgbToLinearChannel(CIRCLE_TEXTURE_RGBA[offset + 2]);
+        samples[destination++] = (u * 2 - 1) ** 2 + (v * 2 - 1) ** 2;
+      }
+    }
+    nativeCircleBloomSamples = samples;
+  }
+  return nativeCircleBloomSamples;
+}
+
 function colorToLinearEnergy(color, intensity = 1, decodeSrgb = false)
 {
   const safeIntensity = Math.max(0, intensity);
@@ -5630,7 +5660,6 @@ export class BAClickFX
     };
     this.nativeTrailBloomSurface = undefined;
     this.nativeClickBloomSurface = null;
-    this.nativeClickBloomMaskSurface = null;
 
     this.width = 0;
     this.height = 0;
@@ -9347,14 +9376,6 @@ export class BAClickFX
       this.nativeClickBloomSurface.canvas.height = 0;
       this.nativeClickBloomSurface = null;
     }
-    if (this.nativeClickBloomMaskSurface)
-    {
-      this.nativeClickBloomMaskSurface.canvas.width = 0;
-      this.nativeClickBloomMaskSurface.canvas.height = 0;
-      this.nativeClickBloomMaskSurface.angularCanvas.width = 0;
-      this.nativeClickBloomMaskSurface.angularCanvas.height = 0;
-      this.nativeClickBloomMaskSurface = null;
-    }
   }
 
   _getBloomRenderer(index)
@@ -11039,6 +11060,7 @@ export class BAClickFX
     }
 
     const emission = settings.clickEmissionScale;
+    const sampleColor = [0, 0, 0];
     context.save();
     // 光晕是独立的 Final Bloom 增量，不能重画 Cross2 本体或让后来的圆盘
     // 遮住先前的光晕；所有清晰材质提交完毕后只进行一次加色。
@@ -11067,21 +11089,14 @@ export class BAClickFX
         source.blurScale = settings.diskBlur / 65;
         // 小型固定网格来自原 Circle_01，保留纹理面积与 HDR RGB。
         // Cross2 生命周期 Alpha 只衰减背景，不应提前削弱 Bloom 发射。
-        const samples = 16;
-        const area = (2 * radius / samples) ** 2 * settings.diskAlpha / 0.65;
-        for (let y = 0; y < samples; y++)
+        const samples = getNativeCircleBloomSamples();
+        const area = (2 * radius / NATIVE_BLOOM_DISK_SAMPLES) ** 2 * settings.diskAlpha / 0.65;
+        for (let offset = 0; offset < samples.length; offset += 4)
         {
-          for (let x = 0; x < samples; x++)
-          {
-            const u = (x + 0.5) / samples;
-            const v = (y + 0.5) / samples;
-            const offset = (Math.floor(v * CIRCLE_TEXTURE_SIZE) *
-              CIRCLE_TEXTURE_SIZE + Math.floor(u * CIRCLE_TEXTURE_SIZE)) * 4;
-            const color = material.map((channel, index) => channel *
-              srgbToLinearChannel(CIRCLE_TEXTURE_RGBA[offset + index]));
-            const distanceSquared = ((u * 2 - 1) ** 2 + (v * 2 - 1) ** 2) * radius ** 2;
-            addNativeBloomSample(source, color, area, distanceSquared);
-          }
+          sampleColor[0] = material[0] * samples[offset];
+          sampleColor[1] = material[1] * samples[offset + 1];
+          sampleColor[2] = material[2] * samples[offset + 2];
+          addNativeBloomSample(source, sampleColor, area, samples[offset + 3] * radius ** 2);
         }
         sources.push(source);
       }
@@ -11101,9 +11116,8 @@ export class BAClickFX
           source.blurScale = settings.ringBlur / 80;
           source.radius = geometry.radius;
           source.width = geometry.width;
-          source.angularMass = new Float64Array(64);
           const radialSamples = Math.max(1, Math.round(ringCfg.radialSamples));
-          const angularSamples = source.angularMass.length;
+          const angularSamples = 64;
           // GPU 在阈值提取前先缩小 Scene；亚像素环带会与周围黑色平均。
           // 同时扩大样本面积以守恒能量，避免细碎溶解末期仍发出完整圆形光雾。
           const prefilterCoverage = Math.min(1, Math.max(0.000001,
@@ -11121,17 +11135,10 @@ export class BAClickFX
               );
             }
             coverage *= prefilterCoverage / radialSamples;
-            const previousMass = source.transport;
-            addNativeBloomSample(source, material.map((channel) => channel * coverage),
-              area, geometry.radius * geometry.radius);
-            const u = (sample + 0.5) / angularSamples;
-            const angle = (ringCfg.dissolveDirection >= 0 ? u : 1 - u) + ring.rotation / TAU;
-            const position = ((angle % 1 + 1) % 1) * angularSamples;
-            const index = Math.floor(position);
-            const fraction = position - index;
-            const mass = source.transport - previousMass;
-            source.angularMass[index] += mass * (1 - fraction);
-            source.angularMass[(index + 1) % angularSamples] += mass * fraction;
+            sampleColor[0] = material[0] * coverage;
+            sampleColor[1] = material[1] * coverage;
+            sampleColor[2] = material[2] * coverage;
+            addNativeBloomSample(source, sampleColor, area, geometry.radius * geometry.radius);
           }
           sources.push(source);
         }
@@ -11144,48 +11151,9 @@ export class BAClickFX
       {
         continue;
       }
-      // Native 使用与 Software Bloom 一致的各向同性径向扩散；角向环带
-      // 遮罩会把稀疏弧段重新勾勒成圆环，导致与 GPU Bloom 视觉差异明显。
-      const angular = null;
-      let drawContext = context;
-      let size = 0;
-      if (angular && typeof context.createConicGradient === 'function')
-      {
-        if (!this.nativeClickBloomMaskSurface)
-        {
-          const canvas = createCanvas();
-          const maskContext = canvas.getContext('2d');
-          const angularCanvas = createCanvas();
-          const angularContext = angularCanvas.getContext('2d');
-          if (maskContext && angularContext)
-          {
-            this.nativeClickBloomMaskSurface = {
-              canvas, context: maskContext, angularCanvas, angularContext,
-            };
-          }
-        }
-        if (this.nativeClickBloomMaskSurface)
-        {
-          const { canvas, context: maskContext } = this.nativeClickBloomMaskSurface;
-          size = Math.min(512, Math.max(1, Math.ceil(profile.radius * 2 * this.dpr)));
-          const capacity = 2 ** Math.ceil(Math.log2(size));
-          if (canvas.width < capacity || canvas.height < capacity)
-          {
-            canvas.width = capacity;
-            canvas.height = capacity;
-          }
-          maskContext.setTransform(1, 0, 0, 1, 0, 0);
-          maskContext.clearRect(0, 0, size, size);
-          const pixelScale = size / (profile.radius * 2);
-          maskContext.setTransform(pixelScale, 0, 0, pixelScale,
-            (profile.radius - x) * pixelScale, (profile.radius - y) * pixelScale);
-          maskContext.globalAlpha = 1;
-          maskContext.globalCompositeOperation = 'source-over';
-          drawContext = maskContext;
-        }
-      }
-      const gain = drawContext === context ? 1 : angular.gain;
-      const gradient = drawContext.createRadialGradient(x, y, 0, x, y, profile.radius);
+      // 保持原有各向同性扩散，只绘制径向 Profile。
+      const gain = 1;
+      const gradient = context.createRadialGradient(x, y, 0, x, y, profile.radius);
       for (const stop of profile.stops)
       {
         const color = outputCompositing === 'scene'
@@ -11196,93 +11164,9 @@ export class BAClickFX
             : linearEnergyToHostAdditiveCss(stop.energy, gain, linearToSrgb(stop.transport * gain));
         gradient.addColorStop(stop.position, color);
       }
-      drawContext.fillStyle = gradient;
-      drawContext.fillRect(x - profile.radius, y - profile.radius,
+      context.fillStyle = gradient;
+      context.fillRect(x - profile.radius, y - profile.radius,
         profile.radius * 2, profile.radius * 2);
-      if (drawContext !== context)
-      {
-        const { angularCanvas, angularContext } = this.nativeClickBloomMaskSurface;
-        if (angularCanvas.width !== drawContext.canvas.width ||
-            angularCanvas.height !== drawContext.canvas.height)
-        {
-          angularCanvas.width = drawContext.canvas.width;
-          angularCanvas.height = drawContext.canvas.height;
-        }
-        angularContext.setTransform(1, 0, 0, 1, 0, 0);
-        angularContext.clearRect(0, 0, size, size);
-        const center = size / 2;
-        const mask = angularContext.createConicGradient(0, center, center);
-        for (let index = 0; index <= angular.values.length; index++)
-        {
-          mask.addColorStop(index / angular.values.length,
-            `rgba(255, 255, 255, ${angular.values[index % angular.values.length]})`);
-        }
-        angularContext.globalCompositeOperation = 'source-over';
-        angularContext.fillStyle = mask;
-        angularContext.fillRect(0, 0, size, size);
-        // 角向信息只保留在实际环带，禁止 conic mask 从圆心贯穿到
-        // 远场；否则稀疏弧段会形成明显的锥形暗束。
-        const ringCenter = angular.radius / profile.radius * center;
-        const ringBand = Math.max(4, ringCenter * 0.35);
-        const annulus = angularContext.createRadialGradient(
-          center, center, Math.max(0, ringCenter - ringBand),
-          center, center, ringCenter + ringBand,
-        );
-        annulus.addColorStop(0, 'rgba(255, 255, 255, 0)');
-        annulus.addColorStop(0.18, 'rgba(255, 255, 255, 1)');
-        annulus.addColorStop(0.82, 'rgba(255, 255, 255, 1)');
-        annulus.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        angularContext.globalCompositeOperation = 'destination-in';
-        angularContext.fillStyle = annulus;
-        angularContext.fillRect(0, 0, size, size);
-        // 圆心处各方向的扩散应混合为均值；整幅使用锥形遮罩会留下扇形暗缝。
-        const blendRadius = Math.max(1, angular.radius / profile.radius * center * 0.85);
-        for (const uniform of [false, true])
-        {
-          const blend = angularContext.createRadialGradient(
-            center, center, 0, center, center, blendRadius,
-          );
-          const alpha = uniform ? 1 / angular.gain : 1;
-          blend.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
-          blend.addColorStop(1, 'rgba(255, 255, 255, 0)');
-          angularContext.globalCompositeOperation = uniform ? 'lighter' : 'destination-out';
-          angularContext.fillStyle = blend;
-          angularContext.fillRect(0, 0, size, size);
-        }
-        // 角向遮罩只应约束发光环附近；将整张 conic mask 施加到
-        // 径向 profile 会把每条亮弧拉成贯穿中心与外圈的锥形光束。
-        // 在环外渐进补回均匀 Alpha，让远场由径向 Gaussian 决定形状。
-        const outerFadeStart = Math.min(
-          center * 0.98,
-          Math.max(blendRadius, angular.radius / profile.radius * center * 1.15),
-        );
-        const outerUniform = angularContext.createRadialGradient(
-          center, center, outerFadeStart,
-          center, center, center,
-        );
-        const outerClear = angularContext.createRadialGradient(
-          center, center, outerFadeStart,
-          center, center, center,
-        );
-        outerClear.addColorStop(0, 'rgba(255, 255, 255, 0)');
-        outerClear.addColorStop(1, 'rgba(255, 255, 255, 1)');
-        // 先移除残留的角向分量，再补回统一均值；单纯 lighter
-        // 会把低 Alpha 均值叠加到原锥形遮罩上，无法消除扇区暗缝。
-        angularContext.globalCompositeOperation = 'destination-out';
-        angularContext.fillStyle = outerClear;
-        angularContext.fillRect(0, 0, size, size);
-        outerUniform.addColorStop(0, 'rgba(255, 255, 255, 0)');
-        outerUniform.addColorStop(1,
-          `rgba(255, 255, 255, ${1 / angular.gain})`);
-        angularContext.globalCompositeOperation = 'lighter';
-        angularContext.fillStyle = outerUniform;
-        angularContext.fillRect(0, 0, size, size);
-        drawContext.setTransform(1, 0, 0, 1, 0, 0);
-        drawContext.globalCompositeOperation = 'destination-in';
-        drawContext.drawImage(angularCanvas, 0, 0);
-        context.drawImage(drawContext.canvas, 0, 0, size, size,
-          x - profile.radius, y - profile.radius, profile.radius * 2, profile.radius * 2);
-      }
     }
     context.restore();
   }
