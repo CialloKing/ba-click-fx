@@ -21,6 +21,7 @@ const result = {
   node: process.version, platform: process.platform, cpu: cpus()[0]?.model,
   executablePath,
   viewport: { width: 320, height: 240 }, randomSeed: 12345,
+  workloadVersion: 'logical-trail-time-v1',
   targetBatchMs: 20, maximumIterations: 1_000_000,
   note: 'CPU/提交微基准；计数与耗时分开采集，不代表真实 GPU 帧率。',
 };
@@ -139,15 +140,24 @@ try
         }
       };
       let iterations = initialIterations;
-      while ((await batch(iterations)).duration < 20 && iterations < 1_000_000)
+      const calibration = [];
+      while (true)
       {
+        const durationsMs = [];
+        for (let sample = 0; sample < 3; sample++) durationsMs.push((await batch(iterations)).duration);
+        const medianMs = [...durationsMs].sort((a, b) => a - b)[1];
+        calibration.push({ iterations, durationsMs, medianMs });
+        if (medianMs >= 20 || iterations === 1_000_000)
+        {
+          break;
+        }
         iterations = Math.min(1_000_000, iterations * 2);
       }
       const durationsMs = [];
       for (let round = 0; round < 7; round++) durationsMs.push((await batch(iterations)).duration);
       const medianMs = [...durationsMs].sort((a, b) => a - b)[3];
       const counted = await batch(initialIterations, true);
-      return { iterations, rounds: 7, durationsMs, medianMs,
+      return { iterations, calibration, rounds: 7, durationsMs, medianMs,
         msPerIteration: medianMs / iterations,
         belowTargetDuration: medianMs < 20,
         resolutionLimited: iterations === 1_000_000 && medianMs < 20,
@@ -160,15 +170,48 @@ try
     {
       fx.setFxParam('shards.maxCount', 0);
       fx.pointerDown({ x: 10, y: 80, pointerId: 1 });
-      fx._appendPointerSample({ x: 300, y: 120 }, now);
+      fx._appendPointerSample({ x: 300, y: 120 }, fx._getTrailInputTime(now));
     };
     const moveTrail = (fx, i) =>
     {
       now += 16;
-      fx._appendPointerSample({ x: i % 2 ? 150 : 170, y: 100 }, now);
+      // 输入使用轨迹逻辑时钟；后续完整帧仍接收源时间，同一时刻不会重复推进。
+      fx._appendPointerSample({ x: i % 2 ? 150 : 170, y: 100 }, fx._getTrailInputTime(now));
     };
     try
     {
+      const sourceOrigins = [0, 100, 10000];
+      const timeScales = [0.01, 1, 2];
+      for (const trailTimeScale of timeScales)
+      {
+        let expected;
+        for (const origin of sourceOrigins)
+        {
+          now = origin;
+          const fx = effect({ clickEnabled: false, trailTimeScale });
+          try
+          {
+            seedTrail(fx);
+            for (let i = 0; i < 100; i++)
+            {
+              moveTrail(fx, i);
+              const trailNow = fx.trailTimeMs;
+              fx._advanceTrailTime(now);
+              fx._updateTrail(fx.trailTimeMs, 1, false, false, true);
+              if (fx.trailTimeMs !== trailNow || fx.currentTrailStroke.points.some(point =>
+                point.bornAt > trailNow || trailNow - point.bornAt >= fx.fxConfig.trail.lifetimeMs))
+              {
+                throw new Error('微基准轨迹时钟不一致或过期裁剪失败');
+              }
+            }
+            const actual = JSON.stringify(fx.currentTrailStroke.points);
+            if (expected !== undefined && actual !== expected) throw new Error('源时间起点改变了微基准轨迹');
+            expected = actual;
+          }
+          finally { destroyEffect(fx); }
+        }
+      }
+      results.clockValidation = { sourceOrigins, timeScales, cases: sourceOrigins.length * timeScales.length };
       for (const throttled of [false, true])
       {
         results[throttled ? 'throttledInput' : 'idleInput'] = await measure(1000, () =>
@@ -210,7 +253,7 @@ try
           const fx = effect({ clickEnabled: false });
           seedTrail(fx);
           return {
-            work: i => { if (moving) moveTrail(fx, i); fx._updateTrail(now, 1, false, false, false); },
+            work: i => { if (moving) moveTrail(fx, i); fx._updateTrail(fx.trailTimeMs, 1, false, false, false); },
             destroy: () => destroyEffect(fx),
             count: () =>
             {
