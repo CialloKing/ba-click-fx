@@ -1014,6 +1014,7 @@ export class WebGL2EffectRenderer
     this.sceneBackgroundTarget = null;
     this.failedResizeSignature = null;
     this.programs = null;
+    this.uniformLocations = new Map();
     this.emissionBuffer = null;
     this.emissionVao = null;
     this.sceneDiskBuffer = null;
@@ -1059,6 +1060,7 @@ export class WebGL2EffectRenderer
 
   _initialize()
   {
+    this.uniformLocations?.clear();
     try
     {
       const gl = this.canvas?.getContext?.(
@@ -1498,6 +1500,7 @@ export class WebGL2EffectRenderer
   _handleContextLost(event)
   {
     event?.preventDefault?.();
+    this.uniformLocations?.clear();
     this.contextLost = true;
     this.available = false;
     this.sceneFrameReady = false;
@@ -1520,6 +1523,7 @@ export class WebGL2EffectRenderer
 
   _forgetResourceReferences()
   {
+    this.uniformLocations?.clear();
     this.sourceTarget = null;
     this.bloomSourceTarget = null;
     this.sceneOverlayTarget = null;
@@ -1693,6 +1697,7 @@ export class WebGL2EffectRenderer
 
   _deleteResources()
   {
+    this.uniformLocations?.clear();
     if (!this.gl)
     {
       return;
@@ -1988,7 +1993,7 @@ export class WebGL2EffectRenderer
         0,
       );
       gl.uniform2f(
-        gl.getUniformLocation(program, 'u_uvScale'),
+        this._getUniformLocation(program, 'u_uvScale'),
         uvScale[0],
         uvScale[1],
       );
@@ -2323,6 +2328,23 @@ export class WebGL2EffectRenderer
       this.trailVertexCount > 0;
   }
 
+  _getUniformLocation(program, name)
+  {
+    this.uniformLocations ??= new Map();
+    let locations = this.uniformLocations.get(program);
+    if (!locations)
+    {
+      locations = new Map();
+      this.uniformLocations.set(program, locations);
+    }
+    // null 也代表已查询，Shader 优化掉的 Uniform 不应每帧重试。
+    if (!locations.has(name))
+    {
+      locations.set(name, this.gl.getUniformLocation(program, name));
+    }
+    return locations.get(name);
+  }
+
   _drawTexturedAdditiveBatch(
     vertexCount,
     vertexData,
@@ -2360,30 +2382,30 @@ export class WebGL2EffectRenderer
 
     gl.useProgram(program);
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_transparentOverlay'),
+      this._getUniformLocation(program, 'u_transparentOverlay'),
       transparentOverlay ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_alphaModulatesEmission'),
+      this._getUniformLocation(program, 'u_alphaModulatesEmission'),
       alphaModulatesEmission ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_antialiasGeometryCoverage'),
+      this._getUniformLocation(program, 'u_antialiasGeometryCoverage'),
       antialiasGeometryCoverage ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_roundTriangle'),
+      this._getUniformLocation(program, 'u_roundTriangle'),
       roundTriangle ? 1 : 0,
     );
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_displaySize'),
+      this._getUniformLocation(program, 'u_displaySize'),
       this.displayWidth,
       this.displayHeight,
     );
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_texture'),
+      this._getUniformLocation(program, 'u_texture'),
       0,
     );
     gl.bindVertexArray(vertexArray);
@@ -2418,18 +2440,18 @@ export class WebGL2EffectRenderer
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       gl.useProgram(diskProgram);
       gl.uniform2f(
-        gl.getUniformLocation(diskProgram, 'u_displaySize'),
+        this._getUniformLocation(diskProgram, 'u_displaySize'),
         this.displayWidth,
         this.displayHeight,
       );
       gl.uniform1f(
-        gl.getUniformLocation(diskProgram, 'u_emissionScale'),
+        this._getUniformLocation(diskProgram, 'u_emissionScale'),
         diskEmissionScale,
       );
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.circleTexture);
       gl.uniform1i(
-        gl.getUniformLocation(diskProgram, 'u_texture'),
+        this._getUniformLocation(diskProgram, 'u_texture'),
         0,
       );
       gl.bindVertexArray(this.sceneDiskVao);
@@ -2481,7 +2503,7 @@ export class WebGL2EffectRenderer
       }
 
       gl.useProgram(additiveProgram);
-      const compositingLocation = gl.getUniformLocation(
+      const compositingLocation = this._getUniformLocation(
         additiveProgram,
         'u_transparentOverlay',
       );
@@ -2492,7 +2514,7 @@ export class WebGL2EffectRenderer
       }
 
       gl.uniform2f(
-        gl.getUniformLocation(additiveProgram, 'u_displaySize'),
+        this._getUniformLocation(additiveProgram, 'u_displaySize'),
         this.displayWidth,
         this.displayHeight,
       );
@@ -2532,22 +2554,22 @@ export class WebGL2EffectRenderer
 
       gl.useProgram(ringProgram);
       gl.uniform1i(
-        gl.getUniformLocation(ringProgram, 'u_transparentOverlay'),
+        this._getUniformLocation(ringProgram, 'u_transparentOverlay'),
         transparentOverlay ? 1 : 0,
       );
       gl.uniform1f(
-        gl.getUniformLocation(ringProgram, 'u_emissionScale'),
+        this._getUniformLocation(ringProgram, 'u_emissionScale'),
         ringEmissionScale,
       );
       gl.uniform2f(
-        gl.getUniformLocation(ringProgram, 'u_displaySize'),
+        this._getUniformLocation(ringProgram, 'u_displaySize'),
         this.displayWidth,
         this.displayHeight,
       );
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.ringTexture);
       gl.uniform1i(
-        gl.getUniformLocation(ringProgram, 'u_texture'),
+        this._getUniformLocation(ringProgram, 'u_texture'),
         0,
       );
       gl.bindVertexArray(this.ringVao);
@@ -3929,7 +3951,7 @@ export class WebGL2EffectRenderer
 
     gl.activeTexture(gl.TEXTURE0 + unit);
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.uniform1i(gl.getUniformLocation(program, name), unit);
+    gl.uniform1i(this._getUniformLocation(program, name), unit);
   }
 
   _drawFullscreen(program, target, width, height)
@@ -3975,20 +3997,20 @@ export class WebGL2EffectRenderer
     gl.useProgram(program);
     this._bindTexture(program, 'u_source', sourceTarget.texture, 0);
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_sourceTexel'),
+      this._getUniformLocation(program, 'u_sourceTexel'),
       1 / this.sourceWidth,
       1 / this.sourceHeight,
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_threshold'),
+      this._getUniformLocation(program, 'u_threshold'),
       gammaToLinear(settings.threshold),
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_softKnee'),
+      this._getUniformLocation(program, 'u_softKnee'),
       softKnee,
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_clampMax'),
+      this._getUniformLocation(program, 'u_clampMax'),
       clampMax,
     );
     this._drawFullscreen(program, level.down, level.width, level.height);
@@ -4026,7 +4048,7 @@ export class WebGL2EffectRenderer
     gl.useProgram(program);
     this._bindTexture(program, 'u_source', sourceLevel.down.texture, 0);
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_sourceTexel'),
+      this._getUniformLocation(program, 'u_sourceTexel'),
       1 / sourceLevel.width,
       1 / sourceLevel.height,
     );
@@ -4056,12 +4078,12 @@ export class WebGL2EffectRenderer
     );
     this._bindTexture(program, 'u_currentFine', fineLevel.down.texture, 1);
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_accumulatedCoarseTexel'),
+      this._getUniformLocation(program, 'u_accumulatedCoarseTexel'),
       1 / accumulatedCoarseLevel.width,
       1 / accumulatedCoarseLevel.height,
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_sampleScale'),
+      this._getUniformLocation(program, 'u_sampleScale'),
       this.sampleScale,
     );
     this._drawFullscreen(
@@ -4119,48 +4141,48 @@ export class WebGL2EffectRenderer
       3,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_hasScene'),
+      this._getUniformLocation(program, 'u_hasScene'),
       hasScene ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_hasBackground'),
+      this._getUniformLocation(program, 'u_hasBackground'),
       hasBackground ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_transparentOverlay'),
+      this._getUniformLocation(program, 'u_transparentOverlay'),
       settings.outputCompositing === 'browser-overlay' ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_visualMaxAlpha'),
+      this._getUniformLocation(program, 'u_visualMaxAlpha'),
       settings.overlayAlphaPolicy === 'visual-max' ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_brightUnknownBackground'),
+      this._getUniformLocation(program, 'u_brightUnknownBackground'),
       settings.overlayColorCompensation === 'bright-core' ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_hostAdditive'),
+      this._getUniformLocation(program, 'u_hostAdditive'),
       isIndependentHostCompositing(settings.hostCompositing) ? 1 : 0,
     );
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_bloomTexel'),
+      this._getUniformLocation(program, 'u_bloomTexel'),
       1 / this.width,
       1 / this.height,
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_sampleScale'),
+      this._getUniformLocation(program, 'u_sampleScale'),
       this.sampleScale,
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_intensity'),
+      this._getUniformLocation(program, 'u_intensity'),
       resolveUnityBloomIntensity(settings.intensity),
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_overlayAlphaLimit'),
+      this._getUniformLocation(program, 'u_overlayAlphaLimit'),
       clamp(settings.overlayAlphaLimit ?? 1, 0, 1),
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_opacity'),
+      this._getUniformLocation(program, 'u_opacity'),
       clamp(settings.opacity ?? 1, 0, 1),
     );
     gl.bindVertexArray(this.fullscreenVao);

@@ -1748,6 +1748,38 @@ assert(
 
 const fullGeometryRenderer = new WebGL2EffectRenderer(rendererCanvas);
 
+const uniformRenderer = new WebGL2EffectRenderer(null, { initialize: false });
+let uniformQueries = 0;
+uniformRenderer.gl = {
+  getUniformLocation(program, name)
+  {
+    uniformQueries++;
+    return name === 'missing' ? null : { program, name };
+  },
+};
+const firstProgram = {}, secondProgram = {};
+const firstLocation = uniformRenderer._getUniformLocation(firstProgram, 'size');
+assert(
+  uniformRenderer._getUniformLocation(firstProgram, 'size') === firstLocation &&
+    uniformRenderer._getUniformLocation(firstProgram, 'missing') === null &&
+    uniformRenderer._getUniformLocation(firstProgram, 'missing') === null &&
+    uniformRenderer._getUniformLocation(secondProgram, 'size') !== firstLocation &&
+    uniformQueries === 3,
+  'WebGL2 按 Program 缓存 Uniform 位置及不存在的 Uniform',
+);
+uniformRenderer._handleContextLost();
+assert(uniformRenderer.uniformLocations.size === 0, 'Context 丢失立即解除 Uniform 引用');
+uniformRenderer._getUniformLocation(firstProgram, 'size');
+uniformRenderer._forgetResourceReferences();
+assert(
+  uniformRenderer._getUniformLocation(firstProgram, 'size') !== firstLocation && uniformQueries === 5,
+  'Context 资源重建后重新查询 Uniform，不能复用失效位置',
+);
+uniformRenderer.gl = null;
+uniformRenderer.destroy();
+uniformRenderer.destroy();
+assert(uniformRenderer.uniformLocations.size === 0, '重复销毁安全且释放 Uniform 缓存');
+
 fullGeometryRenderer.beginFrame();
 fullGeometryRenderer.addTriangle(
   10,
