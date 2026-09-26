@@ -20,6 +20,8 @@ const result = {
   }).trim(),
   node: process.version, platform: process.platform, cpu: cpus()[0]?.model,
   executablePath,
+  viewport: { width: 320, height: 240 }, randomSeed: 12345,
+  targetBatchMs: 20, maximumIterations: 1_000_000,
   note: 'CPU/提交微基准；计数与耗时分开采集，不代表真实 GPU 帧率。',
 };
 let browser;
@@ -42,6 +44,7 @@ try
     const { WebGL2EffectRenderer } = await import('/src/webgl2-effect.js');
     const { WebGPUEffectRenderer } = await import('/src/webgpu-effect.js');
     const nativeNow = performance.now.bind(performance);
+    const nativeNowDescriptor = Object.getOwnPropertyDescriptor(performance, 'now');
     const nativeRandom = Math.random;
     const nativeRaf = window.requestAnimationFrame;
     const nativeCancelRaf = window.cancelAnimationFrame;
@@ -52,162 +55,279 @@ try
     window.requestAnimationFrame = () => 1;
     window.cancelAnimationFrame = () => {};
     const results = {};
-    const effects = [];
-    let gpu;
-    const geometry = new WebGL2EffectRenderer(null, { initialize: false });
+    const effects = new Set();
+    const renderers = [];
     const effect = options =>
     {
       const fx = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
         inputSource: 'manual', ...options });
-      effects.push(fx);
+      effects.add(fx);
       return fx;
     };
-    const measure = (iterations, work) =>
+    const destroyEffect = fx => { fx.destroy(); effects.delete(fx); };
+    const instrument = (object, name, count, restores) =>
     {
-      for (let i = 0; i < iterations; i++) work(i);
-      const durationsMs = [];
-      for (let round = 0; round < 7; round++)
+      const original = object[name];
+      object[name] = function (...args) { count(...args); return original.apply(this, args); };
+      restores.push(() => { object[name] = original; });
+    };
+    const countGpu = renderer =>
+    {
+      const counts = { uniformLookups: 0, bindGroups: 0, vertexWrites: 0, vertexBytes: 0 };
+      const restores = [];
+      if (renderer.gl)
       {
-        const started = nativeNow();
-        for (let i = 0; i < iterations; i++) work(i);
-        durationsMs.push(nativeNow() - started);
+        instrument(renderer.gl, 'getUniformLocation', () => counts.uniformLookups++, restores);
+        instrument(renderer.gl, 'bufferData', (target, data) =>
+        {
+          if (target === renderer.gl.ARRAY_BUFFER)
+          {
+            counts.vertexWrites++;
+            counts.vertexBytes += data.byteLength ?? data;
+          }
+        }, restores);
       }
-      return { iterations, rounds: 7, durationsMs,
-        medianMs: [...durationsMs].sort((a, b) => a - b)[3] };
+      else
+      {
+        instrument(renderer.device, 'createBindGroup', () => counts.bindGroups++, restores);
+        instrument(renderer.device.queue, 'writeBuffer', (buffer, offset, data, dataOffset, size) =>
+        {
+          if (buffer.label.endsWith(' vertices'))
+          {
+            counts.vertexWrites++;
+            counts.vertexBytes += size;
+          }
+        }, restores);
+      }
+      return { counts, restore: () => restores.reverse().forEach(restore => restore()) };
+    };
+    const flushGpu = renderer => renderer.gl
+      ? renderer.gl.finish() : renderer.device.queue.onSubmittedWorkDone();
+    const countFloat64 = key =>
+    {
+      const Float64 = globalThis.Float64Array;
+      const counts = { [key]: 0 };
+      globalThis.Float64Array = new Proxy(Float64, {
+        construct(target, args) { counts[key]++; return new target(...args); },
+      });
+      return { counts, restore: () => { globalThis.Float64Array = Float64; } };
+    };
+    const measure = async (initialIterations, create) =>
+    {
+      const batch = async (iterations, counting = false) =>
+      {
+        // 每轮从相同逻辑状态预热，避免移动轨迹和随机粒子逐轮改变工作量。
+        now = 100; seed = 12345;
+        const fixture = await create();
+        let counter;
+        try
+        {
+          for (let i = 0; i < initialIterations; i++) fixture.work(i);
+          await fixture.flush?.();
+          if (counting) counter = fixture.count?.();
+          const started = nativeNow();
+          for (let i = 0; i < iterations; i++) fixture.work(i);
+          const duration = nativeNow() - started;
+          // GPU 完成等待不进入 CPU 提交计时，也不把队列积压带到下一轮。
+          await fixture.flush?.();
+          return { duration, counts: counter?.counts, details: fixture.details?.() };
+        }
+        finally
+        {
+          counter?.restore();
+          fixture.destroy?.();
+        }
+      };
+      let iterations = initialIterations;
+      while ((await batch(iterations)).duration < 20 && iterations < 1_000_000)
+      {
+        iterations = Math.min(1_000_000, iterations * 2);
+      }
+      const durationsMs = [];
+      for (let round = 0; round < 7; round++) durationsMs.push((await batch(iterations)).duration);
+      const medianMs = [...durationsMs].sort((a, b) => a - b)[3];
+      const counted = await batch(initialIterations, true);
+      return { iterations, rounds: 7, durationsMs, medianMs,
+        msPerIteration: medianMs / iterations,
+        belowTargetDuration: medianMs < 20,
+        resolutionLimited: iterations === 1_000_000 && medianMs < 20,
+        ...counted.details, ...counted.counts };
     };
     const ring = renderer => renderer.addDissolveRing(
       160, 120, 50, 10, 0.35, 8, 96, [1, 0.6, 2], 0.7, 0.5, 0.1, 0.9, -1,
     );
+    const seedTrail = fx =>
+    {
+      fx.setFxParam('shards.maxCount', 0);
+      fx.pointerDown({ x: 10, y: 80, pointerId: 1 });
+      fx._appendPointerSample({ x: 300, y: 120 }, now);
+    };
+    const moveTrail = (fx, i) =>
+    {
+      now += 16;
+      fx._appendPointerSample({ x: i % 2 ? 150 : 170, y: 100 }, now);
+    };
     try
     {
-      const input = effect({ clickEnabled: false });
-      const sample = { pointerId: 1, pointerType: 'mouse', clientX: 100,
-        clientY: 100, timeStamp: now };
-      const idle = () => input._handlePointerMove(sample);
-      results.idleInput = measure(1000, idle);
-      let reads = 0;
-      const getRect = input._getCanvasRect.bind(input);
-      input._getCanvasRect = () => { reads++; return getRect(); };
-      for (let i = 0; i < 1000; i++) idle();
-      results.idleInput.layoutReadsPer1000 = reads;
-      input._getCanvasRect = getRect;
-
-      input.pointerDown({ x: 100, y: 100, pointerId: 1 });
-      input.setInputSamplingRate(60);
-      const batch = { ...sample, getCoalescedEvents: () => Array(100).fill(sample) };
-      const throttled = () =>
+      for (const throttled of [false, true])
       {
-        input.lastInputSampleSourceTime = now;
-        input._handlePointerMove(batch);
-      };
-      results.throttledInput = measure(1000, throttled);
-      reads = 0;
-      input._getCanvasRect = () => { reads++; return getRect(); };
-      for (let i = 0; i < 1000; i++) throttled();
-      results.throttledInput.layoutReadsPer1000 = reads;
-      input._getCanvasRect = getRect;
-
-      const rings = () => { geometry.beginFrame(); ring(geometry); ring(geometry); };
-      results.rings = measure(1000, rings);
-      let allocations = 0;
-      const Float64 = globalThis.Float64Array;
-      try
-      {
-        globalThis.Float64Array = new Proxy(Float64, {
-          construct(target, args) { allocations++; return new target(...args); },
+        results[throttled ? 'throttledInput' : 'idleInput'] = await measure(1000, () =>
+        {
+          const fx = effect({ clickEnabled: false });
+          const sample = { pointerId: 1, pointerType: 'mouse', clientX: 100, clientY: 100, timeStamp: now };
+          if (throttled)
+          {
+            fx.pointerDown({ x: 100, y: 100, pointerId: 1 });
+            fx.setInputSamplingRate(60);
+          }
+          const event = throttled ? { ...sample, getCoalescedEvents: () => Array(100).fill(sample) } : sample;
+          return {
+            work: () => { if (throttled) fx.lastInputSampleSourceTime = now; fx._handlePointerMove(event); },
+            destroy: () => destroyEffect(fx),
+            count: () =>
+            {
+              const counts = { layoutReadsPer1000: 0 }, restores = [];
+              instrument(fx, '_getCanvasRect', () => counts.layoutReadsPer1000++, restores);
+              return { counts, restore: restores[0] };
+            },
+          };
         });
-        for (let i = 0; i < 1000; i++) rings();
       }
-      finally { globalThis.Float64Array = Float64; }
-      results.rings.float64AllocationsPer1000 = allocations;
-      results.rings.vertexBytes = geometry.ringVertexCount * 9 * 4;
-
-      const trail = effect({ clickEnabled: false });
-      trail.setFxParam('shards.maxCount', 0);
-      trail.pointerDown({ x: 10, y: 80, pointerId: 1 });
-      trail._appendPointerSample({ x: 300, y: 120 }, now);
-      const fixed = () => trail._updateTrail(now, 1, false, false, false);
-      results.fixedTrail = measure(500, fixed);
-      let rebuilds = 0;
-      for (let i = 0; i < 500; i++)
+      results.rings = await measure(1000, () =>
       {
-        const before = trail.currentTrailStroke.trailFrameData?.measurement;
-        fixed();
-        rebuilds += before !== trail.currentTrailStroke.trailFrameData?.measurement ? 1 : 0;
-      }
-      results.fixedTrail.measurementsPer500 = rebuilds;
-      results.changingTrail = measure(100, i =>
-      {
-        now += 16;
-        trail._appendPointerSample({ x: i % 2 ? 150 : 170, y: 100 }, now);
-        trail._updateTrail(now, 1, false, false, false);
+        const geometry = new WebGL2EffectRenderer(null, { initialize: false });
+        return {
+          work: () => { geometry.beginFrame(); ring(geometry); ring(geometry); },
+          destroy: () => geometry.destroy(),
+          count: () => countFloat64('float64AllocationsPer1000'),
+          details: () => ({ vertexBytes: geometry.ringVertexCount * 9 * 4 }),
+        };
       });
-
-      const clicks = effect({ trailEnabled: false });
-      for (let i = 0; i < 6; i++) clicks.boom(70 + i * 30, 120);
-      // 固定时间只测同一年龄的颜色与 Native 输出工作，防止对象逐轮过期。
-      clicks._renderFrame(now + 120);
-      results.denseClicks = measure(20, () => clicks._renderFrame(now + 120));
-
-      const canvas = document.createElement('canvas');
-      document.body.appendChild(canvas);
-      gpu = new WebGPUEffectRenderer(canvas);
-      if (!(await gpu.ready) || !gpu.resize(320, 240, 1, 0.5, 5))
+      for (const moving of [false, true])
       {
-        results.webgpu = { skipped: true, reason: gpu.deviceManager.diagnostics };
+        results[moving ? 'changingTrail' : 'fixedTrail'] = await measure(moving ? 100 : 500, () =>
+        {
+          const fx = effect({ clickEnabled: false });
+          seedTrail(fx);
+          return {
+            work: i => { if (moving) moveTrail(fx, i); fx._updateTrail(now, 1, false, false, false); },
+            destroy: () => destroyEffect(fx),
+            count: () =>
+            {
+              const counts = { measurementRebuilds: 0 };
+              const original = fx._updateTrail;
+              fx._updateTrail = function (...args)
+              {
+                const before = this.currentTrailStroke.trailFrameData?.measurement;
+                original.apply(this, args);
+                counts.measurementRebuilds += before !== this.currentTrailStroke.trailFrameData?.measurement ? 1 : 0;
+              };
+              return { counts, restore: () => { fx._updateTrail = original; } };
+            },
+          };
+        });
       }
-      else
+      results.fixedTrail.measurementsPer500 = results.fixedTrail.measurementRebuilds;
+      for (const software of [false, true])
       {
-        results.webgpu = { skipped: false, outputMode: gpu.deviceManager.outputMode,
-          adapter: Object.fromEntries(['vendor', 'architecture', 'device', 'description'].map(key =>
-            [key, gpu.deviceManager.adapter?.info?.[key] ?? null])) };
-        for (const separateEmission of [false, true])
+        results[software ? 'softwareOverlay' : 'denseClicks'] = await measure(20, () =>
+        {
+          const fx = effect({ trailEnabled: software, bloomBackend: software ? 'software' : 'native',
+            outputCompositing: software ? 'browser-overlay' : 'scene' });
+          if (software) seedTrail(fx);
+          for (let i = 0; i < (software ? 2 : 6); i++) fx.boom(70 + i * 30, 120);
+          return {
+            work: () =>
+            {
+              fx._renderFrame(now + 120);
+              if (fx.resolvedBloomBackend !== (software ? 'software' : 'native')) throw new Error('Canvas 微基准发生意外后端回退');
+              if (software && !fx.lastSoftwareBloomFrame) throw new Error('Software 微基准未生成完整输出快照');
+            },
+            destroy: () => destroyEffect(fx),
+            count: () => countFloat64('float64AllocationsPer20'),
+          };
+        });
+      }
+      for (const backend of ['webgl2', 'webgpu'])
+      {
+        const canvas = document.createElement('canvas');
+        const renderer = backend === 'webgl2' ? new WebGL2EffectRenderer(canvas) : new WebGPUEffectRenderer(canvas);
+        renderers.push(renderer);
+        if (backend === 'webgpu') await renderer.ready;
+        if (!renderer.available)
+        {
+          results[backend] = { skipped: true, reason: renderer.deviceManager?.diagnostics ?? 'WebGL2 上下文或必需渲染能力不可用' };
+          continue;
+        }
+        if (!renderer.resize(320, 240, 1, 0.5, 5)) throw new Error(`${backend} 微基准尺寸准备失败`);
+        const info = renderer.gl?.getExtension('WEBGL_debug_renderer_info');
+        results[backend] = { skipped: false, outputMode: renderer.deviceManager?.outputMode,
+          renderer: info ? renderer.gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : undefined,
+          adapter: backend === 'webgpu' ? Object.fromEntries(['vendor', 'architecture', 'device', 'description'].map(key =>
+            [key, renderer.deviceManager.adapter?.info?.[key] ?? null])) : undefined };
+        for (const separate of [false, true])
         {
           const settings = { ...UNITY_FX_TOUCH.bloom, outputCompositing: 'scene',
-            diskEmissionScale: separateEmission ? 2 : 1,
-            ringEmissionScale: separateEmission ? 2 : 1 };
-          const frame = () =>
-          {
-            gpu.beginFrame(); ring(gpu); ring(gpu);
-            if (!gpu.renderScene(settings) || !gpu.render(settings, { preserveCanvas: true }))
-              throw new Error('WebGPU 微基准提交失败');
-          };
-          const measured = measure(50, frame);
-          await gpu.device.queue.onSubmittedWorkDone();
-          const counts = { bindGroups: 0, vertexWrites: 0, vertexBytes: 0 };
-          const bind = gpu.device.createBindGroup.bind(gpu.device);
-          const write = gpu.device.queue.writeBuffer.bind(gpu.device.queue);
-          try
-          {
-            gpu.device.createBindGroup = (...args) => { counts.bindGroups++; return bind(...args); };
-            gpu.device.queue.writeBuffer = (buffer, ...args) =>
+            diskEmissionScale: separate ? 2 : 1, ringEmissionScale: separate ? 2 : 1 };
+          results[backend][separate ? 'separateEmission' : 'normal'] = await measure(50, () => ({
+            work: () =>
             {
-              if (buffer.label.endsWith(' vertices'))
-              {
-                counts.vertexWrites++;
-                counts.vertexBytes += args[3];
-              }
-              return write(buffer, ...args);
-            };
-            for (let i = 0; i < 50; i++) frame();
-          }
-          finally
+              renderer.beginFrame(); ring(renderer); ring(renderer);
+              if (!renderer.renderScene(settings) || !renderer.render(settings, { preserveCanvas: true }))
+                throw new Error(`${backend} 微基准提交失败`);
+            },
+            flush: () => flushGpu(renderer),
+            count: () =>
+            {
+              const counter = countGpu(renderer);
+              return { ...counter, counts: { countsPer50: counter.counts } };
+            },
+          }));
+        }
+        results[backend].trails = {};
+        for (const themed of [false, true])
+        {
+          for (const moving of [false, true])
           {
-            gpu.device.createBindGroup = bind;
-            gpu.device.queue.writeBuffer = write;
+            results[backend].trails[`${themed ? 'relativeOklch' : 'default'}-${moving ? 'moving' : 'fixed'}`] = await measure(50, async () =>
+            {
+              const fx = effect({ clickEnabled: false, effectBackend: backend, bloomBackend: 'webgl2',
+                themeColor: themed ? '#ff6699' : '#4ca7ff', themeColorMode: 'relative-oklch' });
+              if (backend === 'webgpu')
+              {
+                fx._ensureWebGPUEffectRenderer();
+                if (!(await fx.webgpuEffectRenderer?.ready)) throw new Error('WebGPU 拖尾实例初始化失败');
+              }
+              seedTrail(fx);
+              const activeRenderer = () => backend === 'webgl2' ? fx.webglEffectRenderer : fx.webgpuEffectRenderer;
+              return {
+                work: i =>
+                {
+                  if (moving) moveTrail(fx, i);
+                  fx._renderFrame(now);
+                  if (fx.resolvedEffectBackend !== backend) throw new Error(`${backend} 拖尾微基准发生意外后端回退`);
+                },
+                flush: () => flushGpu(activeRenderer()),
+                destroy: () => destroyEffect(fx),
+                count: () =>
+                {
+                  const counter = countGpu(activeRenderer());
+                  return { ...counter, counts: { countsPer50: counter.counts } };
+                },
+                details: () => ({ pointCount: fx.currentTrailStroke.points.length }),
+              };
+            });
           }
-          results.webgpu[separateEmission ? 'separateEmission' : 'normal'] = {
-            ...measured, countsPer50: counts,
-          };
         }
       }
       return results;
     }
     finally
     {
-      gpu?.destroy(); geometry.destroy();
+      for (const renderer of renderers) renderer.destroy();
       for (const fx of effects) fx.destroy();
-      delete performance.now;
+      if (nativeNowDescriptor) Object.defineProperty(performance, 'now', nativeNowDescriptor);
+      else delete performance.now;
       Math.random = nativeRandom;
       window.requestAnimationFrame = nativeRaf;
       window.cancelAnimationFrame = nativeCancelRaf;
