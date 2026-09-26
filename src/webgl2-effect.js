@@ -1024,6 +1024,8 @@ export class WebGL2EffectRenderer
     this.ringTexture = null;
     this.triangleBuffer = null;
     this.triangleVao = null;
+    this.trailBuffer = null;
+    this.trailVao = null;
     this.triangleTexture = null;
     this.triangleOverlayTexture = null;
     this.trailTexture = null;
@@ -1169,6 +1171,8 @@ export class WebGL2EffectRenderer
       this.ringTexture = gl.createTexture();
       this.triangleBuffer = gl.createBuffer();
       this.triangleVao = gl.createVertexArray();
+      this.trailBuffer = gl.createBuffer();
+      this.trailVao = gl.createVertexArray();
       this.triangleTexture = gl.createTexture();
       this.triangleOverlayTexture = gl.createTexture();
       this.trailTexture = gl.createTexture();
@@ -1186,6 +1190,8 @@ export class WebGL2EffectRenderer
         !this.ringTexture ||
         !this.triangleBuffer ||
         !this.triangleVao ||
+        !this.trailBuffer ||
+        !this.trailVao ||
         !this.triangleTexture ||
         !this.triangleOverlayTexture ||
         !this.trailTexture ||
@@ -1329,59 +1335,8 @@ export class WebGL2EffectRenderer
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-      gl.bindVertexArray(this.triangleVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.triangleBuffer);
-
-      const triangleStride = COMPONENTS_PER_TRIANGLE_VERTEX *
-        Float32Array.BYTES_PER_ELEMENT;
-
-      gl.enableVertexAttribArray(0);
-      gl.vertexAttribPointer(
-        0,
-        2,
-        gl.FLOAT,
-        false,
-        triangleStride,
-        0,
-      );
-      gl.enableVertexAttribArray(1);
-      gl.vertexAttribPointer(
-        1,
-        2,
-        gl.FLOAT,
-        false,
-        triangleStride,
-        2 * Float32Array.BYTES_PER_ELEMENT,
-      );
-      gl.enableVertexAttribArray(2);
-      gl.vertexAttribPointer(
-        2,
-        3,
-        gl.FLOAT,
-        false,
-        triangleStride,
-        4 * Float32Array.BYTES_PER_ELEMENT,
-      );
-      gl.enableVertexAttribArray(3);
-      gl.vertexAttribPointer(
-        3,
-        1,
-        gl.FLOAT,
-        false,
-        triangleStride,
-        7 * Float32Array.BYTES_PER_ELEMENT,
-      );
-      gl.enableVertexAttribArray(4);
-      gl.vertexAttribPointer(
-        4,
-        1,
-        gl.FLOAT,
-        false,
-        triangleStride,
-        8 * Float32Array.BYTES_PER_ELEMENT,
-      );
-      gl.bindVertexArray(null);
-      gl.bindBuffer(gl.ARRAY_BUFFER, null);
+      this._initializeTexturedVertexArray(this.triangleVao, this.triangleBuffer);
+      this._initializeTexturedVertexArray(this.trailVao, this.trailBuffer);
 
       // Ring3 的 Alpha 不参与 sRGB 解码；R8 保留 Unity Alpha 采样真值。
       gl.bindTexture(gl.TEXTURE_2D, this.ringTexture);
@@ -1497,6 +1452,64 @@ export class WebGL2EffectRenderer
     }
   }
 
+  _initializeTexturedVertexArray(vertexArray, buffer)
+  {
+    const gl = this.gl;
+    gl.bindVertexArray(vertexArray);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+
+    const stride = COMPONENTS_PER_TRIANGLE_VERTEX *
+      Float32Array.BYTES_PER_ELEMENT;
+
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(
+      0,
+      2,
+      gl.FLOAT,
+      false,
+      stride,
+      0,
+    );
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(
+      1,
+      2,
+      gl.FLOAT,
+      false,
+      stride,
+      2 * Float32Array.BYTES_PER_ELEMENT,
+    );
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(
+      2,
+      3,
+      gl.FLOAT,
+      false,
+      stride,
+      4 * Float32Array.BYTES_PER_ELEMENT,
+    );
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(
+      3,
+      1,
+      gl.FLOAT,
+      false,
+      stride,
+      7 * Float32Array.BYTES_PER_ELEMENT,
+    );
+    gl.enableVertexAttribArray(4);
+    gl.vertexAttribPointer(
+      4,
+      1,
+      gl.FLOAT,
+      false,
+      stride,
+      8 * Float32Array.BYTES_PER_ELEMENT,
+    );
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  }
+
   _handleContextLost(event)
   {
     event?.preventDefault?.();
@@ -1544,6 +1557,8 @@ export class WebGL2EffectRenderer
     this.ringTexture = null;
     this.triangleBuffer = null;
     this.triangleVao = null;
+    this.trailBuffer = null;
+    this.trailVao = null;
     this.triangleTexture = null;
     this.triangleOverlayTexture = null;
     this.trailTexture = null;
@@ -1727,6 +1742,8 @@ export class WebGL2EffectRenderer
     gl.deleteTexture(this.ringTexture);
     gl.deleteBuffer(this.triangleBuffer);
     gl.deleteVertexArray(this.triangleVao);
+    gl.deleteBuffer(this.trailBuffer);
+    gl.deleteVertexArray(this.trailVao);
     gl.deleteTexture(this.triangleTexture);
     gl.deleteTexture(this.triangleOverlayTexture);
     gl.deleteTexture(this.trailTexture);
@@ -1743,6 +1760,8 @@ export class WebGL2EffectRenderer
     this.ringTexture = null;
     this.triangleBuffer = null;
     this.triangleVao = null;
+    this.trailBuffer = null;
+    this.trailVao = null;
     this.triangleTexture = null;
     this.triangleOverlayTexture = null;
     this.trailTexture = null;
@@ -2347,8 +2366,6 @@ export class WebGL2EffectRenderer
 
   _drawTexturedAdditiveBatch(
     vertexCount,
-    vertexData,
-    buffer,
     vertexArray,
     texture,
     transparentOverlay,
@@ -2409,8 +2426,6 @@ export class WebGL2EffectRenderer
       0,
     );
     gl.bindVertexArray(vertexArray);
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.DYNAMIC_DRAW);
     gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
   }
 
@@ -2455,15 +2470,6 @@ export class WebGL2EffectRenderer
         0,
       );
       gl.bindVertexArray(this.sceneDiskVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.sceneDiskBuffer);
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        this.sceneDiskVertexData.subarray(
-          0,
-          this.sceneDiskVertexCount * COMPONENTS_PER_DISK_VERTEX,
-        ),
-        gl.DYNAMIC_DRAW,
-      );
       gl.drawArrays(gl.TRIANGLES, 0, this.sceneDiskVertexCount);
     }
 
@@ -2471,13 +2477,7 @@ export class WebGL2EffectRenderer
     // One/One 材质，随后完成同队列的其余加色粒子。
     this._drawTexturedAdditiveBatch(
       this.trailVertexCount,
-      this.trailVertexData.subarray(
-        0,
-        this.trailVertexCount * COMPONENTS_PER_TRAIL_VERTEX,
-      ),
-      // 两种纹理几何共享 8-float 布局，顺序上传可复用同一 GPU 缓冲。
-      this.triangleBuffer,
-      this.triangleVao,
+      this.trailVao,
       this.trailTexture,
       transparentOverlay,
       false,
@@ -2519,15 +2519,6 @@ export class WebGL2EffectRenderer
         this.displayHeight,
       );
       gl.bindVertexArray(this.emissionVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.emissionBuffer);
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        this.vertexData.subarray(
-          0,
-          this.vertexCount * COMPONENTS_PER_VERTEX,
-        ),
-        gl.DYNAMIC_DRAW,
-      );
       gl.drawArrays(gl.TRIANGLES, 0, this.vertexCount);
     }
 
@@ -2573,15 +2564,6 @@ export class WebGL2EffectRenderer
         0,
       );
       gl.bindVertexArray(this.ringVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.ringBuffer);
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        this.ringVertexData.subarray(
-          0,
-          this.ringVertexCount * COMPONENTS_PER_RING_VERTEX,
-        ),
-        gl.DYNAMIC_DRAW,
-      );
       gl.drawArrays(gl.TRIANGLES, 0, this.ringVertexCount);
     }
 
@@ -2590,11 +2572,6 @@ export class WebGL2EffectRenderer
     {
       this._drawTexturedAdditiveBatch(
         this.triangleVertexCount,
-        this.triangleVertexData.subarray(
-          0,
-          this.triangleVertexCount * COMPONENTS_PER_TRIANGLE_VERTEX,
-        ),
-        this.triangleBuffer,
         this.triangleVao,
         transparentOverlay
           ? this.triangleOverlayTexture
@@ -2607,6 +2584,32 @@ export class WebGL2EffectRenderer
     }
 
     gl.disable(gl.BLEND);
+  }
+
+  _uploadGeometryBuffer(buffer, data, vertexCount, components)
+  {
+    if (vertexCount <= 0)
+    {
+      return;
+    }
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, vertexCount * components), gl.DYNAMIC_DRAW);
+  }
+
+  _uploadGeometryBatches()
+  {
+    // 每次场景提交都重新上传；仅复用本次清晰层与发光层，不能跨调用猜测几何未变。
+    this._uploadGeometryBuffer(this.sceneDiskBuffer, this.sceneDiskVertexData,
+      this.sceneDiskVertexCount, COMPONENTS_PER_DISK_VERTEX);
+    this._uploadGeometryBuffer(this.trailBuffer, this.trailVertexData,
+      this.trailVertexCount, COMPONENTS_PER_TRAIL_VERTEX);
+    this._uploadGeometryBuffer(this.emissionBuffer, this.vertexData,
+      this.vertexCount, COMPONENTS_PER_VERTEX);
+    this._uploadGeometryBuffer(this.ringBuffer, this.ringVertexData,
+      this.ringVertexCount, COMPONENTS_PER_RING_VERTEX);
+    this._uploadGeometryBuffer(this.triangleBuffer, this.triangleVertexData,
+      this.triangleVertexCount, COMPONENTS_PER_TRIANGLE_VERTEX);
   }
 
   _renderScaledBloomSource(settings)
@@ -2703,6 +2706,7 @@ export class WebGL2EffectRenderer
         return true;
       }
 
+      this._uploadGeometryBatches();
       this._drawGeometryBatches(
         this.programs.scene,
         settings.outputCompositing === 'browser-overlay',
@@ -3975,6 +3979,7 @@ export class WebGL2EffectRenderer
     gl.viewport(0, 0, this.sourceWidth, this.sourceHeight);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
+    this._uploadGeometryBatches();
     this._drawGeometryBatches(
       this.programs.emission,
       transparentOverlay,

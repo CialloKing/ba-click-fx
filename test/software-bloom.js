@@ -1780,6 +1780,104 @@ uniformRenderer.destroy();
 uniformRenderer.destroy();
 assert(uniformRenderer.uniformLocations.size === 0, '重复销毁安全且释放 Uniform 缓存');
 
+// 只记录缓冲/VAO 的归属和提交，不模拟 Shader 或像素执行。
+function createGeometryUploadHarness(failTrailBuffer = false)
+{
+  const uploads = [], draws = [], buffers = [], vaos = [], deleted = new Set();
+  let boundBuffer, boundVao;
+  const gl = new Proxy({
+    createBuffer()
+    {
+      if (failTrailBuffer && buffers.length === 4) return null;
+      const buffer = { id: buffers.length };
+      buffers.push(buffer);
+      return buffer;
+    },
+    createVertexArray() { const vao = {}; vaos.push(vao); return vao; },
+    bindBuffer(target, buffer) { boundBuffer = buffer; },
+    bindVertexArray(vao) { boundVao = vao; },
+    vertexAttribPointer() { boundVao.buffer = boundBuffer; },
+    bufferData(target, data) { boundBuffer.data = data.slice(); uploads.push(boundBuffer); },
+    drawArrays() { draws.push({ buffer: boundVao.buffer, data: boundVao.buffer.data.slice() }); },
+    deleteBuffer(buffer) { if (buffer) deleted.add(buffer); },
+    deleteVertexArray(vao) { if (vao) deleted.add(vao); },
+    getExtension() { return {}; },
+    getParameter(name) { return name === 'MAX_VIEWPORT_DIMS' ? [8192, 8192] : 8192; },
+    getShaderParameter() { return true; },
+    getProgramParameter() { return true; },
+    getError() { return 'NO_ERROR'; },
+    checkFramebufferStatus() { return 'FRAMEBUFFER_COMPLETE'; },
+  }, {
+    get(target, name)
+    {
+      if (name in target) return target[name];
+      if (/^[A-Z_0-9]+$/.test(name)) return name;
+      return name.startsWith('create') || name === 'getUniformLocation' ? () => ({}) : () => {};
+    },
+  });
+  const canvas = { addEventListener() {}, removeEventListener() {}, getContext: () => gl };
+  return { gl, canvas, uploads, draws, buffers, vaos, deleted };
+}
+const uploadHarness = createGeometryUploadHarness();
+const uploadRenderer = new WebGL2EffectRenderer(uploadHarness.canvas);
+uploadRenderer.resize(320, 240, 1, 0.5, 5);
+const batches = [
+  ['sceneDisk', 8], ['trail', 9], ['', 6], ['ring', 9], ['triangle', 9],
+];
+for (let index = 0; index < batches.length; index++)
+{
+  const [name, components] = batches[index];
+  const prefix = name ? `${name}Vertex` : 'vertex';
+  uploadRenderer[`${prefix}Count`] = 3;
+  uploadRenderer[`${prefix}Data`].fill(index + 1, 0, 3 * components);
+}
+assert(uploadRenderer.renderScene({ diskEmissionScale: 2, ringEmissionScale: 2 }),
+  '包含全部几何的独立发光层场景成功提交');
+assert(uploadHarness.uploads.length === 5 && new Set(uploadHarness.uploads).size === 5 &&
+  uploadHarness.draws.length === 10 && uploadHarness.draws.every((draw, index) =>
+    draw.data.every(value => value === index % 5 + 1)),
+  '每种几何只上传一次，两个层保持圆盘/拖尾/粒子/圆环/碎片顺序且数据互不覆盖');
+const firstTrailBuffer = uploadRenderer.trailBuffer;
+uploadRenderer.trailVertexData[0] = 77;
+uploadHarness.uploads.length = uploadHarness.draws.length = 0;
+assert(uploadRenderer.renderScene({}) && uploadHarness.uploads.length === 5 &&
+  uploadHarness.draws[1].data[0] === 77 && uploadRenderer.trailBuffer === firstTrailBuffer,
+  '后续场景调用重新上传修改后的数据，并保留 GPU 缓冲对象');
+uploadHarness.uploads.length = uploadHarness.draws.length = 0;
+uploadRenderer._renderEmission({});
+assert(uploadHarness.uploads.length === 5 && uploadHarness.draws[1].data[0] === 77,
+  '独立 Bloom 入口自行上传全部当前几何');
+uploadRenderer.beginFrame();
+uploadHarness.uploads.length = 0;
+assert(uploadRenderer.renderScene({}) && uploadHarness.uploads.length === 0,
+  '空场景不上传顶点');
+uploadRenderer._handleContextLost();
+uploadRenderer._handleContextRestored();
+assert(uploadRenderer.available && uploadRenderer.trailBuffer !== firstTrailBuffer &&
+  uploadRenderer.trailVao.buffer === uploadRenderer.trailBuffer &&
+  !uploadHarness.deleted.has(firstTrailBuffer),
+  'Context 恢复重新建立拖尾 VAO，避免删除浏览器已作废的旧对象');
+const restoredTrailBuffer = uploadRenderer.trailBuffer;
+const restoredTrailVao = uploadRenderer.trailVao;
+uploadRenderer.destroy();
+uploadRenderer.destroy();
+assert(uploadHarness.deleted.has(restoredTrailBuffer) && uploadHarness.deleted.has(restoredTrailVao) &&
+  uploadRenderer.trailBuffer === null && uploadRenderer.trailVao === null,
+  '重复销毁释放新增拖尾资源');
+const failedUploadHarness = createGeometryUploadHarness(true);
+const savedUploadWarning = console.warn;
+let failedUploadRenderer;
+try
+{
+  console.warn = () => {};
+  failedUploadRenderer = new WebGL2EffectRenderer(failedUploadHarness.canvas);
+}
+finally { console.warn = savedUploadWarning; }
+assert(!failedUploadRenderer.available && failedUploadRenderer.trailBuffer === null &&
+  [...failedUploadHarness.buffers, ...failedUploadHarness.vaos].every(value => failedUploadHarness.deleted.has(value)),
+  '拖尾缓冲分配失败时回收已创建的全部缓冲和 VAO');
+failedUploadRenderer.destroy();
+
 fullGeometryRenderer.beginFrame();
 fullGeometryRenderer.addTriangle(
   10,
