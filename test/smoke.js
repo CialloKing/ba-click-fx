@@ -6529,4 +6529,127 @@ assert(JSON.stringify(reentrantTrailEffect.currentTrailStroke.trailFrameData.seg
   '帧内重入改主题后，下一帧不能把旧主题计算结果误认为新缓存');
 reentrantTrailEffect.destroy();
 
+const gpuCacheDom = installDom();
+function createGpuTrailFixture(options = {})
+{
+  gpuCacheDom.setCurrentTime(0);
+  const fx = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+    inputSource: 'manual', clickEnabled: false, ...options });
+  const recorder = {
+    available: true, contextLost: false, stats: {}, triangles: [],
+    beginFrame(options = {}) { if (!options.preserveSceneStats) this.triangles = []; },
+    addTexturedTrailTriangle(...args) { this.triangles.push(args); },
+    renderScene() { return true; }, render() { return true; }, clear() {},
+  };
+  fx._prepareEffectBackend = () => 'webgl2';
+  fx._renderGPUClickEffects = (backend, scale) => fx._renderWebGL2Scene(recorder, scale);
+  fx.setFxParam('shards.maxCount', 0);
+  fx.pointerDown({ x: 10, y: 10, pointerId: 50 });
+  fx._appendPointerSample({ x: 20, y: 10 }, 20);
+  fx._appendPointerSample({ x: 20, y: 30 }, 40);
+  fx._renderFrame(40);
+  return { fx, recorder, stroke: fx.currentTrailStroke };
+}
+const gpuGoldenRecords = [];
+for (const [themeColor, themeColorMode] of [
+  ['#4ca7ff', 'relative-oklch'], ['#ff8800', 'hue-only'], ['#ff6699', 'relative-oklch'],
+])
+{
+  for (const opacity of [0.4, 1])
+  {
+    for (const scale of [0.7, 1.3])
+    {
+      const fixture = createGpuTrailFixture({ themeColor, themeColorMode, opacity, scale });
+      gpuGoldenRecords.push(fixture.recorder.triangles);
+      fixture.fx.destroy();
+    }
+  }
+}
+const gpuGoldenHash = (await import('node:crypto')).createHash('sha256')
+  .update(JSON.stringify(gpuGoldenRecords)).digest('hex');
+
+assert(gpuGoldenRecords.every(triangles => triangles.length > 0) && gpuGoldenHash === '59db9347614d12a30cd3fdebbf1d91058f1640fe9a287e1518f15db640761bc4',
+  'GPU 拖尾在 12 组主题、透明度和缩放组合下保持优化前全部顶点、颜色和 Coverage 数值');
+
+const gpuTrail = createGpuTrailFixture({ themeColor: '#ff6699' });
+const otherGpuTrail = createGpuTrailFixture({ themeColor: '#ffaa00' });
+const gpuPointSamples = gpuTrail.stroke.trailFrameData.gpuPointCache.samples;
+const gpuMesh = [...gpuTrail.stroke.trailFrameData.meshCache.values()][0];
+const gpuVisibleSegments = gpuMesh.visibleSegments;
+const gpuInitialTriangles = JSON.stringify(gpuTrail.recorder.triangles);
+for (let frame = 0; frame < 10; frame++)
+{
+  otherGpuTrail.fx._renderFrame(40);
+  gpuTrail.fx._renderFrame(40);
+}
+assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples === gpuPointSamples &&
+  gpuMesh.visibleSegments === gpuVisibleSegments &&
+  JSON.stringify(gpuTrail.recorder.triangles) === gpuInitialTriangles,
+  '异色实例交替渲染时复用逐点材质和可见段，输出保持一致');
+otherGpuTrail.fx.destroy();
+gpuCacheDom.setCurrentTime(40);
+gpuTrail.fx.updateConfig({ opacity: 0.4 });
+gpuTrail.fx._renderFrame(40);
+assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples === gpuPointSamples &&
+  gpuTrail.recorder.triangles[0][4] === 0.4 * gpuTrail.fx.fxConfig.trail.trailOpacity,
+  '透明度在提交时更新，不重建 GPU 拖尾逐点材质');
+gpuTrail.fx.updateConfig({ scale: 1.3 });
+gpuTrail.fx._renderFrame(40);
+assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples === gpuPointSamples &&
+  gpuTrail.stroke.trailFrameData.meshCache.size === 2 &&
+  [...gpuTrail.stroke.trailFrameData.meshCache.values()][1].visibleSegments !== gpuVisibleSegments,
+  '缩放选择新的网格和可见段集合，同时复用逐点材质');
+gpuTrail.fx.setPaused(true);
+gpuCacheDom.setCurrentTime(100);
+gpuTrail.fx.setPaused(false);
+gpuTrail.fx._renderFrame(100);
+assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples === gpuPointSamples,
+  'GPU 拖尾暂停恢复且点集未变时复用逐点材质');
+gpuTrail.fx.setFxParams({ 'trail.width': 'invalid' }, { strict: true });
+gpuTrail.fx._renderFrame(100);
+assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples === gpuPointSamples,
+  '失败的参数更新保留 GPU 拖尾缓存');
+for (const update of [
+  () => gpuTrail.fx.setFxParam('bloom.trailEmission', 7),
+  () => gpuTrail.fx.resetFxConfig(),
+  () => gpuTrail.fx.setThemeColor('#ffaa00'),
+  () => gpuTrail.fx.updateConfig({ themeColorMode: 'hue-only' }),
+])
+{
+  const before = gpuTrail.stroke.trailFrameData.gpuPointCache.samples;
+  update();
+  gpuTrail.fx._renderFrame(100);
+  assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples !== before,
+    '材质强度、参数重置或主题变化后重建 GPU 拖尾缓存');
+}
+const beforeGpuFallback = gpuTrail.stroke.trailFrameData;
+gpuTrail.recorder.render = () => false;
+gpuTrail.fx._renderFrame(100);
+assert(gpuTrail.stroke.trailFrameData.measurement === beforeGpuFallback.measurement &&
+  gpuTrail.stroke.trailFrameData.gpuPointCache === beforeGpuFallback.gpuPointCache &&
+  Array.isArray(gpuTrail.stroke.trailFrameData.segmentEnergies),
+  'GPU 当帧故障回退按需补齐 Canvas 材质，保留原测量和 GPU 逐点缓存');
+gpuTrail.recorder.render = () => true;
+gpuTrail.fx.clearTrail();
+assert(gpuTrail.stroke.trailFrameData === null, '清空时释放 GPU 拖尾缓存');
+gpuTrail.fx.destroy();
+gpuTrail.fx.destroy();
+const movingGpuTrail = createGpuTrailFixture();
+const beforeGpuAppend = movingGpuTrail.stroke.trailFrameData.gpuPointCache;
+movingGpuTrail.fx._appendPointerSample({ x: 30, y: 40 }, 60);
+movingGpuTrail.fx._renderFrame(60);
+assert(movingGpuTrail.stroke.trailFrameData.gpuPointCache !== beforeGpuAppend,
+  '追加点后重建 GPU 拖尾逐点材质');
+const beforeGpuExpiry = movingGpuTrail.stroke.trailFrameData.gpuPointCache;
+const beforeGpuExpiryCount = movingGpuTrail.stroke.points.length;
+const gpuExpiryTime = movingGpuTrail.stroke.points[0].bornAt + movingGpuTrail.fx.fxConfig.trail.lifetimeMs + 1;
+movingGpuTrail.fx._renderFrame(gpuExpiryTime);
+assert(movingGpuTrail.stroke.trailFrameData?.gpuPointCache !== beforeGpuExpiry &&
+  movingGpuTrail.stroke.points.length < beforeGpuExpiryCount,
+  'GPU 逐点缓存命中不会阻止过期裁剪及缓存失效');
+movingGpuTrail.fx.destroy();
+const destroyedGpuTrail = createGpuTrailFixture();
+destroyedGpuTrail.fx.destroy();
+assert(destroyedGpuTrail.stroke.trailFrameData === null, '销毁时释放仍存活的 GPU 拖尾缓存');
+
 console.log(`\n✅ ${passed} 项 FX_Touch 移植检查通过\n`);

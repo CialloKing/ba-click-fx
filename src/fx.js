@@ -5353,6 +5353,34 @@ function appendTexturedTrailMeshJoins(
   }
 }
 
+function getTrailGpuPointSamples(trailData, points, trailCfg, materialIntensity)
+{
+  const cached = trailData.gpuPointCache;
+  if (cached && cached.trailCfg === trailCfg && cached.materialIntensity === materialIntensity &&
+    cached.hueShift === themeHueShift && cached.relativeTheme === relativeOklchTheme)
+  {
+    return cached.samples;
+  }
+
+  const samples = new Array(points.length);
+  for (let index = 0; index < points.length; index++)
+  {
+    const progress = trailData.pointProgresses?.[index] ??
+      trailData.measurement.distances[index] / trailData.measurement.totalLength;
+    samples[index] = {
+      // 点集版本由 trailData 管理；保持先插值再映射主题，不能插值已映射的关键帧。
+      // Unity 的 U=0 位于最新点，项目点序则是旧点到新点。
+      u: 1 - progress,
+      color: evaluateTrailMaterialColor(progress, trailCfg, materialIntensity),
+      coverage: resolveTrailPointCoverageFactor(trailData, index, trailCfg),
+    };
+  }
+  trailData.gpuPointCache = {
+    trailCfg, materialIntensity, hueShift: themeHueShift, relativeTheme: relativeOklchTheme, samples,
+  };
+  return samples;
+}
+
 function appendTrailWebGLScene(
   renderer,
   points,
@@ -5382,42 +5410,24 @@ function appendTrailWebGLScene(
   }
 
   const mesh = getTrailMesh(trailData, points, width, trailCfg);
-  const visibleSegments = new Set();
-  const pointSamples = new Array(points.length);
-
-  for (let index = 0; index < points.length; index++)
+  if (!mesh.visibleSegments)
   {
-    const progress = trailData.pointProgresses?.[index] ??
-      trailData.measurement.distances[index] /
-        trailData.measurement.totalLength;
-
-    pointSamples[index] =
+    // 可见段只依赖该宽度的网格；缩放或端帽配置改变时由网格缓存选择新对象。
+    mesh.visibleSegments = new Set();
+    for (let index = 1; index < points.length; index++)
     {
-      // Unity TrailRenderer 的 U=0 位于最新点，而项目点序是旧点到新点。
-      u: 1 - progress,
-      color: evaluateTrailMaterialColor(
-        progress,
-        trailCfg,
-        bloomCfg.trailEmission,
-      ),
-      coverage: resolveTrailPointCoverageFactor(
-        trailData,
-        index,
-        trailCfg,
-      ),
-    };
+      if (mesh.segments[index])
+      {
+        mesh.visibleSegments.add(index);
+      }
+    }
   }
+  const visibleSegments = mesh.visibleSegments;
+  const pointSamples = getTrailGpuPointSamples(trailData, points, trailCfg, bloomCfg.trailEmission);
 
-  for (let index = 1; index < points.length; index++)
+  for (const index of visibleSegments)
   {
     const segment = mesh.segments[index];
-
-    if (!segment)
-    {
-      continue;
-    }
-
-    visibleSegments.add(index);
     appendTexturedTrailMeshSegment(
       renderer,
       segment,
