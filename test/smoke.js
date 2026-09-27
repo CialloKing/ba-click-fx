@@ -6652,4 +6652,44 @@ const destroyedGpuTrail = createGpuTrailFixture();
 destroyedGpuTrail.fx.destroy();
 assert(destroyedGpuTrail.stroke.trailFrameData === null, '销毁时释放仍存活的 GPU 拖尾缓存');
 
+const lruTrail = createGpuTrailFixture();
+const lruData = lruTrail.stroke.trailFrameData;
+const originalLruMesh = [...lruData.meshCache.values()][0];
+const originalLruGeometry = JSON.stringify(originalLruMesh);
+const renderLruScale = scale =>
+{
+  lruTrail.fx.updateConfig({ scale });
+  lruTrail.fx._renderFrame(40);
+  return [...lruData.meshCache.values()].at(-1);
+};
+const secondLruMesh = renderLruScale(1.1);
+renderLruScale(1.2);
+renderLruScale(1.3);
+assert(renderLruScale(1) === originalLruMesh, '命中网格时复用对象并更新 LRU 顺序');
+renderLruScale(1.4);
+assert(lruData.meshCache.size === 4 && [...lruData.meshCache.values()].includes(originalLruMesh) &&
+  ![...lruData.meshCache.values()].includes(secondLruMesh), '第五个宽度淘汰最久未使用网格');
+for (let index = 0; index < 100; index++) renderLruScale(2 + index / 100);
+assert(lruTrail.stroke.trailFrameData === lruData && lruData.meshCache.size === 4,
+  '固定点集连续切换 100 个缩放值，网格缓存始终有界');
+const rebuiltLruMesh = renderLruScale(1);
+assert(rebuiltLruMesh !== originalLruMesh && JSON.stringify(rebuiltLruMesh) === originalLruGeometry,
+  '被淘汰网格按原算法重建，几何与可见段保持一致');
+lruTrail.fx.destroy();
+assert(lruTrail.stroke.trailFrameData === null, '销毁时解除 LRU 网格及可见段引用');
+gpuCacheDom.setCurrentTime(0);
+const canvasLruTrail = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+  inputSource: 'manual', clickEnabled: false });
+canvasLruTrail.setFxParam('shards.maxCount', 0);
+canvasLruTrail.setFxParam('bloom.trailCoverageScale', 2);
+canvasLruTrail.pointerDown({ x: 10, y: 10, pointerId: 51 });
+canvasLruTrail._appendPointerSample({ x: 80, y: 40 }, 0);
+canvasLruTrail._renderFrame(0);
+const canvasLruMeshes = [...canvasLruTrail.currentTrailStroke.trailFrameData.meshCache.values()];
+for (let frame = 0; frame < 10; frame++) canvasLruTrail._renderFrame(0);
+assert(canvasLruMeshes.length === 2 &&
+  [...canvasLruTrail.currentTrailStroke.trailFrameData.meshCache.values()].every(mesh => canvasLruMeshes.includes(mesh)),
+  'Native 清晰层和 Bloom 交替使用不同宽度时不重复创建网格');
+canvasLruTrail.destroy();
+
 console.log(`\n✅ ${passed} 项 FX_Touch 移植检查通过\n`);

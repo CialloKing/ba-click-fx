@@ -100,6 +100,7 @@ const HOST_COMPOSITING_CHANGE_EVENT = 'baclickfxhostcompositingchange';
 const MAX_SCALED_TIME_DELTA_MS = Number.MAX_SAFE_INTEGER;
 const MAX_TRAIL_INNER_MITER_RATIO = 4;
 const MIN_TRAIL_SEGMENT_LENGTH = 0.000001;
+const TRAIL_MESH_CACHE_CAPACITY = 4;
 const TOUCH_DIRECTION_THRESHOLD = 2;
 const TOUCH_FILTER_CACHE_MS = 1000;
 const TOUCH_INPUT_MATCH_TOLERANCE = 2;
@@ -4427,21 +4428,28 @@ function getTrailMesh(trailData, points, width, trailCfg)
   );
   const cacheKey = `${width}:${cornerVertices}:${capVertices}`;
 
-  if (!trailData.meshCache.has(cacheKey))
+  let mesh = trailData.meshCache.get(cacheKey);
+  if (mesh)
   {
-    trailData.meshCache.set(
-      cacheKey,
-      createTrailMesh(
-        points,
-        width,
-        cornerVertices,
-        capVertices,
-        trailData.measurement.segmentLengths,
-      ),
+    trailData.meshCache.delete(cacheKey);
+  }
+  else
+  {
+    mesh = createTrailMesh(
+      points,
+      width,
+      cornerVertices,
+      capVertices,
+      trailData.measurement.segmentLengths,
     );
   }
-
-  return trailData.meshCache.get(cacheKey);
+  trailData.meshCache.set(cacheKey, mesh);
+  // 清晰层和 Bloom 可保留各自宽度，但连续缩放不能积累全部历史网格。
+  if (trailData.meshCache.size > TRAIL_MESH_CACHE_CAPACITY)
+  {
+    trailData.meshCache.delete(trailData.meshCache.keys().next().value);
+  }
+  return mesh;
 }
 
 function resolveTrailTransverseProfile(profile)
