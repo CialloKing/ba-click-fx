@@ -5202,16 +5202,6 @@ function drawTrailEmission(
   );
 }
 
-function createTexturedTrailVertex(point, u, v)
-{
-  return {
-    x: point.x,
-    y: point.y,
-    u,
-    v,
-  };
-}
-
 function appendTexturedTrailMeshSegment(
   renderer,
   segment,
@@ -5222,42 +5212,17 @@ function appendTexturedTrailMeshSegment(
 {
   // Unity BakeMesh 的屏幕下侧为语义 V=0；嵌入字节保持 PNG 顶行优先，
   // WebGL typed-array 上传不会代替图片源翻行，因此下侧需补偿到采样 v=1。
-  const fromLeft = createTexturedTrailVertex(
-    segment.fromLeft,
-    fromSample.u,
-    1,
-  );
-  const fromRight = createTexturedTrailVertex(
-    segment.fromRight,
-    fromSample.u,
-    0,
-  );
-  const toLeft = createTexturedTrailVertex(
-    segment.toLeft,
-    toSample.u,
-    1,
-  );
-  const toRight = createTexturedTrailVertex(
-    segment.toRight,
-    toSample.u,
-    0,
-  );
-
-  renderer.addTexturedTrailTriangle(
-    fromLeft,
-    toLeft,
-    toRight,
-    [fromSample.color, toSample.color, toSample.color],
+  renderer._addTrailMeshTriangle(
+    segment.fromLeft, fromSample, 1,
+    segment.toLeft, toSample, 1,
+    segment.toRight, toSample, 0,
     opacity,
-    [fromSample.coverage, toSample.coverage, toSample.coverage],
   );
-  renderer.addTexturedTrailTriangle(
-    fromLeft,
-    toRight,
-    fromRight,
-    [fromSample.color, toSample.color, fromSample.color],
+  renderer._addTrailMeshTriangle(
+    segment.fromLeft, fromSample, 1,
+    segment.toRight, toSample, 0,
+    segment.fromRight, fromSample, 0,
     opacity,
-    [fromSample.coverage, toSample.coverage, fromSample.coverage],
   );
 }
 
@@ -5270,29 +5235,14 @@ function appendTexturedTrailMeshJoin(
 {
   const innerV = join.innerSide === 'left' ? 1 : 0;
   const outerV = 1 - innerV;
-  const inner = createTexturedTrailVertex(join.inner, sample.u, innerV);
-
   for (let arcIndex = 1; arcIndex < join.outerArc.length; arcIndex++)
   {
-    const previousOuter = createTexturedTrailVertex(
-      join.outerArc[arcIndex - 1],
-      sample.u,
-      outerV,
-    );
-    const nextOuter = createTexturedTrailVertex(
-      join.outerArc[arcIndex],
-      sample.u,
-      outerV,
-    );
-
     // Unity 的圆角插入点只细分几何；同一折点的 Stretch U 必须保持不变。
-    renderer.addTexturedTrailTriangle(
-      inner,
-      previousOuter,
-      nextOuter,
-      sample.color,
+    renderer._addTrailMeshTriangle(
+      join.inner, sample, innerV,
+      join.outerArc[arcIndex - 1], sample, outerV,
+      join.outerArc[arcIndex], sample, outerV,
       opacity,
-      sample.coverage,
     );
   }
 }
@@ -5313,20 +5263,12 @@ function appendTexturedTrailMeshCaps(
     }
 
     const sample = pointSamples[cap.pointIndex];
-    const vCoordinates = cap.position === 'start'
-      ? [1, 0, 0.5]
-      : [1, 0.5, 0];
-    const vertices = cap.points.map((point, index) =>
-      createTexturedTrailVertex(point, sample.u, vCoordinates[index]));
-
     // numCapVertices=1 形成一个三角端帽；尖端位于纹理横截面中心。
-    renderer.addTexturedTrailTriangle(
-      vertices[0],
-      vertices[1],
-      vertices[2],
-      sample.color,
+    renderer._addTrailMeshTriangle(
+      cap.points[0], sample, 1,
+      cap.points[1], sample, cap.position === 'start' ? 0 : 0.5,
+      cap.points[2], sample, cap.position === 'start' ? 0.5 : 0,
       opacity,
-      sample.coverage,
     );
   }
 }

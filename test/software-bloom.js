@@ -2041,4 +2041,36 @@ for (const settings of [
     '原生辉光遵循线性 Threshold 与 Clamp，不让低能材质发光');
 }
 
+const meshWriter = new WebGL2EffectRenderer(null, { initialize: false });
+const legacyWriter = new WebGL2EffectRenderer(null, { initialize: false });
+const meshPoints = [{ x: -0.25, y: 0.1 }, { x: 8, y: 4.5 }, { x: 3, y: 9 }];
+const meshSamples = [
+  { u: 1, color: [-1, 0.25, 8], coverage: -0.5 },
+  { u: 0.4, color: [3, 2, 1], coverage: 0.4 },
+  { u: 0, color: [0, 9, 2], coverage: 1.5 },
+];
+for (const opacity of [0, -1, NaN, 0.4, 1, 2])
+{
+  meshWriter.beginFrame();
+  legacyWriter.beginFrame();
+  meshWriter._addTrailMeshTriangle(meshPoints[0], meshSamples[0], 1,
+    meshPoints[1], meshSamples[1], 0, meshPoints[2], meshSamples[2], 0.5, opacity);
+  legacyWriter.addTexturedTrailTriangle(
+    { ...meshPoints[0], u: meshSamples[0].u, v: 1 },
+    { ...meshPoints[1], u: meshSamples[1].u, v: 0 },
+    { ...meshPoints[2], u: meshSamples[2].u, v: 0.5 },
+    meshSamples.map(sample => sample.color), opacity, meshSamples.map(sample => sample.coverage),
+  );
+  assert(meshWriter.trailVertexCount === legacyWriter.trailVertexCount &&
+    Buffer.from(meshWriter.trailVertexData.buffer).equals(Buffer.from(legacyWriter.trailVertexData.buffer)),
+    `直接写入与兼容入口保持相同顶点字节及 Alpha/Coverage 钳制（${opacity}）`);
+}
+meshSamples.forEach(sample => { sample.coverage = 0; });
+meshWriter.beginFrame();
+meshWriter._addTrailMeshTriangle(meshPoints[0], meshSamples[0], 1,
+  meshPoints[1], meshSamples[1], 0, meshPoints[2], meshSamples[2], 0.5, 1);
+assert(meshWriter.trailVertexCount === 0, '直接写入继续剔除全零 Coverage 三角');
+meshWriter.destroy();
+legacyWriter.destroy();
+
 console.log(`\n✅ ${passed} 项 Software Bloom 数值检查通过\n`);

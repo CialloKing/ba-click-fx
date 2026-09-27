@@ -47,6 +47,21 @@ function assertThrowsTypeError(factory, message)
   assert(thrown instanceof TypeError, message);
 }
 
+// 将内部直接写入协议还原成旧记录格式，继续使用原顶点/颜色基线。
+function recordTrailMeshTriangle(first, firstSample, firstV, second, secondSample, secondV,
+  third, thirdSample, thirdV, opacity)
+{
+  const perVertex = firstSample !== secondSample || firstSample !== thirdSample;
+  this.addTexturedTrailTriangle(
+    { x: first.x, y: first.y, u: firstSample.u, v: firstV },
+    { x: second.x, y: second.y, u: secondSample.u, v: secondV },
+    { x: third.x, y: third.y, u: thirdSample.u, v: thirdV },
+    perVertex ? [firstSample.color, secondSample.color, thirdSample.color] : firstSample.color,
+    opacity,
+    perVertex ? [firstSample.coverage, secondSample.coverage, thirdSample.coverage] : firstSample.coverage,
+  );
+}
+
 function getCssChannels(value)
 {
   return String(value).match(/[\d.]+/g)?.map(Number) ?? [];
@@ -5703,6 +5718,7 @@ function captureTexturedWebGLTrail(
         triangles.length = 0;
       }
     },
+    _addTrailMeshTriangle: recordTrailMeshTriangle,
     addTexturedTrailTriangle(...args)
     {
       triangles.push(args);
@@ -6613,6 +6629,7 @@ function createGpuTrailFixture(options = {})
   const recorder = {
     available: true, contextLost: false, stats: {}, triangles: [],
     beginFrame(options = {}) { if (!options.preserveSceneStats) this.triangles = []; },
+    _addTrailMeshTriangle: recordTrailMeshTriangle,
     addTexturedTrailTriangle(...args) { this.triangles.push(args); },
     renderScene() { return true; }, render() { return true; }, clear() {},
   };
@@ -6766,5 +6783,59 @@ assert(canvasLruMeshes.length === 2 &&
   [...canvasLruTrail.currentTrailStroke.trailFrameData.meshCache.values()].every(mesh => canvasLruMeshes.includes(mesh)),
   'Native 清晰层和 Bloom 交替使用不同宽度时不重复创建网格');
 canvasLruTrail.destroy();
+
+const { WebGL2EffectRenderer: TrailBufferRenderer } = await import('../src/webgl2-effect.js');
+const trailBufferRenderer = new TrailBufferRenderer(null, { initialize: false });
+trailBufferRenderer.available = true;
+const trailBufferRecords = [];
+const trailBufferHasher = (await import('node:crypto')).createHash('sha256');
+let trailLegacyCalls = 0;
+const legacyTrailTriangle = trailBufferRenderer.addTexturedTrailTriangle;
+trailBufferRenderer.addTexturedTrailTriangle = function (...args)
+{
+  trailLegacyCalls++;
+  return legacyTrailTriangle.apply(this, args);
+};
+trailBufferRenderer.renderScene = function ()
+{
+  const bytes = Buffer.from(this.trailVertexData.buffer, 0, this.trailVertexCount * 9 * 4);
+  trailBufferHasher.update(bytes);
+  trailBufferRecords.push(this.trailVertexCount);
+  return true;
+};
+trailBufferRenderer.render = () => true;
+for (const points of [
+  [[0, 0], [10, 0]], [[0, 0], [10, 0], [10, 10]], [[0, 0], [10, 0], [10, -10]],
+  [[0, 0], [10, 0], [0, 0]], [[0, 0], [0, 0], [10, 0]], [[0, 0], [0.0000001, 0], [10, 10]],
+])
+{
+  for (const [themeColor, themeColorMode] of [
+    ['#4ca7ff', 'relative-oklch'], ['#ff8800', 'hue-only'], ['#ff6699', 'relative-oklch'],
+  ])
+  {
+    for (const opacity of [0.4, 1])
+    {
+      for (const caps of [false, true])
+      {
+        gpuCacheDom.setCurrentTime(0);
+        const fx = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+          inputSource: 'manual', clickEnabled: false, themeColor, themeColorMode, opacity });
+        fx.setFxParams({ 'trail.numCornerVertices': caps ? 4 : 0, 'trail.numCapVertices': caps ? 1 : 0 });
+        fx.trailStrokes = [{ active: false, pointsVersion: 0,
+          points: points.map(([x, y]) => ({ x, y, bornAt: 0 })), trailFrameData: null }];
+        fx._prepareEffectBackend = () => 'webgl2';
+        fx._renderGPUClickEffects = (backend, scale) => fx._renderWebGL2Scene(trailBufferRenderer, scale);
+        fx._renderFrame(0);
+        fx.destroy();
+      }
+    }
+  }
+}
+const trailBufferHash = trailBufferHasher.digest('hex');
+assert(trailBufferRecords.length === 72 && trailBufferHash === '46f80cb4a87542c47bfd18598da41751b2b0a61fb53246d3012fa86540b79d88',
+  '72 组拖尾路径、主题、透明度和接头/端帽的 Float32 顶点字节与优化前一致');
+assert(trailLegacyCalls === 0, '完整 GPU 拖尾不再经过对象包装三角入口');
+trailBufferRenderer.destroy();
+
 
 console.log(`\n✅ ${passed} 项 FX_Touch 移植检查通过\n`);

@@ -2975,12 +2975,17 @@ export class WebGL2EffectRenderer
 
   _appendTrailVertex(point, uv, color, particleAlpha, coverageFactor)
   {
+    this._appendTrailVertexValues(point.x, point.y, uv.u, uv.v, color, particleAlpha, coverageFactor);
+  }
+
+  _appendTrailVertexValues(x, y, u, v, color, particleAlpha, coverageFactor)
+  {
     const offset = this.trailVertexCount * COMPONENTS_PER_TRAIL_VERTEX;
 
-    this.trailVertexData[offset] = point.x;
-    this.trailVertexData[offset + 1] = point.y;
-    this.trailVertexData[offset + 2] = uv.u;
-    this.trailVertexData[offset + 3] = uv.v;
+    this.trailVertexData[offset] = x;
+    this.trailVertexData[offset + 1] = y;
+    this.trailVertexData[offset + 2] = u;
+    this.trailVertexData[offset + 3] = v;
     this.trailVertexData[offset + 4] = Math.max(0, color[0]);
     this.trailVertexData[offset + 5] = Math.max(0, color[1]);
     this.trailVertexData[offset + 6] = Math.max(0, color[2]);
@@ -3396,6 +3401,25 @@ export class WebGL2EffectRenderer
       particleAlpha,
       thirdCoverage,
     );
+  }
+
+  _addTrailMeshTriangle(first, firstSample, firstV, second, secondSample, secondV,
+    third, thirdSample, thirdV, opacity)
+  {
+    const particleAlpha = Number.isFinite(opacity) ? clamp(opacity, 0, 1) : 0;
+    if (particleAlpha <= 0 ||
+      Math.max(firstSample.coverage, secondSample.coverage, thirdSample.coverage) <= 0)
+    {
+      return;
+    }
+    // 网格与逐点样本已经缓存，直接写入相同布局，避免逐三角包装位置、颜色和 Coverage。
+    this._ensureTrailVertexCapacity(3);
+    this._appendTrailVertexValues(first.x, first.y, firstSample.u, firstV,
+      firstSample.color, particleAlpha, firstSample.coverage);
+    this._appendTrailVertexValues(second.x, second.y, secondSample.u, secondV,
+      secondSample.color, particleAlpha, secondSample.coverage);
+    this._appendTrailVertexValues(third.x, third.y, thirdSample.u, thirdV,
+      thirdSample.color, particleAlpha, thirdSample.coverage);
   }
 
   addTrailTriangle(first, second, third, color, opacity = 1)
