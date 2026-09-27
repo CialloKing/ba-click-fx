@@ -1555,27 +1555,26 @@ function prepareLinearTintedTextureCanvas(
   const sourceRgba = resources.linearTextureRgba;
   const srgbLut = getLinearToSrgbLut();
   const flipVertical = frameSlot === 1;
-  const encodeChannel = (sourceOffset, channel, straightDivisor) =>
+  const encodeLinearChannel = (energy, straightDivisor) =>
   {
-    // 原生透明回退与 GPU Scene Overlay 一样，先将线性 RGB 等比收敛到
-    // Coverage 容量。逐通道截断会把蓝色光盘变成青白色。
-    let energyScale = 1;
-    if (preserveCoverageColor)
-    {
-      const maximum = Math.max(...safeMaterialEnergy.map((value, index) =>
-        value * sourceEnergyRgb[sourceOffset + index] * safeContribution));
-      energyScale = Math.min(1, srgbToLinearChannel(straightDivisor * 255) /
-        Math.max(maximum, 0.000001));
-    }
-    const linear = clamp01(
-      sourceEnergyRgb[sourceOffset + channel] *
-        safeMaterialEnergy[channel] * safeContribution * energyScale,
-    );
     const lookupIndex = Math.round(
-      linear * (LINEAR_TO_SRGB_LUT_SIZE - 1),
+      clamp01(energy) * (LINEAR_TO_SRGB_LUT_SIZE - 1),
     );
-
     return srgbLut[lookupIndex] / straightDivisor;
+  };
+  const encodeRoundedChannel = (channel, u, v, textureSupport, targetCoverage, straightDivisor) =>
+  {
+    const textureChannel = sampleTextureChannel(
+      sourceTextureRgb, textureSize, 3, u, v, channel,
+    );
+    const supportedChannel = 1 + (textureChannel - 1) * clamp01(textureSupport);
+    const shapeChannel = supportedChannel + (1 - supportedChannel) * roundness;
+    // 圆角 Coverage 是唯一边界；纹理映射及通道乘法顺序保持不变。
+    const roundedPremultiplied = shapeChannel * targetCoverage;
+    return encodeLinearChannel(
+      roundedPremultiplied * safeMaterialEnergy[channel] * safeContribution,
+      straightDivisor,
+    );
   };
 
   context.setTransform(1, 0, 0, 1, 0, 0);
@@ -1643,41 +1642,42 @@ function prepareLinearTintedTextureCanvas(
 
       const effectiveAlpha = coverageByte / 255;
       const straightDivisor = safeDivisor * effectiveAlpha;
-      const encodeRoundedChannel = (channel) =>
+      let red;
+      let green;
+      let blue;
+      if (roundness <= 0)
       {
-        if (roundness <= 0)
+        let energyScale = 1;
+        if (preserveCoverageColor)
         {
-          return encodeChannel(sourceOffset, channel, straightDivisor);
+          // RGB 共用同一 Coverage 容量，每个 texel 只算一次，保留原峰值乘法顺序。
+          const maximum = Math.max(
+            safeMaterialEnergy[0] * sourceEnergyRgb[sourceOffset] * safeContribution,
+            safeMaterialEnergy[1] * sourceEnergyRgb[sourceOffset + 1] * safeContribution,
+            safeMaterialEnergy[2] * sourceEnergyRgb[sourceOffset + 2] * safeContribution,
+          );
+          energyScale = Math.min(1, srgbToLinearChannel(straightDivisor * 255) /
+            Math.max(maximum, 0.000001));
         }
-
-        const textureChannel = sampleTextureChannel(
-          sourceTextureRgb,
-          textureSize,
-          3,
-          sampleU,
-          sampleV,
-          channel,
+        red = encodeLinearChannel(
+          sourceEnergyRgb[sourceOffset] * safeMaterialEnergy[0] * safeContribution * energyScale,
+          straightDivisor,
         );
-        const supportedChannel = 1 +
-          (textureChannel - 1) * clamp01(textureSupport);
-        const shapeChannel = supportedChannel +
-          (1 - supportedChannel) * roundness;
-        // 圆角 Coverage 是唯一边界；纹理先向三角内部重映射，再随
-        // 圆角比例淡到材质白，避免保留第二层尖三角。
-        const roundedPremultiplied = shapeChannel * targetCoverage;
-        const linear = clamp01(
-          roundedPremultiplied *
-            safeMaterialEnergy[channel] * safeContribution,
+        green = encodeLinearChannel(
+          sourceEnergyRgb[sourceOffset + 1] * safeMaterialEnergy[1] * safeContribution * energyScale,
+          straightDivisor,
         );
-        const lookupIndex = Math.round(
-          linear * (LINEAR_TO_SRGB_LUT_SIZE - 1),
+        blue = encodeLinearChannel(
+          sourceEnergyRgb[sourceOffset + 2] * safeMaterialEnergy[2] * safeContribution * energyScale,
+          straightDivisor,
         );
-
-        return srgbLut[lookupIndex] / straightDivisor;
-      };
-      const red = encodeRoundedChannel(0);
-      const green = encodeRoundedChannel(1);
-      const blue = encodeRoundedChannel(2);
+      }
+      else
+      {
+        red = encodeRoundedChannel(0, sampleU, sampleV, textureSupport, targetCoverage, straightDivisor);
+        green = encodeRoundedChannel(1, sampleU, sampleV, textureSupport, targetCoverage, straightDivisor);
+        blue = encodeRoundedChannel(2, sampleU, sampleV, textureSupport, targetCoverage, straightDivisor);
+      }
       const maximum = Math.max(red, green, blue);
       // 保留每个 texel 的峰值，只让弱通道有限靠近主通道。这里仍以纹理
       // 能量衰减门控，兼容直接调用路径也不会填白低能细节。

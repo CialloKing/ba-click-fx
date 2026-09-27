@@ -736,6 +736,81 @@ assert(nativeGoldenAllocations === 1,
   'Native 多实例只分配一次固定纹理采样表，不再逐环分配角向工作数组');
 
 
+const tintHasher = (await import('node:crypto')).createHash('sha256');
+const tintRecords = [];
+const savedTintPut = ContextMock.prototype.putImageData;
+const savedTintRandom = Math.random;
+const savedTintTime = performance.now();
+let tintRecord;
+try
+{
+  Math.random = () => 0.5;
+  dom.setCanvasBounds({ width: 320, height: 240 });
+  ContextMock.prototype.putImageData = function (image, ...args)
+  {
+    if (tintRecord && (image.width === 512 || image.width === 128) && image.width === image.height)
+    {
+      tintRecord[image.width] = (tintRecord[image.width] ?? 0) + 1;
+      tintHasher.update(Buffer.from(image.data));
+    }
+    return savedTintPut.call(this, image, ...args);
+  };
+  for (const bloomBackend of ['native', 'software'])
+  {
+    for (const roundness of [0, 0.5, 1])
+    {
+      for (const variant of [0, 1])
+      {
+        const [themeColor, themeColorMode] = [
+          ['#4ca7ff', 'relative-oklch'], ['#ff8800', 'hue-only'], ['#ff6699', 'relative-oklch'],
+        ][(roundness * 2 + variant) % 3];
+        dom.setCurrentTime(1000);
+        const fx = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend, inputSource: 'manual',
+          trailEnabled: false, outputCompositing: 'browser-overlay', themeColor, themeColorMode,
+          opacity: variant ? 0.4 : 1, overlayAlphaLimit: variant ? 0.5 : 1,
+          overlayColorCompensation: variant ? 'bright-core' : 'none' });
+        fx.setTriangleRoundness(roundness);
+        fx.boom(160, 120);
+        const wave = fx.waves[0];
+        const drawBase = wave.drawBase;
+        // 同时覆盖内部材质入口的颜色补偿分支，外层合成仍走真实运行时。
+        wave.drawBase = function (...args)
+        {
+          args[6] = fx.config.overlayColorCompensation;
+          return drawBase.apply(this, args);
+        };
+        fx.shards.forEach((shard, index) =>
+        {
+          shard.textureFrame = index % 2;
+          const draw = shard.draw;
+          shard.draw = function (...args)
+          {
+            args[5] = fx.config.overlayColorCompensation;
+            return draw.apply(this, args);
+          };
+        });
+        tintRecord = { bloomBackend, roundness, variant };
+        fx._renderFrame(1040);
+        tintRecords.push(tintRecord);
+        tintRecord = null;
+        fx.destroy();
+      }
+    }
+  }
+}
+finally
+{
+  ContextMock.prototype.putImageData = savedTintPut;
+  Math.random = savedTintRandom;
+  dom.setCurrentTime(savedTintTime);
+  dom.setCanvasBounds({ width: 1920, height: 1080 });
+}
+const tintGoldenHash = tintHasher.digest('hex');
+assert(tintRecords.length === 12 && tintRecords.every(record => record[512] === 1 && record[128] >= 2) &&
+  tintGoldenHash === 'a2b4c0c719207590b8f2c76a634ceb7bea5f370e69ab5d0a0839b078f07a3972',
+  '12 组 Canvas 圆盘和双向三角染色的完整 ImageData 字节与优化前一致');
+
+
 console.log('\n全屏坐标尺寸');
 const fullscreenTestDevicePixelRatio = dom.windowMock.devicePixelRatio;
 
