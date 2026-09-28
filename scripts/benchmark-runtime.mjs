@@ -3,12 +3,15 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
+import { diagnoseSoftware } from './runtime-software-diagnostics.mjs';
 import {
   findChromiumExecutable, startViteServer, closeBrowserRuntime,
 } from '../test/browser/harness.mjs';
 
 const rootDir = resolve(import.meta.dirname, '..');
 const label = (process.argv[2] ?? 'current').replace(/[^a-zA-Z0-9_-]/g, '-');
+const directory = resolve(rootDir, 'test-results');
+mkdirSync(directory, { recursive: true });
 const executablePath = findChromiumExecutable();
 if (!executablePath)
 {
@@ -74,7 +77,8 @@ try
     };
     const countGpu = renderer =>
     {
-      const counts = { uniformLookups: 0, bindGroups: 0, vertexWrites: 0, vertexBytes: 0 };
+      const counts = { uniformLookups: 0, bindGroups: 0, vertexWrites: 0, vertexBytes: 0,
+        indexWrites: 0, indexBytes: 0 };
       const restores = [];
       if (renderer.gl)
       {
@@ -85,6 +89,11 @@ try
           {
             counts.vertexWrites++;
             counts.vertexBytes += data.byteLength ?? data;
+          }
+          else if (target === renderer.gl.ELEMENT_ARRAY_BUFFER)
+          {
+            counts.indexWrites++;
+            counts.indexBytes += data.byteLength ?? data;
           }
         }, restores);
       }
@@ -97,6 +106,11 @@ try
           {
             counts.vertexWrites++;
             counts.vertexBytes += size;
+          }
+          else if (buffer.label.endsWith(' indices'))
+          {
+            counts.indexWrites++;
+            counts.indexBytes += size;
           }
         }, restores);
       }
@@ -376,10 +390,15 @@ try
       window.cancelAnimationFrame = nativeCancelRaf;
     }
   });
+  // 正式基准全部结束后再包装诊断与 CPU 采样，避免影响七轮原始耗时。
+  const { diagnostics, profile } = await diagnoseSoftware(page);
+  result.softwareDiagnosticsFile = `runtime-software-${label}.json`;
+  result.softwareProfileFile = `runtime-software-${label}.cpuprofile`;
+  writeFileSync(resolve(directory, result.softwareDiagnosticsFile),
+    `${JSON.stringify({ ...diagnostics, commit: result.commit, browser: result.browser }, null, 2)}\n`);
+  writeFileSync(resolve(directory, result.softwareProfileFile), `${JSON.stringify(profile)}\n`);
 }
 finally { await closeBrowserRuntime({ browser, vite }); }
-const directory = resolve(rootDir, 'test-results');
-mkdirSync(directory, { recursive: true });
 const output = resolve(directory, `runtime-benchmark-${label}.json`);
 writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`);
 console.log(JSON.stringify(result, null, 2));
