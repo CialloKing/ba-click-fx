@@ -6838,4 +6838,88 @@ assert(trailLegacyCalls === 0, '完整 GPU 拖尾不再经过对象包装三角�
 trailBufferRenderer.destroy();
 
 
+
+console.log('\nSoftware 快照配置签名');
+const signatureDom = installDom();
+signatureDom.setCanvasBounds({ width: 320, height: 240 });
+signatureDom.setCurrentTime(100);
+const signatureRandom = Math.random;
+Math.random = () => 0.5;
+const signatureEffect = new BAClickFX({ inputSource: 'manual', effectBackend: 'canvas2d',
+  bloomBackend: 'native', outputCompositing: 'browser-overlay' });
+const signatureRecords = [];
+try
+{
+  for (const [name, mutate] of [
+    ['empty', () => {}],
+    ['input', () => signatureEffect.pointerDown({ x: 30, y: 40, pointerId: 1 })],
+    ['move', () => { signatureDom.setCurrentTime(116); signatureEffect.pointerMove({ x: 90, y: 80, pointerId: 1 }); }],
+    ['frame', () => signatureEffect._renderFrame(140)],
+    ['parameter', () => signatureEffect.setFxParam('rings.hdrIntensity', 4)],
+    ['invalid', () => signatureEffect.setFxParam('rings.hdrIntensity', 'invalid')],
+    ['reset', () => signatureEffect.resetFxConfig()],
+    ['theme', () => signatureEffect.setThemeColor('#ff6699')],
+    ['mode', () => signatureEffect.setThemeColorMode('hue-only')],
+    ['opacity', () => signatureEffect.updateConfig({ opacity: 0.4 })],
+    ['compositing', () => signatureEffect.updateConfig({ overlayAlphaLimit: 0.7 })],
+    ['pause', () => signatureEffect.setPaused(true)],
+    ['resume', () => signatureEffect.setPaused(false)],
+    ['clear', () => signatureEffect.clear()],
+  ])
+  {
+    mutate();
+    signatureRecords.push([name, signatureEffect._getSoftwareBloomFrameSignature(1)]);
+  }
+}
+finally
+{
+  signatureEffect.destroy();
+  Math.random = signatureRandom;
+}
+
+assert((await import('node:crypto')).createHash('sha256').update(JSON.stringify(signatureRecords)).digest('hex') ===
+  '71133830b18386635cab27fbc7c3486c50e5cf874400b67afa390cdcb0433edb',
+  '14 组输入、参数、主题、透明度和生命周期的完整快照签名与优化前一致');
+const signatureInstances = [0, 1].map(() => new BAClickFX({ inputSource: 'manual' }));
+const signatureCounts = [0, 0];
+const originalStringify = JSON.stringify;
+JSON.stringify = function (value, ...args)
+{
+  const index = signatureInstances.findIndex(fx => fx.fxConfig === value);
+  if (index >= 0) signatureCounts[index]++;
+  return originalStringify.call(this, value, ...args);
+};
+try
+{
+  const [fx, other] = signatureInstances;
+  const initial = fx._getSoftwareBloomFrameSignature(1);
+  for (let i = 0; i < 100; i++) fx._getSoftwareBloomFrameSignature(1);
+  const cached = fx._softwareBloomConfigSignature;
+  assert(signatureCounts[0] === 1, '不变配置的 100 次签名校验不重复序列化');
+  fx.setFxParam('rings.hdrIntensity', 'invalid');
+  assert(fx._getSoftwareBloomFrameSignature(1) === initial &&
+    fx._softwareBloomConfigSignature === cached && signatureCounts[0] === 1,
+    '失败参数更新保留配置签名缓存和完整签名');
+  fx.setFxParam('rings.hdrIntensity', 4);
+  assert(fx._softwareBloomConfigSignature === null && fx._getSoftwareBloomFrameSignature(1) !== initial &&
+    signatureCounts[0] === 2, '成功提交后按需重新序列化一次');
+  fx.resetFxConfig();
+  assert(fx._getSoftwareBloomFrameSignature(1) === initial && signatureCounts[0] === 3,
+    '参数重置沿用提交失效路径并恢复原完整签名');
+  fx.setThemeColor('#ff6699');
+  fx.updateConfig({ opacity: 0.4 });
+  assert(fx._getSoftwareBloomFrameSignature(1) !== initial && signatureCounts[0] === 3,
+    '动态主题和透明度仍改变完整签名，不重建未变特效配置');
+  other._getSoftwareBloomFrameSignature(1);
+  assert(signatureCounts[1] === 1 && other._softwareBloomConfigSignature !== fx._softwareBloomConfigSignature,
+    '多实例独立持有配置签名缓存');
+}
+finally
+{
+  JSON.stringify = originalStringify;
+  for (const fx of signatureInstances) fx.destroy();
+}
+assert(signatureInstances.every(fx => fx._softwareBloomConfigSignature === null),
+  '销毁后解除配置签名字符串引用');
+
 console.log(`\n✅ ${passed} 项 FX_Touch 移植检查通过\n`);

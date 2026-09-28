@@ -5627,6 +5627,7 @@ export class BAClickFX
     this.fxConfig = structuredClone(UNITY_FX_TOUCH);
     this._gradientEnergyCache = new WeakMap();
     this._fxConfigVersion = 0;
+    this._softwareBloomConfigSignature = null;
     this._themeVersion = 0;
     this._themeHueShift = computeThemeHueShift(this.config.themeColor);
     this._relativeOklchTheme = this.config.themeColorMode === 'relative-oklch'
@@ -6830,6 +6831,7 @@ export class BAClickFX
     Object.assign(this.fxConfig, nextConfig);
     this._gradientEnergyCache = new WeakMap();
     this._fxConfigVersion++;
+    this._softwareBloomConfigSignature = null;
   }
 
   resize(width, height, dpr)
@@ -10128,6 +10130,14 @@ export class BAClickFX
 
   _getSoftwareBloomFrameSignature(scale)
   {
+    if (this._softwareBloomConfigSignature?.version !== this._fxConfigVersion)
+    {
+      // 公共调参均原子提交并递增版本；保留原序列化字节，只省去稳定帧重复遍历。
+      this._softwareBloomConfigSignature = {
+        version: this._fxConfigVersion,
+        value: JSON.stringify(this.fxConfig),
+      };
+    }
     const trailSignature = this.trailStrokes.map((stroke) =>
     {
       const first = stroke.points[0];
@@ -10190,7 +10200,7 @@ export class BAClickFX
       bloomCfg.trailEmissionAlpha,
       trailCfg.width,
       trailCfg.geometryWidth,
-      JSON.stringify(this.fxConfig),
+      this._softwareBloomConfigSignature.value,
       trailSignature,
       waveSignature,
       shardSignature,
@@ -12310,6 +12320,7 @@ export class BAClickFX
 
     this.destroyed = true;
     this._gradientEnergyCache = null;
+    this._softwareBloomConfigSignature = null;
     if (typeof window !== 'undefined')
     {
       window.removeEventListener('resize', this._onResize);
