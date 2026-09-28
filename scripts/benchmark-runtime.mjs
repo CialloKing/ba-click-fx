@@ -47,6 +47,7 @@ try
     const { BAClickFX, UNITY_FX_TOUCH } = await import('/src/fx.js');
     const { WebGL2EffectRenderer } = await import('/src/webgl2-effect.js');
     const { WebGPUEffectRenderer } = await import('/src/webgpu-effect.js');
+    const { seedRoundedShards } = await import('/scripts/runtime-readback-diagnostics.mjs');
     const nativeNow = performance.now.bind(performance);
     const nativeNowDescriptor = Object.getOwnPropertyDescriptor(performance, 'now');
     const nativeRandom = Math.random;
@@ -306,6 +307,34 @@ try
           };
         });
       }
+      results.softwareRoundedShards = await measure(20, () =>
+      {
+        const fx = effect({ trailEnabled: false, bloomBackend: 'software', outputCompositing: 'browser-overlay' });
+        seedRoundedShards(fx);
+        return {
+          work: () =>
+          {
+            fx._renderFrame(now + 120);
+            if (fx.resolvedBloomBackend !== 'software' || !fx.lastSoftwareBloomFrame || fx.shards.length !== 6)
+              throw new Error('圆角基准发生回退或工作量改变');
+          },
+          destroy: () => destroyEffect(fx),
+          count: () =>
+          {
+            const counts = { tintWritesPer20: 0 };
+            const restores = [];
+            instrument(CanvasRenderingContext2D.prototype, 'putImageData', image =>
+            {
+              if (image.width === 128 && image.height === 128) counts.tintWritesPer20++;
+            }, restores);
+            return { counts, restore: () =>
+            {
+              for (const restore of restores.reverse()) restore();
+            } };
+          },
+        };
+      });
+      if (!results.softwareRoundedShards.tintWritesPer20) throw new Error('圆角基准未经过染色路径');
       for (const backend of ['webgl2', 'webgpu'])
       {
         const canvas = document.createElement('canvas');
