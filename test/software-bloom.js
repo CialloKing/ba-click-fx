@@ -6,6 +6,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { filterFixture } from './software-filter-fixture.js';
 import {
   calculateBloomContribution,
   decodeCoverageMask,
@@ -2157,5 +2158,14 @@ meshWriter._addTrailMeshTriangle(meshPoints[0], meshSamples[0], 1,
 assert(meshWriter.trailVertexCount === 0, '直接写入继续剔除全零 Coverage 三角');
 meshWriter.destroy();
 legacyWriter.destroy();
+
+const filterRecords = await filterFixture();
+const filterHash = createHash('sha256').update(JSON.stringify(filterRecords.map(
+  ({ fillCalls, fillFloats, ...values }) => values,
+))).digest('hex');
+assert(filterRecords.length === 864 && filterHash === '0d2a3592f0fd100bc874b022133613d909443af31fe2c21eef389ae804f4a5ac',
+  '864 组滤波 RGB/Coverage、边界、HDR、脏值及重叠视图保持原 Float32 字节和采样次数');
+assert(filterRecords.reduce((sum, record) => sum + record.fillFloats, 0) === 81579,
+  '完整非重叠输出省略 14433 个 float 清零，局部范围、尾部和输入别名保留清零');
 
 console.log(`\n✅ ${passed} 项 Software Bloom 数值检查通过\n`);

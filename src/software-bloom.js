@@ -430,6 +430,48 @@ function sampleBilinearScalar(source, width, height, x, y)
     source[bottom * width + right] * horizontal * vertical;
 }
 
+// 固定 tap 顺序仍是左上、左下、右上、右下；RGB 每次累加都保留 Float32 舍入。
+function addBoxRgb(source, width, height, x, y, offset, output, outputIndex)
+{
+  const left = x + -offset;
+  const right = x + offset;
+  const top = y + -offset;
+  const bottom = y + offset;
+  addBilinearRgb(source, width, height, left, top, 0.25, output, outputIndex);
+  addBilinearRgb(source, width, height, left, bottom, 0.25, output, outputIndex);
+  addBilinearRgb(source, width, height, right, top, 0.25, output, outputIndex);
+  addBilinearRgb(source, width, height, right, bottom, 0.25, output, outputIndex);
+}
+
+function sampleBoxScalar(source, width, height, x, y, offset)
+{
+  const left = x + -offset;
+  const right = x + offset;
+  const top = y + -offset;
+  const bottom = y + offset;
+  let value = 0;
+  value += sampleBilinearScalar(source, width, height, left, top) * 0.25;
+  value += sampleBilinearScalar(source, width, height, left, bottom) * 0.25;
+  value += sampleBilinearScalar(source, width, height, right, top) * 0.25;
+  value += sampleBilinearScalar(source, width, height, right, bottom) * 0.25;
+  return value;
+}
+
+function buffersOverlap(left, right)
+{
+  return left === right || (left.buffer !== undefined && left.buffer === right.buffer &&
+    left.byteOffset < right.byteOffset + right.byteLength &&
+    right.byteOffset < left.byteOffset + left.byteLength);
+}
+
+function canOverwriteOutput(output, width, height, channels, source, secondSource = null)
+{
+  // 仅省略完整覆盖且不影响输入的清零；尾部及共享 backing store 的旧语义继续保留。
+  return Number.isInteger(width) && width > 0 && Number.isInteger(height) && height > 0 &&
+    output.length === width * height * channels && !buffersOverlap(output, source) &&
+    (!secondSource || !buffersOverlap(output, secondSource));
+}
+
 function filterBoxScalar(
   source,
   sourceWidth,
@@ -449,7 +491,10 @@ function filterBoxScalar(
   let endX = outputWidth;
   let endY = outputHeight;
 
-  output.fill(0);
+  if (sourceBounds || !canOverwriteOutput(output, outputWidth, outputHeight, 1, source))
+  {
+    output.fill(0);
+  }
 
   if (sourceBounds)
   {
@@ -482,21 +527,14 @@ function filterBoxScalar(
     for (let x = startX; x < endX; x++)
     {
       const sourceX = (x + 0.5) * scaleX - 0.5;
-      let coverage = 0;
-
-      for (const offsetX of [-sampleOffset, sampleOffset])
-      {
-        for (const offsetY of [-sampleOffset, sampleOffset])
-        {
-          coverage += sampleBilinearScalar(
-            source,
-            sourceWidth,
-            sourceHeight,
-            sourceX + offsetX,
-            sourceY + offsetY,
-          ) * 0.25;
-        }
-      }
+      const coverage = sampleBoxScalar(
+        source,
+        sourceWidth,
+        sourceHeight,
+        sourceX,
+        sourceY,
+        sampleOffset,
+      );
 
       output[y * outputWidth + x] = clampResult
         ? clamp01(coverage)
@@ -545,7 +583,10 @@ function upsampleTransportAndAdd(
   const scaleY = coarseHeight / fineHeight;
   const offset = Math.max(0, sampleScale) * 0.5;
 
-  output.fill(0);
+  if (!canOverwriteOutput(output, fineWidth, fineHeight, 1, currentFine, accumulatedCoarse))
+  {
+    output.fill(0);
+  }
 
   for (let y = 0; y < fineHeight; y++)
   {
@@ -554,21 +595,14 @@ function upsampleTransportAndAdd(
     for (let x = 0; x < fineWidth; x++)
     {
       const coarseX = (x + 0.5) * scaleX - 0.5;
-      let coarseCoverage = 0;
-
-      for (const offsetX of [-offset, offset])
-      {
-        for (const offsetY of [-offset, offset])
-        {
-          coarseCoverage += sampleBilinearScalar(
-            accumulatedCoarse,
-            coarseWidth,
-            coarseHeight,
-            coarseX + offsetX,
-            coarseY + offsetY,
-          ) * 0.25;
-        }
-      }
+      const coarseCoverage = sampleBoxScalar(
+        accumulatedCoarse,
+        coarseWidth,
+        coarseHeight,
+        coarseX,
+        coarseY,
+        offset,
+      );
 
       const outputIndex = y * fineWidth + x;
 
@@ -652,22 +686,16 @@ export function prefilterBloom(
       output[outputIndex + 1] = 0;
       output[outputIndex + 2] = 0;
 
-      for (const offsetX of [-1, 1])
-      {
-        for (const offsetY of [-1, 1])
-        {
-          addBilinearRgb(
-            source,
-            sourceWidth,
-            sourceHeight,
-            sourceX + offsetX,
-            sourceY + offsetY,
-            0.25,
-            output,
-            outputIndex,
-          );
-        }
-      }
+      addBoxRgb(
+        source,
+        sourceWidth,
+        sourceHeight,
+        sourceX,
+        sourceY,
+        1,
+        output,
+        outputIndex,
+      );
 
       const contribution = writeThresholdedColor(
         Math.min(clampMax, output[outputIndex]),
@@ -739,22 +767,16 @@ function downsampleBox(
       const sourceX = (x + 0.5) * scaleX - 0.5;
       const outputIndex = (y * outputWidth + x) * RGB_CHANNELS;
 
-      for (const offsetX of [-1, 1])
-      {
-        for (const offsetY of [-1, 1])
-        {
-          addBilinearRgb(
-            source,
-            sourceWidth,
-            sourceHeight,
-            sourceX + offsetX,
-            sourceY + offsetY,
-            0.25,
-            output,
-            outputIndex,
-          );
-        }
-      }
+      addBoxRgb(
+        source,
+        sourceWidth,
+        sourceHeight,
+        sourceX,
+        sourceY,
+        1,
+        output,
+        outputIndex,
+      );
 
       if (Math.max(
         output[outputIndex],
@@ -823,7 +845,10 @@ function upsampleBoxAndAdd(
   const scaleY = coarseHeight / fineHeight;
   const offset = Math.max(0, sampleScale) * 0.5;
 
-  output.fill(0);
+  if (!canOverwriteOutput(output, fineWidth, fineHeight, RGB_CHANNELS, currentFine, accumulatedCoarse))
+  {
+    output.fill(0);
+  }
 
   for (let y = 0; y < fineHeight; y++)
   {
@@ -839,22 +864,16 @@ function upsampleBoxAndAdd(
       output[outputIndex + 1] = currentFine[outputIndex + 1];
       output[outputIndex + 2] = currentFine[outputIndex + 2];
 
-      for (const offsetX of [-offset, offset])
-      {
-        for (const offsetY of [-offset, offset])
-        {
-          addBilinearRgb(
-            accumulatedCoarse,
-            coarseWidth,
-            coarseHeight,
-            coarseX + offsetX,
-            coarseY + offsetY,
-            0.25,
-            output,
-            outputIndex,
-          );
-        }
-      }
+      addBoxRgb(
+        accumulatedCoarse,
+        coarseWidth,
+        coarseHeight,
+        coarseX,
+        coarseY,
+        offset,
+        output,
+        outputIndex,
+      );
     }
   }
 
@@ -1129,22 +1148,16 @@ function filterBloomForComposite(
     {
       const outputIndex = (y * width + x) * RGB_CHANNELS;
 
-      for (const offsetX of [-offset, offset])
-      {
-        for (const offsetY of [-offset, offset])
-        {
-          addBilinearRgb(
-            source,
-            width,
-            height,
-            x + offsetX,
-            y + offsetY,
-            0.25,
-            output,
-            outputIndex,
-          );
-        }
-      }
+      addBoxRgb(
+        source,
+        width,
+        height,
+        x,
+        y,
+        offset,
+        output,
+        outputIndex,
+      );
     }
   }
 }
