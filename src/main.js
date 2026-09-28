@@ -936,6 +936,7 @@ const videoDynamicRangeQuery = typeof window.matchMedia === 'function'
   : null;
 const WEBGPU_DIAGNOSTIC_REFRESH_MS = 250;
 let webgpuDiagnosticRefreshTimer = null;
+let renderBackendRefreshQueued = false;
 const RENDER_MODE_CONFIGS = Object.freeze(
   {
     'full-webgpu-sdr':
@@ -1360,7 +1361,7 @@ function syncHdrUiControls(extendedActive)
   }
 }
 
-function syncHdrUiOverlay(snapshot = effect.getConfig())
+function syncHdrUiOverlay(snapshot)
 {
   const extendedActive = snapshot.resolvedEffectBackend === 'webgpu' &&
     snapshot.resolvedWebGPUOutputMode === 'extended';
@@ -1408,7 +1409,7 @@ function applyHdrUiSettings(settings = {}, persist = true)
     );
   }
 
-  syncHdrUiOverlay(effect.getConfig());
+  updateRenderBackendStatus();
 }
 
 function findHdrPresentationPreset(snapshot)
@@ -1438,7 +1439,7 @@ function persistHdrPresentation(snapshot)
   );
 }
 
-function syncHdrPresentationControls(snapshot = effect.getConfig())
+function syncHdrPresentationControls(snapshot)
 {
   const container = document.getElementById('hdrPresentationControls');
   const presetControl = document.getElementById(
@@ -1480,7 +1481,7 @@ function applyHdrPresentation(overrides, persist = true)
   effect.updateConfig(overrides);
   const snapshot = effect.getConfig();
 
-  syncHdrPresentationControls(snapshot);
+  updateRenderBackendStatus();
 
   if (persist)
   {
@@ -1658,13 +1659,32 @@ function applyRenderMode(mode)
   requestAnimationFrame(updateRenderBackendStatus);
 }
 
+function handleRenderBackendChange()
+{
+  updateRenderBackendStatus();
+
+  if (renderBackendRefreshQueued)
+  {
+    return;
+  }
+
+  // 后端事件可能在一帧提交完成前同步发出；事务结束后再读一次，
+  // 让输出模式和控件共同采用最终快照，暂停时也不依赖下一次 RAF。
+  renderBackendRefreshQueued = true;
+  queueMicrotask(() =>
+  {
+    renderBackendRefreshQueued = false;
+    updateRenderBackendStatus();
+  });
+}
+
 effect.canvas.addEventListener(
   BLOOM_BACKEND_CHANGE_EVENT,
-  updateRenderBackendStatus,
+  handleRenderBackendChange,
 );
 effect.canvas.addEventListener(
   EFFECT_BACKEND_CHANGE_EVENT,
-  updateRenderBackendStatus,
+  handleRenderBackendChange,
 );
 
 for (const query of [dynamicRangeQuery, videoDynamicRangeQuery])
@@ -2227,7 +2247,7 @@ function applyThemeColorMode(mode, persist = true)
     localStorage.setItem(THEME_COLOR_MODE_STORAGE_KEY, mode);
   }
 
-  syncHdrUiOverlay(effect.getConfig());
+  updateRenderBackendStatus();
   return true;
 }
 
@@ -2245,7 +2265,7 @@ if (ctrlColor)
   {
     effect.setThemeColor(ctrlColor.value);
     localStorage.setItem('bafx-ctrlColor', ctrlColor.value);
-    syncHdrUiOverlay(effect.getConfig());
+    updateRenderBackendStatus();
   });
 }
 
@@ -2448,7 +2468,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   manualPointerId = null;
   updateHostApiStatus();
   requestAnimationFrame(updateRenderBackendStatus);
-  syncHdrPresentationControls(effect.getConfig());
+  updateRenderBackendStatus();
   applyTheme('蔚蓝');
 
   for (const key of Object.keys(localStorage))
@@ -3964,7 +3984,7 @@ switchLanguage(currentLang);
   // 首次恢复即写入显式模式，避免后续版本再次依赖有歧义的缺省值。
   applyThemeColorMode(restoredThemeColorMode);
   effect.setThemeColor(restoredColor);
-  syncHdrUiOverlay(effect.getConfig());
+  updateRenderBackendStatus();
 
   const theme = localStorage.getItem('bafx-theme');
   const customBg = localStorage.getItem('bafx-custom-bg');
