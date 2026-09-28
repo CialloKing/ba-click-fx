@@ -7,9 +7,21 @@
 
 import assert from 'node:assert/strict';
 import { READBACK_ROLES, trackCanvasReadbacks } from '../scripts/runtime-readback-diagnostics.mjs';
+import { tintFixture } from './canvas-tint-fixture.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BAClickFX } from '../src/fx.js';
+
+const tintRecords = await tintFixture();
+const tintHash = createHash('sha256').update(JSON.stringify(tintRecords.map(
+  ({ preparations, samples, ...values }) => values,
+))).digest('hex');
+assert.equal(tintHash, '28abe1f563b7999daddf20ae14224b8841f8ac90c08574e36008f32c86680f0d',
+  '80 组圆角边界、纹理方向、透明度及 Coverage 染色保持原 ImageData 字节');
+assert(tintRecords.every(record => record.roundness > 0
+  ? record.preparations === record.visible && record.samples === record.visible * 4
+  : record.preparations === 0 && record.samples === 0),
+  '透明像素不采样，每个可见圆角像素只准备一次四通道共用坐标');
 
 // 诊断包装不能改变 Canvas 返回值、异常身份或方法描述符。
 {

@@ -84,6 +84,7 @@ import {
   TRIANGLE_TEXTURE_RGBA,
   createRoundedTriangleCoverage,
   createTriangleTextureSources,
+  getRoundedTriangleTextureDivisor,
   mapRoundedTriangleTextureUv,
 } from './triangle-texture.js';
 import { traceRoundedTrianglePath } from './triangle-path.js';
@@ -1401,6 +1402,34 @@ function sampleTextureChannel(
   return topSample + (bottomSample - topSample) * vertical;
 }
 
+function prepareTextureSample(sample, textureSize, u, v)
+{
+  const sourceX = clamp(u * textureSize - 0.5, 0, textureSize - 1);
+  const sourceY = clamp(v * textureSize - 0.5, 0, textureSize - 1);
+  const left = Math.floor(sourceX);
+  const top = Math.floor(sourceY);
+  const right = Math.min(textureSize - 1, left + 1);
+  const bottom = Math.min(textureSize - 1, top + 1);
+  sample.topLeft = top * textureSize + left;
+  sample.topRight = top * textureSize + right;
+  sample.bottomLeft = bottom * textureSize + left;
+  sample.bottomRight = bottom * textureSize + right;
+  sample.horizontal = sourceX - left;
+  sample.vertical = sourceY - top;
+}
+
+function samplePreparedTextureChannel(data, stride, sample, channel = 0)
+{
+  const topLeft = data[sample.topLeft * stride + channel];
+  const topRight = data[sample.topRight * stride + channel];
+  const bottomLeft = data[sample.bottomLeft * stride + channel];
+  const bottomRight = data[sample.bottomRight * stride + channel];
+  // 保留原来的两次横向插值再纵向插值，不改成权重加和以免改变最终字节。
+  const topSample = topLeft + (topRight - topLeft) * sample.horizontal;
+  const bottomSample = bottomLeft + (bottomRight - bottomLeft) * sample.horizontal;
+  return topSample + (bottomSample - topSample) * sample.vertical;
+}
+
 // 12 位线性索引的最大 sRGB 误差低于一个 8 位通道步长，同时避免在
 // Context 回退首帧同步计算 65536 次幂函数造成可见卡顿。
 const LINEAR_TO_SRGB_LUT_SIZE = 4096;
@@ -1555,6 +1584,9 @@ function prepareLinearTintedTextureCanvas(
   const sourceRgba = resources.linearTextureRgba;
   const srgbLut = getLinearToSrgbLut();
   const flipVertical = frameSlot === 1;
+  // 工作区属于本次染色调用；多实例及重入不会共享可变采样状态。
+  const textureSample = roundness > 0 ? {} : null;
+  const textureDivisor = useRoundedShape ? getRoundedTriangleTextureDivisor(roundness) : 1;
   const encodeLinearChannel = (energy, straightDivisor) =>
   {
     const lookupIndex = Math.round(
@@ -1562,10 +1594,10 @@ function prepareLinearTintedTextureCanvas(
     );
     return srgbLut[lookupIndex] / straightDivisor;
   };
-  const encodeRoundedChannel = (channel, u, v, textureSupport, targetCoverage, straightDivisor) =>
+  const encodeRoundedChannel = (channel, textureSupport, targetCoverage, straightDivisor) =>
   {
-    const textureChannel = sampleTextureChannel(
-      sourceTextureRgb, textureSize, 3, u, v, channel,
+    const textureChannel = samplePreparedTextureChannel(
+      sourceTextureRgb, 3, textureSample, channel,
     );
     const supportedChannel = 1 + (textureChannel - 1) * clamp01(textureSupport);
     const shapeChannel = supportedChannel + (1 - supportedChannel) * roundness;
@@ -1596,36 +1628,6 @@ function prepareLinearTintedTextureCanvas(
       const originalCoverage = useTextureAlpha
         ? sourceRgba[sourceRgbaOffset + 3] / 255
         : sourceCoverage[sourcePixelIndex] / 255;
-      let sampleU = (x + 0.5) / textureSize;
-      let sampleV = (sourceY + 0.5) / textureSize;
-
-      if (useRoundedShape)
-      {
-        [sampleU, sampleV] = mapRoundedTriangleTextureUv(
-          sampleU,
-          sampleV,
-          roundness,
-        );
-      }
-
-      const textureSupport = useRoundedShape
-        ? (useTextureAlpha
-            ? sampleTextureChannel(
-                sourceRgba,
-                textureSize,
-                4,
-                sampleU,
-                sampleV,
-                3,
-              )
-            : sampleTextureChannel(
-                sourceCoverage,
-                textureSize,
-                1,
-                sampleU,
-                sampleV,
-              )) / 255
-        : originalCoverage;
       const targetCoverage = useRoundedShape
         ? shapeCoverage[sourcePixelIndex] / 255
         : originalCoverage;
@@ -1639,6 +1641,32 @@ function prepareLinearTintedTextureCanvas(
         image.data[outputOffset + 3] = 0;
         continue;
       }
+
+      let sampleU = (x + 0.5) / textureSize;
+      let sampleV = (sourceY + 0.5) / textureSize;
+
+      if (useRoundedShape)
+      {
+        sampleU = 0.5 + (sampleU - 0.5) / textureDivisor;
+        sampleV = 0.5 + (sampleV - 0.5) / textureDivisor;
+      }
+
+      if (textureSample) prepareTextureSample(textureSample, textureSize, sampleU, sampleV);
+
+      const textureSupport = useRoundedShape
+        ? (useTextureAlpha
+            ? samplePreparedTextureChannel(
+                sourceRgba,
+                4,
+                textureSample,
+                3,
+              )
+            : samplePreparedTextureChannel(
+                sourceCoverage,
+                1,
+                textureSample,
+              )) / 255
+        : originalCoverage;
 
       const effectiveAlpha = coverageByte / 255;
       const straightDivisor = safeDivisor * effectiveAlpha;
@@ -1674,9 +1702,9 @@ function prepareLinearTintedTextureCanvas(
       }
       else
       {
-        red = encodeRoundedChannel(0, sampleU, sampleV, textureSupport, targetCoverage, straightDivisor);
-        green = encodeRoundedChannel(1, sampleU, sampleV, textureSupport, targetCoverage, straightDivisor);
-        blue = encodeRoundedChannel(2, sampleU, sampleV, textureSupport, targetCoverage, straightDivisor);
+        red = encodeRoundedChannel(0, textureSupport, targetCoverage, straightDivisor);
+        green = encodeRoundedChannel(1, textureSupport, targetCoverage, straightDivisor);
+        blue = encodeRoundedChannel(2, textureSupport, targetCoverage, straightDivisor);
       }
       const maximum = Math.max(red, green, blue);
       // 保留每个 texel 的峰值，只让弱通道有限靠近主通道。这里仍以纹理

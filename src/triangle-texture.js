@@ -73,15 +73,18 @@ function signedDistanceToRoundedTriangle(x, y, roundness)
 /** 把圆角轮廓内的采样点压回原三角内部，避免读取透明区的暗 RGB。 */
 export function mapRoundedTriangleTextureUv(u, v, roundness)
 {
-  const amount = clamp01(roundness);
-  // 1.16465 来自原点到最窄侧边的距离 0.4619700316；该缩放保证
-  // Minkowski 圆角轮廓在所有方向都映射到原三角内部。
-  const divisor = 1 + TRIANGLE_TEXTURE_INSET_RATE * amount;
+  const divisor = getRoundedTriangleTextureDivisor(roundness);
 
   return [
     0.5 + ((Number(u) || 0) - 0.5) / divisor,
     0.5 + ((Number(v) || 0) - 0.5) / divisor,
   ];
+}
+
+export function getRoundedTriangleTextureDivisor(roundness)
+{
+  // 1.16465 来自原点到最窄侧边的距离 0.4619700316；批量染色可复用此固定除数。
+  return 1 + TRIANGLE_TEXTURE_INSET_RATE * clamp01(roundness);
 }
 
 /** 同一归一化形状函数供 Canvas 测试与 GPU Shader 对齐。 */
