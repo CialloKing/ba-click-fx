@@ -56,6 +56,7 @@ const TEXTURE_USAGE = globalThis.GPUTextureUsage ??
 const BUFFER_USAGE = globalThis.GPUBufferUsage ??
 {
   COPY_DST: 8,
+  INDEX: 16,
   VERTEX: 32,
   UNIFORM: 64,
 };
@@ -294,6 +295,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     this.prefilterUniform = null;
     this.finalUniform = null;
     this.vertexBuffers = {};
+    this.ringIndexBufferSize = 0;
     this.textures = {};
     this.textureViews = new WeakMap();
     this.bindGroups = new Map();
@@ -358,6 +360,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
   {
     if (status === 'lost')
     {
+      this._deleteRingIndexBuffer();
       this.bindGroups?.clear();
       this.textureViews = new WeakMap();
       this.available = false;
@@ -513,6 +516,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     catch (error)
     {
       console.warn('[BAClickFX] WebGPU 资源初始化失败:', error);
+      this._deleteRingIndexBuffer();
       this.available = false;
       this._setRendererStatus('unavailable', error);
       return false;
@@ -759,6 +763,37 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     }
   }
 
+  _deleteRingIndexBuffer()
+  {
+    this.ringIndexBuffer?.destroy?.();
+    this.ringIndexBuffer = null;
+    this.ringIndexBufferSize = 0;
+    this._ringUploadedIndexVersion = -1;
+  }
+
+  _ensureRingIndexBuffer()
+  {
+    this._prepareRingIndices();
+    if (this.ringIndexCount <= 0) return;
+    const byteLength = this.ringIndexCount * Uint32Array.BYTES_PER_ELEMENT;
+    if (!this.ringIndexBuffer || this.ringIndexBufferSize < byteLength)
+    {
+      this._deleteRingIndexBuffer();
+      const size = nextBufferSize(byteLength);
+      this.ringIndexBuffer = this.device.createBuffer({
+        label: 'BA Click FX ring indices', size,
+        usage: BUFFER_USAGE.INDEX | BUFFER_USAGE.COPY_DST,
+      });
+      this.ringIndexBufferSize = size;
+    }
+    if (this._ringUploadedIndexVersion !== this._ringIndexVersion)
+    {
+      this.device.queue.writeBuffer(this.ringIndexBuffer, 0,
+        this.ringIndexData.buffer, this.ringIndexData.byteOffset, byteLength);
+      this._ringUploadedIndexVersion = this._ringIndexVersion;
+    }
+  }
+
   _getBindGroup(slot, pipeline, uniform, sources, geometry = false)
   {
     const cached = this.bindGroups.get(slot);
@@ -826,7 +861,15 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       ),
     );
     pass.setVertexBuffer(0, this.vertexBuffers[name].buffer);
-    pass.draw(count);
+    if (name === 'ring')
+    {
+      pass.setIndexBuffer(this.ringIndexBuffer, 'uint32');
+      pass.drawIndexed(this.ringIndexCount);
+    }
+    else
+    {
+      pass.draw(count);
+    }
   }
 
   _drawGeometry(pass, uniform, transparentOverlay, scales = {})
@@ -1317,6 +1360,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
         this.vertexCount, COMPONENTS_PER_VERTEX);
       this._ensureVertexBuffer('ring', this.ringVertexData,
         this.ringVertexCount, COMPONENTS_PER_RING_VERTEX);
+      this._ensureRingIndexBuffer();
       this._ensureVertexBuffer('triangle', this.triangleVertexData,
         this.triangleVertexCount, COMPONENTS_PER_TEXTURED_VERTEX);
       const encoder = this.device.createCommandEncoder(
@@ -1376,7 +1420,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       this.stats.sceneVertexCount = this.vertexCount +
         this.triangleVertexCount + this.trailVertexCount;
       this.stats.sceneDiskVertexCount = this.sceneDiskVertexCount;
-      this.stats.sceneRingVertexCount = this.ringVertexCount;
+      this.stats.sceneRingVertexCount = this.ringIndexCount;
       this.stats.sceneTriangleVertexCount = this.triangleVertexCount;
       this.stats.sceneTrailVertexCount = this.trailVertexCount;
       return true;
@@ -1384,6 +1428,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     catch (error)
     {
       console.warn('[BAClickFX] WebGPU 清晰特效渲染失败:', error);
+      this._deleteRingIndexBuffer();
       this.available = false;
       this._setRendererStatus('unavailable', error);
       return false;
@@ -1546,7 +1591,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
       this.stats.vertexCount = this.vertexCount +
         this.triangleVertexCount + this.trailVertexCount;
       this.stats.diskVertexCount = this.sceneDiskVertexCount;
-      this.stats.ringVertexCount = this.ringVertexCount;
+      this.stats.ringVertexCount = this.ringIndexCount;
       this.stats.triangleVertexCount = this.triangleVertexCount;
       this.stats.trailVertexCount = this.trailVertexCount;
       return true;
@@ -1628,6 +1673,7 @@ export class WebGPUEffectRenderer extends WebGL2EffectRenderer
     this._setRendererStatus('destroyed');
     this._deleteTargets();
     this._releaseRingScratch();
+    this._deleteRingIndexBuffer();
     this.textureViews = new WeakMap();
     this.geometryUniformScratch = null;
     this.passUniformScratch = null;

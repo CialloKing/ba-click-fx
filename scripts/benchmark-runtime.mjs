@@ -254,10 +254,11 @@ try
       {
         const geometry = new WebGL2EffectRenderer(null, { initialize: false });
         return {
-          work: () => { geometry.beginFrame(); ring(geometry); ring(geometry); },
+          work: () => { geometry.beginFrame(); ring(geometry); ring(geometry); geometry._prepareRingIndices?.(); },
           destroy: () => geometry.destroy(),
           count: () => countFloat64('float64AllocationsPer1000'),
-          details: () => ({ vertexBytes: geometry.ringVertexCount * 9 * 4 }),
+          details: () => ({ vertexBytes: geometry.ringVertexCount * 9 * 4,
+            indexBytes: (geometry.ringIndexCount ?? 0) * 4 }),
         };
       });
       for (const moving of [false, true])

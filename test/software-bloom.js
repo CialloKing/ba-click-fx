@@ -1781,24 +1781,43 @@ uniformRenderer.destroy();
 assert(uniformRenderer.uniformLocations.size === 0, '重复销毁安全且释放 Uniform 缓存');
 
 // 只记录缓冲/VAO 的归属和提交，不模拟 Shader 或像素执行。
-function createGeometryUploadHarness(failTrailBuffer = false)
+function createGeometryUploadHarness(failBufferAt = -1)
 {
   const uploads = [], draws = [], buffers = [], vaos = [], deleted = new Set();
   let boundBuffer, boundVao;
   const gl = new Proxy({
     createBuffer()
     {
-      if (failTrailBuffer && buffers.length === 4) return null;
+      if (buffers.length === failBufferAt) return null;
       const buffer = { id: buffers.length };
       buffers.push(buffer);
       return buffer;
     },
     createVertexArray() { const vao = {}; vaos.push(vao); return vao; },
-    bindBuffer(target, buffer) { boundBuffer = buffer; },
+    bindBuffer(target, buffer)
+    {
+      if (target === 'ELEMENT_ARRAY_BUFFER') boundVao.indexBuffer = buffer;
+      else boundBuffer = buffer;
+    },
     bindVertexArray(vao) { boundVao = vao; },
     vertexAttribPointer() { boundVao.buffer = boundBuffer; },
-    bufferData(target, data) { boundBuffer.data = data.slice(); uploads.push(boundBuffer); },
+    bufferData(target, data)
+    {
+      const buffer = target === 'ELEMENT_ARRAY_BUFFER' ? boundVao.indexBuffer : boundBuffer;
+      buffer.data = data.slice(); uploads.push(buffer);
+    },
     drawArrays() { draws.push({ buffer: boundVao.buffer, data: boundVao.buffer.data.slice() }); },
+    drawElements(mode, count, type, offset)
+    {
+      if (type !== 'UNSIGNED_INT' || offset !== 0) throw new Error('Unexpected index format');
+      const data = new Float32Array(count * 9);
+      for (let i = 0; i < count; i++)
+      {
+        const vertex = boundVao.indexBuffer.data[i];
+        data.set(boundVao.buffer.data.subarray(vertex * 9, vertex * 9 + 9), i * 9);
+      }
+      draws.push({ buffer: boundVao.buffer, data });
+    },
     deleteBuffer(buffer) { if (buffer) deleted.add(buffer); },
     deleteVertexArray(vao) { if (vao) deleted.add(vao); },
     getExtension() { return {}; },
@@ -1828,15 +1847,16 @@ for (let index = 0; index < batches.length; index++)
 {
   const [name, components] = batches[index];
   const prefix = name ? `${name}Vertex` : 'vertex';
-  uploadRenderer[`${prefix}Count`] = 3;
-  uploadRenderer[`${prefix}Data`].fill(index + 1, 0, 3 * components);
+  if (name === 'ring') uploadRenderer.addDissolveRing(100, 100, 50, 10, 0, 1, 32, [1, 1, 1], 1, 0.5, 0, 1, 1);
+  else uploadRenderer[`${prefix}Count`] = 3;
+  uploadRenderer[`${prefix}Data`].fill(index + 1, 0, uploadRenderer[`${prefix}Count`] * components);
 }
 assert(uploadRenderer.renderScene({ diskEmissionScale: 2, ringEmissionScale: 2 }),
   '包含全部几何的独立发光层场景成功提交');
-assert(uploadHarness.uploads.length === 5 && new Set(uploadHarness.uploads).size === 5 &&
+assert(uploadHarness.uploads.length === 6 && new Set(uploadHarness.uploads).size === 6 &&
   uploadHarness.draws.length === 10 && uploadHarness.draws.every((draw, index) =>
     draw.data.every(value => value === index % 5 + 1)),
-  '每种几何只上传一次，两个层保持圆盘/拖尾/粒子/圆环/碎片顺序且数据互不覆盖');
+  '每种几何及圆环索引只上传一次，两层保持原顺序且数据互不覆盖');
 const firstTrailBuffer = uploadRenderer.trailBuffer;
 uploadRenderer.trailVertexData[0] = 77;
 uploadHarness.uploads.length = uploadHarness.draws.length = 0;
@@ -1859,12 +1879,19 @@ assert(uploadRenderer.available && uploadRenderer.trailBuffer !== firstTrailBuff
   'Context 恢复重新建立拖尾 VAO，避免删除浏览器已作废的旧对象');
 const restoredTrailBuffer = uploadRenderer.trailBuffer;
 const restoredTrailVao = uploadRenderer.trailVao;
+const restoredIndexBuffer = uploadRenderer.ringIndexBuffer;
+uploadRenderer.addDissolveRing(100, 100, 50, 10, 0, 8, 96, [1, 1, 1], 1, 0.5, 0, 1, 1);
+uploadHarness.uploads.length = 0;
+assert(uploadRenderer.renderScene({}) && uploadHarness.uploads.includes(restoredIndexBuffer) &&
+  uploadRenderer.ringVao.indexBuffer === restoredIndexBuffer,
+  'Context 恢复后索引重新上传并绑定到新圆环 VAO');
 uploadRenderer.destroy();
 uploadRenderer.destroy();
 assert(uploadHarness.deleted.has(restoredTrailBuffer) && uploadHarness.deleted.has(restoredTrailVao) &&
+  uploadHarness.deleted.has(restoredIndexBuffer) && uploadRenderer.ringIndexData.length === 0 &&
   uploadRenderer.trailBuffer === null && uploadRenderer.trailVao === null,
-  '重复销毁释放新增拖尾资源');
-const failedUploadHarness = createGeometryUploadHarness(true);
+  '重复销毁释放拖尾及圆环索引资源');
+const failedUploadHarness = createGeometryUploadHarness(5);
 const savedUploadWarning = console.warn;
 let failedUploadRenderer;
 try
@@ -1877,6 +1904,15 @@ assert(!failedUploadRenderer.available && failedUploadRenderer.trailBuffer === n
   [...failedUploadHarness.buffers, ...failedUploadHarness.vaos].every(value => failedUploadHarness.deleted.has(value)),
   '拖尾缓冲分配失败时回收已创建的全部缓冲和 VAO');
 failedUploadRenderer.destroy();
+const failedIndexHarness = createGeometryUploadHarness(3);
+console.warn = () => {};
+let failedIndexRenderer;
+try { failedIndexRenderer = new WebGL2EffectRenderer(failedIndexHarness.canvas); }
+finally { console.warn = savedUploadWarning; }
+assert(!failedIndexRenderer.available && failedIndexRenderer.ringIndexBuffer === null &&
+  [...failedIndexHarness.buffers, ...failedIndexHarness.vaos].every(value => failedIndexHarness.deleted.has(value)),
+  '索引缓冲分配失败时清理此前已创建的资源');
+failedIndexRenderer.destroy();
 
 fullGeometryRenderer.beginFrame();
 fullGeometryRenderer.addTriangle(
@@ -1914,11 +1950,10 @@ for (const [bands, segments, rotation, direction, vertices, hash] of [
   fullGeometryRenderer.addDissolveRing(
     100, 110, 50, 10, rotation, bands, segments, [1, 0.6, 2], 0.7, 0.5, 0.1, 0.9, direction,
   );
-  const bytes = Buffer.from(
-    fullGeometryRenderer.ringVertexData.buffer, 0, fullGeometryRenderer.ringVertexCount * 9 * 4,
-  );
+  fullGeometryRenderer._prepareRingIndices();
+  const bytes = expandRingBytes(fullGeometryRenderer);
   assert(
-    fullGeometryRenderer.ringVertexCount === vertices &&
+    fullGeometryRenderer.ringIndexCount === vertices &&
       createHash('sha256').update(bytes).digest('hex') === hash,
     `圆环 ${bands}×${segments} 的顶点字节与优化前一致`,
   );
@@ -1931,6 +1966,56 @@ for (const [bands, segments, rotation, direction, vertices, hash] of [
     );
   }
 }
+function expandRingBytes(renderer)
+{
+  const expanded = new Float32Array(renderer.ringIndexCount * 9);
+  for (let i = 0; i < renderer.ringIndexCount; i++)
+  {
+    const index = renderer.ringIndexData[i] * 9;
+    expanded.set(renderer.ringVertexData.subarray(index, index + 9), i * 9);
+  }
+  return Buffer.from(expanded.buffer);
+}
+for (const [radius, count, bands, segments, expectedHash] of [
+  [1, 1, 8, 96, '59a63c306bb2b9d7ea5897543f0987186934604f704ae5a6e54439e13fe40c58'],
+  [50, 4, 32, 512, 'ac2be08f797de12cbc832770bb129a119cf4289a294e98c76015f9cd4eab3820'],
+])
+{
+  fullGeometryRenderer.beginFrame();
+  for (let i = 0; i < count; i++) fullGeometryRenderer.addDissolveRing(
+    100 + i * 13, 110, radius, 10, 0.35, bands, segments, [1, 0.6, 2], 0.7, 0.5, 0.1, 0.9, -1);
+  fullGeometryRenderer._prepareRingIndices();
+  assert(createHash('sha256').update(expandRingBytes(fullGeometryRenderer)).digest('hex') === expectedHash,
+    `${count} 个圆环的零内半径或 32 位大索引展开字节保持一致`);
+}
+assert(fullGeometryRenderer.ringVertexCount === 67716 &&
+  fullGeometryRenderer.ringIndexData[fullGeometryRenderer.ringIndexCount - 2] === 67715,
+  '四个最大采样圆环的索引超过 65535 时不截断');
+const topologyFrame = specs =>
+{
+  fullGeometryRenderer.beginFrame();
+  for (const [bands, segments] of specs) fullGeometryRenderer.addDissolveRing(
+    100, 110, 50, 10, 0.35, bands, segments, [1, 0.6, 2], 0.7, 0.5, 0.1, 0.9, -1);
+  fullGeometryRenderer._prepareRingIndices();
+  return fullGeometryRenderer._ringIndexVersion;
+};
+const topologyVersion = topologyFrame([[8, 96], [1, 32]]);
+const indexStorage = fullGeometryRenderer.ringIndexData;
+assert(topologyFrame([[8, 96], [1, 32]]) === topologyVersion &&
+  fullGeometryRenderer.ringIndexData === indexStorage, '稳定混合拓扑跨帧复用索引版本和工作缓冲');
+assert(topologyFrame([[1, 32], [8, 96]]) > topologyVersion &&
+  fullGeometryRenderer.ringIndexData[192] === 66, '改变拓扑顺序后重新计算后续圆环的顶点偏移');
+topologyFrame([[8, 96]]);
+assert(fullGeometryRenderer._ringTopology.length === 1 && fullGeometryRenderer.ringIndexCount === 4608,
+  '减少圆环数量时只保留当前拓扑序列');
+topologyFrame([]);
+assert(fullGeometryRenderer._ringTopology.length === 0 && fullGeometryRenderer.ringIndexCount === 0,
+  '空帧清除当前拓扑和有效索引计数');
+// 未提交帧中的拓扑也可能被修改；下一帧不能误把旧索引判断为已准备。
+fullGeometryRenderer.addDissolveRing(100, 100, 50, 10, 0, 1, 32, [1, 1, 1], 1, 0.5, 0, 1, 1);
+topologyFrame([[1, 32]]);
+assert(fullGeometryRenderer.ringIndexCount === 192 && fullGeometryRenderer.ringIndexData[2] === 34,
+  '未提交帧后继续相同拓扑仍完成索引准备');
 fullGeometryRenderer.destroy();
 assert(
   fullGeometryRenderer._ringCosine === null && fullGeometryRenderer._ringSine === null,
