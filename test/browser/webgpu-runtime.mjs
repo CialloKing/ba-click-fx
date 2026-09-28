@@ -12,6 +12,76 @@ const FIXTURE_HEIGHT = 240;
 const TRAIL_SHARD_LIMIT_SEGMENTS = 24;
 const OPTIONAL = process.argv.includes('--optional');
 let currentStage = 'startup';
+const stateTimeline = [];
+
+async function installStateTimeline(page)
+{
+  // 跨导航保留有界记录；诊断回调失败不能影响页面或原始断言。
+  await page.exposeFunction('__recordHdrState', (entry) =>
+  {
+    stateTimeline.push({ stage: currentStage, ...entry });
+    if (stateTimeline.length > 200) stateTimeline.shift();
+  });
+  await page.addInitScript(() =>
+  {
+    const identities = new WeakMap();
+    let nextIdentity = 0;
+    const record = (reason) =>
+    {
+      try
+      {
+        const effect = window.BAClickFXDemo;
+        if (!effect) return;
+        const renderer = effect.webgpuEffectRenderer;
+        if (renderer && !identities.has(renderer)) identities.set(renderer, ++nextIdentity);
+        const config = effect.getConfig();
+        const entry = {
+          reason, time: performance.now(), url: location.href,
+          renderer: renderer ? identities.get(renderer) : null,
+          backend: config.resolvedEffectBackend,
+          bloomBackend: config.resolvedBloomBackend,
+          outputMode: config.resolvedWebGPUOutputMode,
+          rendererStatus: renderer?.status, paused: effect.paused,
+          hdrUiState: document.body.dataset.hdrUiState,
+          controls: Object.fromEntries([
+            'ctrlWebGPUHdrBrightness', 'ctrlHdrUiBrightness', 'ctrlHdrUiEnabled',
+          ].map(id =>
+          {
+            const control = document.getElementById(id);
+            return [id, control ? { disabled: control.disabled,
+              value: control.value, checked: control.checked } : null];
+          })),
+        };
+        window.__recordHdrState(entry).catch(() => {});
+      }
+      catch { /* 页面导航或资源释放中的诊断不干扰原测试。 */ }
+    };
+    for (const type of ['baclickfxbackendchange', 'baclickfxeffectbackendchange'])
+    {
+      document.addEventListener(type, () =>
+      {
+        record(type);
+        queueMicrotask(() => record(`${type}:settled`));
+      }, true);
+    }
+    document.addEventListener('DOMContentLoaded', () =>
+    {
+      for (const id of ['ctrlWebGPUHdrBrightness', 'ctrlHdrUiBrightness', 'ctrlHdrUiEnabled'])
+      {
+        const control = document.getElementById(id);
+        if (!control) continue;
+        new MutationObserver(records =>
+        {
+          if (records.some(change => change.oldValue !== control.getAttribute('disabled')))
+            record(`${id}:disabled`);
+        }).observe(control, { attributes: true, attributeOldValue: true, attributeFilter: ['disabled'] });
+        control.addEventListener('input', () => record(`${id}:input`));
+        control.addEventListener('change', () => record(`${id}:change`));
+      }
+      record('DOMContentLoaded');
+    });
+  });
+}
 const DIRECT_CASES = [1, 2].flatMap((dpr) =>
   ['scene', 'browser-overlay'].flatMap((outputCompositing) =>
     [true, false].map((preferHdr) =>
@@ -2337,6 +2407,7 @@ async function main()
     page = await browser.newPage(
       { viewport: { width: FIXTURE_WIDTH, height: FIXTURE_HEIGHT } },
     );
+    await installStateTimeline(page);
     page.on('console', (message) =>
     {
       const text = message.text();
@@ -2423,6 +2494,7 @@ async function main()
         themeColorContract,
         integration,
         demoHdrUi,
+        stateTimeline,
       },
       null,
       2,
@@ -2431,7 +2503,7 @@ async function main()
   catch (error)
   {
     // 在关闭页面前保留状态；诊断失败不得覆盖真正的断言或 GPU 错误。
-    const metrics = { executablePath, browserErrors };
+    const metrics = { executablePath, browserErrors, stateTimeline };
     try
     {
       metrics.runtime = await page?.evaluate(() =>

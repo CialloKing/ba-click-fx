@@ -64,21 +64,24 @@ export async function diagnoseSoftware(page)
         prepare(rounded, visualMax);
         const phases = {};
         const stack = [];
-        const wrap = (object, name, phase, accepts = () => true) =>
+        const wrap = (object, name, phase, accepts = () => true, list = null) =>
         {
           const original = object[name];
           const descriptor = Object.getOwnPropertyDescriptor(object, name);
-          phases[phase] = { calls: 0, ...(timing ? { inclusiveMs: 0, exclusiveMs: 0 } : {}) };
+          phases[phase] = { calls: 0, ...(list ? { listRebuilds: 0 } : {}),
+            ...(timing ? { inclusiveMs: 0, exclusiveMs: 0 } : {}) };
           object[name] = function (...args)
           {
             if (!accepts(args)) return original.apply(this, args);
             const record = phases[phase];
+            const previousList = list ? this[list] : null;
             record.calls++;
             const frame = { phase, start: timing ? realNow() : 0, childrenMs: 0 };
             stack.push(frame);
             try { return original.apply(this, args); }
             finally
             {
+              if (list && this[list] !== previousList) record.listRebuilds++;
               const duration = timing ? realNow() - frame.start : 0;
               stack.pop();
               if (timing)
@@ -100,6 +103,9 @@ export async function diagnoseSoftware(page)
           wrap(fx, '_renderFrame', 'frame');
           wrap(fx, '_renderSoftwareBloom', 'softwarePass');
           wrap(SoftwareBloomRenderer.prototype, 'composite', 'softwareComposite');
+          wrap(SoftwareBloomRenderer.prototype, '_resize', 'layoutPreparation', () => true, 'levels');
+          wrap(SoftwareBloomRenderer.prototype, '_ensureCoverageBuffers', 'coveragePreparation', () => true, 'coverageLevels');
+          wrap(SoftwareBloomRenderer.prototype, '_resizeFloatBuffer', 'floatBufferPreparation');
           wrap(fx, '_cacheSoftwareBloomFrame', 'snapshot');
           wrap(fx, '_getSoftwareBloomFrameSignature', 'signature');
           wrap(fx, '_captureCanvasOverlayAlpha', 'captureSceneAlpha');
