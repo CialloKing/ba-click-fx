@@ -4,12 +4,84 @@ import { join, resolve } from 'node:path';
 import { createServer as createNetServer } from 'node:net';
 import { chromium } from 'playwright-core';
 import { createServer as createViteServer } from 'vite';
+import { writeFailureArtifacts } from './harness.mjs';
 
 const rootDir = resolve(import.meta.dirname, '../..');
 const FIXTURE_WIDTH = 320;
 const FIXTURE_HEIGHT = 240;
 const TRAIL_SHARD_LIMIT_SEGMENTS = 24;
 const OPTIONAL = process.argv.includes('--optional');
+let currentStage = 'startup';
+const stateTimeline = [];
+
+async function installStateTimeline(page)
+{
+  // 跨导航保留有界记录；诊断回调失败不能影响页面或原始断言。
+  await page.exposeFunction('__recordHdrState', (entry) =>
+  {
+    stateTimeline.push({ stage: currentStage, ...entry });
+    if (stateTimeline.length > 200) stateTimeline.shift();
+  });
+  await page.addInitScript(() =>
+  {
+    const identities = new WeakMap();
+    let nextIdentity = 0;
+    const record = (reason) =>
+    {
+      try
+      {
+        const effect = window.BAClickFXDemo;
+        if (!effect) return;
+        const renderer = effect.webgpuEffectRenderer;
+        if (renderer && !identities.has(renderer)) identities.set(renderer, ++nextIdentity);
+        const config = effect.getConfig();
+        const entry = {
+          reason, time: performance.now(), url: location.href,
+          renderer: renderer ? identities.get(renderer) : null,
+          backend: config.resolvedEffectBackend,
+          bloomBackend: config.resolvedBloomBackend,
+          outputMode: config.resolvedWebGPUOutputMode,
+          rendererStatus: renderer?.status, paused: effect.paused,
+          hdrUiState: document.body.dataset.hdrUiState,
+          controls: Object.fromEntries([
+            'ctrlWebGPUHdrBrightness', 'ctrlHdrUiBrightness', 'ctrlHdrUiEnabled',
+          ].map(id =>
+          {
+            const control = document.getElementById(id);
+            return [id, control ? { disabled: control.disabled,
+              value: control.value, checked: control.checked } : null];
+          })),
+        };
+        window.__recordHdrState(entry).catch(() => {});
+      }
+      catch { /* 页面导航或资源释放中的诊断不干扰原测试。 */ }
+    };
+    for (const type of ['baclickfxbackendchange', 'baclickfxeffectbackendchange'])
+    {
+      document.addEventListener(type, () =>
+      {
+        record(type);
+        queueMicrotask(() => queueMicrotask(() => record(`${type}:settled`)));
+      }, true);
+    }
+    document.addEventListener('DOMContentLoaded', () =>
+    {
+      for (const id of ['ctrlWebGPUHdrBrightness', 'ctrlHdrUiBrightness', 'ctrlHdrUiEnabled'])
+      {
+        const control = document.getElementById(id);
+        if (!control) continue;
+        new MutationObserver(records =>
+        {
+          if (records.some(change => change.oldValue !== control.getAttribute('disabled')))
+            record(`${id}:disabled`);
+        }).observe(control, { attributes: true, attributeOldValue: true, attributeFilter: ['disabled'] });
+        control.addEventListener('input', () => record(`${id}:input`));
+        control.addEventListener('change', () => record(`${id}:change`));
+      }
+      record('DOMContentLoaded');
+    });
+  });
+}
 const DIRECT_CASES = [1, 2].flatMap((dpr) =>
   ['scene', 'browser-overlay'].flatMap((outputCompositing) =>
     [true, false].map((preferHdr) =>
@@ -275,6 +347,9 @@ async function runDirectCase(page, specification)
       canvas,
       { preferHdr: specificationInPage.preferHdr },
     );
+    window.__BACLICKFX_WEBGPU_CASES__ ??= new Map();
+    window.__BACLICKFX_WEBGPU_CASES__.set(specificationInPage.id,
+      { renderer, canvas, specification: specificationInPage });
     const ready = await renderer.ready;
 
     if (!ready)
@@ -395,11 +470,7 @@ async function runDirectCase(page, specification)
       'uncapturederror',
       handleUncapturedError,
     );
-    window.__BACLICKFX_WEBGPU_CASES__ ??= new Map();
-    window.__BACLICKFX_WEBGPU_CASES__.set(
-      specificationInPage.id,
-      { renderer, canvas, background },
-    );
+    window.__BACLICKFX_WEBGPU_CASES__.get(specificationInPage.id).background = background;
     return {
       ready,
       referenceSet,
@@ -457,6 +528,8 @@ async function runSdrColorProbe(page, preferHdr)
     canvas.style.height = '96px';
     document.body.appendChild(canvas);
     const renderer = new WebGPUEffectRenderer(canvas, { preferHdr: preferHdrInPage });
+    window.__BACLICKFX_WEBGPU_COLOR_PROBE__ ??= new Map();
+    window.__BACLICKFX_WEBGPU_COLOR_PROBE__.set(preferHdrInPage, { renderer, canvas });
     const ready = await renderer.ready;
 
     if (!ready)
@@ -499,11 +572,6 @@ async function runSdrColorProbe(page, preferHdr)
     );
 
     await renderer.device.queue.onSubmittedWorkDone();
-    window.__BACLICKFX_WEBGPU_COLOR_PROBE__ ??= new Map();
-    window.__BACLICKFX_WEBGPU_COLOR_PROBE__.set(
-      preferHdrInPage,
-      { renderer, canvas },
-    );
     return {
       ready,
       resized,
@@ -1463,6 +1531,7 @@ async function readDemoHdrUiState(page)
       statusBoxShadow: statusStyle.boxShadow,
       enabled: document.getElementById('ctrlHdrUiEnabled')?.checked,
       enabledDisabled: document.getElementById('ctrlHdrUiEnabled')?.disabled,
+      effectBrightnessDisabled: document.getElementById('ctrlWebGPUHdrBrightness')?.disabled,
       brightness: document.getElementById('ctrlHdrUiBrightness')?.value,
       brightnessOutput:
         document.getElementById('outHdrUiBrightness')?.textContent,
@@ -1534,6 +1603,74 @@ async function setDemoHdrUiEnabled(page, enabled)
   }, enabled);
 }
 
+async function runDemoHdrStatusTransitions(page)
+{
+  currentStage = 'demo-hdr-state-transitions';
+  const transitions = await page.evaluate(async () =>
+  {
+    const effect = window.BAClickFXDemo;
+    const descriptor = Object.getOwnPropertyDescriptor(effect, 'getConfig');
+    const getConfig = effect.getConfig;
+    const wasPaused = effect.paused;
+    const storedEnabled = localStorage.getItem('bafx-ctrlHdrUiEnabled');
+    let override = null;
+    const read = () => ({
+      disabled: document.getElementById('ctrlWebGPUHdrBrightness').disabled,
+      presetDisabled: document.getElementById('ctrlHdrPresentationPreset').disabled,
+      uiDisabled: document.getElementById('ctrlHdrUiEnabled').disabled,
+      body: document.body.dataset.hdrUiState,
+      output: document.getElementById('renderCanvasOutputValue').textContent,
+    });
+    const signal = () =>
+    {
+      for (const type of ['baclickfxeffectbackendchange', 'baclickfxbackendchange'])
+        effect.canvas.dispatchEvent(new CustomEvent(type));
+    };
+    const results = [];
+    try
+    {
+      effect.setPaused(true);
+      // 只替换测试读取的快照，模拟同一事务内的过渡状态；不伪造 GPU 成功。
+      effect.getConfig = function () { return { ...getConfig.call(this), ...override }; };
+      for (const [backend, mode] of [['pending', 'pending'], ['webgpu', 'standard'], ['webgl2', 'unavailable']])
+      {
+        override = { resolvedEffectBackend: backend, resolvedWebGPUOutputMode: mode };
+        signal();
+        const immediate = read();
+        override = null;
+        await Promise.resolve();
+        results.push({ mode, immediate, settled: read(), paused: effect.paused });
+      }
+      override = { resolvedEffectBackend: 'pending', resolvedWebGPUOutputMode: 'pending' };
+      signal();
+      override = null;
+      document.getElementById('ctrlHdrUiEnabled').dispatchEvent(new Event('change'));
+      results.push({ mode: 'ui-change', settled: read(), paused: effect.paused });
+      return results;
+    }
+    finally
+    {
+      if (descriptor) Object.defineProperty(effect, 'getConfig', descriptor);
+      else delete effect.getConfig;
+      signal();
+      effect.setPaused(wasPaused);
+      if (storedEnabled === null) localStorage.removeItem('bafx-ctrlHdrUiEnabled');
+      else localStorage.setItem('bafx-ctrlHdrUiEnabled', storedEnabled);
+    }
+  });
+  for (const transition of transitions)
+  {
+    if (transition.immediate)
+      assert.ok(transition.immediate.disabled && transition.immediate.presetDisabled &&
+        transition.immediate.uiDisabled, `过渡状态未立即禁用 HDR 控件: ${JSON.stringify(transition)}`);
+    assert.ok(transition.paused && !transition.settled.disabled && !transition.settled.presetDisabled &&
+      !transition.settled.uiDisabled && transition.settled.body === 'extended' &&
+      transition.settled.output.startsWith('Extended HDR'),
+    `事务完成后 HDR 控件没有跟随最新快照: ${JSON.stringify(transition)}`);
+  }
+  return transitions;
+}
+
 async function runDemoHdrUiEffectIsolation(page)
 {
   const originalViewport = page.viewportSize();
@@ -1548,192 +1685,236 @@ async function runDemoHdrUiEffectIsolation(page)
         'ctrlWebGPUHdrBrightness',
       ).value,
       uiBrightness: document.getElementById('ctrlHdrUiBrightness').value,
+      uiEnabled: document.getElementById('ctrlHdrUiEnabled').checked,
+      paused: window.BAClickFXDemo.paused,
       panelOpen: panel?.classList.contains('open') ?? false,
       introDisplay: intro?.style.display ?? '',
       hintDisplay: hint?.style.display ?? '',
     };
   });
 
-  await page.setViewportSize({ width: 800, height: 600 });
-  await page.fill('#ctrlWebGPUHdrBrightness', '8');
-  await page.fill('#ctrlHdrUiBrightness', '16');
-  await page.evaluate(() =>
+  let primaryError = null;
+  try
   {
-    document.activeElement?.blur?.();
-    document.getElementById('panel')?.classList.remove('open');
-    const intro = document.getElementById('introSection');
-    const hint = document.getElementById('hintBar');
-
-    if (intro)
+    await page.setViewportSize({ width: 800, height: 600 });
+    await page.fill('#ctrlWebGPUHdrBrightness', '8');
+    await page.fill('#ctrlHdrUiBrightness', '16');
+    await page.evaluate(() =>
     {
-      intro.style.display = 'none';
-    }
+      document.activeElement?.blur?.();
+      document.getElementById('panel')?.classList.remove('open');
+      const intro = document.getElementById('introSection');
+      const hint = document.getElementById('hintBar');
 
-    if (hint)
+      if (intro)
+      {
+        intro.style.display = 'none';
+      }
+
+      if (hint)
+      {
+        hint.style.display = 'none';
+      }
+
+      window.dispatchEvent(new Event('resize'));
+    });
+    await page.mouse.move(400, 300);
+    await page.waitForTimeout(400);
+    const fixedFrame = await page.evaluate(() =>
     {
-      hint.style.display = 'none';
-    }
+      const effect = window.BAClickFXDemo;
 
-    window.dispatchEvent(new Event('resize'));
-  });
-  await page.mouse.move(400, 300);
-  await page.waitForTimeout(400);
-  const fixedFrame = await page.evaluate(() =>
-  {
-    const effect = window.BAClickFXDemo;
+      effect.setPaused(true, { clear: true });
+      effect.setPaused(false);
 
-    effect.setPaused(true, { clear: true });
-    effect.setPaused(false);
+      if (effect.animationFrame !== null)
+      {
+        cancelAnimationFrame(effect.animationFrame);
+        effect.animationFrame = null;
+      }
 
-    if (effect.animationFrame !== null)
+      effect.clickTimeMs = 0;
+      effect.trailTimeMs = 0;
+      effect.lastClickTimeSource = null;
+      effect.lastTrailTimeSource = null;
+      effect._spawnClick(400, 300);
+      effect.lastClickTimeSource = 0;
+      effect.lastTrailTimeSource = 0;
+      effect._renderFrame(120);
+
+      if (effect.animationFrame !== null)
+      {
+        cancelAnimationFrame(effect.animationFrame);
+        effect.animationFrame = null;
+      }
+
+      // 保留刚提交的同一帧，后续只改变独立 UI Surface 的可见性。
+      effect.paused = true;
+      effect.lastClickTimeSource = null;
+      effect.lastTrailTimeSource = null;
+      const effectCanvas = effect.webgpuEffectCanvas;
+
+      return {
+        effectZIndex: Number(getComputedStyle(effectCanvas).zIndex),
+        hdrUiSurfaceCount: document.querySelectorAll(
+          '#hdrUiCanvas, .hdr-ui-canvas',
+        ).length,
+        waveAges: effect.waves.map((wave) => wave.ageMs),
+        waveCount: effect.waves.length,
+        shardCount: effect.shards.length,
+        fxConfig: JSON.stringify(effect.getFxConfig()),
+        webgpuHdrBrightness: effect.getConfig().webgpuHdrBrightness,
+      };
+    });
+
+    await page.evaluate(() =>
+      window.BAClickFXDemo.webgpuEffectRenderer.device.queue.onSubmittedWorkDone());
+    const clickClip = { x: 280, y: 180, width: 240, height: 240 };
+    const uiClip = { x: 0, y: 0, width: 360, height: 150 };
+    const enabledClick = await page.screenshot({ clip: clickClip });
+    const enabledUi = await page.screenshot({ clip: uiClip });
+
+    await setDemoHdrUiEnabled(page, false);
+    await page.waitForFunction(() =>
+      document.body.dataset.hdrUiState === 'disabled');
+    const disabledClick = await page.screenshot({ clip: clickClip });
+    const disabledUi = await page.screenshot({ clip: uiClip });
+    const disabledFrame = await page.evaluate(() =>
     {
-      cancelAnimationFrame(effect.animationFrame);
-      effect.animationFrame = null;
-    }
+      const effect = window.BAClickFXDemo;
 
-    effect.clickTimeMs = 0;
-    effect.trailTimeMs = 0;
-    effect.lastClickTimeSource = null;
-    effect.lastTrailTimeSource = null;
-    effect._spawnClick(400, 300);
-    effect.lastClickTimeSource = 0;
-    effect.lastTrailTimeSource = 0;
-    effect._renderFrame(120);
+      return {
+        waveAges: effect.waves.map((wave) => wave.ageMs),
+        waveCount: effect.waves.length,
+        shardCount: effect.shards.length,
+        fxConfig: JSON.stringify(effect.getFxConfig()),
+        webgpuHdrBrightness: effect.getConfig().webgpuHdrBrightness,
+      };
+    });
+    const clickDifference = await measureScreenshotDifference(
+      page,
+      enabledClick,
+      disabledClick,
+    );
+    const uiDifference = await measureScreenshotDifference(
+      page,
+      enabledUi,
+      disabledUi,
+    );
 
-    if (effect.animationFrame !== null)
-    {
-      cancelAnimationFrame(effect.animationFrame);
-      effect.animationFrame = null;
-    }
+    assert.ok(
+      fixedFrame.hdrUiSurfaceCount === 0,
+      `CSS HDR UI 不应保留独立全屏 Surface: ${JSON.stringify(fixedFrame)}`,
+    );
+    assert.deepEqual(
+      fixedFrame.waveAges,
+      [120],
+      `没有生成固定 120 ms 点击帧: ${JSON.stringify(fixedFrame)}`,
+    );
+    assert.deepEqual(
+      disabledFrame,
+      {
+        waveAges: fixedFrame.waveAges,
+        waveCount: fixedFrame.waveCount,
+        shardCount: fixedFrame.shardCount,
+        fxConfig: fixedFrame.fxConfig,
+        webgpuHdrBrightness: fixedFrame.webgpuHdrBrightness,
+      },
+      '关闭 HDR UI 不得修改点击特效状态或参数',
+    );
+    assert.ok(
+      !clickDifference.sizeMismatch &&
+        clickDifference.changedPixels === 0 &&
+        clickDifference.maximumDifference <= 3,
+      `HDR UI 改变了远端点击特效像素: ${JSON.stringify(clickDifference)}`,
+    );
+    assert.ok(
+      !uiDifference.sizeMismatch &&
+        uiDifference.changedPixels >= 20 &&
+        uiDifference.maximumDifference >= 4,
+      `HDR UI 对照区域没有可见贡献: ${JSON.stringify(uiDifference)}`,
+    );
 
-    // 保留刚提交的同一帧，后续只改变独立 UI Surface 的可见性。
-    effect.paused = true;
-    effect.lastClickTimeSource = null;
-    effect.lastTrailTimeSource = null;
-    const effectCanvas = effect.webgpuEffectCanvas;
+    await setDemoHdrUiEnabled(page, true);
+    currentStage = 'demo-hdr-isolation-restore-controls';
+    await page.fill('#ctrlWebGPUHdrBrightness', original.effectBrightness);
+    await page.fill('#ctrlHdrUiBrightness', original.uiBrightness);
+
 
     return {
-      effectZIndex: Number(getComputedStyle(effectCanvas).zIndex),
-      hdrUiSurfaceCount: document.querySelectorAll(
-        '#hdrUiCanvas, .hdr-ui-canvas',
-      ).length,
-      waveAges: effect.waves.map((wave) => wave.ageMs),
-      waveCount: effect.waves.length,
-      shardCount: effect.shards.length,
-      fxConfig: JSON.stringify(effect.getFxConfig()),
-      webgpuHdrBrightness: effect.getConfig().webgpuHdrBrightness,
+      clickDifference,
+      fixedFrame:
+      {
+        effectZIndex: fixedFrame.effectZIndex,
+        hdrUiSurfaceCount: fixedFrame.hdrUiSurfaceCount,
+        waveAges: fixedFrame.waveAges,
+        waveCount: fixedFrame.waveCount,
+        shardCount: fixedFrame.shardCount,
+        webgpuHdrBrightness: fixedFrame.webgpuHdrBrightness,
+      },
+      uiDifference,
     };
-  });
-
-  await page.evaluate(() =>
-    window.BAClickFXDemo.webgpuEffectRenderer.device.queue.onSubmittedWorkDone());
-  const clickClip = { x: 280, y: 180, width: 240, height: 240 };
-  const uiClip = { x: 0, y: 0, width: 360, height: 150 };
-  const enabledClick = await page.screenshot({ clip: clickClip });
-  const enabledUi = await page.screenshot({ clip: uiClip });
-
-  await setDemoHdrUiEnabled(page, false);
-  await page.waitForFunction(() =>
-    document.body.dataset.hdrUiState === 'disabled');
-  const disabledClick = await page.screenshot({ clip: clickClip });
-  const disabledUi = await page.screenshot({ clip: uiClip });
-  const disabledFrame = await page.evaluate(() =>
+  }
+  catch (error)
   {
-    const effect = window.BAClickFXDemo;
-
-    return {
-      waveAges: effect.waves.map((wave) => wave.ageMs),
-      waveCount: effect.waves.length,
-      shardCount: effect.shards.length,
-      fxConfig: JSON.stringify(effect.getFxConfig()),
-      webgpuHdrBrightness: effect.getConfig().webgpuHdrBrightness,
-    };
-  });
-  const clickDifference = await measureScreenshotDifference(
-    page,
-    enabledClick,
-    disabledClick,
-  );
-  const uiDifference = await measureScreenshotDifference(
-    page,
-    enabledUi,
-    disabledUi,
-  );
-
-  assert.ok(
-    fixedFrame.hdrUiSurfaceCount === 0,
-    `CSS HDR UI 不应保留独立全屏 Surface: ${JSON.stringify(fixedFrame)}`,
-  );
-  assert.deepEqual(
-    fixedFrame.waveAges,
-    [120],
-    `没有生成固定 120 ms 点击帧: ${JSON.stringify(fixedFrame)}`,
-  );
-  assert.deepEqual(
-    disabledFrame,
+    primaryError = error;
+    // 清理会恢复配置和画面，先保存失败现场，再交给外层汇总原始异常。
+    try
     {
-      waveAges: fixedFrame.waveAges,
-      waveCount: fixedFrame.waveCount,
-      shardCount: fixedFrame.shardCount,
-      fxConfig: fixedFrame.fxConfig,
-      webgpuHdrBrightness: fixedFrame.webgpuHdrBrightness,
-    },
-    '关闭 HDR UI 不得修改点击特效状态或参数',
-  );
-  assert.ok(
-    !clickDifference.sizeMismatch &&
-      clickDifference.changedPixels === 0 &&
-      clickDifference.maximumDifference <= 3,
-    `HDR UI 改变了远端点击特效像素: ${JSON.stringify(clickDifference)}`,
-  );
-  assert.ok(
-    !uiDifference.sizeMismatch &&
-      uiDifference.changedPixels >= 20 &&
-      uiDifference.maximumDifference >= 4,
-    `HDR UI 对照区域没有可见贡献: ${JSON.stringify(uiDifference)}`,
-  );
-
-  await setDemoHdrUiEnabled(page, true);
-  await page.fill('#ctrlWebGPUHdrBrightness', original.effectBrightness);
-  await page.fill('#ctrlHdrUiBrightness', original.uiBrightness);
-  await page.evaluate((saved) =>
+      await writeFailureArtifacts({
+        artifactDir: join(rootDir, 'test-results/browser-pixels/webgpu/before-cleanup'),
+        currentLabel: currentStage, currentPage: page,
+        metrics: { stateTimeline: [...stateTimeline], runtime: await readDemoHdrUiState(page) }, error,
+      });
+    }
+    catch (captureError) { console.error('HDR 清理前取证失败:', captureError.message); }
+    throw error;
+  }
+  finally
   {
-    const effect = window.BAClickFXDemo;
-    const panel = document.getElementById('panel');
-    const intro = document.getElementById('introSection');
-    const hint = document.getElementById('hintBar');
-
-    effect.clear();
-    effect.setPaused(false);
-    panel?.classList.toggle('open', saved.panelOpen);
-
-    if (intro)
+    let cleanupError = null;
+    try
     {
-      intro.style.display = saved.introDisplay;
+      await page.evaluate((saved) =>
+      {
+        const effect = window.BAClickFXDemo;
+        const panel = document.getElementById('panel');
+        const intro = document.getElementById('introSection');
+        const hint = document.getElementById('hintBar');
+
+        effect.clear();
+        effect.updateConfig({ webgpuHdrBrightness: Number(saved.effectBrightness) });
+        const brightness = document.getElementById('ctrlHdrUiBrightness');
+        brightness.value = saved.uiBrightness;
+        brightness.dispatchEvent(new Event('input'));
+        const enabled = document.getElementById('ctrlHdrUiEnabled');
+        enabled.checked = saved.uiEnabled;
+        enabled.dispatchEvent(new Event('change'));
+        effect.setPaused(saved.paused);
+        panel?.classList.toggle('open', saved.panelOpen);
+
+        if (intro)
+        {
+          intro.style.display = saved.introDisplay;
+        }
+
+        if (hint)
+        {
+          hint.style.display = saved.hintDisplay;
+        }
+
+        window.dispatchEvent(new Event('resize'));
+      }, original);
     }
-
-    if (hint)
+    catch (error) { cleanupError = error; }
+    try { await page.setViewportSize(originalViewport); }
+    catch (error) { cleanupError ??= error; }
+    if (cleanupError)
     {
-      hint.style.display = saved.hintDisplay;
+      if (!primaryError) throw cleanupError;
+      console.error('HDR 状态恢复失败，保留原始异常:', cleanupError.message);
     }
-
-    window.dispatchEvent(new Event('resize'));
-  }, original);
-  await page.setViewportSize(originalViewport);
-
-  return {
-    clickDifference,
-    fixedFrame:
-    {
-      effectZIndex: fixedFrame.effectZIndex,
-      hdrUiSurfaceCount: fixedFrame.hdrUiSurfaceCount,
-      waveAges: fixedFrame.waveAges,
-      waveCount: fixedFrame.waveCount,
-      shardCount: fixedFrame.shardCount,
-      webgpuHdrBrightness: fixedFrame.webgpuHdrBrightness,
-    },
-    uiDifference,
-  };
+  }
 }
 
 async function runDemoHdrUiIntegration(page, origin)
@@ -1845,7 +2026,7 @@ async function runDemoHdrUiIntegration(page, origin)
       standardMode.bodyState === 'inactive' &&
       standardMode.surfaceCount === 0 &&
       standardMode.enabledDisabled &&
-      standardMode.brightnessDisabled &&
+      standardMode.brightnessDisabled && standardMode.effectBrightnessDisabled &&
       standardMode.diagnostics.values.diagnosticExtendedCanvasValue ===
         '未请求' &&
       standardMode.diagnostics.values.diagnosticSdrFallbackValue.startsWith(
@@ -2103,6 +2284,7 @@ async function runDemoHdrUiIntegration(page, origin)
     `UI HDR 默认控制状态错误: ${extendedDetail}`,
   );
 
+  const stateTransitions = await runDemoHdrStatusTransitions(page);
   const enabledScreenshot = await page.screenshot();
 
   await setDemoHdrUiEnabled(page, false);
@@ -2148,6 +2330,7 @@ async function runDemoHdrUiIntegration(page, origin)
     `UI HDR 亮度调整或持久化错误: ${adjustedDetail}`,
   );
   const effectIsolation = await runDemoHdrUiEffectIsolation(page);
+  currentStage = 'demo-hdr-ui-mode-switch-and-device-loss';
 
   await selectDemoRenderMode(page, 'full-webgl2');
   const switched = await readDemoHdrUiState(page);
@@ -2218,6 +2401,7 @@ async function runDemoHdrUiIntegration(page, origin)
   assert.ok(
     deviceLost.resolvedBackend === 'webgl2' &&
       deviceLost.outputMode === 'unavailable' &&
+      deviceLost.enabledDisabled && deviceLost.brightnessDisabled && deviceLost.effectBrightnessDisabled &&
       deviceLost.diagnostics.values.diagnosticDeviceValue === '设备已丢失' &&
       deviceLost.diagnostics.values.diagnosticPipelineValue === '设备已丢失' &&
       !deviceLost.diagnostics.failureHidden &&
@@ -2235,6 +2419,7 @@ async function runDemoHdrUiIntegration(page, origin)
     disabled,
     adjusted,
     effectIsolation,
+    stateTransitions,
     switched,
     resumed,
     reset,
@@ -2315,6 +2500,8 @@ async function main()
     },
   );
   let browser = null;
+  let page = null;
+  const browserErrors = [];
 
   try
   {
@@ -2332,11 +2519,10 @@ async function main()
         ],
       },
     );
-    const page = await browser.newPage(
+    page = await browser.newPage(
       { viewport: { width: FIXTURE_WIDTH, height: FIXTURE_HEIGHT } },
     );
-    const browserErrors = [];
-
+    await installStateTimeline(page);
     page.on('console', (message) =>
     {
       const text = message.text();
@@ -2373,9 +2559,11 @@ async function main()
 
     for (const specification of DIRECT_CASES)
     {
+      currentStage = specification.id;
       direct.push(await runDirectCase(page, specification));
     }
 
+    currentStage = 'sdr-color-probes';
     const colorProbes =
     {
       preferred: await runSdrColorProbe(page, true),
@@ -2384,8 +2572,11 @@ async function main()
 
     assertSdrColorParity(colorProbes.preferred, colorProbes.standard);
 
+    currentStage = 'theme-color-contract';
     const themeColorContract = await runWebGPUThemeColorContract(page);
+    currentStage = 'runtime-integration';
     const integration = await runIntegration(page);
+    currentStage = 'demo-hdr-ui';
     const demoHdrUi = await runDemoHdrUiIntegration(
       page,
       `http://127.0.0.1:${port}/`,
@@ -2418,10 +2609,68 @@ async function main()
         themeColorContract,
         integration,
         demoHdrUi,
+        stateTimeline,
       },
       null,
       2,
     ));
+  }
+  catch (error)
+  {
+    // 在关闭页面前保留状态；诊断失败不得覆盖真正的断言或 GPU 错误。
+    const metrics = { executablePath, browserErrors, stateTimeline };
+    try
+    {
+      metrics.runtime = await page?.evaluate(() =>
+      {
+        const effect = window.BAClickFXDemo ??
+          window.__BACLICKFX_WEBGPU_INTEGRATION__?.effect ??
+          window.__BACLICKFX_WEBGPU_THEME_CONTRACT__?.effect;
+        const directRenderers = [
+          ...window.__BACLICKFX_WEBGPU_CASES__?.entries() ?? [],
+          ...window.__BACLICKFX_WEBGPU_COLOR_PROBE__?.entries() ?? [],
+        ].map(([id, entry]) => ({
+          id, specification: entry.specification,
+          status: entry.renderer.status,
+          diagnostics: entry.renderer.deviceManager.diagnostics,
+          outputMode: entry.renderer.deviceManager.outputMode,
+          stats: entry.renderer.stats,
+        }));
+        return {
+          url: location.href,
+          directRenderers,
+          config: effect?.getConfig(),
+          diagnostics: effect?.webgpuEffectRenderer?.deviceManager?.diagnostics,
+          paused: effect?.paused,
+          hdrUiState: document.body.dataset.hdrUiState,
+          controls: Object.fromEntries([
+            'ctrlWebGPUHdrBrightness', 'ctrlHdrUiBrightness', 'ctrlHdrUiEnabled',
+          ].map(id =>
+          {
+            const control = document.getElementById(id);
+            return [id, control ? {
+              disabled: control.disabled, value: control.value, checked: control.checked,
+            } : null];
+          })),
+        };
+      });
+    }
+    catch (captureError)
+    {
+      metrics.captureError = captureError.message;
+    }
+    try
+    {
+      await writeFailureArtifacts({
+        artifactDir: join(rootDir, 'test-results/browser-pixels/webgpu'),
+        currentLabel: currentStage, currentPage: page, metrics, error,
+      });
+    }
+    catch (artifactError)
+    {
+      console.error('WebGPU 失败产物写入失败:', artifactError.message);
+    }
+    throw error;
   }
   finally
   {

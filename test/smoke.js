@@ -47,6 +47,21 @@ function assertThrowsTypeError(factory, message)
   assert(thrown instanceof TypeError, message);
 }
 
+// 将内部直接写入协议还原成旧记录格式，继续使用原顶点/颜色基线。
+function recordTrailMeshTriangle(first, firstSample, firstV, second, secondSample, secondV,
+  third, thirdSample, thirdV, opacity)
+{
+  const perVertex = firstSample !== secondSample || firstSample !== thirdSample;
+  this.addTexturedTrailTriangle(
+    { x: first.x, y: first.y, u: firstSample.u, v: firstV },
+    { x: second.x, y: second.y, u: secondSample.u, v: secondV },
+    { x: third.x, y: third.y, u: thirdSample.u, v: thirdV },
+    perVertex ? [firstSample.color, secondSample.color, thirdSample.color] : firstSample.color,
+    opacity,
+    perVertex ? [firstSample.coverage, secondSample.coverage, thirdSample.coverage] : firstSample.coverage,
+  );
+}
+
 function getCssChannels(value)
 {
   return String(value).match(/[\d.]+/g)?.map(Number) ?? [];
@@ -678,6 +693,138 @@ function flushFrames(dom, startTime, count, frameMs = 1000 / 60)
 console.log('\n指针生命周期');
 const dom = installDom();
 
+const nativeGoldenRecords = [];
+const goldenRandom = Math.random;
+const goldenTime = performance.now();
+const goldenDpr = dom.windowMock.devicePixelRatio;
+const goldenFloat64 = globalThis.Float64Array;
+let nativeGoldenAllocations = 0;
+try
+{
+  Math.random = () => 0.5;
+  globalThis.Float64Array = new Proxy(goldenFloat64, {
+    construct(target, args) { nativeGoldenAllocations++; return new target(...args); },
+  });
+  for (const [themeColor, themeColorMode] of [
+    ['#4ca7ff', 'relative-oklch'], ['#ff8800', 'hue-only'], ['#ff6699', 'relative-oklch'],
+  ])
+  {
+    for (const dpr of [1, 2])
+    {
+      for (const customized of [false, true])
+      {
+        for (const age of [40, 120, 220, 500])
+        {
+          dom.setCurrentTime(1000);
+          dom.windowMock.devicePixelRatio = dpr;
+          const fx = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+            trailEnabled: false, inputSource: 'manual', themeColor, themeColorMode, maxDpr: 2 });
+          if (customized) fx.setFxParams({ 'bloom.threshold': 0.8, 'bloom.diffusion': 8, 'rings.radialSamples': 2 });
+          const draw = fx._drawNativeClickBloom;
+          fx._drawNativeClickBloom = function (...args)
+          {
+            this.context.radialGradients.length = 0;
+            draw.apply(this, args);
+            nativeGoldenRecords.push(this.context.radialGradients);
+          };
+          fx.boom(960, 540);
+          fx._renderFrame(1000 + age);
+          fx.destroy();
+        }
+      }
+    }
+  }
+}
+finally
+{
+  Math.random = goldenRandom;
+  dom.setCurrentTime(goldenTime);
+  dom.windowMock.devicePixelRatio = goldenDpr;
+  globalThis.Float64Array = goldenFloat64;
+}
+const nativeGoldenHash = (await import('node:crypto')).createHash('sha256')
+  .update(JSON.stringify(nativeGoldenRecords)).digest('hex');
+
+assert(nativeGoldenRecords.length === 48 && nativeGoldenHash === '476422967f2cfd253492ba77a952918af5b4c7393ee12c39678cce27b8f0f44a',
+  'Native 在 48 组年龄、主题、DPR 和参数组合下的渐变数值与优化前完全一致');
+assert(nativeGoldenAllocations === 1,
+  'Native 多实例只分配一次固定纹理采样表，不再逐环分配角向工作数组');
+
+
+const tintHasher = (await import('node:crypto')).createHash('sha256');
+const tintRecords = [];
+const savedTintPut = ContextMock.prototype.putImageData;
+const savedTintRandom = Math.random;
+const savedTintTime = performance.now();
+let tintRecord;
+try
+{
+  Math.random = () => 0.5;
+  dom.setCanvasBounds({ width: 320, height: 240 });
+  ContextMock.prototype.putImageData = function (image, ...args)
+  {
+    if (tintRecord && (image.width === 512 || image.width === 128) && image.width === image.height)
+    {
+      tintRecord[image.width] = (tintRecord[image.width] ?? 0) + 1;
+      tintHasher.update(Buffer.from(image.data));
+    }
+    return savedTintPut.call(this, image, ...args);
+  };
+  for (const bloomBackend of ['native', 'software'])
+  {
+    for (const roundness of [0, 0.5, 1])
+    {
+      for (const variant of [0, 1])
+      {
+        const [themeColor, themeColorMode] = [
+          ['#4ca7ff', 'relative-oklch'], ['#ff8800', 'hue-only'], ['#ff6699', 'relative-oklch'],
+        ][(roundness * 2 + variant) % 3];
+        dom.setCurrentTime(1000);
+        const fx = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend, inputSource: 'manual',
+          trailEnabled: false, outputCompositing: 'browser-overlay', themeColor, themeColorMode,
+          opacity: variant ? 0.4 : 1, overlayAlphaLimit: variant ? 0.5 : 1,
+          overlayColorCompensation: variant ? 'bright-core' : 'none' });
+        fx.setTriangleRoundness(roundness);
+        fx.boom(160, 120);
+        const wave = fx.waves[0];
+        const drawBase = wave.drawBase;
+        // 同时覆盖内部材质入口的颜色补偿分支，外层合成仍走真实运行时。
+        wave.drawBase = function (...args)
+        {
+          args[6] = fx.config.overlayColorCompensation;
+          return drawBase.apply(this, args);
+        };
+        fx.shards.forEach((shard, index) =>
+        {
+          shard.textureFrame = index % 2;
+          const draw = shard.draw;
+          shard.draw = function (...args)
+          {
+            args[5] = fx.config.overlayColorCompensation;
+            return draw.apply(this, args);
+          };
+        });
+        tintRecord = { bloomBackend, roundness, variant };
+        fx._renderFrame(1040);
+        tintRecords.push(tintRecord);
+        tintRecord = null;
+        fx.destroy();
+      }
+    }
+  }
+}
+finally
+{
+  ContextMock.prototype.putImageData = savedTintPut;
+  Math.random = savedTintRandom;
+  dom.setCurrentTime(savedTintTime);
+  dom.setCanvasBounds({ width: 1920, height: 1080 });
+}
+const tintGoldenHash = tintHasher.digest('hex');
+assert(tintRecords.length === 12 && tintRecords.every(record => record[512] === 1 && record[128] >= 2) &&
+  tintGoldenHash === 'a2b4c0c719207590b8f2c76a634ceb7bea5f370e69ab5d0a0839b078f07a3972',
+  '12 组 Canvas 圆盘和双向三角染色的完整 ImageData 字节与优化前一致');
+
 
 console.log('\n全屏坐标尺寸');
 const fullscreenTestDevicePixelRatio = dom.windowMock.devicePixelRatio;
@@ -723,6 +870,30 @@ assert(
     scrollbarGutterEffect.height === 900 &&
     scrollbarGutterEffect.dpr === CONFIG.maxDpr,
   '公开 resize 对非法尺寸与 DPR 回退到实测环境值',
+);
+flushFrames(dom, performance.now(), 1);
+scrollbarGutterEffect.resize();
+assert(dom.frames.size === 0, '相同尺寸 resize 不重新申请空闲帧');
+scrollbarGutterEffect.resize(1600.1, 900, 1);
+assert(
+  scrollbarGutterEffect.width === 1600.1 &&
+    scrollbarGutterEffect.canvas.width === 1600 && dom.frames.size === 1,
+  '取整物理尺寸不变时仍更新逻辑宽度并请求重绘',
+);
+flushFrames(dom, performance.now(), 1);
+scrollbarGutterEffect.resize(1600, 900, 0.9999);
+assert(
+  scrollbarGutterEffect.canvas.width === 1600 &&
+    scrollbarGutterEffect.canvas.height === 900 &&
+    scrollbarGutterEffect.context.currentTransform[0] === 0.9999 &&
+    dom.frames.size === 1,
+  '取整物理尺寸不变时仍更新 DPR 坐标变换',
+);
+scrollbarGutterEffect.contrastCanvas.width = 1;
+scrollbarGutterEffect.resize(1600, 900, 0.9999);
+assert(
+  scrollbarGutterEffect.contrastCanvas.width === 1600,
+  '逻辑尺寸未变时仍修复对比画布的缓冲尺寸',
 );
 scrollbarGutterEffect.destroy();
 
@@ -3389,8 +3560,72 @@ assert(
 coalescedEffect.pointerCancel(70);
 coalescedEffect.destroy();
 
+console.log('\n输入布局读取预算');
+const inputLayoutEffect = new BAClickFX(
+  { effectBackend: 'canvas2d', bloomBackend: 'native', clickEnabled: false },
+);
+let inputLayoutReads = 0;
+const originalInputRect = inputLayoutEffect.canvas.getBoundingClientRect.bind(
+  inputLayoutEffect.canvas,
+);
+inputLayoutEffect.canvas.getBoundingClientRect = () =>
+{
+  inputLayoutReads++;
+  return originalInputRect();
+};
+const layoutInput = { pointerId: 71, pointerType: 'mouse', clientX: 100, clientY: 100 };
+for (let index = 0; index < 1000; index++)
+{
+  dom.windowMock.dispatch('pointermove', layoutInput);
+}
+assert(inputLayoutReads === 0, '1000 次无效空闲移动不读取布局');
+inputLayoutEffect.pointerDown({ x: 100, y: 100, pointerId: 71 });
+const layoutSampleStart = performance.now();
+dom.setCurrentTime(layoutSampleStart + 1000);
+dom.windowMock.dispatch('pointermove',
+  {
+    ...layoutInput,
+    getCoalescedEvents: () => Array.from({ length: 100 }, (_, index) =>
+      ({ ...layoutInput, clientX: 100 + index * 6, timeStamp: layoutSampleStart + index * 3 })),
+  },
+);
+assert(
+  inputLayoutReads === 1 && inputLayoutEffect.lastPointerPosition.x === 694,
+  '100 个有效合并样本共享一次布局测量并保留末点',
+);
+inputLayoutEffect.setInputSamplingRate(60);
+inputLayoutEffect.pointerMove({ x: 700, y: 100, pointerId: 71 });
+const acceptedLayoutSampleTime = inputLayoutEffect.lastInputSampleSourceTime;
+inputLayoutReads = 0;
+dom.windowMock.dispatch('pointermove', layoutInput);
+dom.windowMock.dispatch('pointermove', { ...layoutInput, pointerId: 72 });
+dom.windowMock.dispatch('pointermove', { ...layoutInput, clientX: Number.NaN });
+assert(
+  inputLayoutReads === 0 &&
+    inputLayoutEffect.lastInputSampleSourceTime === acceptedLayoutSampleTime,
+  '限频、异指针和非法坐标不读取布局或推进采样相位',
+);
+dom.setCurrentTime(performance.now() + 20);
+dom.windowMock.dispatch('pointermove', { ...layoutInput, clientY: Number.NaN });
+dom.windowMock.dispatch('pointermove', layoutInput);
+assert(
+  inputLayoutReads === 1 && inputLayoutEffect.lastPointerPosition.x === 100 &&
+    inputLayoutEffect.lastInputSampleSourceTime === performance.now(),
+  '时间间隔到期后的非法样本不占用下一有效样本的名额',
+);
+inputLayoutEffect.setInputSamplingRate(0);
+dom.setCanvasBounds({ left: 40 });
+dom.windowMock.dispatch('pointermove', { ...layoutInput, clientX: 180 });
+assert(
+  inputLayoutReads === 2 && inputLayoutEffect.lastPointerPosition.x === 140,
+  '后续 DOM 事件重新测量布局并跟随容器移动',
+);
+dom.setCanvasBounds({ left: 0 });
+inputLayoutEffect.destroy();
+
 console.log('\n输入采样率');
-const unlimitedSamplingStart = performance.now() + 1000;
+// 整数起点使 100/1000 ms 边界可精确表示，避免真实启动时刻的尾数改变限频断言。
+const unlimitedSamplingStart = Math.ceil(performance.now()) + 1000;
 
 dom.setCurrentTime(unlimitedSamplingStart);
 const unlimitedSamplingEffect = new BAClickFX(
@@ -5247,6 +5482,51 @@ assert(
 );
 softwareFailureEffect.destroy();
 
+console.log('\nSoftware Bloom 快照释放');
+dom.setCanvasBounds({ width: 320, height: 240 });
+for (const [label, invalidate] of [
+  ['清屏', effect => effect.clear()],
+  ['尺寸变化', effect => effect.resize(321, 240)],
+  ['合成配置变化', effect => effect.updateConfig({ overlayAlphaLimit: 0.7 })],
+  ['合成参考变化', effect => effect.setCompositingReference(null)],
+  ['离开软件后端', effect => effect.updateConfig({ bloomBackend: 'native' })],
+  ['自然结束', () => flushFrames(dom, performance.now() + 2000, 1)],
+  ['销毁', effect => effect.destroy()],
+])
+{
+  const effect = new BAClickFX(
+    { effectBackend: 'canvas2d', bloomBackend: 'software', outputCompositing: 'browser-overlay' },
+  );
+  effect.boom(160, 120);
+  flushFrames(dom, performance.now(), 1);
+  const snapshot = effect.lastSoftwareBloomFrame?.canvas;
+  assert(snapshot?.width === 320, `${label}前已生成真实软件快照`);
+  effect.resize();
+  assert(effect.lastSoftwareBloomFrame?.canvas === snapshot, '相同尺寸保留有效快照');
+  invalidate(effect);
+  assert(
+    effect.lastSoftwareBloomFrame === null && snapshot.width === 0 && snapshot.height === 0,
+    `${label}解除快照引用并归还缓冲`,
+  );
+  effect.destroy();
+  effect.destroy();
+  assert(
+    effect.canvas.width === 0 && effect.canvas.height === 0 &&
+      effect.contrastCanvas.width === 0 && effect.contrastCanvas.height === 0,
+    '重复销毁安全且归还自有主画布和对比画布缓冲',
+  );
+}
+const retainedHostCanvas = new CanvasMock(null, { left: 0, top: 0, width: 320, height: 240 });
+const externalCanvasEffect = new BAClickFX(
+  { target: retainedHostCanvas, effectBackend: 'canvas2d', bloomBackend: 'native' },
+);
+externalCanvasEffect.destroy();
+assert(
+  retainedHostCanvas.width === 320 && retainedHostCanvas.height === 240 && !retainedHostCanvas.removed,
+  '销毁外部 Canvas 实例保留宿主画布尺寸和所有权',
+);
+dom.setCanvasBounds({ width: 1920, height: 1080 });
+
 console.log('\nSoftware Bloom 全视口工作区');
 const regionEffect = new BAClickFX({ bloomBackend: 'software' });
 
@@ -5438,6 +5718,7 @@ function captureTexturedWebGLTrail(
         triangles.length = 0;
       }
     },
+    _addTrailMeshTriangle: recordTrailMeshTriangle,
     addTexturedTrailTriangle(...args)
     {
       triangles.push(args);
@@ -5598,8 +5879,10 @@ const fallbackFrameData = deferredTrailDataEffect.trailStrokes[0].trailFrameData
 
 assert(
   fallbackFrameData.pointEnergies.length === 2 &&
-    fallbackFrameData.segmentTransverseProfiles.length === 1,
-  'WebGL2 失败转入 Canvas 时按需恢复完整拖尾 LUT 数据',
+    fallbackFrameData.segmentTransverseProfiles.length === 1 &&
+    fallbackFrameData.measurement === texturedFrameData.measurement &&
+    fallbackFrameData.pointProgresses === texturedFrameData.pointProgresses,
+  'WebGL2 失败转入 Canvas 时补齐材质并复用同一份几何测量',
 );
 deferredTrailDataEffect.destroy();
 
@@ -6159,5 +6442,484 @@ geometryEffect.updateConfig({ maxDpr: 2 });
 geometryEffect.pointerCancel(91);
 geometryEffect.destroy();
 
+
+console.log('\n颜色渐变缓存');
+const cacheDom = installDom();
+for (const [themeColor, themeColorMode] of [
+  [DEFAULT_THEME_COLOR, 'hue-only'], ['#ff6600', 'hue-only'], ['#ff66cc', 'relative-oklch'],
+])
+{
+  cacheDom.setCurrentTime(0);
+  const cachedEffect = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+    themeColor, themeColorMode });
+  cachedEffect.boom(100, 100);
+  cachedEffect._renderFrame(40);
+  const keys = cachedEffect.fxConfig.rings.colorKeys;
+  const converted = cachedEffect._gradientEnergyCache.get(keys);
+  assert(Array.isArray(converted), `${themeColorMode} 缓存转换后的渐变关键帧`);
+  const colors = JSON.stringify(converted);
+  cachedEffect._renderFrame(60);
+  assert(cachedEffect._gradientEnergyCache.get(keys) === converted &&
+    JSON.stringify(converted) === colors, '改变粒子年龄复用转换结果且不修改关键帧');
+  const oldCache = cachedEffect._gradientEnergyCache;
+  cachedEffect.setFxParams({ 'rings.hdrIntensity': 'invalid' }, { strict: true });
+  assert(cachedEffect._gradientEnergyCache === oldCache, '失败的参数事务保留颜色缓存');
+  cachedEffect.setFxParam('rings.hdrIntensity', 4);
+  assert(cachedEffect._gradientEnergyCache !== oldCache, '成功的参数事务失效颜色缓存');
+  cachedEffect._renderFrame(60);
+  const changedCache = cachedEffect._gradientEnergyCache;
+  cachedEffect.resetFxConfig();
+  assert(cachedEffect._gradientEnergyCache !== changedCache, '重置特效参数失效颜色缓存');
+  cachedEffect.setThemeColor('#55ff66');
+  cachedEffect._renderFrame(60);
+  assert(JSON.stringify(cachedEffect._gradientEnergyCache.get(cachedEffect.fxConfig.rings.colorKeys)) !== colors,
+    '主题切换后的转换结果不会复用旧颜色');
+  const themeCache = cachedEffect._gradientEnergyCache;
+  cachedEffect.setThemeColorMode(themeColorMode === 'hue-only' ? 'relative-oklch' : 'hue-only');
+  assert(cachedEffect._gradientEnergyCache !== themeCache, '主题模式切换失效颜色缓存');
+  cachedEffect.destroy();
+  assert(cachedEffect._gradientEnergyCache === null, '销毁时解除渐变缓存引用');
+}
+cacheDom.setCurrentTime(0);
+const outerCacheEffect = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native' });
+const innerCacheEffect = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+  themeColor: '#ff66cc', themeColorMode: 'relative-oklch' });
+outerCacheEffect.boom(100, 100);
+innerCacheEffect.boom(100, 100);
+innerCacheEffect._renderFrame(40);
+const nativeDraw = outerCacheEffect._drawNativeClickBloom;
+const innerFallback = innerCacheEffect._drawCanvasFallbackFrame;
+let injectFailure = true;
+innerCacheEffect._drawCanvasFallbackFrame = function(...args)
+{
+  if (injectFailure)
+  {
+    injectFailure = false;
+    throw new Error('expected cache context test failure');
+  }
+  return innerFallback.apply(this, args);
+};
+outerCacheEffect._drawNativeClickBloom = function(...args)
+{
+  this._gradientEnergyCache.delete(this.fxConfig.rings.colorKeys);
+  innerCacheEffect._restoreCanvasOutputAfterContextLoss('native');
+  return nativeDraw.apply(this, args);
+};
+const savedCacheWarning = console.warn;
+try
+{
+  console.warn = (...args) =>
+  {
+    if (!String(args[1]?.message).includes('expected cache context')) savedCacheWarning(...args);
+  };
+  outerCacheEffect._renderFrame(40);
+}
+finally { console.warn = savedCacheWarning; }
+assert(outerCacheEffect._gradientEnergyCache.has(outerCacheEffect.fxConfig.rings.colorKeys) &&
+  !innerCacheEffect._gradientEnergyCache.has(outerCacheEffect.fxConfig.rings.colorKeys) &&
+  !outerCacheEffect._gradientEnergyCache.has(innerCacheEffect.fxConfig.rings.colorKeys),
+  '重入的异色实例故障回退后恢复外层颜色缓存上下文');
+outerCacheEffect.destroy();
+innerCacheEffect.destroy();
+
+console.log('\n拖尾跨帧缓存');
+cacheDom.setCurrentTime(0);
+const trailCacheEffect = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+  inputSource: 'manual', clickEnabled: false });
+trailCacheEffect.setFxParam('shards.maxCount', 0);
+trailCacheEffect.pointerDown({ x: 10, y: 10, pointerId: 10 });
+cacheDom.setCurrentTime(10);
+trailCacheEffect.pointerMove({ x: 110, y: 70, pointerId: 10 });
+const cachedStroke = trailCacheEffect.currentTrailStroke;
+trailCacheEffect._updateTrail(10, 1, false, false, true);
+const initialTrailData = cachedStroke.trailFrameData;
+const savedHypot = Math.hypot;
+let cachedMeasurements = 0;
+try
+{
+  Math.hypot = (...args) => { cachedMeasurements++; return savedHypot(...args); };
+  for (let i = 0; i < 10; i++) trailCacheEffect._updateTrail(20 + i, 1, false, false, true);
+}
+finally { Math.hypot = savedHypot; }
+assert(cachedMeasurements === 0 && cachedStroke.trailFrameData === initialTrailData,
+  '点集未变且未过期的连续帧不重新测量或分配拖尾数据');
+trailCacheEffect._drawCanvasTrails(1, false);
+const materialData = cachedStroke.trailFrameData;
+trailCacheEffect._getTrailFrameData(cachedStroke, trailCacheEffect.fxConfig.bloom.trailEmission * 2);
+assert(cachedStroke.trailFrameData.measurement === materialData.measurement &&
+  JSON.stringify(cachedStroke.trailFrameData.segmentEnergies) !== JSON.stringify(materialData.segmentEnergies),
+  '材质强度变化只重建材质，保留测量与覆盖率数据');
+let previousTrailData = cachedStroke.trailFrameData;
+trailCacheEffect.setFxParam('trail.width', 9);
+trailCacheEffect._updateTrail(30, 1, false, false, true);
+assert(cachedStroke.trailFrameData !== previousTrailData, '特效参数提交后重建轨迹缓存');
+previousTrailData = cachedStroke.trailFrameData;
+trailCacheEffect.setThemeColor('#ff6600');
+trailCacheEffect._renderFrame(30);
+assert(cachedStroke.trailFrameData !== previousTrailData, '主题变化后的实际渲染重建轨迹材质');
+const pausedData = cachedStroke.trailFrameData;
+cacheDom.setCurrentTime(30);
+trailCacheEffect.setPaused(true);
+cacheDom.setCurrentTime(100);
+trailCacheEffect._renderFrame(100);
+trailCacheEffect.setPaused(false);
+trailCacheEffect._renderFrame(100);
+assert(cachedStroke.trailFrameData === pausedData, '暂停恢复且点集未变时复用轨迹缓存');
+
+trailCacheEffect.clearTrail();
+assert(cachedStroke.trailFrameData === null && cachedStroke.trailFrameCache === null,
+  '清轨迹时解除缓存及其依赖引用');
+trailCacheEffect.pointerDown({ x: 10, y: 10, pointerId: 11 });
+cacheDom.setCurrentTime(110);
+trailCacheEffect.pointerMove({ x: 110, y: 70, pointerId: 11 });
+const appendedStroke = trailCacheEffect.currentTrailStroke;
+trailCacheEffect._updateTrail(trailCacheEffect.trailTimeMs, 1, false, false, true);
+const beforeAppend = appendedStroke.trailFrameData;
+const beforeVersion = appendedStroke.pointsVersion;
+cacheDom.setCurrentTime(150);
+trailCacheEffect.pointerMove({ x: 180, y: 130, pointerId: 11 });
+trailCacheEffect._updateTrail(trailCacheEffect.trailTimeMs, 1, false, false, true);
+assert(appendedStroke.pointsVersion > beforeVersion && appendedStroke.trailFrameData !== beforeAppend,
+  '有效移动追加轨迹点后重建缓存');
+const beforeExpiry = appendedStroke.points.length;
+const cutoff = appendedStroke.points[0].bornAt + trailCacheEffect.fxConfig.trail.lifetimeMs + 1;
+trailCacheEffect._updateTrail(cutoff, 1, false, false, true);
+assert(appendedStroke.points.length < beforeExpiry && appendedStroke.points.length > 1,
+  '缓存命中不阻止时间推进与部分过期点裁剪');
+trailCacheEffect._updateTrail(cutoff + 1000, 1, false, false, true);
+assert(appendedStroke.trailFrameData === null, '轨迹完全过期后释放缓存');
+const expiredVersion = appendedStroke.pointsVersion;
+trailCacheEffect._ensureCurrentTrailStroke(cutoff + 1001);
+assert(appendedStroke.pointsVersion > expiredVersion && appendedStroke.points.length === 1,
+  '空轨迹重新播种时更新版本');
+trailCacheEffect.destroy();
+assert(appendedStroke.trailFrameData === null && appendedStroke.trailFrameCache === null,
+  '销毁时解除保留轨迹的缓存引用');
+
+cacheDom.setCurrentTime(0);
+const reentrantTrailEffect = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+  inputSource: 'manual', clickEnabled: false });
+reentrantTrailEffect.setFxParam('shards.maxCount', 0);
+reentrantTrailEffect.pointerDown({ x: 10, y: 10, pointerId: 12 });
+reentrantTrailEffect.pointerMove({ x: 110, y: 70, pointerId: 12 });
+const drawCachedTrails = reentrantTrailEffect._drawCanvasTrails;
+let changeThemeDuringDraw = true;
+reentrantTrailEffect._drawCanvasTrails = function(...args)
+{
+  if (changeThemeDuringDraw)
+  {
+    changeThemeDuringDraw = false;
+    this.setThemeColor('#ff6600');
+  }
+  return drawCachedTrails.apply(this, args);
+};
+reentrantTrailEffect._renderFrame(10);
+const oldContextColors = JSON.stringify(reentrantTrailEffect.currentTrailStroke.trailFrameData.segmentEnergies);
+reentrantTrailEffect._renderFrame(10);
+assert(JSON.stringify(reentrantTrailEffect.currentTrailStroke.trailFrameData.segmentEnergies) !== oldContextColors,
+  '帧内重入改主题后，下一帧不能把旧主题计算结果误认为新缓存');
+reentrantTrailEffect.destroy();
+
+const gpuCacheDom = installDom();
+function createGpuTrailFixture(options = {})
+{
+  gpuCacheDom.setCurrentTime(0);
+  const fx = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+    inputSource: 'manual', clickEnabled: false, ...options });
+  const recorder = {
+    available: true, contextLost: false, stats: {}, triangles: [],
+    beginFrame(options = {}) { if (!options.preserveSceneStats) this.triangles = []; },
+    _addTrailMeshTriangle: recordTrailMeshTriangle,
+    addTexturedTrailTriangle(...args) { this.triangles.push(args); },
+    renderScene() { return true; }, render() { return true; }, clear() {},
+  };
+  fx._prepareEffectBackend = () => 'webgl2';
+  fx._renderGPUClickEffects = (backend, scale) => fx._renderWebGL2Scene(recorder, scale);
+  fx.setFxParam('shards.maxCount', 0);
+  fx.pointerDown({ x: 10, y: 10, pointerId: 50 });
+  fx._appendPointerSample({ x: 20, y: 10 }, 20);
+  fx._appendPointerSample({ x: 20, y: 30 }, 40);
+  fx._renderFrame(40);
+  return { fx, recorder, stroke: fx.currentTrailStroke };
+}
+const gpuGoldenRecords = [];
+for (const [themeColor, themeColorMode] of [
+  ['#4ca7ff', 'relative-oklch'], ['#ff8800', 'hue-only'], ['#ff6699', 'relative-oklch'],
+])
+{
+  for (const opacity of [0.4, 1])
+  {
+    for (const scale of [0.7, 1.3])
+    {
+      const fixture = createGpuTrailFixture({ themeColor, themeColorMode, opacity, scale });
+      gpuGoldenRecords.push(fixture.recorder.triangles);
+      fixture.fx.destroy();
+    }
+  }
+}
+const gpuGoldenHash = (await import('node:crypto')).createHash('sha256')
+  .update(JSON.stringify(gpuGoldenRecords)).digest('hex');
+
+assert(gpuGoldenRecords.every(triangles => triangles.length > 0) && gpuGoldenHash === '59db9347614d12a30cd3fdebbf1d91058f1640fe9a287e1518f15db640761bc4',
+  'GPU 拖尾在 12 组主题、透明度和缩放组合下保持优化前全部顶点、颜色和 Coverage 数值');
+
+const gpuTrail = createGpuTrailFixture({ themeColor: '#ff6699' });
+const otherGpuTrail = createGpuTrailFixture({ themeColor: '#ffaa00' });
+const gpuPointSamples = gpuTrail.stroke.trailFrameData.gpuPointCache.samples;
+const gpuMesh = [...gpuTrail.stroke.trailFrameData.meshCache.values()][0];
+const gpuVisibleSegments = gpuMesh.visibleSegments;
+const gpuInitialTriangles = JSON.stringify(gpuTrail.recorder.triangles);
+for (let frame = 0; frame < 10; frame++)
+{
+  otherGpuTrail.fx._renderFrame(40);
+  gpuTrail.fx._renderFrame(40);
+}
+assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples === gpuPointSamples &&
+  gpuMesh.visibleSegments === gpuVisibleSegments &&
+  JSON.stringify(gpuTrail.recorder.triangles) === gpuInitialTriangles,
+  '异色实例交替渲染时复用逐点材质和可见段，输出保持一致');
+otherGpuTrail.fx.destroy();
+gpuCacheDom.setCurrentTime(40);
+gpuTrail.fx.updateConfig({ opacity: 0.4 });
+gpuTrail.fx._renderFrame(40);
+assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples === gpuPointSamples &&
+  gpuTrail.recorder.triangles[0][4] === 0.4 * gpuTrail.fx.fxConfig.trail.trailOpacity,
+  '透明度在提交时更新，不重建 GPU 拖尾逐点材质');
+gpuTrail.fx.updateConfig({ scale: 1.3 });
+gpuTrail.fx._renderFrame(40);
+assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples === gpuPointSamples &&
+  gpuTrail.stroke.trailFrameData.meshCache.size === 2 &&
+  [...gpuTrail.stroke.trailFrameData.meshCache.values()][1].visibleSegments !== gpuVisibleSegments,
+  '缩放选择新的网格和可见段集合，同时复用逐点材质');
+gpuTrail.fx.setPaused(true);
+gpuCacheDom.setCurrentTime(100);
+gpuTrail.fx.setPaused(false);
+gpuTrail.fx._renderFrame(100);
+assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples === gpuPointSamples,
+  'GPU 拖尾暂停恢复且点集未变时复用逐点材质');
+gpuTrail.fx.setFxParams({ 'trail.width': 'invalid' }, { strict: true });
+gpuTrail.fx._renderFrame(100);
+assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples === gpuPointSamples,
+  '失败的参数更新保留 GPU 拖尾缓存');
+for (const update of [
+  () => gpuTrail.fx.setFxParam('bloom.trailEmission', 7),
+  () => gpuTrail.fx.resetFxConfig(),
+  () => gpuTrail.fx.setThemeColor('#ffaa00'),
+  () => gpuTrail.fx.updateConfig({ themeColorMode: 'hue-only' }),
+])
+{
+  const before = gpuTrail.stroke.trailFrameData.gpuPointCache.samples;
+  update();
+  gpuTrail.fx._renderFrame(100);
+  assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples !== before,
+    '材质强度、参数重置或主题变化后重建 GPU 拖尾缓存');
+}
+const beforeGpuFallback = gpuTrail.stroke.trailFrameData;
+gpuTrail.recorder.render = () => false;
+gpuTrail.fx._renderFrame(100);
+assert(gpuTrail.stroke.trailFrameData.measurement === beforeGpuFallback.measurement &&
+  gpuTrail.stroke.trailFrameData.gpuPointCache === beforeGpuFallback.gpuPointCache &&
+  Array.isArray(gpuTrail.stroke.trailFrameData.segmentEnergies),
+  'GPU 当帧故障回退按需补齐 Canvas 材质，保留原测量和 GPU 逐点缓存');
+gpuTrail.recorder.render = () => true;
+gpuTrail.fx.clearTrail();
+assert(gpuTrail.stroke.trailFrameData === null, '清空时释放 GPU 拖尾缓存');
+gpuTrail.fx.destroy();
+gpuTrail.fx.destroy();
+const movingGpuTrail = createGpuTrailFixture();
+const beforeGpuAppend = movingGpuTrail.stroke.trailFrameData.gpuPointCache;
+movingGpuTrail.fx._appendPointerSample({ x: 30, y: 40 }, 60);
+movingGpuTrail.fx._renderFrame(60);
+assert(movingGpuTrail.stroke.trailFrameData.gpuPointCache !== beforeGpuAppend,
+  '追加点后重建 GPU 拖尾逐点材质');
+const beforeGpuExpiry = movingGpuTrail.stroke.trailFrameData.gpuPointCache;
+const beforeGpuExpiryCount = movingGpuTrail.stroke.points.length;
+const gpuExpiryTime = movingGpuTrail.stroke.points[0].bornAt + movingGpuTrail.fx.fxConfig.trail.lifetimeMs + 1;
+movingGpuTrail.fx._renderFrame(gpuExpiryTime);
+assert(movingGpuTrail.stroke.trailFrameData?.gpuPointCache !== beforeGpuExpiry &&
+  movingGpuTrail.stroke.points.length < beforeGpuExpiryCount,
+  'GPU 逐点缓存命中不会阻止过期裁剪及缓存失效');
+movingGpuTrail.fx.destroy();
+const destroyedGpuTrail = createGpuTrailFixture();
+destroyedGpuTrail.fx.destroy();
+assert(destroyedGpuTrail.stroke.trailFrameData === null, '销毁时释放仍存活的 GPU 拖尾缓存');
+
+const lruTrail = createGpuTrailFixture();
+const lruData = lruTrail.stroke.trailFrameData;
+const originalLruMesh = [...lruData.meshCache.values()][0];
+const originalLruGeometry = JSON.stringify(originalLruMesh);
+const renderLruScale = scale =>
+{
+  lruTrail.fx.updateConfig({ scale });
+  lruTrail.fx._renderFrame(40);
+  return [...lruData.meshCache.values()].at(-1);
+};
+const secondLruMesh = renderLruScale(1.1);
+renderLruScale(1.2);
+renderLruScale(1.3);
+assert(renderLruScale(1) === originalLruMesh, '命中网格时复用对象并更新 LRU 顺序');
+renderLruScale(1.4);
+assert(lruData.meshCache.size === 4 && [...lruData.meshCache.values()].includes(originalLruMesh) &&
+  ![...lruData.meshCache.values()].includes(secondLruMesh), '第五个宽度淘汰最久未使用网格');
+for (let index = 0; index < 100; index++) renderLruScale(2 + index / 100);
+assert(lruTrail.stroke.trailFrameData === lruData && lruData.meshCache.size === 4,
+  '固定点集连续切换 100 个缩放值，网格缓存始终有界');
+const rebuiltLruMesh = renderLruScale(1);
+assert(rebuiltLruMesh !== originalLruMesh && JSON.stringify(rebuiltLruMesh) === originalLruGeometry,
+  '被淘汰网格按原算法重建，几何与可见段保持一致');
+lruTrail.fx.destroy();
+assert(lruTrail.stroke.trailFrameData === null, '销毁时解除 LRU 网格及可见段引用');
+gpuCacheDom.setCurrentTime(0);
+const canvasLruTrail = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+  inputSource: 'manual', clickEnabled: false });
+canvasLruTrail.setFxParam('shards.maxCount', 0);
+canvasLruTrail.setFxParam('bloom.trailCoverageScale', 2);
+canvasLruTrail.pointerDown({ x: 10, y: 10, pointerId: 51 });
+canvasLruTrail._appendPointerSample({ x: 80, y: 40 }, 0);
+canvasLruTrail._renderFrame(0);
+const canvasLruMeshes = [...canvasLruTrail.currentTrailStroke.trailFrameData.meshCache.values()];
+for (let frame = 0; frame < 10; frame++) canvasLruTrail._renderFrame(0);
+assert(canvasLruMeshes.length === 2 &&
+  [...canvasLruTrail.currentTrailStroke.trailFrameData.meshCache.values()].every(mesh => canvasLruMeshes.includes(mesh)),
+  'Native 清晰层和 Bloom 交替使用不同宽度时不重复创建网格');
+canvasLruTrail.destroy();
+
+const { WebGL2EffectRenderer: TrailBufferRenderer } = await import('../src/webgl2-effect.js');
+const trailBufferRenderer = new TrailBufferRenderer(null, { initialize: false });
+trailBufferRenderer.available = true;
+const trailBufferRecords = [];
+const trailBufferHasher = (await import('node:crypto')).createHash('sha256');
+let trailLegacyCalls = 0;
+const legacyTrailTriangle = trailBufferRenderer.addTexturedTrailTriangle;
+trailBufferRenderer.addTexturedTrailTriangle = function (...args)
+{
+  trailLegacyCalls++;
+  return legacyTrailTriangle.apply(this, args);
+};
+trailBufferRenderer.renderScene = function ()
+{
+  const bytes = Buffer.from(this.trailVertexData.buffer, 0, this.trailVertexCount * 9 * 4);
+  trailBufferHasher.update(bytes);
+  trailBufferRecords.push(this.trailVertexCount);
+  return true;
+};
+trailBufferRenderer.render = () => true;
+for (const points of [
+  [[0, 0], [10, 0]], [[0, 0], [10, 0], [10, 10]], [[0, 0], [10, 0], [10, -10]],
+  [[0, 0], [10, 0], [0, 0]], [[0, 0], [0, 0], [10, 0]], [[0, 0], [0.0000001, 0], [10, 10]],
+])
+{
+  for (const [themeColor, themeColorMode] of [
+    ['#4ca7ff', 'relative-oklch'], ['#ff8800', 'hue-only'], ['#ff6699', 'relative-oklch'],
+  ])
+  {
+    for (const opacity of [0.4, 1])
+    {
+      for (const caps of [false, true])
+      {
+        gpuCacheDom.setCurrentTime(0);
+        const fx = new BAClickFX({ effectBackend: 'canvas2d', bloomBackend: 'native',
+          inputSource: 'manual', clickEnabled: false, themeColor, themeColorMode, opacity });
+        fx.setFxParams({ 'trail.numCornerVertices': caps ? 4 : 0, 'trail.numCapVertices': caps ? 1 : 0 });
+        fx.trailStrokes = [{ active: false, pointsVersion: 0,
+          points: points.map(([x, y]) => ({ x, y, bornAt: 0 })), trailFrameData: null }];
+        fx._prepareEffectBackend = () => 'webgl2';
+        fx._renderGPUClickEffects = (backend, scale) => fx._renderWebGL2Scene(trailBufferRenderer, scale);
+        fx._renderFrame(0);
+        fx.destroy();
+      }
+    }
+  }
+}
+const trailBufferHash = trailBufferHasher.digest('hex');
+assert(trailBufferRecords.length === 72 && trailBufferHash === '46f80cb4a87542c47bfd18598da41751b2b0a61fb53246d3012fa86540b79d88',
+  '72 组拖尾路径、主题、透明度和接头/端帽的 Float32 顶点字节与优化前一致');
+assert(trailLegacyCalls === 0, '完整 GPU 拖尾不再经过对象包装三角入口');
+trailBufferRenderer.destroy();
+
+
+
+console.log('\nSoftware 快照配置签名');
+const signatureDom = installDom();
+signatureDom.setCanvasBounds({ width: 320, height: 240 });
+signatureDom.setCurrentTime(100);
+const signatureRandom = Math.random;
+Math.random = () => 0.5;
+const signatureEffect = new BAClickFX({ inputSource: 'manual', effectBackend: 'canvas2d',
+  bloomBackend: 'native', outputCompositing: 'browser-overlay' });
+const signatureRecords = [];
+try
+{
+  for (const [name, mutate] of [
+    ['empty', () => {}],
+    ['input', () => signatureEffect.pointerDown({ x: 30, y: 40, pointerId: 1 })],
+    ['move', () => { signatureDom.setCurrentTime(116); signatureEffect.pointerMove({ x: 90, y: 80, pointerId: 1 }); }],
+    ['frame', () => signatureEffect._renderFrame(140)],
+    ['parameter', () => signatureEffect.setFxParam('rings.hdrIntensity', 4)],
+    ['invalid', () => signatureEffect.setFxParam('rings.hdrIntensity', 'invalid')],
+    ['reset', () => signatureEffect.resetFxConfig()],
+    ['theme', () => signatureEffect.setThemeColor('#ff6699')],
+    ['mode', () => signatureEffect.setThemeColorMode('hue-only')],
+    ['opacity', () => signatureEffect.updateConfig({ opacity: 0.4 })],
+    ['compositing', () => signatureEffect.updateConfig({ overlayAlphaLimit: 0.7 })],
+    ['pause', () => signatureEffect.setPaused(true)],
+    ['resume', () => signatureEffect.setPaused(false)],
+    ['clear', () => signatureEffect.clear()],
+  ])
+  {
+    mutate();
+    signatureRecords.push([name, signatureEffect._getSoftwareBloomFrameSignature(1)]);
+  }
+}
+finally
+{
+  signatureEffect.destroy();
+  Math.random = signatureRandom;
+}
+
+assert((await import('node:crypto')).createHash('sha256').update(JSON.stringify(signatureRecords)).digest('hex') ===
+  '71133830b18386635cab27fbc7c3486c50e5cf874400b67afa390cdcb0433edb',
+  '14 组输入、参数、主题、透明度和生命周期的完整快照签名与优化前一致');
+const signatureInstances = [0, 1].map(() => new BAClickFX({ inputSource: 'manual' }));
+const signatureCounts = [0, 0];
+const originalStringify = JSON.stringify;
+JSON.stringify = function (value, ...args)
+{
+  const index = signatureInstances.findIndex(fx => fx.fxConfig === value);
+  if (index >= 0) signatureCounts[index]++;
+  return originalStringify.call(this, value, ...args);
+};
+try
+{
+  const [fx, other] = signatureInstances;
+  const initial = fx._getSoftwareBloomFrameSignature(1);
+  for (let i = 0; i < 100; i++) fx._getSoftwareBloomFrameSignature(1);
+  const cached = fx._softwareBloomConfigSignature;
+  assert(signatureCounts[0] === 1, '不变配置的 100 次签名校验不重复序列化');
+  fx.setFxParam('rings.hdrIntensity', 'invalid');
+  assert(fx._getSoftwareBloomFrameSignature(1) === initial &&
+    fx._softwareBloomConfigSignature === cached && signatureCounts[0] === 1,
+    '失败参数更新保留配置签名缓存和完整签名');
+  fx.setFxParam('rings.hdrIntensity', 4);
+  assert(fx._softwareBloomConfigSignature === null && fx._getSoftwareBloomFrameSignature(1) !== initial &&
+    signatureCounts[0] === 2, '成功提交后按需重新序列化一次');
+  fx.resetFxConfig();
+  assert(fx._getSoftwareBloomFrameSignature(1) === initial && signatureCounts[0] === 3,
+    '参数重置沿用提交失效路径并恢复原完整签名');
+  fx.setThemeColor('#ff6699');
+  fx.updateConfig({ opacity: 0.4 });
+  assert(fx._getSoftwareBloomFrameSignature(1) !== initial && signatureCounts[0] === 3,
+    '动态主题和透明度仍改变完整签名，不重建未变特效配置');
+  other._getSoftwareBloomFrameSignature(1);
+  assert(signatureCounts[1] === 1 && other._softwareBloomConfigSignature !== fx._softwareBloomConfigSignature,
+    '多实例独立持有配置签名缓存');
+}
+finally
+{
+  JSON.stringify = originalStringify;
+  for (const fx of signatureInstances) fx.destroy();
+}
+assert(signatureInstances.every(fx => fx._softwareBloomConfigSignature === null),
+  '销毁后解除配置签名字符串引用');
 
 console.log(`\n✅ ${passed} 项 FX_Touch 移植检查通过\n`);

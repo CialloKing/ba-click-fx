@@ -5,6 +5,8 @@
  * 可以脱离 DOM 验证。
  */
 
+import { createHash } from 'node:crypto';
+import { filterFixture } from './software-filter-fixture.js';
 import {
   calculateBloomContribution,
   decodeCoverageMask,
@@ -1199,8 +1201,9 @@ function createSoftwareCanvasFactory()
       putImageData()
       {
       },
-      setTransform()
+      setTransform(...values)
       {
+        this.transform = values;
       },
     };
     const canvas =
@@ -1289,6 +1292,119 @@ assert(
 );
 const allocatedCoverageCanvas = coverageRenderer.coverageCanvas;
 
+const layoutReferences = renderer => [
+  renderer.levels, renderer.coverageLevels, renderer.sourceLinear,
+  renderer.sourceCoverage, renderer.sceneCoverageMip0,
+  ...renderer.levels.flatMap(level => [level, level.down, level.up, level.scratch]),
+  ...renderer.coverageLevels.flatMap(level => [level, level.down, level.up, level.scratch]),
+];
+const stableReferences = layoutReferences(coverageRenderer);
+const stableVersion = coverageRenderer.layoutVersion;
+const stableSampleScale = coverageRenderer.sampleScale;
+const resizeFloatBuffer = coverageRenderer._resizeFloatBuffer;
+let bufferPreparations = 0;
+coverageRenderer._resizeFloatBuffer = function (...args)
+{
+  bufferPreparations++;
+  return resizeFloatBuffer.apply(this, args);
+};
+try
+{
+  for (let frame = 0; frame < 20; frame++)
+  {
+    coverageRenderer.beginFrame(64, 64, 0.5, { x: 0, y: 0, width: 64, height: 64 }, 7, 1);
+    coverageRenderer.beginCoverageFrame(frame % 2 ? 'scene' : 'browser-overlay');
+    coverageRenderer._ensureCoverageBuffers();
+  }
+}
+finally { delete coverageRenderer._resizeFloatBuffer; }
+assert(bufferPreparations === 0 && coverageRenderer.layoutVersion === stableVersion &&
+  layoutReferences(coverageRenderer).every((value, index) => value === stableReferences[index]),
+'稳定布局和模式交替保留全部层级、Coverage 及缓冲引用，不重复准备');
+
+coverageRenderer._resize(64 / 1.001, 64 / 1.001, 0.5001, 64.2, 64.2, 7.1, 1.001);
+coverageRenderer._ensureCoverageBuffers();
+assert(coverageRenderer.layoutVersion === stableVersion &&
+  coverageRenderer.sampleScale !== stableSampleScale &&
+  coverageRenderer.diffusion === 7.1 && coverageRenderer.displayWidth === 64.2 &&
+  coverageRenderer.regionWidth === 64 / 1.001 && coverageRenderer.resolutionScale === 0.5001 &&
+  layoutReferences(coverageRenderer).every((value, index) => value === stableReferences[index]),
+'DPR、逻辑尺寸和 diffusion 小幅变化更新计算参数，但复用取整后相同的布局');
+coverageRenderer.beginFrame(64, 64, 0.5001, { x: 0, y: 0, width: 64, height: 64 }, 7.1, 1.001);
+coverageRenderer.beginCoverageFrame('browser-overlay');
+assert(Math.abs(coverageRenderer.sourceContext.transform[0] - 1.001) < 1e-12 &&
+  coverageRenderer.sourceContext.transform[0] === coverageRenderer.coverageContext.transform[0] &&
+  coverageRenderer.layoutVersion === stableVersion,
+'物理尺寸不变时源画布和 Coverage 坐标变换仍跟随 DPR');
+
+for (const [args, expected] of [
+  [[17, 13, 0.5, 256, 192, 7, 1], [[8, 6], [4, 3], [2, 1], [1, 1]]],
+  [[18, 14, 0.5, 256, 192, 7, 1], [[9, 7], [4, 3], [2, 1], [1, 1]]],
+  [[17, 13, 0.5, 512, 384, 7, 2], [[17, 13], [8, 6], [4, 3], [2, 1], [1, 1]]],
+  [[1, 1, 0.75, 4096, 4096, 10, 1], [[1, 1]]],
+  [[65, 33, 0.75, 4096, 4096, 10, 1], [[48, 24], [24, 12], [12, 6], [6, 3], [3, 1], [1, 1]]],
+  [[64, 64, 0.5, 64, 64, 7, 1], [[32, 32], [16, 16]]],
+  [[64, 64, 0.5, 64, 64, 8, 1], [[32, 32], [16, 16], [8, 8]]],
+])
+{
+  const previousVersion = coverageRenderer.layoutVersion;
+  const previousCoverage = coverageRenderer.coverageLevels;
+  coverageRenderer._resize(...args);
+  assert(coverageRenderer.layoutVersion === previousVersion + 1 &&
+    coverageRenderer.coverageLayoutVersion === -1 &&
+    coverageRenderer._ensureCoverageBuffers() && previousCoverage !== coverageRenderer.coverageLevels &&
+    JSON.stringify(coverageRenderer.levels.map(level => [level.width, level.height])) === JSON.stringify(expected) &&
+    coverageRenderer.coverageLevels.every((level, index) =>
+      level.width === expected[index][0] && level.height === expected[index][1] &&
+      level.down.length === level.width * level.height && level.up.length === level.down.length &&
+      level.scratch.length === level.down.length),
+  `尺寸或 DPR 变化按原拓扑重建并同步 Coverage：${args}`);
+}
+
+coverageRenderer.beginFrame(128, 128, 0.5, { x: 0, y: 0, width: 16, height: 16 }, 7, 1);
+coverageRenderer.beginCoverageFrame('browser-overlay');
+coverageRenderer._ensureCoverageBuffers();
+const translatedReferences = layoutReferences(coverageRenderer);
+coverageRenderer.beginFrame(128, 128, 0.5, { x: 64, y: 64, width: 16, height: 16 }, 7, 1);
+coverageRenderer.beginCoverageFrame('browser-overlay');
+coverageRenderer._ensureCoverageBuffers();
+assert(coverageRenderer.originX === 64 && coverageRenderer.originY === 64 &&
+  coverageRenderer.sourceContext.transform[4] === -64 && coverageRenderer.coverageContext.transform[5] === -64 &&
+  layoutReferences(coverageRenderer).every((value, index) => value === translatedReferences[index]),
+'区域平移复用布局，同时更新发射和 Coverage 的坐标原点');
+
+// 单像素截断之后，期望层数改变也不需要重新创建同一套有效层级。
+coverageRenderer._resize(1, 1, 0.5, 4096, 4096, 10, 1);
+coverageRenderer._ensureCoverageBuffers();
+const onePixelReferences = layoutReferences(coverageRenderer);
+coverageRenderer._resize(1, 1, 0.5, 4096, 4096, 0, 1);
+coverageRenderer._ensureCoverageBuffers();
+assert(layoutReferences(coverageRenderer).every((value, index) => value === onePixelReferences[index]),
+'有效层数相同但期望层数改变时保留单像素布局');
+
+coverageRenderer._resize(32, 32, 0.5, 64, 64, 7, 1);
+const allocationFailure = new Error('Coverage allocation failed');
+coverageRenderer._resizeFloatBuffer = () => { throw allocationFailure; };
+let caughtAllocationFailure;
+try { coverageRenderer._ensureCoverageBuffers(); }
+catch (error) { caughtAllocationFailure = error; }
+finally { delete coverageRenderer._resizeFloatBuffer; }
+assert(caughtAllocationFailure === allocationFailure && coverageRenderer.coverageLayoutVersion === -1 &&
+  coverageRenderer._ensureCoverageBuffers() && coverageRenderer.coverageLayoutVersion === coverageRenderer.layoutVersion,
+'Coverage 分配失败保留原异常且不标记成功，后续准备可重建');
+
+const createImageData = coverageRenderer.outputContext.createImageData;
+const successfulVersion = coverageRenderer.layoutVersion;
+coverageRenderer.outputContext.createImageData = () => { throw new Error('ImageData allocation failed'); };
+try
+{
+  assert(!coverageRenderer._resize(64, 64, 0.5, 64, 64, 7, 1) && !coverageRenderer.layoutReady &&
+    coverageRenderer.layoutVersion === successfulVersion && !coverageRenderer._ensureCoverageBuffers(),
+  '输出分配失败不提交布局版本或复用旧 Coverage');
+}
+finally { coverageRenderer.outputContext.createImageData = createImageData; }
+
+coverageRenderer.destroy();
 coverageRenderer.destroy();
 assert(
   allocatedCoverageCanvas.width === 0 &&
@@ -1297,7 +1413,9 @@ assert(
     coverageRenderer.coverageContext === null &&
     coverageRenderer.sourceCoverage.length === 0 &&
     coverageRenderer.coverageLevels.length === 0 &&
-    coverageRenderer.coverageLevelStorage.length === 0,
+    coverageRenderer.coverageLevelStorage.length === 0 &&
+    !coverageRenderer.layoutReady && coverageRenderer.coverageLayoutVersion === -1 &&
+    !coverageRenderer._ensureCoverageBuffers(),
   'Software renderer 销毁时释放 Coverage Canvas 与单通道金字塔',
 );
 
@@ -1747,6 +1865,172 @@ assert(
 
 const fullGeometryRenderer = new WebGL2EffectRenderer(rendererCanvas);
 
+const uniformRenderer = new WebGL2EffectRenderer(null, { initialize: false });
+let uniformQueries = 0;
+uniformRenderer.gl = {
+  getUniformLocation(program, name)
+  {
+    uniformQueries++;
+    return name === 'missing' ? null : { program, name };
+  },
+};
+const firstProgram = {}, secondProgram = {};
+const firstLocation = uniformRenderer._getUniformLocation(firstProgram, 'size');
+assert(
+  uniformRenderer._getUniformLocation(firstProgram, 'size') === firstLocation &&
+    uniformRenderer._getUniformLocation(firstProgram, 'missing') === null &&
+    uniformRenderer._getUniformLocation(firstProgram, 'missing') === null &&
+    uniformRenderer._getUniformLocation(secondProgram, 'size') !== firstLocation &&
+    uniformQueries === 3,
+  'WebGL2 按 Program 缓存 Uniform 位置及不存在的 Uniform',
+);
+uniformRenderer._handleContextLost();
+assert(uniformRenderer.uniformLocations.size === 0, 'Context 丢失立即解除 Uniform 引用');
+uniformRenderer._getUniformLocation(firstProgram, 'size');
+uniformRenderer._forgetResourceReferences();
+assert(
+  uniformRenderer._getUniformLocation(firstProgram, 'size') !== firstLocation && uniformQueries === 5,
+  'Context 资源重建后重新查询 Uniform，不能复用失效位置',
+);
+uniformRenderer.gl = null;
+uniformRenderer.destroy();
+uniformRenderer.destroy();
+assert(uniformRenderer.uniformLocations.size === 0, '重复销毁安全且释放 Uniform 缓存');
+
+// 只记录缓冲/VAO 的归属和提交，不模拟 Shader 或像素执行。
+function createGeometryUploadHarness(failBufferAt = -1)
+{
+  const uploads = [], draws = [], buffers = [], vaos = [], deleted = new Set();
+  let boundBuffer, boundVao;
+  const gl = new Proxy({
+    createBuffer()
+    {
+      if (buffers.length === failBufferAt) return null;
+      const buffer = { id: buffers.length };
+      buffers.push(buffer);
+      return buffer;
+    },
+    createVertexArray() { const vao = {}; vaos.push(vao); return vao; },
+    bindBuffer(target, buffer)
+    {
+      if (target === 'ELEMENT_ARRAY_BUFFER') boundVao.indexBuffer = buffer;
+      else boundBuffer = buffer;
+    },
+    bindVertexArray(vao) { boundVao = vao; },
+    vertexAttribPointer() { boundVao.buffer = boundBuffer; },
+    bufferData(target, data)
+    {
+      const buffer = target === 'ELEMENT_ARRAY_BUFFER' ? boundVao.indexBuffer : boundBuffer;
+      buffer.data = data.slice(); uploads.push(buffer);
+    },
+    drawArrays() { draws.push({ buffer: boundVao.buffer, data: boundVao.buffer.data.slice() }); },
+    drawElements(mode, count, type, offset)
+    {
+      if (type !== 'UNSIGNED_INT' || offset !== 0) throw new Error('Unexpected index format');
+      const data = new Float32Array(count * 9);
+      for (let i = 0; i < count; i++)
+      {
+        const vertex = boundVao.indexBuffer.data[i];
+        data.set(boundVao.buffer.data.subarray(vertex * 9, vertex * 9 + 9), i * 9);
+      }
+      draws.push({ buffer: boundVao.buffer, data });
+    },
+    deleteBuffer(buffer) { if (buffer) deleted.add(buffer); },
+    deleteVertexArray(vao) { if (vao) deleted.add(vao); },
+    getExtension() { return {}; },
+    getParameter(name) { return name === 'MAX_VIEWPORT_DIMS' ? [8192, 8192] : 8192; },
+    getShaderParameter() { return true; },
+    getProgramParameter() { return true; },
+    getError() { return 'NO_ERROR'; },
+    checkFramebufferStatus() { return 'FRAMEBUFFER_COMPLETE'; },
+  }, {
+    get(target, name)
+    {
+      if (name in target) return target[name];
+      if (/^[A-Z_0-9]+$/.test(name)) return name;
+      return name.startsWith('create') || name === 'getUniformLocation' ? () => ({}) : () => {};
+    },
+  });
+  const canvas = { addEventListener() {}, removeEventListener() {}, getContext: () => gl };
+  return { gl, canvas, uploads, draws, buffers, vaos, deleted };
+}
+const uploadHarness = createGeometryUploadHarness();
+const uploadRenderer = new WebGL2EffectRenderer(uploadHarness.canvas);
+uploadRenderer.resize(320, 240, 1, 0.5, 5);
+const batches = [
+  ['sceneDisk', 8], ['trail', 9], ['', 6], ['ring', 9], ['triangle', 9],
+];
+for (let index = 0; index < batches.length; index++)
+{
+  const [name, components] = batches[index];
+  const prefix = name ? `${name}Vertex` : 'vertex';
+  if (name === 'ring') uploadRenderer.addDissolveRing(100, 100, 50, 10, 0, 1, 32, [1, 1, 1], 1, 0.5, 0, 1, 1);
+  else uploadRenderer[`${prefix}Count`] = 3;
+  uploadRenderer[`${prefix}Data`].fill(index + 1, 0, uploadRenderer[`${prefix}Count`] * components);
+}
+assert(uploadRenderer.renderScene({ diskEmissionScale: 2, ringEmissionScale: 2 }),
+  '包含全部几何的独立发光层场景成功提交');
+assert(uploadHarness.uploads.length === 6 && new Set(uploadHarness.uploads).size === 6 &&
+  uploadHarness.draws.length === 10 && uploadHarness.draws.every((draw, index) =>
+    draw.data.every(value => value === index % 5 + 1)),
+  '每种几何及圆环索引只上传一次，两层保持原顺序且数据互不覆盖');
+const firstTrailBuffer = uploadRenderer.trailBuffer;
+uploadRenderer.trailVertexData[0] = 77;
+uploadHarness.uploads.length = uploadHarness.draws.length = 0;
+assert(uploadRenderer.renderScene({}) && uploadHarness.uploads.length === 5 &&
+  uploadHarness.draws[1].data[0] === 77 && uploadRenderer.trailBuffer === firstTrailBuffer,
+  '后续场景调用重新上传修改后的数据，并保留 GPU 缓冲对象');
+uploadHarness.uploads.length = uploadHarness.draws.length = 0;
+uploadRenderer._renderEmission({});
+assert(uploadHarness.uploads.length === 5 && uploadHarness.draws[1].data[0] === 77,
+  '独立 Bloom 入口自行上传全部当前几何');
+uploadRenderer.beginFrame();
+uploadHarness.uploads.length = 0;
+assert(uploadRenderer.renderScene({}) && uploadHarness.uploads.length === 0,
+  '空场景不上传顶点');
+uploadRenderer._handleContextLost();
+uploadRenderer._handleContextRestored();
+assert(uploadRenderer.available && uploadRenderer.trailBuffer !== firstTrailBuffer &&
+  uploadRenderer.trailVao.buffer === uploadRenderer.trailBuffer &&
+  !uploadHarness.deleted.has(firstTrailBuffer),
+  'Context 恢复重新建立拖尾 VAO，避免删除浏览器已作废的旧对象');
+const restoredTrailBuffer = uploadRenderer.trailBuffer;
+const restoredTrailVao = uploadRenderer.trailVao;
+const restoredIndexBuffer = uploadRenderer.ringIndexBuffer;
+uploadRenderer.addDissolveRing(100, 100, 50, 10, 0, 8, 96, [1, 1, 1], 1, 0.5, 0, 1, 1);
+uploadHarness.uploads.length = 0;
+assert(uploadRenderer.renderScene({}) && uploadHarness.uploads.includes(restoredIndexBuffer) &&
+  uploadRenderer.ringVao.indexBuffer === restoredIndexBuffer,
+  'Context 恢复后索引重新上传并绑定到新圆环 VAO');
+uploadRenderer.destroy();
+uploadRenderer.destroy();
+assert(uploadHarness.deleted.has(restoredTrailBuffer) && uploadHarness.deleted.has(restoredTrailVao) &&
+  uploadHarness.deleted.has(restoredIndexBuffer) && uploadRenderer.ringIndexData.length === 0 &&
+  uploadRenderer.trailBuffer === null && uploadRenderer.trailVao === null,
+  '重复销毁释放拖尾及圆环索引资源');
+const failedUploadHarness = createGeometryUploadHarness(5);
+const savedUploadWarning = console.warn;
+let failedUploadRenderer;
+try
+{
+  console.warn = () => {};
+  failedUploadRenderer = new WebGL2EffectRenderer(failedUploadHarness.canvas);
+}
+finally { console.warn = savedUploadWarning; }
+assert(!failedUploadRenderer.available && failedUploadRenderer.trailBuffer === null &&
+  [...failedUploadHarness.buffers, ...failedUploadHarness.vaos].every(value => failedUploadHarness.deleted.has(value)),
+  '拖尾缓冲分配失败时回收已创建的全部缓冲和 VAO');
+failedUploadRenderer.destroy();
+const failedIndexHarness = createGeometryUploadHarness(3);
+console.warn = () => {};
+let failedIndexRenderer;
+try { failedIndexRenderer = new WebGL2EffectRenderer(failedIndexHarness.canvas); }
+finally { console.warn = savedUploadWarning; }
+assert(!failedIndexRenderer.available && failedIndexRenderer.ringIndexBuffer === null &&
+  [...failedIndexHarness.buffers, ...failedIndexHarness.vaos].every(value => failedIndexHarness.deleted.has(value)),
+  '索引缓冲分配失败时清理此前已创建的资源');
+failedIndexRenderer.destroy();
+
 fullGeometryRenderer.beginFrame();
 fullGeometryRenderer.addTriangle(
   10,
@@ -1768,7 +2052,92 @@ assert(
       )),
   'WebGL2 将同一圆角比例传给完整碎片 Quad 的全部顶点',
 );
+// 优化前记录的完整顶点字节，覆盖默认/边界拓扑、旋转与溶解方向。
+for (const [bands, segments, rotation, direction, vertices, hash] of [
+  [1, 0, 0.7, 1, 192, 'd29a4eaaa91999729403ec823aa2f4d70c1ad15ce3200ec0cacd6e18d84527b0'],
+  [8, 96, 0.35, -1, 4608, '66f1fa7e406a83d7a985a4d9e74b45999f1b9da01caceecdf4cdaff7c74c97c2'],
+  [32, 1000, -0.4, 1, 98304, '435354765eead28b8d88e748194347329ae16a6882f3b73f1ef9ab90c1cefb9d'],
+  [8, 32, 0.35, -1, 1536, '73d75e3929eb28e47a77d0bf129a987705e16e79d8ca45d0ad71e227a7616bf9'],
+  [8, 96, 0.35, -1, 4608, '66f1fa7e406a83d7a985a4d9e74b45999f1b9da01caceecdf4cdaff7c74c97c2'],
+])
+{
+  const previousCosine = fullGeometryRenderer._ringCosine;
+  const previousSine = fullGeometryRenderer._ringSine;
+  fullGeometryRenderer.beginFrame();
+  fullGeometryRenderer.addDissolveRing(
+    100, 110, 50, 10, rotation, bands, segments, [1, 0.6, 2], 0.7, 0.5, 0.1, 0.9, direction,
+  );
+  fullGeometryRenderer._prepareRingIndices();
+  const bytes = expandRingBytes(fullGeometryRenderer);
+  assert(
+    fullGeometryRenderer.ringIndexCount === vertices &&
+      createHash('sha256').update(bytes).digest('hex') === hash,
+    `圆环 ${bands}×${segments} 的顶点字节与优化前一致`,
+  );
+  if (previousCosine?.length >= Math.max(32, Math.min(512, segments)) + 1)
+  {
+    assert(
+      fullGeometryRenderer._ringCosine === previousCosine &&
+        fullGeometryRenderer._ringSine === previousSine,
+      '跨帧生成相同或更小圆环时复用工作缓冲',
+    );
+  }
+}
+function expandRingBytes(renderer)
+{
+  const expanded = new Float32Array(renderer.ringIndexCount * 9);
+  for (let i = 0; i < renderer.ringIndexCount; i++)
+  {
+    const index = renderer.ringIndexData[i] * 9;
+    expanded.set(renderer.ringVertexData.subarray(index, index + 9), i * 9);
+  }
+  return Buffer.from(expanded.buffer);
+}
+for (const [radius, count, bands, segments, expectedHash] of [
+  [1, 1, 8, 96, '59a63c306bb2b9d7ea5897543f0987186934604f704ae5a6e54439e13fe40c58'],
+  [50, 4, 32, 512, 'ac2be08f797de12cbc832770bb129a119cf4289a294e98c76015f9cd4eab3820'],
+])
+{
+  fullGeometryRenderer.beginFrame();
+  for (let i = 0; i < count; i++) fullGeometryRenderer.addDissolveRing(
+    100 + i * 13, 110, radius, 10, 0.35, bands, segments, [1, 0.6, 2], 0.7, 0.5, 0.1, 0.9, -1);
+  fullGeometryRenderer._prepareRingIndices();
+  assert(createHash('sha256').update(expandRingBytes(fullGeometryRenderer)).digest('hex') === expectedHash,
+    `${count} 个圆环的零内半径或 32 位大索引展开字节保持一致`);
+}
+assert(fullGeometryRenderer.ringVertexCount === 67716 &&
+  fullGeometryRenderer.ringIndexData[fullGeometryRenderer.ringIndexCount - 2] === 67715,
+  '四个最大采样圆环的索引超过 65535 时不截断');
+const topologyFrame = specs =>
+{
+  fullGeometryRenderer.beginFrame();
+  for (const [bands, segments] of specs) fullGeometryRenderer.addDissolveRing(
+    100, 110, 50, 10, 0.35, bands, segments, [1, 0.6, 2], 0.7, 0.5, 0.1, 0.9, -1);
+  fullGeometryRenderer._prepareRingIndices();
+  return fullGeometryRenderer._ringIndexVersion;
+};
+const topologyVersion = topologyFrame([[8, 96], [1, 32]]);
+const indexStorage = fullGeometryRenderer.ringIndexData;
+assert(topologyFrame([[8, 96], [1, 32]]) === topologyVersion &&
+  fullGeometryRenderer.ringIndexData === indexStorage, '稳定混合拓扑跨帧复用索引版本和工作缓冲');
+assert(topologyFrame([[1, 32], [8, 96]]) > topologyVersion &&
+  fullGeometryRenderer.ringIndexData[192] === 66, '改变拓扑顺序后重新计算后续圆环的顶点偏移');
+topologyFrame([[8, 96]]);
+assert(fullGeometryRenderer._ringTopology.length === 1 && fullGeometryRenderer.ringIndexCount === 4608,
+  '减少圆环数量时只保留当前拓扑序列');
+topologyFrame([]);
+assert(fullGeometryRenderer._ringTopology.length === 0 && fullGeometryRenderer.ringIndexCount === 0,
+  '空帧清除当前拓扑和有效索引计数');
+// 未提交帧中的拓扑也可能被修改；下一帧不能误把旧索引判断为已准备。
+fullGeometryRenderer.addDissolveRing(100, 100, 50, 10, 0, 1, 32, [1, 1, 1], 1, 0.5, 0, 1, 1);
+topologyFrame([[1, 32]]);
+assert(fullGeometryRenderer.ringIndexCount === 192 && fullGeometryRenderer.ringIndexData[2] === 34,
+  '未提交帧后继续相同拓扑仍完成索引准备');
 fullGeometryRenderer.destroy();
+assert(
+  fullGeometryRenderer._ringCosine === null && fullGeometryRenderer._ringSine === null,
+  'WebGL2 销毁时释放圆环工作缓冲',
+);
 
 geometryRenderer.beginFrame();
 const headCenterToEdge =
@@ -1873,5 +2242,46 @@ for (const settings of [
   assert(createNativeBloomProfile([source], 320, 240, 1, settings) === null,
     '原生辉光遵循线性 Threshold 与 Clamp，不让低能材质发光');
 }
+
+const meshWriter = new WebGL2EffectRenderer(null, { initialize: false });
+const legacyWriter = new WebGL2EffectRenderer(null, { initialize: false });
+const meshPoints = [{ x: -0.25, y: 0.1 }, { x: 8, y: 4.5 }, { x: 3, y: 9 }];
+const meshSamples = [
+  { u: 1, color: [-1, 0.25, 8], coverage: -0.5 },
+  { u: 0.4, color: [3, 2, 1], coverage: 0.4 },
+  { u: 0, color: [0, 9, 2], coverage: 1.5 },
+];
+for (const opacity of [0, -1, NaN, 0.4, 1, 2])
+{
+  meshWriter.beginFrame();
+  legacyWriter.beginFrame();
+  meshWriter._addTrailMeshTriangle(meshPoints[0], meshSamples[0], 1,
+    meshPoints[1], meshSamples[1], 0, meshPoints[2], meshSamples[2], 0.5, opacity);
+  legacyWriter.addTexturedTrailTriangle(
+    { ...meshPoints[0], u: meshSamples[0].u, v: 1 },
+    { ...meshPoints[1], u: meshSamples[1].u, v: 0 },
+    { ...meshPoints[2], u: meshSamples[2].u, v: 0.5 },
+    meshSamples.map(sample => sample.color), opacity, meshSamples.map(sample => sample.coverage),
+  );
+  assert(meshWriter.trailVertexCount === legacyWriter.trailVertexCount &&
+    Buffer.from(meshWriter.trailVertexData.buffer).equals(Buffer.from(legacyWriter.trailVertexData.buffer)),
+    `直接写入与兼容入口保持相同顶点字节及 Alpha/Coverage 钳制（${opacity}）`);
+}
+meshSamples.forEach(sample => { sample.coverage = 0; });
+meshWriter.beginFrame();
+meshWriter._addTrailMeshTriangle(meshPoints[0], meshSamples[0], 1,
+  meshPoints[1], meshSamples[1], 0, meshPoints[2], meshSamples[2], 0.5, 1);
+assert(meshWriter.trailVertexCount === 0, '直接写入继续剔除全零 Coverage 三角');
+meshWriter.destroy();
+legacyWriter.destroy();
+
+const filterRecords = await filterFixture();
+const filterHash = createHash('sha256').update(JSON.stringify(filterRecords.map(
+  ({ fillCalls, fillFloats, ...values }) => values,
+))).digest('hex');
+assert(filterRecords.length === 864 && filterHash === '0d2a3592f0fd100bc874b022133613d909443af31fe2c21eef389ae804f4a5ac',
+  '864 组滤波 RGB/Coverage、边界、HDR、脏值及重叠视图保持原 Float32 字节和采样次数');
+assert(filterRecords.reduce((sum, record) => sum + record.fillFloats, 0) === 81579,
+  '完整非重叠输出省略 14433 个 float 清零，局部范围、尾部和输入别名保留清零');
 
 console.log(`\n✅ ${passed} 项 Software Bloom 数值检查通过\n`);

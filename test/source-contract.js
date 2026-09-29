@@ -6,9 +6,57 @@
  */
 
 import assert from 'node:assert/strict';
+import { READBACK_ROLES, trackCanvasReadbacks } from '../scripts/runtime-readback-diagnostics.mjs';
+import { tintFixture } from './canvas-tint-fixture.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BAClickFX } from '../src/fx.js';
+
+const tintRecords = await tintFixture();
+const tintHash = createHash('sha256').update(JSON.stringify(tintRecords.map(
+  ({ preparations, samples, ...values }) => values,
+))).digest('hex');
+assert.equal(tintHash, '28abe1f563b7999daddf20ae14224b8841f8ac90c08574e36008f32c86680f0d',
+  '80 组圆角边界、纹理方向、透明度及 Coverage 染色保持原 ImageData 字节');
+assert(tintRecords.every(record => record.roundness > 0
+  ? record.preparations === record.visible && record.samples === record.visible * 4
+  : record.preparations === 0 && record.samples === 0),
+  '透明像素不采样，每个可见圆角像素只准备一次四通道共用坐标');
+
+// 诊断包装不能改变 Canvas 返回值、异常身份或方法描述符。
+{
+  const failure = new Error('readback failed');
+  const image = { data: new Uint8ClampedArray(24) };
+  const context = { getImageData() { if (this.fail) throw failure; return image; } };
+  const descriptor = Object.getOwnPropertyDescriptor(context, 'getImageData');
+  let clock = 0;
+  const recorder = trackCanvasReadbacks(context, {
+    now: () => clock++,
+    classify: receiver => { if (receiver.fail) throw new Error('classification failed'); return receiver.role; },
+  });
+  try
+  {
+    for (const role of READBACK_ROLES)
+    {
+      context.role = role;
+      assert.equal(context.getImageData(0, 0, -2, 3), image);
+      assert.deepEqual(recorder.stats.byRole[role], {
+        calls: 1, requestedPixels: 6, returnedBytes: 24, failures: 0, durationMs: 1,
+      });
+    }
+    context.fail = true;
+    assert.throws(() => context.getImageData(0, 0, 2, 3), error => error === failure);
+    assert.deepEqual(recorder.stats.total, {
+      calls: 7, requestedPixels: 42, returnedBytes: 144, failures: 1, durationMs: 7,
+    });
+    assert.equal(recorder.stats.collectionErrors, 1);
+    for (const key of Object.keys(recorder.stats.total))
+      assert.equal(Object.values(recorder.stats.byRole).reduce((sum, value) => sum + value[key], 0), recorder.stats.total[key]);
+  }
+  finally { recorder.restore(); }
+  recorder.restore();
+  assert.deepEqual(Object.getOwnPropertyDescriptor(context, 'getImageData'), descriptor);
+}
 import { UNITY_FX_TOUCH } from '../src/config.js';
 import {
   RING3_ALPHA,

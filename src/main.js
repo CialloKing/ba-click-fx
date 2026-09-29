@@ -936,6 +936,7 @@ const videoDynamicRangeQuery = typeof window.matchMedia === 'function'
   : null;
 const WEBGPU_DIAGNOSTIC_REFRESH_MS = 250;
 let webgpuDiagnosticRefreshTimer = null;
+let renderBackendRefreshQueued = false;
 const RENDER_MODE_CONFIGS = Object.freeze(
   {
     'full-webgpu-sdr':
@@ -1360,7 +1361,7 @@ function syncHdrUiControls(extendedActive)
   }
 }
 
-function syncHdrUiOverlay(snapshot = effect.getConfig())
+function syncHdrUiOverlay(snapshot)
 {
   const extendedActive = snapshot.resolvedEffectBackend === 'webgpu' &&
     snapshot.resolvedWebGPUOutputMode === 'extended';
@@ -1408,7 +1409,7 @@ function applyHdrUiSettings(settings = {}, persist = true)
     );
   }
 
-  syncHdrUiOverlay(effect.getConfig());
+  updateRenderBackendStatus();
 }
 
 function findHdrPresentationPreset(snapshot)
@@ -1438,7 +1439,7 @@ function persistHdrPresentation(snapshot)
   );
 }
 
-function syncHdrPresentationControls(snapshot = effect.getConfig())
+function syncHdrPresentationControls(snapshot)
 {
   const container = document.getElementById('hdrPresentationControls');
   const presetControl = document.getElementById(
@@ -1480,7 +1481,7 @@ function applyHdrPresentation(overrides, persist = true)
   effect.updateConfig(overrides);
   const snapshot = effect.getConfig();
 
-  syncHdrPresentationControls(snapshot);
+  updateRenderBackendStatus();
 
   if (persist)
   {
@@ -1658,13 +1659,32 @@ function applyRenderMode(mode)
   requestAnimationFrame(updateRenderBackendStatus);
 }
 
+function handleRenderBackendChange()
+{
+  updateRenderBackendStatus();
+
+  if (renderBackendRefreshQueued)
+  {
+    return;
+  }
+
+  // 后端事件可能在一帧提交完成前同步发出；事务结束后再读一次，
+  // 让输出模式和控件共同采用最终快照，暂停时也不依赖下一次 RAF。
+  renderBackendRefreshQueued = true;
+  queueMicrotask(() =>
+  {
+    renderBackendRefreshQueued = false;
+    updateRenderBackendStatus();
+  });
+}
+
 effect.canvas.addEventListener(
   BLOOM_BACKEND_CHANGE_EVENT,
-  updateRenderBackendStatus,
+  handleRenderBackendChange,
 );
 effect.canvas.addEventListener(
   EFFECT_BACKEND_CHANGE_EVENT,
-  updateRenderBackendStatus,
+  handleRenderBackendChange,
 );
 
 for (const query of [dynamicRangeQuery, videoDynamicRangeQuery])
@@ -2227,7 +2247,7 @@ function applyThemeColorMode(mode, persist = true)
     localStorage.setItem(THEME_COLOR_MODE_STORAGE_KEY, mode);
   }
 
-  syncHdrUiOverlay(effect.getConfig());
+  updateRenderBackendStatus();
   return true;
 }
 
@@ -2245,7 +2265,7 @@ if (ctrlColor)
   {
     effect.setThemeColor(ctrlColor.value);
     localStorage.setItem('bafx-ctrlColor', ctrlColor.value);
-    syncHdrUiOverlay(effect.getConfig());
+    updateRenderBackendStatus();
   });
 }
 
@@ -2448,7 +2468,7 @@ document.getElementById('btnReset').addEventListener('click', () =>
   manualPointerId = null;
   updateHostApiStatus();
   requestAnimationFrame(updateRenderBackendStatus);
-  syncHdrPresentationControls(effect.getConfig());
+  updateRenderBackendStatus();
   applyTheme('蔚蓝');
 
   for (const key of Object.keys(localStorage))
@@ -2828,7 +2848,7 @@ const I18N = {
     introP1: 'Blue Archive / 蔚蓝档案风格网页点击特效与鼠标拖尾。点击、拖动或移动鼠标预览效果。',
     introP2: '从 Unity FX_Touch.prefab 逐参数移植，默认使用纯 WebGL2，可选标准 WebGPU 与 WebGPU 真实 HDR，并提供 WebGL2 Bloom、软件 Bloom和原生辉光回退路径。零外部运行时依赖。',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx@1.3.3</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script type="module"&gt;\nimport { BAClickFX } from \'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.3/dist/ba-click-fx.js\';\nconst fx = new BAClickFX();\n&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx@1.3.4</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script type="module"&gt;\nimport { BAClickFX } from \'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.4/dist/ba-click-fx.js\';\nconst fx = new BAClickFX();\n&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introWebGPUFAQContent: '<p><strong>WebGPU 一定会显示真实 HDR 吗？</strong> 不会。只有 <code>resolvedWebGPUOutputMode === \'extended\'</code> 才表示 Canvas 会以扩展 sRGB 编码保留超过 SDR 白色的高光；还需要 HDR 显示器、系统 HDR 和浏览器 WebGPU HDR Canvas 同时可用。</p>',
     introMobileTouchFAQContent: '<p><strong>移动端浏览器滑动时为什么没有轨迹拖尾？</strong> “触摸行为”为“自动”或“直接操作”时，浏览器会优先接管滚动并发送 <code>pointercancel</code>，拖尾随之中止。将控制面板中的“触摸行为”切换为“禁止默认手势”，即可在任意滑动方向持续触发拖尾；页面仍需单轴滚动时，可选择“仅横向平移”或“仅纵向平移”，库只在浏览器未接管的方向保留拖尾。此设置也会改变页面的原生滚动与缩放手势。</p>',
@@ -3091,7 +3111,7 @@ const I18N = {
     introP1: 'Blue Archive style mouse click effect and cursor trail for web. Click, drag, or move your mouse to preview.',
     introP2: 'Ported from Unity FX_Touch.prefab with Full WebGL2 by default, optional standard WebGPU and real WebGPU HDR, plus WebGL2 Bloom, Software Bloom, and Native Glow fallbacks. Zero runtime dependencies.',
     introInstallSummary: '安装方式 / Installation',
-    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx@1.3.3</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script type="module"&gt;\nimport { BAClickFX } from \'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.3/dist/ba-click-fx.js\';\nconst fx = new BAClickFX();\n&lt;/script&gt;</code></pre>',
+    introInstallContent: '<p><strong>npm</strong></p><pre><code>npm install ba-click-fx@1.3.4</code></pre><p><strong>CDN</strong></p><pre><code>&lt;script type="module"&gt;\nimport { BAClickFX } from \'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.4/dist/ba-click-fx.js\';\nconst fx = new BAClickFX();\n&lt;/script&gt;</code></pre>',
     introFAQSummary: '常见问题 / FAQ',
     introWebGPUFAQContent: '<p><strong>Does WebGPU always produce real HDR?</strong> No. Only <code>resolvedWebGPUOutputMode === \'extended\'</code> means the Canvas preserves highlights above SDR white in extended sRGB; an HDR display, system HDR, and browser WebGPU HDR Canvas support are also required.</p>',
     introMobileTouchFAQContent: '<p><strong>Why does dragging fail to leave a trail in a mobile browser?</strong> With Touch Action set to Auto or Manipulation, the browser owns native scrolling and sends <code>pointercancel</code>, which ends the trail. Switch Touch Action to Disable Default Gestures to keep trails active in every drag direction. If the page still needs one-axis scrolling, choose Pan X Only or Pan Y Only; the library keeps the trail only in directions the browser does not take over. This setting also changes native page scroll and zoom gestures.</p>',
@@ -3964,7 +3984,7 @@ switchLanguage(currentLang);
   // 首次恢复即写入显式模式，避免后续版本再次依赖有歧义的缺省值。
   applyThemeColorMode(restoredThemeColorMode);
   effect.setThemeColor(restoredColor);
-  syncHdrUiOverlay(effect.getConfig());
+  updateRenderBackendStatus();
 
   const theme = localStorage.getItem('bafx-theme');
   const customBg = localStorage.getItem('bafx-custom-bg');

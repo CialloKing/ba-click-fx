@@ -987,6 +987,16 @@ export class WebGL2EffectRenderer
     this.ringVertexData = new Float32Array(
       INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_RING_VERTEX,
     );
+    this._ringCosine = null;
+    this._ringSine = null;
+    this.ringIndexCount = 0;
+    this.ringIndexData = new Uint32Array(0);
+    this._ringTopology = [];
+    this._ringTopologyCount = 0;
+    this._ringPreparedTopologyCount = 0;
+    this._ringTopologyDirty = false;
+    this._ringIndexVersion = 0;
+    this._ringUploadedIndexVersion = -1;
     this.triangleVertexCount = 0;
     this.triangleVertexData = new Float32Array(
       INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRIANGLE_VERTEX,
@@ -1012,15 +1022,19 @@ export class WebGL2EffectRenderer
     this.sceneBackgroundTarget = null;
     this.failedResizeSignature = null;
     this.programs = null;
+    this.uniformLocations = new Map();
     this.emissionBuffer = null;
     this.emissionVao = null;
     this.sceneDiskBuffer = null;
     this.sceneDiskVao = null;
     this.ringBuffer = null;
+    this.ringIndexBuffer = null;
     this.ringVao = null;
     this.ringTexture = null;
     this.triangleBuffer = null;
     this.triangleVao = null;
+    this.trailBuffer = null;
+    this.trailVao = null;
     this.triangleTexture = null;
     this.triangleOverlayTexture = null;
     this.trailTexture = null;
@@ -1057,6 +1071,7 @@ export class WebGL2EffectRenderer
 
   _initialize()
   {
+    this.uniformLocations?.clear();
     try
     {
       const gl = this.canvas?.getContext?.(
@@ -1161,10 +1176,13 @@ export class WebGL2EffectRenderer
       this.sceneDiskBuffer = gl.createBuffer();
       this.sceneDiskVao = gl.createVertexArray();
       this.ringBuffer = gl.createBuffer();
+      this.ringIndexBuffer = gl.createBuffer();
       this.ringVao = gl.createVertexArray();
       this.ringTexture = gl.createTexture();
       this.triangleBuffer = gl.createBuffer();
       this.triangleVao = gl.createVertexArray();
+      this.trailBuffer = gl.createBuffer();
+      this.trailVao = gl.createVertexArray();
       this.triangleTexture = gl.createTexture();
       this.triangleOverlayTexture = gl.createTexture();
       this.trailTexture = gl.createTexture();
@@ -1178,10 +1196,13 @@ export class WebGL2EffectRenderer
         !this.sceneDiskBuffer ||
         !this.sceneDiskVao ||
         !this.ringBuffer ||
+        !this.ringIndexBuffer ||
         !this.ringVao ||
         !this.ringTexture ||
         !this.triangleBuffer ||
         !this.triangleVao ||
+        !this.trailBuffer ||
+        !this.trailVao ||
         !this.triangleTexture ||
         !this.triangleOverlayTexture ||
         !this.trailTexture ||
@@ -1273,6 +1294,7 @@ export class WebGL2EffectRenderer
       );
       gl.bindVertexArray(this.ringVao);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.ringBuffer);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ringIndexBuffer);
 
       const ringStride = COMPONENTS_PER_RING_VERTEX *
         Float32Array.BYTES_PER_ELEMENT;
@@ -1325,59 +1347,8 @@ export class WebGL2EffectRenderer
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-      gl.bindVertexArray(this.triangleVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.triangleBuffer);
-
-      const triangleStride = COMPONENTS_PER_TRIANGLE_VERTEX *
-        Float32Array.BYTES_PER_ELEMENT;
-
-      gl.enableVertexAttribArray(0);
-      gl.vertexAttribPointer(
-        0,
-        2,
-        gl.FLOAT,
-        false,
-        triangleStride,
-        0,
-      );
-      gl.enableVertexAttribArray(1);
-      gl.vertexAttribPointer(
-        1,
-        2,
-        gl.FLOAT,
-        false,
-        triangleStride,
-        2 * Float32Array.BYTES_PER_ELEMENT,
-      );
-      gl.enableVertexAttribArray(2);
-      gl.vertexAttribPointer(
-        2,
-        3,
-        gl.FLOAT,
-        false,
-        triangleStride,
-        4 * Float32Array.BYTES_PER_ELEMENT,
-      );
-      gl.enableVertexAttribArray(3);
-      gl.vertexAttribPointer(
-        3,
-        1,
-        gl.FLOAT,
-        false,
-        triangleStride,
-        7 * Float32Array.BYTES_PER_ELEMENT,
-      );
-      gl.enableVertexAttribArray(4);
-      gl.vertexAttribPointer(
-        4,
-        1,
-        gl.FLOAT,
-        false,
-        triangleStride,
-        8 * Float32Array.BYTES_PER_ELEMENT,
-      );
-      gl.bindVertexArray(null);
-      gl.bindBuffer(gl.ARRAY_BUFFER, null);
+      this._initializeTexturedVertexArray(this.triangleVao, this.triangleBuffer);
+      this._initializeTexturedVertexArray(this.trailVao, this.trailBuffer);
 
       // Ring3 的 Alpha 不参与 sRGB 解码；R8 保留 Unity Alpha 采样真值。
       gl.bindTexture(gl.TEXTURE_2D, this.ringTexture);
@@ -1493,9 +1464,70 @@ export class WebGL2EffectRenderer
     }
   }
 
+  _initializeTexturedVertexArray(vertexArray, buffer)
+  {
+    const gl = this.gl;
+    gl.bindVertexArray(vertexArray);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+
+    const stride = COMPONENTS_PER_TRIANGLE_VERTEX *
+      Float32Array.BYTES_PER_ELEMENT;
+
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(
+      0,
+      2,
+      gl.FLOAT,
+      false,
+      stride,
+      0,
+    );
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(
+      1,
+      2,
+      gl.FLOAT,
+      false,
+      stride,
+      2 * Float32Array.BYTES_PER_ELEMENT,
+    );
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(
+      2,
+      3,
+      gl.FLOAT,
+      false,
+      stride,
+      4 * Float32Array.BYTES_PER_ELEMENT,
+    );
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(
+      3,
+      1,
+      gl.FLOAT,
+      false,
+      stride,
+      7 * Float32Array.BYTES_PER_ELEMENT,
+    );
+    gl.enableVertexAttribArray(4);
+    gl.vertexAttribPointer(
+      4,
+      1,
+      gl.FLOAT,
+      false,
+      stride,
+      8 * Float32Array.BYTES_PER_ELEMENT,
+    );
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  }
+
   _handleContextLost(event)
   {
     event?.preventDefault?.();
+    this.ringIndexBuffer = null;
+    this._ringUploadedIndexVersion = -1;
+    this.uniformLocations?.clear();
     this.contextLost = true;
     this.available = false;
     this.sceneFrameReady = false;
@@ -1518,6 +1550,7 @@ export class WebGL2EffectRenderer
 
   _forgetResourceReferences()
   {
+    this.uniformLocations?.clear();
     this.sourceTarget = null;
     this.bloomSourceTarget = null;
     this.sceneOverlayTarget = null;
@@ -1534,10 +1567,14 @@ export class WebGL2EffectRenderer
     this.sceneDiskBuffer = null;
     this.sceneDiskVao = null;
     this.ringBuffer = null;
+    this.ringIndexBuffer = null;
+    this._ringUploadedIndexVersion = -1;
     this.ringVao = null;
     this.ringTexture = null;
     this.triangleBuffer = null;
     this.triangleVao = null;
+    this.trailBuffer = null;
+    this.trailVao = null;
     this.triangleTexture = null;
     this.triangleOverlayTexture = null;
     this.trailTexture = null;
@@ -1549,6 +1586,8 @@ export class WebGL2EffectRenderer
     this.sceneDiskVertexCount = 0;
     this.ringVertexCount = 0;
     this.triangleVertexCount = 0;
+    this.ringIndexCount = 0;
+    this._ringTopologyCount = 0;
     this.trailVertexCount = 0;
     this.stats.vertexCount = 0;
     this.stats.sceneVertexCount = 0;
@@ -1691,6 +1730,7 @@ export class WebGL2EffectRenderer
 
   _deleteResources()
   {
+    this.uniformLocations?.clear();
     if (!this.gl)
     {
       return;
@@ -1716,10 +1756,13 @@ export class WebGL2EffectRenderer
     gl.deleteBuffer(this.sceneDiskBuffer);
     gl.deleteVertexArray(this.sceneDiskVao);
     gl.deleteBuffer(this.ringBuffer);
+    gl.deleteBuffer(this.ringIndexBuffer);
     gl.deleteVertexArray(this.ringVao);
     gl.deleteTexture(this.ringTexture);
     gl.deleteBuffer(this.triangleBuffer);
     gl.deleteVertexArray(this.triangleVao);
+    gl.deleteBuffer(this.trailBuffer);
+    gl.deleteVertexArray(this.trailVao);
     gl.deleteTexture(this.triangleTexture);
     gl.deleteTexture(this.triangleOverlayTexture);
     gl.deleteTexture(this.trailTexture);
@@ -1732,10 +1775,14 @@ export class WebGL2EffectRenderer
     this.sceneDiskBuffer = null;
     this.sceneDiskVao = null;
     this.ringBuffer = null;
+    this.ringIndexBuffer = null;
+    this._ringUploadedIndexVersion = -1;
     this.ringVao = null;
     this.ringTexture = null;
     this.triangleBuffer = null;
     this.triangleVao = null;
+    this.trailBuffer = null;
+    this.trailVao = null;
     this.triangleTexture = null;
     this.triangleOverlayTexture = null;
     this.trailTexture = null;
@@ -1986,7 +2033,7 @@ export class WebGL2EffectRenderer
         0,
       );
       gl.uniform2f(
-        gl.getUniformLocation(program, 'u_uvScale'),
+        this._getUniformLocation(program, 'u_uvScale'),
         uvScale[0],
         uvScale[1],
       );
@@ -2290,6 +2337,8 @@ export class WebGL2EffectRenderer
     this.vertexCount = 0;
     this.sceneDiskVertexCount = 0;
     this.ringVertexCount = 0;
+    this.ringIndexCount = 0;
+    this._ringTopologyCount = 0;
     this.triangleVertexCount = 0;
     this.trailVertexCount = 0;
     this.stats.vertexCount = 0;
@@ -2321,10 +2370,25 @@ export class WebGL2EffectRenderer
       this.trailVertexCount > 0;
   }
 
+  _getUniformLocation(program, name)
+  {
+    this.uniformLocations ??= new Map();
+    let locations = this.uniformLocations.get(program);
+    if (!locations)
+    {
+      locations = new Map();
+      this.uniformLocations.set(program, locations);
+    }
+    // null 也代表已查询，Shader 优化掉的 Uniform 不应每帧重试。
+    if (!locations.has(name))
+    {
+      locations.set(name, this.gl.getUniformLocation(program, name));
+    }
+    return locations.get(name);
+  }
+
   _drawTexturedAdditiveBatch(
     vertexCount,
-    vertexData,
-    buffer,
     vertexArray,
     texture,
     transparentOverlay,
@@ -2358,35 +2422,33 @@ export class WebGL2EffectRenderer
 
     gl.useProgram(program);
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_transparentOverlay'),
+      this._getUniformLocation(program, 'u_transparentOverlay'),
       transparentOverlay ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_alphaModulatesEmission'),
+      this._getUniformLocation(program, 'u_alphaModulatesEmission'),
       alphaModulatesEmission ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_antialiasGeometryCoverage'),
+      this._getUniformLocation(program, 'u_antialiasGeometryCoverage'),
       antialiasGeometryCoverage ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_roundTriangle'),
+      this._getUniformLocation(program, 'u_roundTriangle'),
       roundTriangle ? 1 : 0,
     );
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_displaySize'),
+      this._getUniformLocation(program, 'u_displaySize'),
       this.displayWidth,
       this.displayHeight,
     );
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_texture'),
+      this._getUniformLocation(program, 'u_texture'),
       0,
     );
     gl.bindVertexArray(vertexArray);
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.DYNAMIC_DRAW);
     gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
   }
 
@@ -2416,30 +2478,21 @@ export class WebGL2EffectRenderer
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       gl.useProgram(diskProgram);
       gl.uniform2f(
-        gl.getUniformLocation(diskProgram, 'u_displaySize'),
+        this._getUniformLocation(diskProgram, 'u_displaySize'),
         this.displayWidth,
         this.displayHeight,
       );
       gl.uniform1f(
-        gl.getUniformLocation(diskProgram, 'u_emissionScale'),
+        this._getUniformLocation(diskProgram, 'u_emissionScale'),
         diskEmissionScale,
       );
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.circleTexture);
       gl.uniform1i(
-        gl.getUniformLocation(diskProgram, 'u_texture'),
+        this._getUniformLocation(diskProgram, 'u_texture'),
         0,
       );
       gl.bindVertexArray(this.sceneDiskVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.sceneDiskBuffer);
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        this.sceneDiskVertexData.subarray(
-          0,
-          this.sceneDiskVertexCount * COMPONENTS_PER_DISK_VERTEX,
-        ),
-        gl.DYNAMIC_DRAW,
-      );
       gl.drawArrays(gl.TRIANGLES, 0, this.sceneDiskVertexCount);
     }
 
@@ -2447,13 +2500,7 @@ export class WebGL2EffectRenderer
     // One/One 材质，随后完成同队列的其余加色粒子。
     this._drawTexturedAdditiveBatch(
       this.trailVertexCount,
-      this.trailVertexData.subarray(
-        0,
-        this.trailVertexCount * COMPONENTS_PER_TRAIL_VERTEX,
-      ),
-      // 两种纹理几何共享 8-float 布局，顺序上传可复用同一 GPU 缓冲。
-      this.triangleBuffer,
-      this.triangleVao,
+      this.trailVao,
       this.trailTexture,
       transparentOverlay,
       false,
@@ -2479,7 +2526,7 @@ export class WebGL2EffectRenderer
       }
 
       gl.useProgram(additiveProgram);
-      const compositingLocation = gl.getUniformLocation(
+      const compositingLocation = this._getUniformLocation(
         additiveProgram,
         'u_transparentOverlay',
       );
@@ -2490,20 +2537,11 @@ export class WebGL2EffectRenderer
       }
 
       gl.uniform2f(
-        gl.getUniformLocation(additiveProgram, 'u_displaySize'),
+        this._getUniformLocation(additiveProgram, 'u_displaySize'),
         this.displayWidth,
         this.displayHeight,
       );
       gl.bindVertexArray(this.emissionVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.emissionBuffer);
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        this.vertexData.subarray(
-          0,
-          this.vertexCount * COMPONENTS_PER_VERTEX,
-        ),
-        gl.DYNAMIC_DRAW,
-      );
       gl.drawArrays(gl.TRIANGLES, 0, this.vertexCount);
     }
 
@@ -2530,35 +2568,26 @@ export class WebGL2EffectRenderer
 
       gl.useProgram(ringProgram);
       gl.uniform1i(
-        gl.getUniformLocation(ringProgram, 'u_transparentOverlay'),
+        this._getUniformLocation(ringProgram, 'u_transparentOverlay'),
         transparentOverlay ? 1 : 0,
       );
       gl.uniform1f(
-        gl.getUniformLocation(ringProgram, 'u_emissionScale'),
+        this._getUniformLocation(ringProgram, 'u_emissionScale'),
         ringEmissionScale,
       );
       gl.uniform2f(
-        gl.getUniformLocation(ringProgram, 'u_displaySize'),
+        this._getUniformLocation(ringProgram, 'u_displaySize'),
         this.displayWidth,
         this.displayHeight,
       );
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.ringTexture);
       gl.uniform1i(
-        gl.getUniformLocation(ringProgram, 'u_texture'),
+        this._getUniformLocation(ringProgram, 'u_texture'),
         0,
       );
       gl.bindVertexArray(this.ringVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.ringBuffer);
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        this.ringVertexData.subarray(
-          0,
-          this.ringVertexCount * COMPONENTS_PER_RING_VERTEX,
-        ),
-        gl.DYNAMIC_DRAW,
-      );
-      gl.drawArrays(gl.TRIANGLES, 0, this.ringVertexCount);
+      gl.drawElements(gl.TRIANGLES, this.ringIndexCount, gl.UNSIGNED_INT, 0);
     }
 
     // Tri2 的 Queue 4550 高于其余 FX_Touch 材质，最后绘制三角碎片。
@@ -2566,11 +2595,6 @@ export class WebGL2EffectRenderer
     {
       this._drawTexturedAdditiveBatch(
         this.triangleVertexCount,
-        this.triangleVertexData.subarray(
-          0,
-          this.triangleVertexCount * COMPONENTS_PER_TRIANGLE_VERTEX,
-        ),
-        this.triangleBuffer,
         this.triangleVao,
         transparentOverlay
           ? this.triangleOverlayTexture
@@ -2583,6 +2607,43 @@ export class WebGL2EffectRenderer
     }
 
     gl.disable(gl.BLEND);
+  }
+
+  _uploadGeometryBuffer(buffer, data, vertexCount, components)
+  {
+    if (vertexCount <= 0)
+    {
+      return;
+    }
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, data.subarray(0, vertexCount * components), gl.DYNAMIC_DRAW);
+  }
+
+  _uploadGeometryBatches()
+  {
+    this._prepareRingIndices();
+    // 每次场景提交都重新上传；仅复用本次清晰层与发光层，不能跨调用猜测几何未变。
+    this._uploadGeometryBuffer(this.sceneDiskBuffer, this.sceneDiskVertexData,
+      this.sceneDiskVertexCount, COMPONENTS_PER_DISK_VERTEX);
+    this._uploadGeometryBuffer(this.trailBuffer, this.trailVertexData,
+      this.trailVertexCount, COMPONENTS_PER_TRAIL_VERTEX);
+    this._uploadGeometryBuffer(this.emissionBuffer, this.vertexData,
+      this.vertexCount, COMPONENTS_PER_VERTEX);
+    this._uploadGeometryBuffer(this.ringBuffer, this.ringVertexData,
+      this.ringVertexCount, COMPONENTS_PER_RING_VERTEX);
+    if (this.ringIndexCount > 0 && this._ringUploadedIndexVersion !== this._ringIndexVersion)
+    {
+      // ELEMENT_ARRAY_BUFFER 属于 VAO 状态，不能覆盖其他几何的绑定。
+      this.gl.bindVertexArray(this.ringVao);
+      this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.ringIndexBuffer);
+      this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER,
+        this.ringIndexData.subarray(0, this.ringIndexCount), this.gl.STATIC_DRAW);
+      this.gl.bindVertexArray(null);
+      this._ringUploadedIndexVersion = this._ringIndexVersion;
+    }
+    this._uploadGeometryBuffer(this.triangleBuffer, this.triangleVertexData,
+      this.triangleVertexCount, COMPONENTS_PER_TRIANGLE_VERTEX);
   }
 
   _renderScaledBloomSource(settings)
@@ -2664,10 +2725,11 @@ export class WebGL2EffectRenderer
       this.stats.sceneVertexCount = this.vertexCount +
         this.triangleVertexCount + this.trailVertexCount;
       this.stats.sceneDiskVertexCount = this.sceneDiskVertexCount;
-      this.stats.sceneRingVertexCount = this.ringVertexCount;
+      this.stats.sceneRingVertexCount = this.ringIndexCount;
       this.stats.sceneTriangleVertexCount = this.triangleVertexCount;
       this.stats.sceneTrailVertexCount = this.trailVertexCount;
 
+      this._prepareRingIndices();
       if (!this._hasGeometry())
       {
         if (needsCoverageOverlay)
@@ -2679,6 +2741,7 @@ export class WebGL2EffectRenderer
         return true;
       }
 
+      this._uploadGeometryBatches();
       this._drawGeometryBatches(
         this.programs.scene,
         settings.outputCompositing === 'browser-overlay',
@@ -2712,6 +2775,7 @@ export class WebGL2EffectRenderer
     catch (error)
     {
       console.warn('[BAClickFX] WebGL2 清晰特效渲染失败:', error);
+      this._ringUploadedIndexVersion = -1;
       this.clear();
       this._deleteTargets();
       this.available = false;
@@ -2838,6 +2902,45 @@ export class WebGL2EffectRenderer
     this.ringVertexData = next;
   }
 
+  _prepareRingIndices()
+  {
+    if (!this._ringTopologyDirty && this._ringPreparedTopologyCount === this._ringTopologyCount)
+    {
+      return;
+    }
+    if (this.ringIndexData.length < this.ringIndexCount)
+    {
+      let capacity = Math.max(1, this.ringIndexData.length);
+      while (capacity < this.ringIndexCount) capacity = Math.ceil(capacity * 1.5);
+      this.ringIndexData = new Uint32Array(capacity);
+    }
+    let offset = 0;
+    for (let ring = 0; ring < this._ringTopologyCount; ring++)
+    {
+      const { bands, segments, base } = this._ringTopology[ring];
+      const stride = segments + 1;
+      for (let band = 0; band < bands; band++)
+      {
+        for (let segment = 0; segment < segments; segment++)
+        {
+          const inner = base + band * stride + segment;
+          const outer = inner + stride;
+          // 展开后仍为原来的两个三角；接缝 U 不同的顶点分别保留。
+          this.ringIndexData[offset++] = inner;
+          this.ringIndexData[offset++] = inner + 1;
+          this.ringIndexData[offset++] = outer + 1;
+          this.ringIndexData[offset++] = inner;
+          this.ringIndexData[offset++] = outer + 1;
+          this.ringIndexData[offset++] = outer;
+        }
+      }
+    }
+    this._ringTopology.length = this._ringTopologyCount;
+    this._ringPreparedTopologyCount = this._ringTopologyCount;
+    this._ringTopologyDirty = false;
+    this._ringIndexVersion++;
+  }
+
   _appendRingVertex(
     x,
     y,
@@ -2947,12 +3050,17 @@ export class WebGL2EffectRenderer
 
   _appendTrailVertex(point, uv, color, particleAlpha, coverageFactor)
   {
+    this._appendTrailVertexValues(point.x, point.y, uv.u, uv.v, color, particleAlpha, coverageFactor);
+  }
+
+  _appendTrailVertexValues(x, y, u, v, color, particleAlpha, coverageFactor)
+  {
     const offset = this.trailVertexCount * COMPONENTS_PER_TRAIL_VERTEX;
 
-    this.trailVertexData[offset] = point.x;
-    this.trailVertexData[offset + 1] = point.y;
-    this.trailVertexData[offset + 2] = uv.u;
-    this.trailVertexData[offset + 3] = uv.v;
+    this.trailVertexData[offset] = x;
+    this.trailVertexData[offset + 1] = y;
+    this.trailVertexData[offset + 2] = u;
+    this.trailVertexData[offset + 3] = v;
     this.trailVertexData[offset + 4] = Math.max(0, color[0]);
     this.trailVertexData[offset + 5] = Math.max(0, color[1]);
     this.trailVertexData[offset + 6] = Math.max(0, color[2]);
@@ -3370,6 +3478,25 @@ export class WebGL2EffectRenderer
     );
   }
 
+  _addTrailMeshTriangle(first, firstSample, firstV, second, secondSample, secondV,
+    third, thirdSample, thirdV, opacity)
+  {
+    const particleAlpha = Number.isFinite(opacity) ? clamp(opacity, 0, 1) : 0;
+    if (particleAlpha <= 0 ||
+      Math.max(firstSample.coverage, secondSample.coverage, thirdSample.coverage) <= 0)
+    {
+      return;
+    }
+    // 网格与逐点样本已经缓存，直接写入相同布局，避免逐三角包装位置、颜色和 Coverage。
+    this._ensureTrailVertexCapacity(3);
+    this._appendTrailVertexValues(first.x, first.y, firstSample.u, firstV,
+      firstSample.color, particleAlpha, firstSample.coverage);
+    this._appendTrailVertexValues(second.x, second.y, secondSample.u, secondV,
+      secondSample.color, particleAlpha, secondSample.coverage);
+    this._appendTrailVertexValues(third.x, third.y, thirdSample.u, thirdV,
+      thirdSample.color, particleAlpha, thirdSample.coverage);
+  }
+
   addTrailTriangle(first, second, third, color, opacity = 1)
   {
     const perVertexColor = Array.isArray(color?.[0]);
@@ -3464,8 +3591,14 @@ export class WebGL2EffectRenderer
     const segments = clamp(Math.round(segmentCount), 32, 512);
     const innerEdge = Math.max(0, radius - width * 0.5);
     const bandWidth = width / bands;
-    const cosine = new Float64Array(segments + 1);
-    const sine = new Float64Array(segments + 1);
+    if (!this._ringCosine || this._ringCosine.length < segments + 1)
+    {
+      // 工作表只随采样容量增长；逐环复用，避免每帧产生短命 TypedArray。
+      this._ringCosine = new Float64Array(segments + 1);
+      this._ringSine = new Float64Array(segments + 1);
+    }
+    const cosine = this._ringCosine;
+    const sine = this._ringSine;
     const coverageOpacity = clamp(opacity, 0, 1);
     const safeThreshold = Number.isFinite(dissolveThreshold)
       ? clamp(dissolveThreshold, 0, 1)
@@ -3488,98 +3621,31 @@ export class WebGL2EffectRenderer
       sine[segment] = Math.sin(angle);
     }
 
-    // 保留 96×8 拓扑，但把原纹理 UV 交给 Fragment Shader 逐片元采样。
-    this._ensureRingVertexCapacity(bands * segments * 6);
-
-    for (let band = 0; band < bands; band++)
+    const base = this.ringVertexCount;
+    const slot = this._ringTopologyCount++;
+    const previous = this._ringTopology[slot];
+    if (!previous || previous.bands !== bands || previous.segments !== segments || previous.base !== base)
     {
-      const innerRadius = innerEdge + bandWidth * band;
-      const outerRadius = innerEdge + bandWidth * (band + 1);
-      const innerV = safeUvMin + uvSpan * band / bands;
-      const outerV = safeUvMin + uvSpan * (band + 1) / bands;
+      this._ringTopology[slot] = { bands, segments, base };
+      this._ringTopologyDirty = true;
+    }
+    this.ringIndexCount += bands * segments * 6;
+    this._ensureRingVertexCapacity((bands + 1) * (segments + 1));
 
-      for (let segment = 0; segment < segments; segment++)
+    // 按径向行保存唯一顶点；每一行的末端仍单独计算原来的角度和 UV。
+    for (let band = 0; band <= bands; band++)
+    {
+      const sampleRadius = innerEdge + bandWidth * band;
+      const v = safeUvMin + uvSpan * band / bands;
+      for (let segment = 0; segment <= segments; segment++)
       {
-        const nextSegment = segment + 1;
-        const innerStartX = x + cosine[segment] * innerRadius;
-        const innerStartY = y + sine[segment] * innerRadius;
-        const innerEndX = x + cosine[nextSegment] * innerRadius;
-        const innerEndY = y + sine[nextSegment] * innerRadius;
-        const outerStartX = x + cosine[segment] * outerRadius;
-        const outerStartY = y + sine[segment] * outerRadius;
-        const outerEndX = x + cosine[nextSegment] * outerRadius;
-        const outerEndY = y + sine[nextSegment] * outerRadius;
-        const startProgress = segment / segments;
-        const endProgress = nextSegment / segments;
-        const startTextureProgress = direction > 0
-          ? startProgress
-          : 1 - startProgress;
-        const endTextureProgress = direction > 0
-          ? endProgress
-          : 1 - endProgress;
-        const startU = safeUvMin + uvSpan * startTextureProgress;
-        const endU = safeUvMin + uvSpan * endTextureProgress;
-
+        const progress = segment / segments;
+        const textureProgress = direction > 0 ? progress : 1 - progress;
         this._appendRingVertex(
-          innerStartX,
-          innerStartY,
-          startU,
-          innerV,
-          red,
-          green,
-          blue,
-          safeThreshold,
-          coverageOpacity,
-        );
-        this._appendRingVertex(
-          innerEndX,
-          innerEndY,
-          endU,
-          innerV,
-          red,
-          green,
-          blue,
-          safeThreshold,
-          coverageOpacity,
-        );
-        this._appendRingVertex(
-          outerEndX,
-          outerEndY,
-          endU,
-          outerV,
-          red,
-          green,
-          blue,
-          safeThreshold,
-          coverageOpacity,
-        );
-        this._appendRingVertex(
-          innerStartX,
-          innerStartY,
-          startU,
-          innerV,
-          red,
-          green,
-          blue,
-          safeThreshold,
-          coverageOpacity,
-        );
-        this._appendRingVertex(
-          outerEndX,
-          outerEndY,
-          endU,
-          outerV,
-          red,
-          green,
-          blue,
-          safeThreshold,
-          coverageOpacity,
-        );
-        this._appendRingVertex(
-          outerStartX,
-          outerStartY,
-          startU,
-          outerV,
+          x + cosine[segment] * sampleRadius,
+          y + sine[segment] * sampleRadius,
+          safeUvMin + uvSpan * textureProgress,
+          v,
           red,
           green,
           blue,
@@ -3921,7 +3987,7 @@ export class WebGL2EffectRenderer
 
     gl.activeTexture(gl.TEXTURE0 + unit);
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.uniform1i(gl.getUniformLocation(program, name), unit);
+    gl.uniform1i(this._getUniformLocation(program, name), unit);
   }
 
   _drawFullscreen(program, target, width, height)
@@ -3945,6 +4011,7 @@ export class WebGL2EffectRenderer
     gl.viewport(0, 0, this.sourceWidth, this.sourceHeight);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
+    this._uploadGeometryBatches();
     this._drawGeometryBatches(
       this.programs.emission,
       transparentOverlay,
@@ -3967,20 +4034,20 @@ export class WebGL2EffectRenderer
     gl.useProgram(program);
     this._bindTexture(program, 'u_source', sourceTarget.texture, 0);
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_sourceTexel'),
+      this._getUniformLocation(program, 'u_sourceTexel'),
       1 / this.sourceWidth,
       1 / this.sourceHeight,
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_threshold'),
+      this._getUniformLocation(program, 'u_threshold'),
       gammaToLinear(settings.threshold),
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_softKnee'),
+      this._getUniformLocation(program, 'u_softKnee'),
       softKnee,
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_clampMax'),
+      this._getUniformLocation(program, 'u_clampMax'),
       clampMax,
     );
     this._drawFullscreen(program, level.down, level.width, level.height);
@@ -4018,7 +4085,7 @@ export class WebGL2EffectRenderer
     gl.useProgram(program);
     this._bindTexture(program, 'u_source', sourceLevel.down.texture, 0);
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_sourceTexel'),
+      this._getUniformLocation(program, 'u_sourceTexel'),
       1 / sourceLevel.width,
       1 / sourceLevel.height,
     );
@@ -4048,12 +4115,12 @@ export class WebGL2EffectRenderer
     );
     this._bindTexture(program, 'u_currentFine', fineLevel.down.texture, 1);
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_accumulatedCoarseTexel'),
+      this._getUniformLocation(program, 'u_accumulatedCoarseTexel'),
       1 / accumulatedCoarseLevel.width,
       1 / accumulatedCoarseLevel.height,
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_sampleScale'),
+      this._getUniformLocation(program, 'u_sampleScale'),
       this.sampleScale,
     );
     this._drawFullscreen(
@@ -4111,48 +4178,48 @@ export class WebGL2EffectRenderer
       3,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_hasScene'),
+      this._getUniformLocation(program, 'u_hasScene'),
       hasScene ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_hasBackground'),
+      this._getUniformLocation(program, 'u_hasBackground'),
       hasBackground ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_transparentOverlay'),
+      this._getUniformLocation(program, 'u_transparentOverlay'),
       settings.outputCompositing === 'browser-overlay' ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_visualMaxAlpha'),
+      this._getUniformLocation(program, 'u_visualMaxAlpha'),
       settings.overlayAlphaPolicy === 'visual-max' ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_brightUnknownBackground'),
+      this._getUniformLocation(program, 'u_brightUnknownBackground'),
       settings.overlayColorCompensation === 'bright-core' ? 1 : 0,
     );
     gl.uniform1i(
-      gl.getUniformLocation(program, 'u_hostAdditive'),
+      this._getUniformLocation(program, 'u_hostAdditive'),
       isIndependentHostCompositing(settings.hostCompositing) ? 1 : 0,
     );
     gl.uniform2f(
-      gl.getUniformLocation(program, 'u_bloomTexel'),
+      this._getUniformLocation(program, 'u_bloomTexel'),
       1 / this.width,
       1 / this.height,
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_sampleScale'),
+      this._getUniformLocation(program, 'u_sampleScale'),
       this.sampleScale,
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_intensity'),
+      this._getUniformLocation(program, 'u_intensity'),
       resolveUnityBloomIntensity(settings.intensity),
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_overlayAlphaLimit'),
+      this._getUniformLocation(program, 'u_overlayAlphaLimit'),
       clamp(settings.overlayAlphaLimit ?? 1, 0, 1),
     );
     gl.uniform1f(
-      gl.getUniformLocation(program, 'u_opacity'),
+      this._getUniformLocation(program, 'u_opacity'),
       clamp(settings.opacity ?? 1, 0, 1),
     );
     gl.bindVertexArray(this.fullscreenVao);
@@ -4232,7 +4299,7 @@ export class WebGL2EffectRenderer
         this.triangleVertexCount +
         this.trailVertexCount;
       this.stats.diskVertexCount = this.sceneDiskVertexCount;
-      this.stats.ringVertexCount = this.ringVertexCount;
+      this.stats.ringVertexCount = this.ringIndexCount;
       this.stats.triangleVertexCount = this.triangleVertexCount;
       this.stats.trailVertexCount = this.trailVertexCount;
 
@@ -4248,6 +4315,7 @@ export class WebGL2EffectRenderer
     catch (error)
     {
       console.warn('[BAClickFX] WebGL2 Scene 渲染失败:', error);
+      this._ringUploadedIndexVersion = -1;
       this.clear();
       this._deleteTargets();
       this.available = false;
@@ -4282,11 +4350,26 @@ export class WebGL2EffectRenderer
     this.gl.clear(this.gl.COLOR_BUFFER_BIT);
   }
 
+  _releaseRingScratch()
+  {
+    this._ringCosine = null;
+    this._ringSine = null;
+    this.ringIndexData = new Uint32Array(0);
+    this.ringIndexCount = 0;
+    this._ringTopology = [];
+    this._ringTopologyCount = 0;
+    this._ringPreparedTopologyCount = 0;
+    this._ringTopologyDirty = false;
+    this._ringIndexVersion = 0;
+    this._ringUploadedIndexVersion = -1;
+  }
+
   destroy()
   {
     this.canvas?.removeEventListener?.('webglcontextlost', this._onContextLost);
     this.canvas?.removeEventListener?.('webglcontextrestored', this._onContextRestored);
     this._deleteResources();
+    this._releaseRingScratch();
     this.available = false;
     this.contextLost = false;
     this.vertexCount = 0;

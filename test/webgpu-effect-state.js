@@ -56,16 +56,223 @@ async function verifyUnavailableCase(
     `${label} 必须在构造完成后通知一次 unavailable`,
   );
 
+  renderer.addDissolveRing(100, 100, 50, 10, 0, 8, 96, [1, 1, 1], 1, 0.5, 0, 1, 1);
+  assert.ok(renderer._ringCosine instanceof Float64Array, 'WebGPU 复用父类圆环工作缓冲');
   renderer.destroy();
+  renderer.destroy();
+  assert.equal(renderer._ringCosine, null, 'WebGPU 重复销毁释放圆环余弦缓冲');
+  assert.equal(renderer._ringSine, null, 'WebGPU 重复销毁释放圆环正弦缓冲');
 }
 
 const unhandledRejections = [];
+
+async function verifyResourceReuse()
+{
+  // 只替换被测的资源工厂和队列，不模拟着色器或 GPU 光栅化。
+  const renderer = new WebGPUEffectRenderer(createCanvas(() => null), { gpu: {} });
+  await renderer.ready;
+  let groups = 0;
+  let views = 0;
+  const writes = [];
+  renderer.device = {
+    createBindGroup: descriptor => ({ ...descriptor, serial: ++groups }),
+    queue: { writeBuffer: (uniform, offset, data) => writes.push({ uniform, data: data.slice(0) }) },
+  };
+  renderer.sampler = {};
+  const pipeline = { getBindGroupLayout: () => 'layout' };
+  const texture = { createView: () => ({ serial: ++views }) };
+  const uniform = {};
+  const geometry = renderer._createGeometryBindGroup('scene:ring', pipeline, uniform, texture);
+  const pass = renderer._createFullscreenBindGroup('prefilter', pipeline, uniform, 'source');
+  for (let i = 0; i < 20; i++)
+  {
+    assert.equal(renderer._createGeometryBindGroup('scene:ring', pipeline, uniform, texture), geometry);
+    assert.equal(renderer._createFullscreenBindGroup('prefilter', pipeline, uniform, 'source'), pass);
+  }
+  assert.equal(groups, 2, '稳定绘制位置不重复创建绑定组');
+  assert.equal(views, 1, '静态纹理跨 Pass 只创建一个视图');
+  renderer._createGeometryBindGroup('bloom:ring', pipeline, {}, texture);
+  assert.equal(views, 1);
+  const oldSampler = renderer.sampler;
+  renderer.sampler = {};
+  assert.notEqual(renderer._createGeometryBindGroup('scene:ring', pipeline, uniform, texture), geometry);
+  const replacementPipeline = { getBindGroupLayout: () => 'new-layout' };
+  const replacement = renderer._createGeometryBindGroup('scene:ring', replacementPipeline, uniform, texture);
+  assert.equal(replacement.layout, 'new-layout');
+  assert.equal(renderer.bindGroups.size, 3, '替换资源不积累历史组合');
+  renderer._invalidateBindGroups(replacementPipeline);
+  assert.equal(renderer.bindGroups.has('scene:ring'), false);
+  renderer._invalidateBindGroups('source');
+  assert.equal(renderer.bindGroups.has('prefilter'), false);
+  const noUniform = renderer._createFullscreenBindGroup('coverage', pipeline, null, 'source');
+  assert.deepEqual(noUniform.entries.map(entry => entry.binding), [1, 2]);
+  renderer.sampler = oldSampler;
+
+  const firstPass = renderer._createPassUniform({ texelX: 8, hasScene: true, extendedOutput: true,
+    hdrBrightness: 7, backgroundScaleX: 0.5 });
+  const defaultPass = renderer._createPassUniform();
+  assert.equal(firstPass, defaultPass, '后处理 Uniform 复用同一个工作缓冲');
+  const floats = new Float32Array(defaultPass);
+  const integers = new Uint32Array(defaultPass);
+  assert.equal(floats[0], 1);
+  assert.equal(floats[2], 1);
+  assert.equal(floats[22], 1);
+  assert.deepEqual([...integers.subarray(11, 18)], Array(7).fill(0), '完整覆盖上一个 Pass 的标志');
+  renderer.displayWidth = 320;
+  renderer.displayHeight = 240;
+  const scratch = renderer.geometryUniformScratch;
+  renderer._writeGeometryUniform(uniform, true, { disk: 3, ring: 4 });
+  renderer._writeGeometryUniform({}, false);
+  assert.equal(renderer.geometryUniformScratch, scratch);
+  assert.equal(new Float32Array(writes[0].data)[2], 3, '后续工作面写入不改变已提交的 Uniform');
+  assert.deepEqual([...new Float32Array(writes[1].data)], [320, 240, 1, 1, 0, 0, 0, 0]);
+
+  renderer._deleteTargets();
+  assert.equal(renderer.bindGroups.size, 0, '释放目标时不持有旧目标绑定');
+  renderer._createGeometryBindGroup('scene:ring', pipeline, uniform, texture);
+  renderer._handleDeviceState('lost', { failure: new Error('test loss') });
+  assert.equal(renderer.bindGroups.size, 0, '设备丢失时清理绑定引用');
+  assert.equal(renderer.textureViews.has(texture), false);
+  renderer.destroy();
+  renderer.destroy();
+  assert.equal(renderer.geometryUniformScratch, null);
+  assert.equal(renderer.passUniformScratch, null);
+}
 const onUnhandledRejection = (reason) => unhandledRejections.push(reason);
+
+async function verifySceneUploads()
+{
+  const renderer = new WebGPUEffectRenderer(createCanvas(() => null), { gpu: {} });
+  await renderer.ready;
+  const uploads = [];
+  const indexUploads = [];
+  const destroyedBuffers = new Set();
+  const draws = [];
+  let boundBuffer;
+  const pass = {
+    setPipeline() {}, setBindGroup() {}, end() {},
+    setVertexBuffer: (_, buffer) => { boundBuffer = buffer; },
+    draw: count => draws.push([boundBuffer.label, count]),
+    setIndexBuffer(buffer, format)
+    {
+      assert.equal(format, 'uint32');
+      assert.equal(buffer, renderer.ringIndexBuffer);
+    },
+    drawIndexed: count => draws.push([boundBuffer.label, count]),
+  };
+  renderer.device = {
+    createBuffer: descriptor => ({ ...descriptor, destroy() { destroyedBuffers.add(this); } }),
+    createBindGroup: descriptor => descriptor,
+    createCommandEncoder: () => ({ beginRenderPass: () => pass, finish() {} }),
+    queue: {
+      submit() {},
+      writeBuffer(buffer, offset, data, dataOffset, size)
+      {
+        if (buffer.label?.endsWith(' vertices'))
+        {
+          uploads.push({ label: buffer.label, data: new Uint8Array(data, dataOffset, size).slice() });
+        }
+        else if (buffer.label?.endsWith(' indices'))
+        {
+          indexUploads.push(new Uint32Array(data, dataOffset, size / 4).slice());
+        }
+      },
+    },
+  };
+  const pipeline = { getBindGroupLayout() {} };
+  renderer.pipelines = Object.fromEntries(
+    ['disk', 'trailScene', 'genericScene', 'ringScene', 'triangleScene'].map(name => [name, pipeline]),
+  );
+  renderer.geometryUniform = {};
+  renderer.bloomGeometryUniform = {};
+  renderer.available = true;
+  renderer.sourceWidth = 320;
+  renderer.sourceHeight = 240;
+  const target = () => ({ width: 320, height: 240, view: {}, texture: { destroy() {} } });
+  renderer.sourceTarget = target();
+  renderer.bloomSourceTarget = target();
+  for (const key of ['sceneDiskVertexCount', 'trailVertexCount', 'vertexCount',
+    'triangleVertexCount']) renderer[key] = 3;
+  const addRing = () => renderer.addDissolveRing(100, 100, 50, 10, 0, 8, 96, [1, 1, 1], 1, 0.5, 0, 1, 1);
+  addRing();
+  const settings = { outputCompositing: 'scene', diskEmissionScale: 2, ringEmissionScale: 3 };
+  assert.equal(renderer.renderScene(settings), true);
+  assert.equal(uploads.length, 5, '清晰与发光两次绘制每种几何只上传一次');
+  assert.equal(indexUploads.length, 1, '两层共享一次索引上传');
+  assert.equal(renderer.stats.sceneRingVertexCount, 4608, '圆环诊断保留展开顶点语义');
+  assert.deepEqual(draws.slice(0, 5), draws.slice(5), '两层保持相同的几何及绘制顺序');
+  renderer.ringVertexData[0] = 123;
+  assert.equal(renderer.renderScene(settings), true);
+  assert.equal(uploads.length, 10, '再次调用 renderScene 必须重新提交修改后的几何');
+  assert.equal(indexUploads.length, 1, '稳定拓扑的重复提交不上传索引');
+  assert.equal(new Float32Array(uploads[8].data.buffer)[0], 123);
+  const buffer = renderer.vertexBuffers.ring.buffer;
+  renderer.beginFrame();
+  assert.equal(renderer.renderScene(settings), true);
+  assert.equal(uploads.length, 10, '空批次不上传旧缓冲');
+  addRing();
+  assert.equal(renderer.renderScene(settings), true);
+  assert.equal(uploads.length, 11);
+  assert.equal(renderer.vertexBuffers.ring.buffer, buffer, '容量足够时复用 GPU 顶点缓冲');
+  const indexBuffer = renderer.ringIndexBuffer;
+  assert.equal(indexUploads.length, 2, '空帧后重新出现圆环时恢复索引');
+  renderer.beginFrame();
+  addRing();
+  assert.equal(renderer.renderScene(settings), true);
+  assert.equal(indexUploads.length, 2, '跨帧稳定拓扑不重复上传索引');
+  renderer._handleDeviceState('lost', { failure: new Error('expected index loss') });
+  assert.equal(renderer.ringIndexBuffer, null);
+  assert.equal(destroyedBuffers.has(indexBuffer), true, '设备丢失释放索引缓冲');
+  renderer._ensureRingIndexBuffer();
+  assert.equal(indexUploads.length, 3, 'GPU 资源重建后重新上传同一 CPU 索引');
+  const replacement = renderer.ringIndexBuffer;
+  renderer._deleteRingIndexBuffer();
+  const originalCreateBuffer = renderer.device.createBuffer;
+  const originalWriteBuffer = renderer.device.queue.writeBuffer;
+  const originalWarn = console.warn;
+  try
+  {
+    console.warn = () => {};
+    for (const failure of ['create', 'upload'])
+    {
+      renderer.available = true;
+      renderer.contextLost = false;
+      let allocatedIndex;
+      renderer.device.createBuffer = descriptor =>
+      {
+        if (descriptor.label.endsWith(' indices') && failure === 'create') throw new Error('expected index allocation failure');
+        const created = originalCreateBuffer(descriptor);
+        if (descriptor.label.endsWith(' indices')) allocatedIndex = created;
+        return created;
+      };
+      renderer.device.queue.writeBuffer = (...args) =>
+      {
+        if (args[0].label?.endsWith(' indices') && failure === 'upload') throw new Error('expected index upload failure');
+        return originalWriteBuffer(...args);
+      };
+      assert.equal(renderer.renderScene(settings), false, `索引 ${failure} 失败沿用场景失败返回值`);
+      assert.equal(renderer.ringIndexBuffer, null, '索引失败解除资源引用');
+      if (allocatedIndex) assert.equal(destroyedBuffers.has(allocatedIndex), true, '上传失败回收刚创建的索引缓冲');
+    }
+  }
+  finally
+  {
+    console.warn = originalWarn;
+    renderer.device.createBuffer = originalCreateBuffer;
+    renderer.device.queue.writeBuffer = originalWriteBuffer;
+  }
+  renderer.destroy();
+  renderer.destroy();
+  assert.equal(destroyedBuffers.has(replacement), true);
+  assert.equal(renderer.ringIndexData.length, 0);
+}
 
 process.on('unhandledRejection', onUnhandledRejection);
 
 try
 {
+  await verifyResourceReuse();
+  await verifySceneUploads();
   await verifyUnavailableCase(
     'WebGPU API 缺失',
     {},
@@ -110,4 +317,4 @@ finally
   process.removeListener('unhandledRejection', onUnhandledRejection);
 }
 
-console.log('WebGPU Renderer 构造期失败状态测试通过：3 项');
+console.log('WebGPU Renderer 状态、资源复用与场景提交测试通过');

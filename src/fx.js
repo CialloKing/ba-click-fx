@@ -84,6 +84,7 @@ import {
   TRIANGLE_TEXTURE_RGBA,
   createRoundedTriangleCoverage,
   createTriangleTextureSources,
+  getRoundedTriangleTextureDivisor,
   mapRoundedTriangleTextureUv,
 } from './triangle-texture.js';
 import { traceRoundedTrianglePath } from './triangle-path.js';
@@ -100,6 +101,7 @@ const HOST_COMPOSITING_CHANGE_EVENT = 'baclickfxhostcompositingchange';
 const MAX_SCALED_TIME_DELTA_MS = Number.MAX_SAFE_INTEGER;
 const MAX_TRAIL_INNER_MITER_RATIO = 4;
 const MIN_TRAIL_SEGMENT_LENGTH = 0.000001;
+const TRAIL_MESH_CACHE_CAPACITY = 4;
 const TOUCH_DIRECTION_THRESHOLD = 2;
 const TOUCH_FILTER_CACHE_MS = 1000;
 const TOUCH_INPUT_MATCH_TOLERANCE = 2;
@@ -349,6 +351,7 @@ function hslToRgb(h, s, l)
 
 let themeHueShift = 0;
 let relativeOklchTheme = null;
+let gradientEnergyCache = null;
 const BASE_BLUE = [76, 167, 255];
 const BASE_BLUE_HUE = rgbToHsl(BASE_BLUE[0] / 255, BASE_BLUE[1] / 255, BASE_BLUE[2] / 255)[0];
 
@@ -738,6 +741,36 @@ function srgbToLinearChannel(channel)
   return ((normalized + 0.055) / 1.055) ** 2.4;
 }
 
+const NATIVE_BLOOM_DISK_SAMPLES = 16;
+let nativeCircleBloomSamples = null;
+
+function getNativeCircleBloomSamples()
+{
+  if (!nativeCircleBloomSamples)
+  {
+    // 固定纹理与网格不随实例或主题改变；Float64 保留原 JavaScript 数值精度。
+    const count = NATIVE_BLOOM_DISK_SAMPLES;
+    const samples = new Float64Array(count * count * 4);
+    let destination = 0;
+    for (let y = 0; y < count; y++)
+    {
+      for (let x = 0; x < count; x++)
+      {
+        const u = (x + 0.5) / count;
+        const v = (y + 0.5) / count;
+        const offset = (Math.floor(v * CIRCLE_TEXTURE_SIZE) *
+          CIRCLE_TEXTURE_SIZE + Math.floor(u * CIRCLE_TEXTURE_SIZE)) * 4;
+        samples[destination++] = srgbToLinearChannel(CIRCLE_TEXTURE_RGBA[offset]);
+        samples[destination++] = srgbToLinearChannel(CIRCLE_TEXTURE_RGBA[offset + 1]);
+        samples[destination++] = srgbToLinearChannel(CIRCLE_TEXTURE_RGBA[offset + 2]);
+        samples[destination++] = (u * 2 - 1) ** 2 + (v * 2 - 1) ** 2;
+      }
+    }
+    nativeCircleBloomSamples = samples;
+  }
+  return nativeCircleBloomSamples;
+}
+
 function colorToLinearEnergy(color, intensity = 1, decodeSrgb = false)
 {
   const safeIntensity = Math.max(0, intensity);
@@ -777,11 +810,16 @@ function evaluateSrgbGradientEnergy(
   startColor = null,
 )
 {
-  const linearKeys = keys.map(([time, color]) =>
-  [
-    time,
-    applyThemeColor(color).map(srgbToLinearChannel),
-  ]);
+  let linearKeys = gradientEnergyCache?.get(keys);
+  if (!linearKeys)
+  {
+    linearKeys = keys.map(([time, color]) =>
+    [
+      time,
+      applyThemeColor(color).map(srgbToLinearChannel),
+    ]);
+    gradientEnergyCache?.set(keys, linearKeys);
+  }
   const safeIntensity = Math.max(0, intensity);
   const linearStartColor = startColor
     ? startColor.map((channel) => srgbToLinearChannel(channel * 255))
@@ -1364,6 +1402,34 @@ function sampleTextureChannel(
   return topSample + (bottomSample - topSample) * vertical;
 }
 
+function prepareTextureSample(sample, textureSize, u, v)
+{
+  const sourceX = clamp(u * textureSize - 0.5, 0, textureSize - 1);
+  const sourceY = clamp(v * textureSize - 0.5, 0, textureSize - 1);
+  const left = Math.floor(sourceX);
+  const top = Math.floor(sourceY);
+  const right = Math.min(textureSize - 1, left + 1);
+  const bottom = Math.min(textureSize - 1, top + 1);
+  sample.topLeft = top * textureSize + left;
+  sample.topRight = top * textureSize + right;
+  sample.bottomLeft = bottom * textureSize + left;
+  sample.bottomRight = bottom * textureSize + right;
+  sample.horizontal = sourceX - left;
+  sample.vertical = sourceY - top;
+}
+
+function samplePreparedTextureChannel(data, stride, sample, channel = 0)
+{
+  const topLeft = data[sample.topLeft * stride + channel];
+  const topRight = data[sample.topRight * stride + channel];
+  const bottomLeft = data[sample.bottomLeft * stride + channel];
+  const bottomRight = data[sample.bottomRight * stride + channel];
+  // 保留原来的两次横向插值再纵向插值，不改成权重加和以免改变最终字节。
+  const topSample = topLeft + (topRight - topLeft) * sample.horizontal;
+  const bottomSample = bottomLeft + (bottomRight - bottomLeft) * sample.horizontal;
+  return topSample + (bottomSample - topSample) * sample.vertical;
+}
+
 // 12 位线性索引的最大 sRGB 误差低于一个 8 位通道步长，同时避免在
 // Context 回退首帧同步计算 65536 次幂函数造成可见卡顿。
 const LINEAR_TO_SRGB_LUT_SIZE = 4096;
@@ -1518,27 +1584,29 @@ function prepareLinearTintedTextureCanvas(
   const sourceRgba = resources.linearTextureRgba;
   const srgbLut = getLinearToSrgbLut();
   const flipVertical = frameSlot === 1;
-  const encodeChannel = (sourceOffset, channel, straightDivisor) =>
+  // 工作区属于本次染色调用；多实例及重入不会共享可变采样状态。
+  const textureSample = roundness > 0 ? {} : null;
+  const textureDivisor = useRoundedShape ? getRoundedTriangleTextureDivisor(roundness) : 1;
+  const encodeLinearChannel = (energy, straightDivisor) =>
   {
-    // 原生透明回退与 GPU Scene Overlay 一样，先将线性 RGB 等比收敛到
-    // Coverage 容量。逐通道截断会把蓝色光盘变成青白色。
-    let energyScale = 1;
-    if (preserveCoverageColor)
-    {
-      const maximum = Math.max(...safeMaterialEnergy.map((value, index) =>
-        value * sourceEnergyRgb[sourceOffset + index] * safeContribution));
-      energyScale = Math.min(1, srgbToLinearChannel(straightDivisor * 255) /
-        Math.max(maximum, 0.000001));
-    }
-    const linear = clamp01(
-      sourceEnergyRgb[sourceOffset + channel] *
-        safeMaterialEnergy[channel] * safeContribution * energyScale,
-    );
     const lookupIndex = Math.round(
-      linear * (LINEAR_TO_SRGB_LUT_SIZE - 1),
+      clamp01(energy) * (LINEAR_TO_SRGB_LUT_SIZE - 1),
     );
-
     return srgbLut[lookupIndex] / straightDivisor;
+  };
+  const encodeRoundedChannel = (channel, textureSupport, targetCoverage, straightDivisor) =>
+  {
+    const textureChannel = samplePreparedTextureChannel(
+      sourceTextureRgb, 3, textureSample, channel,
+    );
+    const supportedChannel = 1 + (textureChannel - 1) * clamp01(textureSupport);
+    const shapeChannel = supportedChannel + (1 - supportedChannel) * roundness;
+    // 圆角 Coverage 是唯一边界；纹理映射及通道乘法顺序保持不变。
+    const roundedPremultiplied = shapeChannel * targetCoverage;
+    return encodeLinearChannel(
+      roundedPremultiplied * safeMaterialEnergy[channel] * safeContribution,
+      straightDivisor,
+    );
   };
 
   context.setTransform(1, 0, 0, 1, 0, 0);
@@ -1560,36 +1628,6 @@ function prepareLinearTintedTextureCanvas(
       const originalCoverage = useTextureAlpha
         ? sourceRgba[sourceRgbaOffset + 3] / 255
         : sourceCoverage[sourcePixelIndex] / 255;
-      let sampleU = (x + 0.5) / textureSize;
-      let sampleV = (sourceY + 0.5) / textureSize;
-
-      if (useRoundedShape)
-      {
-        [sampleU, sampleV] = mapRoundedTriangleTextureUv(
-          sampleU,
-          sampleV,
-          roundness,
-        );
-      }
-
-      const textureSupport = useRoundedShape
-        ? (useTextureAlpha
-            ? sampleTextureChannel(
-                sourceRgba,
-                textureSize,
-                4,
-                sampleU,
-                sampleV,
-                3,
-              )
-            : sampleTextureChannel(
-                sourceCoverage,
-                textureSize,
-                1,
-                sampleU,
-                sampleV,
-              )) / 255
-        : originalCoverage;
       const targetCoverage = useRoundedShape
         ? shapeCoverage[sourcePixelIndex] / 255
         : originalCoverage;
@@ -1604,43 +1642,70 @@ function prepareLinearTintedTextureCanvas(
         continue;
       }
 
+      let sampleU = (x + 0.5) / textureSize;
+      let sampleV = (sourceY + 0.5) / textureSize;
+
+      if (useRoundedShape)
+      {
+        sampleU = 0.5 + (sampleU - 0.5) / textureDivisor;
+        sampleV = 0.5 + (sampleV - 0.5) / textureDivisor;
+      }
+
+      if (textureSample) prepareTextureSample(textureSample, textureSize, sampleU, sampleV);
+
+      const textureSupport = useRoundedShape
+        ? (useTextureAlpha
+            ? samplePreparedTextureChannel(
+                sourceRgba,
+                4,
+                textureSample,
+                3,
+              )
+            : samplePreparedTextureChannel(
+                sourceCoverage,
+                1,
+                textureSample,
+              )) / 255
+        : originalCoverage;
+
       const effectiveAlpha = coverageByte / 255;
       const straightDivisor = safeDivisor * effectiveAlpha;
-      const encodeRoundedChannel = (channel) =>
+      let red;
+      let green;
+      let blue;
+      if (roundness <= 0)
       {
-        if (roundness <= 0)
+        let energyScale = 1;
+        if (preserveCoverageColor)
         {
-          return encodeChannel(sourceOffset, channel, straightDivisor);
+          // RGB 共用同一 Coverage 容量，每个 texel 只算一次，保留原峰值乘法顺序。
+          const maximum = Math.max(
+            safeMaterialEnergy[0] * sourceEnergyRgb[sourceOffset] * safeContribution,
+            safeMaterialEnergy[1] * sourceEnergyRgb[sourceOffset + 1] * safeContribution,
+            safeMaterialEnergy[2] * sourceEnergyRgb[sourceOffset + 2] * safeContribution,
+          );
+          energyScale = Math.min(1, srgbToLinearChannel(straightDivisor * 255) /
+            Math.max(maximum, 0.000001));
         }
-
-        const textureChannel = sampleTextureChannel(
-          sourceTextureRgb,
-          textureSize,
-          3,
-          sampleU,
-          sampleV,
-          channel,
+        red = encodeLinearChannel(
+          sourceEnergyRgb[sourceOffset] * safeMaterialEnergy[0] * safeContribution * energyScale,
+          straightDivisor,
         );
-        const supportedChannel = 1 +
-          (textureChannel - 1) * clamp01(textureSupport);
-        const shapeChannel = supportedChannel +
-          (1 - supportedChannel) * roundness;
-        // 圆角 Coverage 是唯一边界；纹理先向三角内部重映射，再随
-        // 圆角比例淡到材质白，避免保留第二层尖三角。
-        const roundedPremultiplied = shapeChannel * targetCoverage;
-        const linear = clamp01(
-          roundedPremultiplied *
-            safeMaterialEnergy[channel] * safeContribution,
+        green = encodeLinearChannel(
+          sourceEnergyRgb[sourceOffset + 1] * safeMaterialEnergy[1] * safeContribution * energyScale,
+          straightDivisor,
         );
-        const lookupIndex = Math.round(
-          linear * (LINEAR_TO_SRGB_LUT_SIZE - 1),
+        blue = encodeLinearChannel(
+          sourceEnergyRgb[sourceOffset + 2] * safeMaterialEnergy[2] * safeContribution * energyScale,
+          straightDivisor,
         );
-
-        return srgbLut[lookupIndex] / straightDivisor;
-      };
-      const red = encodeRoundedChannel(0);
-      const green = encodeRoundedChannel(1);
-      const blue = encodeRoundedChannel(2);
+      }
+      else
+      {
+        red = encodeRoundedChannel(0, textureSupport, targetCoverage, straightDivisor);
+        green = encodeRoundedChannel(1, textureSupport, targetCoverage, straightDivisor);
+        blue = encodeRoundedChannel(2, textureSupport, targetCoverage, straightDivisor);
+      }
       const maximum = Math.max(red, green, blue);
       // 保留每个 texel 的峰值，只让弱通道有限靠近主通道。这里仍以纹理
       // 能量衰减门控，兼容直接调用路径也不会填白低能细节。
@@ -3853,6 +3918,13 @@ function createTrailPoint(x, y, bornAt)
   };
 }
 
+function invalidateTrailPoints(stroke)
+{
+  stroke.pointsVersion = (stroke.pointsVersion ?? 0) + 1;
+  stroke.trailFrameData = null;
+  stroke.trailFrameCache = null;
+}
+
 function hasVisibleTrailPoints(points)
 {
   for (let index = 1; index < points.length; index++)
@@ -3905,37 +3977,39 @@ function createTrailFrameData(
   trailCfg,
   materialIntensity = null,
   cacheSegmentLengths = materialIntensity !== null,
+  sharedData = null,
 )
 {
-  // Canvas 与 WebGL2 共享同一份段长测量，避免后端切换改变轨迹采样。
-  const measurement = measureTrail(points, cacheSegmentLengths);
-  const pointProgresses = measurement.distances.map((distanceAlongTrail) =>
-    measurement.totalLength > 0
-      ? distanceAlongTrail / measurement.totalLength
-      : 0);
-  const segmentProgresses = new Array(Math.max(0, points.length - 1));
-
-  for (let index = 1; index < points.length; index++)
+  if (!sharedData)
   {
-    segmentProgresses[index - 1] = measurement.totalLength > 0
-      ? (measurement.distances[index - 1] + measurement.distances[index]) *
-        0.5 / measurement.totalLength
-      : 0;
+    // 重建时保留原来的求和顺序；GPU 当帧回退则补材质，不再次测量。
+    const measurement = measureTrail(points, cacheSegmentLengths);
+    const pointProgresses = measurement.distances.map((distanceAlongTrail) =>
+      measurement.totalLength > 0
+        ? distanceAlongTrail / measurement.totalLength
+        : 0);
+    const segmentProgresses = new Array(Math.max(0, points.length - 1));
+
+    for (let index = 1; index < points.length; index++)
+    {
+      segmentProgresses[index - 1] = measurement.totalLength > 0
+        ? (measurement.distances[index - 1] + measurement.distances[index]) *
+          0.5 / measurement.totalLength
+        : 0;
+    }
+
+    const coverageKeys = trailCfg.coverageLongitudinalKeys;
+    sharedData = {
+      measurement,
+      pointProgresses,
+      segmentProgresses,
+      pointCoverageFactors: pointProgresses.map((progress) =>
+        evaluateTrailLongitudinalCoverage(coverageKeys, progress)),
+      segmentCoverageFactors: segmentProgresses.map((progress) =>
+        evaluateTrailLongitudinalCoverage(coverageKeys, progress)),
+    };
   }
-
-  const coverageKeys = trailCfg.coverageLongitudinalKeys;
-  const pointCoverageFactors = pointProgresses.map((progress) =>
-    evaluateTrailLongitudinalCoverage(coverageKeys, progress));
-  const segmentCoverageFactors = segmentProgresses.map((progress) =>
-    evaluateTrailLongitudinalCoverage(coverageKeys, progress));
-  const sharedData =
-  {
-    measurement,
-    pointProgresses,
-    segmentProgresses,
-    pointCoverageFactors,
-    segmentCoverageFactors,
-  };
+  const { measurement, pointProgresses, segmentProgresses } = sharedData;
 
   if (materialIntensity === null)
   {
@@ -4382,21 +4456,28 @@ function getTrailMesh(trailData, points, width, trailCfg)
   );
   const cacheKey = `${width}:${cornerVertices}:${capVertices}`;
 
-  if (!trailData.meshCache.has(cacheKey))
+  let mesh = trailData.meshCache.get(cacheKey);
+  if (mesh)
   {
-    trailData.meshCache.set(
-      cacheKey,
-      createTrailMesh(
-        points,
-        width,
-        cornerVertices,
-        capVertices,
-        trailData.measurement.segmentLengths,
-      ),
+    trailData.meshCache.delete(cacheKey);
+  }
+  else
+  {
+    mesh = createTrailMesh(
+      points,
+      width,
+      cornerVertices,
+      capVertices,
+      trailData.measurement.segmentLengths,
     );
   }
-
-  return trailData.meshCache.get(cacheKey);
+  trailData.meshCache.set(cacheKey, mesh);
+  // 清晰层和 Bloom 可保留各自宽度，但连续缩放不能积累全部历史网格。
+  if (trailData.meshCache.size > TRAIL_MESH_CACHE_CAPACITY)
+  {
+    trailData.meshCache.delete(trailData.meshCache.keys().next().value);
+  }
+  return mesh;
 }
 
 function resolveTrailTransverseProfile(profile)
@@ -5149,16 +5230,6 @@ function drawTrailEmission(
   );
 }
 
-function createTexturedTrailVertex(point, u, v)
-{
-  return {
-    x: point.x,
-    y: point.y,
-    u,
-    v,
-  };
-}
-
 function appendTexturedTrailMeshSegment(
   renderer,
   segment,
@@ -5169,42 +5240,17 @@ function appendTexturedTrailMeshSegment(
 {
   // Unity BakeMesh 的屏幕下侧为语义 V=0；嵌入字节保持 PNG 顶行优先，
   // WebGL typed-array 上传不会代替图片源翻行，因此下侧需补偿到采样 v=1。
-  const fromLeft = createTexturedTrailVertex(
-    segment.fromLeft,
-    fromSample.u,
-    1,
-  );
-  const fromRight = createTexturedTrailVertex(
-    segment.fromRight,
-    fromSample.u,
-    0,
-  );
-  const toLeft = createTexturedTrailVertex(
-    segment.toLeft,
-    toSample.u,
-    1,
-  );
-  const toRight = createTexturedTrailVertex(
-    segment.toRight,
-    toSample.u,
-    0,
-  );
-
-  renderer.addTexturedTrailTriangle(
-    fromLeft,
-    toLeft,
-    toRight,
-    [fromSample.color, toSample.color, toSample.color],
+  renderer._addTrailMeshTriangle(
+    segment.fromLeft, fromSample, 1,
+    segment.toLeft, toSample, 1,
+    segment.toRight, toSample, 0,
     opacity,
-    [fromSample.coverage, toSample.coverage, toSample.coverage],
   );
-  renderer.addTexturedTrailTriangle(
-    fromLeft,
-    toRight,
-    fromRight,
-    [fromSample.color, toSample.color, fromSample.color],
+  renderer._addTrailMeshTriangle(
+    segment.fromLeft, fromSample, 1,
+    segment.toRight, toSample, 0,
+    segment.fromRight, fromSample, 0,
     opacity,
-    [fromSample.coverage, toSample.coverage, fromSample.coverage],
   );
 }
 
@@ -5217,29 +5263,14 @@ function appendTexturedTrailMeshJoin(
 {
   const innerV = join.innerSide === 'left' ? 1 : 0;
   const outerV = 1 - innerV;
-  const inner = createTexturedTrailVertex(join.inner, sample.u, innerV);
-
   for (let arcIndex = 1; arcIndex < join.outerArc.length; arcIndex++)
   {
-    const previousOuter = createTexturedTrailVertex(
-      join.outerArc[arcIndex - 1],
-      sample.u,
-      outerV,
-    );
-    const nextOuter = createTexturedTrailVertex(
-      join.outerArc[arcIndex],
-      sample.u,
-      outerV,
-    );
-
     // Unity 的圆角插入点只细分几何；同一折点的 Stretch U 必须保持不变。
-    renderer.addTexturedTrailTriangle(
-      inner,
-      previousOuter,
-      nextOuter,
-      sample.color,
+    renderer._addTrailMeshTriangle(
+      join.inner, sample, innerV,
+      join.outerArc[arcIndex - 1], sample, outerV,
+      join.outerArc[arcIndex], sample, outerV,
       opacity,
-      sample.coverage,
     );
   }
 }
@@ -5260,20 +5291,12 @@ function appendTexturedTrailMeshCaps(
     }
 
     const sample = pointSamples[cap.pointIndex];
-    const vCoordinates = cap.position === 'start'
-      ? [1, 0, 0.5]
-      : [1, 0.5, 0];
-    const vertices = cap.points.map((point, index) =>
-      createTexturedTrailVertex(point, sample.u, vCoordinates[index]));
-
     // numCapVertices=1 形成一个三角端帽；尖端位于纹理横截面中心。
-    renderer.addTexturedTrailTriangle(
-      vertices[0],
-      vertices[1],
-      vertices[2],
-      sample.color,
+    renderer._addTrailMeshTriangle(
+      cap.points[0], sample, 1,
+      cap.points[1], sample, cap.position === 'start' ? 0 : 0.5,
+      cap.points[2], sample, cap.position === 'start' ? 0.5 : 0,
       opacity,
-      sample.coverage,
     );
   }
 }
@@ -5308,6 +5331,34 @@ function appendTexturedTrailMeshJoins(
   }
 }
 
+function getTrailGpuPointSamples(trailData, points, trailCfg, materialIntensity)
+{
+  const cached = trailData.gpuPointCache;
+  if (cached && cached.trailCfg === trailCfg && cached.materialIntensity === materialIntensity &&
+    cached.hueShift === themeHueShift && cached.relativeTheme === relativeOklchTheme)
+  {
+    return cached.samples;
+  }
+
+  const samples = new Array(points.length);
+  for (let index = 0; index < points.length; index++)
+  {
+    const progress = trailData.pointProgresses?.[index] ??
+      trailData.measurement.distances[index] / trailData.measurement.totalLength;
+    samples[index] = {
+      // 点集版本由 trailData 管理；保持先插值再映射主题，不能插值已映射的关键帧。
+      // Unity 的 U=0 位于最新点，项目点序则是旧点到新点。
+      u: 1 - progress,
+      color: evaluateTrailMaterialColor(progress, trailCfg, materialIntensity),
+      coverage: resolveTrailPointCoverageFactor(trailData, index, trailCfg),
+    };
+  }
+  trailData.gpuPointCache = {
+    trailCfg, materialIntensity, hueShift: themeHueShift, relativeTheme: relativeOklchTheme, samples,
+  };
+  return samples;
+}
+
 function appendTrailWebGLScene(
   renderer,
   points,
@@ -5337,42 +5388,24 @@ function appendTrailWebGLScene(
   }
 
   const mesh = getTrailMesh(trailData, points, width, trailCfg);
-  const visibleSegments = new Set();
-  const pointSamples = new Array(points.length);
-
-  for (let index = 0; index < points.length; index++)
+  if (!mesh.visibleSegments)
   {
-    const progress = trailData.pointProgresses?.[index] ??
-      trailData.measurement.distances[index] /
-        trailData.measurement.totalLength;
-
-    pointSamples[index] =
+    // 可见段只依赖该宽度的网格；缩放或端帽配置改变时由网格缓存选择新对象。
+    mesh.visibleSegments = new Set();
+    for (let index = 1; index < points.length; index++)
     {
-      // Unity TrailRenderer 的 U=0 位于最新点，而项目点序是旧点到新点。
-      u: 1 - progress,
-      color: evaluateTrailMaterialColor(
-        progress,
-        trailCfg,
-        bloomCfg.trailEmission,
-      ),
-      coverage: resolveTrailPointCoverageFactor(
-        trailData,
-        index,
-        trailCfg,
-      ),
-    };
+      if (mesh.segments[index])
+      {
+        mesh.visibleSegments.add(index);
+      }
+    }
   }
+  const visibleSegments = mesh.visibleSegments;
+  const pointSamples = getTrailGpuPointSamples(trailData, points, trailCfg, bloomCfg.trailEmission);
 
-  for (let index = 1; index < points.length; index++)
+  for (const index of visibleSegments)
   {
     const segment = mesh.segments[index];
-
-    if (!segment)
-    {
-      continue;
-    }
-
-    visibleSegments.add(index);
     appendTexturedTrailMeshSegment(
       renderer,
       segment,
@@ -5615,12 +5648,15 @@ export class BAClickFX
     };
     this.nativeTrailBloomSurface = undefined;
     this.nativeClickBloomSurface = null;
-    this.nativeClickBloomMaskSurface = null;
 
     this.width = 0;
     this.height = 0;
     this.dpr = 1;
     this.fxConfig = structuredClone(UNITY_FX_TOUCH);
+    this._gradientEnergyCache = new WeakMap();
+    this._fxConfigVersion = 0;
+    this._softwareBloomConfigSignature = null;
+    this._themeVersion = 0;
     this._themeHueShift = computeThemeHueShift(this.config.themeColor);
     this._relativeOklchTheme = this.config.themeColorMode === 'relative-oklch'
       ? createRelativeOklchTheme(this.config.themeColor)
@@ -6821,6 +6857,9 @@ export class BAClickFX
     }
 
     Object.assign(this.fxConfig, nextConfig);
+    this._gradientEnergyCache = new WeakMap();
+    this._fxConfigVersion++;
+    this._softwareBloomConfigSignature = null;
   }
 
   resize(width, height, dpr)
@@ -6847,22 +6886,43 @@ export class BAClickFX
       resolvePositiveFinite(overrideDpr, resolvePositiveFinite(defaultDpr, 1)),
       this.config.maxDpr,
     );
+    const pixelWidth = Math.round(width * dpr);
+    const pixelHeight = Math.round(height * dpr);
+    const layers = [
+      [this.canvas, this.context],
+      [this.contrastCanvas, this.contrastContext],
+    ];
 
+    if (
+      this.width === width && this.height === height && this.dpr === dpr &&
+      layers.every(([canvas]) => !canvas ||
+        (canvas.width === pixelWidth && canvas.height === pixelHeight))
+    )
+    {
+      return;
+    }
+
+    this._releaseSoftwareBloomFrame();
     this.width = width;
     this.height = height;
     this.dpr = dpr;
-    this.canvas.width = Math.round(width * dpr);
-    this.canvas.height = Math.round(height * dpr);
-    if (this.context)
+    for (const [canvas, context] of layers)
     {
-      this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    if (this.contrastCanvas && this.contrastContext)
-    {
-      this.contrastCanvas.width = this.canvas.width;
-      this.contrastCanvas.height = this.canvas.height;
-      this.contrastContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (!canvas)
+      {
+        continue;
+      }
+      // 即使赋入相同值也会清空 Canvas；暂停时没有下一帧可以恢复像素。
+      if (canvas.width !== pixelWidth)
+      {
+        canvas.width = pixelWidth;
+      }
+      if (canvas.height !== pixelHeight)
+      {
+        canvas.height = pixelHeight;
+      }
+      // DPR 改变后物理尺寸可能仍相同，坐标变换必须独立更新。
+      context?.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     // WebGL RenderTarget 可能很大，只在真正进入 WebGL 渲染帧时调整，
@@ -6890,10 +6950,8 @@ export class BAClickFX
     };
   }
 
-  _getPointerPosition(event)
+  _getPointerPosition(event, rect = this._getCanvasRect())
   {
-    const rect = this._getCanvasRect();
-
     return {
       x: clamp(event.clientX - rect.left, 0, this.width),
       y: clamp(event.clientY - rect.top, 0, this.height),
@@ -6926,9 +6984,9 @@ export class BAClickFX
     };
   }
 
-  _getDomPointerInput(event, fallbackEvent = event)
+  _getDomPointerInput(event, fallbackEvent = event, rect)
   {
-    const position = this._getPointerPosition(event);
+    const position = this._getPointerPosition(event, rect);
     const pointerType = event.pointerType || fallbackEvent.pointerType || 'mouse';
 
     return {
@@ -7286,7 +7344,10 @@ export class BAClickFX
 
   _handlePointerMove(event)
   {
-    if (this.destroyed || this.paused || !this.config.trailEnabled)
+    if (
+      this.destroyed || this.paused || !this.config.trailEnabled ||
+      (this.activePointerId === null && !this.config.trailAlways)
+    )
     {
       return;
     }
@@ -7306,21 +7367,42 @@ export class BAClickFX
     const events = coalesced.length > 0 ? coalesced : [event];
     const sourceNow = performance.now();
     const trailNow = this._getTrailInputTime(sourceNow);
+    let rect;
 
     for (const sample of events)
     {
+      const pointerId = sample.pointerId ?? event.pointerId ?? 1;
+      const pointerType = sample.pointerType || event.pointerType || 'mouse';
+      if (
+        !Number.isFinite(sample.clientX) || !Number.isFinite(sample.clientY) ||
+        !Number.isFinite(pointerId) ||
+        (pointerType !== 'mouse' && pointerType !== 'touch' && pointerType !== 'pen') ||
+        (this.activePointerId !== null && pointerId !== this.activePointerId)
+      )
+      {
+        continue;
+      }
       const sampleSourceTime = this._getDomInputSourceTime(
         sample.timeStamp ?? event.timeStamp,
         sourceNow,
       );
+      if (
+        this.activePointerId !== null &&
+        !this._isInputSampleDue(sampleSourceTime)
+      )
+      {
+        continue;
+      }
       const sampleTime = this._getDomTrailSampleTime(
         sampleSourceTime,
         sourceNow,
         trailNow,
       );
 
+      // 一次 DOM 事件的合并样本共享布局；跨事件重新测量以跟随滚动。
+      rect ??= this._getCanvasRect();
       this._pointerMoveAtTime(
-        this._getDomPointerInput(sample, event),
+        this._getDomPointerInput(sample, event, rect),
         sampleTime,
         sampleSourceTime,
       );
@@ -7398,30 +7480,27 @@ export class BAClickFX
     return true;
   }
 
-  _acceptInputSample(inputSourceTime)
+  _isInputSampleDue(inputSourceTime)
   {
     const rate = this.config.inputSamplingRate;
 
-    if (rate <= 0)
-    {
-      return true;
-    }
+    return rate <= 0 || !Number.isFinite(this.lastInputSampleSourceTime) ||
+      inputSourceTime - this.lastInputSampleSourceTime >= 1000 / rate;
+  }
 
-    if (!Number.isFinite(this.lastInputSampleSourceTime))
-    {
-      this.lastInputSampleSourceTime = inputSourceTime;
-      return true;
-    }
-
-    const intervalMs = 1000 / rate;
-
-    if (inputSourceTime - this.lastInputSampleSourceTime < intervalMs)
+  _acceptInputSample(inputSourceTime)
+  {
+    if (!this._isInputSampleDue(inputSourceTime))
     {
       return false;
     }
 
-    // 即使空间位移不足 minVertexDistance，也要推进独立的时间采样相位。
-    this.lastInputSampleSourceTime = inputSourceTime;
+    if (this.config.inputSamplingRate > 0)
+    {
+      // 预检查不推进时钟；只有有效指针接受后才提交时间采样相位。
+      // 即使空间位移不足 minVertexDistance，也保持现有的时间限频语义。
+      this.lastInputSampleSourceTime = inputSourceTime;
+    }
     return true;
   }
 
@@ -7443,6 +7522,7 @@ export class BAClickFX
       active: true,
       ownerId: this.activeTrailOwnerId,
       points,
+      pointsVersion: 0,
     };
     this.trailStrokes.push(this.currentTrailStroke);
   }
@@ -7507,6 +7587,7 @@ export class BAClickFX
         this.lastPointerPosition.y,
         now,
       ));
+      invalidateTrailPoints(this.currentTrailStroke);
       this.lastPointerTime = now;
       this.trailDistanceSinceShard = 0;
     }
@@ -7543,6 +7624,7 @@ export class BAClickFX
 
       this.currentTrailStroke.points.push(createTrailPoint(x, y, bornAt));
     }
+    invalidateTrailPoints(this.currentTrailStroke);
 
     this._spawnTrailShards(
       from,
@@ -7666,6 +7748,7 @@ export class BAClickFX
 
       if (discardCurrentStroke || this.currentTrailStroke.points.length < 2)
       {
+        invalidateTrailPoints(this.currentTrailStroke);
         // 单点不能形成 TrailRenderer 几何，保留它只会让 RAF 空转。
         const strokeIndex = this.trailStrokes.indexOf(this.currentTrailStroke);
 
@@ -7778,6 +7861,12 @@ export class BAClickFX
       !useCanvasScene &&
       this._hasCachedSoftwareBloomFrame(scale);
 
+    if (!useSoftwareBloom && !reuseCachedSoftwareBloom)
+    {
+      // 故障同一时刻仍可复用完整输出；输入推进或 GPU 接管后归还快照。
+      this._releaseSoftwareBloomFrame();
+    }
+
     if (reuseCachedSoftwareBloom)
     {
       // Software 回读刚失败但输入尚未推进时，复用上一张完整 Bloom。
@@ -7832,6 +7921,7 @@ export class BAClickFX
     // 推入当前实例的主题变换，渲染完成后恢复，保证多实例安全。
     const prevHueShift = themeHueShift;
     const previousRelativeOklchTheme = relativeOklchTheme;
+    const previousGradientEnergyCache = gradientEnergyCache;
     let contextSaved = false;
 
     this.canvasNativeSceneAlphaSnapshot = null;
@@ -7847,6 +7937,7 @@ export class BAClickFX
       }
       themeHueShift = this._themeHueShift;
       relativeOklchTheme = this._relativeOklchTheme;
+      gradientEnergyCache = this._gradientEnergyCache;
       // 透明 Canvas 无法独立保存 Additive RGB 与 Coverage Alpha；在 residual
       // Coverage Final Pass 完成前保留兼容 source-over，避免多个粒子把 Alpha 相加。
       if (this.context)
@@ -8014,6 +8105,7 @@ export class BAClickFX
       this.renderingFrame = false;
       themeHueShift = prevHueShift;
       relativeOklchTheme = previousRelativeOklchTheme;
+      gradientEnergyCache = previousGradientEnergyCache;
 
       if (contextSaved)
       {
@@ -8032,6 +8124,7 @@ export class BAClickFX
     else
     {
       this.lastFrameTime = null;
+      this._releaseSoftwareBloomFrame();
     }
   }
 
@@ -9228,6 +9321,7 @@ export class BAClickFX
 
   _releaseBackendFrameResources()
   {
+    this._releaseSoftwareBloomFrame();
     // 配置事务已经选择了新的渲染链；先撤下所有旧输出，再释放仅与
     // 画布尺寸绑定的目标。下一帧只会为实际接管输出的后端重新分配。
     this._setWebGPUEffectVisible(false);
@@ -9244,6 +9338,7 @@ export class BAClickFX
 
   _releaseBloomBackendFrameResources()
   {
+    this._releaseSoftwareBloomFrame();
     // 完整 GPU Scene 已接管时，Bloom 配置只是回退策略，不能
     // 为它释放当前 Effect 目标；这里只清理 Canvas 回退链的帧资源。
     this._setWebGLBloomVisible(false);
@@ -9270,14 +9365,6 @@ export class BAClickFX
       this.nativeClickBloomSurface.canvas.width = 0;
       this.nativeClickBloomSurface.canvas.height = 0;
       this.nativeClickBloomSurface = null;
-    }
-    if (this.nativeClickBloomMaskSurface)
-    {
-      this.nativeClickBloomMaskSurface.canvas.width = 0;
-      this.nativeClickBloomMaskSurface.canvas.height = 0;
-      this.nativeClickBloomMaskSurface.angularCanvas.width = 0;
-      this.nativeClickBloomMaskSurface.angularCanvas.height = 0;
-      this.nativeClickBloomMaskSurface = null;
     }
   }
 
@@ -9536,11 +9623,7 @@ export class BAClickFX
         continue;
       }
 
-      const trailData = stroke.trailFrameData ?? createTrailFrameData(
-        stroke.points,
-        this.fxConfig.trail,
-        bloomCfg.trailEmission,
-      );
+      const trailData = this._getTrailFrameData(stroke, bloomCfg.trailEmission);
       const trailOpacity = this._getEffectiveOpacity() *
         (this.fxConfig.trail.trailOpacity ?? 1) *
         bloomCfg.trailEmissionAlpha;
@@ -10075,6 +10158,14 @@ export class BAClickFX
 
   _getSoftwareBloomFrameSignature(scale)
   {
+    if (this._softwareBloomConfigSignature?.version !== this._fxConfigVersion)
+    {
+      // 公共调参均原子提交并递增版本；保留原序列化字节，只省去稳定帧重复遍历。
+      this._softwareBloomConfigSignature = {
+        version: this._fxConfigVersion,
+        value: JSON.stringify(this.fxConfig),
+      };
+    }
     const trailSignature = this.trailStrokes.map((stroke) =>
     {
       const first = stroke.points[0];
@@ -10137,11 +10228,24 @@ export class BAClickFX
       bloomCfg.trailEmissionAlpha,
       trailCfg.width,
       trailCfg.geometryWidth,
-      JSON.stringify(this.fxConfig),
+      this._softwareBloomConfigSignature.value,
       trailSignature,
       waveSignature,
       shardSignature,
     ].join(':');
+  }
+
+  _releaseSoftwareBloomFrame()
+  {
+    const canvas = this.lastSoftwareBloomFrame?.canvas;
+
+    this.lastSoftwareBloomFrame = null;
+    if (canvas && canvas !== this.canvas)
+    {
+      // 解除引用之外也归还像素缓冲，宿主保留已销毁实例时不继续占用整屏内存。
+      canvas.width = 0;
+      canvas.height = 0;
+    }
   }
 
   _cacheSoftwareBloomFrame(scale)
@@ -10163,7 +10267,7 @@ export class BAClickFX
 
     if (!context)
     {
-      this.lastSoftwareBloomFrame = null;
+      this._releaseSoftwareBloomFrame();
       return;
     }
 
@@ -10196,7 +10300,7 @@ export class BAClickFX
     }
     catch
     {
-      this.lastSoftwareBloomFrame = null;
+      this._releaseSoftwareBloomFrame();
       return;
     }
 
@@ -10810,6 +10914,7 @@ export class BAClickFX
     const scale = this._getScale();
     const previousHueShift = themeHueShift;
     const previousRelativeOklchTheme = relativeOklchTheme;
+    const previousGradientEnergyCache = gradientEnergyCache;
     let resolvedBloomBackend = bloomBackend;
 
     this._setResolvedBloomBackend(resolvedBloomBackend);
@@ -10828,6 +10933,7 @@ export class BAClickFX
       contextSaved = true;
       themeHueShift = this._themeHueShift;
       relativeOklchTheme = this._relativeOklchTheme;
+      gradientEnergyCache = this._gradientEnergyCache;
       this._drawCanvasFallbackFrame(
         scale,
         resolvedBloomBackend === 'native',
@@ -10873,6 +10979,7 @@ export class BAClickFX
     {
       themeHueShift = previousHueShift;
       relativeOklchTheme = previousRelativeOklchTheme;
+      gradientEnergyCache = previousGradientEnergyCache;
 
       if (contextSaved)
       {
@@ -10951,6 +11058,7 @@ export class BAClickFX
     }
 
     const emission = settings.clickEmissionScale;
+    const sampleColor = [0, 0, 0];
     context.save();
     // 光晕是独立的 Final Bloom 增量，不能重画 Cross2 本体或让后来的圆盘
     // 遮住先前的光晕；所有清晰材质提交完毕后只进行一次加色。
@@ -10979,21 +11087,14 @@ export class BAClickFX
         source.blurScale = settings.diskBlur / 65;
         // 小型固定网格来自原 Circle_01，保留纹理面积与 HDR RGB。
         // Cross2 生命周期 Alpha 只衰减背景，不应提前削弱 Bloom 发射。
-        const samples = 16;
-        const area = (2 * radius / samples) ** 2 * settings.diskAlpha / 0.65;
-        for (let y = 0; y < samples; y++)
+        const samples = getNativeCircleBloomSamples();
+        const area = (2 * radius / NATIVE_BLOOM_DISK_SAMPLES) ** 2 * settings.diskAlpha / 0.65;
+        for (let offset = 0; offset < samples.length; offset += 4)
         {
-          for (let x = 0; x < samples; x++)
-          {
-            const u = (x + 0.5) / samples;
-            const v = (y + 0.5) / samples;
-            const offset = (Math.floor(v * CIRCLE_TEXTURE_SIZE) *
-              CIRCLE_TEXTURE_SIZE + Math.floor(u * CIRCLE_TEXTURE_SIZE)) * 4;
-            const color = material.map((channel, index) => channel *
-              srgbToLinearChannel(CIRCLE_TEXTURE_RGBA[offset + index]));
-            const distanceSquared = ((u * 2 - 1) ** 2 + (v * 2 - 1) ** 2) * radius ** 2;
-            addNativeBloomSample(source, color, area, distanceSquared);
-          }
+          sampleColor[0] = material[0] * samples[offset];
+          sampleColor[1] = material[1] * samples[offset + 1];
+          sampleColor[2] = material[2] * samples[offset + 2];
+          addNativeBloomSample(source, sampleColor, area, samples[offset + 3] * radius ** 2);
         }
         sources.push(source);
       }
@@ -11013,9 +11114,8 @@ export class BAClickFX
           source.blurScale = settings.ringBlur / 80;
           source.radius = geometry.radius;
           source.width = geometry.width;
-          source.angularMass = new Float64Array(64);
           const radialSamples = Math.max(1, Math.round(ringCfg.radialSamples));
-          const angularSamples = source.angularMass.length;
+          const angularSamples = 64;
           // GPU 在阈值提取前先缩小 Scene；亚像素环带会与周围黑色平均。
           // 同时扩大样本面积以守恒能量，避免细碎溶解末期仍发出完整圆形光雾。
           const prefilterCoverage = Math.min(1, Math.max(0.000001,
@@ -11033,17 +11133,10 @@ export class BAClickFX
               );
             }
             coverage *= prefilterCoverage / radialSamples;
-            const previousMass = source.transport;
-            addNativeBloomSample(source, material.map((channel) => channel * coverage),
-              area, geometry.radius * geometry.radius);
-            const u = (sample + 0.5) / angularSamples;
-            const angle = (ringCfg.dissolveDirection >= 0 ? u : 1 - u) + ring.rotation / TAU;
-            const position = ((angle % 1 + 1) % 1) * angularSamples;
-            const index = Math.floor(position);
-            const fraction = position - index;
-            const mass = source.transport - previousMass;
-            source.angularMass[index] += mass * (1 - fraction);
-            source.angularMass[(index + 1) % angularSamples] += mass * fraction;
+            sampleColor[0] = material[0] * coverage;
+            sampleColor[1] = material[1] * coverage;
+            sampleColor[2] = material[2] * coverage;
+            addNativeBloomSample(source, sampleColor, area, geometry.radius * geometry.radius);
           }
           sources.push(source);
         }
@@ -11056,48 +11149,9 @@ export class BAClickFX
       {
         continue;
       }
-      // Native 使用与 Software Bloom 一致的各向同性径向扩散；角向环带
-      // 遮罩会把稀疏弧段重新勾勒成圆环，导致与 GPU Bloom 视觉差异明显。
-      const angular = null;
-      let drawContext = context;
-      let size = 0;
-      if (angular && typeof context.createConicGradient === 'function')
-      {
-        if (!this.nativeClickBloomMaskSurface)
-        {
-          const canvas = createCanvas();
-          const maskContext = canvas.getContext('2d');
-          const angularCanvas = createCanvas();
-          const angularContext = angularCanvas.getContext('2d');
-          if (maskContext && angularContext)
-          {
-            this.nativeClickBloomMaskSurface = {
-              canvas, context: maskContext, angularCanvas, angularContext,
-            };
-          }
-        }
-        if (this.nativeClickBloomMaskSurface)
-        {
-          const { canvas, context: maskContext } = this.nativeClickBloomMaskSurface;
-          size = Math.min(512, Math.max(1, Math.ceil(profile.radius * 2 * this.dpr)));
-          const capacity = 2 ** Math.ceil(Math.log2(size));
-          if (canvas.width < capacity || canvas.height < capacity)
-          {
-            canvas.width = capacity;
-            canvas.height = capacity;
-          }
-          maskContext.setTransform(1, 0, 0, 1, 0, 0);
-          maskContext.clearRect(0, 0, size, size);
-          const pixelScale = size / (profile.radius * 2);
-          maskContext.setTransform(pixelScale, 0, 0, pixelScale,
-            (profile.radius - x) * pixelScale, (profile.radius - y) * pixelScale);
-          maskContext.globalAlpha = 1;
-          maskContext.globalCompositeOperation = 'source-over';
-          drawContext = maskContext;
-        }
-      }
-      const gain = drawContext === context ? 1 : angular.gain;
-      const gradient = drawContext.createRadialGradient(x, y, 0, x, y, profile.radius);
+      // 保持原有各向同性扩散，只绘制径向 Profile。
+      const gain = 1;
+      const gradient = context.createRadialGradient(x, y, 0, x, y, profile.radius);
       for (const stop of profile.stops)
       {
         const color = outputCompositing === 'scene'
@@ -11108,93 +11162,9 @@ export class BAClickFX
             : linearEnergyToHostAdditiveCss(stop.energy, gain, linearToSrgb(stop.transport * gain));
         gradient.addColorStop(stop.position, color);
       }
-      drawContext.fillStyle = gradient;
-      drawContext.fillRect(x - profile.radius, y - profile.radius,
+      context.fillStyle = gradient;
+      context.fillRect(x - profile.radius, y - profile.radius,
         profile.radius * 2, profile.radius * 2);
-      if (drawContext !== context)
-      {
-        const { angularCanvas, angularContext } = this.nativeClickBloomMaskSurface;
-        if (angularCanvas.width !== drawContext.canvas.width ||
-            angularCanvas.height !== drawContext.canvas.height)
-        {
-          angularCanvas.width = drawContext.canvas.width;
-          angularCanvas.height = drawContext.canvas.height;
-        }
-        angularContext.setTransform(1, 0, 0, 1, 0, 0);
-        angularContext.clearRect(0, 0, size, size);
-        const center = size / 2;
-        const mask = angularContext.createConicGradient(0, center, center);
-        for (let index = 0; index <= angular.values.length; index++)
-        {
-          mask.addColorStop(index / angular.values.length,
-            `rgba(255, 255, 255, ${angular.values[index % angular.values.length]})`);
-        }
-        angularContext.globalCompositeOperation = 'source-over';
-        angularContext.fillStyle = mask;
-        angularContext.fillRect(0, 0, size, size);
-        // 角向信息只保留在实际环带，禁止 conic mask 从圆心贯穿到
-        // 远场；否则稀疏弧段会形成明显的锥形暗束。
-        const ringCenter = angular.radius / profile.radius * center;
-        const ringBand = Math.max(4, ringCenter * 0.35);
-        const annulus = angularContext.createRadialGradient(
-          center, center, Math.max(0, ringCenter - ringBand),
-          center, center, ringCenter + ringBand,
-        );
-        annulus.addColorStop(0, 'rgba(255, 255, 255, 0)');
-        annulus.addColorStop(0.18, 'rgba(255, 255, 255, 1)');
-        annulus.addColorStop(0.82, 'rgba(255, 255, 255, 1)');
-        annulus.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        angularContext.globalCompositeOperation = 'destination-in';
-        angularContext.fillStyle = annulus;
-        angularContext.fillRect(0, 0, size, size);
-        // 圆心处各方向的扩散应混合为均值；整幅使用锥形遮罩会留下扇形暗缝。
-        const blendRadius = Math.max(1, angular.radius / profile.radius * center * 0.85);
-        for (const uniform of [false, true])
-        {
-          const blend = angularContext.createRadialGradient(
-            center, center, 0, center, center, blendRadius,
-          );
-          const alpha = uniform ? 1 / angular.gain : 1;
-          blend.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
-          blend.addColorStop(1, 'rgba(255, 255, 255, 0)');
-          angularContext.globalCompositeOperation = uniform ? 'lighter' : 'destination-out';
-          angularContext.fillStyle = blend;
-          angularContext.fillRect(0, 0, size, size);
-        }
-        // 角向遮罩只应约束发光环附近；将整张 conic mask 施加到
-        // 径向 profile 会把每条亮弧拉成贯穿中心与外圈的锥形光束。
-        // 在环外渐进补回均匀 Alpha，让远场由径向 Gaussian 决定形状。
-        const outerFadeStart = Math.min(
-          center * 0.98,
-          Math.max(blendRadius, angular.radius / profile.radius * center * 1.15),
-        );
-        const outerUniform = angularContext.createRadialGradient(
-          center, center, outerFadeStart,
-          center, center, center,
-        );
-        const outerClear = angularContext.createRadialGradient(
-          center, center, outerFadeStart,
-          center, center, center,
-        );
-        outerClear.addColorStop(0, 'rgba(255, 255, 255, 0)');
-        outerClear.addColorStop(1, 'rgba(255, 255, 255, 1)');
-        // 先移除残留的角向分量，再补回统一均值；单纯 lighter
-        // 会把低 Alpha 均值叠加到原锥形遮罩上，无法消除扇区暗缝。
-        angularContext.globalCompositeOperation = 'destination-out';
-        angularContext.fillStyle = outerClear;
-        angularContext.fillRect(0, 0, size, size);
-        outerUniform.addColorStop(0, 'rgba(255, 255, 255, 0)');
-        outerUniform.addColorStop(1,
-          `rgba(255, 255, 255, ${1 / angular.gain})`);
-        angularContext.globalCompositeOperation = 'lighter';
-        angularContext.fillStyle = outerUniform;
-        angularContext.fillRect(0, 0, size, size);
-        drawContext.setTransform(1, 0, 0, 1, 0, 0);
-        drawContext.globalCompositeOperation = 'destination-in';
-        drawContext.drawImage(angularCanvas, 0, 0);
-        context.drawImage(drawContext.canvas, 0, 0, size, size,
-          x - profile.radius, y - profile.radius, profile.radius * 2, profile.radius * 2);
-      }
     }
     context.restore();
   }
@@ -11228,18 +11198,7 @@ export class BAClickFX
         continue;
       }
 
-      if (
-        !Array.isArray(stroke.trailFrameData?.segmentEnergies)
-      )
-      {
-        // WebGL2 正常帧只缓存网格测量；Context 或 GPU 当帧失败时，
-        // Canvas 回退在唯一入口按需恢复旧 LUT 数据，避免正常帧重复计算。
-        stroke.trailFrameData = createTrailFrameData(
-          stroke.points,
-          this.fxConfig.trail,
-          this.fxConfig.bloom.trailEmission,
-        );
-      }
+      this._getTrailFrameData(stroke, this.fxConfig.bloom.trailEmission);
 
       drawTrail(
         this.context,
@@ -11306,6 +11265,49 @@ export class BAClickFX
     this._setResolvedBloomBackend('native');
   }
 
+  _getTrailFrameData(stroke, materialIntensity)
+  {
+    const cached = stroke.trailFrameCache;
+    const valid = cached && cached.points === stroke.points &&
+      cached.pointsVersion === stroke.pointsVersion &&
+      cached.configVersion === this._fxConfigVersion &&
+      cached.themeVersion === this._themeVersion &&
+      cached.hueShift === themeHueShift && cached.relativeTheme === relativeOklchTheme;
+    let data = valid ? stroke.trailFrameData : null;
+    if (!data)
+    {
+      data = createTrailFrameData(stroke.points, this.fxConfig.trail, materialIntensity, true);
+      stroke.trailFrameCache = {
+        points: stroke.points,
+        pointsVersion: stroke.pointsVersion,
+        configVersion: this._fxConfigVersion,
+        themeVersion: this._themeVersion,
+        // 后端事件可在帧内改主题；版本之外还记录本次实际使用的渲染上下文。
+        hueShift: themeHueShift,
+        relativeTheme: relativeOklchTheme,
+        materialIntensity,
+      };
+    }
+    else if (materialIntensity !== null &&
+      (cached.materialIntensity !== materialIntensity || !Array.isArray(data.segmentEnergies)))
+    {
+      // 几何缓存可跨后端复用，材质只在 Canvas 路径确实需要时补齐。
+      data = createTrailFrameData(stroke.points, this.fxConfig.trail, materialIntensity, true, data);
+      cached.materialIntensity = materialIntensity;
+    }
+    stroke.trailFrameData = data;
+    return data;
+  }
+
+  _clearTrailStrokes()
+  {
+    for (const stroke of this.trailStrokes)
+    {
+      invalidateTrailPoints(stroke);
+    }
+    this.trailStrokes.length = 0;
+  }
+
   _updateTrail(
     trailTimeMs,
     scale,
@@ -11334,6 +11336,7 @@ export class BAClickFX
         // 连续 shift 会为每个过期点搬移整个数组；一次 splice 保持相同行为，
         // 快速拖动产生数百顶点时不会在每帧形成 O(n²) 开销。
         stroke.points.splice(0, expiredPointCount);
+        invalidateTrailPoints(stroke);
       }
 
       if (stroke.points.length >= 2)
@@ -11342,16 +11345,12 @@ export class BAClickFX
           ? null
           : this.fxConfig.bloom.trailEmission;
 
-        stroke.trailFrameData = createTrailFrameData(
-          stroke.points,
-          this.fxConfig.trail,
-          materialIntensity,
-          true,
-        );
+        this._getTrailFrameData(stroke, materialIntensity);
       }
       else
       {
         stroke.trailFrameData = null;
+        stroke.trailFrameCache = null;
       }
 
       if (!stroke.active && stroke.points.length < 2)
@@ -11584,7 +11583,10 @@ export class BAClickFX
   {
     const themeColor = normalizeThemeColor(hex, DEFAULT_THEME_COLOR);
 
+    // 映射只缓存到所属实例；两个渲染入口会随主题上下文一起保存与恢复。
+    this._gradientEnergyCache = new WeakMap();
     this.config.themeColor = themeColor;
+    this._themeVersion++;
     this._themeHueShift = computeThemeHueShift(themeColor);
     this._relativeOklchTheme = this.config.themeColorMode === 'relative-oklch'
       ? createRelativeOklchTheme(themeColor)
@@ -11600,6 +11602,8 @@ export class BAClickFX
     }
 
     this.config.themeColorMode = mode;
+    this._gradientEnergyCache = new WeakMap();
+    this._themeVersion++;
     this._relativeOklchTheme = mode === 'relative-oklch'
       ? createRelativeOklchTheme(this.config.themeColor)
       : null;
@@ -11941,7 +11945,7 @@ export class BAClickFX
     if (transparentContractChanged)
     {
       // 故障回退快照携带最终 Alpha/颜色合同，切换后不得复用旧模式像素。
-      this.lastSoftwareBloomFrame = null;
+      this._releaseSoftwareBloomFrame();
     }
 
     if (Number.isFinite(overrides.maxDpr))
@@ -12048,7 +12052,7 @@ export class BAClickFX
   /** 清除拖尾顶点和拖拽产生的碎片，不影响仍在播放的点击。 */
   clearTrail()
   {
-    this.trailStrokes.length = 0;
+    this._clearTrailStrokes();
     this.currentTrailStroke = null;
     this.shards = this.shards.filter((shard) => shard.kind !== 'trail');
     this.trailShardCounts.clear();
@@ -12067,9 +12071,10 @@ export class BAClickFX
   /** 立即清除所有视觉对象。 */
   clear()
   {
+    this._releaseSoftwareBloomFrame();
     this.waves.length = 0;
     this.shards.length = 0;
-    this.trailStrokes.length = 0;
+    this._clearTrailStrokes();
     this.currentTrailStroke = null;
     this.trailShardCounts.clear();
     this.lastInputSampleSourceTime = null;
@@ -12248,7 +12253,7 @@ export class BAClickFX
 
     this.compositingReferenceSource = source;
     this.compositingReferenceFit = fit;
-    this.lastSoftwareBloomFrame = null;
+    this._releaseSoftwareBloomFrame();
     // 只有当前输出链真正消费参考时才撤销宿主 Add；Software/Native/外部
     // Canvas 仍按未知背景传输完整 Add 载荷。
     this._requestCompositingMountRefresh();
@@ -12342,6 +12347,8 @@ export class BAClickFX
     }
 
     this.destroyed = true;
+    this._gradientEnergyCache = null;
+    this._softwareBloomConfigSignature = null;
     if (typeof window !== 'undefined')
     {
       window.removeEventListener('resize', this._onResize);
@@ -12393,6 +12400,13 @@ export class BAClickFX
       this.contrastCanvas?.remove();
       this.canvas.remove();
       this.overlayRoot?.remove();
+      this.canvas.width = 0;
+      this.canvas.height = 0;
+      if (this.contrastCanvas)
+      {
+        this.contrastCanvas.width = 0;
+        this.contrastCanvas.height = 0;
+      }
     }
 
     this.webglBloomCanvas = null;
