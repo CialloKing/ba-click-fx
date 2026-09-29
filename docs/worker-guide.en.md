@@ -12,7 +12,7 @@ Worker means a browser `DedicatedWorker` here, not Node.js `worker_threads`. Nod
 
 The main thread reads the real Canvas geometry, converts DOM coordinates into Canvas-local CSS pixels, and forwards size, DPR, and pointer lifecycle changes:
 
-This complete example uses a Canvas with an explicit CSS size. `touch-action: none` gives the effect control of gestures inside that Canvas; change it if the host needs native scrolling. Bundle both modules with Vite or an equivalent bundler so the Worker package import resolves. The bare package specifier does not work in an unbundled browser Worker; in that case use the absolute ESM URL `https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.3/dist/worker.js`.
+This complete example uses a Canvas with an explicit CSS size. `touch-action: none` gives the effect control of gestures inside that Canvas; change it if the host needs native scrolling. Bundle both modules with Vite or an equivalent bundler so the Worker package import resolves. The bare package specifier does not work in an unbundled browser Worker; in that case use the absolute ESM URL `https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.4/dist/worker.js`.
 
 ```html
 <canvas id="fx"></canvas>

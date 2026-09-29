@@ -12,7 +12,7 @@
 
 主线程负责读取真实 Canvas 几何、把 DOM 坐标转换为 Canvas 局部 CSS 像素，并转发尺寸、DPR 和指针生命周期：
 
-完整示例使用显式 CSS 尺寸的 Canvas。`touch-action: none` 让该画布内的手势交给特效处理；需要原生滚动时应调整此值。两个模块需通过 Vite 等 bundler 构建，以解析 Worker 中的包导入。直接使用浏览器原生模块时，Worker 内不能保留裸包名，应改用绝对 ESM 地址 `https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.3/dist/worker.js`。
+完整示例使用显式 CSS 尺寸的 Canvas。`touch-action: none` 让该画布内的手势交给特效处理；需要原生滚动时应调整此值。两个模块需通过 Vite 等 bundler 构建，以解析 Worker 中的包导入。直接使用浏览器原生模块时，Worker 内不能保留裸包名，应改用绝对 ESM 地址 `https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.4/dist/worker.js`。
 
 ```html
 <canvas id="fx"></canvas>
