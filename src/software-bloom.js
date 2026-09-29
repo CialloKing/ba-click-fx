@@ -79,6 +79,13 @@ export function limitCanvasAlpha(context, bounds, alphaLimit)
   {
     const image = context.getImageData(minimumX, minimumY, width, height);
     const maximumAlpha = Math.round(clamp01(alphaLimit ?? 1) * 255);
+
+    // 字节 Alpha 不可能超过 255；仍保留回读边界及其失败语义，避免改变 Canvas 输出。
+    if (maximumAlpha === 255 && image.data instanceof Uint8ClampedArray)
+    {
+      return true;
+    }
+
     let changed = false;
 
     for (let offset = 3; offset < image.data.length; offset += RGBA_CHANNELS)

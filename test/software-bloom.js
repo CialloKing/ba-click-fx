@@ -6,6 +6,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import strictAssert from 'node:assert/strict';
 import { filterFixture } from './software-filter-fixture.js';
 import {
   calculateBloomContribution,
@@ -1102,6 +1103,46 @@ assert(
     limitedCanvasWrite?.[0] === 20,
   'Canvas 脏区上限只收敛超限 Alpha 并保留非预乘 RGB',
 );
+
+// 代理仅统计实际 Alpha 访问；非字节数据仍必须扫描，不能靠上限推断值域。
+{
+  const bounds = { minimumX: 0, minimumY: 0, maximumX: 1, maximumY: 0 };
+  for (const Type of [Uint8ClampedArray, Float32Array, Array])
+  {
+    for (const limit of [0, 250 / 255, 1 - 0.003, 1 - 0.0001, 1, undefined, NaN])
+    {
+      const input = [10, 20, 30, 300, 40, 50, 60, 64];
+      const bytes = Type.from(input);
+      const original = Array.from(bytes);
+      let visits = 0, reads = 0, writes = 0;
+      const data = new Proxy(bytes, { get(target, key)
+      {
+        if (key === '3' || key === '7') visits++;
+        return Reflect.get(target, key, target);
+      } });
+      const context = { canvas: { width: 2, height: 1 },
+        getImageData(...args) { reads++; strictAssert.deepEqual(args, [0, 0, 2, 1]); return { data }; },
+        putImageData() { writes++; } };
+      const maximum = Math.round(Math.max(0, Math.min(1, limit ?? 1)) * 255);
+      const expected = original.map((value, index) => index % 4 === 3 && value > maximum ? maximum : value);
+      strictAssert.equal(limitCanvasAlpha(context, bounds, limit), true);
+      strictAssert.deepEqual(Array.from(bytes), expected);
+      strictAssert.equal(reads, 1);
+      strictAssert.equal(writes, expected.some((value, index) => value !== original[index]) ? 1 : 0);
+      strictAssert.equal(visits, Type === Uint8ClampedArray && maximum === 255 ? 0 : 2);
+    }
+  }
+  assert(true, 'Alpha 量化边界保持字节、返回值与读写次数，仅字节数据的 255 上限省去扫描');
+  let reads = 0;
+  const context = { canvas: { width: 2, height: 1 },
+    getImageData() { reads++; throw Error('tainted canvas'); },
+    putImageData() { throw Error('unexpected write'); } };
+  assert(!limitCanvasAlpha(context, bounds, 1) && reads === 1,
+    '255 上限仍执行回读，回读失败仍返回 false');
+  assert(!limitCanvasAlpha(context, { ...bounds, minimumX: 2 }, 1) && reads === 1
+    && !limitCanvasAlpha(null, bounds, 1) && !limitCanvasAlpha(context, null, 1),
+  '空区域及无效上下文保留原有提前返回');
+}
 
 const sceneCoverage = new Float32Array([0.45, 0.45, 0, 1]);
 const bloomCoverage = new Float32Array([0.45, 0.7, 0.2, 1]);
