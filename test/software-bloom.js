@@ -1201,8 +1201,9 @@ function createSoftwareCanvasFactory()
       putImageData()
       {
       },
-      setTransform()
+      setTransform(...values)
       {
+        this.transform = values;
       },
     };
     const canvas =
@@ -1291,6 +1292,119 @@ assert(
 );
 const allocatedCoverageCanvas = coverageRenderer.coverageCanvas;
 
+const layoutReferences = renderer => [
+  renderer.levels, renderer.coverageLevels, renderer.sourceLinear,
+  renderer.sourceCoverage, renderer.sceneCoverageMip0,
+  ...renderer.levels.flatMap(level => [level, level.down, level.up, level.scratch]),
+  ...renderer.coverageLevels.flatMap(level => [level, level.down, level.up, level.scratch]),
+];
+const stableReferences = layoutReferences(coverageRenderer);
+const stableVersion = coverageRenderer.layoutVersion;
+const stableSampleScale = coverageRenderer.sampleScale;
+const resizeFloatBuffer = coverageRenderer._resizeFloatBuffer;
+let bufferPreparations = 0;
+coverageRenderer._resizeFloatBuffer = function (...args)
+{
+  bufferPreparations++;
+  return resizeFloatBuffer.apply(this, args);
+};
+try
+{
+  for (let frame = 0; frame < 20; frame++)
+  {
+    coverageRenderer.beginFrame(64, 64, 0.5, { x: 0, y: 0, width: 64, height: 64 }, 7, 1);
+    coverageRenderer.beginCoverageFrame(frame % 2 ? 'scene' : 'browser-overlay');
+    coverageRenderer._ensureCoverageBuffers();
+  }
+}
+finally { delete coverageRenderer._resizeFloatBuffer; }
+assert(bufferPreparations === 0 && coverageRenderer.layoutVersion === stableVersion &&
+  layoutReferences(coverageRenderer).every((value, index) => value === stableReferences[index]),
+'稳定布局和模式交替保留全部层级、Coverage 及缓冲引用，不重复准备');
+
+coverageRenderer._resize(64 / 1.001, 64 / 1.001, 0.5001, 64.2, 64.2, 7.1, 1.001);
+coverageRenderer._ensureCoverageBuffers();
+assert(coverageRenderer.layoutVersion === stableVersion &&
+  coverageRenderer.sampleScale !== stableSampleScale &&
+  coverageRenderer.diffusion === 7.1 && coverageRenderer.displayWidth === 64.2 &&
+  coverageRenderer.regionWidth === 64 / 1.001 && coverageRenderer.resolutionScale === 0.5001 &&
+  layoutReferences(coverageRenderer).every((value, index) => value === stableReferences[index]),
+'DPR、逻辑尺寸和 diffusion 小幅变化更新计算参数，但复用取整后相同的布局');
+coverageRenderer.beginFrame(64, 64, 0.5001, { x: 0, y: 0, width: 64, height: 64 }, 7.1, 1.001);
+coverageRenderer.beginCoverageFrame('browser-overlay');
+assert(Math.abs(coverageRenderer.sourceContext.transform[0] - 1.001) < 1e-12 &&
+  coverageRenderer.sourceContext.transform[0] === coverageRenderer.coverageContext.transform[0] &&
+  coverageRenderer.layoutVersion === stableVersion,
+'物理尺寸不变时源画布和 Coverage 坐标变换仍跟随 DPR');
+
+for (const [args, expected] of [
+  [[17, 13, 0.5, 256, 192, 7, 1], [[8, 6], [4, 3], [2, 1], [1, 1]]],
+  [[18, 14, 0.5, 256, 192, 7, 1], [[9, 7], [4, 3], [2, 1], [1, 1]]],
+  [[17, 13, 0.5, 512, 384, 7, 2], [[17, 13], [8, 6], [4, 3], [2, 1], [1, 1]]],
+  [[1, 1, 0.75, 4096, 4096, 10, 1], [[1, 1]]],
+  [[65, 33, 0.75, 4096, 4096, 10, 1], [[48, 24], [24, 12], [12, 6], [6, 3], [3, 1], [1, 1]]],
+  [[64, 64, 0.5, 64, 64, 7, 1], [[32, 32], [16, 16]]],
+  [[64, 64, 0.5, 64, 64, 8, 1], [[32, 32], [16, 16], [8, 8]]],
+])
+{
+  const previousVersion = coverageRenderer.layoutVersion;
+  const previousCoverage = coverageRenderer.coverageLevels;
+  coverageRenderer._resize(...args);
+  assert(coverageRenderer.layoutVersion === previousVersion + 1 &&
+    coverageRenderer.coverageLayoutVersion === -1 &&
+    coverageRenderer._ensureCoverageBuffers() && previousCoverage !== coverageRenderer.coverageLevels &&
+    JSON.stringify(coverageRenderer.levels.map(level => [level.width, level.height])) === JSON.stringify(expected) &&
+    coverageRenderer.coverageLevels.every((level, index) =>
+      level.width === expected[index][0] && level.height === expected[index][1] &&
+      level.down.length === level.width * level.height && level.up.length === level.down.length &&
+      level.scratch.length === level.down.length),
+  `尺寸或 DPR 变化按原拓扑重建并同步 Coverage：${args}`);
+}
+
+coverageRenderer.beginFrame(128, 128, 0.5, { x: 0, y: 0, width: 16, height: 16 }, 7, 1);
+coverageRenderer.beginCoverageFrame('browser-overlay');
+coverageRenderer._ensureCoverageBuffers();
+const translatedReferences = layoutReferences(coverageRenderer);
+coverageRenderer.beginFrame(128, 128, 0.5, { x: 64, y: 64, width: 16, height: 16 }, 7, 1);
+coverageRenderer.beginCoverageFrame('browser-overlay');
+coverageRenderer._ensureCoverageBuffers();
+assert(coverageRenderer.originX === 64 && coverageRenderer.originY === 64 &&
+  coverageRenderer.sourceContext.transform[4] === -64 && coverageRenderer.coverageContext.transform[5] === -64 &&
+  layoutReferences(coverageRenderer).every((value, index) => value === translatedReferences[index]),
+'区域平移复用布局，同时更新发射和 Coverage 的坐标原点');
+
+// 单像素截断之后，期望层数改变也不需要重新创建同一套有效层级。
+coverageRenderer._resize(1, 1, 0.5, 4096, 4096, 10, 1);
+coverageRenderer._ensureCoverageBuffers();
+const onePixelReferences = layoutReferences(coverageRenderer);
+coverageRenderer._resize(1, 1, 0.5, 4096, 4096, 0, 1);
+coverageRenderer._ensureCoverageBuffers();
+assert(layoutReferences(coverageRenderer).every((value, index) => value === onePixelReferences[index]),
+'有效层数相同但期望层数改变时保留单像素布局');
+
+coverageRenderer._resize(32, 32, 0.5, 64, 64, 7, 1);
+const allocationFailure = new Error('Coverage allocation failed');
+coverageRenderer._resizeFloatBuffer = () => { throw allocationFailure; };
+let caughtAllocationFailure;
+try { coverageRenderer._ensureCoverageBuffers(); }
+catch (error) { caughtAllocationFailure = error; }
+finally { delete coverageRenderer._resizeFloatBuffer; }
+assert(caughtAllocationFailure === allocationFailure && coverageRenderer.coverageLayoutVersion === -1 &&
+  coverageRenderer._ensureCoverageBuffers() && coverageRenderer.coverageLayoutVersion === coverageRenderer.layoutVersion,
+'Coverage 分配失败保留原异常且不标记成功，后续准备可重建');
+
+const createImageData = coverageRenderer.outputContext.createImageData;
+const successfulVersion = coverageRenderer.layoutVersion;
+coverageRenderer.outputContext.createImageData = () => { throw new Error('ImageData allocation failed'); };
+try
+{
+  assert(!coverageRenderer._resize(64, 64, 0.5, 64, 64, 7, 1) && !coverageRenderer.layoutReady &&
+    coverageRenderer.layoutVersion === successfulVersion && !coverageRenderer._ensureCoverageBuffers(),
+  '输出分配失败不提交布局版本或复用旧 Coverage');
+}
+finally { coverageRenderer.outputContext.createImageData = createImageData; }
+
+coverageRenderer.destroy();
 coverageRenderer.destroy();
 assert(
   allocatedCoverageCanvas.width === 0 &&
@@ -1299,7 +1413,9 @@ assert(
     coverageRenderer.coverageContext === null &&
     coverageRenderer.sourceCoverage.length === 0 &&
     coverageRenderer.coverageLevels.length === 0 &&
-    coverageRenderer.coverageLevelStorage.length === 0,
+    coverageRenderer.coverageLevelStorage.length === 0 &&
+    !coverageRenderer.layoutReady && coverageRenderer.coverageLayoutVersion === -1 &&
+    !coverageRenderer._ensureCoverageBuffers(),
   'Software renderer 销毁时释放 Coverage Canvas 与单通道金字塔',
 );
 
