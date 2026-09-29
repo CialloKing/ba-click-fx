@@ -6,11 +6,39 @@
  */
 
 import assert from 'node:assert/strict';
+import { collectBenchmarkCases, createBenchmarkReport, formatDuration } from '../scripts/benchmark-report.mjs';
 import { READBACK_ROLES, trackCanvasReadbacks } from '../scripts/runtime-readback-diagnostics.mjs';
 import { tintFixture } from './canvas-tint-fixture.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BAClickFX } from '../src/fx.js';
+
+// 报告从采集数据读取提交；嵌套测量、明确跳过和校验元数据各走独立路径。
+{
+  const sample = { iterations: 50, rounds: 7, durationsMs: [25], medianMs: 25, msPerIteration: 0.5 };
+  const before = { label: 'before', commit: 'captured-before', platform: 'win32', node: '24', cpu: 'cpu',
+    browser: 'edge', executablePath: 'edge.exe', viewport: { width: 320, height: 240 },
+    randomSeed: 12345, workloadVersion: 'v1', targetBatchMs: 20, maximumIterations: 1e6,
+    cases: { clockValidation: { cases: 9 }, webgl2: { skipped: false, normal: sample,
+      trails: { fixed: sample } }, webgpu: { skipped: true, reason: 'unavailable' } } };
+  const after = structuredClone(before);
+  after.commit = 'captured-after';
+  delete after.cases.webgl2.trails.fixed;
+  const report = createBenchmarkReport(before, after);
+  assert.equal(collectBenchmarkCases(before.cases).measurements.size, 2);
+  assert(report.includes('captured-before → captured-after'));
+  assert(report.includes('| webgl2.normal | 500 µs | 500 µs | 50 / 50 | 0.00% |'));
+  assert(report.includes('缺失数据') && report.includes('跳过：unavailable'));
+  assert(report.includes('| clockValidation.cases | 9 | 9 |'));
+  after.browser = 'another';
+  assert(!createBenchmarkReport(before, after).includes('0.00%'));
+  after.browser = before.browser;
+  after.cases.webgl2.normal.iterations++;
+  assert(!createBenchmarkReport(before, after).includes('0.00%'));
+  assert.equal(formatDuration(0.000005), '5 ns');
+  before.cases.webgl2.normal.resolutionLimited = true;
+  assert(createBenchmarkReport(before, after).includes('计时受限'));
+}
 
 const tintRecords = await tintFixture();
 const tintHash = createHash('sha256').update(JSON.stringify(tintRecords.map(
