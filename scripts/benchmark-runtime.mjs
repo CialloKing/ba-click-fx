@@ -287,11 +287,14 @@ try
         });
       }
       results.fixedTrail.measurementsPer500 = results.fixedTrail.measurementRebuilds;
-      for (const software of [false, true])
+      for (const variant of ['denseClicks', 'softwareOverlay', 'softwareAlphaOne', 'softwareAlphaOneBrightCore'])
       {
-        results[software ? 'softwareOverlay' : 'denseClicks'] = await measure(20, () =>
+        const software = variant !== 'denseClicks';
+        results[variant] = await measure(20, () =>
         {
           const fx = effect({ trailEnabled: software, bloomBackend: software ? 'software' : 'native',
+            ...(variant.startsWith('softwareAlphaOne') ? { overlayAlphaLimit: 1 } : {}),
+            ...(variant === 'softwareAlphaOneBrightCore' ? { overlayColorCompensation: 'bright-core' } : {}),
             outputCompositing: software ? 'browser-overlay' : 'scene' });
           if (software) seedTrail(fx);
           for (let i = 0; i < (software ? 2 : 6); i++) fx.boom(70 + i * 30, 120);

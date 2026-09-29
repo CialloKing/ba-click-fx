@@ -102,6 +102,15 @@ async function runLifecycleMatrix(browserInstance, baseUrl)
     );
     state.metrics.pausedResize[mode] = result;
   }
+  state.currentLabel = 'software-alpha-byte-fixture';
+  const alphaFrames = await trailResourceSession.page.evaluate(async () =>
+    (await import('/test/canvas-alpha-fixture.js')).canvasAlphaFixture());
+  assert(alphaFrames.length === 6 && alphaFrames.every(record => record.frames.length === 4
+    && record.frames.every(frame => frame.visible && frame.byteLength === record.width * record.height * 4)
+    && record.frames.slice(0, 3).every(frame => frame.backend === 'software')
+    && record.frames[3].backend === 'native'),
+  'Alpha 完整帧夹具必须覆盖 Software 连续帧及注入回读失败后的 Native 回退', alphaFrames);
+  state.metrics.softwareAlphaBytes = alphaFrames;
   assert(
     trailResourceSession.pageErrors.length === 0 &&
       trailResourceSession.consoleErrors.length === 0,

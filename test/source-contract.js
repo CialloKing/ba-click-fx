@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { collectBenchmarkCases, createBenchmarkReport, formatDuration } from '../scripts/benchmark-report.mjs';
-import { READBACK_ROLES, trackCanvasReadbacks } from '../scripts/runtime-readback-diagnostics.mjs';
+import { READBACK_ROLES, FINAL_FRAME_STAGES, trackCanvasReadbacks, trackCanvasOperations } from '../scripts/runtime-readback-diagnostics.mjs';
 import { tintFixture } from './canvas-tint-fixture.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -84,6 +84,73 @@ assert(tintRecords.every(record => record.roundness > 0
   finally { recorder.restore(); }
   recorder.restore();
   assert.deepEqual(Object.getOwnPropertyDescriptor(context, 'getImageData'), descriptor);
+}
+{
+  const failure = new Error('original failure');
+  let clock = 0;
+  const context = { getImageData() { if (this.fail) throw failure; return { data: new Uint8ClampedArray(4) }; } };
+  const descriptor = Object.getOwnPropertyDescriptor(context, 'getImageData');
+  const recorder = trackCanvasReadbacks(context, { classify: () => 'finalFrame',
+    classifyStage: receiver => receiver.stage, now: () => clock++ });
+  try
+  {
+    for (const stage of FINAL_FRAME_STAGES)
+    {
+      context.stage = stage;
+      context.fail = stage === 'unclassified';
+      if (context.fail) assert.throws(() => context.getImageData(0, 0, 1, 1), error => error === failure);
+      else context.getImageData(0, 0, 1, 1);
+    }
+    for (const key of Object.keys(recorder.stats.total))
+      assert.equal(Object.values(recorder.stats.finalFrameStages).reduce((sum, value) => sum + value[key], 0), recorder.stats.total[key]);
+  }
+  finally { recorder.restore(); }
+  const broken = trackCanvasReadbacks(context, { classify: () => 'finalFrame',
+    classifyStage: () => { throw Error('stage'); }, now: () => { throw Error('clock'); } });
+  try
+  {
+    assert.throws(() => context.getImageData(0, 0, 1, 1), error => error === failure);
+    context.fail = false;
+    assert.equal(context.getImageData(0, 0, 1, 1).data.byteLength, 4);
+    assert.equal(broken.stats.total.calls, 2);
+    assert.equal(broken.stats.total.failures, 1);
+    assert.equal(broken.stats.collectionErrors, 6);
+  }
+  finally { broken.restore(); }
+  const operations = trackCanvasOperations(context, { accepts: () => true, stage: () => 'regionAlpha', limit: 1 });
+  try
+  {
+    context.getImageData(1, 2, 1, 1);
+    context.getImageData(1, 2, 1, 1);
+    assert.equal(operations.trace.entries.length, 1);
+    assert.equal(operations.trace.dropped, 1);
+    assert.equal(operations.trace.truncated, true);
+    assert.deepEqual(operations.trace.entries[0].args, [1, 2, 1, 1]);
+  }
+  finally { operations.restore(); }
+  const brokenTrace = trackCanvasOperations(context, { accepts: () => { throw Error('trace'); }, stage: () => '' });
+  try
+  {
+    context.fail = true;
+    assert.throws(() => context.getImageData(0, 0, 1, 1), error => error === failure);
+    assert.equal(brokenTrace.trace.collectionErrors, 1);
+  }
+  finally { brokenTrace.restore(); }
+  assert.deepEqual(Object.getOwnPropertyDescriptor(context, 'getImageData'), descriptor);
+}
+{
+  const context = { fill() { return 7; }, getImageData() { return 9; } };
+  const recorder = trackCanvasOperations(context, { accepts: () => true, stage: () => 'softwareCleanup', limit: 2 });
+  try
+  {
+    for (let i = 0; i < 300; i++) assert.equal(context.fill(), 7);
+    assert.equal(context.getImageData(0, 0, 2, 3), 9);
+    assert.equal(recorder.trace.entries.length, 2);
+    assert.equal(recorder.trace.entries[0].calls, 300);
+    assert.equal(recorder.trace.entries[1].operation, 'getImageData');
+    assert.equal(recorder.trace.truncated, false);
+  }
+  finally { recorder.restore(); }
 }
 import { UNITY_FX_TOUCH } from '../src/config.js';
 import {
