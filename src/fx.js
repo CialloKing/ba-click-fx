@@ -102,6 +102,7 @@ const MAX_SCALED_TIME_DELTA_MS = Number.MAX_SAFE_INTEGER;
 const MAX_TRAIL_INNER_MITER_RATIO = 4;
 const MIN_TRAIL_SEGMENT_LENGTH = 0.000001;
 const TRAIL_MESH_CACHE_CAPACITY = 4;
+const TRAIL_GRADIENT_CACHE_CAPACITY = 8;
 const TOUCH_DIRECTION_THRESHOLD = 2;
 const TOUCH_FILTER_CACHE_MS = 1000;
 const TOUCH_INPUT_MATCH_TOLERANCE = 2;
@@ -3920,6 +3921,7 @@ function createTrailPoint(x, y, bornAt)
 
 function invalidateTrailPoints(stroke)
 {
+  releaseTrailGradients(stroke.trailFrameData);
   stroke.pointsVersion = (stroke.pointsVersion ?? 0) + 1;
   stroke.trailFrameData = null;
   stroke.trailFrameCache = null;
@@ -4475,9 +4477,70 @@ function getTrailMesh(trailData, points, width, trailCfg)
   // 清晰层和 Bloom 可保留各自宽度，但连续缩放不能积累全部历史网格。
   if (trailData.meshCache.size > TRAIL_MESH_CACHE_CAPACITY)
   {
+    releaseMeshGradients(trailData.meshCache.values().next().value);
     trailData.meshCache.delete(trailData.meshCache.keys().next().value);
   }
   return mesh;
+}
+
+function releaseMeshGradients(mesh)
+{
+  if (!mesh?.canvasGradientCache) return;
+  for (const group of mesh.canvasGradientCache)
+  {
+    group.segments.clear();
+    group.caps.clear();
+    group.context = null;
+    group.signature = null;
+  }
+  mesh.canvasGradientCache.length = 0;
+}
+
+function releaseTrailGradients(data)
+{
+  for (const mesh of data?.meshCache?.values() ?? []) releaseMeshGradients(mesh);
+}
+
+function getTrailGradientGroup(mesh, context, data, trailCfg, layer, opacity)
+{
+  // 未知变换的轻量 Context 保持原路径；真实 Canvas 以当前变换和尺寸识别渐变。
+  if (!layer.gradientPurpose || typeof context.getTransform !== 'function') return null;
+  const transform = context.getTransform();
+  const signature = [data.pointEnergies, data.segmentEnergies, data.pointTransverseProfiles,
+    data.segmentTransverseProfiles, data.pointCoverageProfiles, data.segmentCoverageProfiles,
+    trailCfg, themeHueShift, relativeOklchTheme, opacity, layer.alpha, layer.materialIntensity,
+    layer.outputCompositing, layer.overlayColorCompensation, layer.overlayAlphaLimit,
+    layer.globalOpacity, context.canvas.width, context.canvas.height,
+    transform.a, transform.b, transform.c, transform.d, transform.e, transform.f,
+    ...(layer.gradientParameters ?? [])];
+  const groups = mesh.canvasGradientCache ??= [];
+  const index = groups.findIndex(group => group.context === context && group.purpose === layer.gradientPurpose);
+  let group = index < 0 ? null : groups.splice(index, 1)[0];
+  if (!group || !group.signature.every((value, i) => Object.is(value, signature[i]))
+    || group.signature.length !== signature.length)
+  {
+    if (group) { group.segments.clear(); group.caps.clear(); }
+    group = { context, purpose: layer.gradientPurpose, signature, segments: new Map(), caps: new Map() };
+  }
+  groups.push(group);
+  if (groups.length > TRAIL_GRADIENT_CACHE_CAPACITY)
+  {
+    const expired = groups.shift();
+    expired.segments.clear(); expired.caps.clear();
+    expired.context = null; expired.signature = null;
+  }
+  return group;
+}
+
+function cachedTrailGradient(records, key, context, from, to, profile, colorAtIntensity)
+{
+  const record = records?.get(key);
+  if (record && record.x1 === from.x && record.y1 === from.y && record.x2 === to.x && record.y2 === to.y)
+    return record.gradient;
+  const gradient = createTrailCrossSectionGradient(context, from, to, profile, colorAtIntensity);
+  // 只有完整写入所有 stop 的渐变才能成为下一帧可复用资源。
+  records?.set(key, { gradient, x1: from.x, y1: from.y, x2: to.x, y2: to.y });
+  return gradient;
 }
 
 function resolveTrailTransverseProfile(profile)
@@ -4516,9 +4579,12 @@ function fillTrailMeshSegment(
   endJoin,
   transverseProfile,
   colorAtIntensity,
+  records = null,
 )
 {
-  const gradient = createTrailCrossSectionGradient(
+  const gradient = cachedTrailGradient(
+    records,
+    segment,
     context,
     segment.fromLeft,
     segment.fromRight,
@@ -4568,11 +4634,14 @@ function fillTrailMeshCap(
   cap,
   transverseProfile,
   colorAtIntensity,
+  records = null,
 )
 {
   const left = cap.points[0];
   const right = cap.position === 'start' ? cap.points[1] : cap.points[2];
-  const gradient = createTrailCrossSectionGradient(
+  const gradient = cachedTrailGradient(
+    records,
+    cap,
     context,
     left,
     right,
@@ -4704,6 +4773,7 @@ function drawTrailLayer(
   context.shadowColor = 'transparent';
   const width = layer.scaledWidth ?? layer.width * scale;
   const mesh = getTrailMesh(trailData, points, width, trailCfg);
+  const gradientGroup = getTrailGradientGroup(mesh, context, trailData, trailCfg, layer, opacity);
   const firstSegment = clamp(
     Math.floor(segmentStart),
     1,
@@ -4783,6 +4853,7 @@ function drawTrailLayer(
         evaluateNumber(coverageProfile, position),
         longitudinalCoverage,
       ),
+      gradientGroup?.segments,
     );
   }
 
@@ -4827,6 +4898,7 @@ function drawTrailLayer(
         evaluateNumber(coverageProfile, position),
         longitudinalCoverage,
       ),
+      gradientGroup?.caps,
     );
   }
 
@@ -5016,6 +5088,8 @@ function drawNativeTrailBloom(
     trailCfg,
     {
       width: bloomWidth,
+      gradientPurpose: 'native-bloom',
+      gradientParameters: [bloomCfg, outputCompositing, overlayColorCompensation, overlayAlphaLimit],
       materialIntensity: bloomCfg.trailEmission,
       colorAtIntensity: (
         color,
@@ -5107,6 +5181,7 @@ function drawTrail(
     {
       width: trailCfg.width,
       alpha: 1,
+      gradientPurpose: 'clear',
       materialIntensity: bloomCfg.trailEmission,
       outputCompositing,
       overlayColorCompensation,
@@ -5149,6 +5224,8 @@ function drawTrailCoverage(
     {
       width: trailCfg.width,
       // Additive Shader 的目标 Alpha 固定为 1；透明适配层只保留实际
+      gradientPurpose: 'coverage',
+      gradientParameters: [trailOpacity],
       // TrailRenderer 几何与全局透明度，不混入材质 HDR 发射倍率。
       colorAtIntensity: (
         _color,
@@ -5217,6 +5294,8 @@ function drawTrailEmission(
     {
       scaledWidth: width,
       alpha: 1,
+      gradientPurpose: 'emission',
+      gradientParameters: [trailOpacity, bloomCfg.emissionRange],
       materialIntensity: bloomCfg.trailEmission,
       colorAtIntensity: (color, intensity) =>
         linearEnergyToEmissionCss(
@@ -9321,6 +9400,7 @@ export class BAClickFX
 
   _releaseBackendFrameResources()
   {
+    for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
     this._releaseSoftwareBloomFrame();
     // 配置事务已经选择了新的渲染链；先撤下所有旧输出，再释放仅与
     // 画布尺寸绑定的目标。下一帧只会为实际接管输出的后端重新分配。
@@ -9338,6 +9418,7 @@ export class BAClickFX
 
   _releaseBloomBackendFrameResources()
   {
+    for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
     this._releaseSoftwareBloomFrame();
     // 完整 GPU Scene 已接管时，Bloom 配置只是回退策略，不能
     // 为它释放当前 Effect 目标；这里只清理 Canvas 回退链的帧资源。
@@ -9392,6 +9473,7 @@ export class BAClickFX
     }
 
     const removed = this.bloomRenderers.splice(retainedCount);
+    for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
 
     for (const renderer of removed)
     {
@@ -11276,6 +11358,7 @@ export class BAClickFX
     let data = valid ? stroke.trailFrameData : null;
     if (!data)
     {
+      releaseTrailGradients(stroke.trailFrameData);
       data = createTrailFrameData(stroke.points, this.fxConfig.trail, materialIntensity, true);
       stroke.trailFrameCache = {
         points: stroke.points,
@@ -11349,6 +11432,7 @@ export class BAClickFX
       }
       else
       {
+        releaseTrailGradients(stroke.trailFrameData);
         stroke.trailFrameData = null;
         stroke.trailFrameCache = null;
       }

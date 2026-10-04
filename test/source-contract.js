@@ -917,4 +917,40 @@ assert.equal(fx.height, 480, '源码入口 resize 更新高度');
 fx.destroy();
 assert.equal(fx.destroyed, true, '源码入口可以销毁实例');
 
+// 私有缓存函数直接取自源码，不增加发布导出或第二套测试框架。
+{
+  const source = readFileSync(new URL('../src/fx.js', import.meta.url), 'utf8');
+  const helpers = source.slice(source.indexOf('function releaseMeshGradients('), source.indexOf('function fillTrailMeshSegment('));
+  const { group, gradient, release } = new Function(`const TRAIL_GRADIENT_CACHE_CAPACITY = 8;
+    const themeHueShift = 0, relativeOklchTheme = null, clamp01 = x => Math.max(0, Math.min(1, x));
+    ${helpers}
+    return { group: getTrailGradientGroup, gradient: cachedTrailGradient, release: releaseMeshGradients };`)();
+  const mesh = {}, data = {}, config = {}, layer = { gradientPurpose: 'clear', alpha: 1 };
+  const transform = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+  let creations = 0;
+  const context = { canvas: { width: 320, height: 240 }, getTransform: () => transform,
+    createLinearGradient() { creations++; return { addColorStop() {} }; } };
+  const first = group(mesh, context, data, config, layer, 1);
+  const from = { x: 1, y: 2 }, to = { x: 2, y: 3 }, profile = [[0, 1], [1, 1]];
+  const key = {};
+  const value = gradient(first.segments, key, context, from, to, profile, () => 'red');
+  assert.equal(group(mesh, context, data, config, layer, 1), first);
+  assert.equal(gradient(first.segments, key, context, from, to, profile, () => { throw Error('hit must skip stops'); }), value);
+  assert.equal(creations, 1);
+  transform.e = 10;
+  assert.notEqual(group(mesh, context, data, config, layer, 1), first);
+  assert.equal(first.segments.size, 0);
+  const current = mesh.canvasGradientCache[0];
+  const failure = Error('stop failure');
+  assert.throws(() => gradient(current.caps, key, context, from, to, profile, () => { throw failure; }), error => error === failure);
+  assert.equal(current.caps.size, 0);
+  for (let i = 0; i < 10; i++) group(mesh, { ...context }, data, config, layer, 1);
+  assert.equal(mesh.canvasGradientCache.length, 8);
+  assert.equal(current.context, null);
+  const retained = mesh.canvasGradientCache[0];
+  release(mesh); release(mesh);
+  assert.equal(mesh.canvasGradientCache.length, 0);
+  assert.equal(retained.context, null);
+}
+
 console.log('\n源码入口与资源合同通过');
