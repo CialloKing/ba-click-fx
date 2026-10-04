@@ -504,6 +504,8 @@ try
     }
   });
   // 正式基准全部结束后再包装诊断与 CPU 采样，避免影响七轮原始耗时。
+  result.filterWork = await page.evaluate(async () =>
+    (await import('/scripts/runtime-filter-diagnostics.mjs')).countSoftwareFiltering());
   const { diagnostics, profile } = await diagnoseSoftware(page);
   result.softwareDiagnosticsFile = `runtime-software-${label}.json`;
   result.softwareProfileFile = `runtime-software-${label}.cpuprofile`;

@@ -1,14 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-export async function filterFixture(sourceText = null, captureBytes = false)
+export async function filterFixture(sourceText = null, captureBytes = false, prepared = false)
 {
   const sourceUrl = new URL('../src/software-bloom.js', import.meta.url);
   let source = (sourceText ?? readFileSync(sourceUrl, 'utf8')).replace(/from '(\.\/[^']+)'/g,
     (_, path) => `from '${new URL(path, sourceUrl).href}'`);
-  for (const [name, field] of [['addBilinearRgb', 'rgbSamples'], ['sampleBilinearScalar', 'scalarSamples']])
+  for (const [name, field] of [['addBilinearRgb', 'rgbSamples'], ['sampleBilinearScalar', 'scalarSamples'],
+    ['addPreparedBilinearRgb', 'rgbSamples'], ['samplePreparedBilinearScalar', 'scalarSamples']])
     source = source.replace(new RegExp(`(function ${name}\\([\\s\\S]*?\\)\\s*\\{)`), `$1\nwork.${field}++;`);
   source += '\nexport const work = { rgbSamples: 0, scalarSamples: 0 };\nexport { filterBoxScalar, upsampleTransportAndAdd, filterBloomForComposite };';
+  if (prepared) source += '\nexport { prepareFilterSampling, prefilterBloomPrepared, downsampleBox, upsampleBoxAndAdd };';
   const kernels = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
   const records = [];
   let seed = 12345;
@@ -54,18 +56,24 @@ export async function filterFixture(sourceText = null, captureBytes = false)
         return Float32Array.prototype.fill.apply(this, args);
       };
     const before = { ...kernels.work };
+    const plan = prepared ? kernels.prepareFilterSampling(
+      ['upsample', 'transport'].includes(name) ? smallWidth : width,
+      ['upsample', 'transport'].includes(name) ? smallHeight : height,
+      outputWidth, outputHeight, ['prefilter', 'downsample'].includes(name) ? 1 : name === 'scalar' ? offset : Math.max(0, offset) * 0.5) : null;
     let result;
-    if (name === 'prefilter') result = kernels.prefilterBloom(input, width, height,
-      output, outputWidth, outputHeight, 0.8, 0.5, 65472, true, 1, bounds, transport);
-    if (name === 'downsample') result = kernels.downsampleGaussian(input, width, height,
-      null, output, outputWidth, outputHeight, bounds);
-    if (name === 'upsample') result = kernels.upsampleAndMixBloom(input, width, height,
-      coarse, smallWidth, smallHeight, output, offset, true, bounds, bounds);
+    if (name === 'prefilter') result = (prepared ? kernels.prefilterBloomPrepared : kernels.prefilterBloom)(input, width, height,
+      output, outputWidth, outputHeight, 0.8, 0.5, 65472, true, 1, bounds, transport, plan);
+    if (name === 'downsample') result = prepared
+      ? kernels.downsampleBox(input, width, height, output, outputWidth, outputHeight, plan)
+      : kernels.downsampleGaussian(input, width, height, null, output, outputWidth, outputHeight, bounds);
+    if (name === 'upsample') result = prepared
+      ? kernels.upsampleBoxAndAdd(input, width, height, coarse, smallWidth, smallHeight, output, offset, plan)
+      : kernels.upsampleAndMixBloom(input, width, height, coarse, smallWidth, smallHeight, output, offset, true, bounds, bounds);
     if (name === 'scalar') result = kernels.filterBoxScalar(input, width, height,
-      output, outputWidth, outputHeight, offset, bounds, bounded);
+      output, outputWidth, outputHeight, offset, bounds, bounded, plan);
     if (name === 'transport') result = kernels.upsampleTransportAndAdd(input, width, height,
-      coarse, smallWidth, smallHeight, output, offset);
-    if (name === 'composite') result = kernels.filterBloomForComposite(input, width, height, output, offset);
+      coarse, smallWidth, smallHeight, output, offset, plan);
+    if (name === 'composite') result = kernels.filterBloomForComposite(input, width, height, output, offset, plan);
     const bytes = Buffer.concat([...[input, coarse, output, transport].map(buffer =>
       Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength)),
       Buffer.from(JSON.stringify(result) ?? 'undefined')]);
