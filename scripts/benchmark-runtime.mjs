@@ -49,6 +49,8 @@ try
     const { WebGPUEffectRenderer } = await import('/src/webgpu-effect.js');
     const { seedRoundedShards } = await import('/scripts/runtime-readback-diagnostics.mjs');
     const { trackCanvasWork } = await import('/scripts/runtime-canvas-work.mjs');
+    const { loadRingDiagnosticModule } = await import('/scripts/runtime-ring-diagnostics.mjs');
+    const ringDiagnostic = await loadRingDiagnosticModule();
     const nativeNow = performance.now.bind(performance);
     const nativeNowDescriptor = Object.getOwnPropertyDescriptor(performance, 'now');
     const nativeRandom = Math.random;
@@ -135,7 +137,7 @@ try
       {
         // 每轮从相同逻辑状态预热，避免移动轨迹和随机粒子逐轮改变工作量。
         now = 100; seed = 12345;
-        const fixture = await create();
+        const fixture = await create(counting);
         let counter;
         try
         {
@@ -345,6 +347,48 @@ try
         };
       });
       if (!results.softwareRoundedShards.tintWritesPer20) throw new Error('圆角基准未经过染色路径');
+      results.canvasRings = {};
+      for (const bloomBackend of ['native', 'software'])
+        for (const themed of [false, true])
+          for (const advancing of [false, true])
+          {
+            results.canvasRings[`${bloomBackend}-${themed ? 'relativeOklch' : 'default'}-${advancing ? 'advancing' : 'fixed'}`] = await measure(20, counting =>
+            {
+              const Effect = counting ? ringDiagnostic.BAClickFX : BAClickFX;
+              const fx = new Effect({ inputSource: 'manual', effectBackend: 'canvas2d', bloomBackend,
+                trailEnabled: false, outputCompositing: 'browser-overlay',
+                ...(themed ? { themeColor: '#ff6699', themeColorMode: 'relative-oklch' } : {}) });
+              effects.add(fx);
+              fx.setFxParam('shards.maxCount', 0);
+              let step = 0;
+              const spawn = () => { fx.boom(100, 120); fx.boom(200, 120); };
+              spawn();
+              return {
+                work: () =>
+                {
+                  if (advancing)
+                  {
+                    now += 4;
+                    if (step > 0 && step % 100 === 0) { fx.clear(); spawn(); }
+                  }
+                  fx._renderFrame(advancing ? now : 220);
+                  step++;
+                  if (fx.resolvedBloomBackend !== bloomBackend || fx.waves.length !== 2)
+                    throw new Error('圆环基准发生后端回退或生命周期工作量变化');
+                },
+                count: () =>
+                {
+                  ringDiagnostic.resetRingWork();
+                  const canvas = trackCanvasWork(fx, CanvasRenderingContext2D.prototype, CanvasGradient.prototype);
+                  return { counts: { get ringWorkPer20() { return { ...ringDiagnostic.ringWork,
+                    preparationHits: ringDiagnostic.ringWork.preparationRequests - ringDiagnostic.ringWork.preparations }; },
+                    canvasWorkPer20: canvas.counts }, restore: canvas.restore };
+                },
+                destroy: () => destroyEffect(fx),
+                details: () => ({ waves: fx.waves.length, rings: fx.waves.reduce((count, wave) => count + wave.rings.length, 0) }),
+              };
+            });
+          }
       results.canvasTrails = {};
       for (const bloomBackend of ['native', 'software'])
         for (const themed of [false, true])

@@ -1,5 +1,6 @@
 // 同环境改动前/后运行并比较完整帧哈希；不把 Canvas 后端差异固化成跨机器像素阈值。
-export async function canvasAlphaFixture({ includeBytes = false, bloomBackend = 'software', bentTrail = false } = {})
+export async function canvasAlphaFixture({ includeBytes = false, bloomBackend = 'software', bentTrail = false,
+  ringVariant = false } = {})
 {
   const { BAClickFX } = await import('../src/fx.js');
   const nowDescriptor = Object.getOwnPropertyDescriptor(performance, 'now');
@@ -29,6 +30,13 @@ export async function canvasAlphaFixture({ includeBytes = false, bloomBackend = 
         outputCompositing: 'browser-overlay', overlayAlphaLimit: limit, overlayAlphaPolicy: policy,
         overlayColorCompensation: compensation, opacity, themeColor: theme, themeColorMode: 'relative-oklch' });
       fx.setFxParam('shards.maxCount', 0);
+      if (ringVariant)
+      {
+        fx.setThemeColorMode('hue-only');
+        const update = fx.setFxParams({ 'rings.arcSamples': 33, 'rings.radialSamples': 3,
+          'rings.dissolveDirection': -1 }, { strict: true });
+        if (!update.committed) throw Error('圆环边界参数夹具未成功提交');
+      }
       fx.pointerDown({ x: 20, y: 80, pointerId: 1 });
       fx._appendPointerSample({ x: 280, y: 140 }, fx._getTrailInputTime(100));
       if (bentTrail)
@@ -51,7 +59,8 @@ export async function canvasAlphaFixture({ includeBytes = false, bloomBackend = 
         frames.push({ hash, byteLength: bytes.byteLength, visible: bytes.some(value => value !== 0), backend: fx.resolvedBloomBackend,
           ...(includeBytes ? { bytes: btoa(binary) } : {}) });
       };
-      for (const time of [220, 236, 260])
+      const times = ringVariant ? [220, 420, 600] : [220, 236, 260];
+      for (const time of times)
       {
         fx._renderFrame(time);
         if (fx.resolvedBloomBackend !== bloomBackend || (bloomBackend === 'software' && !fx.lastSoftwareBloomFrame))
@@ -64,7 +73,7 @@ export async function canvasAlphaFixture({ includeBytes = false, bloomBackend = 
       {
       const descriptor = Object.getOwnPropertyDescriptor(context, 'getImageData');
       context.getImageData = () => { throw Error('injected Software readback failure'); };
-      try { fx._renderFrame(260); await capture(); }
+      try { fx._renderFrame(times.at(-1)); await capture(); }
       finally
       {
         if (descriptor) Object.defineProperty(context, 'getImageData', descriptor);

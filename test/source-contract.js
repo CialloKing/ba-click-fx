@@ -10,6 +10,7 @@ import { trackCanvasWork } from '../scripts/runtime-canvas-work.mjs';
 import { collectBenchmarkCases, createBenchmarkReport, formatDuration } from '../scripts/benchmark-report.mjs';
 import { READBACK_ROLES, FINAL_FRAME_STAGES, trackCanvasReadbacks, trackCanvasOperations } from '../scripts/runtime-readback-diagnostics.mjs';
 import { tintFixture } from './canvas-tint-fixture.js';
+import { ringFixture } from './canvas-ring-fixture.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BAClickFX } from '../src/fx.js';
@@ -981,6 +982,24 @@ assert.equal(fx.destroyed, true, '源码入口可以销毁实例');
   target._canvasBoundsScope = undefined;
   target._getCanvasOverlayPixelBounds(1); target._getCanvasOverlayPixelBounds(1);
   assert.equal(calls, 8, '独立调用不跨帧缓存');
+}
+
+{
+  const { module, records } = await ringFixture();
+  const hash = createHash('sha256').update(JSON.stringify(records)).digest('hex');
+  assert.equal(hash, 'a96de5e1716ae82fc836c5bc6fa8bafc9846eeca64eec918def101863a5d96ee',
+    '圆环原始采样、边界 stop 及颜色回调顺序保持一致');
+  console.log(`圆环采样黄金哈希：${hash}（${records.length} 组）`);
+  const context = { createConicGradient: () => ({ addColorStop() {} }) };
+  const config = { arcSamples: 96, dissolveDirection: -1, textureUvMin: 0.1, textureUvMax: 0.9 };
+  module.resetRingWork();
+  assert.equal(module.createDissolvedRingGradient({}, config, 0.35, 0.5, String), null);
+  assert.equal(module.ringWork.textureSamples, 0);
+  const error = Error('gradient failure');
+  assert.throws(() => module.createDissolvedRingGradient({ createConicGradient() { throw error; } }, config, 0.35, 0.5, String), value => value === error);
+  assert.equal(module.ringWork.preparations, 0);
+  module.createDissolvedRingGradient(context, config, 0.35, 0.5, String);
+  assert.equal(module.ringWork.boundaryIterations, module.ringWork.boundarySearches * 8);
 }
 
 console.log('\n源码入口与资源合同通过');
