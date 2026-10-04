@@ -2324,5 +2324,43 @@ assert(filterRecords.length === 864 && filterHash === '0d2a3592f0fd100bc874b0221
   '864 组滤波 RGB/Coverage、边界、HDR、脏值及重叠视图保持原 Float32 字节和采样次数');
 assert(filterRecords.reduce((sum, record) => sum + record.fillFloats, 0) === 81579,
   '完整非重叠输出省略 14433 个 float 清零，局部范围、尾部和输入别名保留清零');
+strictAssert.deepEqual(await filterFixture(null, true, true), await filterFixture(null, true),
+  '准备坐标后的 864 组 Float32 字节、局部范围、别名与 tap 次数和原独立路径一致');
+
+const samplingRenderer = new SoftwareBloomRenderer(createSoftwareCanvasFactory().createCanvas);
+const secondSamplingRenderer = new SoftwareBloomRenderer(createSoftwareCanvasFactory().createCanvas);
+const getPlan = (width = 3, offset = 1) => samplingRenderer._getSamplingPlan(0, width, 5, 2, 3, offset);
+const samplingPlan = getPlan();
+assert(getPlan() === samplingPlan && samplingPlan.x instanceof Float64Array && samplingPlan.y instanceof Float64Array,
+  '相同实际尺寸和偏移复用双精度 X/Y 表，RGB/Coverage 不区分缓存键');
+assert(samplingPlan.x.length + samplingPlan.y.length === (2 + 3) * 6,
+  '坐标表容量随宽高之和增长');
+assert(getPlan(3, 1 + 1e-10) !== samplingPlan && getPlan(4) !== samplingPlan,
+  '精确偏移及实际源尺寸改变时替换表');
+assert(secondSamplingRenderer._getSamplingPlan(0, 3, 5, 2, 3, 1).x !== samplingPlan.x,
+  '不同实例没有共享可变采样表');
+for (let width = 1; width <= 100; width++) getPlan(width);
+assert(samplingRenderer.samplingTables.length === 33 && samplingRenderer.samplingTables.filter(Boolean).length === 1,
+  '固定绘制位置只保留当前依赖，不累积历史组合');
+const originalFloat64 = globalThis.Float64Array;
+try
+{
+  globalThis.Float64Array = class { constructor() { throw new Error('injected allocation failure'); } };
+  assert(getPlan() === null && samplingRenderer.samplingTables[0] === null,
+    '准备失败走原计算路径且不标记为有效');
+}
+finally { globalThis.Float64Array = originalFloat64; }
+assert(getPlan() !== null, '准备失败后下次调用可重建');
+samplingRenderer._resize(17, 13, 0.5, 256, 192, 7, 1);
+assert(samplingRenderer.samplingTables.every(value => !value), '布局改变解除旧表引用');
+const physicalPlan = getPlan();
+const oldSampleScale = samplingRenderer.sampleScale;
+samplingRenderer._resize(17 / 1.001, 13 / 1.001, 0.5001, 256.2, 192.2, 7.1, 1.001);
+assert(getPlan() === physicalPlan && samplingRenderer.sampleScale !== oldSampleScale,
+  '物理布局不变时保留无关表，DPR 与 fractional diffusion 仍更新采样倍率');
+assert(getPlan(3, samplingRenderer.sampleScale * 0.5) !== physicalPlan,
+  'fractional diffusion 更新实际偏移所依赖的表');
+samplingRenderer.destroy(); samplingRenderer.destroy(); secondSamplingRenderer.destroy();
+assert(samplingRenderer.samplingTables.length === 0, '重复销毁解除采样表引用');
 
 console.log(`\n✅ ${passed} 项 Software Bloom 数值检查通过\n`);

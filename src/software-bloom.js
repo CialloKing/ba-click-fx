@@ -401,6 +401,11 @@ function addBilinearRgb(
   const bottom = Math.min(top + 1, height - 1);
   const horizontal = safeX - left;
   const vertical = safeY - top;
+  addBilinearRgbSample(source, width, left, right, top, bottom, horizontal, vertical, weight, output, outputIndex);
+}
+
+function addBilinearRgbSample(source, width, left, right, top, bottom, horizontal, vertical, weight, output, outputIndex)
+{
   const topLeftWeight = (1 - horizontal) * (1 - vertical) * weight;
   const topRightWeight = horizontal * (1 - vertical) * weight;
   const bottomLeftWeight = (1 - horizontal) * vertical * weight;
@@ -430,6 +435,11 @@ function sampleBilinearScalar(source, width, height, x, y)
   const bottom = Math.min(top + 1, height - 1);
   const horizontal = safeX - left;
   const vertical = safeY - top;
+  return sampleBilinearScalarSample(source, width, left, right, top, bottom, horizontal, vertical);
+}
+
+function sampleBilinearScalarSample(source, width, left, right, top, bottom, horizontal, vertical)
+{
 
   return source[top * width + left] * (1 - horizontal) * (1 - vertical) +
     source[top * width + right] * horizontal * (1 - vertical) +
@@ -438,8 +448,17 @@ function sampleBilinearScalar(source, width, height, x, y)
 }
 
 // 固定 tap 顺序仍是左上、左下、右上、右下；RGB 每次累加都保留 Float32 舍入。
-function addBoxRgb(source, width, height, x, y, offset, output, outputIndex)
+function addBoxRgb(source, width, height, x, y, offset, output, outputIndex, sampling = null, targetX = 0, targetY = 0)
 {
+  if (sampling)
+  {
+    const xi = targetX * 6; const yi = targetY * 6;
+    addPreparedBilinearRgb(source, width, sampling.x, xi, sampling.y, yi, output, outputIndex);
+    addPreparedBilinearRgb(source, width, sampling.x, xi, sampling.y, yi + 3, output, outputIndex);
+    addPreparedBilinearRgb(source, width, sampling.x, xi + 3, sampling.y, yi, output, outputIndex);
+    addPreparedBilinearRgb(source, width, sampling.x, xi + 3, sampling.y, yi + 3, output, outputIndex);
+    return;
+  }
   const left = x + -offset;
   const right = x + offset;
   const top = y + -offset;
@@ -450,8 +469,18 @@ function addBoxRgb(source, width, height, x, y, offset, output, outputIndex)
   addBilinearRgb(source, width, height, right, bottom, 0.25, output, outputIndex);
 }
 
-function sampleBoxScalar(source, width, height, x, y, offset)
+function sampleBoxScalar(source, width, height, x, y, offset, sampling = null, targetX = 0, targetY = 0)
 {
+  if (sampling)
+  {
+    const xi = targetX * 6; const yi = targetY * 6;
+    let value = 0;
+    value += samplePreparedBilinearScalar(source, width, sampling.x, xi, sampling.y, yi) * 0.25;
+    value += samplePreparedBilinearScalar(source, width, sampling.x, xi, sampling.y, yi + 3) * 0.25;
+    value += samplePreparedBilinearScalar(source, width, sampling.x, xi + 3, sampling.y, yi) * 0.25;
+    value += samplePreparedBilinearScalar(source, width, sampling.x, xi + 3, sampling.y, yi + 3) * 0.25;
+    return value;
+  }
   const left = x + -offset;
   const right = x + offset;
   const top = y + -offset;
@@ -462,6 +491,45 @@ function sampleBoxScalar(source, width, height, x, y, offset)
   value += sampleBilinearScalar(source, width, height, right, top) * 0.25;
   value += sampleBilinearScalar(source, width, height, right, bottom) * 0.25;
   return value;
+}
+
+function prepareFilterAxis(sourceLength, targetLength, offset)
+{
+  // 分离轴表只随宽高之和增长；索引及插值比例均保留双精度。
+  const values = new Float64Array(targetLength * 6);
+  const scale = sourceLength / targetLength;
+  for (let index = 0; index < targetLength; index++)
+  {
+    const center = (index + 0.5) * scale - 0.5;
+    for (let side = 0; side < 2; side++)
+    {
+      const safe = clamp(center + (side === 0 ? -offset : offset), 0, sourceLength - 1);
+      const left = Math.floor(safe);
+      const cursor = index * 6 + side * 3;
+      values[cursor] = left;
+      values[cursor + 1] = Math.min(left + 1, sourceLength - 1);
+      values[cursor + 2] = safe - left;
+    }
+  }
+  return values;
+}
+
+function prepareFilterSampling(sourceWidth, sourceHeight, outputWidth, outputHeight, offset)
+{
+  const sampling = { sourceWidth, sourceHeight, outputWidth, outputHeight, offset,
+    x: prepareFilterAxis(sourceWidth, outputWidth, offset),
+    y: prepareFilterAxis(sourceHeight, outputHeight, offset) };
+  return sampling;
+}
+
+function addPreparedBilinearRgb(source, width, x, xi, y, yi, output, outputIndex)
+{
+  addBilinearRgbSample(source, width, x[xi], x[xi + 1], y[yi], y[yi + 1], x[xi + 2], y[yi + 2], 0.25, output, outputIndex);
+}
+
+function samplePreparedBilinearScalar(source, width, x, xi, y, yi)
+{
+  return sampleBilinearScalarSample(source, width, x[xi], x[xi + 1], y[yi], y[yi + 1], x[xi + 2], y[yi + 2]);
 }
 
 function buffersOverlap(left, right)
@@ -489,6 +557,7 @@ function filterBoxScalar(
   sampleOffset,
   sourceBounds = null,
   clampResult = false,
+  sampling = null,
 )
 {
   const scaleX = sourceWidth / outputWidth;
@@ -529,11 +598,11 @@ function filterBoxScalar(
 
   for (let y = startY; y < endY; y++)
   {
-    const sourceY = (y + 0.5) * scaleY - 0.5;
+    const sourceY = sampling ? 0 : (y + 0.5) * scaleY - 0.5;
 
     for (let x = startX; x < endX; x++)
     {
-      const sourceX = (x + 0.5) * scaleX - 0.5;
+      const sourceX = sampling ? 0 : (x + 0.5) * scaleX - 0.5;
       const coverage = sampleBoxScalar(
         source,
         sourceWidth,
@@ -541,6 +610,7 @@ function filterBoxScalar(
         sourceX,
         sourceY,
         sampleOffset,
+        sampling, x, y,
       );
 
       output[y * outputWidth + x] = clampResult
@@ -559,6 +629,7 @@ function filterBoxCoverage(
   outputHeight,
   sampleOffset,
   sourceBounds = null,
+  sampling = null,
 )
 {
   // authored Coverage 只经过空间滤波，不受 HDR 阈值、强度或色相影响。
@@ -572,6 +643,7 @@ function filterBoxCoverage(
     sampleOffset,
     sourceBounds,
     true,
+    sampling,
   );
 }
 
@@ -584,6 +656,7 @@ function upsampleTransportAndAdd(
   coarseHeight,
   output,
   sampleScale,
+  sampling = null,
 )
 {
   const scaleX = coarseWidth / fineWidth;
@@ -597,11 +670,11 @@ function upsampleTransportAndAdd(
 
   for (let y = 0; y < fineHeight; y++)
   {
-    const coarseY = (y + 0.5) * scaleY - 0.5;
+    const coarseY = sampling ? 0 : (y + 0.5) * scaleY - 0.5;
 
     for (let x = 0; x < fineWidth; x++)
     {
-      const coarseX = (x + 0.5) * scaleX - 0.5;
+      const coarseX = sampling ? 0 : (x + 0.5) * scaleX - 0.5;
       const coarseCoverage = sampleBoxScalar(
         accumulatedCoarse,
         coarseWidth,
@@ -609,6 +682,7 @@ function upsampleTransportAndAdd(
         coarseX,
         coarseY,
         offset,
+        sampling, x, y,
       );
 
       const outputIndex = y * fineWidth + x;
@@ -626,6 +700,16 @@ function upsampleTransportAndAdd(
  * 从全分辨率发射遮罩生成半分辨率 mip0，并执行 MXFinalBloom Box4 预过滤。
  */
 export function prefilterBloom(
+  source, sourceWidth, sourceHeight, output, outputWidth, outputHeight,
+  threshold, softKnee, clampMax = HALF_FLOAT_MAX, highQualityFiltering = true,
+  sourceTexelAspect = sourceHeight / sourceWidth, sourceBounds = null, transportOutput = null,
+)
+{
+  return prefilterBloomPrepared(source, sourceWidth, sourceHeight, output, outputWidth, outputHeight,
+    threshold, softKnee, clampMax, highQualityFiltering, sourceTexelAspect, sourceBounds, transportOutput);
+}
+
+function prefilterBloomPrepared(
   source,
   sourceWidth,
   sourceHeight,
@@ -640,6 +724,7 @@ export function prefilterBloom(
   sourceTexelAspect = sourceHeight / sourceWidth,
   sourceBounds = null,
   transportOutput = null,
+  sampling = null,
 )
 {
   const scaleX = sourceWidth / outputWidth;
@@ -682,11 +767,11 @@ export function prefilterBloom(
 
   for (let y = startY; y < endY; y++)
   {
-    const sourceY = (y + 0.5) * scaleY - 0.5;
+    const sourceY = sampling ? 0 : (y + 0.5) * scaleY - 0.5;
 
     for (let x = startX; x < endX; x++)
     {
-      const sourceX = (x + 0.5) * scaleX - 0.5;
+      const sourceX = sampling ? 0 : (x + 0.5) * scaleX - 0.5;
       const outputIndex = (y * outputWidth + x) * RGB_CHANNELS;
 
       output[outputIndex] = 0;
@@ -702,6 +787,7 @@ export function prefilterBloom(
         1,
         output,
         outputIndex,
+        sampling, x, y,
       );
 
       const contribution = writeThresholdedColor(
@@ -754,6 +840,7 @@ function downsampleBox(
   output,
   outputWidth,
   outputHeight,
+  sampling = null,
 )
 {
   const scaleX = sourceWidth / outputWidth;
@@ -767,11 +854,11 @@ function downsampleBox(
 
   for (let y = 0; y < outputHeight; y++)
   {
-    const sourceY = (y + 0.5) * scaleY - 0.5;
+    const sourceY = sampling ? 0 : (y + 0.5) * scaleY - 0.5;
 
     for (let x = 0; x < outputWidth; x++)
     {
-      const sourceX = (x + 0.5) * scaleX - 0.5;
+      const sourceX = sampling ? 0 : (x + 0.5) * scaleX - 0.5;
       const outputIndex = (y * outputWidth + x) * RGB_CHANNELS;
 
       addBoxRgb(
@@ -783,6 +870,7 @@ function downsampleBox(
         1,
         output,
         outputIndex,
+        sampling, x, y,
       );
 
       if (Math.max(
@@ -846,6 +934,7 @@ function upsampleBoxAndAdd(
   coarseHeight,
   output,
   sampleScale,
+  sampling = null,
 )
 {
   const scaleX = coarseWidth / fineWidth;
@@ -859,11 +948,11 @@ function upsampleBoxAndAdd(
 
   for (let y = 0; y < fineHeight; y++)
   {
-    const coarseY = (y + 0.5) * scaleY - 0.5;
+    const coarseY = sampling ? 0 : (y + 0.5) * scaleY - 0.5;
 
     for (let x = 0; x < fineWidth; x++)
     {
-      const coarseX = (x + 0.5) * scaleX - 0.5;
+      const coarseX = sampling ? 0 : (x + 0.5) * scaleX - 0.5;
       const outputIndex = (y * fineWidth + x) * RGB_CHANNELS;
 
       // 当前细级与输出同尺寸，中心采样应保持其原始清晰能量。
@@ -880,6 +969,7 @@ function upsampleBoxAndAdd(
         offset,
         output,
         outputIndex,
+        sampling, x, y,
       );
     }
   }
@@ -1143,6 +1233,7 @@ function filterBloomForComposite(
   height,
   output,
   sampleScale,
+  sampling = null,
 )
 {
   const offset = Math.max(0, sampleScale) * 0.5;
@@ -1164,6 +1255,7 @@ function filterBloomForComposite(
         offset,
         output,
         outputIndex,
+        sampling, x, y,
       );
     }
   }
@@ -1325,6 +1417,7 @@ export class SoftwareBloomRenderer
     this.outputBounds = null;
     this.sourceReadBounds = null;
     this.floatBufferAllocationCount = 0;
+    this.samplingTables = new Array(MAX_PYRAMID_LEVELS * 2 + 1);
     this.available = Boolean(
       this.sourceContext &&
       this.outputContext &&
@@ -1353,6 +1446,28 @@ export class SoftwareBloomRenderer
     }
 
     return new Float32Array(buffer.buffer, 0, length);
+  }
+
+  _getSamplingPlan(slot, sourceWidth, sourceHeight, outputWidth, outputHeight, offset)
+  {
+    const cached = this.samplingTables[slot];
+    if (cached && cached.sourceWidth === sourceWidth && cached.sourceHeight === sourceHeight &&
+      cached.outputWidth === outputWidth && cached.outputHeight === outputHeight && cached.offset === offset)
+    {
+      return cached;
+    }
+    try
+    {
+      const sampling = prepareFilterSampling(sourceWidth, sourceHeight, outputWidth, outputHeight, offset);
+      this.samplingTables[slot] = sampling;
+      return sampling;
+    }
+    catch
+    {
+      // 准备失败不留下有效标记；本次滤波仍执行原来的逐 tap 坐标计算。
+      this.samplingTables[slot] = null;
+      return null;
+    }
   }
 
   _ensureCanvasCapacity(canvas, width, height)
@@ -1499,6 +1614,8 @@ export class SoftwareBloomRenderer
 
     this.layoutReady = false;
     this.coverageLayoutVersion = -1;
+    // 布局重建时释放上一布局各固定位置的表，不保留已移除的层级。
+    this.samplingTables.fill(null);
     this.sourceWidth = sourceWidth;
     this.sourceHeight = sourceHeight;
     this.width = width;
@@ -1869,7 +1986,9 @@ export class SoftwareBloomRenderer
 
     const activeBounds = [];
 
-    activeBounds[0] = prefilterBloom(
+    const firstSampling = this._getSamplingPlan(0, this.sourceWidth, this.sourceHeight,
+      firstLevel.width, firstLevel.height, 1);
+    activeBounds[0] = prefilterBloomPrepared(
       this.sourceLinear,
       this.sourceWidth,
       this.sourceHeight,
@@ -1883,6 +2002,7 @@ export class SoftwareBloomRenderer
       1,
       emissionBounds,
       firstCoverageLevel?.down,
+      firstSampling,
     );
 
     if (transparentOverlay)
@@ -1896,6 +2016,7 @@ export class SoftwareBloomRenderer
         firstCoverageLevel.height,
         1,
         coverageBounds,
+        firstSampling,
       );
     }
 
@@ -1910,15 +2031,16 @@ export class SoftwareBloomRenderer
       const previous = this.levels[level - 1];
       const current = this.levels[level];
 
-      activeBounds[level] = downsampleGaussian(
+      const sampling = this._getSamplingPlan(level, previous.width, previous.height,
+        current.width, current.height, 1);
+      activeBounds[level] = downsampleBox(
         previous.down,
         previous.width,
         previous.height,
-        current.scratch,
         current.down,
         current.width,
         current.height,
-        activeBounds[level - 1],
+        sampling,
       );
 
       if (transparentOverlay)
@@ -1934,6 +2056,7 @@ export class SoftwareBloomRenderer
           currentCoverage.width,
           currentCoverage.height,
           1,
+          null, false, sampling,
         );
       }
     }
@@ -1949,7 +2072,10 @@ export class SoftwareBloomRenderer
       const fineLevel = this.levels[level];
       const accumulatedCoarseLevel = this.levels[level + 1];
 
-      bloomBounds = upsampleAndMixBloom(
+      const sampling = this._getSamplingPlan(MAX_PYRAMID_LEVELS + level,
+        accumulatedCoarseLevel.width, accumulatedCoarseLevel.height,
+        fineLevel.width, fineLevel.height, Math.max(0, this.sampleScale) * 0.5);
+      bloomBounds = upsampleBoxAndAdd(
         fineLevel.down,
         fineLevel.width,
         fineLevel.height,
@@ -1958,9 +2084,7 @@ export class SoftwareBloomRenderer
         accumulatedCoarseLevel.height,
         fineLevel.up,
         this.sampleScale,
-        true,
-        activeBounds[level],
-        bloomBounds,
+        sampling,
       );
       bloom = fineLevel.up;
 
@@ -1978,6 +2102,7 @@ export class SoftwareBloomRenderer
           accumulatedCoarseCoverageLevel.height,
           fineCoverageLevel.up,
           this.sampleScale,
+          sampling,
         );
         bloomCoverage = fineCoverageLevel.up;
       }
@@ -1985,6 +2110,8 @@ export class SoftwareBloomRenderer
 
     this._clearOutputBounds();
     const compositeBloom = this.levels[0].scratch;
+    const finalSampling = this._getSamplingPlan(MAX_PYRAMID_LEVELS * 2, this.width, this.height,
+      this.width, this.height, Math.max(0, this.sampleScale) * 0.5);
 
     filterBloomForComposite(
       bloom,
@@ -1992,6 +2119,7 @@ export class SoftwareBloomRenderer
       this.height,
       compositeBloom,
       this.sampleScale,
+      finalSampling,
     );
     let compositeCoverage = null;
 
@@ -2006,6 +2134,7 @@ export class SoftwareBloomRenderer
         this.width,
         this.height,
         Math.max(0, this.sampleScale) * 0.5,
+        null, false, finalSampling,
       );
     }
 
@@ -2235,6 +2364,7 @@ export class SoftwareBloomRenderer
     this.coverageLayoutVersion = -1;
     this.outputImageData = null;
     this.outputBounds = null;
+    this.samplingTables = [];
     this.sourceReadBounds = null;
   }
 }
