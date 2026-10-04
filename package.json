@@ -100,6 +100,7 @@
     "verify:runtime-sync": "node scripts/verify-runtime-sync.cjs",
     "verify:demo-sync": "node scripts/verify-demo-sync.cjs",
     "verify:unity-reference": "node scripts/verify-unity-reference.mjs",
+    "compare:unity": "node scripts/compare-unity.mjs",
     "verify:package": "node scripts/verify-package.mjs",
     "verify:tarball": "node scripts/verify-tarball.mjs",
     "check:fast": "npm test && npm run verify:runtime-sync",

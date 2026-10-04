@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { decodeHalf, compareRgb, encodePreview, srgbEncode } from '../scripts/unity-compare-data.mjs';
+
+assert.deepEqual([...decodeHalf(Buffer.from([0, 0, 0, 60, 0, 192, 1, 0]))], [0, 1, -2, 2 ** -24]);
+assert.throws(() => decodeHalf(Buffer.from([0])), /长度/);
+const reference = Float32Array.of(1, 2, 3, 0);
+assert.equal(compareRgb(reference, reference).maximumError, 0);
+const metric = compareRgb(reference, Float32Array.of(2, 2, 3, 1));
+assert.equal(metric.maximumError, 1);
+assert.equal(metric.referenceEnergy, 6);
+assert.equal(metric.actualEnergy, 7);
+assert.equal(metric.meanAbsoluteError, 1 / 3);
+assert.throws(() => compareRgb(reference, Float32Array.of(Infinity, 2, 3, 0)), /非有限/);
+assert.equal(srgbEncode(0), 0);
+assert(Math.abs(srgbEncode(1) - 1) < 1e-14);
+const png = encodePreview(reference, 1, 1);
+assert.equal(png.subarray(1, 4).toString(), 'PNG');
+assert.equal(png.readUInt32BE(16), 1);
+assert.equal(png.readUInt32BE(20), 1);
+console.log('Unity Half 解码、原始 RGB 指标与 PNG 输出检查通过');
