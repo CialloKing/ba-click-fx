@@ -1000,6 +1000,30 @@ assert.equal(fx.destroyed, true, '源码入口可以销毁实例');
   assert.equal(module.ringWork.preparations, 0);
   module.createDissolvedRingGradient(context, config, 0.35, 0.5, String);
   assert.equal(module.ringWork.boundaryIterations, module.ringWork.boundarySearches * 8);
+  module.resetRingWork();
+  module.withRingSampleScope(() =>
+  {
+    const draw = () => module.createDissolvedRingGradient(context, config, 0.35, 0.5, String);
+    draw(); draw();
+    assert.equal(module.ringWork.preparations, 1, '同范围相同依赖只准备一次');
+    const outer = module.readRingSampleScope();
+    module.withRingSampleScope(() => { assert.notEqual(module.readRingSampleScope(), outer); draw(); });
+    assert.equal(module.readRingSampleScope(), outer, '重入恢复外层缓存');
+    draw();
+    assert.equal(module.ringWork.preparations, 2);
+    for (const change of [() => config.arcSamples++, () => config.dissolveDirection = 1,
+      () => config.textureUvMin = 0, () => config.textureUvMax = 1]) { change(); draw(); }
+    module.createDissolvedRingGradient(context, config, 0.36, 0.5, String);
+    module.createDissolvedRingGradient(context, config, 0.36, 0.6, String);
+    assert.equal(module.ringWork.preparations, 8, '实际配置、阈值和径向位置参与有效性');
+    assert.throws(() => module.withRingSampleScope(() => { throw error; }), value => value === error);
+    assert.equal(module.readRingSampleScope(), outer, '异常也恢复外层范围');
+  });
+  assert.equal(module.readRingSampleScope(), null, '缓存不跨帧保存');
+  const prepared = module.ringWork.preparations;
+  module.createDissolvedRingGradient(context, config, 0.35, 0.5, String);
+  module.createDissolvedRingGradient(context, config, 0.35, 0.5, String);
+  assert.equal(module.ringWork.preparations, prepared + 2, '独立调用保持原路径');
 }
 
 console.log('\n源码入口与资源合同通过');

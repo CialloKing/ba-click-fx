@@ -111,6 +111,11 @@ async function runLifecycleMatrix(browserInstance, baseUrl)
     && record.frames[3].backend === 'native'),
   'Alpha 完整帧夹具必须覆盖 Software 连续帧及注入回读失败后的 Native 回退', alphaFrames);
   state.metrics.softwareAlphaBytes = alphaFrames;
+  state.currentLabel = 'ring-sample-render-scope';
+  const ringScope = await trailResourceSession.page.evaluate(async () =>
+    (await import('/test/canvas-alpha-fixture.js')).ringScopeContract());
+  assert(Object.values(ringScope).every(Boolean), '圆环采样范围的重入、失效与释放合同失败', ringScope);
+  state.metrics.ringSampleScope = ringScope;
   assert(
     trailResourceSession.pageErrors.length === 0 &&
       trailResourceSession.consoleErrors.length === 0,

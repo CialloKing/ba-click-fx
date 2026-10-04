@@ -23,6 +23,8 @@ export function instrumentRingSource(source, sourceUrl)
     boundaryIterations: 0, preparationRequests: 0, preparations: 0 };
     export function resetRingWork() { for (const key of Object.keys(ringWork)) ringWork[key] = 0; }
     export { createDissolvedRingGradient };
+    export const hasRingSampleCache = ${prepared};
+    export function readRingSampleScope() { return ${prepared ? 'ringSampleCache' : 'null'}; }
     export function withRingSampleScope(callback) {
       ${prepared ? 'const previous = ringSampleCache; ringSampleCache = new WeakMap(); try { return callback(); } finally { ringSampleCache = previous; }' : 'return callback();'}
     }`;

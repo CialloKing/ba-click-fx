@@ -698,12 +698,16 @@ const goldenRandom = Math.random;
 const goldenTime = performance.now();
 const goldenDpr = dom.windowMock.devicePixelRatio;
 const goldenFloat64 = globalThis.Float64Array;
-let nativeGoldenAllocations = 0;
+const nativeGoldenAllocations = new Map();
 try
 {
   Math.random = () => 0.5;
   globalThis.Float64Array = new Proxy(goldenFloat64, {
-    construct(target, args) { nativeGoldenAllocations++; return new target(...args); },
+    construct(target, args)
+    {
+      nativeGoldenAllocations.set(args[0], (nativeGoldenAllocations.get(args[0]) ?? 0) + 1);
+      return new target(...args);
+    },
   });
   for (const [themeColor, themeColorMode] of [
     ['#4ca7ff', 'relative-oklch'], ['#ff8800', 'hue-only'], ['#ff6699', 'relative-oklch'],
@@ -747,8 +751,11 @@ const nativeGoldenHash = (await import('node:crypto')).createHash('sha256')
 
 assert(nativeGoldenRecords.length === 48 && nativeGoldenHash === '476422967f2cfd253492ba77a952918af5b4c7393ee12c39678cce27b8f0f44a',
   'Native 在 48 组年龄、主题、DPR 和参数组合下的渐变数值与优化前完全一致');
-assert(nativeGoldenAllocations === 1,
+// 区分固定 16×16×4 纹理表与第十阶段的同帧圆环准备缓冲；旧 64 点无用数组仍禁止出现。
+assert(nativeGoldenAllocations.get(1024) === 1 && !nativeGoldenAllocations.has(64),
   'Native 多实例只分配一次固定纹理采样表，不再逐环分配角向工作数组');
+assert(nativeGoldenAllocations.get(97) === 480 && nativeGoldenAllocations.size === 2,
+  '48 组场景的同帧圆环双精度缓冲按径向带准备，不随双圆环重复分配');
 
 
 const tintHasher = (await import('node:crypto')).createHash('sha256');

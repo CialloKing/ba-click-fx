@@ -353,6 +353,7 @@ function hslToRgb(h, s, l)
 let themeHueShift = 0;
 let relativeOklchTheme = null;
 let gradientEnergyCache = null;
+let ringSampleCache = null;
 const BASE_BLUE = [76, 167, 255];
 const BASE_BLUE_HUE = rgbToHsl(BASE_BLUE[0] / 255, BASE_BLUE[1] / 255, BASE_BLUE[2] / 255)[0];
 
@@ -1907,6 +1908,59 @@ function findRingClipBoundary(
   return (start + end) * 0.5;
 }
 
+function prepareRingGradientSamples(ringCfg, threshold, radialProgress, sampleCount, direction)
+{
+  const count = Math.floor(sampleCount) + 1;
+  // 保留原 Number 的双精度，不能用 Float32 工作区提前舍入亮度或 clip 边界。
+  const luminances = new Float64Array(count);
+  const boundaries = new Float64Array(count);
+  const transitions = new Uint8Array(count);
+  let previousLuminance = null;
+
+  for (let sample = 0; sample <= sampleCount; sample++)
+  {
+    const angularProgress = sample / sampleCount;
+    const textureProgress = resolveRingTextureProgress(angularProgress, direction);
+    const luminance = evaluateRingLuminance(textureProgress, radialProgress, threshold, ringCfg);
+    luminances[sample] = luminance;
+
+    if (previousLuminance !== null && (previousLuminance > 0) !== (luminance > 0))
+    {
+      boundaries[sample] = findRingClipBoundary(
+        (sample - 1) / sampleCount, angularProgress, radialProgress, threshold, direction, ringCfg,
+      );
+      transitions[sample] = previousLuminance > 0 ? 1 : 2;
+    }
+    previousLuminance = luminance;
+  }
+  return { sampleCount, luminances, boundaries, transitions };
+}
+
+function getRingGradientSamples(ringCfg, threshold, radialProgress)
+{
+  const sampleCount = Math.max(32, ringCfg.arcSamples);
+  const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
+  if (!ringSampleCache)
+  {
+    return prepareRingGradientSamples(ringCfg, threshold, radialProgress, sampleCount, direction);
+  }
+  let entries = ringSampleCache.get(ringCfg);
+  if (!entries)
+  {
+    entries = new Map();
+    ringSampleCache.set(ringCfg, entries);
+  }
+  // 颜色、半径和 Canvas 变换不参与纹理 Alpha 与 clip 边界计算；实际 UV 和阈值必须参与。
+  const key = `${sampleCount}:${direction}:${radialProgress}:${threshold}:${ringCfg.textureUvMin}:${ringCfg.textureUvMax}`;
+  let samples = entries.get(key);
+  if (!samples)
+  {
+    samples = prepareRingGradientSamples(ringCfg, threshold, radialProgress, sampleCount, direction);
+    entries.set(key, samples);
+  }
+  return samples;
+}
+
 function createDissolvedRingGradient(
   context,
   ringCfg,
@@ -1921,40 +1975,21 @@ function createDissolvedRingGradient(
   }
 
   const gradient = context.createConicGradient(0, 0, 0);
-  const sampleCount = Math.max(32, ringCfg.arcSamples);
-  const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
-  let previousLuminance = null;
+  const samples = getRingGradientSamples(ringCfg, threshold, radialProgress);
+  const sampleCount = samples.sampleCount;
 
   for (let sample = 0; sample <= sampleCount; sample++)
   {
     const angularProgress = sample / sampleCount;
-    const textureProgress = resolveRingTextureProgress(
-      angularProgress,
-      direction,
-    );
-    const luminance = evaluateRingLuminance(
-      textureProgress,
-      radialProgress,
-      threshold,
-      ringCfg,
-    );
+    const luminance = samples.luminances[sample];
 
-    if (previousLuminance !== null &&
-        (previousLuminance > 0) !== (luminance > 0))
+    if (samples.transitions[sample])
     {
-      const previousProgress = (sample - 1) / sampleCount;
-      const boundary = findRingClipBoundary(
-        previousProgress,
-        angularProgress,
-        radialProgress,
-        threshold,
-        direction,
-        ringCfg,
-      );
+      const boundary = samples.boundaries[sample];
       const visibleBoundary = colorForLuminance(threshold);
       const transparentBoundary = colorForLuminance(0);
 
-      if (previousLuminance > 0)
+      if (samples.transitions[sample] === 1)
       {
         gradient.addColorStop(boundary, visibleBoundary);
         gradient.addColorStop(boundary, transparentBoundary);
@@ -1970,7 +2005,6 @@ function createDissolvedRingGradient(
       angularProgress,
       colorForLuminance(luminance),
     );
-    previousLuminance = luminance;
   }
 
   return gradient;
@@ -8009,6 +8043,7 @@ export class BAClickFX
     const prevHueShift = themeHueShift;
     const previousRelativeOklchTheme = relativeOklchTheme;
     const previousGradientEnergyCache = gradientEnergyCache;
+    const previousRingSampleCache = ringSampleCache;
     const previousBoundsScope = this._canvasBoundsScope;
     let contextSaved = false;
 
@@ -8026,6 +8061,8 @@ export class BAClickFX
       themeHueShift = this._themeHueShift;
       relativeOklchTheme = this._relativeOklchTheme;
       gradientEnergyCache = this._gradientEnergyCache;
+      // 每次渲染独立准备，包括重入；finally 恢复外层范围，不跨帧保存历史阈值。
+      ringSampleCache = new WeakMap();
       // 透明 Canvas 无法独立保存 Additive RGB 与 Coverage Alpha；在 residual
       // Coverage Final Pass 完成前保留兼容 source-over，避免多个粒子把 Alpha 相加。
       if (this.context)
@@ -8201,6 +8238,7 @@ export class BAClickFX
       themeHueShift = prevHueShift;
       relativeOklchTheme = previousRelativeOklchTheme;
       gradientEnergyCache = previousGradientEnergyCache;
+      ringSampleCache = previousRingSampleCache;
       this._canvasBoundsScope = previousBoundsScope;
 
       if (contextSaved)
@@ -11041,6 +11079,7 @@ export class BAClickFX
     const previousHueShift = themeHueShift;
     const previousRelativeOklchTheme = relativeOklchTheme;
     const previousGradientEnergyCache = gradientEnergyCache;
+    const previousRingSampleCache = ringSampleCache;
     let resolvedBloomBackend = bloomBackend;
 
     this._setResolvedBloomBackend(resolvedBloomBackend);
@@ -11060,6 +11099,7 @@ export class BAClickFX
       themeHueShift = this._themeHueShift;
       relativeOklchTheme = this._relativeOklchTheme;
       gradientEnergyCache = this._gradientEnergyCache;
+      ringSampleCache = new WeakMap();
       this._drawCanvasFallbackFrame(
         scale,
         resolvedBloomBackend === 'native',
@@ -11106,6 +11146,7 @@ export class BAClickFX
       themeHueShift = previousHueShift;
       relativeOklchTheme = previousRelativeOklchTheme;
       gradientEnergyCache = previousGradientEnergyCache;
+      ringSampleCache = previousRingSampleCache;
 
       if (contextSaved)
       {

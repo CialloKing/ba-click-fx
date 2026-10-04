@@ -97,3 +97,98 @@ export async function canvasAlphaFixture({ includeBytes = false, bloomBackend = 
     }
   }
 }
+
+// 检查真实帧入口的作用域，而非只验证私有准备函数的命中。
+export async function ringScopeContract()
+{
+  const { loadRingDiagnosticModule } = await import('../scripts/runtime-ring-diagnostics.mjs');
+  const module = await loadRingDiagnosticModule();
+  const nowDescriptor = Object.getOwnPropertyDescriptor(performance, 'now');
+  const raf = window.requestAnimationFrame, cancel = window.cancelAnimationFrame;
+  const instances = [];
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;width:320px;height:240px;left:0;top:0';
+  document.body.appendChild(host);
+  const result = { reentrant: false, multiInstance: false, restored: false, independentFrames: false,
+    parameters: false, cleared: false, destroyed: false, fallback: false, exception: false };
+  try
+  {
+    Object.defineProperty(performance, 'now', { configurable: true, value: () => 100 });
+    window.requestAnimationFrame = () => 1; window.cancelAnimationFrame = () => {};
+    for (const bloomBackend of ['native', 'software'])
+    {
+      const fx = new module.BAClickFX({ target: host, inputSource: 'manual', effectBackend: 'canvas2d',
+        trailEnabled: false, bloomBackend, outputCompositing: 'browser-overlay',
+        themeColor: bloomBackend === 'software' ? '#ff6699' : '#4ca7ff' });
+      fx.setFxParam('shards.maxCount', 0); fx.boom(160, 120);
+      instances.push(fx);
+    }
+    const [fx, other] = instances;
+    const draw = fx._drawWaveRings, otherDraw = other._drawWaveRings;
+    let outer, entered = false, nested = false;
+    fx._drawWaveRings = function (...args)
+    {
+      const current = module.readRingSampleScope();
+      if (nested) result.reentrant = current !== outer && current !== null;
+      else if (!entered)
+      {
+        entered = true; outer = current; nested = true;
+        this._renderFrame(220);
+        other._renderFrame(220);
+        result.restored = module.readRingSampleScope() === outer;
+        nested = false;
+      }
+      return draw.apply(this, args);
+    };
+    other._drawWaveRings = function (...args)
+    {
+      result.multiInstance = module.readRingSampleScope() !== outer && module.readRingSampleScope() !== null;
+      return otherDraw.apply(this, args);
+    };
+    fx._renderFrame(220);
+    result.restored &&= module.readRingSampleScope() === null;
+    fx._drawWaveRings = draw; other._drawWaveRings = otherDraw;
+    module.resetRingWork(); fx._renderFrame(220);
+    const first = module.ringWork.preparations;
+    fx._renderFrame(220);
+    result.independentFrames = first > 0 && module.ringWork.preparations === first * 2
+      && module.readRingSampleScope() === null;
+    result.parameters = fx.setFxParam('rings.arcSamples', 33);
+    fx._renderFrame(236); fx.resetFxConfig(); fx.setThemeColorMode('hue-only');
+    fx.setPaused(true); fx.setPaused(false); fx._renderFrame(240);
+    result.parameters &&= module.readRingSampleScope() === null;
+    // 独立 Context 丢失回退入口也必须建立自己的范围并恢复。
+    other._restoreCanvasOutputAfterContextLoss('software');
+    result.fallback = other.resolvedBloomBackend === 'software' && module.readRingSampleScope() === null;
+    // 外层已有缓存时，故障帧中的 finally 仍须恢复它；原渲染异常按既有路径记录。
+    const error = Error('injected ring scope failure'), log = console.error;
+    let captured = false;
+    fx._updateTrail = () => { throw error; };
+    console.error = (...args) => { if (args.includes(error)) captured = true; else log(...args); };
+    try
+    {
+      module.withRingSampleScope(() =>
+      {
+        const previous = module.readRingSampleScope();
+        fx._renderFrame(250);
+        result.exception = captured && module.readRingSampleScope() === previous;
+      });
+    }
+    finally { console.error = log; }
+    fx.clear(); other.clear();
+    result.cleared = module.readRingSampleScope() === null && instances.every(value => value.waves.length === 0);
+    for (const value of instances) { value.destroy(); value.destroy(); }
+    result.destroyed = module.readRingSampleScope() === null && instances.every(value => value.destroyed);
+    return result;
+  }
+  finally
+  {
+    try { for (const fx of instances) fx.destroy(); }
+    finally
+    {
+      host.remove();
+      if (nowDescriptor) Object.defineProperty(performance, 'now', nowDescriptor); else delete performance.now;
+      window.requestAnimationFrame = raf; window.cancelAnimationFrame = cancel;
+    }
+  }
+}
