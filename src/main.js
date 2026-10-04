@@ -1476,12 +1476,29 @@ function syncHdrPresentationControls(snapshot)
 
 }
 
+let renderBackendFrameRefreshQueued = false;
+
+function scheduleRenderBackendFrameRefresh()
+{
+  if (renderBackendFrameRefreshQueued) return;
+  renderBackendFrameRefreshQueued = true;
+  requestAnimationFrame(() =>
+  {
+    renderBackendFrameRefreshQueued = false;
+    updateRenderBackendStatus();
+  });
+}
+
 function applyHdrPresentation(overrides, persist = true)
 {
   effect.updateConfig(overrides);
   const snapshot = effect.getConfig();
 
   updateRenderBackendStatus();
+
+  // 尺寸或配置更新可先解除 Canvas 配置，再于已排队的渲染帧恢复同一后端。
+  // 后端名称未变时不会有 change 事件；这里只合并一次提交后的快照刷新。
+  scheduleRenderBackendFrameRefresh();
 
   if (persist)
   {
@@ -1656,7 +1673,7 @@ function applyRenderMode(mode)
   effect.updateConfig(config);
   updateRenderBackendStatus();
   // 事件负责持续同步运行时变化；RAF 兼容不支持 CustomEvent 的旧环境。
-  requestAnimationFrame(updateRenderBackendStatus);
+  scheduleRenderBackendFrameRefresh();
 }
 
 function handleRenderBackendChange()

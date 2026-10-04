@@ -1611,6 +1611,8 @@ async function runDemoHdrStatusTransitions(page)
     const effect = window.BAClickFXDemo;
     const descriptor = Object.getOwnPropertyDescriptor(effect, 'getConfig');
     const getConfig = effect.getConfig;
+    const updateDescriptor = Object.getOwnPropertyDescriptor(effect, 'updateConfig');
+    const updateConfig = effect.updateConfig;
     const wasPaused = effect.paused;
     const storedEnabled = localStorage.getItem('bafx-ctrlHdrUiEnabled');
     let override = null;
@@ -1646,12 +1648,23 @@ async function runDemoHdrStatusTransitions(page)
       override = null;
       document.getElementById('ctrlHdrUiEnabled').dispatchEvent(new Event('change'));
       results.push({ mode: 'ui-change', settled: read(), paused: effect.paused });
+      // 保留真实 Extended 设备，仅模拟配置在下一帧结束时才恢复输出快照。
+      // 同一后端不会再发 change 事件，microtask 刷新不足以覆盖这个顺序。
+      override = { resolvedWebGPUOutputMode: 'pending' };
+      effect.updateConfig = () => {};
+      requestAnimationFrame(() => { override = null; });
+      document.getElementById('ctrlWebGPUHdrBrightness').dispatchEvent(new Event('input'));
+      const immediate = read();
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      results.push({ mode: 'frame-completion', immediate, settled: read(), paused: effect.paused });
       return results;
     }
     finally
     {
       if (descriptor) Object.defineProperty(effect, 'getConfig', descriptor);
       else delete effect.getConfig;
+      if (updateDescriptor) Object.defineProperty(effect, 'updateConfig', updateDescriptor);
+      else delete effect.updateConfig;
       signal();
       effect.setPaused(wasPaused);
       if (storedEnabled === null) localStorage.removeItem('bafx-ctrlHdrUiEnabled');
