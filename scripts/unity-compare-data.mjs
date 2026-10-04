@@ -29,6 +29,12 @@ export function srgbEncode(value)
   return linear <= 0.0031308 ? linear * 12.92 : 1.055 * linear ** (1 / 2.4) - 0.055;
 }
 
+export function srgbDecode(value)
+{
+  const encoded = Math.max(0, Math.min(1, value));
+  return encoded <= 0.04045 ? encoded / 12.92 : ((encoded + 0.055) / 1.055) ** 2.4;
+}
+
 export function compareRgb(reference, actual)
 {
   if (reference.length !== actual.length || reference.length % 4) throw new Error('比较缓冲长度不一致');

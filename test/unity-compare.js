@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { decodeHalf, compareRgb, encodePreview, srgbEncode } from '../scripts/unity-compare-data.mjs';
+import { decodeHalf, compareRgb, encodePreview, srgbEncode, srgbDecode } from '../scripts/unity-compare-data.mjs';
 
 assert.deepEqual([...decodeHalf(Buffer.from([0, 0, 0, 60, 0, 192, 1, 0]))], [0, 1, -2, 2 ** -24]);
 assert.throws(() => decodeHalf(Buffer.from([0])), /长度/);
@@ -13,6 +13,9 @@ assert.equal(metric.meanAbsoluteError, 1 / 3);
 assert.throws(() => compareRgb(reference, Float32Array.of(Infinity, 2, 3, 0)), /非有限/);
 assert.equal(srgbEncode(0), 0);
 assert(Math.abs(srgbEncode(1) - 1) < 1e-14);
+assert(Math.abs(srgbDecode(srgbEncode(0.18)) - 0.18) < 1e-14);
+assert(compareRgb(Float32Array.of(4, 0, 0, 0), Float32Array.of(srgbDecode(1), 0, 0, 0)).maximumError === 3,
+  '保留参考 HDR 值，不能让 SDR 显示域夹取隐藏亮度差异');
 const png = encodePreview(reference, 1, 1);
 assert.equal(png.subarray(1, 4).toString(), 'PNG');
 assert.equal(png.readUInt32BE(16), 1);

@@ -4,7 +4,7 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright-core';
 import { findChromiumExecutable, startViteServer, closeBrowserRuntime } from '../test/browser/harness.mjs';
-import { decodeHalf, decodeUnityBuffer, compareRgb, srgbEncode, encodePreview } from './unity-compare-data.mjs';
+import { decodeHalf, decodeUnityBuffer, compareRgb, srgbEncode, srgbDecode, encodePreview } from './unity-compare-data.mjs';
 
 const json = async path => JSON.parse((await readFile(path, 'utf8')).replace(/^\uFEFF/, ''));
 const stableState = ({ frame, elapsedUnityTime, run, ...state }) => state;
@@ -69,7 +69,7 @@ export async function compareUnityCapture({ root, output })
   const report = { capture: await json(join(output, 'environment.json')),
     replayCommit: execFileSync('git', ['describe', '--always', '--dirty'], { cwd: root, encoding: 'utf8' }).trim(),
     input, repeat: { runs: 2, stateAndPixelsIdentical: true }, cases: {}, consoleErrors: [],
-    note: '中间层比较原始线性 RGB。Final 使用原网页 Shader 的 SDR 编码输出；Unity 线性 Composite 显式 sRGB 编码后比较。Alpha 不纳入 RGB 指标。PNG 差异固定放大 16 倍，无自动对齐或缩放。' };
+    note: '中间层比较原始线性 RGB。Final 同时报告原始 Unity HDR 与网页 SDR 解码后的线性差异，以及 SDR 显示域差异。前者保留 Unity 超出 1 的值，后者明确夹取和 sRGB 编码参考值；两者不能混用。Alpha 不纳入 RGB 指标。PNG 差异固定放大 16 倍，无自动对齐或缩放。' };
   let browser; let vite; let current;
   try
   {
@@ -91,8 +91,12 @@ export async function compareUnityCapture({ root, output })
       const actual = stage.format === 'float32' ? new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) : decodeHalf(bytes);
       const reference = decodeUnityBuffer(await readFile(join(current.directory, `${stage.name}.rgba16f.gz`)), stage.width, stage.height);
       const encoded = stage.name === '40_Composite';
+      let linearComparison;
+      let actualLinear;
       if (encoded)
       {
+        actualLinear = Float32Array.from(actual, (value, index) => index % 4 === 3 ? value : srgbDecode(value));
+        linearComparison = compareRgb(reference, actualLinear);
         for (let index = 0; index < reference.length; index++) if (index % 4 !== 3) reference[index] = srgbEncode(reference[index]);
       }
       const metrics = compareRgb(reference, actual);
@@ -101,7 +105,9 @@ export async function compareUnityCapture({ root, output })
       await writeFile(join(directory, `${stage.name}.rgba32f.gz`), gzipSync(Buffer.from(actual.buffer)));
       await writeFile(join(directory, `${stage.name}.png`), encodePreview(actual, stage.width, stage.height, { encoded }));
       await writeFile(join(directory, `${stage.name}-diff.png`), encodePreview(actual, stage.width, stage.height, { reference }));
-      report.cases[current.name][current.backend].stages[stage.name] = { width: stage.width, height: stage.height, domain: encoded ? 'encoded-sRGB' : 'linear-HDR', ...metrics };
+      if (encoded) await writeFile(join(directory, `${stage.name}-linear.rgba32f.gz`), gzipSync(Buffer.from(actualLinear.buffer)));
+      report.cases[current.name][current.backend].stages[stage.name] = { width: stage.width, height: stage.height, domain: encoded ? 'encoded-sRGB' : 'linear-HDR', ...metrics,
+        ...(linearComparison ? { linearComparison: { domain: 'Unity-HDR-vs-web-decoded-SDR', ...linearComparison } } : {}) };
     });
     await page.goto(`${runtime.baseUrl}/test/browser/webgpu.html`);
     for (const sample of cases)
@@ -142,7 +148,11 @@ export async function compareUnityCapture({ root, output })
     for (const [backend, record] of Object.entries(backends))
     {
       if (record.skipped) rows.push(`| ${name} | ${backend} | 跳过：${record.reason} | | | | | |`);
-      for (const [stage, metric] of Object.entries(record.stages)) rows.push(`| ${name} | ${backend} | ${stage} | ${metric.maximumError.toPrecision(6)} | ${metric.meanAbsoluteError.toPrecision(6)} | ${metric.rmse.toPrecision(6)} | ${metric.referenceEnergy.toPrecision(8)} | ${metric.actualEnergy.toPrecision(8)} |`);
+      for (const [stage, metric] of Object.entries(record.stages))
+      {
+        for (const [title, values] of [[stage, metric], ...(metric.linearComparison ? [[`${stage} (原始 HDR/网页 SDR)`, metric.linearComparison]] : [])])
+          rows.push(`| ${name} | ${backend} | ${title} | ${values.maximumError.toPrecision(6)} | ${values.meanAbsoluteError.toPrecision(6)} | ${values.rmse.toPrecision(6)} | ${values.referenceEnergy.toPrecision(8)} | ${values.actualEnergy.toPrecision(8)} |`);
+      }
     }
     if (report.failure) rows.push('', `失败：${report.failure.message}`);
     await writeFile(join(output, 'comparison.md'), `${rows.join('\n')}\n`).catch(() => {});

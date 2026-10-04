@@ -12,7 +12,7 @@ npm run compare:unity -- --project 'D:\WebProjects\BA鼠标输入与点击特效
 
 网页直接提交采集的最终位置、尺寸、旋转、线性顶点色及溶解阈值，不重新随机或求值生命周期。BakeMesh 用于核对状态和记录几何差异；网页保留当前 96×8 圆环，Unity 原网格为 64×1。拖尾使用采集的原始点集和当前网页材质及网格。
 
-`comparison.json` 保存每层最大误差、MAE、RMSE、RGB 能量、输入核对信息及设备状态；`comparison.md`用于查看。中间层以线性 RGB 比较。最终层使用原网页 Shader 的 SDR 编码输出，Unity Composite 显式 sRGB 编码后比较，报告标明该域。诊断仅把输出附件换成浮点附件，不改 Shader。两种 API 的回读显式统一为 bottom-left；PNG 仅用于查看，差异图固定放大 16 倍，不自动对齐、缩放或改写基线。
+`comparison.json` 保存每层最大误差、MAE、RMSE、RGB 能量、输入核对信息及设备状态；`comparison.md`用于查看。中间层以线性 RGB 比较。最终层同时给出原始 Unity HDR 与网页 SDR 解码值的线性比较，以及夹取并编码参考值后的 SDR 显示域比较。前者保留 Unity 超出 1 的亮度，不用显示域夹取隐藏差异。诊断仅把输出附件换成浮点附件，不改 Shader。两种 API 的回读显式统一为 bottom-left；PNG 仅用于查看，差异图固定放大 16 倍，不自动对齐、缩放或改写基线。
 
 原始参考数据为小端 RGBA Half gzip，网页为 RGBA Float32 gzip。`50_Camera_After_Transfer`保留在参考采集中用于检查宿主传输；网页对应最终层是 `40_Composite`。这些采集与完整 Unity 工程均不提交 Git。
 
