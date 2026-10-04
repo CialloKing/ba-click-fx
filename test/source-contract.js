@@ -953,4 +953,34 @@ assert.equal(fx.destroyed, true, '源码入口可以销毁实例');
   assert.equal(retained.context, null);
 }
 
+{
+  const target = Object.create(BAClickFX.prototype);
+  let calls = 0, bounds = null;
+  Object.assign(target, { canvas: { width: 320, height: 240 }, dpr: 1,
+    _getCanvasOverlayBounds() { calls++; return bounds; } });
+  const scope = () => ({ valid: true, ready: false, scale: 1, dpr: 1, width: 320, height: 240 });
+  target._canvasBoundsScope = scope();
+  assert.equal(target._getCanvasOverlayPixelBounds(1), null);
+  assert.equal(target._getCanvasOverlayPixelBounds(1), null);
+  assert.equal(calls, 1, '空范围也复用');
+  bounds = { x: 1.5, y: 2.5, width: 4.2, height: 6.2 };
+  target._invalidateCanvasBoundsScope();
+  const expected = target._getCanvasOverlayPixelBounds(1);
+  target._canvasBoundsScope = scope();
+  assert.deepEqual(target._getCanvasOverlayPixelBounds(1), expected);
+  assert.deepEqual(target._getCanvasOverlayPixelBounds(1), expected);
+  assert.equal(calls, 3);
+  target._setResolvedBloomBackend('native');
+  assert.equal(target._canvasBoundsScope.valid, false, '同步后端通知前失效');
+  target._getCanvasOverlayPixelBounds(1);
+  assert.equal(calls, 4);
+  target._canvasBoundsScope = scope();
+  target.dpr = 2;
+  target._getCanvasOverlayPixelBounds(1); target._getCanvasOverlayPixelBounds(1);
+  assert.equal(calls, 6, '尺寸或 DPR 不匹配时重新计算');
+  target._canvasBoundsScope = undefined;
+  target._getCanvasOverlayPixelBounds(1); target._getCanvasOverlayPixelBounds(1);
+  assert.equal(calls, 8, '独立调用不跨帧缓存');
+}
+
 console.log('\n源码入口与资源合同通过');

@@ -6778,6 +6778,7 @@ export class BAClickFX
 
   _syncHostCompositingState()
   {
+    this._invalidateCanvasBoundsScope();
     const previous = this.hostCompositingState;
     const next = this._resolveHostCompositingState();
     const unchanged = previous &&
@@ -6928,6 +6929,7 @@ export class BAClickFX
 
   _commitFxParamConfig(nextConfig)
   {
+    this._invalidateCanvasBoundsScope();
     // 活动 ClickWave 持有配置根对象引用；保留根身份才能让运行时调参
     // 同时作用于已经生成的点击，而候选树仍保证校验阶段不泄露半成品。
     for (const key of Object.keys(this.fxConfig))
@@ -6943,11 +6945,13 @@ export class BAClickFX
 
   resize(width, height, dpr)
   {
+    this._invalidateCanvasBoundsScope();
     this._resize(width, height, dpr);
   }
 
   _resize(overrideWidth, overrideHeight, overrideDpr)
   {
+    this._invalidateCanvasBoundsScope();
     if (this.destroyed)
     {
       return;
@@ -7674,6 +7678,7 @@ export class BAClickFX
 
   _appendPointerSample(position, now)
   {
+    this._invalidateCanvasBoundsScope();
     if (!this.currentTrailStroke || !this.lastPointerPosition)
     {
       return;
@@ -7887,6 +7892,7 @@ export class BAClickFX
 
   _requestRender()
   {
+    this._invalidateCanvasBoundsScope();
     if (this.destroyed || this.paused || this.animationFrame !== null)
     {
       return;
@@ -7898,6 +7904,8 @@ export class BAClickFX
 
   _renderFrame(now)
   {
+    // 同步通知允许重入；外层范围一旦被打断，不能恢复成仍然有效的缓存。
+    this._invalidateCanvasBoundsScope();
     if (this.destroyed || this.paused)
     {
       this.animationFrame = null;
@@ -8001,6 +8009,7 @@ export class BAClickFX
     const prevHueShift = themeHueShift;
     const previousRelativeOklchTheme = relativeOklchTheme;
     const previousGradientEnergyCache = gradientEnergyCache;
+    const previousBoundsScope = this._canvasBoundsScope;
     let contextSaved = false;
 
     this.canvasNativeSceneAlphaSnapshot = null;
@@ -8137,6 +8146,13 @@ export class BAClickFX
         useSoftwareBloom && !hasDedicatedSceneOutput,
       );
 
+      if (useSoftwareBloom && !hasDedicatedSceneOutput)
+      {
+        // 对象更新已完成；只复用这次合成与整帧收尾的范围，不保存任何像素。
+        this._canvasBoundsScope = { valid: true, ready: false, scale, dpr: this.dpr,
+          width: this.canvas.width, height: this.canvas.height };
+      }
+
       if (reuseCachedSoftwareBloom)
       {
         if (!this._drawCachedSoftwareBloomFrame(scale))
@@ -8185,6 +8201,7 @@ export class BAClickFX
       themeHueShift = prevHueShift;
       relativeOklchTheme = previousRelativeOklchTheme;
       gradientEnergyCache = previousGradientEnergyCache;
+      this._canvasBoundsScope = previousBoundsScope;
 
       if (contextSaved)
       {
@@ -8333,6 +8350,7 @@ export class BAClickFX
     }
 
     this.resolvedEffectBackend = backend;
+    this._invalidateCanvasBoundsScope();
 
     if (
       typeof CustomEvent !== 'function' ||
@@ -8371,6 +8389,7 @@ export class BAClickFX
     }
 
     this.resolvedBloomBackend = backend;
+    this._invalidateCanvasBoundsScope();
 
     if (
       typeof CustomEvent !== 'function' ||
@@ -10000,6 +10019,29 @@ export class BAClickFX
 
   _getCanvasOverlayPixelBounds(scale)
   {
+    const scope = this._canvasBoundsScope;
+    if (scope?.valid && scope.scale === scale && scope.dpr === this.dpr
+      && scope.width === this.canvas.width && scope.height === this.canvas.height)
+    {
+      if (!scope.ready)
+      {
+        const value = this._computeCanvasOverlayPixelBounds(scale);
+        // 计算过程中若发生同步状态变化，结果不进入缓存。
+        if (scope.valid) { scope.value = value; scope.ready = true; }
+        return value;
+      }
+      return scope.value;
+    }
+    return this._computeCanvasOverlayPixelBounds(scale);
+  }
+
+  _invalidateCanvasBoundsScope()
+  {
+    if (this._canvasBoundsScope) this._canvasBoundsScope.valid = false;
+  }
+
+  _computeCanvasOverlayPixelBounds(scale)
+  {
     const bounds = this._getCanvasOverlayBounds(scale);
 
     if (!bounds)
@@ -10959,6 +11001,7 @@ export class BAClickFX
 
   _drawCanvasFallbackFrame(scale, useNativeBloom)
   {
+    this._invalidateCanvasBoundsScope();
     this.canvasNativeSceneAlphaSnapshot = null;
 
     if (
@@ -10993,6 +11036,7 @@ export class BAClickFX
 
   _restoreCanvasOutputAfterContextLoss(bloomBackend)
   {
+    this._invalidateCanvasBoundsScope();
     const scale = this._getScale();
     const previousHueShift = themeHueShift;
     const previousRelativeOklchTheme = relativeOklchTheme;
@@ -11578,6 +11622,7 @@ export class BAClickFX
   /** 暂停或恢复输入与动画调度；clear 仅在进入暂停时生效。 */
   setPaused(paused, options = {})
   {
+    this._invalidateCanvasBoundsScope();
     if (this.destroyed)
     {
       return;
@@ -12136,6 +12181,7 @@ export class BAClickFX
   /** 清除拖尾顶点和拖拽产生的碎片，不影响仍在播放的点击。 */
   clearTrail()
   {
+    this._invalidateCanvasBoundsScope();
     this._clearTrailStrokes();
     this.currentTrailStroke = null;
     this.shards = this.shards.filter((shard) => shard.kind !== 'trail');
@@ -12155,6 +12201,7 @@ export class BAClickFX
   /** 立即清除所有视觉对象。 */
   clear()
   {
+    this._invalidateCanvasBoundsScope();
     this._releaseSoftwareBloomFrame();
     this.waves.length = 0;
     this.shards.length = 0;
@@ -12425,6 +12472,7 @@ export class BAClickFX
 
   destroy()
   {
+    this._invalidateCanvasBoundsScope();
     if (this.destroyed)
     {
       return;
