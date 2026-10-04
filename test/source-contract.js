@@ -6,12 +6,50 @@
  */
 
 import assert from 'node:assert/strict';
+import { trackCanvasWork } from '../scripts/runtime-canvas-work.mjs';
 import { collectBenchmarkCases, createBenchmarkReport, formatDuration } from '../scripts/benchmark-report.mjs';
 import { READBACK_ROLES, FINAL_FRAME_STAGES, trackCanvasReadbacks, trackCanvasOperations } from '../scripts/runtime-readback-diagnostics.mjs';
 import { tintFixture } from './canvas-tint-fixture.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BAClickFX } from '../src/fx.js';
+
+// 独立计数包装必须保持返回值、异常和原型描述符，恢复可重复执行。
+{
+  const gradient = { addColorStop() {} };
+  const cached = Object.create(gradient);
+  const canvas = { createLinearGradient() { return Object.create(gradient); } };
+  Object.defineProperty(canvas, 'fillStyle', { configurable: true, get() { return this.style; }, set(value) { this.style = value; } });
+  const style = Object.getOwnPropertyDescriptor(canvas, 'fillStyle');
+  const fx = { trailStrokes: [{ trailFrameData: { meshCache: new Map([[1, { canvasGradientCache: [
+    { segments: new Map([[1, { gradient: cached }]]), caps: new Map() },
+  ] }]]) } }], _getCanvasOverlayPixelBounds() { return this._getCanvasOverlayBounds(); },
+  _getCanvasOverlayBounds() { return null; } };
+  const original = canvas.createLinearGradient;
+  const counter = trackCanvasWork(fx, canvas, gradient);
+  try
+  {
+    const fresh = canvas.createLinearGradient();
+    fresh.addColorStop(0, 'red');
+    canvas.fillStyle = fresh; canvas.fillStyle = cached;
+    assert.equal(canvas.fillStyle, cached);
+    assert.equal(fx._getCanvasOverlayPixelBounds(), null);
+    assert.equal(counter.counts.linearGradients, 1);
+    assert.equal(counter.counts.linearStops, 1);
+    assert.equal(counter.counts.cachedLinearAssignments, 1);
+    assert.equal(counter.counts.boundsRequests, 1);
+    assert.equal(counter.counts.boundsComputations, 1);
+  }
+  finally { counter.restore(); counter.restore(); }
+  assert.equal(canvas.createLinearGradient, original);
+  assert.deepEqual(Object.getOwnPropertyDescriptor(canvas, 'fillStyle'), style);
+  const failure = Error('original creation failure');
+  canvas.createLinearGradient = () => { throw failure; };
+  const failed = trackCanvasWork(fx, canvas, gradient);
+  try { assert.throws(() => canvas.createLinearGradient(), error => error === failure); }
+  finally { failed.restore(); }
+  assert.equal(failed.counts.linearGradients, 0);
+}
 
 // 报告从采集数据读取提交；嵌套测量、明确跳过和校验元数据各走独立路径。
 {

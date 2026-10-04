@@ -10,6 +10,7 @@ export async function diagnoseSoftware(page)
       const { BAClickFX } = await import('/src/fx.js');
       const { SoftwareBloomRenderer } = await import('/src/software-bloom.js');
       const { trackCanvasReadbacks, trackCanvasOperations, seedRoundedShards } = await import('/scripts/runtime-readback-diagnostics.mjs');
+      const { trackCanvasWork } = await import('/scripts/runtime-canvas-work.mjs');
       const realNow = performance.now.bind(performance);
       const nowDescriptor = Object.getOwnPropertyDescriptor(performance, 'now');
       const originalRandom = Math.random;
@@ -162,6 +163,8 @@ export async function diagnoseSoftware(page)
             stage: finalStage,
           });
           if (operations) restores.push(operations.restore);
+          const canvasWork = timing ? null : trackCanvasWork(fx, canvas, CanvasGradient.prototype);
+          if (canvasWork) restores.push(canvasWork.restore);
           work();
           if (phases.frame.calls !== 20 || phases.snapshot.calls !== 20)
             throw new Error('Software 诊断夹具的帧数或快照数量不一致');
@@ -175,6 +178,7 @@ export async function diagnoseSoftware(page)
               throw new Error(`回读分类总计不一致：${key}`);
           }
           if (operations) phases.pixelReadback.trace = operations.trace;
+          if (canvasWork) phases.canvasWork = canvasWork.counts;
           if (readbacks.stats.total.calls !== phases.pixelReadback.calls || readbacks.stats.collectionErrors
             || operations?.trace.collectionErrors || cleanupErrors || collectionErrors)
             throw new Error('回读诊断不完整');

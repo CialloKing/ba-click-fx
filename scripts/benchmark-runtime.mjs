@@ -48,6 +48,7 @@ try
     const { WebGL2EffectRenderer } = await import('/src/webgl2-effect.js');
     const { WebGPUEffectRenderer } = await import('/src/webgpu-effect.js');
     const { seedRoundedShards } = await import('/scripts/runtime-readback-diagnostics.mjs');
+    const { trackCanvasWork } = await import('/scripts/runtime-canvas-work.mjs');
     const nativeNow = performance.now.bind(performance);
     const nativeNowDescriptor = Object.getOwnPropertyDescriptor(performance, 'now');
     const nativeRandom = Math.random;
@@ -306,7 +307,13 @@ try
               if (software && !fx.lastSoftwareBloomFrame) throw new Error('Software 微基准未生成完整输出快照');
             },
             destroy: () => destroyEffect(fx),
-            count: () => countFloat64('float64AllocationsPer20'),
+            count: () =>
+            {
+              const allocations = countFloat64('float64AllocationsPer20');
+              const canvasWork = trackCanvasWork(fx, CanvasRenderingContext2D.prototype, CanvasGradient.prototype);
+              return { counts: { ...allocations.counts, canvasWorkPer20: canvasWork.counts },
+                restore: () => { canvasWork.restore(); allocations.restore(); } };
+            },
           };
         });
       }
@@ -338,6 +345,35 @@ try
         };
       });
       if (!results.softwareRoundedShards.tintWritesPer20) throw new Error('圆角基准未经过染色路径');
+      results.canvasTrails = {};
+      for (const bloomBackend of ['native', 'software'])
+        for (const themed of [false, true])
+          for (const moving of [false, true])
+          {
+            results.canvasTrails[`${bloomBackend}-${themed ? 'relativeOklch' : 'default'}-${moving ? 'moving' : 'fixed'}`] = await measure(20, () =>
+            {
+              const fx = effect({ clickEnabled: false, bloomBackend, outputCompositing: 'browser-overlay',
+                themeColor: themed ? '#ff6699' : '#4ca7ff', themeColorMode: 'relative-oklch' });
+              seedTrail(fx);
+              return {
+                work: i =>
+                {
+                  if (moving) moveTrail(fx, i);
+                  fx._renderFrame(now);
+                  if (fx.resolvedBloomBackend !== bloomBackend) throw new Error('Canvas 拖尾基准发生意外回退');
+                  if (fx.currentTrailStroke.points.some(point => point.bornAt > fx.trailTimeMs
+                    || fx.trailTimeMs - point.bornAt >= fx.fxConfig.trail.lifetimeMs)) throw new Error('Canvas 拖尾时间或裁剪不一致');
+                },
+                count: () =>
+                {
+                  const counter = trackCanvasWork(fx, CanvasRenderingContext2D.prototype, CanvasGradient.prototype);
+                  return { counts: { canvasWorkPer20: counter.counts }, restore: counter.restore };
+                },
+                details: () => ({ pointCount: fx.currentTrailStroke.points.length }),
+                destroy: () => destroyEffect(fx),
+              };
+            });
+          }
       for (const backend of ['webgl2', 'webgpu'])
       {
         const canvas = document.createElement('canvas');
