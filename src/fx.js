@@ -1939,7 +1939,7 @@ function prepareRingGradientSamples(ringCfg, threshold, radialProgress, sampleCo
 
 function getRingGradientSamples(ringCfg, threshold, radialProgress)
 {
-  const sampleCount = Math.max(32, ringCfg.arcSamples);
+  const sampleCount = Math.max(32, resolveRingIntegrationArcSamples(ringCfg));
   const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
   if (!ringSampleCache)
   {
@@ -2074,7 +2074,7 @@ function fillDissolvedRingFallback(
 {
   const circumference = TAU * radius;
   const segmentCount = Math.max(
-    ringCfg.arcSamples,
+    resolveRingIntegrationArcSamples(ringCfg),
     Math.ceil(circumference),
   );
   const direction = ringCfg.dissolveDirection >= 0 ? 1 : -1;
@@ -2116,6 +2116,19 @@ function fillDissolvedRingFallback(
   }
 }
 
+function resolveRingIntegrationSamples(ringCfg)
+{
+  // GPU 的原始单层网格不等于一次纹理积分；Canvas/Native 默认继续取八条径向带。
+  const samples = Math.max(1, Math.round(ringCfg.radialSamples));
+  return samples === 1 && Math.round(ringCfg.arcSamples) === 64 ? 8 : samples;
+}
+
+function resolveRingIntegrationArcSamples(ringCfg)
+{
+  return Math.round(ringCfg.radialSamples) === 1 && Math.round(ringCfg.arcSamples) === 64
+    ? 96 : ringCfg.arcSamples;
+}
+
 function fillDissolvedRing(
   context,
   radius,
@@ -2126,7 +2139,7 @@ function fillDissolvedRing(
   stopDescriptor = null,
 )
 {
-  const radialSamples = Math.max(1, Math.round(ringCfg.radialSamples));
+  const radialSamples = resolveRingIntegrationSamples(ringCfg);
   const innerEdge = Math.max(0, radius - width * 0.5);
   const bandWidth = width / radialSamples;
   context.shadowBlur = 0;
@@ -11345,7 +11358,7 @@ export class BAClickFX
           source.blurScale = settings.ringBlur / 80;
           source.radius = geometry.radius;
           source.width = geometry.width;
-          const radialSamples = Math.max(1, Math.round(ringCfg.radialSamples));
+          const radialSamples = resolveRingIntegrationSamples(ringCfg);
           const angularSamples = 64;
           // GPU 在阈值提取前先缩小 Scene；亚像素环带会与周围黑色平均。
           // 同时扩大样本面积以守恒能量，避免细碎溶解末期仍发出完整圆形光雾。

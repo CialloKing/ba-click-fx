@@ -28,6 +28,7 @@ import {
 } from '../src/native-bloom.js';
 import { WebGL2BloomRenderer } from '../src/webgl2-bloom.js';
 import { WebGL2EffectRenderer } from '../src/webgl2-effect.js';
+import { RING_MESH_INDICES, RING_MESH_VERTICES } from '../src/ring-mesh.js';
 import {
   BRIGHT_CORE_CHANNEL_MIX,
   applyOverlayColorCompensationToImageData,
@@ -2167,6 +2168,23 @@ assert(topologyFrame([[8, 96], [1, 32]]) === topologyVersion &&
   fullGeometryRenderer.ringIndexData === indexStorage, '稳定混合拓扑跨帧复用索引版本和工作缓冲');
 assert(topologyFrame([[1, 32], [8, 96]]) > topologyVersion &&
   fullGeometryRenderer.ringIndexData[192] === 66, '改变拓扑顺序后重新计算后续圆环的顶点偏移');
+
+const templateVersion = topologyFrame([[1, 64], [8, 96]]);
+assert(fullGeometryRenderer.ringVertexCount === 130 + 873 &&
+  [...RING_MESH_INDICES].every((index, offset) => fullGeometryRenderer.ringIndexData[offset] === index) &&
+  fullGeometryRenderer.ringIndexData[384] === 130,
+  '原始圆环保留 130 个顶点和 384 个索引，后续自定义圆环偏移正确');
+assert(topologyFrame([[1, 64], [8, 96]]) === templateVersion,
+  '原始模板与自定义网格混合时仍复用索引缓存');
+fullGeometryRenderer.beginFrame();
+fullGeometryRenderer.addDissolveRing(100, 110, 50, 10, 0, 1, 64, [1, 1, 1], 1, 0.5, 0.1, 0.9, -1);
+const seamOffset = 129 * 9;
+assert(approximatelyEqual(fullGeometryRenderer.ringVertexData[seamOffset], 155) &&
+  approximatelyEqual(fullGeometryRenderer.ringVertexData[seamOffset + 1], 110) &&
+  approximatelyEqual(fullGeometryRenderer.ringVertexData[seamOffset + 2], 0.9) &&
+  approximatelyEqual(fullGeometryRenderer.ringVertexData[seamOffset + 3], 0.9) &&
+  RING_MESH_VERTICES.length === 130 * 5,
+  '模板按自定义半径、环宽和反向 UV 变换，重复接缝仍位于旋转起点');
 topologyFrame([[8, 96]]);
 assert(fullGeometryRenderer._ringTopology.length === 1 && fullGeometryRenderer.ringIndexCount === 4608,
   '减少圆环数量时只保留当前拓扑序列');

@@ -24,6 +24,17 @@ import {
   resolveUnityBloomIntensity,
 } from './bloom-color-space.js';
 import { isIndependentHostCompositing } from './config.js';
+import {
+  RING_MESH_VERTICES, RING_MESH_INDICES, RING_MESH_UV_MIN,
+  RING_MESH_UV_MAX, RING_MESH_OUTER_RADIUS,
+} from './ring-mesh.js';
+
+// 将资源接缝转到参数 rotation 的起点，并把 Unity 的 Y 轴转成屏幕方向。
+const ringSeamX = RING_MESH_VERTICES[129 * 5];
+const ringSeamY = RING_MESH_VERTICES[129 * 5 + 1];
+const ringSeamRadius = Math.hypot(ringSeamX, ringSeamY);
+const ringSeamCosine = ringSeamX / ringSeamRadius;
+const ringSeamSine = ringSeamY / ringSeamRadius;
 
 const COMPONENTS_PER_VERTEX = 6;
 const COMPONENTS_PER_DISK_VERTEX = 8;
@@ -2917,7 +2928,12 @@ export class WebGL2EffectRenderer
     let offset = 0;
     for (let ring = 0; ring < this._ringTopologyCount; ring++)
     {
-      const { bands, segments, base } = this._ringTopology[ring];
+      const { bands, segments, base, template } = this._ringTopology[ring];
+      if (template)
+      {
+        for (const index of RING_MESH_INDICES) this.ringIndexData[offset++] = base + index;
+        continue;
+      }
       const stride = segments + 1;
       for (let band = 0; band < bands; band++)
       {
@@ -3589,6 +3605,7 @@ export class WebGL2EffectRenderer
 
     const bands = clamp(Math.round(radialSamples), 1, 32);
     const segments = clamp(Math.round(segmentCount), 32, 512);
+    const template = bands === 1 && segments === 64;
     const innerEdge = Math.max(0, radius - width * 0.5);
     const bandWidth = width / bands;
     if (!this._ringCosine || this._ringCosine.length < segments + 1)
@@ -3624,13 +3641,39 @@ export class WebGL2EffectRenderer
     const base = this.ringVertexCount;
     const slot = this._ringTopologyCount++;
     const previous = this._ringTopology[slot];
-    if (!previous || previous.bands !== bands || previous.segments !== segments || previous.base !== base)
+    if (!previous || previous.bands !== bands || previous.segments !== segments || previous.base !== base || previous.template !== template)
     {
-      this._ringTopology[slot] = { bands, segments, base };
+      this._ringTopology[slot] = { bands, segments, base, template };
       this._ringTopologyDirty = true;
     }
     this.ringIndexCount += bands * segments * 6;
     this._ensureRingVertexCapacity((bands + 1) * (segments + 1));
+
+    if (template)
+    {
+      const rotationCosine = Math.cos(rotation);
+      const rotationSine = Math.sin(rotation);
+      const sourceUvSpan = RING_MESH_UV_MAX - RING_MESH_UV_MIN;
+      for (let index = 0; index < RING_MESH_VERTICES.length; index += 5)
+      {
+        const sourceX = RING_MESH_VERTICES[index];
+        const sourceY = RING_MESH_VERTICES[index + 1];
+        const u = (RING_MESH_VERTICES[index + 3] - RING_MESH_UV_MIN) / sourceUvSpan;
+        const v = (RING_MESH_VERTICES[index + 4] - RING_MESH_UV_MIN) / sourceUvSpan;
+        const sourceRadius = v > 0.5 ? RING_MESH_OUTER_RADIUS : 1;
+        const radialScale = (innerEdge + width * v) / sourceRadius;
+        const localX = (sourceX * ringSeamCosine + sourceY * ringSeamSine) * radialScale;
+        const localY = (sourceX * ringSeamSine - sourceY * ringSeamCosine) * radialScale;
+        this._appendRingVertex(
+          x + localX * rotationCosine - localY * rotationSine,
+          y + localX * rotationSine + localY * rotationCosine,
+          safeUvMin + uvSpan * (direction > 0 ? u : 1 - u),
+          safeUvMin + uvSpan * v,
+          red, green, blue, safeThreshold, coverageOpacity,
+        );
+      }
+      return;
+    }
 
     // 按径向行保存唯一顶点；每一行的末端仍单独计算原来的角度和 UV。
     for (let band = 0; band <= bands; band++)
