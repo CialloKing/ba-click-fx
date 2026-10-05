@@ -14,7 +14,9 @@ npm run compare:unity -- --project 'D:\WebProjects\BA鼠标输入与点击特效
 
 `trail-input-v3-history` 增加每个 10 ms 帧的原始点、BakeMesh、Unity 实际时钟和释放时刻。`web-input` / `input-comparison.md` 使用公共手动指针 API 输入相同事件，由 JS 的生产时钟与更新函数自行计算轨迹，既不注入 Unity 点集，也不使用 BakeMesh 计算端点。释放后的头部宽度可以为零；有效性按整个几何是否退化判断，不能把零宽头部当作提前消失。
 
-新采集用独立目录，例如 `--label fit-after --baseline test-results/unity-comparison-fit-before`。`--runtime-prefix /test-results/unity-fit-before-src/` 可重放冻结的旧源码。旧参考目录保留，前景指标按 Unity、旧版和新版的共同并集遮罩计算；同时记录分层 RGB 总量、有效旧端偏差和消失时刻。参见[第一期实测报告](unity-fit-stage1.md)。
+新采集用独立目录，例如 `--label fit-after --baseline test-results/unity-comparison-fit-before`。`--runtime-prefix /test-results/unity-fit-before-src/` 可重放冻结的旧源码。旧参考目录保留，前景指标按 Unity、旧版和新版的共同并集遮罩计算；同时记录分层 RGB 总量、有效旧端偏差和消失时刻。
+
+使用默认拟合采集目录时，运行 `node scripts/report-unity-fit.mjs` 可生成阶段汇总，输出到 `test-results/unity-fit-stage1/`。阶段报告、指标 JSON 和对照图片只保留在本地，不提交 Git。
 
 `comparison.json` 保存每层最大误差、MAE、RMSE、RGB 能量、输入核对信息及设备状态；`comparison.md`用于查看。中间层以线性 RGB 比较。最终层同时给出原始 Unity HDR 与网页 SDR 解码值的线性比较，以及夹取并编码参考值后的 SDR 显示域比较。前者保留 Unity 超出 1 的亮度，不用显示域夹取隐藏差异。诊断仅把输出附件换成浮点附件，不改 Shader。两种 API 的回读显式统一为 bottom-left；PNG 仅用于查看，差异图固定放大 16 倍，不自动对齐、缩放或改写基线。
 

@@ -1,10 +1,12 @@
-import { readFile, writeFile, stat } from 'node:fs/promises';
+import { readFile, writeFile, stat, mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
 const root = resolve(import.meta.dirname, '..');
 const beforePath = resolve(process.argv[2] ?? join(root, 'test-results/unity-comparison-fit-before'));
 const afterPath = resolve(process.argv[3] ?? join(root, 'test-results/unity-comparison-fit-after'));
+// 阶段采集只输出到本地目录，避免报告和大体积指标重新进入源码管理。
+const reportPath = join(root, 'test-results/unity-fit-stage1');
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
 const before = await json(join(beforePath, 'comparison.json'));
 const after = await json(join(afterPath, 'comparison.json'));
@@ -112,8 +114,8 @@ for (const key of ['rings', 'fixedTrail', 'changingTrail'])
 lines.push('', '默认双圆环顶点数据从 62,856 降至 9,360 字节（约 -85.1%），索引数据从 36,864 降至 3,072 字节（-91.7%）。移动拖尾有持续重建的成本；静止点集缓存避免每帧扫描全部采样。', '',
   `日志时间记录：Unity 两轮约 ${summary.runCostsSeconds.unityRun0.toFixed(1)} / ${summary.runCostsSeconds.unityRun1.toFixed(1)} 秒，网页完整重放约 ${summary.runCostsSeconds.browserReplay.toFixed(1)} 秒，最终发布检查约 ${summary.runCostsSeconds.releaseChecks.toFixed(1)} 秒。网页重放包含浮点回读、压缩、PNG 与指标计算，且曾与其他验证共享本机；不能当作渲染帧率。`, '',
   '## 对照图与验证', '',
-  '下图从固定坐标区域裁切，统一缩放用于观察；不参与指标计算。列顺序为 Unity、旧版、新版、新版差异放大 16 倍。', '',
-  '![Unity 前后对照](images/unity-fit-stage1.png)', '',
+  '对照图应从固定坐标区域裁切，统一缩放用于观察；不参与指标计算。列顺序为 Unity、旧版、新版、新版差异放大 16 倍。', '',
+  '本地对照图可保存为 `unity-fit-stage1.png`；图片不参与指标计算。', '',
   '完整分层 RGB 总量与误差见 [指标 JSON](unity-fit-stage1-metrics.json)。本机完成 `npm run check:release`、`verify:unity-reference` 和真实 Unity 分层对照。浏览器覆盖 DPR 1/2、灰底/白底与连续性、公共 API、暂停/恢复/取消、自定义采样/宽度/旋转/溶解方向。WebGPU 实际运行，设备没有跳过。视觉基线在确认 Unity 场景误差下降之后更新；50 ms 最终合成回归仍在本报告中明确保留。', '',
   '复现报告：`node scripts/report-unity-fit.mjs`。微基准：`node scripts/benchmark-runtime.mjs unity-fit-after /src/ --fit-only`，旧版替换为冻结源码前缀。');
 for (const mode of ['cases', 'inputCases'])
@@ -136,6 +138,7 @@ summary.checks = {
     Math.abs(after.inputCases[`trail-runtime-${path}-410`][backend].stages['40_Composite'].relativeEnergyError) <= (backend === 'webgl2' ? 0.01 : 0.05))),
 };
 summary.allPixelTargetsMet = Object.values(summary.checks).every(Boolean);
-await writeFile(join(root, 'docs/unity-fit-stage1.md'), `${lines.join('\n')}\n`);
-await writeFile(join(root, 'docs/unity-fit-stage1-metrics.json'), `${JSON.stringify(summary, null, 2)}\n`);
+await mkdir(reportPath, { recursive: true });
+await writeFile(join(reportPath, 'unity-fit-stage1.md'), `${lines.join('\n')}\n`);
+await writeFile(join(reportPath, 'unity-fit-stage1-metrics.json'), `${JSON.stringify(summary, null, 2)}\n`);
 console.log(`报告已生成：${identicalBuffers} 个前后参考缓冲字节一致；保留最终合成的未达标项。`);

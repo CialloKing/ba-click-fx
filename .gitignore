@@ -52,6 +52,12 @@ docs/assets/ba-click-fx-demo.gif
 
 # 阶段性优化过程报告仅留本地，正式说明维护在使用文档和 Changelog。
 /docs/optimization-stage*.md
+/docs/unity-fit-stage*.md
+/docs/unity-fit-stage*-metrics.json
+/docs/images/unity-fit-stage*.png
+
+# 未被运行时、构建和测试引用的本地解包资源。
+/Maps/
 
 # Agent / AI
 .reasonix
