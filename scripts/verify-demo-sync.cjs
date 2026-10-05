@@ -29,7 +29,7 @@ const typeDefinitions = readText('src/ba-click-fx.d.ts');
 
 // 检查仓库内目标，避免专题拆分后 GitHub/npm 上的跳转悄悄失效。
 const documentationFiles = ['README.md', 'README.en.md',
-  ...['api-reference', 'rendering-guide', 'worker-guide'].flatMap((name) =>
+  ...['api-reference', 'rendering-guide', 'worker-guide', 'custom-build'].flatMap((name) =>
     [`docs/${name}.md`, `docs/${name}.en.md`])];
 const repositoryLink = 'https://github.com/CialloKing/ba-click-fx/blob/main/';
 const root = resolve(__dirname, '..');

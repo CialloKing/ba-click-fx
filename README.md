@@ -252,6 +252,10 @@ fx.destroy();
 
 [完整接入示例](https://github.com/CialloKing/ba-click-fx/blob/main/docs/worker-guide.md)：主线程与 Worker、尺寸和坐标同步、销毁与能力边界。
 
+### 定制构建
+
+[从源码构建固定参数版本](https://github.com/CialloKing/ba-click-fx/blob/main/docs/custom-build.md)：在现有构建中选择后端、接入方式和功能，移除运行时调参及未使用的资源。使用 `npm run build -- --profile ba-click-fx.build.json`，产物写入独立的 `dist-custom`。
+
 ## 常见问题
 
 ### 常见接入

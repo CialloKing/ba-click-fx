@@ -256,7 +256,14 @@ WebGPU 可用性由实际申请 Adapter/Device、创建 `webgpu` Canvas Context 
 ```
 ba-click-fx/
 ├── src/
-│   ├── fx.js            # 主引擎：ParticleSystem + TrailRenderer 生命周期
+│   ├── fx.js            # 稳定的公共 ESM 入口
+│   ├── engine-core.js   # ParticleSystem、TrailRenderer 与渲染调度
+│   ├── engine-input.js  # DOM 和手动指针输入
+│   ├── engine-lifecycle.js # 尺寸、暂停、清空与销毁
+│   ├── engine-backends.js # 后端准备、输出所有权与资源管理
+│   ├── engine-config.js # 完整版动态配置与参数修改
+│   ├── engine-shared.js # 共用无状态工具
+│   ├── effect-geometry.js # WebGL2/WebGPU 共用 CPU 几何构建
 │   ├── main.js           # 演示页面入口 + 控制面板 UI
 │   ├── config.js         # Unity FX_Touch 粒子参数只读快照
 │   ├── trail-texture.js  # WebGL2 无损 Trail_03 RGB 纹理数据
@@ -269,7 +276,8 @@ ba-click-fx/
 │   ├── webgl2-bloom.js   # WebGL2 Bloom 参考实现与回归基线
 │   └── style.css         # 演示页样式
 ├── scripts/
-│   ├── build.mjs         # 构建脚本
+│   ├── build.mjs         # 完整版与 profile 定制构建
+│   ├── custom-compiler.mjs # 同源方法静态展开、固定参数及能力裁剪
 │   └── verify-*.mjs/cjs  # 发布校验脚本
 ├── test/
 │   ├── smoke.js          # dist 运行时接线与生命周期验证
@@ -285,6 +293,7 @@ ba-click-fx/
 
 ### 架构特点
 
+- **定制构建**：同一实现可按 profile 固化参数、裁剪后端和功能；接口及故障合同见[定制构建](./custom-build.md)，以下回退说明适用于完整版。
 - **隔离合成层**：默认关闭；可显式启用透明隔离组，改善非游戏纯白网页背景上的颜色保留
 - **WebGPU Scene**：异步申请 Device，使用 `rgba16float` 线性 Scene 与 WGSL Bloom；普通模式固定 Standard SDR，HDR 模式仅在 `extended` 成功时保留真实超白输出，Device 失败时回退 WebGL2
 - **纯 WebGL2 Scene**：完整几何、Coverage、背景与 MXFinalBloom 在一个 HDR 管线中完成并一次输出

@@ -10,6 +10,8 @@
 
 Worker means a browser `DedicatedWorker` here, not Node.js `worker_threads`. Node.js 24 is only the development and CI toolchain for this project; browser Worker support depends on the available `Worker`, module-script, `OffscreenCanvas`, and selected Canvas-context implementations.
 
+For fixed parameters and WebGPU Worker support, use a [custom source build](./custom-build.en.md). It supports all six modes in Workers, accepting only host resources and callbacks at construction; move the backend and numeric options in the full-version example below into the build profile.
+
 The main thread reads the real Canvas geometry, converts DOM coordinates into Canvas-local CSS pixels, and forwards size, DPR, and pointer lifecycle changes:
 
 This complete example uses a Canvas with an explicit CSS size. `touch-action: none` gives the effect control of gestures inside that Canvas; change it if the host needs native scrolling. Bundle both modules with Vite or an equivalent bundler so the Worker package import resolves. The bare package specifier does not work in an unbundled browser Worker; in that case use the absolute ESM URL `https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.4/dist/worker.js`.
@@ -241,4 +243,4 @@ Call `await fx.destroy()` during unmount. It stops input and resize forwarding i
 
 The width and height passed to `resize(width, height, dpr)`, as well as manual input coordinates, are Canvas-local CSS pixels. The library scales the backing store by `dpr`, still capped by `maxDpr`. An `OffscreenCanvas` has no DOM layout information, so a Worker cannot discover CSS resize or device-DPR changes automatically.
 
-A Canvas context type is locked by its first `getContext()` call. Choose `effectBackend: 'webgl2'` (recommended) or explicit `'canvas2d'` when constructing a direct Offscreen instance; do not switch between those context types later through `updateConfig()`. Destroy the instance and transfer a new Canvas when such a switch is required. WebGPU, DOM multi-layer compositing, and automatic input proxying are outside the current Worker contract.
+A Canvas context type is locked by its first `getContext()` call. Choose `effectBackend: 'webgl2'` (recommended) or explicit `'canvas2d'` when constructing a direct Offscreen instance; do not switch between those context types later through `updateConfig()`. Destroy the instance and transfer a new Canvas when such a switch is required. WebGPU, DOM multi-layer compositing, and automatic input proxying are outside the full version's current Worker contract; see [custom builds](./custom-build.en.md) for WebGPU Workers.

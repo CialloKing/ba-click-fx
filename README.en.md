@@ -252,6 +252,10 @@ Backend state may be `pending` during lazy probing; read `resolvedEffectBackend`
 
 [Complete integration example](https://github.com/CialloKing/ba-click-fx/blob/main/docs/worker-guide.en.md): main thread and Worker, size and coordinate synchronisation, cleanup, and capability boundaries.
 
+### Custom Builds
+
+[Build a fixed-parameter version from source](https://github.com/CialloKing/ba-click-fx/blob/main/docs/custom-build.en.md): select a backend, runtime, and features through the existing build, omitting runtime tuning and unused resources. Run `npm run build -- --profile ba-click-fx.build.json`; output goes to the separate `dist-custom` directory.
+
 ## FAQ
 
 ### Getting Started

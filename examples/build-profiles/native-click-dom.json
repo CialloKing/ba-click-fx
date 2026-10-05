@@ -1,0 +1,15 @@
+{
+  "backend": "native",
+  "runtime": "dom",
+  "features": {
+    "trail": false,
+    "shards": false,
+    "compositingReference": false
+  },
+  "config": {
+    "maxDpr": 1,
+    "outputCompositing": "browser-overlay",
+    "hostCompositing": "screen",
+    "hostCompositingSurface": "dom-backdrop"
+  }
+}

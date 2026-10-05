@@ -10,6 +10,8 @@
 
 这里的 Worker 专指浏览器 `DedicatedWorker`，不是 Node.js `worker_threads`。Node.js 24 仅是本项目的开发与 CI 工具链；浏览器端 Worker 是否可用取决于 `Worker`、模块脚本、`OffscreenCanvas` 和所选 Canvas Context 的实现。
 
+需要固定参数及 WebGPU Worker 时，可使用[源码定制构建](./custom-build.md)。该版本支持六种模式的 Worker 接入，构造时仅传入宿主资源及回调；下文完整版示例中的后端和数值选项应移到构建 profile。
+
 主线程负责读取真实 Canvas 几何、把 DOM 坐标转换为 Canvas 局部 CSS 像素，并转发尺寸、DPR 和指针生命周期：
 
 完整示例使用显式 CSS 尺寸的 Canvas。`touch-action: none` 让该画布内的手势交给特效处理；需要原生滚动时应调整此值。两个模块需通过 Vite 等 bundler 构建，以解析 Worker 中的包导入。直接使用浏览器原生模块时，Worker 内不能保留裸包名，应改用绝对 ESM 地址 `https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.4/dist/worker.js`。
@@ -241,4 +243,4 @@ self.addEventListener('message', (event) =>
 
 `resize(width, height, dpr)` 的宽高与 manual 输入坐标都使用 Canvas 局部 CSS 像素；库再按 `dpr` 调整实际 backing store，且 DPR 仍受 `maxDpr` 限制。`OffscreenCanvas` 没有 DOM 布局信息，因此 Worker 中不会自动获知 CSS resize 或设备 DPR 变化。
 
-Canvas 的上下文类型会被第一次 `getContext()` 锁定。直接 Offscreen 路径应在构造时固定为 `effectBackend: 'webgl2'`（推荐）或显式 `'canvas2d'`；不要再通过 `updateConfig()` 在两种上下文之间切换，需要切换时应销毁实例并转移一张新的 Canvas。当前 Worker 合同不包含 WebGPU、DOM 多图层合成或自动输入代理。
+Canvas 的上下文类型会被第一次 `getContext()` 锁定。直接 Offscreen 路径应在构造时固定为 `effectBackend: 'webgl2'`（推荐）或显式 `'canvas2d'`；不要再通过 `updateConfig()` 在两种上下文之间切换，需要切换时应销毁实例并转移一张新的 Canvas。当前完整版 Worker 合同不包含 WebGPU、DOM 多图层合成或自动输入代理；定制版的 WebGPU Worker 见[定制构建](./custom-build.md)。

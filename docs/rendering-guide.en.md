@@ -256,7 +256,14 @@ Consequently, “ported from the Unity project” describes the source of parame
 ```
 ba-click-fx/
 ├── src/
-│   ├── fx.js            # Engine: ParticleSystem + TrailRenderer lifecycle
+│   ├── fx.js            # Stable public ESM entry
+│   ├── engine-core.js   # ParticleSystem, TrailRenderer, and render scheduling
+│   ├── engine-input.js  # DOM and manual pointer input
+│   ├── engine-lifecycle.js # Dimensions, pause, clear, and destruction
+│   ├── engine-backends.js # Backend preparation, output ownership, and resources
+│   ├── engine-config.js # Full-version dynamic configuration and parameter changes
+│   ├── engine-shared.js # Shared stateless utilities
+│   ├── effect-geometry.js # Shared WebGL2/WebGPU CPU geometry
 │   ├── main.js           # Demo page + control panel UI
 │   ├── config.js         # Unity FX_Touch parameter snapshot
 │   ├── trail-texture.js  # Lossless Trail_03 RGB data for WebGL2
@@ -269,7 +276,8 @@ ba-click-fx/
 │   ├── webgl2-bloom.js   # WebGL2 Bloom reference and regression baseline
 │   └── style.css         # Demo page styles
 ├── scripts/
-│   ├── build.mjs         # Build script
+│   ├── build.mjs         # Full and profile-based custom builds
+│   ├── custom-compiler.mjs # Static expansion, fixed values, and capability trimming
 │   └── verify-*.mjs/cjs  # Release verification
 ├── test/
 │   ├── smoke.js          # dist runtime wiring and lifecycle verification
@@ -282,6 +290,7 @@ ba-click-fx/
 
 ### Architecture
 
+- **Custom builds:** the same implementation supports profile-based fixed settings and backend/feature trimming. See [custom builds](./custom-build.en.md) for API and failure contracts; the fallback behavior below describes the full version.
 - **Isolated compositing layer:** disabled by default; enable the transparent isolated group explicitly to preserve colour on non-game pure-white web backgrounds.
 - **WebGPU Scene:** asynchronously requests a device and uses an `rgba16float` linear Scene with WGSL Bloom; ordinary mode stays on Standard SDR, while HDR mode preserves real super-white highlights only after successful `extended` output and falls back to WebGL2 on device failure.
 - **Full WebGL2 Scene:** complete geometry, Coverage, background, and MXFinalBloom resolve through one HDR pipeline and one output pass.

@@ -1,0 +1,21 @@
+{
+  "backend": "webgl2",
+  "runtime": "worker",
+  "features": {
+    "click": true,
+    "trail": true,
+    "shards": true,
+    "bloom": true,
+    "compositingReference": false
+  },
+  "config": {
+    "themeColor": "#4ca7ff",
+    "maxDpr": 1,
+    "outputCompositing": "browser-overlay",
+    "hostCompositing": "source-over"
+  },
+  "fxParams": {
+    "bloom.intensity": 1.7,
+    "bloom.resolutionScale": 0.5
+  }
+}
