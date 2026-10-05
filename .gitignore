@@ -46,6 +46,9 @@ docs/assets/ba-click-fx-demo.gif
 # Local Unity reference notes
 /docs/unity-reference-baseline.md
 
+# 阶段性优化过程报告仅留本地，正式说明维护在使用文档和 Changelog。
+/docs/optimization-stage*.md
+
 # Agent / AI
 .reasonix
 reasonix.toml
