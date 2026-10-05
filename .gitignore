@@ -4,6 +4,7 @@ node_modules
 # Build output
 dist
 dist-ssr
+dist-custom
 test-results
 
 # Local download badge preview; published data lives on stats.
