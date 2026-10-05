@@ -754,7 +754,7 @@ assert(nativeGoldenRecords.length === 48 && nativeGoldenHash === '476422967f2cfd
 // 区分固定 16×16×4 纹理表与第十阶段的同帧圆环准备缓冲；旧 64 点无用数组仍禁止出现。
 assert(nativeGoldenAllocations.get(1024) === 1 && !nativeGoldenAllocations.has(64),
   'Native 多实例只分配一次固定纹理采样表，不再逐环分配角向工作数组');
-assert(nativeGoldenAllocations.get(97) === 480 && nativeGoldenAllocations.size === 2,
+assert(nativeGoldenAllocations.get(97) === 384 && nativeGoldenAllocations.get(65) === 96 && nativeGoldenAllocations.size === 3,
   '48 组场景的同帧圆环双精度缓冲按径向带准备，不随双圆环重复分配');
 
 
@@ -5695,9 +5695,10 @@ expiredTrailEffect.trailStrokes.push(
     points: expiringPoints,
   },
 );
-expiredTrailEffect._updateTrail(expirationNow, 1, false);
+expiredTrailEffect._updateTrail(expirationNow + 1, 1, false);
 assert(
-  trailShiftCount === 0 && expiringPoints.length === 97 && expiringPoints[0].x === 3999,
+  trailShiftCount === 0 && expiringPoints.length === 97 && expiringPoints[0].x === 3999 &&
+    expiredTrailEffect.trailStrokes[0].renderPoints.length === 97,
   '大量过期轨迹顶点一次批量删除并保留裁切邻接点，不重复 shift 搬移数组',
 );
 expiredTrailEffect.destroy();
@@ -6891,9 +6892,10 @@ finally
   Math.random = signatureRandom;
 }
 
-assert((await import('node:crypto')).createHash('sha256').update(JSON.stringify(signatureRecords)).digest('hex') ===
-  '71133830b18386635cab27fbc7c3486c50e5cf874400b67afa390cdcb0433edb',
-  '14 组输入、参数、主题、透明度和生命周期的完整快照签名与优化前一致');
+const signatureHash = (await import('node:crypto')).createHash('sha256').update(JSON.stringify(signatureRecords)).digest('hex');
+assert(signatureHash ===
+  'd15e76131784433f093c48b2121ddc0253094f5e9c8b50c981311ebe71d826fb',
+  `14 组输入、参数、主题、透明度和生命周期的完整快照签名符合当前默认配置：${signatureHash}`);
 const signatureInstances = [0, 1].map(() => new BAClickFX({ inputSource: 'manual' }));
 const signatureCounts = [0, 0];
 const originalStringify = JSON.stringify;

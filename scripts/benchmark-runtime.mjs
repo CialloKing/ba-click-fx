@@ -10,6 +10,8 @@ import {
 
 const rootDir = resolve(import.meta.dirname, '..');
 const label = (process.argv[2] ?? 'current').replace(/[^a-zA-Z0-9_-]/g, '-');
+const runtimePrefix = process.argv[3] ?? '/src/';
+const fitOnly = process.argv.includes('--fit-only');
 const directory = resolve(rootDir, 'test-results');
 mkdirSync(directory, { recursive: true });
 const executablePath = findChromiumExecutable();
@@ -23,6 +25,7 @@ const result = {
   }).trim(),
   node: process.version, platform: process.platform, cpu: cpus()[0]?.model,
   executablePath,
+  runtimePrefix,
   viewport: { width: 320, height: 240 }, randomSeed: 12345,
   workloadVersion: 'logical-trail-time-v1',
   targetBatchMs: 20, maximumIterations: 1_000_000,
@@ -34,6 +37,7 @@ try
 {
   const runtime = await startViteServer(rootDir);
   vite = runtime.server;
+  await vite.watcher.close();
   browser = await chromium.launch({
     executablePath, headless: true,
     args: ['--disable-background-networking', '--disable-extensions',
@@ -42,11 +46,11 @@ try
   result.browser = browser.version();
   const page = await browser.newPage({ viewport: { width: 320, height: 240 } });
   await page.goto(`${runtime.baseUrl}/test/browser/webgpu.html`);
-  result.cases = await page.evaluate(async () =>
+  result.cases = await page.evaluate(async ({ runtimePrefix, fitOnly }) =>
   {
-    const { BAClickFX, UNITY_FX_TOUCH } = await import('/src/fx.js');
-    const { WebGL2EffectRenderer } = await import('/src/webgl2-effect.js');
-    const { WebGPUEffectRenderer } = await import('/src/webgpu-effect.js');
+    const { BAClickFX, UNITY_FX_TOUCH } = await import(/* @vite-ignore */ `${runtimePrefix}fx.js`);
+    const { WebGL2EffectRenderer } = await import(/* @vite-ignore */ `${runtimePrefix}webgl2-effect.js`);
+    const { WebGPUEffectRenderer } = await import(/* @vite-ignore */ `${runtimePrefix}webgpu-effect.js`);
     const { seedRoundedShards } = await import('/scripts/runtime-readback-diagnostics.mjs');
     const { trackCanvasWork } = await import('/scripts/runtime-canvas-work.mjs');
     const { loadRingDiagnosticModule } = await import('/scripts/runtime-ring-diagnostics.mjs');
@@ -182,7 +186,8 @@ try
         ...counted.details, ...counted.counts };
     };
     const ring = renderer => renderer.addDissolveRing(
-      160, 120, 50, 10, 0.35, 8, 96, [1, 0.6, 2], 0.7, 0.5, 0.1, 0.9, -1,
+      160, 120, 50, 10, 0.35, UNITY_FX_TOUCH.rings.radialSamples,
+      UNITY_FX_TOUCH.rings.arcSamples, [1, 0.6, 2], 0.7, 0.5, 0.1, 0.9, -1,
     );
     const seedTrail = fx =>
     {
@@ -216,8 +221,9 @@ try
               const trailNow = fx.trailTimeMs;
               fx._advanceTrailTime(now);
               fx._updateTrail(fx.trailTimeMs, 1, false, false, true);
-              if (fx.trailTimeMs !== trailNow || fx.currentTrailStroke.points.some(point =>
-                point.bornAt > trailNow || trailNow - point.bornAt >= fx.fxConfig.trail.lifetimeMs))
+              const points = fx.currentTrailStroke.renderPoints ?? fx.currentTrailStroke.points;
+              if (fx.trailTimeMs !== trailNow || points.some(point =>
+                point.bornAt > trailNow || trailNow - point.bornAt > fx.fxConfig.trail.lifetimeMs + 1e-6))
               {
                 throw new Error('微基准轨迹时钟不一致或过期裁剪失败');
               }
@@ -290,6 +296,7 @@ try
         });
       }
       results.fixedTrail.measurementsPer500 = results.fixedTrail.measurementRebuilds;
+      if (fitOnly) return results;
       for (const variant of ['denseClicks', 'softwareOverlay', 'softwareAlphaOne', 'softwareAlphaOneBrightCore'])
       {
         const software = variant !== 'denseClicks';
@@ -406,8 +413,9 @@ try
                   if (moving) moveTrail(fx, i);
                   fx._renderFrame(now);
                   if (fx.resolvedBloomBackend !== bloomBackend) throw new Error('Canvas 拖尾基准发生意外回退');
-                  if (fx.currentTrailStroke.points.some(point => point.bornAt > fx.trailTimeMs
-                    || fx.trailTimeMs - point.bornAt >= fx.fxConfig.trail.lifetimeMs)) throw new Error('Canvas 拖尾时间或裁剪不一致');
+                  const points = fx.currentTrailStroke.renderPoints ?? fx.currentTrailStroke.points;
+                  if (points.some(point => point.bornAt > fx.trailTimeMs
+                    || fx.trailTimeMs - point.bornAt > fx.fxConfig.trail.lifetimeMs + 1e-6)) throw new Error('Canvas 拖尾时间或裁剪不一致');
                 },
                 count: () =>
                 {
@@ -503,7 +511,7 @@ try
       window.requestAnimationFrame = nativeRaf;
       window.cancelAnimationFrame = nativeCancelRaf;
     }
-  });
+  }, { runtimePrefix, fitOnly });
   // 正式基准全部结束后再包装诊断与 CPU 采样，避免影响七轮原始耗时。
   result.filterWork = await page.evaluate(async () =>
     (await import('/scripts/runtime-filter-diagnostics.mjs')).countSoftwareFiltering());

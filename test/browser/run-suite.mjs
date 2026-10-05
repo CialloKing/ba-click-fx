@@ -76,6 +76,8 @@ export async function runBrowserSuite(name, runSuite)
     const viteRuntime = await startViteServer(rootDir);
 
     vite = viteRuntime.server;
+    // 发布门禁读取一次构建结果；报告或其他任务写入文件不能打断像素读回。
+    await vite.watcher.close();
     browser = await launchChromium(executablePath);
     const startedAt = performance.now();
     const calibration = await runSuite(

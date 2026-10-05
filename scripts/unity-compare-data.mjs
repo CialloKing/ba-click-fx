@@ -113,12 +113,19 @@ export function trailEndpoints(trail, width = 1950, height = 1097)
     const edge = v => trail.vertices.find((_, i) =>
       Math.abs(trail.uv[i].x - u) < 1e-6 && Math.abs(trail.uv[i].y - v) < 1e-6);
     const left = edge(0); const right = edge(1);
-    if (!left || !right || Math.hypot(left.x - right.x, left.y - right.y) < 1e-8) return null;
+    // 释放后头部宽度为零，但中心仍是有效端点；不能把锥形端误判成消失。
+    if (!left || !right) return null;
     return { x: width / 2 + (left.x + right.x) * height / 4,
       y: height / 2 - (left.y + right.y) * height / 4 };
   };
   const start = endpoint(1); const end = endpoint(0);
-  return start && end ? { start, end } : null;
+  if (!start || !end) return null;
+  const origin = trail.vertices[0];
+  const axis = trail.vertices.find(point => Math.hypot(point.x - origin.x, point.y - origin.y) > 1e-8);
+  const visible = axis && trail.vertices.some(point => Math.abs(
+    (axis.x - origin.x) * (point.y - origin.y) - (axis.y - origin.y) * (point.x - origin.x),
+  ) > 1e-12);
+  return visible ? { start, end } : null;
 }
 
 function crc32(bytes)

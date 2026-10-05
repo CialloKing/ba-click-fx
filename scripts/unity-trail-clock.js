@@ -9,7 +9,10 @@ export function matchTrailPointTimes(points, inputs)
     {
       while (next < inputs.length && Math.hypot(point.x - inputs[next].x, point.y - inputs[next].y) > 0.001) next++;
       if (next === inputs.length) break;
-      candidate.push({ ...point, bornAt: inputs[next++].timeMs });
+      // 原始 TrailRenderer 首次发生位移时同时创建起点与终点。
+      const time = inputs[next === 0 && inputs.length > 1 ? 1 : next].timeMs;
+      candidate.push({ ...point, bornAt: time });
+      next++;
     }
     if (candidate.length === points.length) matched = candidate;
   }

@@ -1252,7 +1252,7 @@ async function runIntegration(page)
       trailOwnerCount: 1,
       trailOwnerShards: 50,
       trackedTrailOwnerShards: 50,
-      sceneRingVertexCount: 9216,
+      sceneRingVertexCount: 768,
       sceneTriangleVertexCount: 324,
     },
     `WebGPU 必须复用 Unity 点击与单实例拖尾几何合同: ${initialDetail}`,

@@ -7809,13 +7809,21 @@ export class BAClickFX
     }
 
     const count = Math.min(512, Math.floor(segmentLength / vertexDistance));
+    const points = this.currentTrailStroke.points;
+    const sampleStartTime = points.length === 1 ? now : this.lastPointerTime;
+    if (points.length === 1)
+    {
+      // TrailRenderer 首次移动时同时创建起点和终点；只对齐轨迹出生时间，
+      // 碎片仍沿原始输入时间段发射，不能让绘制采样改写粒子模拟。
+      points[0].bornAt = now;
+    }
 
     for (let index = 1; index <= count; index++)
     {
       const progress = index / count;
       const x = lerp(from.x, position.x, progress);
       const y = lerp(from.y, position.y, progress);
-      const bornAt = lerp(this.lastPointerTime, now, progress);
+      const bornAt = lerp(sampleStartTime, now, progress);
 
       this.currentTrailStroke.points.push(createTrailPoint(x, y, bornAt));
     }
@@ -11570,6 +11578,7 @@ export class BAClickFX
       {
         // 即使没有输入，过期边界仍会移动；几何和渐变缓存必须一起失效。
         invalidateTrailPoints(stroke);
+        stroke.renderPointCache.version = stroke.pointsVersion;
       }
       if (getTrailRenderPoints(stroke).length >= 2)
       {

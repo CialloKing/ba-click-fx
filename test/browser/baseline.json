@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "source": "Microsoft Edge/Chromium fixed-time implementation regression; Unity FX_Touch inputs and MXFinalBloom CPU-to-shader contracts audited against UnityMouseFxLab; no source assets",
+  "source": "Microsoft Edge/Chromium fixed-time implementation regression; Unity FX_Touch inputs and MXFinalBloom CPU-to-shader contracts audited against UnityMouseFxLab; no source assets; stage-1 Unity trail clipping and Cylinder002 64x1 defaults",
   "fixture": {
     "width": 320,
     "height": 240,
@@ -20,12 +20,12 @@
   },
   "modes": {
     "full-webgl2": {
-      "meanRed": 0.033667,
-      "meanGreen": 0.043085,
-      "meanBlue": 0.117523,
-      "meanAlpha": 0.014833,
-      "meanEnergy": 0.117523,
-      "visibleRatio": 0.118698,
+      "meanRed": 0.033608,
+      "meanGreen": 0.043039,
+      "meanBlue": 0.117496,
+      "meanAlpha": 0.014829,
+      "meanEnergy": 0.117496,
+      "visibleRatio": 0.118672,
       "maximumAlpha": 0.980392,
       "boundsWidth": 105,
       "boundsHeight": 105,
@@ -48,12 +48,12 @@
       ]
     },
     "webgl2-bloom": {
-      "meanRed": 0.033667,
-      "meanGreen": 0.043085,
-      "meanBlue": 0.117523,
-      "meanAlpha": 0.014833,
-      "meanEnergy": 0.117523,
-      "visibleRatio": 0.118698,
+      "meanRed": 0.033608,
+      "meanGreen": 0.043039,
+      "meanBlue": 0.117496,
+      "meanAlpha": 0.014829,
+      "meanEnergy": 0.117496,
+      "visibleRatio": 0.118672,
       "maximumAlpha": 0.980392,
       "boundsWidth": 105,
       "boundsHeight": 105,
@@ -104,29 +104,29 @@
       ]
     },
     "native": {
-      "meanRed": 0.010447,
-      "meanGreen": 0.02173,
-      "meanBlue": 0.11183,
-      "meanAlpha": 0.013461,
-      "meanEnergy": 0.11183,
-      "visibleRatio": 0.112279,
+      "meanRed": 0.011104,
+      "meanGreen": 0.022255,
+      "meanBlue": 0.111692,
+      "meanAlpha": 0.013469,
+      "meanEnergy": 0.111692,
+      "visibleRatio": 0.112135,
       "maximumAlpha": 0.980392,
       "boundsWidth": 104,
       "boundsHeight": 104,
       "centerAlpha": 0.980392,
       "centerRgb": [
-        0.270588,
-        0.45098,
+        0.282353,
+        0.458824,
         1
       ],
       "radialAlpha": [
         0.980392,
         0.980392,
         0.980392,
-        0.423529,
-        0.282353,
+        0.415686,
+        0.286275,
         0.133333,
-        0.058824,
+        0.062745,
         0.003922,
         0
       ]

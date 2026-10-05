@@ -200,7 +200,7 @@ fx.setCompositingReference(null);
 
 圆环的 `radiusMin` / `radiusMax` 是从 MeshTri 的 Start Size 与相机比例换算出的外半径基准值；实际外半径还会乘 Unity 生命周期大小曲线。默认 `widthStart` / `widthEnd` 均为 `1`，只调节资源环宽，实际环宽始终按 `外半径 × 0.0598573766 × 环宽倍率` 计算。
 
-原 Shader 使用 `Blend SrcAlpha One, One One`。ParticleSystemRenderer 的 Apply Active Color Space 会把启用的 Color over Lifetime 顶点色解码到 Linear，再与 `FX_MAT_Touch_Tri3` 的白色 5.992157 HDR 材质相乘。溶解不是连续压低所有像素的透明度，而是以阈值处理二维纹理 Alpha；通过测试的像素继续保留纹理覆盖率。完整 WebGL2 在 Fragment Shader 中按原 UV 对 Ring3 执行 Bilinear + Clamp 采样后硬裁剪，不再插值 96×8 网格顶点的预采样 Alpha。大小和溶解阈值均使用资源关键帧及其入/出切线执行 Unity 三次 Hermite 插值，而不是线性插值或通用 smoothstep。
+原 Shader 使用 `Blend SrcAlpha One, One One`。ParticleSystemRenderer 的 Apply Active Color Space 会把启用的 Color over Lifetime 顶点色解码到 Linear，再与 `FX_MAT_Touch_Tri3` 的白色 5.992157 HDR 材质相乘。溶解不是连续压低所有像素的透明度，而是以阈值处理二维纹理 Alpha；通过测试的像素继续保留纹理覆盖率。完整 WebGL2 在 Fragment Shader 中按原 UV 对 Ring3 执行 Bilinear + Clamp 采样后硬裁剪，默认使用原始 Cylinder002 的 64×1 网格和 float32 UV；自定义采样仍程序生成，Canvas/Native 的默认内部积分仍为原有精度。大小和溶解阈值均使用资源关键帧及其入/出切线执行 Unity 三次 Hermite 插值，而不是线性插值或通用 smoothstep。
 
 Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白色阶段的实际峰值能量约为 `1.50`，而不是直接使用材质的 `5.99`。三角形按 `FX_TEX_Triangle_02_1` 的两个图集帧随机朝向，轮廓面积与生命周期尺寸曲线也来自资源，不再使用偏大的等边三角形近似。
 
@@ -218,7 +218,7 @@ Ring (3)/(4) 碎片还会在线性空间乘 `startColor = 0.5377358`，因此白
 
 纯 WebGL2 与成功解析到 GPU 的 WebGL2 Bloom 使用同一完整纹理批次：普通段只提交两个纹理三角，圆角插入点保持折点 U，单三角端帽的尖端固定为 `V=0.5`。完整 RGB 纹理保留原资源无法由对称单通道轮廓表达的逐通道与上下非对称细节；Canvas 能力受限路径只保证参数、几何、生命周期和总体能量关系，不宣称逐纹理像素等价。
 
-碎片沿轨迹按距离散布。
+轨迹寿命使用虚拟时钟。渲染保留过期边界前的一个邻接点，插值有效旧端，并按有效点重新计算弧长、UV、颜色、网格和包围盒；GPU、Canvas、Software、Native 共用这组有效点。首次移动时起点和终点同批出生，全部过期后清空；暂停、恢复和取消沿用现有行为。插值端点只绘制，碎片仍沿原始输入轨迹按距离散布。
 
 ### Bloom 渲染后端
 
