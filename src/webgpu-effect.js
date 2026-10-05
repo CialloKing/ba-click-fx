@@ -24,9 +24,9 @@ import {
 } from './bloom-color-space.js';
 import { isIndependentHostCompositing } from './config.js';
 import {
-  WebGL2EffectRenderer,
+  EffectGeometry,
   calculatePyramidSettings,
-} from './webgl2-effect.js';
+} from './effect-geometry.js';
 import { WebGPUCanvasDevice } from './webgpu-device.js';
 import {
   WEBGPU_FULLSCREEN_SHADER,
@@ -256,13 +256,13 @@ const RING_SCENE_BLEND = Object.freeze(
 
 /**
  * WebGPU 只替换 GPU 提交与 HDR 输出；粒子网格继续复用已经验证的 CPU 构建器。
- * 等几何合同稳定后可将该构建器独立成更小的基类，不复制第二份粒子拓扑。
+ * 两种 GPU 后端共享几何基类，各自管理设备资源，不引入另一个后端。
  */
-export class WebGPUEffectRenderer extends WebGL2EffectRenderer
+export class WebGPUEffectRenderer extends EffectGeometry
 {
   constructor(canvas, options = {})
   {
-    super(canvas, { initialize: false });
+    super(canvas);
     this.status = 'pending';
     this.deviceManager = new WebGPUCanvasDevice(
       canvas,
