@@ -83,7 +83,7 @@ const fx = new BAClickFX(
 
 ```html
 <script type="module">
-  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.4.0/dist/ba-click-fx.js';
+  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.8/dist/ba-click-fx.js';
 
   const fx = new BAClickFX(
   {
@@ -102,9 +102,9 @@ const fx = new BAClickFX(
 
 | 入口 | JavaScript | 类型声明（包名导入） |
 |---|---|---|
-| 主入口 | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.4.0/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.4.0/ba-click-fx.d.ts) |
-| 配置 | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.4.0/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.4.0/config.d.ts) |
-| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.4.0/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.4.0/worker.d.ts) |
+| 主入口 | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/ba-click-fx.d.ts) |
+| 配置 | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/config.d.ts) |
+| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/worker.d.ts) |
 
 **TypeScript：** 推荐使用上方的 [npm 方式](#npm)，通过 `import { BAClickFX } from 'ba-click-fx'` 自动获取类型；需要自托管时，由构建工具生成并部署静态文件。当前下载的主声明使用 `declare module 'ba-click-fx'`，配置和 Worker 声明也引用该包名。仅把 `.d.ts` 放在下载的 JS 旁边，不能为 `import ... from './ba-click-fx.js'` 提供可直接使用的模块类型，会出现 TS2306（声明文件不是模块）。
 

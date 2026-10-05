@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.4.0 - 固定参数的源码定制构建
+## v1.3.8 - 固定参数的源码定制构建
 
 - 扩展现有构建：`npm run build` 继续生成完整版与演示页，`npm run build -- --profile ba-click-fx.build.json` 按 JSON 配置生成 `dist-custom`，用户可自行选择六种现有渲染模式中的一种，以及 DOM、手动 Canvas 或 Worker 接入。
 - 在构建时固定普通配置和特效参数，裁剪未选后端、运行时调参和关闭的点击、拖尾、碎片、Bloom、合成参考功能；复用完整版实现，预计算主题与固定材质常量，保留原有 Shader、纹理编码和 HDR/Bloom 算法。
