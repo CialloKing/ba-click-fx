@@ -130,6 +130,8 @@ npm run check:release
 
 Release checks include full-build regression, build and type checks through `test:custom`, and actual runtime acceptance through `test:browser:custom -- --required`. Browser validation requires Chrome/Edge; set `BACLICKFX_CHROMIUM_PATH` if needed. Tests cover six modes and three runtimes, feature trimming, non-default settings, known backgrounds, multiple instances, lifecycle, and real Canvas transfers. Fixed input, random numbers, and time enable byte-exact full/custom pixel comparisons without changing golden data or thresholds. WebGPU Worker additionally checks asynchronous preparation, destruction during preparation, device loss, and Standard fallback. Running `npm run test:browser:custom` alone explicitly records unavailable devices as skipped; release checks require every device to run and fail on any skip.
 
+`check:release` runs both custom suites in one process through `test:custom:release`, building each final configuration only once. Standalone build and browser checks retain their complete coverage. Generated files stay in the ignored `test-results/custom-builds` directory. Only artifacts freshly generated in the current process are reused; the next run rebuilds instead of trusting old files or acceptance results.
+
 Default browser acceptance checks pixels and lifecycle only, recording bytes and acceptance results in `test-results/custom-browser/results.json` without running performance workloads. Run benchmarks explicitly when comparing performance:
 
 ```bash

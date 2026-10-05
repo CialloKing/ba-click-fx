@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BACKENDS, RUNTIMES, normalizeProfile } from '../scripts/build-profile.mjs';
 import { customApi } from '../scripts/custom-compiler.mjs';
+import { buildCustomFixture, customBuildStats } from './custom-build-fixture.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const dir = resolve(root, 'test-results/custom');
@@ -18,11 +19,7 @@ profiles.push(...['click', 'trail', 'shards', 'bloom', 'compositingReference'].m
 profiles.push({ backend: 'native', runtime: 'dom', features: { click: false, trail: false, shards: false, bloom: false, compositingReference: false } });
 for (const [index, input] of profiles.entries())
 {
-  const path = resolve(dir, 'profile.json');
-  writeFileSync(path, JSON.stringify(input));
-  execFileSync(process.execPath, ['scripts/build.mjs', '--profile', path], { cwd: root, stdio: 'pipe' });
-  const output = resolve(root, 'dist-custom');
-  const info = JSON.parse(readFileSync(resolve(output, 'build-info.json'), 'utf8'));
+  const { directory: output, info } = buildCustomFixture(input);
   const code = readFileSync(resolve(output, 'ba-click-fx.js'), 'utf8');
   const exports = await import(pathToFileURL(resolve(output, 'ba-click-fx.js')).href + '?case=' + index);
   assert.deepEqual(Object.keys(exports).sort(), ['BAClickFX', 'default']);
@@ -67,3 +64,4 @@ fx.updateConfig({ opacity: 0.5 });
 for (const [lib, consumers] of Object.entries(typeConsumers))
   execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '--strict', '--noEmit', '--lib', `es2022,${lib === 'worker' ? 'webworker' : 'dom'}`, '--module', 'nodenext', ...consumers], { cwd: root, stdio: 'inherit' });
 console.log('custom ESM declarations passed');
+console.log(`custom builds: ${JSON.stringify(customBuildStats())}`);

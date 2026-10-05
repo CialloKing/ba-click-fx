@@ -57,4 +57,5 @@ jobs:
           path: |
             test-results/browser-pixels
             test-results/custom-browser
+            test-results/custom-builds
           if-no-files-found: ignore

@@ -130,6 +130,8 @@ npm run check:release
 
 发布检查包括完整版回归、`test:custom` 的构建与类型检查，以及 `test:browser:custom -- --required` 的实际运行验收。浏览器验证需要 Chrome/Edge，可设置 `BACLICKFX_CHROMIUM_PATH`。测试覆盖六种模式与三种接入、功能裁剪和非默认参数、已知背景、多实例、生命周期及真实 Canvas 转移；固定输入、随机数和时间后逐字节比较完整版与定制版，不更新黄金数据或放宽阈值。WebGPU Worker 额外检查异步初始化、初始化期间销毁、设备丢失和 Standard 输出降级。单独运行 `npm run test:browser:custom` 时，设备不可用会明确标为跳过；发布检查要求全部设备实际运行，出现跳过则失败。
 
+`check:release` 通过 `test:custom:release` 在同一进程内完成两套定制检查，相同的最终配置只构建一次。单独运行构建或浏览器检查也保留各自完整的覆盖范围。构建文件留在已忽略的 `test-results/custom-builds`，仅复用当前进程内刚生成的产物；下次运行重新构建，不依赖旧文件或旧验收结果。
+
 默认浏览器验收只进行画面与生命周期检查，体积和验收结果写入 `test-results/custom-browser/results.json`，不执行性能压测。需要比较性能时显式运行：
 
 ```bash

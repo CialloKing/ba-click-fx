@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, copyFileSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync, brotliCompressSync } from 'node:zlib';
 import { chromium } from 'playwright-core';
 import { BACKENDS, RUNTIMES } from '../../scripts/build-profile.mjs';
+import { buildCustomFixture, customBuildStats } from '../custom-build-fixture.mjs';
 import { findChromiumExecutable, startViteServer } from './harness.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -66,12 +66,7 @@ try
   {
     if (selection && (/^\d+$/.test(selection) ? index < Number(selection) : !JSON.stringify(entry).includes(selection))) continue;
     const { testReference = false, ...input } = entry;
-    const profilePath = resolve(dir, 'profile.json');
-    writeFileSync(profilePath, JSON.stringify(input));
-    execFileSync(process.execPath, ['scripts/build.mjs', '--profile', profilePath], { cwd: root, stdio: 'pipe' });
-    const file = `custom-${index}.js`;
-    copyFileSync(resolve(root, 'dist-custom/ba-click-fx.js'), resolve(dir, file));
-    const profile = JSON.parse(readFileSync(resolve(root, 'dist-custom/build-info.json'), 'utf8'));
+    const { info: profile, url: customUrl } = buildCustomFixture(input);
     const page = await browser.newPage();
     await page.goto(vite.baseUrl + '/test/browser/custom.html');
     const errors = [];
@@ -85,7 +80,7 @@ try
     const baseArgs = { profile, url: vite.baseUrl + '/dist/ba-click-fx.js', full: true, reference: testReference, benchmark, gpuPerformance: benchmark && baseProfile };
     const baseline = await run(baselinePage, baseArgs, input.runtime === 'worker' && !['webgpu', 'webgpu-hdr', 'webgl2-bloom'].includes(input.backend) && !(testReference && input.backend === 'native'));
     await baselinePage.close();
-    const args = { profile, url: vite.baseUrl + '/test-results/custom-browser/' + file, reference: testReference,
+    const args = { profile, url: vite.baseUrl + customUrl, reference: testReference,
       restoreContext: baseProfile && input.backend === 'webgl2', benchmark, gpuPerformance: benchmark && baseProfile };
     const custom = await run(page, args, input.runtime === 'worker');
     assert.deepEqual(errors, []);
@@ -133,12 +128,13 @@ try
   if (requireAll) assert(results.every(item => !item.baseline.skipped && !item.custom.skipped),
     `Required custom runtime coverage contains skipped devices; see ${reportPath}`);
   assert(results.length > 0, 'No custom profiles matched the selection');
+  console.log(`custom builds: ${JSON.stringify(customBuildStats())}`);
   complete = true;
 }
 finally
 {
   const full = readFileSync(resolve(root, 'dist/ba-click-fx.js'));
-  writeFileSync(reportPath, JSON.stringify({ browser: browser.version(), selection: selection ?? null, benchmark,
+  writeFileSync(reportPath, JSON.stringify({ browser: browser.version(), selection: selection ?? null, benchmark, builds: customBuildStats(),
     gpu: benchmark ? 'Browser default adapter; headless RAF with GPU completion measured; physical display FPS and HDR unverified' : 'Performance sampling disabled',
     memory: benchmark ? 'Heap snapshots where exposed; Worker heap is unavailable and reported as null' : 'Performance sampling disabled',
     acceptance: { complete, requireAll, pixelPassed: results.filter(item => !item.baseline.skipped && !item.custom.skipped).length,

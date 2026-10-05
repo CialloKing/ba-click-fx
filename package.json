@@ -79,6 +79,7 @@
     "test:runtime": "node test/smoke.js",
     "test:worker": "node test/offscreen-worker.js",
     "test:custom": "node test/build-profile.js && node test/custom-build.js",
+    "test:custom:release": "node test/custom-release.mjs --required",
     "test:browser:custom": "node test/browser/custom-runtime.mjs",
     "test": "npm run test:unit && npm run test:source-contract && npm run test:runtime && npm run test:worker",
     "test:themes": "node test/theme-color.js && node test/theme-background.js",
@@ -108,7 +109,7 @@
     "verify:tarball": "node scripts/verify-tarball.mjs",
     "check:fast": "npm test && npm run verify:runtime-sync",
     "check": "npm run build && npm test && npm run verify:runtime-sync && npm run verify:demo-sync && npm run verify:package && npm run verify:tarball",
-    "check:release": "npm run check && npm run test:custom && npm run test:browser:core && npm run test:browser:worker && npm run test:browser:lifecycle && npm run test:browser:demo && npm run test:browser:unity && npm run test:browser:webgpu:optional && npm run test:browser:custom -- --required",
+    "check:release": "npm run check && npm run test:browser:core && npm run test:browser:worker && npm run test:browser:lifecycle && npm run test:browser:demo && npm run test:browser:unity && npm run test:browser:webgpu:optional && npm run test:custom:release",
     "prepack": "npm run build",
     "prepublishOnly": "npm run check:release"
   },
