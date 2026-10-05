@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import { updateTrailRenderPoints } from '../src/trail-lifetime.js';
+
+const stroke = { points: [100, 120, 140].map(bornAt => ({ bornAt, x: bornAt * 3.6, y: 0 })) };
+updateTrailRenderPoints(stroke, 410, 300);
+assert.equal(stroke.points.length, 3, '保留裁切边界前一点');
+assert.deepEqual(stroke.renderPoints[0], { x: 396, y: 0, bornAt: 110 });
+const view = stroke.renderPoints;
+assert.equal(updateTrailRenderPoints(stroke, 410, 300), false, '同一时刻复用有效几何');
+assert(updateTrailRenderPoints(stroke, 415, 300));
+assert.equal(stroke.renderPoints, view, '连续缩短复用数组容量');
+assert.equal(stroke.renderPoints[0].x, 414);
+updateTrailRenderPoints(stroke, 430, 300);
+assert.equal(stroke.points.length, 2);
+assert.equal(stroke.renderPoints.length, 2, '剩下一个存活采样时仍保留有效线段');
+assert.equal(stroke.renderPoints[0].x, 468);
+updateTrailRenderPoints(stroke, 440, 300);
+assert.equal(stroke.points.length, 0);
+assert.equal(stroke.renderPoints.length, 0);
+stroke.points.push({ x: 1, y: 2, bornAt: 500 }, { x: 3, y: 2, bornAt: 510 });
+updateTrailRenderPoints(stroke, 520, 300);
+assert.deepEqual(stroke.renderPoints, stroke.points, '停顿后新采样不继承旧端点');
+updateTrailRenderPoints(stroke, 520, 10);
+assert.equal(stroke.renderPoints.length, 0, '寿命缩短立即使旧几何失效');
+console.log('拖尾连续裁切、边界寿命、复用与重新开始检查通过');

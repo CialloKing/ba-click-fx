@@ -4383,9 +4383,15 @@ releasedSinglePointEffect.pointerMove(
 releasedSinglePointEffect.pointerUp(85);
 flushFrames(dom, releasedTrailStart + 200, 1, 210);
 assert(
+  releasedSinglePointEffect.trailStrokes.length === 1 &&
+    releasedSinglePointEffect.trailStrokes[0].renderPoints.length >= 2,
+  '只剩一个存活采样时仍保留裁切边界到末端的有效线段',
+);
+flushFrames(dom, releasedTrailStart + 500, 1, 10);
+assert(
   releasedSinglePointEffect.trailStrokes.length === 0 &&
     dom.frames.size === 0,
-  '已松开轨迹错峰衰减到单点时会删除容器并停止 RAF',
+  '已松开轨迹全部过期后删除容器并停止 RAF',
 );
 releasedSinglePointEffect.destroy();
 
@@ -5691,8 +5697,8 @@ expiredTrailEffect.trailStrokes.push(
 );
 expiredTrailEffect._updateTrail(expirationNow, 1, false);
 assert(
-  trailShiftCount === 0 && expiringPoints.length === 96,
-  '大量过期轨迹顶点一次批量删除，不重复 shift 搬移数组',
+  trailShiftCount === 0 && expiringPoints.length === 97 && expiringPoints[0].x === 3999,
+  '大量过期轨迹顶点一次批量删除并保留裁切邻接点，不重复 shift 搬移数组',
 );
 expiredTrailEffect.destroy();
 
@@ -6740,11 +6746,12 @@ movingGpuTrail.fx._renderFrame(60);
 assert(movingGpuTrail.stroke.trailFrameData.gpuPointCache !== beforeGpuAppend,
   '追加点后重建 GPU 拖尾逐点材质');
 const beforeGpuExpiry = movingGpuTrail.stroke.trailFrameData.gpuPointCache;
-const beforeGpuExpiryCount = movingGpuTrail.stroke.points.length;
+const beforeGpuExpiryStart = { ...movingGpuTrail.stroke.renderPoints[0] };
 const gpuExpiryTime = movingGpuTrail.stroke.points[0].bornAt + movingGpuTrail.fx.fxConfig.trail.lifetimeMs + 1;
 movingGpuTrail.fx._renderFrame(gpuExpiryTime);
 assert(movingGpuTrail.stroke.trailFrameData?.gpuPointCache !== beforeGpuExpiry &&
-  movingGpuTrail.stroke.points.length < beforeGpuExpiryCount,
+  movingGpuTrail.stroke.renderPoints[0].bornAt > beforeGpuExpiryStart.bornAt &&
+  movingGpuTrail.stroke.renderPoints[0] !== movingGpuTrail.stroke.points[0],
   'GPU 逐点缓存命中不会阻止过期裁剪及缓存失效');
 movingGpuTrail.fx.destroy();
 const destroyedGpuTrail = createGpuTrailFixture();

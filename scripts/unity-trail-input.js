@@ -11,6 +11,8 @@ export async function loadTrailRuntime(prefix = '/src/')
       source = source.replace(/from\s*(['"])((?:\.\/|\/)[^'"]+)\1/g,
         (_, quote, path) => `from '${new URL(path, new URL(file, location.href)).href}'`);
       source += '\nexport { appendTrailWebGLScene };';
+      if (source.includes('import { getTrailRenderPoints, updateTrailRenderPoints }'))
+        source += '\nexport { updateTrailRenderPoints };';
       const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
       try { return await import(url); } finally { URL.revokeObjectURL(url); }
     })());

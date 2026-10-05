@@ -74,7 +74,7 @@
     "dev": "vite",
     "build": "node scripts/build.mjs",
     "preview": "vite preview",
-    "test:unit": "npm run test:config && npm run test:themes && npm run test:bloom && npm run test:webgpu",
+    "test:unit": "node test/trail-lifetime.js && node test/unity-compare.js && npm run test:config && npm run test:themes && npm run test:bloom && npm run test:webgpu",
     "test:source-contract": "node test/source-contract.js && node test/triangle-fallback.js",
     "test:runtime": "node test/smoke.js",
     "test:worker": "node test/offscreen-worker.js",

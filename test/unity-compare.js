@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { decodeHalf, compareRgb, compareForegroundRgb, trailEndpoints, encodePreview, srgbEncode, srgbDecode, summarizeTrailMesh } from '../scripts/unity-compare-data.mjs';
+import { matchTrailPointTimes } from '../scripts/unity-trail-clock.js';
 
 assert.deepEqual([...decodeHalf(Buffer.from([0, 0, 0, 60, 0, 192, 1, 0]))], [0, 1, -2, 2 ** -24]);
 assert.throws(() => decodeHalf(Buffer.from([0])), /长度/);
@@ -13,6 +14,8 @@ assert.equal(metric.meanAbsoluteError, 1 / 3);
 const foreground = compareForegroundRgb(Float32Array.of(0, 0, 0, 0, 1, 0, 0, 1), Float32Array.of(0, 0, 0, 0, 0.5, 0, 0, 1));
 assert.equal(foreground.actual.pixels, 1);
 assert.equal(foreground.actual.meanAbsoluteError, 1 / 6);
+assert.deepEqual(matchTrailPointTimes([{ x: 1, y: 0 }, { x: 0, y: 0 }],
+  [0, 1, 2, 1, 0].map((x, i) => ({ x, y: 0, timeMs: i * 20 }))).map(p => p.bornAt), [60, 80]);
 assert.equal(compareForegroundRgb(new Float32Array(4), new Float32Array(4)).actual.rmse, 0);
 assert.deepEqual(trailEndpoints({ vertices: [{ x: 0, y: 1 }, { x: 0, y: -1 }, { x: 2, y: 1 }, { x: 2, y: -1 }],
   uv: [{ x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 0 }, { x: 0, y: 1 }] }, 100, 100),

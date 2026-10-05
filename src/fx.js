@@ -1,7 +1,7 @@
 /**
  * ba-click-fx — Blue Archive 的 UI/FX_Touch 浏览器移植。
  *
- * 这不是“相似风格”参数化引擎。实现直接复刻 Unity 中 FXTouch、
+ * 这不是“相似风格”参数化引擎。实现移植 Unity 中 FXTouch、
  * ParticleSystem 和 TrailRenderer 的生命周期，只保留宿主接入所需的最小 API。
  */
 
@@ -47,6 +47,7 @@ import {
   createRelativeOklchTheme,
 } from './theme-color.js';
 import { applyFxParamPatch as prepareFxParamPatch } from './fx-param-patch.js';
+import { getTrailRenderPoints, updateTrailRenderPoints } from './trail-lifetime.js';
 import {
   gammaToLinear,
   resolveUnityBloomClamp,
@@ -9660,11 +9661,11 @@ export class BAClickFX
 
       for (const stroke of this.trailStrokes)
       {
-        if (stroke.points.length >= 2)
+        if (getTrailRenderPoints(stroke).length >= 2)
         {
           drawTrail(
             context,
-            stroke.points,
+            getTrailRenderPoints(stroke),
             scale,
             this._getEffectiveOpacity(),
             this.fxConfig,
@@ -9820,7 +9821,7 @@ export class BAClickFX
 
     for (const stroke of this.trailStrokes)
     {
-      if (stroke.points.length < 2)
+      if (getTrailRenderPoints(stroke).length < 2)
       {
         continue;
       }
@@ -9834,7 +9835,7 @@ export class BAClickFX
       const bloomRuns = [];
       let activeRun = null;
 
-      for (let index = 1; index < stroke.points.length; index++)
+      for (let index = 1; index < getTrailRenderPoints(stroke).length; index++)
       {
         // 只排除写入 8 位发射遮罩后所有通道都严格量化为 0 的段。
         // 不能按 Bloom 阈值提前裁剪：多个微弱发射源叠加后仍可能越过阈值。
@@ -9852,8 +9853,8 @@ export class BAClickFX
           continue;
         }
 
-        const previousPoint = stroke.points[index - 1];
-        const point = stroke.points[index];
+        const previousPoint = getTrailRenderPoints(stroke)[index - 1];
+        const point = getTrailRenderPoints(stroke)[index];
 
         if (!activeRun)
         {
@@ -10089,7 +10090,7 @@ export class BAClickFX
 
     for (const stroke of this.trailStrokes)
     {
-      if (stroke.points.length < 2)
+      if (getTrailRenderPoints(stroke).length < 2)
       {
         continue;
       }
@@ -10099,7 +10100,7 @@ export class BAClickFX
       let maximumX = -Infinity;
       let maximumY = -Infinity;
 
-      for (const point of stroke.points)
+      for (const point of getTrailRenderPoints(stroke))
       {
         minimumX = Math.min(minimumX, point.x);
         minimumY = Math.min(minimumY, point.y);
@@ -10393,11 +10394,11 @@ export class BAClickFX
     }
     const trailSignature = this.trailStrokes.map((stroke) =>
     {
-      const first = stroke.points[0];
-      const last = stroke.points.at(-1);
+      const first = getTrailRenderPoints(stroke)[0];
+      const last = getTrailRenderPoints(stroke).at(-1);
 
       return [
-        stroke.points.length,
+        getTrailRenderPoints(stroke).length,
         first?.x,
         first?.y,
         first?.bornAt,
@@ -10652,11 +10653,11 @@ export class BAClickFX
       {
         const stroke = batch.stroke;
 
-        if (stroke.points.length >= 2)
+        if (getTrailRenderPoints(stroke).length >= 2)
         {
           drawTrailEmission(
             bloomContext,
-            stroke.points,
+            getTrailRenderPoints(stroke),
             scale,
             this._getEffectiveOpacity(),
             this.fxConfig,
@@ -10692,11 +10693,11 @@ export class BAClickFX
         {
           const stroke = batch.stroke;
 
-          if (stroke.points.length >= 2)
+          if (getTrailRenderPoints(stroke).length >= 2)
           {
             drawTrailCoverage(
               coverageContext,
-              stroke.points,
+              getTrailRenderPoints(stroke),
               scale,
               this._getEffectiveOpacity(),
               this.fxConfig,
@@ -10821,7 +10822,7 @@ export class BAClickFX
     }
 
     const hasVisibleTrail = this.trailStrokes.some(
-      (stroke) => stroke.points.length >= 2,
+      (stroke) => getTrailRenderPoints(stroke).length >= 2,
     );
 
     if (
@@ -10842,14 +10843,14 @@ export class BAClickFX
       // 后续 Bloom 必须从这份完整 HDR 颜色缓冲统一提取。
       for (const stroke of this.trailStrokes)
       {
-        if (stroke.points.length < 2)
+        if (getTrailRenderPoints(stroke).length < 2)
         {
           continue;
         }
 
         appendTrailWebGLScene(
           renderer,
-          stroke.points,
+          getTrailRenderPoints(stroke),
           scale,
           this._getEffectiveOpacity(),
           this.fxConfig,
@@ -11423,7 +11424,7 @@ export class BAClickFX
     {
       const stroke = this.trailStrokes[strokeIndex];
 
-      if (stroke.points.length < 2)
+      if (getTrailRenderPoints(stroke).length < 2)
       {
         continue;
       }
@@ -11432,7 +11433,7 @@ export class BAClickFX
 
       drawTrail(
         this.context,
-        stroke.points,
+        getTrailRenderPoints(stroke),
         scale,
         this._getEffectiveOpacity(),
         this.fxConfig,
@@ -11498,7 +11499,7 @@ export class BAClickFX
   _getTrailFrameData(stroke, materialIntensity)
   {
     const cached = stroke.trailFrameCache;
-    const valid = cached && cached.points === stroke.points &&
+    const valid = cached && cached.points === getTrailRenderPoints(stroke) &&
       cached.pointsVersion === stroke.pointsVersion &&
       cached.configVersion === this._fxConfigVersion &&
       cached.themeVersion === this._themeVersion &&
@@ -11507,9 +11508,9 @@ export class BAClickFX
     if (!data)
     {
       releaseTrailGradients(stroke.trailFrameData);
-      data = createTrailFrameData(stroke.points, this.fxConfig.trail, materialIntensity, true);
+      data = createTrailFrameData(getTrailRenderPoints(stroke), this.fxConfig.trail, materialIntensity, true);
       stroke.trailFrameCache = {
-        points: stroke.points,
+        points: getTrailRenderPoints(stroke),
         pointsVersion: stroke.pointsVersion,
         configVersion: this._fxConfigVersion,
         themeVersion: this._themeVersion,
@@ -11523,7 +11524,7 @@ export class BAClickFX
       (cached.materialIntensity !== materialIntensity || !Array.isArray(data.segmentEnergies)))
     {
       // 几何缓存可跨后端复用，材质只在 Canvas 路径确实需要时补齐。
-      data = createTrailFrameData(stroke.points, this.fxConfig.trail, materialIntensity, true, data);
+      data = createTrailFrameData(getTrailRenderPoints(stroke), this.fxConfig.trail, materialIntensity, true, data);
       cached.materialIntensity = materialIntensity;
     }
     stroke.trailFrameData = data;
@@ -11552,30 +11553,14 @@ export class BAClickFX
     for (let strokeIndex = this.trailStrokes.length - 1; strokeIndex >= 0; strokeIndex--)
     {
       const stroke = this.trailStrokes[strokeIndex];
-      let expiredPointCount = 0;
-
-      while (
-        expiredPointCount < stroke.points.length &&
-        trailTimeMs - stroke.points[expiredPointCount].bornAt >= lifetime
-      )
+      if (updateTrailRenderPoints(stroke, trailTimeMs, lifetime))
       {
-        expiredPointCount++;
-      }
-
-      if (expiredPointCount > 0)
-      {
-        // 连续 shift 会为每个过期点搬移整个数组；一次 splice 保持相同行为，
-        // 快速拖动产生数百顶点时不会在每帧形成 O(n²) 开销。
-        stroke.points.splice(0, expiredPointCount);
+        // 即使没有输入，过期边界仍会移动；几何和渐变缓存必须一起失效。
         invalidateTrailPoints(stroke);
       }
-
-      if (stroke.points.length >= 2)
+      if (getTrailRenderPoints(stroke).length >= 2)
       {
-        const materialIntensity = useTexturedWebGL
-          ? null
-          : this.fxConfig.bloom.trailEmission;
-
+        const materialIntensity = useTexturedWebGL ? null : this.fxConfig.bloom.trailEmission;
         this._getTrailFrameData(stroke, materialIntensity);
       }
       else
@@ -11584,14 +11569,11 @@ export class BAClickFX
         stroke.trailFrameData = null;
         stroke.trailFrameCache = null;
       }
-
-      if (!stroke.active && stroke.points.length < 2)
+      if (!stroke.active && getTrailRenderPoints(stroke).length < 2)
       {
-        // 已松开的单点无法再形成可见线段；立即移除可避免 RAF 休眠后残留容器。
         this.trailStrokes.splice(strokeIndex, 1);
       }
     }
-
     if (drawCanvas)
     {
       this._drawCanvasTrails(scale, useNativeBloom);
@@ -11704,7 +11686,7 @@ export class BAClickFX
     return (
       this.waves.length > 0 ||
       this.shards.length > 0 ||
-      this.trailStrokes.some((stroke) => hasVisibleTrailPoints(stroke.points))
+      this.trailStrokes.some((stroke) => hasVisibleTrailPoints(getTrailRenderPoints(stroke)))
     );
   }
 

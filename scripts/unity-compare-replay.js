@@ -69,19 +69,23 @@ export async function replayUnityGeometry(renderer, particles, state, configurat
       inputs.push({ system: system.name, index: particle.index, center, radius: match.radius * pixels, geometryStateError: match.error });
     }
   }
+  const { loadTrailRuntime } = await import('./unity-trail-input.js');
+  const { matchTrailPointTimes } = await import('./unity-trail-clock.js');
   let trailModule;
   for (const trail of state.trails)
   {
     if (!trail.enabled || trail.positions.length < 2) continue;
     if (!trailModule)
     {
-      let source = await (await fetch(`${prefix}fx.js`)).text();
-      source = source.replace(/from\s*(['"])((?:\.\/|\/)[^'"]+)\1/g, (_, quote, path) => `from '${new URL(path, new URL(`${prefix}fx.js`, location.href)).href}'`);
-      source += '\nexport { appendTrailWebGLScene, createTrailMesh };';
-      const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
-      try { trailModule = await import(url); } finally { URL.revokeObjectURL(url); }
+      trailModule = await loadTrailRuntime(prefix);
     }
-    const points = trail.positions.map(position => ({ ...screen(position), t: state.timeMs }));
+    let points = trail.positions.map(position => ({ ...screen(position), t: state.timeMs }));
+    if (trailModule.updateTrailRenderPoints && state.inputs)
+    {
+      const stroke = { points: matchTrailPointTimes(points, state.inputs) };
+      trailModule.updateTrailRenderPoints(stroke, state.timeMs, trail.lifetime * 1000);
+      points = stroke.renderPoints;
+    }
     trailModule.appendTrailWebGLScene(renderer, points, height / 1080, 1, configuration);
     inputs.push({ system: 'TrailRenderer', pointCount: points.length, unityVertices: trail.vertices.length,
       webVertices: renderer.trailVertexCount, points });
