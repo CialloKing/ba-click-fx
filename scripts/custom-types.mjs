@@ -2,7 +2,7 @@ import { customApi } from './custom-compiler.mjs';
 
 function shape(value)
 {
-  if (Array.isArray(value)) return `Array<${value.length ? shape(value[0]) : 'unknown'}>`;
+  if (Array.isArray(value)) return `[${value.map(shape).join(', ')}]`;
   if (value && typeof value === 'object') return `{ ${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}: ${shape(item)};`).join(' ')} }`;
   return typeof value === 'string' ? JSON.stringify(value) : typeof value;
 }

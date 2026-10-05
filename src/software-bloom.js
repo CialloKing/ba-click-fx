@@ -1,3 +1,5 @@
+import { linearToSrgb } from './bloom-color-space.js';
+export { linearToSrgb } from './bloom-color-space.js';
 import {
   HALF_FLOAT_MAX,
   gammaToLinear,
@@ -140,17 +142,7 @@ function calculatePyramidSettings(
 /**
  * 将线性亮度转换为普通 Canvas/ImageData 使用的 sRGB 编码。
  */
-export function linearToSrgb(value)
-{
-  const linear = clamp01(value);
 
-  if (linear <= 0.0031308)
-  {
-    return linear * 12.92;
-  }
-
-  return 1.055 * Math.pow(linear, 1 / 2.4) - 0.055;
-}
 
 /**
  * 计算带 Soft Knee 的高亮贡献，与 MXFinalBloom 的预过滤公式一致。

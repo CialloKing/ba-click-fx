@@ -94,7 +94,7 @@ export class EffectGeometry
     this._ringIndexVersion = 0;
     this._ringUploadedIndexVersion = -1;
     this.triangleVertexCount = 0;
-    this.triangleVertexData = new Float32Array((BUILD_CLICK || BUILD_SHARDS) ? INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRIANGLE_VERTEX : 0);
+    this.triangleVertexData = new Float32Array(BUILD_SHARDS ? INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRIANGLE_VERTEX : 0);
     this.trailVertexCount = 0;
     this.trailVertexData = new Float32Array((BUILD_TRAIL) ? INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRAIL_VERTEX : 0);
     this.sourceTarget = null;
@@ -717,7 +717,7 @@ export class EffectGeometry
     roundness = 0,
   )
   {
-    if (!(BUILD_CLICK || BUILD_SHARDS)) return false;
+    if (!BUILD_SHARDS) return false;
 
     const particleAlpha = Number.isFinite(opacity)
       ? clamp(opacity, 0, 1)
@@ -1248,7 +1248,6 @@ export class EffectGeometry
     capEnd = false,
   )
   {
-    if (!(BUILD_TRAIL)) return false;
 
     const deltaX = to.x - from.x;
     const deltaY = to.y - from.y;

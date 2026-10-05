@@ -1046,12 +1046,12 @@ export class WebGL2EffectRenderer extends EffectGeometry
       this.ringIndexBuffer = BUILD_CLICK ? gl.createBuffer() : null;
       this.ringVao = BUILD_CLICK ? gl.createVertexArray() : null;
       this.ringTexture = BUILD_CLICK ? gl.createTexture() : null;
-      this.triangleBuffer = gl.createBuffer();
-      this.triangleVao = gl.createVertexArray();
+      this.triangleBuffer = BUILD_SHARDS ? gl.createBuffer() : null;
+      this.triangleVao = BUILD_SHARDS ? gl.createVertexArray() : null;
       this.trailBuffer = BUILD_TRAIL ? gl.createBuffer() : null;
       this.trailVao = BUILD_TRAIL ? gl.createVertexArray() : null;
-      this.triangleTexture = gl.createTexture();
-      this.triangleOverlayTexture = gl.createTexture();
+      this.triangleTexture = BUILD_SHARDS ? gl.createTexture() : null;
+      this.triangleOverlayTexture = BUILD_SHARDS ? gl.createTexture() : null;
       this.trailTexture = BUILD_TRAIL ? gl.createTexture() : null;
       this.circleTexture = BUILD_CLICK ? gl.createTexture() : null;
       this.fullscreenVao = gl.createVertexArray();
@@ -1066,14 +1066,14 @@ export class WebGL2EffectRenderer extends EffectGeometry
         (BUILD_CLICK && !this.ringIndexBuffer) ||
         (BUILD_CLICK && !this.ringVao) ||
         (BUILD_CLICK && !this.ringTexture) ||
-        !this.triangleBuffer ||
-        !this.triangleVao ||
+        (BUILD_SHARDS && !this.triangleBuffer) ||
+        (BUILD_SHARDS && !this.triangleVao) ||
         (BUILD_TRAIL && !this.trailBuffer) ||
         (BUILD_TRAIL && !this.trailVao) ||
-        !this.triangleTexture ||
-        !this.triangleOverlayTexture ||
+        (BUILD_SHARDS && !this.triangleTexture) ||
+        (BUILD_SHARDS && !this.triangleOverlayTexture) ||
         (BUILD_TRAIL && !this.trailTexture) ||
-        !this.circleTexture
+        (BUILD_CLICK && !this.circleTexture)
       )
       {
         throw new Error('WebGL2 无法创建几何缓冲');
@@ -1217,7 +1217,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
       }
-      this._initializeTexturedVertexArray(this.triangleVao, this.triangleBuffer);
+      if (BUILD_SHARDS) this._initializeTexturedVertexArray(this.triangleVao, this.triangleBuffer);
       if (BUILD_TRAIL) this._initializeTexturedVertexArray(this.trailVao, this.trailBuffer);
 
       // Ring3 的 Alpha 不参与 sRGB 解码；R8 保留 Unity Alpha 采样真值。
@@ -1242,6 +1242,8 @@ export class WebGL2EffectRenderer extends EffectGeometry
 
       // 解包纹理禁用 Mipmap，并沿用 Unity importer 的 Bilinear + Clamp。
       }
+      if (BUILD_SHARDS)
+      {
       gl.bindTexture(gl.TEXTURE_2D, this.triangleTexture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -1279,6 +1281,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
 
       // Trail_03 的 Importer 使用 sRGB、Bilinear、Repeat 且关闭 Mipmap。
       // RGB 保留原逐通道纹理；派生 Alpha 只描述非零 texel 的 Coverage 支持面。
+      }
       if (BUILD_TRAIL)
       {
       gl.bindTexture(gl.TEXTURE_2D, this.trailTexture);

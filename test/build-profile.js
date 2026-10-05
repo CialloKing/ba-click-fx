@@ -15,6 +15,8 @@ for (const extra of [
   { config: { effectBackend: 'auto' } }, { config: { typo: 1 } },
   { features: { trail: false }, config: { trailAlways: true } },
   { features: { bloom: false }, fxParams: { 'bloom.intensity': 1 } },
+  { features: { trail: false }, fxParams: { 'trail.width': 2 } },
+  { features: { click: false }, fxParams: { 'disk.radius': 30 } },
   { fxParams: { 'unknown.value': 1 } },
 ])
 {

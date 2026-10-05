@@ -80,9 +80,14 @@ export function normalizeProfile(input)
   {
     throw new TypeError(`fxParams 被拒绝: ${JSON.stringify(result.rejected)}`);
   }
-  if (!features.bloom && Object.keys(input.fxParams ?? {}).some(key => key.startsWith('bloom.')))
+  for (const path of Object.keys(input.fxParams ?? {}))
   {
-    throw new TypeError('关闭 bloom 时不能指定 bloom 参数');
+    const group = path.split('.')[0];
+    const feature = ['hit', 'flare', 'disk', 'rings'].includes(group) ? 'click' : group;
+    if (featureNames.includes(feature) && !features[feature])
+    {
+      throw new TypeError(`关闭 ${feature} 时不能指定 ${path}`);
+    }
   }
   // 使用同一参数补丁器归一化，避免构建版与完整版的数值语义分叉。
   const fxParams = result.nextConfig;

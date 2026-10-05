@@ -545,6 +545,8 @@ export class WebGPUEffectRenderer extends EffectGeometry
       'BA Click FX Circle_01',
     );
     }
+    if (BUILD_SHARDS)
+    {
     this.textures.triangle = createTextureFromBytes(
       this.device,
       TRIANGLE_TEXTURE_SIZE,
@@ -561,6 +563,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
       TRIANGLE_TEXTURE_OVERLAY_RGBA,
       'BA Click FX triangle overlay',
     );
+    }
     if (BUILD_TRAIL)
     {
     this.textures.trail = createTextureFromBytes(
@@ -599,18 +602,18 @@ export class WebGPUEffectRenderer extends EffectGeometry
         GENERIC_VERTEX_LAYOUT,
         SCENE_ADDITIVE_BLEND,
       ),
-      triangleOverlay: this._createGeometryPipeline(
+      triangleOverlay: BUILD_SHARDS ? this._createGeometryPipeline(
         'vertexTextured',
         'fragmentTriangle',
         TEXTURED_VERTEX_LAYOUT,
         ADDITIVE_BLEND,
-      ),
-      triangleScene: this._createGeometryPipeline(
+      ) : null,
+      triangleScene: BUILD_SHARDS ? this._createGeometryPipeline(
         'vertexTextured',
         'fragmentTriangle',
         TEXTURED_VERTEX_LAYOUT,
         SCENE_ADDITIVE_BLEND,
-      ),
+      ) : null,
       trailOverlay: this._createGeometryPipeline(
         'vertexTextured',
         'fragmentTrail',

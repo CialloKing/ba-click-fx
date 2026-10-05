@@ -50,13 +50,13 @@ import { applyFxParamPatch as prepareFxParamPatch } from './fx-param-patch.js';
 import { getTrailRenderPoints, updateTrailRenderPoints } from './trail-lifetime.js';
 import {
   gammaToLinear,
+  linearToSrgb,
   resolveUnityBloomClamp,
   resolveUnityBloomIntensity,
 } from './bloom-color-space.js';
 import {
   SoftwareBloomRenderer,
   calculateBloomContribution,
-  linearToSrgb,
   limitCanvasAlpha,
 } from './software-bloom.js';
 import {
@@ -5731,7 +5731,7 @@ export class BAClickFX
       }
       for (const [key, value] of Object.entries(options))
       {
-        if (!allowed.includes(key) || (key !== 'target' && typeof value !== 'function'))
+        if (!allowed.includes(key) || (key !== 'target' && value !== undefined && typeof value !== 'function'))
         {
           throw new TypeError(`BAClickFX 定制版不接受构造参数: ${key}`);
         }
@@ -5842,7 +5842,15 @@ export class BAClickFX
 
     if (!this.context && requiresCanvas2D)
     {
-      throw new Error('BAClickFX 无法创建 Canvas 2D 上下文');
+      const error = new Error('BAClickFX 无法创建 Canvas 2D 上下文');
+      if (CUSTOM_BUILD)
+      {
+        // 同步上下文失败时还没有完整实例，先释放自有宿主资源再通知调用者。
+        this.overlayRoot?.remove();
+        error.code = 'initialization-failed';
+        this.onError?.(error);
+      }
+      throw error;
     }
 
     // 内部 Canvas 仅承担发射遮罩和 ImageData 暂存，不会插入 DOM。
@@ -5926,16 +5934,16 @@ export class BAClickFX
     this._onResize = () => this._resize();
     if (BUILD_DOM)
     {
-    this._onPointerDown = this._handlePointerDown.bind(this);
-    this._onPointerMove = this._handlePointerMove.bind(this);
-    this._onPointerUp = this._handlePointerUp.bind(this);
-    this._onPointerCancel = this._handlePointerCancel.bind(this);
-    this._onClosedShadowPointerDown =
-      this._handleClosedShadowPointerDown.bind(this);
-    this._onTouchStart = this._handleTouchStart.bind(this);
-    this._onTouchMove = this._handleTouchMove.bind(this);
-    this._onTouchEnd = this._handleTouchEnd.bind(this);
-    this._onBlur = this._cancelPointer.bind(this);
+      this._onPointerDown = this._handlePointerDown.bind(this);
+      this._onPointerMove = this._handlePointerMove.bind(this);
+      this._onPointerUp = this._handlePointerUp.bind(this);
+      this._onPointerCancel = this._handlePointerCancel.bind(this);
+      this._onClosedShadowPointerDown =
+        this._handleClosedShadowPointerDown.bind(this);
+      this._onTouchStart = this._handleTouchStart.bind(this);
+      this._onTouchMove = this._handleTouchMove.bind(this);
+      this._onTouchEnd = this._handleTouchEnd.bind(this);
+      this._onBlur = this._cancelPointer.bind(this);
     }
     this._onFrame = this._renderFrame.bind(this);
     this._onWebGLContextLost = this._handleWebGLContextLost.bind(this);
@@ -8135,6 +8143,12 @@ export class BAClickFX
       useGpuClickEffects,
       bloomBackend,
     );
+    if (CUSTOM_BUILD && BUILD_CANVAS && BUILD_NATIVE && BUILD_REFERENCE &&
+        this._hasCompositingReference() && !useCanvasScene)
+    {
+      if (!this.canvasSceneRenderer?.contextLost) this._reportBuildError('compositing-initialization-failed');
+      return;
+    }
     const reuseCachedSoftwareBloom =
       !CUSTOM_BUILD && !useGpuClickEffects &&
       bloomBackend === 'native' &&
@@ -8322,6 +8336,11 @@ export class BAClickFX
 
           if (!canvasSceneRendered)
           {
+            if (CUSTOM_BUILD)
+            {
+              this._reportBuildError('compositing-render-failed');
+              return;
+            }
             // Final Pass 候选帧使用线性能量编码，失败后不能直接作为普通
             // Canvas 显示；对象已在本帧更新，只需用 sRGB 路径重新绘制。
             this._setCanvasSceneVisible(false);
@@ -8433,6 +8452,10 @@ export class BAClickFX
 
   _getRequestedEffectBackendState()
   {
+    if (CUSTOM_BUILD)
+    {
+      return BUILD_CANVAS ? 'canvas2d' : 'pending';
+    }
     const requested = normalizeEffectBackend(this.config.effectBackend);
     const isDirectCanvas = CUSTOM_BUILD ? !this.ownsCanvas : isOffscreenCanvas(this.canvas);
 
@@ -8494,6 +8517,10 @@ export class BAClickFX
 
   _getRequestedBloomBackendState()
   {
+    if (CUSTOM_BUILD)
+    {
+      return BUILD_CANVAS ? this.config.bloomBackend : 'pending';
+    }
     const requested = normalizeBloomBackend(this.config.bloomBackend);
     const fallback = this._resolveCanvasFallbackBloomBackend();
 
@@ -8662,7 +8689,7 @@ export class BAClickFX
 
     if (CUSTOM_BUILD)
     {
-      this._reportBuildError(status === 'lost' ? 'device-lost' : 'initialization-failed', renderer.deviceManager.error);
+      this._reportBuildError(status === 'lost' ? 'device-lost' : 'initialization-failed', renderer.failure ?? renderer.deviceManager.failure);
       return;
     }
     const wasVisible = this.webgpuEffectVisible;
@@ -8826,7 +8853,7 @@ export class BAClickFX
     }
     const requested = normalizeEffectBackend(this.config.effectBackend);
 
-    if (requested === 'canvas2d')
+    if (!CUSTOM_BUILD && requested === 'canvas2d')
     {
       this._setResolvedEffectBackend('canvas2d');
       return null;
@@ -9079,7 +9106,7 @@ export class BAClickFX
       return false;
     }
 
-    const isDirectCanvas = isOffscreenCanvas(this.canvas);
+    const isDirectCanvas = CUSTOM_BUILD ? !this.ownsCanvas : isOffscreenCanvas(this.canvas);
     if (!this.ownsCanvas && !isDirectCanvas)
     {
       return false;
@@ -9198,7 +9225,7 @@ export class BAClickFX
 
     const requested = normalizeEffectBackend(this.config.effectBackend);
 
-    if (requested === 'canvas2d')
+    if (!CUSTOM_BUILD && requested === 'canvas2d')
     {
       this._setResolvedEffectBackend('canvas2d');
       return false;
@@ -9356,8 +9383,8 @@ export class BAClickFX
 
     if (
       this.canvasSceneUnavailable ||
-      !this.ownsCanvas ||
-      !this.overlayParent
+      (!CUSTOM_BUILD && !this.ownsCanvas) ||
+      (this.ownsCanvas && !this.overlayParent)
     )
     {
       return false;
@@ -9365,6 +9392,8 @@ export class BAClickFX
 
     const canvas = createCanvas();
 
+    if (this.ownsCanvas)
+    {
     setOverlayStyle(
       canvas,
       !this.host && !this.config.isolatedCompositing,
@@ -9377,6 +9406,7 @@ export class BAClickFX
     canvas.style.display = 'none';
     this.overlayParent.appendChild(canvas);
 
+    }
     let renderer = null;
 
     try
@@ -9387,7 +9417,7 @@ export class BAClickFX
       {
         this.canvasSceneUnavailable = true;
         renderer.destroy();
-        canvas.remove();
+        canvas.remove?.();
         return false;
       }
 
@@ -9404,7 +9434,7 @@ export class BAClickFX
         {
           this.canvasSceneUnavailable = true;
           renderer.destroy();
-          canvas.remove();
+          canvas.remove?.();
           return false;
         }
       }
@@ -9414,17 +9444,17 @@ export class BAClickFX
       console.warn('[BAClickFX] Canvas Scene Final Pass 创建失败:', error);
       this.canvasSceneUnavailable = true;
       renderer?.destroy();
-      canvas.remove();
+      canvas.remove?.();
       return false;
     }
 
     this.canvasSceneCanvas = canvas;
     this.canvasSceneRenderer = renderer;
-    canvas.addEventListener(
+    canvas.addEventListener?.(
       'webglcontextlost',
       this._onCanvasSceneContextLost,
     );
-    canvas.addEventListener(
+    canvas.addEventListener?.(
       'webglcontextrestored',
       this._onCanvasSceneContextRestored,
     );
@@ -9492,7 +9522,7 @@ export class BAClickFX
     }
 
     this.canvasSceneVisible = visible;
-    this.canvasSceneCanvas.style.display = visible ? '' : 'none';
+    if (this.canvasSceneCanvas.style) this.canvasSceneCanvas.style.display = visible ? '' : 'none';
 
     if (!visible)
     {
@@ -9519,7 +9549,7 @@ export class BAClickFX
       this._onCanvasSceneContextRestored,
     );
     this.canvasSceneRenderer?.destroy();
-    this.canvasSceneCanvas?.remove();
+    this.canvasSceneCanvas?.remove?.();
     this.canvasSceneRenderer = null;
     this.canvasSceneCanvas = null;
     this.canvasSceneVisible = false;
@@ -9783,7 +9813,7 @@ export class BAClickFX
   {
     if (BUILD_TRAIL)
     {
-for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
+      for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
     }
     this._releaseSoftwareBloomFrame();
     // 配置事务已经选择了新的渲染链；先撤下所有旧输出，再释放仅与
@@ -9804,7 +9834,7 @@ for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameD
   {
     if (BUILD_TRAIL)
     {
-for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
+      for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
     }
     this._releaseSoftwareBloomFrame();
     // 完整 GPU Scene 已接管时，Bloom 配置只是回退策略，不能
@@ -9872,7 +9902,7 @@ for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameD
     const removed = this.bloomRenderers.splice(retainedCount);
     if (BUILD_TRAIL)
     {
-for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
+      for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
     }
 
     for (const renderer of removed)
@@ -9944,70 +9974,70 @@ for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameD
       context.globalCompositeOperation = 'lighter';
 
       if (BUILD_TRAIL)
-    {
-for (const stroke of this.trailStrokes)
       {
-        if (getTrailRenderPoints(stroke).length >= 2)
+        for (const stroke of this.trailStrokes)
         {
-          drawTrail(
+          if (getTrailRenderPoints(stroke).length >= 2)
+          {
+            drawTrail(
+              context,
+              getTrailRenderPoints(stroke),
+              scale,
+              this._getEffectiveOpacity(),
+              this.fxConfig,
+              false,
+              false,
+              null,
+              stroke.trailFrameData,
+            );
+          }
+        }
+      }
+
+      if (BUILD_CLICK)
+      {
+        for (const wave of this.waves)
+        {
+          wave.drawBase(
             context,
-            getTrailRenderPoints(stroke),
             scale,
             this._getEffectiveOpacity(),
-            this.fxConfig,
             false,
-            false,
-            null,
-            stroke.trailFrameData,
+            this.config.outputCompositing,
+            this.dpr,
           );
         }
       }
-    }
-
-      if (BUILD_CLICK)
-    {
-for (const wave of this.waves)
-      {
-        wave.drawBase(
-          context,
-          scale,
-          this._getEffectiveOpacity(),
-          false,
-          this.config.outputCompositing,
-          this.dpr,
-        );
-      }
-    }
 
       if (BUILD_SHARDS)
-    {
-for (const shard of this.shards)
       {
-        shard.draw(
-          context,
-          scale,
-          this._getEffectiveOpacity(),
-          this.fxConfig,
-        );
+        for (const shard of this.shards)
+        {
+          shard.draw(
+            context,
+            scale,
+            this._getEffectiveOpacity(),
+            this.fxConfig,
+          );
+        }
       }
-    }
 
       if (BUILD_CLICK)
-    {
-for (const wave of this.waves)
       {
-        wave.drawRings(
-          context,
-          scale,
-          this._getEffectiveOpacity(),
-          false,
-          false,
-          null,
-          this.dpr,
-          this.config.outputCompositing,
-        );
+        for (const wave of this.waves)
+        {
+          wave.drawRings(
+            context,
+            scale,
+            this._getEffectiveOpacity(),
+            false,
+            false,
+            null,
+            this.dpr,
+            this.config.outputCompositing,
+          );
+        }
       }
-    }
 
       context.restore();
     }
@@ -10062,54 +10092,54 @@ for (const wave of this.waves)
 
     if (BUILD_CLICK)
     {
-for (const wave of this.waves)
-    {
-      if (wave.fx.bloom.clickEmissionScale <= 0)
+      for (const wave of this.waves)
       {
-        continue;
-      }
-
-      const diskProgress = wave.ageMs / this.fxConfig.disk.lifetimeMs;
-      const ringProgress = wave.ageMs / this.fxConfig.rings.lifetimeMs;
-      let sourceRadius = diskProgress < 1
-        ? this.fxConfig.disk.radius * evaluateUnityHermiteCurve(
-          this.fxConfig.disk.sizeKeys,
-          diskProgress,
-        ) * scale
-        : 0;
-
-      if (ringProgress < 1)
-      {
-        for (const ring of wave.rings)
+        if (wave.fx.bloom.clickEmissionScale <= 0)
         {
-          const geometry = resolveRingGeometry(
-            ring,
-            ringProgress,
-            scale,
-            this.fxConfig.rings,
-          );
-
-          sourceRadius = Math.max(
-            sourceRadius,
-            geometry.radius + geometry.width * 0.5,
-          );
+          continue;
         }
-      }
 
-      if (sourceRadius <= 0)
-      {
-        continue;
-      }
+        const diskProgress = wave.ageMs / this.fxConfig.disk.lifetimeMs;
+        const ringProgress = wave.ageMs / this.fxConfig.rings.lifetimeMs;
+        let sourceRadius = diskProgress < 1
+          ? this.fxConfig.disk.radius * evaluateUnityHermiteCurve(
+            this.fxConfig.disk.sizeKeys,
+            diskProgress,
+          ) * scale
+          : 0;
 
-      addRegion(
-        wave.x - sourceRadius,
-        wave.y - sourceRadius,
-        wave.x + sourceRadius,
-        wave.y + sourceRadius,
-        wave,
-        [],
-      );
-    }
+        if (ringProgress < 1)
+        {
+          for (const ring of wave.rings)
+          {
+            const geometry = resolveRingGeometry(
+              ring,
+              ringProgress,
+              scale,
+              this.fxConfig.rings,
+            );
+
+            sourceRadius = Math.max(
+              sourceRadius,
+              geometry.radius + geometry.width * 0.5,
+            );
+          }
+        }
+
+        if (sourceRadius <= 0)
+        {
+          continue;
+        }
+
+        addRegion(
+          wave.x - sourceRadius,
+          wave.y - sourceRadius,
+          wave.x + sourceRadius,
+          wave.y + sourceRadius,
+          wave,
+          [],
+        );
+      }
     }
 
     const trailRadius = Math.max(
@@ -10120,134 +10150,134 @@ for (const wave of this.waves)
 
     if (BUILD_TRAIL)
     {
-for (const stroke of this.trailStrokes)
-    {
-      if (getTrailRenderPoints(stroke).length < 2)
+      for (const stroke of this.trailStrokes)
       {
-        continue;
-      }
-
-      const trailData = this._getTrailFrameData(stroke, bloomCfg.trailEmission);
-      const trailOpacity = this._getEffectiveOpacity() *
-        (this.fxConfig.trail.trailOpacity ?? 1) *
-        bloomCfg.trailEmissionAlpha;
-      const emissionQuantizationScale = trailOpacity /
-        Math.max(1, bloomCfg.emissionRange) * 255;
-      const bloomRuns = [];
-      let activeRun = null;
-
-      for (let index = 1; index < getTrailRenderPoints(stroke).length; index++)
-      {
-        // 只排除写入 8 位发射遮罩后所有通道都严格量化为 0 的段。
-        // 不能按 Bloom 阈值提前裁剪：多个微弱发射源叠加后仍可能越过阈值。
-        if (
-          trailData.segmentMaximumEnergies[index - 1] *
-            emissionQuantizationScale < 0.5
-        )
+        if (getTrailRenderPoints(stroke).length < 2)
         {
-          if (activeRun)
+          continue;
+        }
+
+        const trailData = this._getTrailFrameData(stroke, bloomCfg.trailEmission);
+        const trailOpacity = this._getEffectiveOpacity() *
+          (this.fxConfig.trail.trailOpacity ?? 1) *
+          bloomCfg.trailEmissionAlpha;
+        const emissionQuantizationScale = trailOpacity /
+          Math.max(1, bloomCfg.emissionRange) * 255;
+        const bloomRuns = [];
+        let activeRun = null;
+
+        for (let index = 1; index < getTrailRenderPoints(stroke).length; index++)
+        {
+          // 只排除写入 8 位发射遮罩后所有通道都严格量化为 0 的段。
+          // 不能按 Bloom 阈值提前裁剪：多个微弱发射源叠加后仍可能越过阈值。
+          if (
+            trailData.segmentMaximumEnergies[index - 1] *
+              emissionQuantizationScale < 0.5
+          )
           {
-            bloomRuns.push(activeRun);
-            activeRun = null;
+            if (activeRun)
+            {
+              bloomRuns.push(activeRun);
+              activeRun = null;
+            }
+
+            continue;
           }
 
-          continue;
+          const previousPoint = getTrailRenderPoints(stroke)[index - 1];
+          const point = getTrailRenderPoints(stroke)[index];
+
+          if (!activeRun)
+          {
+            activeRun = {
+              firstSegment: index,
+              lastSegment: index,
+              minimumX: Math.min(previousPoint.x, point.x),
+              minimumY: Math.min(previousPoint.y, point.y),
+              maximumX: Math.max(previousPoint.x, point.x),
+              maximumY: Math.max(previousPoint.y, point.y),
+            };
+            continue;
+          }
+
+          activeRun.lastSegment = index;
+          activeRun.minimumX = Math.min(
+            activeRun.minimumX,
+            previousPoint.x,
+            point.x,
+          );
+          activeRun.minimumY = Math.min(
+            activeRun.minimumY,
+            previousPoint.y,
+            point.y,
+          );
+          activeRun.maximumX = Math.max(
+            activeRun.maximumX,
+            previousPoint.x,
+            point.x,
+          );
+          activeRun.maximumY = Math.max(
+            activeRun.maximumY,
+            previousPoint.y,
+            point.y,
+          );
         }
 
-        const previousPoint = getTrailRenderPoints(stroke)[index - 1];
-        const point = getTrailRenderPoints(stroke)[index];
-
-        if (!activeRun)
+        if (activeRun)
         {
-          activeRun = {
-            firstSegment: index,
-            lastSegment: index,
-            minimumX: Math.min(previousPoint.x, point.x),
-            minimumY: Math.min(previousPoint.y, point.y),
-            maximumX: Math.max(previousPoint.x, point.x),
-            maximumY: Math.max(previousPoint.y, point.y),
-          };
-          continue;
+          bloomRuns.push(activeRun);
         }
 
-        activeRun.lastSegment = index;
-        activeRun.minimumX = Math.min(
-          activeRun.minimumX,
-          previousPoint.x,
-          point.x,
-        );
-        activeRun.minimumY = Math.min(
-          activeRun.minimumY,
-          previousPoint.y,
-          point.y,
-        );
-        activeRun.maximumX = Math.max(
-          activeRun.maximumX,
-          previousPoint.x,
-          point.x,
-        );
-        activeRun.maximumY = Math.max(
-          activeRun.maximumY,
-          previousPoint.y,
-          point.y,
-        );
-      }
+        if (bloomRuns.length > 0)
+        {
+          const minimumX = Math.min(...bloomRuns.map((run) => run.minimumX));
+          const minimumY = Math.min(...bloomRuns.map((run) => run.minimumY));
+          const maximumX = Math.max(...bloomRuns.map((run) => run.maximumX));
+          const maximumY = Math.max(...bloomRuns.map((run) => run.maximumY));
 
-      if (activeRun)
-      {
-        bloomRuns.push(activeRun);
+          addRegion(
+            minimumX - trailRadius,
+            minimumY - trailRadius,
+            maximumX + trailRadius,
+            maximumY + trailRadius,
+            null,
+            bloomRuns.map((run) =>
+            ({
+              stroke,
+              firstSegment: run.firstSegment,
+              lastSegment: run.lastSegment,
+            })),
+          );
+        }
       }
-
-      if (bloomRuns.length > 0)
-      {
-        const minimumX = Math.min(...bloomRuns.map((run) => run.minimumX));
-        const minimumY = Math.min(...bloomRuns.map((run) => run.minimumY));
-        const maximumX = Math.max(...bloomRuns.map((run) => run.maximumX));
-        const maximumY = Math.max(...bloomRuns.map((run) => run.maximumY));
-
-        addRegion(
-          minimumX - trailRadius,
-          minimumY - trailRadius,
-          maximumX + trailRadius,
-          maximumY + trailRadius,
-          null,
-          bloomRuns.map((run) =>
-          ({
-            stroke,
-            firstSegment: run.firstSegment,
-            lastSegment: run.lastSegment,
-          })),
-        );
-      }
-    }
     }
 
     if (BUILD_SHARDS)
     {
-for (const shard of this.shards)
-    {
-      const shardCfg = this.fxConfig.shards;
-      const progress = clamp01(shard.ageMs / shard.lifetimeMs);
-      const size = shard.size * evaluateUnityHermiteCurve(
-        shardCfg.sizeKeys,
-        progress,
-      ) * scale;
-
-      if (size <= 0)
+      for (const shard of this.shards)
       {
-        continue;
-      }
+        const shardCfg = this.fxConfig.shards;
+        const progress = clamp01(shard.ageMs / shard.lifetimeMs);
+        const size = shard.size * evaluateUnityHermiteCurve(
+          shardCfg.sizeKeys,
+          progress,
+        ) * scale;
 
-      addRegion(
-        shard.x - size,
-        shard.y - size,
-        shard.x + size,
-        shard.y + size,
-        null,
-        [],
-        [shard],
-      );
-    }
+        if (size <= 0)
+        {
+          continue;
+        }
+
+        addRegion(
+          shard.x - size,
+          shard.y - size,
+          shard.x + size,
+          shard.y + size,
+          null,
+          [],
+          [shard],
+        );
+      }
     }
 
     if (regions.length === 0)
@@ -10303,94 +10333,94 @@ for (const shard of this.shards)
 
     if (BUILD_CLICK)
     {
-for (const wave of this.waves)
-    {
-      let radius = 0;
-      const hitProgress = wave.ageMs / wave.fx.hit.lifetimeMs;
-      const flareProgress = wave.ageMs / wave.fx.flare.lifetimeMs;
-      const diskProgress = wave.ageMs / wave.fx.disk.lifetimeMs;
-      const ringProgress = wave.ageMs / wave.fx.rings.lifetimeMs;
-
-      if (wave.fx.hit.enabled && hitProgress < 1)
+      for (const wave of this.waves)
       {
-        radius = Math.max(radius, wave.fx.hit.radius * scale);
-      }
+        let radius = 0;
+        const hitProgress = wave.ageMs / wave.fx.hit.lifetimeMs;
+        const flareProgress = wave.ageMs / wave.fx.flare.lifetimeMs;
+        const diskProgress = wave.ageMs / wave.fx.disk.lifetimeMs;
+        const ringProgress = wave.ageMs / wave.fx.rings.lifetimeMs;
 
-      if (wave.fx.flare.enabled && flareProgress < 1)
-      {
-        radius = Math.max(radius, wave.fx.flare.radius * scale);
-      }
-
-      if (diskProgress < 1)
-      {
-        const diskRadius = wave.fx.disk.radius * evaluateUnityHermiteCurve(
-          wave.fx.disk.sizeKeys,
-          diskProgress,
-        ) * scale;
-        // Canvas blur 的实现支撑范围没有标准化；三倍配置半径覆盖所有
-        // 可能高于网页 Alpha 上限的像素，同时保持回读区域局部化。
-        const diskBlur = bloomCfg.diskAlpha > 0
-          ? bloomCfg.diskBlur * scale * 3
-          : 0;
-
-        radius = Math.max(radius, diskRadius + diskBlur);
-      }
-
-      if (ringProgress < 1)
-      {
-        const ringBlur = bloomCfg.ringAlpha > 0
-          ? bloomCfg.ringBlur * scale * 3
-          : 0;
-
-        for (const ring of wave.rings)
+        if (wave.fx.hit.enabled && hitProgress < 1)
         {
-          const geometry = resolveRingGeometry(
-            ring,
-            ringProgress,
-            scale,
-            wave.fx.rings,
-          );
+          radius = Math.max(radius, wave.fx.hit.radius * scale);
+        }
 
-          radius = Math.max(
-            radius,
-            geometry.radius + geometry.width * 0.5 + ringBlur,
+        if (wave.fx.flare.enabled && flareProgress < 1)
+        {
+          radius = Math.max(radius, wave.fx.flare.radius * scale);
+        }
+
+        if (diskProgress < 1)
+        {
+          const diskRadius = wave.fx.disk.radius * evaluateUnityHermiteCurve(
+            wave.fx.disk.sizeKeys,
+            diskProgress,
+          ) * scale;
+          // Canvas blur 的实现支撑范围没有标准化；三倍配置半径覆盖所有
+          // 可能高于网页 Alpha 上限的像素，同时保持回读区域局部化。
+          const diskBlur = bloomCfg.diskAlpha > 0
+            ? bloomCfg.diskBlur * scale * 3
+            : 0;
+
+          radius = Math.max(radius, diskRadius + diskBlur);
+        }
+
+        if (ringProgress < 1)
+        {
+          const ringBlur = bloomCfg.ringAlpha > 0
+            ? bloomCfg.ringBlur * scale * 3
+            : 0;
+
+          for (const ring of wave.rings)
+          {
+            const geometry = resolveRingGeometry(
+              ring,
+              ringProgress,
+              scale,
+              wave.fx.rings,
+            );
+
+            radius = Math.max(
+              radius,
+              geometry.radius + geometry.width * 0.5 + ringBlur,
+            );
+          }
+        }
+
+        if (radius > 0)
+        {
+          addBounds(
+            wave.x - radius,
+            wave.y - radius,
+            wave.x + radius,
+            wave.y + radius,
           );
         }
       }
-
-      if (radius > 0)
-      {
-        addBounds(
-          wave.x - radius,
-          wave.y - radius,
-          wave.x + radius,
-          wave.y + radius,
-        );
-      }
-    }
     }
 
     if (BUILD_SHARDS)
     {
-for (const shard of this.shards)
-    {
-      const progress = clamp01(shard.ageMs / shard.lifetimeMs);
-      const size = shard.size * evaluateUnityHermiteCurve(
-        this.fxConfig.shards.sizeKeys,
-        progress,
-      ) * scale;
-
-      if (size > 0)
+      for (const shard of this.shards)
       {
-        // 纹理 Quad 的实际半径是 size/2；保守使用完整 size 容纳旋转。
-        addBounds(
-          shard.x - size,
-          shard.y - size,
-          shard.x + size,
-          shard.y + size,
-        );
+        const progress = clamp01(shard.ageMs / shard.lifetimeMs);
+        const size = shard.size * evaluateUnityHermiteCurve(
+          this.fxConfig.shards.sizeKeys,
+          progress,
+        ) * scale;
+
+        if (size > 0)
+        {
+          // 纹理 Quad 的实际半径是 size/2；保守使用完整 size 容纳旋转。
+          addBounds(
+            shard.x - size,
+            shard.y - size,
+            shard.x + size,
+            shard.y + size,
+          );
+        }
       }
-    }
     }
 
     const trailCfg = this.fxConfig.trail;
@@ -10401,33 +10431,33 @@ for (const shard of this.shards)
 
     if (BUILD_TRAIL)
     {
-for (const stroke of this.trailStrokes)
-    {
-      if (getTrailRenderPoints(stroke).length < 2)
+      for (const stroke of this.trailStrokes)
       {
-        continue;
+        if (getTrailRenderPoints(stroke).length < 2)
+        {
+          continue;
+        }
+
+        let minimumX = Infinity;
+        let minimumY = Infinity;
+        let maximumX = -Infinity;
+        let maximumY = -Infinity;
+
+        for (const point of getTrailRenderPoints(stroke))
+        {
+          minimumX = Math.min(minimumX, point.x);
+          minimumY = Math.min(minimumY, point.y);
+          maximumX = Math.max(maximumX, point.x);
+          maximumY = Math.max(maximumY, point.y);
+        }
+
+        addBounds(
+          minimumX - trailMargin,
+          minimumY - trailMargin,
+          maximumX + trailMargin,
+          maximumY + trailMargin,
+        );
       }
-
-      let minimumX = Infinity;
-      let minimumY = Infinity;
-      let maximumX = -Infinity;
-      let maximumY = -Infinity;
-
-      for (const point of getTrailRenderPoints(stroke))
-      {
-        minimumX = Math.min(minimumX, point.x);
-        minimumY = Math.min(minimumY, point.y);
-        maximumX = Math.max(maximumX, point.x);
-        maximumY = Math.max(maximumY, point.y);
-      }
-
-      addBounds(
-        minimumX - trailMargin,
-        minimumY - trailMargin,
-        maximumX + trailMargin,
-        maximumY + trailMargin,
-      );
-    }
     }
 
     return combineBloomRegionBounds(bounds);
@@ -11186,64 +11216,64 @@ for (const stroke of this.trailStrokes)
       // 原游戏将 2px HDR TrailRenderer 与点击粒子写入同一 Scene，
       // 后续 Bloom 必须从这份完整 HDR 颜色缓冲统一提取。
       if (BUILD_TRAIL)
-    {
-for (const stroke of this.trailStrokes)
       {
-        if (getTrailRenderPoints(stroke).length < 2)
+        for (const stroke of this.trailStrokes)
         {
-          continue;
-        }
+          if (getTrailRenderPoints(stroke).length < 2)
+          {
+            continue;
+          }
 
-        appendTrailWebGLScene(
-          renderer,
-          getTrailRenderPoints(stroke),
-          scale,
-          this._getEffectiveOpacity(),
-          this.fxConfig,
-          stroke.trailFrameData,
-        );
+          appendTrailWebGLScene(
+            renderer,
+            getTrailRenderPoints(stroke),
+            scale,
+            this._getEffectiveOpacity(),
+            this.fxConfig,
+            stroke.trailFrameData,
+          );
+        }
       }
-    }
 
       // Cross2 使用 One / OneMinusSrcAlpha，必须先于普通加色粒子提交。
       if (BUILD_CLICK)
-    {
-for (const wave of this.waves)
       {
-        wave.appendWebGLSceneDiskLayer(
-          renderer,
-          scale,
-          this._getEffectiveOpacity(),
-        );
+        for (const wave of this.waves)
+        {
+          wave.appendWebGLSceneDiskLayer(
+            renderer,
+            scale,
+            this._getEffectiveOpacity(),
+          );
+        }
       }
-    }
 
       // Dissolve MeshTri 与 Cross2、Trail 同为 4499，先完成这一队列。
       if (BUILD_CLICK)
-    {
-for (const wave of this.waves)
       {
-        wave.appendWebGLSceneAdditiveLayer(
-          renderer,
-          scale,
-          this._getEffectiveOpacity(),
-        );
+        for (const wave of this.waves)
+        {
+          wave.appendWebGLSceneAdditiveLayer(
+            renderer,
+            scale,
+            this._getEffectiveOpacity(),
+          );
+        }
       }
-    }
 
       // Tri2 的 RenderQueue=4550，必须在全部 4499 材质之后提交。
       if (BUILD_SHARDS)
-    {
-for (const shard of this.shards)
       {
-        shard.appendWebGLScene(
-          renderer,
-          scale,
-          this._getEffectiveOpacity(),
-          this.fxConfig,
-        );
+        for (const shard of this.shards)
+        {
+          shard.appendWebGLScene(
+            renderer,
+            scale,
+            this._getEffectiveOpacity(),
+            this.fxConfig,
+          );
+        }
       }
-    }
 
       if (!renderer.renderScene(
         {
@@ -11367,36 +11397,36 @@ for (const shard of this.shards)
       // Cross2 是唯一会衰减已有场景颜色的材质，必须在普通加色粒子之前
       // 按旧到新顺序完成本体与 Coverage 提交。
       if (BUILD_CLICK)
-    {
-for (const wave of this.waves)
       {
-        wave.drawDiskLayer(
-          this.context,
-          scale,
-          this._getEffectiveOpacity(),
-          false,
-          this.dpr,
-        );
-        wave.appendCanvasSceneCoverage(
-          renderer,
-          scale,
-          this._getEffectiveOpacity(),
-        );
+        for (const wave of this.waves)
+        {
+          wave.drawDiskLayer(
+            this.context,
+            scale,
+            this._getEffectiveOpacity(),
+            false,
+            this.dpr,
+          );
+          wave.appendCanvasSceneCoverage(
+            renderer,
+            scale,
+            this._getEffectiveOpacity(),
+          );
+        }
       }
-    }
 
       if (BUILD_CLICK)
-    {
-for (const wave of this.waves)
       {
-        wave.drawAdditiveBase(
-          this.context,
-          scale,
-          this._getEffectiveOpacity(),
-          true,
-        );
+        for (const wave of this.waves)
+        {
+          wave.drawAdditiveBase(
+            this.context,
+            scale,
+            this._getEffectiveOpacity(),
+            true,
+          );
+        }
       }
-    }
 
       // Tri3 与 Cross2、Trail 同为 4499，先完成这一队列。
       this._drawWaveRings(
@@ -11410,17 +11440,17 @@ for (const wave of this.waves)
 
       // Tri2 的 RenderQueue=4550，必须在全部 4499 材质之后提交。
       if (BUILD_SHARDS)
-    {
-for (const shard of this.shards)
       {
-        shard.draw(
-          this.context,
-          scale,
-          this._getEffectiveOpacity(),
-          this.fxConfig,
-        );
+        for (const shard of this.shards)
+        {
+          shard.draw(
+            this.context,
+            scale,
+            this._getEffectiveOpacity(),
+            this.fxConfig,
+          );
+        }
       }
-    }
 
       if (useNativeBloom)
       {
@@ -11447,8 +11477,17 @@ for (const shard of this.shards)
         context.setTransform(width / this.width, 0, 0, height / this.height, 0, 0);
         this._drawNativeClickBloom(scale, context, 'host-additive');
       }
-      return renderer.render(this.canvas,
+      const rendered = renderer.render(this.canvas,
         useNativeBloom ? this.nativeClickBloomSurface.canvas : null);
+      if (CUSTOM_BUILD && rendered && !this.ownsCanvas)
+      {
+        // 外部 Canvas 只容纳一个 context；辅助 GPU 合成完成后复制最终像素。
+        this.context.setTransform(1, 0, 0, 1, 0, 0);
+        this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.context.drawImage(this.canvasSceneCanvas, 0, 0);
+        this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      }
+      return rendered;
     }
     catch (error)
     {
@@ -11618,19 +11657,19 @@ for (const shard of this.shards)
 
     if (BUILD_CLICK)
     {
-for (const wave of this.waves)
-    {
-      wave.drawBase(
-        this.context,
-        scale,
-        this._getEffectiveOpacity(),
-        useNativeBloom,
-        outputCompositing,
-        this.dpr,
-        overlayColorCompensation,
-        overlayAlphaLimit,
-      );
-    }
+      for (const wave of this.waves)
+      {
+        wave.drawBase(
+          this.context,
+          scale,
+          this._getEffectiveOpacity(),
+          useNativeBloom,
+          outputCompositing,
+          this.dpr,
+          overlayColorCompensation,
+          overlayAlphaLimit,
+        );
+      }
     }
 
     this._drawWaveRings(
@@ -11645,18 +11684,18 @@ for (const wave of this.waves)
     // Tri2 的 RenderQueue=4550，必须在全部 4499 材质之后提交。
     if (BUILD_SHARDS)
     {
-for (const shard of this.shards)
-    {
-      shard.draw(
-        this.context,
-        scale,
-        this._getEffectiveOpacity(),
-        this.fxConfig,
-        outputCompositing,
-        overlayColorCompensation,
-        overlayAlphaLimit,
-      );
-    }
+      for (const shard of this.shards)
+      {
+        shard.draw(
+          this.context,
+          scale,
+          this._getEffectiveOpacity(),
+          this.fxConfig,
+          outputCompositing,
+          overlayColorCompensation,
+          overlayAlphaLimit,
+        );
+      }
     }
 
     if (useNativeBloom)
@@ -11699,104 +11738,104 @@ for (const shard of this.shards)
 
     if (BUILD_CLICK)
     {
-for (const wave of this.waves)
-    {
-      const sources = [];
-      const diskCfg = this.fxConfig.disk;
-      const diskProgress = wave.ageMs / diskCfg.lifetimeMs;
-
-      if (diskProgress < 1 && settings.diskAlpha > 0 && settings.diskBlur > 0)
+      for (const wave of this.waves)
       {
-        const radius = diskCfg.radius * evaluateUnityHermiteCurve(
-          diskCfg.sizeKeys, diskProgress,
-        ) * scale;
-        const material = evaluateSrgbGradientEnergy(
-          diskCfg.colorKeys, diskProgress,
-          settings.diskEmission * emission * settings.diskEmissionAlpha,
-        );
-        const source = createNativeBloomSource(settings);
-        source.blurScale = settings.diskBlur / 65;
-        // 小型固定网格来自原 Circle_01，保留纹理面积与 HDR RGB。
-        // Cross2 生命周期 Alpha 只衰减背景，不应提前削弱 Bloom 发射。
-        const samples = getNativeCircleBloomSamples();
-        const area = (2 * radius / NATIVE_BLOOM_DISK_SAMPLES) ** 2 * settings.diskAlpha / 0.65;
-        for (let offset = 0; offset < samples.length; offset += 4)
-        {
-          sampleColor[0] = material[0] * samples[offset];
-          sampleColor[1] = material[1] * samples[offset + 1];
-          sampleColor[2] = material[2] * samples[offset + 2];
-          addNativeBloomSample(source, sampleColor, area, samples[offset + 3] * radius ** 2);
-        }
-        sources.push(source);
-      }
+        const sources = [];
+        const diskCfg = this.fxConfig.disk;
+        const diskProgress = wave.ageMs / diskCfg.lifetimeMs;
 
-      const ringCfg = this.fxConfig.rings;
-      const ringProgress = wave.ageMs / ringCfg.lifetimeMs;
-      if (ringProgress < 1 && settings.ringAlpha > 0 && settings.ringBlur > 0)
-      {
-        const material = evaluateSrgbGradientEnergy(
-          ringCfg.colorKeys, ringProgress,
-          ringCfg.hdrIntensity * emission * settings.ringEmissionAlpha,
-        );
-        for (const ring of wave.rings)
+        if (diskProgress < 1 && settings.diskAlpha > 0 && settings.diskBlur > 0)
         {
-          const geometry = resolveRingGeometry(ring, ringProgress, scale, ringCfg);
+          const radius = diskCfg.radius * evaluateUnityHermiteCurve(
+            diskCfg.sizeKeys, diskProgress,
+          ) * scale;
+          const material = evaluateSrgbGradientEnergy(
+            diskCfg.colorKeys, diskProgress,
+            settings.diskEmission * emission * settings.diskEmissionAlpha,
+          );
           const source = createNativeBloomSource(settings);
-          source.blurScale = settings.ringBlur / 80;
-          source.radius = geometry.radius;
-          source.width = geometry.width;
-          const radialSamples = resolveRingIntegrationSamples(ringCfg);
-          const angularSamples = 64;
-          // GPU 在阈值提取前先缩小 Scene；亚像素环带会与周围黑色平均。
-          // 同时扩大样本面积以守恒能量，避免细碎溶解末期仍发出完整圆形光雾。
-          const prefilterCoverage = Math.min(1, Math.max(0.000001,
-            geometry.width * this.dpr * settings.resolutionScale * 0.75));
-          const area = TAU * geometry.radius * geometry.width / angularSamples *
-            settings.ringAlpha / 0.35 / prefilterCoverage;
-          for (let sample = 0; sample < angularSamples; sample++)
+          source.blurScale = settings.diskBlur / 65;
+          // 小型固定网格来自原 Circle_01，保留纹理面积与 HDR RGB。
+          // Cross2 生命周期 Alpha 只衰减背景，不应提前削弱 Bloom 发射。
+          const samples = getNativeCircleBloomSamples();
+          const area = (2 * radius / NATIVE_BLOOM_DISK_SAMPLES) ** 2 * settings.diskAlpha / 0.65;
+          for (let offset = 0; offset < samples.length; offset += 4)
           {
-            let coverage = 0;
-            for (let band = 0; band < radialSamples; band++)
-            {
-              coverage += evaluateRingLuminance(
-                (sample + 0.5) / angularSamples, (band + 0.5) / radialSamples,
-                geometry.threshold, ringCfg,
-              );
-            }
-            coverage *= prefilterCoverage / radialSamples;
-            sampleColor[0] = material[0] * coverage;
-            sampleColor[1] = material[1] * coverage;
-            sampleColor[2] = material[2] * coverage;
-            addNativeBloomSample(source, sampleColor, area, geometry.radius * geometry.radius);
+            sampleColor[0] = material[0] * samples[offset];
+            sampleColor[1] = material[1] * samples[offset + 1];
+            sampleColor[2] = material[2] * samples[offset + 2];
+            addNativeBloomSample(source, sampleColor, area, samples[offset + 3] * radius ** 2);
           }
           sources.push(source);
         }
-      }
 
-      const x = wave.x;
-      const y = wave.y;
-      const profile = createNativeBloomProfile(sources, this.width, this.height, this.dpr, settings);
-      if (!profile)
-      {
-        continue;
+        const ringCfg = this.fxConfig.rings;
+        const ringProgress = wave.ageMs / ringCfg.lifetimeMs;
+        if (ringProgress < 1 && settings.ringAlpha > 0 && settings.ringBlur > 0)
+        {
+          const material = evaluateSrgbGradientEnergy(
+            ringCfg.colorKeys, ringProgress,
+            ringCfg.hdrIntensity * emission * settings.ringEmissionAlpha,
+          );
+          for (const ring of wave.rings)
+          {
+            const geometry = resolveRingGeometry(ring, ringProgress, scale, ringCfg);
+            const source = createNativeBloomSource(settings);
+            source.blurScale = settings.ringBlur / 80;
+            source.radius = geometry.radius;
+            source.width = geometry.width;
+            const radialSamples = resolveRingIntegrationSamples(ringCfg);
+            const angularSamples = 64;
+            // GPU 在阈值提取前先缩小 Scene；亚像素环带会与周围黑色平均。
+            // 同时扩大样本面积以守恒能量，避免细碎溶解末期仍发出完整圆形光雾。
+            const prefilterCoverage = Math.min(1, Math.max(0.000001,
+              geometry.width * this.dpr * settings.resolutionScale * 0.75));
+            const area = TAU * geometry.radius * geometry.width / angularSamples *
+              settings.ringAlpha / 0.35 / prefilterCoverage;
+            for (let sample = 0; sample < angularSamples; sample++)
+            {
+              let coverage = 0;
+              for (let band = 0; band < radialSamples; band++)
+              {
+                coverage += evaluateRingLuminance(
+                  (sample + 0.5) / angularSamples, (band + 0.5) / radialSamples,
+                  geometry.threshold, ringCfg,
+                );
+              }
+              coverage *= prefilterCoverage / radialSamples;
+              sampleColor[0] = material[0] * coverage;
+              sampleColor[1] = material[1] * coverage;
+              sampleColor[2] = material[2] * coverage;
+              addNativeBloomSample(source, sampleColor, area, geometry.radius * geometry.radius);
+            }
+            sources.push(source);
+          }
+        }
+
+        const x = wave.x;
+        const y = wave.y;
+        const profile = createNativeBloomProfile(sources, this.width, this.height, this.dpr, settings);
+        if (!profile)
+        {
+          continue;
+        }
+        // 保持原有各向同性扩散，只绘制径向 Profile。
+        const gain = 1;
+        const gradient = context.createRadialGradient(x, y, 0, x, y, profile.radius);
+        for (const stop of profile.stops)
+        {
+          const color = outputCompositing === 'scene'
+            ? linearEnergyToAdditiveCss(stop.energy, gain)
+            : outputCompositing === 'browser-overlay'
+              ? linearEnergyToOverlayCss(stop.energy, gain, linearToSrgb(stop.transport * gain),
+                  'none', this._getEffectiveOverlayAlphaLimit(), opacity)
+              : linearEnergyToHostAdditiveCss(stop.energy, gain, linearToSrgb(stop.transport * gain));
+          gradient.addColorStop(stop.position, color);
+        }
+        context.fillStyle = gradient;
+        context.fillRect(x - profile.radius, y - profile.radius,
+          profile.radius * 2, profile.radius * 2);
       }
-      // 保持原有各向同性扩散，只绘制径向 Profile。
-      const gain = 1;
-      const gradient = context.createRadialGradient(x, y, 0, x, y, profile.radius);
-      for (const stop of profile.stops)
-      {
-        const color = outputCompositing === 'scene'
-          ? linearEnergyToAdditiveCss(stop.energy, gain)
-          : outputCompositing === 'browser-overlay'
-            ? linearEnergyToOverlayCss(stop.energy, gain, linearToSrgb(stop.transport * gain),
-                'none', this._getEffectiveOverlayAlphaLimit(), opacity)
-            : linearEnergyToHostAdditiveCss(stop.energy, gain, linearToSrgb(stop.transport * gain));
-        gradient.addColorStop(stop.position, color);
-      }
-      context.fillStyle = gradient;
-      context.fillRect(x - profile.radius, y - profile.radius,
-        profile.radius * 2, profile.radius * 2);
-    }
     }
     context.restore();
   }
@@ -11956,10 +11995,10 @@ for (const wave of this.waves)
 
     if (BUILD_TRAIL)
     {
-for (const stroke of this.trailStrokes)
-    {
-      invalidateTrailPoints(stroke);
-    }
+      for (const stroke of this.trailStrokes)
+      {
+        invalidateTrailPoints(stroke);
+      }
     }
     this.trailStrokes.length = 0;
   }
@@ -12070,20 +12109,20 @@ for (const stroke of this.trailStrokes)
 
     if (BUILD_CLICK)
     {
-for (const wave of this.waves)
-    {
-      wave.drawRings(
-        this.context,
-        scale,
-        this._getEffectiveOpacity(),
-        useNativeBloom,
-        this.dpr,
-        outputCompositing,
-        linearNativeGlow,
-        overlayColorCompensation,
-        overlayAlphaLimit,
-      );
-    }
+      for (const wave of this.waves)
+      {
+        wave.drawRings(
+          this.context,
+          scale,
+          this._getEffectiveOpacity(),
+          useNativeBloom,
+          this.dpr,
+          outputCompositing,
+          linearNativeGlow,
+          overlayColorCompensation,
+          overlayAlphaLimit,
+        );
+      }
     }
   }
 
@@ -12165,6 +12204,10 @@ for (const wave of this.waves)
     }
 
     const nextPaused = paused === true;
+    if (CUSTOM_BUILD && this.buildFailed && !nextPaused)
+    {
+      return;
+    }
 
     if (nextPaused)
     {
@@ -12974,7 +13017,8 @@ for (const wave of this.waves)
   {
     if (CUSTOM_BUILD && BUILD_WEBGPU)
     {
-      return this.webgpuEffectRenderer?.deviceManager.outputMode ?? 'pending';
+      const mode = this.webgpuEffectRenderer?.deviceManager.outputMode;
+      return mode === 'standard' || mode === 'extended' ? mode : this.buildFailed ? 'unavailable' : 'pending';
     }
     const requested = normalizeEffectBackend(this.config.effectBackend);
 
@@ -13105,7 +13149,11 @@ for (const wave of this.waves)
     this.buildFailed = true;
     this.resolvedEffectBackend = 'unavailable';
     this.resolvedBloomBackend = 'unavailable';
-    this.clear();
+    this.setPaused(true, { clear: true });
+    this._setWebGPUEffectVisible(false);
+    this._setWebGLEffectVisible(false);
+    this._setCanvasSceneVisible(false);
+    this._setCanvasOutputVisible(false);
     const error = new Error(`BAClickFX 定制版 ${code}`, { cause });
     error.code = code;
     // 通知前完成停止，允许宿主在回调中同步销毁实例。
