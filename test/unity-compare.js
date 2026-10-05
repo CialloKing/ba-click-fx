@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { decodeHalf, compareRgb, encodePreview, srgbEncode, srgbDecode } from '../scripts/unity-compare-data.mjs';
+import { decodeHalf, compareRgb, encodePreview, srgbEncode, srgbDecode, summarizeTrailMesh } from '../scripts/unity-compare-data.mjs';
 
 assert.deepEqual([...decodeHalf(Buffer.from([0, 0, 0, 60, 0, 192, 1, 0]))], [0, 1, -2, 2 ** -24]);
 assert.throws(() => decodeHalf(Buffer.from([0])), /长度/);
@@ -17,6 +17,13 @@ assert(Math.abs(srgbDecode(srgbEncode(0.18)) - 0.18) < 1e-14);
 assert(compareRgb(Float32Array.of(4, 0, 0, 0), Float32Array.of(srgbDecode(1), 0, 0, 0)).maximumError === 3,
   '保留参考 HDR 值，不能让 SDR 显示域夹取隐藏亮度差异');
 const png = encodePreview(reference, 1, 1);
+const mesh = { name: 'test', positions: [{}, {}], indices: [0, 1, 2],
+  vertices: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }] };
+assert.equal(summarizeTrailMesh(mesh, {}).projectedArea, 0.5);
+const identity = Object.fromEntries(Array.from({ length: 16 }, (_, i) => [`e${Math.floor(i / 4)}${i % 4}`, Math.floor(i / 4) === i % 4 ? 1 : 0]));
+assert.equal(summarizeTrailMesh({ ...mesh, vertices: mesh.vertices.map(v => ({ ...v, z: 0 })) },
+  { cameraWorldToCamera: identity, cameraProjection: identity }).projectedArea, 0.5);
+assert.equal(summarizeTrailMesh({ ...mesh, vertices: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 0 }] }, {}).visibleTriangles, 0);
 assert.equal(png.subarray(1, 4).toString(), 'PNG');
 assert.equal(png.readUInt32BE(16), 1);
 assert.equal(png.readUInt32BE(20), 1);

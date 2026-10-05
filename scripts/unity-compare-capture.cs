@@ -21,6 +21,8 @@ public static partial class BaFxTouchPreviewCapture
         public int[] captures;
         public ComparePoint[] points;
         public bool trail;
+        public string drive;
+        public int releaseMs;
     }
 
     [Serializable]
@@ -52,6 +54,15 @@ public static partial class BaFxTouchPreviewCapture
         public float widthCurveEnd;
         public int widthCurveKeys;
         public string alignment;
+        public bool emitting;
+        public Vector3 position;
+        public Quaternion rotation;
+        public Vector3 localPosition;
+        public Quaternion localRotation;
+        public Vector3 localScale;
+        public Matrix4x4 localToWorld;
+        public Matrix4x4 worldToLocal;
+        public Matrix4x4 parentLocalToWorld;
     }
 
     [Serializable]
@@ -64,6 +75,11 @@ public static partial class BaFxTouchPreviewCapture
         public float elapsedUnityTime;
         public int frame;
         public bool showParticles;
+        public string drive;
+        public int releaseMs;
+        public ComparePoint[] inputs;
+        public Matrix4x4 cameraWorldToCamera;
+        public Matrix4x4 cameraProjection;
         public CompareMesh[] particles;
         public CompareMesh[] trails;
     }
@@ -109,7 +125,7 @@ public static partial class BaFxTouchPreviewCapture
             compareRun = int.Parse(arguments[Array.IndexOf(arguments, "-baCompareRun") + 1]);
             compareInput = JsonUtility.FromJson<CompareInput>(
                 File.ReadAllText(Path.Combine(compareOutput, "inputs.json")));
-            if (Application.unityVersion != "2021.3.45f1" || compareInput.schema != 1)
+            if (Application.unityVersion != "2021.3.45f1" || (compareInput.schema != 1 && compareInput.schema != 2))
             {
                 throw new InvalidOperationException("Unity 版本或对照输入版本不匹配");
             }
@@ -207,8 +223,8 @@ public static partial class BaFxTouchPreviewCapture
         {
             trail.Clear();
             trail.enabled = specification.trail;
-            trail.emitting = false;
-            if (specification.trail)
+            trail.emitting = specification.trail && specification.drive == "runtime";
+            if (specification.trail && specification.drive != "runtime")
             {
                 foreach (ComparePoint point in specification.points)
                 {
@@ -232,13 +248,20 @@ public static partial class BaFxTouchPreviewCapture
                 if (point.timeMs == compareTick * 10)
                 {
                     compareInstance.transform.position = CompareWorld(point);
-                    if (specification.trail)
+                    if (specification.trail && specification.drive != "runtime")
                     {
                         foreach (TrailRenderer trail in compareTrails)
                         {
                             trail.AddPosition(CompareWorld(point));
                         }
                     }
+                }
+            }
+            if (specification.releaseMs > 0 && compareTick * 10 >= specification.releaseMs)
+            {
+                foreach (TrailRenderer trail in compareTrails)
+                {
+                    trail.emitting = false;
                 }
             }
             SimulateParticleSystems(compareSystems, 0.01f);
@@ -286,7 +309,16 @@ public static partial class BaFxTouchPreviewCapture
                 widthCurveMiddle = trail == null ? 0.0f : trail.widthCurve.Evaluate(0.5f),
                 widthCurveEnd = trail == null ? 0.0f : trail.widthCurve.Evaluate(1.0f),
                 widthCurveKeys = trail == null ? 0 : trail.widthCurve.length,
-                alignment = trail == null ? "" : trail.alignment.ToString()
+                alignment = trail == null ? "" : trail.alignment.ToString(),
+                emitting = trail != null && trail.emitting,
+                position = renderer.transform.position,
+                rotation = renderer.transform.rotation,
+                localPosition = renderer.transform.localPosition,
+                localRotation = renderer.transform.localRotation,
+                localScale = renderer.transform.localScale,
+                localToWorld = renderer.transform.localToWorldMatrix,
+                worldToLocal = renderer.transform.worldToLocalMatrix,
+                parentLocalToWorld = renderer.transform.parent == null ? Matrix4x4.identity : renderer.transform.parent.localToWorldMatrix
             };
         }
         finally
@@ -350,12 +382,18 @@ public static partial class BaFxTouchPreviewCapture
                 }
                 File.WriteAllText(Path.Combine(directory, "state.json"), JsonUtility.ToJson(new CompareState
                 {
+                    schema = compareInput.schema,
                     name = specification.name,
                     timeMs = milliseconds,
                     run = compareRun,
                     elapsedUnityTime = Time.time - compareStart,
                     frame = Time.frameCount,
                     showParticles = !specification.trail,
+                    drive = specification.drive,
+                    releaseMs = specification.releaseMs,
+                    inputs = specification.points,
+                    cameraWorldToCamera = compareCamera.worldToCameraMatrix,
+                    cameraProjection = compareCamera.projectionMatrix,
                     particles = particles.ToArray(),
                     trails = trails.ToArray()
                 }));

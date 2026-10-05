@@ -35,6 +35,37 @@ export function srgbDecode(value)
   return encoded <= 0.04045 ? encoded / 12.92 : ((encoded + 0.055) / 1.055) ** 2.4;
 }
 
+export function summarizeTrailMesh(trail, state)
+{
+  const transform = (point, matrix) =>
+  {
+    if (!matrix) return point;
+    // JsonUtility 使用 Matrix4x4 的序列化字段 e00，测试输入也接受公开属性 m00。
+    const entry = (row, column) => matrix[`e${row}${column}`] ?? matrix[`m${row}${column}`];
+    const component = row => entry(row, 0) * point.x + entry(row, 1) * point.y +
+      entry(row, 2) * point.z + entry(row, 3) * (point.w ?? 1);
+    return { x: component(0), y: component(1), z: component(2), w: component(3) };
+  };
+  const projected = trail.vertices.map(point =>
+  {
+    const clip = transform(transform(point, state.cameraWorldToCamera), state.cameraProjection);
+    return { x: clip.x / (clip.w ?? 1), y: clip.y / (clip.w ?? 1) };
+  });
+  let visibleTriangles = 0; let projectedArea = 0;
+  for (let index = 0; index < trail.indices.length; index += 3)
+  {
+    const [a, b, c] = trail.indices.slice(index, index + 3).map(value => projected[value]);
+    const area = Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) * 0.5;
+    if (!Number.isFinite(area)) throw new Error('拖尾投影包含非有限值');
+    if (area > 0) visibleTriangles++;
+    projectedArea += area;
+  }
+  return { name: trail.name, positions: trail.positions.length, triangles: trail.indices.length / 3,
+    visibleTriangles, projectedArea, projectionDomain: state.cameraProjection ? 'NDC' : 'world-XY',
+    widthMultiplier: trail.width, curve: [trail.widthCurveStart, trail.widthCurveMiddle, trail.widthCurveEnd],
+    alignment: trail.alignment, emitting: trail.emitting };
+}
+
 export function compareRgb(reference, actual)
 {
   if (reference.length !== actual.length || reference.length % 4) throw new Error('比较缓冲长度不一致');

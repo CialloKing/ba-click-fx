@@ -35,22 +35,24 @@ for (let index = 2; index < process.argv.length; index++)
 if (!options.project) throw new Error('用法：npm run compare:unity -- --project <Unity工程路径>');
 const project = resolve(options.project);
 const editor = options.editor ?? 'C:/Program Files/Unity/Hub/Editor/2021.3.45f1/Editor/Unity.exe';
-const label = options.label ?? 'stage11';
+const label = options.label ?? 'stage12';
 if (!/^[a-zA-Z0-9_-]+$/.test(label)) throw new Error('label 只能包含字母、数字、横线和下划线');
 const output = resolve(options.reuse ?? join(root, 'test-results', `unity-comparison-${label}`));
 const input = {
-  schema: 1, width: 1950, height: 1097, dpr: 1, stepMs: 10, seed: 20260716,
+  schema: 2, workloadVersion: 'trail-input-v2', width: 1950, height: 1097, dpr: 1, stepMs: 10, seed: 20260716,
   cases: [
     { name: 'click', trail: false, captures: [50, 100, 120, 130, 250, 450], points: [{ timeMs: 0, x: 975, y: 548.5 }] },
-    { name: 'trail-fixed', trail: true, captures: [140, 410], points: [{ timeMs: 0, x: 759, y: 548.5 }, { timeMs: 0, x: 1191, y: 548.5 }] },
-    ...['corner', 'reverse'].map(name => ({
-      name: `trail-${name}`, trail: true, captures: [140, 410],
-      points: Array.from({ length: 8 }, (_, index) => ({
-        timeMs: index * 20,
-        x: name === 'corner' ? 759 + Math.min(index, 4) * 54 : 759 + (index <= 4 ? index : 8 - index) * 108,
-        y: name === 'corner' ? 440.5 + Math.max(index - 4, 0) * 72 : 548.5,
+    ...['manual', 'runtime'].flatMap(drive => [
+      { name: `trail-${drive}-fixed`, drive, trail: true, releaseMs: 20, captures: [140, 410], points: [{ timeMs: 0, x: 759, y: 548.5 }, { timeMs: 10, x: 1191, y: 548.5 }] },
+      ...['corner', 'reverse'].map(name => ({
+        name: `trail-${drive}-${name}`, drive, trail: true, releaseMs: 150, captures: [140, 410],
+        points: Array.from({ length: 8 }, (_, index) => ({
+          timeMs: index * 20,
+          x: name === 'corner' ? 759 + Math.min(index, 4) * 54 : 759 + (index <= 4 ? index : 8 - index) * 108,
+          y: name === 'corner' ? 440.5 + Math.max(index - 4, 0) * 72 : 548.5,
+        })),
       })),
-    })),
+    ]),
   ],
 };
 let isolated;

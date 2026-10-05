@@ -4,7 +4,7 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright-core';
 import { findChromiumExecutable, startViteServer, closeBrowserRuntime } from '../test/browser/harness.mjs';
-import { decodeHalf, decodeUnityBuffer, compareRgb, srgbEncode, srgbDecode, encodePreview } from './unity-compare-data.mjs';
+import { decodeHalf, decodeUnityBuffer, compareRgb, srgbEncode, srgbDecode, encodePreview, summarizeTrailMesh } from './unity-compare-data.mjs';
 
 const json = async path => JSON.parse((await readFile(path, 'utf8')).replace(/^\uFEFF/, ''));
 const stableState = ({ frame, elapsedUnityTime, run, ...state }) => state;
@@ -38,7 +38,7 @@ export async function validateUnityCapture(output)
       const raw = await Promise.all(directories.map(path => readFile(join(path, `${buffer.name}.rgba16f.gz`))));
       if (!gunzipSync(raw[0]).equals(gunzipSync(raw[1]))) throw new Error(`${name}/${buffer.name} 两轮像素不一致`);
     }
-    cases.push({ name, directory: directories[0], state: states[0], particles: particles[0], buffers: buffers[0] });
+    cases.push({ name, directory: directories[0], specification, state: states[0], particles: particles[0], buffers: buffers[0] });
   }
   for (const specification of input.cases.filter(value => value.trail))
   {
@@ -47,17 +47,10 @@ export async function validateUnityCapture(output)
     if (count(start) < 2 || count(end) >= count(start)) throw new Error(`${specification.name} 拖尾没有实际生成或过期裁剪`);
     for (const sample of [start, end])
     {
-      sample.referenceGeometry = sample.state.trails.map(trail =>
-      {
-        let visibleTriangles = 0;
-        for (let index = 0; index < trail.indices.length; index += 3)
-        {
-          const [a, b, c] = trail.indices.slice(index, index + 3).map(value => trail.vertices[value]);
-          if ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) !== 0) visibleTriangles++;
-        }
-        return { name: trail.name, positions: trail.positions.length, triangles: trail.indices.length / 3, visibleTriangles,
-          widthMultiplier: trail.width, curve: [trail.widthCurveStart, trail.widthCurveMiddle, trail.widthCurveEnd], alignment: trail.alignment };
-      });
+      sample.referenceGeometry = sample.state.trails.map(trail => summarizeTrailMesh(trail, sample.state));
+      const scene = sample.buffers.buffers.find(buffer => buffer.name === '00_UI_HDR');
+      const values = decodeUnityBuffer(await readFile(join(sample.directory, `${scene.name}.rgba16f.gz`)), scene.width, scene.height);
+      sample.referenceEnergy = compareRgb(values, values).referenceEnergy;
     }
   }
   return { input, cases };
@@ -66,9 +59,19 @@ export async function validateUnityCapture(output)
 export async function compareUnityCapture({ root, output })
 {
   const { input, cases } = await validateUnityCapture(output);
+  const diagnostics = cases.filter(sample => sample.specification.trail).map(sample => ({
+    name: sample.name, drive: sample.specification.drive ?? 'legacy-manual',
+    releaseMs: sample.specification.releaseMs, input: sample.specification.points,
+    referenceGeometry: sample.referenceGeometry, referenceEnergy: sample.referenceEnergy,
+  }));
+  const invalidReferences = input.schema >= 2 ? cases.filter(sample => sample.specification.drive === 'runtime' &&
+    sample.state.timeMs === sample.specification.captures[0] &&
+    (!sample.referenceGeometry.some(mesh => mesh.visibleTriangles > 0) || sample.referenceEnergy <= 0)).map(sample => sample.name) : [];
+  await writeFile(join(output, 'trail-diagnostics.json'), JSON.stringify({ inputVersion: input.workloadVersion,
+    repeatIdentical: true, diagnostics, invalidReferences }, null, 2));
   const report = { capture: await json(join(output, 'environment.json')),
     replayCommit: execFileSync('git', ['describe', '--always', '--dirty'], { cwd: root, encoding: 'utf8' }).trim(),
-    input, repeat: { runs: 2, stateAndPixelsIdentical: true }, cases: {}, consoleErrors: [],
+    input, repeat: { runs: 2, stateAndPixelsIdentical: true }, cases: {}, consoleErrors: [], invalidReferences,
     note: '中间层比较原始线性 RGB。Final 同时报告原始 Unity HDR 与网页 SDR 解码后的线性差异，以及 SDR 显示域差异。前者保留 Unity 超出 1 的值，后者明确夹取和 sRGB 编码参考值；两者不能混用。Alpha 不纳入 RGB 指标。PNG 差异固定放大 16 倍，无自动对齐或缩放。' };
   let browser; let vite; let current;
   try
@@ -112,6 +115,8 @@ export async function compareUnityCapture({ root, output })
     await page.goto(`${runtime.baseUrl}/test/browser/webgpu.html`);
     for (const sample of cases)
     {
+      // 手动驱动保留为流程诊断，不把退化参考混入正式视觉误差。
+      if (sample.specification.drive === 'manual') continue;
       report.cases[sample.name] = {};
       for (const backend of ['webgl2', 'webgpu'])
       {
@@ -128,11 +133,18 @@ export async function compareUnityCapture({ root, output })
         if (!record.skipped && Math.abs(record.sampleScale - sample.buffers.sampleScale) > 0.000001) throw new Error('Bloom 采样倍率不匹配');
       }
     }
+    if (invalidReferences.length)
+    {
+      const error = new Error(`原预览驱动仍没有有效拖尾参考：${invalidReferences.join(', ')}`);
+      error.code = 'INVALID_UNITY_REFERENCE';
+      throw error;
+    }
     report.status = 'completed-with-rendering-differences';
   }
   catch (error)
   {
-    report.status = 'execution-failed'; report.failure = { case: current?.name, backend: current?.backend, message: error.message, stack: error.stack };
+    report.status = error.code === 'INVALID_UNITY_REFERENCE' ? 'reference-failed' : 'execution-failed';
+    report.failure = { case: current?.name, backend: current?.backend, message: error.message, stack: error.stack };
     throw error;
   }
   finally
