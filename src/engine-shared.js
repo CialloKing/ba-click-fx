@@ -1,4 +1,5 @@
 // 无宿主状态的共用工具；输入和资源生命周期不依赖具体渲染后端。
+import { CUSTOM_BUILD, BUILD_WORKER } from './build-capabilities.js';
 const BLOOM_BACKEND_CHANGE_EVENT = 'baclickfxbackendchange';
 
 const EFFECT_BACKEND_CHANGE_EVENT = 'baclickfxeffectbackendchange';
@@ -198,6 +199,11 @@ function isCanvas(value)
 
 function createCanvas(width = 300, height = 150)
 {
+  if (CUSTOM_BUILD && BUILD_WORKER)
+  {
+    // Worker 资源只使用 OffscreenCanvas，省去 DOM 工厂与挂载依赖。
+    return new OffscreenCanvas(width, height);
+  }
   if (typeof document !== 'undefined' && typeof document.createElement === 'function')
   {
     const canvas = document.createElement('canvas');

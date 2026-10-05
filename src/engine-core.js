@@ -5497,6 +5497,10 @@ export class BAClickFX extends ConfigRuntime
       }
       this.onError = options.onError ?? null;
       this.buildFailed = false;
+      if (options.inputFilter !== undefined && typeof options.inputFilter !== 'function')
+      {
+        throw new TypeError('BAClickFX inputFilter 必须是函数');
+      }
       if (BUILD_DOM ? isCanvas(options.target) : !isCanvas(options.target))
       {
         throw new TypeError('BAClickFX target 与构建的 runtime 不匹配');
@@ -5531,7 +5535,7 @@ export class BAClickFX extends ConfigRuntime
       : null;
     this.host = resolveTarget(options.target);
     this.ownsCanvas = !isCanvas(this.host);
-    if (CUSTOM_BUILD && BUILD_DOM && !this.ownsCanvas)
+    if (CUSTOM_BUILD && BUILD_DOM && isCanvas(this.host))
     {
       throw new TypeError('DOM 定制版需要容器 target，已有 Canvas 请选择 manual 构建');
     }

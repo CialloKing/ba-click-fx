@@ -157,6 +157,13 @@ export function compileCustomSources(root, profile)
       {
         edits.push([node.start, node.end, String(flags[node.name])]);
       }
+      if (filename === 'engine-core.js' && node.type === 'MemberExpression' &&
+          node.object.type === 'ThisExpression' && node.property.name === 'ownsCanvas' &&
+          !(parent?.type === 'AssignmentExpression' && parent.left === node))
+      {
+        // target 类型已在构造时严格验证，所有权随接入方式固定。
+        edits.push([node.start, node.end, String(profile.runtime === 'dom')]);
+      }
       if (node.type === 'MemberExpression' && node.object.type === 'MemberExpression' &&
           node.object.object.type === 'ThisExpression' && node.object.property.name === 'config' &&
           Object.hasOwn(profile.config, node.property.name) &&
