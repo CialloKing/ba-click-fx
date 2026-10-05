@@ -7,6 +7,9 @@ dist-ssr
 dist-custom
 test-results
 
+# 用户本地定制参数；仓库内的官方示例仍随源码维护。
+/ba-click-fx.build.json
+
 # Local download badge preview; published data lives on stats.
 /badges/npm-downloads.json
 
