@@ -132,6 +132,8 @@ npm run check:release
 
 `check:release` 通过 `test:custom:release` 在同一进程内完成两套定制检查，相同的最终配置只构建一次。单独运行构建或浏览器检查也保留各自完整的覆盖范围。构建文件留在已忽略的 `test-results/custom-builds`，仅复用当前进程内刚生成的产物；下次运行重新构建，不依赖旧文件或旧验收结果。
 
+完整发布验收需显式执行，并确认当前提交的 CI 通过。`npm pack` 和 `npm publish` 仅通过 `prepack` 运行快速的 `check`：构建一次，完成单元、运行时、同步、版本、包清单、实际打包安装和类型校验，不自动重跑浏览器矩阵。CI 的定制浏览器验收使用 `--required`，设备跳过仍会失败。
+
 默认浏览器验收只进行画面与生命周期检查，体积和验收结果写入 `test-results/custom-browser/results.json`，不执行性能压测。需要比较性能时显式运行：
 
 ```bash

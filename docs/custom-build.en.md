@@ -132,6 +132,8 @@ Release checks include full-build regression, build and type checks through `tes
 
 `check:release` runs both custom suites in one process through `test:custom:release`, building each final configuration only once. Standalone build and browser checks retain their complete coverage. Generated files stay in the ignored `test-results/custom-builds` directory. Only artifacts freshly generated in the current process are reused; the next run rebuilds instead of trusting old files or acceptance results.
 
+Run complete release acceptance explicitly and confirm CI passes for the current commit. `npm pack` and `npm publish` run only the fast `check` through `prepack`: one build followed by unit, runtime, synchronization, version, package-file, actual package-install, and type checks, without automatically repeating the browser matrix. CI uses `--required` for custom browser acceptance, so skipped devices still fail.
+
 Default browser acceptance checks pixels and lifecycle only, recording bytes and acceptance results in `test-results/custom-browser/results.json` without running performance workloads. Run benchmarks explicitly when comparing performance:
 
 ```bash

@@ -48,7 +48,7 @@ jobs:
       - name: Run Chromium Unity regression
         run: npm run test:browser:unity
       - name: Run custom build parity and lifecycle checks
-        run: npm run test:browser:custom
+        run: npm run test:browser:custom -- --required
       - name: Upload browser failure artifacts
         if: failure()
         uses: actions/upload-artifact@v7
