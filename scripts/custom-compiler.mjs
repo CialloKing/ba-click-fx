@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { parseAst } from 'rolldown/parseAst';
 import { minifySync } from 'rolldown/experimental';
 import { createRelativeOklchTheme } from '../src/theme-color.js';
+import { gammaToLinear, resolveUnityBloomClamp, resolveUnityBloomIntensity } from '../src/bloom-color-space.js';
 
 export function walk(node, visit, parent = null)
 {
@@ -36,6 +37,23 @@ function compress(code)
   });
   if (result.errors.length) throw new Error(JSON.stringify(result.errors));
   return result.code;
+}
+
+function precomputeMaterials(code)
+{
+  const functions = { gammaToLinear, resolveUnityBloomClamp, resolveUnityBloomIntensity };
+  const edits = [];
+  walk(parseAst(code), node =>
+  {
+    if (node.type !== 'CallExpression' || node.callee.type !== 'Identifier' ||
+        !Object.hasOwn(functions, node.callee.name) || node.arguments.length !== 1) return;
+    const argument = node.arguments[0];
+    if (argument.type !== 'Literal' || typeof argument.value !== 'number') return;
+    // 直接调用同一数学实现并保留 double 的可往返表示，不改变公式或 Shader。
+    const value = functions[node.callee.name](argument.value);
+    if (Number.isFinite(value)) edits.push([node.start, node.end, JSON.stringify(value)]);
+  });
+  return compress(edit(code, edits));
 }
 
 function memberNames(code)
@@ -184,7 +202,7 @@ import { FIXED_FX as UNITY_FX_TOUCH } from 'virtual:ba-click-fx-profile';`]);
         if (dynamic.includes(name)) edits.push([node.start, node.end, '']);
       }
     });
-    sources.set(filename, compress(edit(code, edits)));
+    sources.set(filename, precomputeMaterials(compress(edit(code, edits))));
   }
   // 元数据构造有递归 freeze 等副作用，不能只依赖打包器猜测其纯度。
   // 这些声明只供构建工具/完整版调用，定制配置已在 Node 中验证完成。

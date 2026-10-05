@@ -3,7 +3,7 @@ import {
   resolveUnityBloomClamp,
   resolveUnityBloomIntensity,
 } from './bloom-color-space.js';
-import { calculateBloomContribution } from './software-bloom.js';
+import { calculateBloomContribution } from './bloom-math.js';
 
 /**
  * 用材质样本的能量与二阶矩近似局部 Bloom 源。只采样已有纹理/几何，

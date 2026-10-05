@@ -80,11 +80,8 @@ import {
   resolveUnityBloomClamp,
   resolveUnityBloomIntensity,
 } from './bloom-color-space.js';
-import {
-  SoftwareBloomRenderer,
-  calculateBloomContribution,
-  limitCanvasAlpha,
-} from './software-bloom.js';
+import { SoftwareBloomRenderer } from './software-bloom.js';
+import { calculateBloomContribution, limitCanvasAlpha } from './bloom-math.js';
 import {
   BRIGHT_CORE_CHANNEL_MIX,
   applyOverlayColorCompensationToImageData,
@@ -5534,6 +5531,10 @@ export class BAClickFX extends ConfigRuntime
       : null;
     this.host = resolveTarget(options.target);
     this.ownsCanvas = !isCanvas(this.host);
+    if (CUSTOM_BUILD && BUILD_DOM && !this.ownsCanvas)
+    {
+      throw new TypeError('DOM 定制版需要容器 target，已有 Canvas 请选择 manual 构建');
+    }
     if (!CUSTOM_BUILD && !this.ownsCanvas)
     {
       // 已有 Canvas 无法承载主层、Bloom 层和对比层组成的独立合成组。

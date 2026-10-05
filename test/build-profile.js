@@ -12,6 +12,8 @@ for (const backend of BACKENDS)
 }
 for (const extra of [
   { surprise: 1 }, { features: { trail: 1 } }, { features: { typo: true } },
+  { features: null }, { config: null }, { fxParams: null },
+  { config: { isolatedCompositing: true } },
   { config: { effectBackend: 'auto' } }, { config: { typo: 1 } },
   { features: { trail: false }, config: { trailAlways: true } },
   { features: { bloom: false }, fxParams: { 'bloom.intensity': 1 } },

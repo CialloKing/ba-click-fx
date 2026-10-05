@@ -8,12 +8,11 @@ export function customVite(root, profile)
     name: 'ba-click-fx-profile', enforce: 'pre',
     resolveId(id)
     {
-      if (id === 'virtual:ba-click-fx-profile' || id === 'virtual:ba-click-fx-custom') return '\0' + id;
+      if (id === 'virtual:ba-click-fx-profile') return '\0' + id;
     },
     load(id)
     {
       if (id === '\0virtual:ba-click-fx-profile') return compiled.constants;
-      if (id === '\0virtual:ba-click-fx-custom') return `export { default, BAClickFX } from ${JSON.stringify(resolve(root, 'src/engine-core.js'))};`;
       if (id.replaceAll('\\', '/').startsWith(resolve(root, 'src').replaceAll('\\', '/') + '/'))
         return compiled.sources.get(basename(id));
     },

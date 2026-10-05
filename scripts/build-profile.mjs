@@ -35,7 +35,7 @@ export function normalizeProfile(input)
   {
     throw new TypeError('profile 必须选择有效的 backend 和 runtime');
   }
-  const overrides = object(input.features ?? {}, 'features');
+  const overrides = object(input.features === undefined ? {} : input.features, 'features');
   keys(overrides, featureNames, 'features');
   for (const [key, value] of Object.entries(overrides))
   {
@@ -45,7 +45,7 @@ export function normalizeProfile(input)
     }
   }
   const features = Object.fromEntries(featureNames.map(key => [key, overrides[key] ?? true]));
-  const configInput = object(input.config ?? {}, 'config');
+  const configInput = object(input.config === undefined ? {} : input.config, 'config');
   for (const key of controlledConfig)
   {
     if (Object.hasOwn(configInput, key))
@@ -72,7 +72,7 @@ export function normalizeProfile(input)
     trailEnabled: features.trail,
     isolatedCompositing: input.runtime === 'dom' ? configInput.isolatedCompositing ?? CONFIG.isolatedCompositing : false,
   });
-  const result = applyFxParamPatch(object(input.fxParams ?? {}, 'fxParams'), {
+  const result = applyFxParamPatch(object(input.fxParams === undefined ? {} : input.fxParams, 'fxParams'), {
     baseline: UNITY_FX_TOUCH,
     strict: true,
   });

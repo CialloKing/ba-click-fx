@@ -32,9 +32,13 @@ for (const [index, input] of profiles.entries())
   assert(!code.includes('createFxParamDescriptor') && !code.includes('applyFxParamPatch'));
   const modules = info.modules.map(item => item.id);
   assert(!modules.includes('src/fx-param-patch.js'));
+  assert(!modules.includes('src/engine-config.js') && !modules.includes('src/engine-input.js'), 'methods are statically expanded and trimmed');
   if (!input.backend.startsWith('webgpu')) assert(!modules.includes('src/webgpu-effect.js'));
   if (input.backend.startsWith('webgpu')) assert(!modules.includes('src/webgl2-effect.js'));
   if (input.features?.trail === false) assert(!modules.includes('src/trail-texture.js'));
+  if (input.features?.shards === false) assert(!modules.includes('src/triangle-texture.js'));
+  if (input.features?.click === false) assert(!modules.includes('src/circle-texture.js') && !modules.includes('src/ring3-alpha.js'));
+  if (input.backend !== 'software') assert(!modules.includes('src/software-bloom.js'));
   assert.equal(info.sizes.raw, Buffer.byteLength(code));
   assert.deepEqual(readFileSync(resolve(root, 'dist/ba-click-fx.js')), fullBefore);
   console.log(`custom build passed: ${input.backend}/${input.runtime} ${JSON.stringify(input.features ?? {})} (${info.sizes.gzip} gzip bytes)`);
