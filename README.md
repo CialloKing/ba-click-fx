@@ -35,6 +35,7 @@
 - [桌面版（Windows 测试版）](#桌面版windows-测试版)
 - [特性](#特性)
 - [使用方式](#使用方式)
+- [从源码自行构建](#从源码自行构建)
 - [网页集成建议](#网页集成建议未知背景输出合成)
 - [常见用法](#常见用法)
 - [API 文档](#api-文档)
@@ -52,11 +53,12 @@
 - WebGL2 默认后端，WebGPU 与实验性 HDR 输出可选。
 - GPU 能力不足时回退 Canvas 2D 与原生辉光。
 - 支持容器挂载、手动输入及 Dedicated Worker。
+- 支持从源码自行构建固定参数版本，按需选择后端、接入方式和功能。
 - 无活跃特效时自动停止动画调度。
 
 ## 使用方式
 
-以下三种方式任选其一，示例已包含普通网页推荐的覆盖层配置。点击页面或按住指针拖动即可看到效果；无需按下的拖尾见[常见用法](#拖尾主题色和开关)。
+可以通过 npm、CDN、直接下载使用完整版，也可以[从源码自行构建](#从源码自行构建)。以下接入示例已包含普通网页推荐的覆盖层配置。点击页面或按住指针拖动即可看到效果；无需按下的拖尾见[常见用法](#拖尾主题色和开关)。
 
 ### npm
 
@@ -127,6 +129,29 @@ const fx = new BAClickFX(
 将 `ba-click-fx.js` 放在页面同目录，在容器内点击或拖动即可预览。
 
 省略 `target` 会创建全屏覆盖层；普通网页容器应使用定位元素。已有 `HTMLCanvasElement` 适合需要自行管理单张 Canvas 的宿主，但会关闭多层 DOM 合成并使完整 GPU/Bloom 路径安全降级。
+
+### 从源码自行构建
+
+需要 Node.js `>=24.0.0`。获取源码并安装构建依赖后，运行以下命令生成完整版与演示页，产物位于 `dist`：
+
+```bash
+git clone https://github.com/CialloKing/ba-click-fx.git
+cd ba-click-fx
+npm ci
+npm run build
+```
+
+如需轻量版本，可以通过 JSON 配置选择一种渲染模式、DOM / 手动 Canvas / Worker 接入方式，以及需要的点击、拖尾、碎片、Bloom 和合成参考功能。参数在构建时固定，未选后端、关闭功能的资源及运行时调参接口会被裁剪。
+
+例如，直接构建保留点击与原生辉光的 [Native 点击版](https://github.com/CialloKing/ba-click-fx/blob/main/examples/build-profiles/native-click-dom.json)：
+
+```bash
+npm run build -- --profile examples/build-profiles/native-click-dom.json
+```
+
+也可以复制 [Worker 配置示例](https://github.com/CialloKing/ba-click-fx/blob/main/examples/build-profiles/webgl2-worker.json)为自己的 `ba-click-fx.build.json`，修改所需功能和固定参数，再运行 `npm run build -- --profile ba-click-fx.build.json`。
+
+定制产物位于 `dist-custom`，包含自包含 ESM、对应类型声明、构建信息及许可证，不覆盖完整版。默认导出与 `BAClickFX` 命名导出均保留；构造时只接受宿主资源和必要回调。配置字段、裁剪后的接口及接入示例见[定制构建指南](https://github.com/CialloKing/ba-click-fx/blob/main/docs/custom-build.md)。
 
 ### 浏览器插件
 
@@ -254,7 +279,7 @@ fx.destroy();
 
 ### 定制构建
 
-[从源码构建固定参数版本](https://github.com/CialloKing/ba-click-fx/blob/main/docs/custom-build.md)：在现有构建中选择后端、接入方式和功能，移除运行时调参及未使用的资源。使用 `npm run build -- --profile ba-click-fx.build.json`，产物写入独立的 `dist-custom`。
+[README 构建步骤](#从源码自行构建) · [定制构建指南](https://github.com/CialloKing/ba-click-fx/blob/main/docs/custom-build.md)：完整配置字段、功能与接口裁剪、宿主接入及故障处理。
 
 ## 常见问题
 

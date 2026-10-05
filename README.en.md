@@ -35,6 +35,7 @@ The desktop edition does not reuse this project's JavaScript / WebGL / WebGPU ru
 - [Desktop Edition (Windows Test Build)](#desktop-edition-windows-test-build)
 - [Features](#features)
 - [Installation](#installation)
+- [Build from Source](#build-from-source)
 - [Web Integration](#recommended-web-integration-unknown-background-compositing)
 - [Common Usage](#common-usage)
 - [API Reference](#api-reference)
@@ -52,11 +53,12 @@ The desktop edition does not reuse this project's JavaScript / WebGL / WebGPU ru
 - WebGL2 by default, with optional WebGPU and experimental HDR output.
 - Canvas 2D and Native Glow when GPU capabilities are insufficient.
 - Container mounting, manual input, and Dedicated Worker support.
+- Build fixed-parameter versions from source, choosing the backend, integration, and features you need.
 - Animation scheduling stops while no effects are active.
 
 ## Installation
 
-Choose one of the three setups below. Each example includes the recommended overlay configuration for ordinary pages. Click the page or drag while holding a pointer to see the effect; see [common usage](#trails-colours-and-switches) for trails without pressing.
+Use the full version through npm, CDN, or direct download, or [build it yourself from source](#build-from-source). The integration examples below include the recommended overlay configuration for ordinary pages. Click the page or drag while holding a pointer to see the effect; see [common usage](#trails-colours-and-switches) for trails without pressing.
 
 ### npm
 
@@ -127,6 +129,29 @@ The package and CDN builds are ESM-only. The browser JavaScript example below us
 Place `ba-click-fx.js` beside the page, then click or drag inside the container to preview the effect.
 
 Omitting `target` creates a full-screen overlay. A normal web container should establish a positioning context. An existing `HTMLCanvasElement` is intended for hosts that manage one Canvas themselves, but it disables multi-layer DOM compositing and safely downgrades the complete GPU/Bloom path.
+
+### Build from Source
+
+Use Node.js `>=24.0.0`. Get the source, install the build dependencies, and run the following commands to generate the full library and demo in `dist`:
+
+```bash
+git clone https://github.com/CialloKing/ba-click-fx.git
+cd ba-click-fx
+npm ci
+npm run build
+```
+
+For a lighter version, use a JSON profile to choose one rendering mode, DOM / manual Canvas / Worker integration, and the click, trail, shard, Bloom, and compositing-reference features you need. Parameters are fixed at build time; unselected backends, resources for disabled features, and runtime tuning methods are trimmed.
+
+For example, build the [Native click profile](https://github.com/CialloKing/ba-click-fx/blob/main/examples/build-profiles/native-click-dom.json), which retains clicks and Native Glow:
+
+```bash
+npm run build -- --profile examples/build-profiles/native-click-dom.json
+```
+
+You can also copy the [Worker profile](https://github.com/CialloKing/ba-click-fx/blob/main/examples/build-profiles/webgl2-worker.json) to your own `ba-click-fx.build.json`, adjust features and fixed parameters, and run `npm run build -- --profile ba-click-fx.build.json`.
+
+Custom output goes to `dist-custom`, including a self-contained ESM script, matching declarations, build information, and licenses, preserving the full build. Both default and named `BAClickFX` exports are retained; constructors accept only host resources and necessary callbacks. See the [custom build guide](https://github.com/CialloKing/ba-click-fx/blob/main/docs/custom-build.en.md) for profile fields, trimmed APIs, and integration examples.
 
 ### Browser Extension
 
@@ -254,7 +279,7 @@ Backend state may be `pending` during lazy probing; read `resolvedEffectBackend`
 
 ### Custom Builds
 
-[Build a fixed-parameter version from source](https://github.com/CialloKing/ba-click-fx/blob/main/docs/custom-build.en.md): select a backend, runtime, and features through the existing build, omitting runtime tuning and unused resources. Run `npm run build -- --profile ba-click-fx.build.json`; output goes to the separate `dist-custom` directory.
+[README build steps](#build-from-source) · [Custom build guide](https://github.com/CialloKing/ba-click-fx/blob/main/docs/custom-build.en.md): complete profile fields, feature and API trimming, host integration, and failure handling.
 
 ## FAQ
 
