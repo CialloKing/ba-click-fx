@@ -1,3 +1,4 @@
+import { BUILD_TRAIL, BUILD_CLICK, BUILD_SHARDS, BUILD_BLOOM, BUILD_REFERENCE } from './build-capabilities.js';
 import { resolveTriangleTextureFrame } from './triangle-texture.js';
 import { RING_MESH_VERTICES, RING_MESH_INDICES, RING_MESH_UV_MIN, RING_MESH_UV_MAX, RING_MESH_OUTER_RADIUS } from './ring-mesh.js';
 
@@ -79,13 +80,9 @@ export class EffectGeometry
       INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_VERTEX,
     );
     this.sceneDiskVertexCount = 0;
-    this.sceneDiskVertexData = new Float32Array(
-      INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_DISK_VERTEX,
-    );
+    this.sceneDiskVertexData = new Float32Array((BUILD_CLICK) ? INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_DISK_VERTEX : 0);
     this.ringVertexCount = 0;
-    this.ringVertexData = new Float32Array(
-      INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_RING_VERTEX,
-    );
+    this.ringVertexData = new Float32Array((BUILD_CLICK) ? INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_RING_VERTEX : 0);
     this._ringCosine = null;
     this._ringSine = null;
     this.ringIndexCount = 0;
@@ -97,13 +94,9 @@ export class EffectGeometry
     this._ringIndexVersion = 0;
     this._ringUploadedIndexVersion = -1;
     this.triangleVertexCount = 0;
-    this.triangleVertexData = new Float32Array(
-      INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRIANGLE_VERTEX,
-    );
+    this.triangleVertexData = new Float32Array((BUILD_CLICK || BUILD_SHARDS) ? INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRIANGLE_VERTEX : 0);
     this.trailVertexCount = 0;
-    this.trailVertexData = new Float32Array(
-      INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRAIL_VERTEX,
-    );
+    this.trailVertexData = new Float32Array((BUILD_TRAIL) ? INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRAIL_VERTEX : 0);
     this.sourceTarget = null;
     // 非默认点击辉光倍率需要与清晰 Scene 分离；默认值不额外占用显存。
     this.bloomSourceTarget = null;
@@ -598,6 +591,8 @@ export class EffectGeometry
 
   addDisk(x, y, radius, color, opacity = 1, segmentCount = 64)
   {
+    if (!(BUILD_CLICK)) return false;
+
     const red = color[0] * opacity;
     const green = color[1] * opacity;
     const blue = color[2] * opacity;
@@ -639,6 +634,8 @@ export class EffectGeometry
     segmentCount = 64,
   )
   {
+    if (!(BUILD_CLICK)) return false;
+
     // 解包 Shader 的 vertex.a 只进入输出 Alpha，不能削弱 HDR RGB 或 Bloom。
     const red = color[0] * opacity;
     const green = color[1] * opacity;
@@ -694,6 +691,8 @@ export class EffectGeometry
     segmentCount = 64,
   )
   {
+    if (!(BUILD_CLICK)) return false;
+
     // 保留旧名称供现有宿主适配；批次本身不再依赖完整 Scene 模式。
     this.addAlphaBlendDisk(
       x,
@@ -718,6 +717,8 @@ export class EffectGeometry
     roundness = 0,
   )
   {
+    if (!(BUILD_CLICK || BUILD_SHARDS)) return false;
+
     const particleAlpha = Number.isFinite(opacity)
       ? clamp(opacity, 0, 1)
       : 0;
@@ -829,6 +830,8 @@ export class EffectGeometry
     coverageFactor = 1,
   )
   {
+    if (!(BUILD_TRAIL)) return false;
+
     const perVertexColor = Array.isArray(color?.[0]);
     const firstColor = perVertexColor ? color[0] : color;
     const secondColor = perVertexColor ? color[1] : color;
@@ -886,6 +889,8 @@ export class EffectGeometry
   _addTrailMeshTriangle(first, firstSample, firstV, second, secondSample, secondV,
     third, thirdSample, thirdV, opacity)
   {
+    if (!(BUILD_TRAIL)) return false;
+
     const particleAlpha = Number.isFinite(opacity) ? clamp(opacity, 0, 1) : 0;
     if (particleAlpha <= 0 ||
       Math.max(firstSample.coverage, secondSample.coverage, thirdSample.coverage) <= 0)
@@ -904,6 +909,8 @@ export class EffectGeometry
 
   addTrailTriangle(first, second, third, color, opacity = 1)
   {
+    if (!(BUILD_TRAIL)) return false;
+
     const perVertexColor = Array.isArray(color?.[0]);
     const firstColor = perVertexColor ? color[0] : color;
     const secondColor = perVertexColor ? color[1] : color;
@@ -979,6 +986,8 @@ export class EffectGeometry
     dissolveDirection,
   )
   {
+    if (!(BUILD_CLICK)) return false;
+
     const red = materialColor[0] * opacity;
     const green = materialColor[1] * opacity;
     const blue = materialColor[2] * opacity;
@@ -1101,6 +1110,8 @@ export class EffectGeometry
     sampleLuminance,
   )
   {
+    if (!(BUILD_CLICK)) return false;
+
     if (width <= 0 || opacity <= 0)
     {
       return;
@@ -1237,6 +1248,8 @@ export class EffectGeometry
     capEnd = false,
   )
   {
+    if (!(BUILD_TRAIL)) return false;
+
     const deltaX = to.x - from.x;
     const deltaY = to.y - from.y;
     const length = Math.hypot(deltaX, deltaY);

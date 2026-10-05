@@ -90,6 +90,11 @@ import {
 } from './triangle-texture.js';
 import { traceRoundedTrianglePath } from './triangle-path.js';
 import {
+  CUSTOM_BUILD, BUILD_DOM, BUILD_WORKER, BUILD_WEBGL, BUILD_WEBGPU, BUILD_WEBGL_BLOOM,
+  BUILD_SOFTWARE, BUILD_NATIVE, BUILD_CANVAS, BUILD_CLICK, BUILD_TRAIL,
+  BUILD_SHARDS, BUILD_BLOOM, BUILD_REFERENCE, FIXED_CONFIG, FIXED_FX, FIXED_THEME,
+} from './build-capabilities.js';
+import {
   evaluateTrailLongitudinalCoverage,
   evaluateTrailTextureCoverageProfile,
 } from './trail-coverage.js';
@@ -5716,7 +5721,36 @@ export class BAClickFX
    */
   constructor(options = {})
   {
-    assertConfigOverrides(options, { allowInstanceOptions: true });
+
+    if (CUSTOM_BUILD)
+    {
+      const allowed = BUILD_DOM ? ['target', 'inputFilter', 'onError'] : ['target', 'onError'];
+      if (!options || typeof options !== 'object' || Array.isArray(options))
+      {
+        throw new TypeError('BAClickFX 构造参数必须是对象');
+      }
+      for (const [key, value] of Object.entries(options))
+      {
+        if (!allowed.includes(key) || (key !== 'target' && typeof value !== 'function'))
+        {
+          throw new TypeError(`BAClickFX 定制版不接受构造参数: ${key}`);
+        }
+      }
+      this.onError = options.onError ?? null;
+      this.buildFailed = false;
+      if (BUILD_DOM ? isCanvas(options.target) : !isCanvas(options.target))
+      {
+        throw new TypeError('BAClickFX target 与构建的 runtime 不匹配');
+      }
+      if (!BUILD_DOM && (BUILD_WORKER !== isOffscreenCanvas(options.target)))
+      {
+        throw new TypeError('BAClickFX target 的 Canvas 类型与构建的 runtime 不匹配');
+      }
+    }
+    else
+    {
+      assertConfigOverrides(options, { allowInstanceOptions: true });
+    }
     const hasDom = typeof document !== 'undefined' && typeof window !== 'undefined';
     const hasOffscreen = typeof OffscreenCanvas !== 'undefined';
 
@@ -5732,13 +5766,13 @@ export class BAClickFX
 
     const { target: _target, inputFilter: _inputFilter, ...configOptions } = options;
 
-    this.config = createConfig(configOptions);
+    this.config = CUSTOM_BUILD ? FIXED_CONFIG : createConfig(configOptions);
     this.inputFilter = typeof options.inputFilter === 'function'
       ? options.inputFilter
       : null;
     this.host = resolveTarget(options.target);
     this.ownsCanvas = !isCanvas(this.host);
-    if (!this.ownsCanvas)
+    if (!CUSTOM_BUILD && !this.ownsCanvas)
     {
       // 已有 Canvas 无法承载主层、Bloom 层和对比层组成的独立合成组。
       this.config.isolatedCompositing = false;
@@ -5798,8 +5832,9 @@ export class BAClickFX
       this.canvas.style.touchAction = this.config.touchAction;
     }
     const isDirectOffscreen = isOffscreenCanvas(this.canvas);
-    const requiresCanvas2D = !isDirectOffscreen ||
-      this.config.effectBackend === 'canvas2d';
+    const requiresCanvas2D = CUSTOM_BUILD
+      ? BUILD_CANVAS
+      : !isDirectOffscreen || this.config.effectBackend === 'canvas2d';
 
     // Canvas 上下文类型一旦确定便不能切换；GPU 模式必须把首次请求留给 WebGL2。
     this.context = requiresCanvas2D ? this.canvas.getContext('2d') : null;
@@ -5811,8 +5846,9 @@ export class BAClickFX
     }
 
     // 内部 Canvas 仅承担发射遮罩和 ImageData 暂存，不会插入 DOM。
-    this.bloomRenderer = new SoftwareBloomRenderer(() => createCanvas());
-    this.bloomRenderers = [this.bloomRenderer];
+    this.bloomRenderer = BUILD_SOFTWARE && BUILD_BLOOM
+      ? new SoftwareBloomRenderer(() => createCanvas()) : null;
+    this.bloomRenderers = this.bloomRenderer ? [this.bloomRenderer] : [];
     // WebGL Scene 延迟到首帧创建；能力尚未探测时必须报告 pending，
     // 避免宿主先收到一次并不存在的 Canvas2D 回退。
     this.resolvedEffectBackend = this._getRequestedEffectBackendState();
@@ -5842,13 +5878,13 @@ export class BAClickFX
     this.width = 0;
     this.height = 0;
     this.dpr = 1;
-    this.fxConfig = structuredClone(UNITY_FX_TOUCH);
+    this.fxConfig = CUSTOM_BUILD ? FIXED_FX : structuredClone(UNITY_FX_TOUCH);
     this._gradientEnergyCache = new WeakMap();
     this._fxConfigVersion = 0;
     this._softwareBloomConfigSignature = null;
     this._themeVersion = 0;
     this._themeHueShift = computeThemeHueShift(this.config.themeColor);
-    this._relativeOklchTheme = this.config.themeColorMode === 'relative-oklch'
+    this._relativeOklchTheme = CUSTOM_BUILD ? FIXED_THEME : this.config.themeColorMode === 'relative-oklch'
       ? createRelativeOklchTheme(this.config.themeColor)
       : null;
     this.waves = [];
@@ -5888,6 +5924,8 @@ export class BAClickFX
 
     // 浏览器事件和 ResizeObserver 都会传入参数，不能让它们进入公开尺寸覆盖值。
     this._onResize = () => this._resize();
+    if (BUILD_DOM)
+    {
     this._onPointerDown = this._handlePointerDown.bind(this);
     this._onPointerMove = this._handlePointerMove.bind(this);
     this._onPointerUp = this._handlePointerUp.bind(this);
@@ -5898,6 +5936,7 @@ export class BAClickFX
     this._onTouchMove = this._handleTouchMove.bind(this);
     this._onTouchEnd = this._handleTouchEnd.bind(this);
     this._onBlur = this._cancelPointer.bind(this);
+    }
     this._onFrame = this._renderFrame.bind(this);
     this._onWebGLContextLost = this._handleWebGLContextLost.bind(this);
     this._onWebGLContextRestored = this._handleWebGLContextRestored.bind(this);
@@ -5911,7 +5950,7 @@ export class BAClickFX
       this._handleCanvasSceneContextRestored.bind(this);
 
     this._resize();
-    if (
+    if (!CUSTOM_BUILD &&
       isDirectOffscreen &&
       !requiresCanvas2D &&
       !this._prepareWebGLEffectBackend()
@@ -5940,15 +5979,15 @@ export class BAClickFX
         ? '2d'
         : 'webgl2'
       : null;
-    if (typeof window !== 'undefined')
+    if (BUILD_DOM && typeof window !== 'undefined')
     {
       window.addEventListener('resize', this._onResize);
     }
-    if (this.config.inputSource === 'dom' && typeof window !== 'undefined')
+    if (BUILD_DOM && this.config.inputSource === 'dom' && typeof window !== 'undefined')
     {
       this._attachDomPointerListeners();
     }
-    if (typeof window !== 'undefined')
+    if (BUILD_DOM && typeof window !== 'undefined')
     {
       window.addEventListener('blur', this._onBlur);
     }
@@ -5966,6 +6005,11 @@ export class BAClickFX
 
   _attachDomPointerListeners()
   {
+    if (!BUILD_DOM)
+    {
+      return false;
+    }
+
     if (this.domPointerListenersAttached)
     {
       return;
@@ -6123,6 +6167,11 @@ export class BAClickFX
 
   _detachDomPointerListeners()
   {
+    if (!BUILD_DOM)
+    {
+      return false;
+    }
+
     if (!this.domPointerListenersAttached)
     {
       return;
@@ -7842,6 +7891,15 @@ export class BAClickFX
 
   _spawnTrailShards(from, to, scale, fromTime, toTime)
   {
+    if (!BUILD_TRAIL)
+    {
+      return false;
+    }
+
+    if (!BUILD_SHARDS)
+    {
+      return;
+    }
     const segmentLength = distance(from, to);
     const spacing = Math.max(1, this.fxConfig.shards.trailSpacing * scale);
     let nextDistance = spacing - this.trailDistanceSinceShard;
@@ -7990,12 +8048,17 @@ export class BAClickFX
 
   _spawnClick(x, y)
   {
+    if (!BUILD_CLICK)
+    {
+      return false;
+    }
+
     const scale = this._getScale();
     const clickTimeMs = this._getClickInputTime();
 
     this.waves.push(new ClickWave(x, y, this.fxConfig, clickTimeMs));
 
-    for (let index = 0; index < this.fxConfig.shards.clickCount; index++)
+    for (let index = 0; BUILD_SHARDS && index < this.fxConfig.shards.clickCount; index++)
     {
       this.shards.push(createShard(
         x,
@@ -8012,7 +8075,7 @@ export class BAClickFX
   _requestRender()
   {
     this._invalidateCanvasBoundsScope();
-    if (this.destroyed || this.paused || this.animationFrame !== null)
+    if (this.destroyed || this.paused || this.animationFrame !== null || (CUSTOM_BUILD && this.buildFailed))
     {
       return;
     }
@@ -8039,6 +8102,17 @@ export class BAClickFX
     this._advanceTrailTime(now);
     const scale = this._getScale();
     let effectBackend = this._prepareEffectBackend();
+    if (CUSTOM_BUILD && !BUILD_CANVAS && effectBackend === null)
+    {
+      // WebGPU 的 pending 由 ready 回调唤醒；没有备用后端，也不空转 RAF。
+      const pending = this.webgpuEffectRenderer?.status === 'pending';
+      const lost = this.webglEffectRenderer?.contextLost;
+      if (!pending && !lost)
+      {
+        this._reportBuildError('initialization-failed');
+      }
+      return;
+    }
     let useGpuClickEffects = effectBackend !== null;
     let bloomBackend = useGpuClickEffects
       ? effectBackend
@@ -8054,15 +8128,15 @@ export class BAClickFX
       bloomBackend = this._resolveBloomBackend();
     }
 
-    let useSoftwareBloom = bloomBackend === 'software';
-    let useWebGL2Bloom = bloomBackend === 'webgl2';
-    let useNativeBloom = bloomBackend === 'native';
-    const useCanvasScene = this._prepareCanvasSceneBackend(
+    let useSoftwareBloom = BUILD_SOFTWARE && BUILD_BLOOM && bloomBackend === 'software';
+    let useWebGL2Bloom = BUILD_WEBGL_BLOOM && bloomBackend === 'webgl2';
+    let useNativeBloom = BUILD_NATIVE && BUILD_BLOOM && bloomBackend === 'native';
+    const useCanvasScene = BUILD_CANVAS && BUILD_REFERENCE && this._prepareCanvasSceneBackend(
       useGpuClickEffects,
       bloomBackend,
     );
     const reuseCachedSoftwareBloom =
-      !useGpuClickEffects &&
+      !CUSTOM_BUILD && !useGpuClickEffects &&
       bloomBackend === 'native' &&
       !useCanvasScene &&
       this._hasCachedSoftwareBloomFrame(scale);
@@ -8082,7 +8156,7 @@ export class BAClickFX
     // WebGL2 Bloom 已复用完整 Scene Renderer。成功路径无需先栅格一份
     // 随后会被隐藏的 Canvas；GPU 当帧失败时再由回退路径补画即可。
     const drawCanvasOutput =
-      !useGpuClickEffects && !useCanvasScene && !useWebGL2Bloom;
+      BUILD_CANVAS && !useGpuClickEffects && !useCanvasScene && !useWebGL2Bloom;
     const deferNativeVisualMaxDraw =
       drawCanvasOutput &&
       useNativeBloom &&
@@ -8114,7 +8188,7 @@ export class BAClickFX
     }
 
     this._setWebGLBloomVisible(!useGpuClickEffects && useWebGL2Bloom);
-    if (!this.context && !useGpuClickEffects)
+    if (BUILD_CANVAS && !this.context && !useGpuClickEffects)
     {
       this.context = this.canvas.getContext?.('2d') ?? null;
     }
@@ -8172,7 +8246,7 @@ export class BAClickFX
         drawCanvasDuringUpdate,
       );
 
-      if (drawCanvasDuringUpdate)
+      if (BUILD_CANVAS && drawCanvasDuringUpdate)
       {
         // Tri3 与 Cross2、Trail 同为 4499，必须先于 4550 的 Tri2 碎片提交。
         this._drawWaveRings(scale, useNativeBloom);
@@ -8185,7 +8259,7 @@ export class BAClickFX
         drawCanvasDuringUpdate,
       );
 
-      if (drawCanvasDuringUpdate && useNativeBloom)
+      if (BUILD_CANVAS && drawCanvasDuringUpdate && useNativeBloom)
       {
         this._drawNativeClickBloom(scale);
       }
@@ -8194,6 +8268,11 @@ export class BAClickFX
       {
         if (!this._renderGPUClickEffects(effectBackend, scale))
         {
+          if (CUSTOM_BUILD)
+          {
+            this._reportBuildError('render-failed');
+            return;
+          }
           const failedBackend = effectBackend;
 
           useGpuClickEffects = false;
@@ -8309,6 +8388,11 @@ export class BAClickFX
     }
     catch (error)
     {
+      if (CUSTOM_BUILD)
+      {
+        this._reportBuildError('render-failed', error);
+        return;
+      }
       console.error('[BAClickFX] render error:', error);
 
       if (useCanvasScene)
@@ -8350,7 +8434,7 @@ export class BAClickFX
   _getRequestedEffectBackendState()
   {
     const requested = normalizeEffectBackend(this.config.effectBackend);
-    const isDirectCanvas = isOffscreenCanvas(this.canvas);
+    const isDirectCanvas = CUSTOM_BUILD ? !this.ownsCanvas : isOffscreenCanvas(this.canvas);
 
     if (
       requested === 'canvas2d' ||
@@ -8545,6 +8629,11 @@ export class BAClickFX
 
   _handleWebGPUEffectStateChange(renderer, status)
   {
+    if (!BUILD_WEBGPU)
+    {
+      return false;
+    }
+
     if (this.destroyed || renderer !== this.webgpuEffectRenderer)
     {
       return;
@@ -8571,6 +8660,11 @@ export class BAClickFX
       return;
     }
 
+    if (CUSTOM_BUILD)
+    {
+      this._reportBuildError(status === 'lost' ? 'device-lost' : 'initialization-failed', renderer.deviceManager.error);
+      return;
+    }
     const wasVisible = this.webgpuEffectVisible;
 
     this.webgpuEffectUnavailable = true;
@@ -8595,6 +8689,11 @@ export class BAClickFX
 
   _ensureWebGPUEffectRenderer()
   {
+    if (!BUILD_WEBGPU)
+    {
+      return false;
+    }
+
     if (this.webgpuEffectRenderer)
     {
       this.webgpuEffectRenderer.setPreferHdr(this.config.webgpuPreferHdr);
@@ -8603,15 +8702,17 @@ export class BAClickFX
 
     if (
       this.webgpuEffectUnavailable ||
-      !this.ownsCanvas ||
-      !this.overlayParent
+      (this.ownsCanvas && !this.overlayParent) ||
+      (!CUSTOM_BUILD && !this.ownsCanvas)
     )
     {
       return false;
     }
 
-    const canvas = createCanvas();
+    const canvas = this.ownsCanvas ? createCanvas() : this.canvas;
 
+    if (this.ownsCanvas)
+    {
     setOverlayStyle(
       canvas,
       !this.host && !this.config.isolatedCompositing,
@@ -8621,6 +8722,7 @@ export class BAClickFX
     // Adapter/Device 初始化是异步的；旧输出必须保留到首个完整帧提交成功。
     canvas.style.display = 'none';
     this.overlayParent.appendChild(canvas);
+    }
     let renderer = null;
 
     try
@@ -8651,7 +8753,7 @@ export class BAClickFX
       console.warn('[BAClickFX] WebGPU 创建失败:', error);
       this.webgpuEffectUnavailable = true;
       renderer?.destroy();
-      canvas.remove();
+      if (this.ownsCanvas) canvas.remove();
       return false;
     }
 
@@ -8662,6 +8764,11 @@ export class BAClickFX
 
   _resizeWebGPUEffectRenderer()
   {
+    if (!BUILD_WEBGPU)
+    {
+      return false;
+    }
+
     return !!this.webgpuEffectRenderer?.resize(
       this.width,
       this.height,
@@ -8673,6 +8780,11 @@ export class BAClickFX
 
   _prepareWebGPUEffectBackend()
   {
+    if (!BUILD_WEBGPU)
+    {
+      return false;
+    }
+
     const ready = this._ensureWebGPUEffectRenderer() &&
       this._resizeWebGPUEffectRenderer();
 
@@ -8699,6 +8811,19 @@ export class BAClickFX
 
   _prepareEffectBackend()
   {
+    if (CUSTOM_BUILD)
+    {
+      if (BUILD_WEBGPU)
+      {
+        return this._prepareWebGPUEffectBackend() ? 'webgpu' : null;
+      }
+      if (BUILD_WEBGL)
+      {
+        return this._prepareWebGLEffectBackend() ? 'webgl2' : null;
+      }
+      this._setResolvedEffectBackend('canvas2d');
+      return null;
+    }
     const requested = normalizeEffectBackend(this.config.effectBackend);
 
     if (requested === 'canvas2d')
@@ -8728,6 +8853,11 @@ export class BAClickFX
 
   _setWebGPUEffectVisible(visible)
   {
+    if (!BUILD_WEBGPU)
+    {
+      return false;
+    }
+
     if (
       !visible &&
       this.webgpuEffectRenderer &&
@@ -8770,17 +8900,22 @@ export class BAClickFX
     }
 
     this.webgpuEffectVisible = visible;
-    this.webgpuEffectCanvas.style.display = visible ? '' : 'none';
+    if (this.webgpuEffectCanvas.style) this.webgpuEffectCanvas.style.display = visible ? '' : 'none';
 
     this._requestCompositingMountRefresh();
   }
 
   _destroyWebGPUEffectRenderer()
   {
+    if (!BUILD_WEBGPU)
+    {
+      return false;
+    }
+
     const renderer = this.webgpuEffectRenderer;
 
     this.webgpuEffectRenderer = null;
-    this.webgpuEffectCanvas?.remove();
+    if (this.ownsCanvas) this.webgpuEffectCanvas?.remove();
     this.webgpuEffectCanvas = null;
     this.webgpuEffectVisible = false;
     renderer?.destroy();
@@ -8788,6 +8923,11 @@ export class BAClickFX
 
   _handleWebGLContextLost()
   {
+    if (!BUILD_WEBGL_BLOOM)
+    {
+      return false;
+    }
+
     if (this.destroyed || !this.webglBloomVisible)
     {
       return;
@@ -8813,6 +8953,11 @@ export class BAClickFX
 
   _handleWebGLContextRestored()
   {
+    if (!BUILD_WEBGL_BLOOM)
+    {
+      return false;
+    }
+
     if (this.destroyed)
     {
       return;
@@ -8849,11 +8994,22 @@ export class BAClickFX
 
   _handleWebGLEffectContextLost()
   {
+    if (!BUILD_WEBGL)
+    {
+      return false;
+    }
+
     if (this.destroyed || !this.webglEffectVisible)
     {
       return;
     }
 
+    if (CUSTOM_BUILD)
+    {
+      this.webglEffectRenderer?.clear();
+      this._setResolvedEffectBackend('pending');
+      return;
+    }
     this._setWebGLEffectVisible(false);
     this._setResolvedEffectBackend('canvas2d');
     const fallbackBackend = this._resolveCanvasFallbackBloomBackend();
@@ -8873,6 +9029,11 @@ export class BAClickFX
 
   _handleWebGLEffectContextRestored()
   {
+    if (!BUILD_WEBGL)
+    {
+      return false;
+    }
+
     if (this.destroyed)
     {
       return;
@@ -8903,6 +9064,11 @@ export class BAClickFX
 
   _ensureWebGLEffectRenderer()
   {
+    if (!BUILD_WEBGL)
+    {
+      return false;
+    }
+
     if (this.webglEffectRenderer)
     {
       return this.webglEffectRenderer.available;
@@ -9007,6 +9173,11 @@ export class BAClickFX
 
   _resizeWebGLEffectRenderer()
   {
+    if (!BUILD_WEBGL)
+    {
+      return false;
+    }
+
     const renderer = this.webglEffectRenderer;
 
     return !!renderer?.resize(
@@ -9020,6 +9191,11 @@ export class BAClickFX
 
   _prepareWebGLEffectBackend()
   {
+    if (!BUILD_WEBGL)
+    {
+      return false;
+    }
+
     const requested = normalizeEffectBackend(this.config.effectBackend);
 
     if (requested === 'canvas2d')
@@ -9046,6 +9222,11 @@ export class BAClickFX
 
   _setWebGLEffectVisible(visible)
   {
+    if (!BUILD_WEBGL)
+    {
+      return false;
+    }
+
     if (!this.webglEffectCanvas)
     {
       const changed = this.webglEffectVisible;
@@ -9080,6 +9261,11 @@ export class BAClickFX
 
   _destroyWebGLEffectRenderer()
   {
+    if (!BUILD_WEBGL)
+    {
+      return false;
+    }
+
     this.webglEffectCanvas?.removeEventListener?.(
       'webglcontextlost',
       this._onWebGLEffectContextLost,
@@ -9100,6 +9286,8 @@ export class BAClickFX
 
   _handleCanvasSceneContextLost()
   {
+    if (!(BUILD_REFERENCE && BUILD_CANVAS)) return false;
+
     if (this.destroyed || !this.canvasSceneVisible)
     {
       return;
@@ -9120,6 +9308,8 @@ export class BAClickFX
 
   _handleCanvasSceneContextRestored()
   {
+    if (!(BUILD_REFERENCE && BUILD_CANVAS)) return false;
+
     if (this.destroyed)
     {
       return;
@@ -9154,6 +9344,11 @@ export class BAClickFX
 
   _ensureCanvasSceneRenderer()
   {
+    if (!BUILD_REFERENCE || !BUILD_CANVAS)
+    {
+      return false;
+    }
+
     if (this.canvasSceneRenderer)
     {
       return this.canvasSceneRenderer.available;
@@ -9238,6 +9433,11 @@ export class BAClickFX
 
   _resizeCanvasSceneRenderer()
   {
+    if (!BUILD_REFERENCE)
+    {
+      return false;
+    }
+
     return !!this.canvasSceneRenderer?.resize(
       this.width,
       this.height,
@@ -9247,6 +9447,11 @@ export class BAClickFX
 
   _prepareCanvasSceneBackend(useGpuClickEffects, bloomBackend)
   {
+    if (!BUILD_REFERENCE)
+    {
+      return false;
+    }
+
     if (
       useGpuClickEffects ||
       bloomBackend !== 'native' ||
@@ -9263,6 +9468,11 @@ export class BAClickFX
 
   _setCanvasSceneVisible(visible)
   {
+    if (!BUILD_REFERENCE)
+    {
+      return false;
+    }
+
     if (!this.canvasSceneCanvas)
     {
       const changed = this.canvasSceneVisible;
@@ -9294,6 +9504,11 @@ export class BAClickFX
 
   _destroyCanvasSceneRenderer()
   {
+    if (!BUILD_REFERENCE)
+    {
+      return false;
+    }
+
     this._releaseNativeClickBloomSurface();
     this.canvasSceneCanvas?.removeEventListener(
       'webglcontextlost',
@@ -9312,6 +9527,11 @@ export class BAClickFX
 
   _destroyWebGLBloomRenderer()
   {
+    if (!BUILD_WEBGL_BLOOM)
+    {
+      return false;
+    }
+
     this.webglBloomCanvas?.removeEventListener(
       'webglcontextlost',
       this._onWebGLContextLost,
@@ -9329,6 +9549,11 @@ export class BAClickFX
 
   _ensureWebGLBloomRenderer()
   {
+    if (!BUILD_WEBGL_BLOOM)
+    {
+      return false;
+    }
+
     if (this.webglBloomRenderer)
     {
       return this.webglBloomRenderer.available;
@@ -9407,6 +9632,11 @@ export class BAClickFX
 
   _resizeWebGLBloomRenderer()
   {
+    if (!BUILD_WEBGL_BLOOM)
+    {
+      return false;
+    }
+
     const renderer = this.webglBloomRenderer;
 
     return !!renderer?.resize(
@@ -9420,6 +9650,10 @@ export class BAClickFX
 
   _resolveBloomBackend()
   {
+    if (CUSTOM_BUILD)
+    {
+      return this.config.bloomBackend;
+    }
     const requested = normalizeBloomBackend(this.config.bloomBackend);
 
     if (requested === 'native')
@@ -9455,6 +9689,11 @@ export class BAClickFX
 
   _setWebGLBloomVisible(visible)
   {
+    if (!BUILD_WEBGL_BLOOM)
+    {
+      return false;
+    }
+
     if (!this.webglBloomCanvas)
     {
       const changed = this.webglBloomVisible;
@@ -9542,7 +9781,10 @@ export class BAClickFX
 
   _releaseBackendFrameResources()
   {
-    for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
+    if (BUILD_TRAIL)
+    {
+for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
+    }
     this._releaseSoftwareBloomFrame();
     // 配置事务已经选择了新的渲染链；先撤下所有旧输出，再释放仅与
     // 画布尺寸绑定的目标。下一帧只会为实际接管输出的后端重新分配。
@@ -9560,7 +9802,10 @@ export class BAClickFX
 
   _releaseBloomBackendFrameResources()
   {
-    for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
+    if (BUILD_TRAIL)
+    {
+for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
+    }
     this._releaseSoftwareBloomFrame();
     // 完整 GPU Scene 已接管时，Bloom 配置只是回退策略，不能
     // 为它释放当前 Effect 目标；这里只清理 Canvas 回退链的帧资源。
@@ -9593,6 +9838,11 @@ export class BAClickFX
 
   _getBloomRenderer(index)
   {
+    if (!BUILD_SOFTWARE)
+    {
+      return false;
+    }
+
     while (this.bloomRenderers.length <= index)
     {
       this.bloomRenderers.push(
@@ -9605,6 +9855,11 @@ export class BAClickFX
 
   _trimBloomRendererPool(activeCount, reserve = 2)
   {
+    if (!BUILD_SOFTWARE)
+    {
+      return false;
+    }
+
     const retainedCount = activeCount === 0
       ? 1
       : Math.max(1, activeCount + reserve);
@@ -9615,7 +9870,10 @@ export class BAClickFX
     }
 
     const removed = this.bloomRenderers.splice(retainedCount);
-    for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
+    if (BUILD_TRAIL)
+    {
+for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
+    }
 
     for (const renderer of removed)
     {
@@ -9646,6 +9904,11 @@ export class BAClickFX
 
   _renderLightBackgroundContrast(scale, reuseMainCanvas = false)
   {
+    if (!BUILD_DOM)
+    {
+      return false;
+    }
+
     const context = this.contrastContext;
 
     if (!context || !this.contrastCanvas)
@@ -9680,7 +9943,9 @@ export class BAClickFX
       context.save();
       context.globalCompositeOperation = 'lighter';
 
-      for (const stroke of this.trailStrokes)
+      if (BUILD_TRAIL)
+    {
+for (const stroke of this.trailStrokes)
       {
         if (getTrailRenderPoints(stroke).length >= 2)
         {
@@ -9697,8 +9962,11 @@ export class BAClickFX
           );
         }
       }
+    }
 
-      for (const wave of this.waves)
+      if (BUILD_CLICK)
+    {
+for (const wave of this.waves)
       {
         wave.drawBase(
           context,
@@ -9709,8 +9977,11 @@ export class BAClickFX
           this.dpr,
         );
       }
+    }
 
-      for (const shard of this.shards)
+      if (BUILD_SHARDS)
+    {
+for (const shard of this.shards)
       {
         shard.draw(
           context,
@@ -9719,8 +9990,11 @@ export class BAClickFX
           this.fxConfig,
         );
       }
+    }
 
-      for (const wave of this.waves)
+      if (BUILD_CLICK)
+    {
+for (const wave of this.waves)
       {
         wave.drawRings(
           context,
@@ -9733,6 +10007,7 @@ export class BAClickFX
           this.config.outputCompositing,
         );
       }
+    }
 
       context.restore();
     }
@@ -9785,7 +10060,9 @@ export class BAClickFX
       );
     };
 
-    for (const wave of this.waves)
+    if (BUILD_CLICK)
+    {
+for (const wave of this.waves)
     {
       if (wave.fx.bloom.clickEmissionScale <= 0)
       {
@@ -9833,6 +10110,7 @@ export class BAClickFX
         [],
       );
     }
+    }
 
     const trailRadius = Math.max(
       1,
@@ -9840,7 +10118,9 @@ export class BAClickFX
         bloomCfg.trailCoverageScale * 0.5,
     );
 
-    for (const stroke of this.trailStrokes)
+    if (BUILD_TRAIL)
+    {
+for (const stroke of this.trailStrokes)
     {
       if (getTrailRenderPoints(stroke).length < 2)
       {
@@ -9940,8 +10220,11 @@ export class BAClickFX
         );
       }
     }
+    }
 
-    for (const shard of this.shards)
+    if (BUILD_SHARDS)
+    {
+for (const shard of this.shards)
     {
       const shardCfg = this.fxConfig.shards;
       const progress = clamp01(shard.ageMs / shard.lifetimeMs);
@@ -9964,6 +10247,7 @@ export class BAClickFX
         [],
         [shard],
       );
+    }
     }
 
     if (regions.length === 0)
@@ -10017,7 +10301,9 @@ export class BAClickFX
     };
     const bloomCfg = this.fxConfig.bloom;
 
-    for (const wave of this.waves)
+    if (BUILD_CLICK)
+    {
+for (const wave of this.waves)
     {
       let radius = 0;
       const hitProgress = wave.ageMs / wave.fx.hit.lifetimeMs;
@@ -10082,8 +10368,11 @@ export class BAClickFX
         );
       }
     }
+    }
 
-    for (const shard of this.shards)
+    if (BUILD_SHARDS)
+    {
+for (const shard of this.shards)
     {
       const progress = clamp01(shard.ageMs / shard.lifetimeMs);
       const size = shard.size * evaluateUnityHermiteCurve(
@@ -10102,6 +10391,7 @@ export class BAClickFX
         );
       }
     }
+    }
 
     const trailCfg = this.fxConfig.trail;
     const trailMargin = Math.max(
@@ -10109,7 +10399,9 @@ export class BAClickFX
       trailCfg.outerGlowWidth * scale * 3 + 2,
     );
 
-    for (const stroke of this.trailStrokes)
+    if (BUILD_TRAIL)
+    {
+for (const stroke of this.trailStrokes)
     {
       if (getTrailRenderPoints(stroke).length < 2)
       {
@@ -10135,6 +10427,7 @@ export class BAClickFX
         maximumX + trailMargin,
         maximumY + trailMargin,
       );
+    }
     }
 
     return combineBloomRegionBounds(bounds);
@@ -10484,6 +10777,11 @@ export class BAClickFX
 
   _releaseSoftwareBloomFrame()
   {
+    if (!BUILD_SOFTWARE)
+    {
+      return false;
+    }
+
     const canvas = this.lastSoftwareBloomFrame?.canvas;
 
     this.lastSoftwareBloomFrame = null;
@@ -10497,6 +10795,11 @@ export class BAClickFX
 
   _cacheSoftwareBloomFrame(scale)
   {
+    if (!BUILD_SOFTWARE)
+    {
+      return false;
+    }
+
     if (
       this.config.outputCompositing !== 'browser-overlay' ||
       this.canvas.width <= 0 ||
@@ -10561,6 +10864,11 @@ export class BAClickFX
 
   _drawCachedSoftwareBloomFrame(scale)
   {
+    if (!BUILD_SOFTWARE)
+    {
+      return false;
+    }
+
     const frame = this.lastSoftwareBloomFrame;
 
     if (
@@ -10602,6 +10910,11 @@ export class BAClickFX
 
   _hasCachedSoftwareBloomFrame(scale)
   {
+    if (!BUILD_SOFTWARE)
+    {
+      return false;
+    }
+
     return this.config.outputCompositing === 'browser-overlay' &&
       this.lastSoftwareBloomFrame?.canvas !== undefined &&
       this.lastSoftwareBloomFrame.signature ===
@@ -10610,6 +10923,11 @@ export class BAClickFX
 
   _renderSoftwareBloom(scale)
   {
+    if (!BUILD_SOFTWARE)
+    {
+      return false;
+    }
+
     const bloomCfg = this.fxConfig.bloom;
     const diffusion = bloomCfg.diffusion;
     const regions = this._getSoftwareBloomRegions(scale);
@@ -10810,6 +11128,11 @@ export class BAClickFX
 
     if (failed)
     {
+      if (CUSTOM_BUILD)
+      {
+        this._reportBuildError('software-bloom-failed');
+        return;
+      }
       const hasCachedSoftwareBloom = this._hasCachedSoftwareBloomFrame(scale);
 
       // 即使同一时刻可以复用软件结果，也必须完成一次 Native 重画。这样下一
@@ -10842,7 +11165,7 @@ export class BAClickFX
       return false;
     }
 
-    const hasVisibleTrail = this.trailStrokes.some(
+    const hasVisibleTrail = BUILD_TRAIL && this.trailStrokes.some(
       (stroke) => getTrailRenderPoints(stroke).length >= 2,
     );
 
@@ -10862,7 +11185,9 @@ export class BAClickFX
 
       // 原游戏将 2px HDR TrailRenderer 与点击粒子写入同一 Scene，
       // 后续 Bloom 必须从这份完整 HDR 颜色缓冲统一提取。
-      for (const stroke of this.trailStrokes)
+      if (BUILD_TRAIL)
+    {
+for (const stroke of this.trailStrokes)
       {
         if (getTrailRenderPoints(stroke).length < 2)
         {
@@ -10878,9 +11203,12 @@ export class BAClickFX
           stroke.trailFrameData,
         );
       }
+    }
 
       // Cross2 使用 One / OneMinusSrcAlpha，必须先于普通加色粒子提交。
-      for (const wave of this.waves)
+      if (BUILD_CLICK)
+    {
+for (const wave of this.waves)
       {
         wave.appendWebGLSceneDiskLayer(
           renderer,
@@ -10888,9 +11216,12 @@ export class BAClickFX
           this._getEffectiveOpacity(),
         );
       }
+    }
 
       // Dissolve MeshTri 与 Cross2、Trail 同为 4499，先完成这一队列。
-      for (const wave of this.waves)
+      if (BUILD_CLICK)
+    {
+for (const wave of this.waves)
       {
         wave.appendWebGLSceneAdditiveLayer(
           renderer,
@@ -10898,9 +11229,12 @@ export class BAClickFX
           this._getEffectiveOpacity(),
         );
       }
+    }
 
       // Tri2 的 RenderQueue=4550，必须在全部 4499 材质之后提交。
-      for (const shard of this.shards)
+      if (BUILD_SHARDS)
+    {
+for (const shard of this.shards)
       {
         shard.appendWebGLScene(
           renderer,
@@ -10909,6 +11243,7 @@ export class BAClickFX
           this.fxConfig,
         );
       }
+    }
 
       if (!renderer.renderScene(
         {
@@ -11009,6 +11344,11 @@ export class BAClickFX
 
   _renderCanvasSceneEffects(scale, useNativeBloom)
   {
+    if (!BUILD_REFERENCE)
+    {
+      return false;
+    }
+
     const renderer = this.canvasSceneRenderer;
 
     if (!renderer?.available || renderer.contextLost)
@@ -11026,7 +11366,9 @@ export class BAClickFX
 
       // Cross2 是唯一会衰减已有场景颜色的材质，必须在普通加色粒子之前
       // 按旧到新顺序完成本体与 Coverage 提交。
-      for (const wave of this.waves)
+      if (BUILD_CLICK)
+    {
+for (const wave of this.waves)
       {
         wave.drawDiskLayer(
           this.context,
@@ -11041,8 +11383,11 @@ export class BAClickFX
           this._getEffectiveOpacity(),
         );
       }
+    }
 
-      for (const wave of this.waves)
+      if (BUILD_CLICK)
+    {
+for (const wave of this.waves)
       {
         wave.drawAdditiveBase(
           this.context,
@@ -11051,6 +11396,7 @@ export class BAClickFX
           true,
         );
       }
+    }
 
       // Tri3 与 Cross2、Trail 同为 4499，先完成这一队列。
       this._drawWaveRings(
@@ -11063,7 +11409,9 @@ export class BAClickFX
       );
 
       // Tri2 的 RenderQueue=4550，必须在全部 4499 材质之后提交。
-      for (const shard of this.shards)
+      if (BUILD_SHARDS)
+    {
+for (const shard of this.shards)
       {
         shard.draw(
           this.context,
@@ -11072,6 +11420,7 @@ export class BAClickFX
           this.fxConfig,
         );
       }
+    }
 
       if (useNativeBloom)
       {
@@ -11111,6 +11460,8 @@ export class BAClickFX
 
   _drawCanvasFallbackPass(scale, useNativeBloom)
   {
+    if (!(BUILD_CANVAS)) return false;
+
     this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.context.clearRect(0, 0, this.width, this.height);
     // Context 丢失回退必须沿用正常帧的透明 Coverage 兼容合同。
@@ -11124,6 +11475,8 @@ export class BAClickFX
 
   _drawCanvasFallbackFrame(scale, useNativeBloom)
   {
+    if (!(BUILD_CANVAS)) return false;
+
     this._invalidateCanvasBoundsScope();
     this.canvasNativeSceneAlphaSnapshot = null;
 
@@ -11146,6 +11499,8 @@ export class BAClickFX
 
   _finalizeCanvasOverlayAlpha(scale)
   {
+    if (!(BUILD_CANVAS)) return false;
+
     const sceneAlphaSnapshot = this.canvasNativeSceneAlphaSnapshot;
 
     this.canvasNativeSceneAlphaSnapshot = null;
@@ -11159,6 +11514,8 @@ export class BAClickFX
 
   _restoreCanvasOutputAfterContextLoss(bloomBackend)
   {
+    if (!(!CUSTOM_BUILD)) return false;
+
     this._invalidateCanvasBoundsScope();
     const scale = this._getScale();
     const previousHueShift = themeHueShift;
@@ -11247,12 +11604,21 @@ export class BAClickFX
 
   _drawCanvasClickEffects(scale, useNativeBloom)
   {
+    if (!(BUILD_CANVAS)) return false;
+
+    if (!BUILD_CLICK)
+    {
+      return false;
+    }
+
     const outputCompositing = this._getCanvasOutputCompositing();
     // 最终 Canvas 载荷会在所有图元聚合后统一补偿一次。
     const overlayColorCompensation = 'none';
     const overlayAlphaLimit = this._getEffectiveOverlayAlphaLimit();
 
-    for (const wave of this.waves)
+    if (BUILD_CLICK)
+    {
+for (const wave of this.waves)
     {
       wave.drawBase(
         this.context,
@@ -11265,6 +11631,7 @@ export class BAClickFX
         overlayAlphaLimit,
       );
     }
+    }
 
     this._drawWaveRings(
       scale,
@@ -11276,7 +11643,9 @@ export class BAClickFX
     );
 
     // Tri2 的 RenderQueue=4550，必须在全部 4499 材质之后提交。
-    for (const shard of this.shards)
+    if (BUILD_SHARDS)
+    {
+for (const shard of this.shards)
     {
       shard.draw(
         this.context,
@@ -11287,6 +11656,7 @@ export class BAClickFX
         overlayColorCompensation,
         overlayAlphaLimit,
       );
+    }
     }
 
     if (useNativeBloom)
@@ -11301,6 +11671,13 @@ export class BAClickFX
     outputCompositing = this._getCanvasOutputCompositing(),
   )
   {
+    if (!(BUILD_NATIVE && BUILD_BLOOM)) return false;
+
+    if (!BUILD_CLICK)
+    {
+      return false;
+    }
+
     const settings = this.fxConfig.bloom;
     const opacity = this._getEffectiveOpacity();
 
@@ -11320,7 +11697,9 @@ export class BAClickFX
     context.globalAlpha = opacity;
     context.shadowBlur = 0;
 
-    for (const wave of this.waves)
+    if (BUILD_CLICK)
+    {
+for (const wave of this.waves)
     {
       const sources = [];
       const diskCfg = this.fxConfig.disk;
@@ -11418,6 +11797,7 @@ export class BAClickFX
       context.fillRect(x - profile.radius, y - profile.radius,
         profile.radius * 2, profile.radius * 2);
     }
+    }
     context.restore();
   }
 
@@ -11427,6 +11807,11 @@ export class BAClickFX
     linearOutput = false,
   )
   {
+    if (!BUILD_TRAIL)
+    {
+      return false;
+    }
+
     const nativeBloomSurface = useNativeBloom
       ? this._getNativeTrailBloomSurface()
       : null;
@@ -11471,6 +11856,11 @@ export class BAClickFX
 
   _renderWebGL2Bloom(scale)
   {
+    if (!BUILD_WEBGL_BLOOM)
+    {
+      return false;
+    }
+
     const renderer = this.webglBloomRenderer;
 
     if (
@@ -11519,6 +11909,11 @@ export class BAClickFX
 
   _getTrailFrameData(stroke, materialIntensity)
   {
+    if (!BUILD_TRAIL)
+    {
+      return false;
+    }
+
     const cached = stroke.trailFrameCache;
     const valid = cached && cached.points === getTrailRenderPoints(stroke) &&
       cached.pointsVersion === stroke.pointsVersion &&
@@ -11554,9 +11949,17 @@ export class BAClickFX
 
   _clearTrailStrokes()
   {
-    for (const stroke of this.trailStrokes)
+    if (!BUILD_TRAIL)
+    {
+      return false;
+    }
+
+    if (BUILD_TRAIL)
+    {
+for (const stroke of this.trailStrokes)
     {
       invalidateTrailPoints(stroke);
+    }
     }
     this.trailStrokes.length = 0;
   }
@@ -11569,6 +11972,11 @@ export class BAClickFX
     useTexturedWebGL = false,
   )
   {
+    if (!BUILD_TRAIL)
+    {
+      return false;
+    }
+
     const lifetime = this.fxConfig.trail.lifetimeMs;
 
     for (let strokeIndex = this.trailStrokes.length - 1; strokeIndex >= 0; strokeIndex--)
@@ -11596,7 +12004,7 @@ export class BAClickFX
         this.trailStrokes.splice(strokeIndex, 1);
       }
     }
-    if (drawCanvas)
+    if (BUILD_CANVAS && drawCanvas)
     {
       this._drawCanvasTrails(scale, useNativeBloom);
     }
@@ -11609,6 +12017,11 @@ export class BAClickFX
     drawCanvas = true,
   )
   {
+    if (!BUILD_CLICK)
+    {
+      return false;
+    }
+
     for (let index = this.waves.length - 1; index >= 0; index--)
     {
       const wave = this.waves[index];
@@ -11621,7 +12034,7 @@ export class BAClickFX
         continue;
       }
 
-      if (drawCanvas)
+      if (BUILD_CANVAS && drawCanvas)
       {
         const outputCompositing = this._getCanvasOutputCompositing();
 
@@ -11648,7 +12061,16 @@ export class BAClickFX
     overlayAlphaLimit = this._getEffectiveOverlayAlphaLimit(),
   )
   {
-    for (const wave of this.waves)
+    if (!(BUILD_CANVAS)) return false;
+
+    if (!BUILD_CLICK)
+    {
+      return false;
+    }
+
+    if (BUILD_CLICK)
+    {
+for (const wave of this.waves)
     {
       wave.drawRings(
         this.context,
@@ -11662,10 +12084,16 @@ export class BAClickFX
         overlayAlphaLimit,
       );
     }
+    }
   }
 
   _updateShards(clickTimeMs, trailTimeMs, scale, drawCanvas = true)
   {
+    if (!BUILD_SHARDS)
+    {
+      return false;
+    }
+
     for (let index = this.shards.length - 1; index >= 0; index--)
     {
       const shard = this.shards[index];
@@ -11686,7 +12114,7 @@ export class BAClickFX
         continue;
       }
 
-      if (drawCanvas)
+      if (BUILD_CANVAS && drawCanvas)
       {
         const outputCompositing = this._getCanvasOutputCompositing();
 
@@ -12341,6 +12769,11 @@ export class BAClickFX
     invalidatesVisibleOutput,
   )
   {
+    if (!BUILD_REFERENCE)
+    {
+      return false;
+    }
+
     const entries = [
       {
         name: 'WebGPU',
@@ -12533,12 +12966,16 @@ export class BAClickFX
       resolvedEffectBackend: this.resolvedEffectBackend,
       resolvedBloomBackend: this.resolvedBloomBackend,
       resolvedWebGPUOutputMode: this._getResolvedWebGPUOutputMode(),
-      unity: structuredClone(UNITY_FX_TOUCH),
+      unity: structuredClone(CUSTOM_BUILD ? this.fxConfig : UNITY_FX_TOUCH),
     };
   }
 
   _getResolvedWebGPUOutputMode()
   {
+    if (CUSTOM_BUILD && BUILD_WEBGPU)
+    {
+      return this.webgpuEffectRenderer?.deviceManager.outputMode ?? 'pending';
+    }
     const requested = normalizeEffectBackend(this.config.effectBackend);
 
     if (
@@ -12657,6 +13094,22 @@ export class BAClickFX
     this.overlayParent = null;
     this.overlayMountParent = null;
     this.overlayRoot = null;
+  }
+
+  _reportBuildError(code, cause = null)
+  {
+    if (!CUSTOM_BUILD || this.destroyed || this.buildFailed)
+    {
+      return;
+    }
+    this.buildFailed = true;
+    this.resolvedEffectBackend = 'unavailable';
+    this.resolvedBloomBackend = 'unavailable';
+    this.clear();
+    const error = new Error(`BAClickFX 定制版 ${code}`, { cause });
+    error.code = code;
+    // 通知前完成停止，允许宿主在回调中同步销毁实例。
+    this.onError?.(error);
   }
 }
 

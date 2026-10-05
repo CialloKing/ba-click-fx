@@ -1,3 +1,4 @@
+import { BUILD_TRAIL, BUILD_CLICK, BUILD_SHARDS, BUILD_BLOOM, BUILD_REFERENCE } from './build-capabilities.js';
 import { EffectGeometry, calculatePyramidSettings } from './effect-geometry.js';
 export { calculatePyramidSettings } from './effect-geometry.js';
 import { TRIANGLE_TEXTURE_OVERLAY_RGBA, TRIANGLE_TEXTURE_RGBA, TRIANGLE_TEXTURE_SIZE } from './triangle-texture.js';
@@ -1007,31 +1008,31 @@ export class WebGL2EffectRenderer extends EffectGeometry
         TRIANGLE_VERTEX_SHADER,
         TRIANGLE_FRAGMENT_SHADER,
       );
-      this.programs.sceneBackground = createProgram(
+      this.programs.sceneBackground = BUILD_REFERENCE ? createProgram(
         gl,
         FULLSCREEN_VERTEX_SHADER,
         SCENE_BACKGROUND_FRAGMENT_SHADER,
-      );
+      ) : null;
       this.programs.sceneOverlay = createProgram(
         gl,
         FULLSCREEN_VERTEX_SHADER,
         SCENE_OVERLAY_FRAGMENT_SHADER,
       );
-      this.programs.prefilter = createProgram(
+      this.programs.prefilter = BUILD_BLOOM ? createProgram(
         gl,
         FULLSCREEN_VERTEX_SHADER,
         PREFILTER_FRAGMENT_SHADER,
-      );
-      this.programs.downsample = createProgram(
+      ) : null;
+      this.programs.downsample = BUILD_BLOOM ? createProgram(
         gl,
         FULLSCREEN_VERTEX_SHADER,
         DOWNSAMPLE_FRAGMENT_SHADER,
-      );
-      this.programs.upsample = createProgram(
+      ) : null;
+      this.programs.upsample = BUILD_BLOOM ? createProgram(
         gl,
         FULLSCREEN_VERTEX_SHADER,
         UPSAMPLE_FRAGMENT_SHADER,
-      );
+      ) : null;
       this.programs.final = createProgram(
         gl,
         FULLSCREEN_VERTEX_SHADER,
@@ -1039,39 +1040,39 @@ export class WebGL2EffectRenderer extends EffectGeometry
       );
       this.emissionBuffer = gl.createBuffer();
       this.emissionVao = gl.createVertexArray();
-      this.sceneDiskBuffer = gl.createBuffer();
-      this.sceneDiskVao = gl.createVertexArray();
-      this.ringBuffer = gl.createBuffer();
-      this.ringIndexBuffer = gl.createBuffer();
-      this.ringVao = gl.createVertexArray();
-      this.ringTexture = gl.createTexture();
+      this.sceneDiskBuffer = BUILD_CLICK ? gl.createBuffer() : null;
+      this.sceneDiskVao = BUILD_CLICK ? gl.createVertexArray() : null;
+      this.ringBuffer = BUILD_CLICK ? gl.createBuffer() : null;
+      this.ringIndexBuffer = BUILD_CLICK ? gl.createBuffer() : null;
+      this.ringVao = BUILD_CLICK ? gl.createVertexArray() : null;
+      this.ringTexture = BUILD_CLICK ? gl.createTexture() : null;
       this.triangleBuffer = gl.createBuffer();
       this.triangleVao = gl.createVertexArray();
-      this.trailBuffer = gl.createBuffer();
-      this.trailVao = gl.createVertexArray();
+      this.trailBuffer = BUILD_TRAIL ? gl.createBuffer() : null;
+      this.trailVao = BUILD_TRAIL ? gl.createVertexArray() : null;
       this.triangleTexture = gl.createTexture();
       this.triangleOverlayTexture = gl.createTexture();
-      this.trailTexture = gl.createTexture();
-      this.circleTexture = gl.createTexture();
+      this.trailTexture = BUILD_TRAIL ? gl.createTexture() : null;
+      this.circleTexture = BUILD_CLICK ? gl.createTexture() : null;
       this.fullscreenVao = gl.createVertexArray();
 
       if (
         !this.emissionBuffer ||
         !this.emissionVao ||
         !this.fullscreenVao ||
-        !this.sceneDiskBuffer ||
-        !this.sceneDiskVao ||
-        !this.ringBuffer ||
-        !this.ringIndexBuffer ||
-        !this.ringVao ||
-        !this.ringTexture ||
+        (BUILD_CLICK && !this.sceneDiskBuffer) ||
+        (BUILD_CLICK && !this.sceneDiskVao) ||
+        (BUILD_CLICK && !this.ringBuffer) ||
+        (BUILD_CLICK && !this.ringIndexBuffer) ||
+        (BUILD_CLICK && !this.ringVao) ||
+        (BUILD_CLICK && !this.ringTexture) ||
         !this.triangleBuffer ||
         !this.triangleVao ||
-        !this.trailBuffer ||
-        !this.trailVao ||
+        (BUILD_TRAIL && !this.trailBuffer) ||
+        (BUILD_TRAIL && !this.trailVao) ||
         !this.triangleTexture ||
         !this.triangleOverlayTexture ||
-        !this.trailTexture ||
+        (BUILD_TRAIL && !this.trailTexture) ||
         !this.circleTexture
       )
       {
@@ -1116,6 +1117,8 @@ export class WebGL2EffectRenderer extends EffectGeometry
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
+      if (BUILD_CLICK)
+      {
       gl.bindVertexArray(this.sceneDiskVao);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.sceneDiskBuffer);
 
@@ -1213,10 +1216,13 @@ export class WebGL2EffectRenderer extends EffectGeometry
       gl.bindVertexArray(null);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
+      }
       this._initializeTexturedVertexArray(this.triangleVao, this.triangleBuffer);
-      this._initializeTexturedVertexArray(this.trailVao, this.trailBuffer);
+      if (BUILD_TRAIL) this._initializeTexturedVertexArray(this.trailVao, this.trailBuffer);
 
       // Ring3 的 Alpha 不参与 sRGB 解码；R8 保留 Unity Alpha 采样真值。
+      if (BUILD_CLICK)
+      {
       gl.bindTexture(gl.TEXTURE_2D, this.ringTexture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -1235,6 +1241,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
       );
 
       // 解包纹理禁用 Mipmap，并沿用 Unity importer 的 Bilinear + Clamp。
+      }
       gl.bindTexture(gl.TEXTURE_2D, this.triangleTexture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -1272,6 +1279,8 @@ export class WebGL2EffectRenderer extends EffectGeometry
 
       // Trail_03 的 Importer 使用 sRGB、Bilinear、Repeat 且关闭 Mipmap。
       // RGB 保留原逐通道纹理；派生 Alpha 只描述非零 texel 的 Coverage 支持面。
+      if (BUILD_TRAIL)
+      {
       gl.bindTexture(gl.TEXTURE_2D, this.trailTexture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -1290,6 +1299,9 @@ export class WebGL2EffectRenderer extends EffectGeometry
       );
 
       // Circle_01 使用 Repeat；完整 Quad 在片元阶段采样才能保留二维边缘。
+      }
+      if (BUILD_CLICK)
+      {
       gl.bindTexture(gl.TEXTURE_2D, this.circleTexture);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -1306,6 +1318,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
         gl.UNSIGNED_BYTE,
         CIRCLE_TEXTURE_RGBA,
       );
+      }
       gl.bindTexture(gl.TEXTURE_2D, null);
 
       this.contextLost = false;
@@ -1805,6 +1818,8 @@ export class WebGL2EffectRenderer extends EffectGeometry
 
   setCompositingReference(source, options = {})
   {
+    if (!(BUILD_REFERENCE)) return false;
+
     if (source === null)
     {
       this.gl?.deleteTexture(this.sceneBackgroundTexture);
@@ -1931,6 +1946,8 @@ export class WebGL2EffectRenderer extends EffectGeometry
 
   _rebuildSceneBackgroundTarget()
   {
+    if (!(BUILD_REFERENCE)) return false;
+
     const target = this._createSceneBackgroundTarget(
       this.sceneBackgroundTexture,
       this.sceneBackgroundWidth,
@@ -1951,6 +1968,8 @@ export class WebGL2EffectRenderer extends EffectGeometry
 
   _copySceneBackgroundToTarget(target)
   {
+    if (!(BUILD_REFERENCE)) return false;
+
     if (!this.sceneBackgroundTarget || !target)
     {
       return false;
@@ -2032,7 +2051,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
       let width = this.width;
       let height = this.height;
 
-      for (let index = 0; index < levelCount; index++)
+      for (let index = 0; BUILD_BLOOM && index < levelCount; index++)
       {
         const level =
         {
@@ -2914,7 +2933,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
       !this.available ||
       this.contextLost ||
       !this.sourceTarget ||
-      this.levels.length === 0
+      (BUILD_BLOOM && this.levels.length === 0)
     )
     {
       return false;
@@ -2949,9 +2968,9 @@ export class WebGL2EffectRenderer extends EffectGeometry
         this._renderEmission(settings);
       }
 
-      this._renderPrefilter(settings);
+      if (BUILD_BLOOM) this._renderPrefilter(settings);
 
-      for (let level = 1; level < this.levels.length; level++)
+      for (let level = 1; BUILD_BLOOM && level < this.levels.length; level++)
       {
         this._renderDownsample(
           this.levels[level - 1],
@@ -2959,9 +2978,9 @@ export class WebGL2EffectRenderer extends EffectGeometry
         );
       }
 
-      let bloomTexture = this.levels.at(-1).down.texture;
+      let bloomTexture = BUILD_BLOOM ? this.levels.at(-1).down.texture : this.sourceTarget.texture;
 
-      for (let level = this.levels.length - 2; level >= 0; level--)
+      for (let level = this.levels.length - 2; BUILD_BLOOM && level >= 0; level--)
       {
         bloomTexture = this._renderUpsample(
           this.levels[level],

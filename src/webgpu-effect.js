@@ -1,3 +1,4 @@
+import { BUILD_TRAIL, BUILD_CLICK, BUILD_SHARDS, BUILD_BLOOM, BUILD_REFERENCE } from './build-capabilities.js';
 import {
   TRIANGLE_TEXTURE_OVERLAY_RGBA,
   TRIANGLE_TEXTURE_RGBA,
@@ -525,6 +526,8 @@ export class WebGPUEffectRenderer extends EffectGeometry
 
   _createMaterialTextures()
   {
+    if (BUILD_CLICK)
+    {
     this.textures.ring = createTextureFromBytes(
       this.device,
       RING3_ALPHA_WIDTH,
@@ -541,6 +544,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
       CIRCLE_TEXTURE_RGBA,
       'BA Click FX Circle_01',
     );
+    }
     this.textures.triangle = createTextureFromBytes(
       this.device,
       TRIANGLE_TEXTURE_SIZE,
@@ -557,6 +561,8 @@ export class WebGPUEffectRenderer extends EffectGeometry
       TRIANGLE_TEXTURE_OVERLAY_RGBA,
       'BA Click FX triangle overlay',
     );
+    if (BUILD_TRAIL)
+    {
     this.textures.trail = createTextureFromBytes(
       this.device,
       TRAIL_TEXTURE_WIDTH,
@@ -565,6 +571,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
       TRAIL_TEXTURE_RGBA,
       'BA Click FX Trail_03',
     );
+    }
     this.placeholderTexture = createTextureFromBytes(
       this.device,
       1,
@@ -636,9 +643,9 @@ export class WebGPUEffectRenderer extends EffectGeometry
       ),
       background: this._createFullscreenPipeline('fragmentBackground'),
       sceneOverlay: this._createFullscreenPipeline('fragmentSceneOverlay'),
-      prefilter: this._createFullscreenPipeline('fragmentPrefilter'),
-      downsample: this._createFullscreenPipeline('fragmentDownsample'),
-      upsample: this._createFullscreenPipeline('fragmentUpsample'),
+      prefilter: BUILD_BLOOM ? this._createFullscreenPipeline('fragmentPrefilter') : null,
+      downsample: BUILD_BLOOM ? this._createFullscreenPipeline('fragmentDownsample') : null,
+      upsample: BUILD_BLOOM ? this._createFullscreenPipeline('fragmentUpsample') : null,
     };
   }
 
@@ -1086,7 +1093,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
 
       this.sampleScale = pyramid.sampleScale;
 
-      for (let index = 0; index < pyramid.levelCount; index++)
+      for (let index = 0; BUILD_BLOOM && index < pyramid.levelCount; index++)
       {
         const level =
         {
@@ -1132,7 +1139,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
         (sum, level) => sum + level.width * level.height,
         0,
       );
-      return this.levels.length > 0;
+      return !BUILD_BLOOM || this.levels.length > 0;
     }
     catch (error)
     {
@@ -1274,6 +1281,8 @@ export class WebGPUEffectRenderer extends EffectGeometry
 
   setCompositingReference(source, options = {})
   {
+    if (!(BUILD_REFERENCE)) return false;
+
     if (source === null)
     {
       this._invalidateBindGroups(this.sceneBackgroundView);
@@ -1515,7 +1524,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
       !this.available ||
       this.contextLost ||
       !this.sourceTarget ||
-      this.levels.length === 0 ||
+      (BUILD_BLOOM && this.levels.length === 0) ||
       !this.finalPipeline
     )
     {
@@ -1528,7 +1537,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
       const encoder = this.device.createCommandEncoder(
         { label: 'BA Click FX WebGPU bloom commands' },
       );
-      const bloom = this._renderBloomPasses(encoder, settings);
+      const bloom = BUILD_BLOOM ? this._renderBloomPasses(encoder, settings) : this.sourceTarget;
       const [backgroundScaleX, backgroundScaleY] =
         this._getBackgroundUvScale();
       const hasBackground = hasScene && this.sceneBackgroundFrameReady;
