@@ -1397,9 +1397,13 @@ for (const [args, expected] of [
     JSON.stringify(coverageRenderer.levels.map(level => [level.width, level.height])) === JSON.stringify(expected) &&
     coverageRenderer.coverageLevels.every((level, index) =>
       level.width === expected[index][0] && level.height === expected[index][1] &&
-      level.down.length === level.width * level.height && level.up.length === level.down.length &&
-      level.scratch.length === level.down.length),
+      level.down.length === level.width * level.height),
   `尺寸或 DPR 变化按原拓扑重建并同步 Coverage：${args}`);
+  for (const levels of [coverageRenderer.levels, coverageRenderer.coverageLevels])
+    for (const [index, level] of levels.entries())
+      assert((index < levels.length - 1 ? level.up.length === level.down.length : level.up.buffer.byteLength === 0) &&
+        (index === 0 ? level.scratch.length === level.down.length : level.scratch.buffer.byteLength === 0),
+      `仅首层 scratch 和非末层 up 持有缓冲，包含层级角色变化：${args}`);
 }
 
 coverageRenderer.beginFrame(128, 128, 0.5, { x: 0, y: 0, width: 16, height: 16 }, 7, 1);

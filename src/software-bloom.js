@@ -1470,6 +1470,29 @@ export class SoftwareBloomRenderer
     }
   }
 
+  _resizeLevelBuffers(storage, length, index, levelCount)
+  {
+    storage.down = this._resizeFloatBuffer(storage.down, length);
+    // 最末层直接作为上采样源；最终滤波只消费第 0 层的 scratch。
+    // 角色变化时解除无消费者的容量，而稳定布局保留空数组引用。
+    if (index < levelCount - 1)
+    {
+      storage.up = this._resizeFloatBuffer(storage.up, length);
+    }
+    else if (storage.up.buffer.byteLength)
+    {
+      storage.up = new Float32Array(0);
+    }
+    if (index === 0)
+    {
+      storage.scratch = this._resizeFloatBuffer(storage.scratch, length);
+    }
+    else if (storage.scratch.buffer.byteLength)
+    {
+      storage.scratch = new Float32Array(0);
+    }
+  }
+
   _ensureCanvasCapacity(canvas, width, height)
   {
     if (canvas.width >= width && canvas.height >= height)
@@ -1543,9 +1566,7 @@ export class SoftwareBloomRenderer
 
       storage.width = level.width;
       storage.height = level.height;
-      storage.down = this._resizeFloatBuffer(storage.down, length);
-      storage.up = this._resizeFloatBuffer(storage.up, length);
-      storage.scratch = this._resizeFloatBuffer(storage.scratch, length);
+      this._resizeLevelBuffers(storage, length, index, this.levels.length);
       this.coverageLevelStorage[index] = storage;
 
       return storage;
@@ -1647,9 +1668,7 @@ export class SoftwareBloomRenderer
 
       storage.width = levelWidth;
       storage.height = levelHeight;
-      storage.down = this._resizeFloatBuffer(storage.down, length);
-      storage.up = this._resizeFloatBuffer(storage.up, length);
-      storage.scratch = this._resizeFloatBuffer(storage.scratch, length);
+      this._resizeLevelBuffers(storage, length, index, levelCount);
       this.levelStorage[index] = storage;
 
       this.levels[index] = storage;
