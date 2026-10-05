@@ -34,7 +34,11 @@ profiles.push(...BACKENDS.filter(backend => backend !== 'webgl2').flatMap(backen
 }))));
 for (const name of ['native-click-dom', 'webgl2-worker'])
   profiles.push(JSON.parse(readFileSync(resolve(root, `examples/build-profiles/${name}.json`), 'utf8')));
-const selection = process.argv[2];
+const args = process.argv.slice(2);
+const requireAll = args.includes('--required');
+const selections = args.filter(value => value !== '--required');
+assert(selections.length <= 1, 'Usage: custom-runtime.mjs [selection] [--required]');
+const selection = selections[0];
 async function run(page, args, worker)
 {
   if (!worker) return page.evaluate(async args => (await import('/test/browser/custom-fixture.js')).runCustomFixture(args), args);
@@ -118,6 +122,10 @@ try
     console.log(`custom runtime checked: ${JSON.stringify(input)} pixels=${custom.lit ?? 'skipped'}`);
     await page.close();
   }
+  // 发布验收必须实际运行所选设备；普通 CI 仍记录能力不足的明确跳过。
+  if (requireAll) assert(results.every(item => !item.baseline.skipped && !item.custom.skipped),
+    'Required custom runtime coverage contains skipped devices; see test-results/custom-browser/results.json');
+  assert(results.length > 0, 'No custom profiles matched the selection');
   complete = true;
 }
 finally
@@ -126,7 +134,7 @@ finally
   writeFileSync(resolve(dir, 'results.json'), JSON.stringify({ browser: browser.version(), selection: selection ?? null,
     gpu: 'Browser default adapter; headless RAF with GPU completion measured; physical display FPS and HDR unverified',
     memory: 'Heap snapshots where exposed; Worker heap is unavailable and reported as null',
-    acceptance: { complete, pixelPassed: results.filter(item => !item.baseline.skipped && !item.custom.skipped).length,
+    acceptance: { complete, requireAll, pixelPassed: results.filter(item => !item.baseline.skipped && !item.custom.skipped).length,
       pixelSkipped: results.filter(item => item.baseline.skipped || item.custom.skipped).map(item => ({ input: item.input, reason: item.baseline.skipped ?? item.custom.skipped })) },
     fullSizes: { raw: full.length, gzip: gzipSync(full).length, brotli: brotliCompressSync(full).length }, results }, null, 2));
   await browser.close(); await vite.server.close();

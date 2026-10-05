@@ -107,7 +107,7 @@
     "verify:tarball": "node scripts/verify-tarball.mjs",
     "check:fast": "npm test && npm run verify:runtime-sync",
     "check": "npm run build && npm test && npm run verify:runtime-sync && npm run verify:demo-sync && npm run verify:package && npm run verify:tarball",
-    "check:release": "npm run check && npm run test:browser:core && npm run test:browser:worker && npm run test:browser:lifecycle && npm run test:browser:demo && npm run test:browser:unity && npm run test:browser:webgpu:optional",
+    "check:release": "npm run check && npm run test:custom && npm run test:browser:core && npm run test:browser:worker && npm run test:browser:lifecycle && npm run test:browser:demo && npm run test:browser:unity && npm run test:browser:webgpu:optional && npm run test:browser:custom -- --required",
     "prepack": "npm run build",
     "prepublishOnly": "npm run check:release"
   },

@@ -125,13 +125,10 @@ WebGL context restoration uses the existing flow without switching modes. Failed
 ## Validation and Performance
 
 ```bash
-npm run build
-npm run test:custom
-npm run test:browser:custom
 npm run check:release
 ```
 
-Browser validation requires Chrome/Edge; set `BACLICKFX_CHROMIUM_PATH` if needed. Tests cover six modes and three runtimes, feature trimming, non-default settings, known backgrounds, multiple instances, lifecycle, and real Canvas transfers. Fixed input, random numbers, and time enable byte-exact full/custom pixel comparisons without changing golden data or thresholds. WebGPU Worker additionally checks asynchronous preparation, destruction during preparation, device loss, and Standard fallback. Unavailable devices are explicitly skipped.
+Release checks include full-build regression, build and type checks through `test:custom`, and actual runtime acceptance through `test:browser:custom -- --required`. Browser validation requires Chrome/Edge; set `BACLICKFX_CHROMIUM_PATH` if needed. Tests cover six modes and three runtimes, feature trimming, non-default settings, known backgrounds, multiple instances, lifecycle, and real Canvas transfers. Fixed input, random numbers, and time enable byte-exact full/custom pixel comparisons without changing golden data or thresholds. WebGPU Worker additionally checks asynchronous preparation, destruction during preparation, device loss, and Standard fallback. Running `npm run test:browser:custom` alone explicitly records unavailable devices as skipped; release checks require every device to run and fail on any skip.
 
 `test-results/custom-browser/results.json` records bytes, import/initialization times, 90 CPU frame samples, and exposed browser heap snapshots. Full and custom builds run in separate browser contexts. Integration combinations unsupported by the full version use its DOM build as the visual reference; `actualRuntime` records the integration used, so initialization and memory results for these combinations cannot be treated as performance comparisons of the same integration. Unavailable Worker heap values are `null`; snapshots do not measure GPU memory. CPU times include updates and GPU submission. Basic GPU profiles separately record 30 native RAF frames and GPU completion waits. Headless scheduling FPS does not validate physical display FPS or HDR output; unavailable environments are explicitly recorded.
 
