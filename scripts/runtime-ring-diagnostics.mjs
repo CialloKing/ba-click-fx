@@ -30,10 +30,16 @@ export function instrumentRingSource(source, sourceUrl)
     colorEvaluations: 0, stopRequests: 0, stopPreparations: 0, stopDataAllocations: 0 };
     export function resetRingWork() { for (const key of Object.keys(ringWork)) ringWork[key] = 0; }
     export { createDissolvedRingGradient };
+    ${preparedStops ? 'export { createRingStopDescriptor };' : ''}
     export const hasRingSampleCache = ${prepared};
     export function readRingSampleScope() { return ${prepared ? 'ringSampleCache' : 'null'}; }
     export function withRingSampleScope(callback) {
       ${prepared ? 'const previous = ringSampleCache; ringSampleCache = new WeakMap(); try { return callback(); } finally { ringSampleCache = previous; }' : 'return callback();'}
+    }
+    export function withRingTheme(hue, theme, callback) {
+      const previousHue = themeHueShift, previousTheme = relativeOklchTheme;
+      themeHueShift = hue; relativeOklchTheme = theme;
+      try { return callback(); } finally { themeHueShift = previousHue; relativeOklchTheme = previousTheme; }
     }`;
 }
 

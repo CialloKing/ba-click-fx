@@ -1024,6 +1024,54 @@ assert.equal(fx.destroyed, true, '源码入口可以销毁实例');
   module.createDissolvedRingGradient(context, config, 0.35, 0.5, String);
   module.createDissolvedRingGradient(context, config, 0.35, 0.5, String);
   assert.equal(module.ringWork.preparations, prepared + 2, '独立调用保持原路径');
+
+  module.resetRingWork();
+  module.withRingSampleScope(() =>
+  {
+    const lists = [], colorCalls = [];
+    const colors = value => { colorCalls.push(value); return String(value); };
+    const descriptor = (...args) => module.createRingStopDescriptor('clear', [1, 2, 3], 0.4, ...args);
+    const context = { createConicGradient() { const list = []; lists.push(list);
+      return { addColorStop(position, color) { list.push([position, color]); } }; } };
+    const draw = (key = descriptor()) => module.createDissolvedRingGradient(context, config, 0.35, 0.5, colors, key);
+    draw();
+    const calls = [...colorCalls];
+    draw();
+    assert.deepEqual(lists[1], lists[0], '每个新渐变按同一顺序写入全部双精度 stop');
+    assert.deepEqual(colorCalls, calls, '命中不重复求值颜色');
+    assert.equal(module.ringWork.stopPreparations, 1);
+    for (const key of [descriptor('browser-overlay'), descriptor('bright-core'),
+      descriptor(250 / 255), module.createRingStopDescriptor('coverage', [1, 2, 3], 0.4),
+      module.createRingStopDescriptor('clear', [1, 2, 4], 0.4),
+      module.createRingStopDescriptor('clear', [1, 2, 3], 0.5)]) draw(key);
+    assert.equal(module.ringWork.stopPreparations, 7, '用途、合成参数、材质和透明度参与有效性');
+    module.withRingTheme(0.25, null, () => draw());
+    module.withRingTheme(0, {}, () => draw());
+    assert.equal(module.ringWork.stopPreparations, 9, '实际 hue 与相对主题上下文参与有效性');
+    draw();
+    assert.equal(module.ringWork.stopPreparations, 9, '主题恢复后仍命中外层序列');
+    module.withRingSampleScope(() => draw());
+    assert.equal(module.ringWork.stopPreparations, 10, '重入建立自己的序列');
+    draw();
+    assert.equal(module.ringWork.stopPreparations, 10);
+
+    // 写入失败保留原求值/写入交错顺序，不能缓存半成品或提前求值后续颜色。
+    const failedKey = descriptor('failure'); let writes = 0; const failedCalls = [];
+    assert.throws(() => module.createDissolvedRingGradient({ createConicGradient: () => ({
+      addColorStop() { if (++writes === 2) throw error; },
+    }) }, config, 0.35, 0.5, value => { failedCalls.push(value); return String(value); }, failedKey), value => value === error);
+    assert.deepEqual(failedCalls, calls.slice(0, 2));
+    draw(failedKey);
+    const count = module.ringWork.stopPreparations;
+    draw(failedKey);
+    assert.equal(module.ringWork.stopPreparations, count, '失败不缓存，下次成功后才能命中');
+  });
+  assert.equal(module.readRingSampleScope(), null);
+  const stopPreparations = module.ringWork.stopPreparations;
+  const key = module.createRingStopDescriptor('clear', [1, 2, 3], 0.4);
+  module.createDissolvedRingGradient(context, config, 0.35, 0.5, String, key);
+  module.createDissolvedRingGradient(context, config, 0.35, 0.5, String, key);
+  assert.equal(module.ringWork.stopPreparations, stopPreparations + 2, '独立调用不跨帧缓存颜色');
 }
 
 console.log('\n源码入口与资源合同通过');

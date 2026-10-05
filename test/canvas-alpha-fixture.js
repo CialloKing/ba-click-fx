@@ -110,7 +110,7 @@ export async function ringScopeContract()
   host.style.cssText = 'position:fixed;width:320px;height:240px;left:0;top:0';
   document.body.appendChild(host);
   const result = { reentrant: false, multiInstance: false, restored: false, independentFrames: false,
-    parameters: false, cleared: false, destroyed: false, fallback: false, exception: false };
+    stopSequenceReuse: false, parameters: false, cleared: false, destroyed: false, fallback: false, exception: false };
   try
   {
     Object.defineProperty(performance, 'now', { configurable: true, value: () => 100 });
@@ -150,8 +150,12 @@ export async function ringScopeContract()
     fx._drawWaveRings = draw; other._drawWaveRings = otherDraw;
     module.resetRingWork(); fx._renderFrame(220);
     const first = module.ringWork.preparations;
+    const firstStops = module.ringWork.stopPreparations;
+    result.stopSequenceReuse = firstStops > 0 && module.ringWork.stopRequests > firstStops &&
+      module.ringWork.stopDataAllocations === firstStops;
     fx._renderFrame(220);
     result.independentFrames = first > 0 && module.ringWork.preparations === first * 2
+      && module.ringWork.stopPreparations === firstStops * 2
       && module.readRingSampleScope() === null;
     result.parameters = fx.setFxParam('rings.arcSamples', 33);
     fx._renderFrame(236); fx.resetFxConfig(); fx.setThemeColorMode('hue-only');

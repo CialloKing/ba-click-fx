@@ -1961,22 +1961,28 @@ function getRingGradientSamples(ringCfg, threshold, radialProgress)
   return samples;
 }
 
-function createDissolvedRingGradient(
-  context,
-  ringCfg,
-  threshold,
-  radialProgress,
-  colorForLuminance,
-)
+function createRingStopDescriptor(purpose, materialEnergy, ...parameters)
 {
-  if (typeof context.createConicGradient !== 'function')
-  {
-    return null;
-  }
+  return { theme: relativeOklchTheme,
+    key: `${purpose}:${themeHueShift}:${materialEnergy.join(':')}:${parameters.join(':')}` };
+}
 
-  const gradient = context.createConicGradient(0, 0, 0);
-  const samples = getRingGradientSamples(ringCfg, threshold, radialProgress);
+function getRingGradientStops(samples, descriptor)
+{
+  return ringSampleCache && descriptor
+    ? samples.stopSequences?.get(descriptor.theme)?.get(descriptor.key)
+    : null;
+}
+
+function prepareRingGradientStops(gradient, samples, threshold, colorForLuminance, retain)
+{
+  const stops = retain ? [] : null;
   const sampleCount = samples.sampleCount;
+  const writeStop = (position, color) =>
+  {
+    gradient.addColorStop(position, color);
+    if (stops) stops.push(position, color);
+  };
 
   for (let sample = 0; sample <= sampleCount; sample++)
   {
@@ -1991,20 +1997,65 @@ function createDissolvedRingGradient(
 
       if (samples.transitions[sample] === 1)
       {
-        gradient.addColorStop(boundary, visibleBoundary);
-        gradient.addColorStop(boundary, transparentBoundary);
+        writeStop(boundary, visibleBoundary);
+        writeStop(boundary, transparentBoundary);
       }
       else
       {
-        gradient.addColorStop(boundary, transparentBoundary);
-        gradient.addColorStop(boundary, visibleBoundary);
+        writeStop(boundary, transparentBoundary);
+        writeStop(boundary, visibleBoundary);
       }
     }
 
-    gradient.addColorStop(
+    writeStop(
       angularProgress,
       colorForLuminance(luminance),
     );
+  }
+  return stops;
+}
+
+function createDissolvedRingGradient(
+  context,
+  ringCfg,
+  threshold,
+  radialProgress,
+  colorForLuminance,
+  stopDescriptor = null,
+)
+{
+  if (typeof context.createConicGradient !== 'function')
+  {
+    return null;
+  }
+
+  const gradient = context.createConicGradient(0, 0, 0);
+  const samples = getRingGradientSamples(ringCfg, threshold, radialProgress);
+  const cached = getRingGradientStops(samples, stopDescriptor);
+  if (cached)
+  {
+    for (let index = 0; index < cached.length; index += 2)
+    {
+      gradient.addColorStop(cached[index], cached[index + 1]);
+    }
+  }
+  else
+  {
+    // 首次准备仍按原顺序交错求值与写入；失败时不能留下半成品。
+    const stops = prepareRingGradientStops(gradient, samples, threshold,
+      colorForLuminance, Boolean(ringSampleCache && stopDescriptor));
+    if (stops)
+    {
+      samples.stopSequences ??= new Map();
+      let sequences = samples.stopSequences.get(stopDescriptor.theme);
+      if (!sequences)
+      {
+        sequences = new Map();
+        samples.stopSequences.set(stopDescriptor.theme, sequences);
+      }
+      // 序列依附同帧采样数据，随既存范围的 finally 释放，不保留历史帧。
+      sequences.set(stopDescriptor.key, stops);
+    }
   }
 
   return gradient;
@@ -2071,6 +2122,7 @@ function fillDissolvedRing(
   threshold,
   ringCfg,
   colorForLuminance,
+  stopDescriptor = null,
 )
 {
   const radialSamples = Math.max(1, Math.round(ringCfg.radialSamples));
@@ -2090,6 +2142,7 @@ function fillDissolvedRing(
       threshold,
       radialProgress,
       colorForLuminance,
+      stopDescriptor,
     );
 
     if (!gradient)
@@ -2150,6 +2203,7 @@ function drawDissolvedCircle(
   dpr = 1,
   overlayColorCompensation = 'none',
   overlayAlphaLimit = 1,
+  gradientPurpose = 'clear',
 )
 {
   const ringCfg = fxConfig.rings;
@@ -2209,6 +2263,8 @@ function drawDissolvedCircle(
     geometry.threshold,
     ringCfg,
     colorForLuminance,
+    createRingStopDescriptor(gradientPurpose, materialEnergy, opacity, useNativeBloom,
+      outputCompositing, overlayColorCompensation, overlayAlphaLimit),
   );
 
   context.restore();
@@ -2254,6 +2310,8 @@ function drawDissolvedCircleEmission(
       bloomCfg.emissionRange,
       bloomCfg.clickEmissionScale,
     ),
+    createRingStopDescriptor('emission', materialEnergy, opacity, bloomCfg.ringEmissionAlpha,
+      bloomCfg.emissionRange, bloomCfg.clickEmissionScale),
   );
   context.restore();
 }
@@ -3500,6 +3558,11 @@ class ClickWave
         false,
         [1, 1, 1],
         'browser-overlay',
+        false,
+        1,
+        'none',
+        1,
+        'coverage',
       );
     }
   }
