@@ -1,7 +1,7 @@
 const measurementNow = performance.now.bind(performance);
 const measurementFrame = globalThis.requestAnimationFrame?.bind(globalThis);
 
-export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, gpuPerformance = false, targetCanvas = null })
+export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null })
 {
   const realNow = measurementNow;
   const importStart = realNow();
@@ -204,19 +204,22 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     waves: fx.waves.map(wave => ({ x: wave.x, y: wave.y, ageMs: wave.ageMs, rings: wave.rings })),
     shards: fx.shards.map(shard => ({ x: shard.x, y: shard.y, ageMs: shard.ageMs })),
     trail: fx.trailStrokes.map(stroke => stroke.points), stats: structuredClone(renderer?.stats) };
-  // CPU 计时覆盖持续输入的 90 帧；GPU 提交耗时不等同于 GPU 完成时间或 FPS。
+  // 压测只由显式基准命令启用，避免每次像素和生命周期回归都支付采样成本。
   const cpuFrameMs = [];
-  fx.clear(); input('pointerdown', 40, 50);
-  for (let frame = 0; frame < 90; frame++)
+  if (benchmark)
   {
-    now += 12;
-    input('pointermove', 40 + frame % 40 * 4, 50 + frame % 20 * 3);
-    if (frame % 10 === 0) fx.boom?.(110, 105);
-    const start = realNow(); fx._renderFrame(now); cpuFrameMs.push(realNow() - start);
+    fx.clear(); input('pointerdown', 40, 50);
+    for (let frame = 0; frame < 90; frame++)
+    {
+      now += 12;
+      input('pointermove', 40 + frame % 40 * 4, 50 + frame % 20 * 3);
+      if (frame % 10 === 0) fx.boom?.(110, 105);
+      const start = realNow(); fx._renderFrame(now); cpuFrameMs.push(realNow() - start);
+    }
+    input('pointerup', 110, 105);
   }
-  input('pointerup', 110, 105);
   let gpuFrames;
-  if (gpuPerformance)
+  if (benchmark && gpuPerformance)
   {
     if (!renderer?.gl && !gpu?.device) gpuFrames = { skipped: 'selected mode has no GPU renderer' };
     else if (!measurementFrame) gpuFrames = { skipped: 'native requestAnimationFrame unavailable' };
@@ -290,6 +293,8 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
       fx.canvas.width !== Math.round(240 * fx.dpr) || fx.canvas.height !== Math.round(180 * fx.dpr)) throw Error('resize/DPR contract');
   fx.clearTrail?.(); fx.clear(); fx.setPaused(false); fx.destroy(); fx.destroy(); target.remove?.();
   if (!fx.destroyed || fx.animationFrame !== null || fx.waves.length || fx.shards.length) throw Error('destroy contract');
-  return { hash, lit, pixelWidth, pixelHeight, state, config, actualRuntime: hasDom ? (dom ? 'dom' : 'manual') : 'worker', importMs, initMs, frameTimes, cpuFrameMs,
-    heap: { beforeImport: heapBeforeImport, afterImport: heapAfterImport, afterInit: heapAfterInit }, gpuFrames, contextRestored, errors };
+  return { hash, lit, pixelWidth, pixelHeight, state, config, actualRuntime: hasDom ? (dom ? 'dom' : 'manual') : 'worker',
+    ...(benchmark ? { importMs, initMs, frameTimes, cpuFrameMs,
+      heap: { beforeImport: heapBeforeImport, afterImport: heapAfterImport, afterInit: heapAfterInit }, gpuFrames } : {}),
+    contextRestored, errors };
 }

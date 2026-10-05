@@ -130,6 +130,14 @@ npm run check:release
 
 发布检查包括完整版回归、`test:custom` 的构建与类型检查，以及 `test:browser:custom -- --required` 的实际运行验收。浏览器验证需要 Chrome/Edge，可设置 `BACLICKFX_CHROMIUM_PATH`。测试覆盖六种模式与三种接入、功能裁剪和非默认参数、已知背景、多实例、生命周期及真实 Canvas 转移；固定输入、随机数和时间后逐字节比较完整版与定制版，不更新黄金数据或放宽阈值。WebGPU Worker 额外检查异步初始化、初始化期间销毁、设备丢失和 Standard 输出降级。单独运行 `npm run test:browser:custom` 时，设备不可用会明确标为跳过；发布检查要求全部设备实际运行，出现跳过则失败。
 
-`test-results/custom-browser/results.json` 记录体积、导入/初始化耗时、90 帧 CPU 耗时和浏览器公开的堆内存快照。完整版和定制版使用独立浏览器上下文。完整版尚不支持的接入组合使用 DOM 版作为画面对照，报告的 `actualRuntime` 记录实际接入；这些组合的初始化和内存数据不能视为同一接入方式的性能对照。Worker 未公开的堆内存以 `null` 记录；这些快照不能代替 GPU 显存测量。CPU 耗时包含更新与 GPU 提交；基础 GPU 配置另记录 30 帧真实 RAF 调度及 GPU 完成等待。无头浏览器的调度帧率不能代替物理显示帧率或 HDR 显示验证，相关环境缺失会明确记录。
+默认浏览器验收只进行画面与生命周期检查，体积和验收结果写入 `test-results/custom-browser/results.json`，不执行性能压测。需要比较性能时显式运行：
+
+```bash
+npm run benchmark:custom
+# 也可只测名称包含 webgpu 的配置
+npm run benchmark:custom -- webgpu
+```
+
+基准报告单独写入 `test-results/custom-browser/benchmark.json`，记录导入/初始化耗时、90 帧 CPU 耗时和浏览器公开的堆内存快照，不覆盖验收报告。完整版和定制版使用独立浏览器上下文。完整版尚不支持的接入组合使用 DOM 版作为画面对照，报告的 `actualRuntime` 记录实际接入；这些组合的初始化和内存数据不能视为同一接入方式的性能对照。Worker 未公开的堆内存以 `null` 记录；这些快照不能代替 GPU 显存测量。CPU 耗时包含更新与 GPU 提交；基础 GPU 配置另记录 30 帧真实 RAF 调度及 GPU 完成等待。无头浏览器的调度帧率不能代替物理显示帧率或 HDR 显示验证，相关环境缺失会明确记录。
 
 收益主要来自删除未使用的后端、输入处理、调参系统和功能资源。构建时也预计算主题映射及固定材质的 Bloom 数学常量，沿用相同公式与 double 精度。首轮保留 Shader、纹理编码和 HDR/Bloom 算法，不承诺固定体积或帧率提升；保留大纹理的版本仍可能较大。

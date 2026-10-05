@@ -10,6 +10,14 @@ import { findChromiumExecutable, startViteServer } from './harness.mjs';
 const root = resolve(import.meta.dirname, '../..');
 const dir = resolve(root, 'test-results/custom-browser');
 mkdirSync(dir, { recursive: true });
+const args = process.argv.slice(2);
+const requireAll = args.includes('--required');
+const benchmark = args.includes('--benchmark');
+assert(args.every(value => !value.startsWith('--') || ['--required', '--benchmark'].includes(value)), 'Unknown custom runtime option');
+const selections = args.filter(value => !['--required', '--benchmark'].includes(value));
+assert(selections.length <= 1, 'Usage: custom-runtime.mjs [selection] [--required] [--benchmark]');
+const selection = selections[0];
+const reportPath = resolve(dir, benchmark ? 'benchmark.json' : 'results.json');
 const vite = await startViteServer(root);
 const browser = await chromium.launch({ executablePath: findChromiumExecutable(), headless: true,
   args: ['--ignore-gpu-blocklist', '--enable-unsafe-webgpu', '--enable-precise-memory-info'] });
@@ -34,11 +42,6 @@ profiles.push(...BACKENDS.filter(backend => backend !== 'webgl2').flatMap(backen
 }))));
 for (const name of ['native-click-dom', 'webgl2-worker'])
   profiles.push(JSON.parse(readFileSync(resolve(root, `examples/build-profiles/${name}.json`), 'utf8')));
-const args = process.argv.slice(2);
-const requireAll = args.includes('--required');
-const selections = args.filter(value => value !== '--required');
-assert(selections.length <= 1, 'Usage: custom-runtime.mjs [selection] [--required]');
-const selection = selections[0];
 async function run(page, args, worker)
 {
   if (!worker) return page.evaluate(async args => (await import('/test/browser/custom-fixture.js')).runCustomFixture(args), args);
@@ -75,15 +78,15 @@ try
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') console.log(message.text()); });
     const baseProfile = !input.features && !input.config && !input.fxParams && !testReference;
-    // 压测会影响同页后续 Canvas 的栅格路径；独立上下文同时保证冷导入和像素对照隔离。
+    // 使用独立上下文，保持像素对照隔离，并让显式基准测量冷导入。
     const baselinePage = await browser.newPage();
     await baselinePage.goto(vite.baseUrl + '/test/browser/custom.html');
     baselinePage.on('pageerror', error => errors.push(error.message));
-    const baseArgs = { profile, url: vite.baseUrl + '/dist/ba-click-fx.js', full: true, reference: testReference, gpuPerformance: baseProfile };
+    const baseArgs = { profile, url: vite.baseUrl + '/dist/ba-click-fx.js', full: true, reference: testReference, benchmark, gpuPerformance: benchmark && baseProfile };
     const baseline = await run(baselinePage, baseArgs, input.runtime === 'worker' && !['webgpu', 'webgpu-hdr', 'webgl2-bloom'].includes(input.backend) && !(testReference && input.backend === 'native'));
     await baselinePage.close();
     const args = { profile, url: vite.baseUrl + '/test-results/custom-browser/' + file, reference: testReference,
-      restoreContext: baseProfile && input.backend === 'webgl2', gpuPerformance: baseProfile };
+      restoreContext: baseProfile && input.backend === 'webgl2', benchmark, gpuPerformance: benchmark && baseProfile };
     const custom = await run(page, args, input.runtime === 'worker');
     assert.deepEqual(errors, []);
     results.push({ input, reference: testReference, baseline, custom, sizes: profile.sizes });
@@ -93,27 +96,31 @@ try
       assert.equal(custom.hash, baseline.hash, `exact pixel parity: ${JSON.stringify(input)}`);
       for (const measurement of [baseline, custom])
       {
-        assert(measurement.importMs > 0 && measurement.initMs > 0, 'native performance clock');
-        assert.equal(measurement.cpuFrameMs.length, 90);
-        assert(measurement.cpuFrameMs.some(time => time > 0));
+        if (benchmark)
+        {
+          assert(measurement.importMs > 0 && measurement.initMs > 0, 'native performance clock');
+          assert.equal(measurement.cpuFrameMs.length, 90);
+          assert(measurement.cpuFrameMs.some(time => time > 0));
+        }
+        else assert(!Object.hasOwn(measurement, 'cpuFrameMs') && !Object.hasOwn(measurement, 'gpuFrames'), 'regression must not collect performance samples');
       }
     }
     else console.log(`SKIP ${input.backend}/${input.runtime}: ${baseline.skipped ?? custom.skipped}`);
     if (input.runtime === 'worker' && input.backend === 'webgpu' && !testReference && !custom.skipped)
     {
-      assert.deepEqual(await run(page, { ...args, pendingDestroy: true }, true), { pendingDestroy: true });
-      const loss = await run(page, { ...args, deviceLost: true }, true);
+      assert.deepEqual(await run(page, { ...args, benchmark: false, gpuPerformance: false, pendingDestroy: true }, true), { pendingDestroy: true });
+      const loss = await run(page, { ...args, benchmark: false, gpuPerformance: false, deviceLost: true }, true);
       assert.deepEqual(loss.errors, ['device-lost']); assert(loss.stopped); assert.equal(loss.outputMode, 'unavailable');
     }
     if (baseProfile && input.runtime === 'worker')
     {
-      const failure = await run(page, { ...args, restoreContext: false, fault: input.backend.startsWith('webgpu') ? 'gpu' : 'context' }, true);
+      const failure = await run(page, { ...args, benchmark: false, gpuPerformance: false, restoreContext: false, fault: input.backend.startsWith('webgpu') ? 'gpu' : 'context' }, true);
       assert.deepEqual(failure.errors, ['initialization-failed']); assert(failure.stopped);
       results.at(-1).initializationFailure = failure;
     }
     if (baseProfile && input.backend === 'webgpu-hdr' && input.runtime === 'worker' && !custom.skipped)
     {
-      const standard = await run(page, { ...args, forceStandard: true }, true);
+      const standard = await run(page, { ...args, benchmark: false, gpuPerformance: false, forceStandard: true }, true);
       assert.deepEqual(standard.errors, []);
       assert.equal(standard.config.resolvedEffectBackend, 'webgpu');
       assert.equal(standard.config.resolvedWebGPUOutputMode, 'standard');
@@ -122,18 +129,18 @@ try
     console.log(`custom runtime checked: ${JSON.stringify(input)} pixels=${custom.lit ?? 'skipped'}`);
     await page.close();
   }
-  // 发布验收必须实际运行所选设备；普通 CI 仍记录能力不足的明确跳过。
+  // 发布验收必须实际运行所选设备；单独检查仍记录能力不足的明确跳过。
   if (requireAll) assert(results.every(item => !item.baseline.skipped && !item.custom.skipped),
-    'Required custom runtime coverage contains skipped devices; see test-results/custom-browser/results.json');
+    `Required custom runtime coverage contains skipped devices; see ${reportPath}`);
   assert(results.length > 0, 'No custom profiles matched the selection');
   complete = true;
 }
 finally
 {
   const full = readFileSync(resolve(root, 'dist/ba-click-fx.js'));
-  writeFileSync(resolve(dir, 'results.json'), JSON.stringify({ browser: browser.version(), selection: selection ?? null,
-    gpu: 'Browser default adapter; headless RAF with GPU completion measured; physical display FPS and HDR unverified',
-    memory: 'Heap snapshots where exposed; Worker heap is unavailable and reported as null',
+  writeFileSync(reportPath, JSON.stringify({ browser: browser.version(), selection: selection ?? null, benchmark,
+    gpu: benchmark ? 'Browser default adapter; headless RAF with GPU completion measured; physical display FPS and HDR unverified' : 'Performance sampling disabled',
+    memory: benchmark ? 'Heap snapshots where exposed; Worker heap is unavailable and reported as null' : 'Performance sampling disabled',
     acceptance: { complete, requireAll, pixelPassed: results.filter(item => !item.baseline.skipped && !item.custom.skipped).length,
       pixelSkipped: results.filter(item => item.baseline.skipped || item.custom.skipped).map(item => ({ input: item.input, reason: item.baseline.skipped ?? item.custom.skipped })) },
     fullSizes: { raw: full.length, gzip: gzipSync(full).length, brotli: brotliCompressSync(full).length }, results }, null, 2));
