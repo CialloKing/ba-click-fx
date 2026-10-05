@@ -78,6 +78,8 @@
     "test:source-contract": "node test/source-contract.js && node test/triangle-fallback.js",
     "test:runtime": "node test/smoke.js",
     "test:worker": "node test/offscreen-worker.js",
+    "test:custom": "node test/build-profile.js && node test/custom-build.js",
+    "test:browser:custom": "node test/browser/custom-runtime.mjs",
     "test": "npm run test:unit && npm run test:source-contract && npm run test:runtime && npm run test:worker",
     "test:themes": "node test/theme-color.js && node test/theme-background.js",
     "test:bloom": "node test/software-bloom.js",
