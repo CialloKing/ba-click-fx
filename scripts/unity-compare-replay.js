@@ -1,5 +1,5 @@
 // 开发夹具重放最终状态；不使用网页随机数，也不再求值粒子曲线。
-export async function replayUnityGeometry(renderer, particles, state, configuration)
+export async function replayUnityGeometry(renderer, particles, state, configuration, prefix = '/src/')
 {
   const height = particles.renderSize.height;
   const pixels = height / 2;
@@ -75,8 +75,8 @@ export async function replayUnityGeometry(renderer, particles, state, configurat
     if (!trail.enabled || trail.positions.length < 2) continue;
     if (!trailModule)
     {
-      let source = await (await fetch('/src/fx.js')).text();
-      source = source.replace(/from\s*(['"])((?:\.\/|\/)[^'"]+)\1/g, (_, quote, path) => `from '${new URL(path, new URL('/src/fx.js', location.href)).href}'`);
+      let source = await (await fetch(`${prefix}fx.js`)).text();
+      source = source.replace(/from\s*(['"])((?:\.\/|\/)[^'"]+)\1/g, (_, quote, path) => `from '${new URL(path, new URL(`${prefix}fx.js`, location.href)).href}'`);
       source += '\nexport { appendTrailWebGLScene, createTrailMesh };';
       const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
       try { trailModule = await import(url); } finally { URL.revokeObjectURL(url); }
@@ -96,11 +96,11 @@ function base64(bytes)
   return btoa(binary);
 }
 
-export async function captureWebStages(backend, particles, state)
+export async function captureWebStages(backend, particles, state, mode = 'state', prefix = '/src/')
 {
-  const { UNITY_FX_TOUCH } = await import('/src/config.js');
-  const { WebGL2EffectRenderer } = await import('/src/webgl2-effect.js');
-  const { WebGPUEffectRenderer } = await import('/src/webgpu-effect.js');
+  const { UNITY_FX_TOUCH } = await import(/* @vite-ignore */ `${prefix}config.js`);
+  const { WebGL2EffectRenderer } = await import(/* @vite-ignore */ `${prefix}webgl2-effect.js`);
+  const { WebGPUEffectRenderer } = await import(/* @vite-ignore */ `${prefix}webgpu-effect.js`);
   const width = particles.renderSize.width; const height = particles.renderSize.height;
   const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
   const renderer = backend === 'webgl2' ? new WebGL2EffectRenderer(canvas) : new WebGPUEffectRenderer(canvas, { preferHdr: false });
@@ -130,7 +130,16 @@ export async function captureWebStages(backend, particles, state)
     const context = background.getContext('2d'); context.fillStyle = 'black'; context.fillRect(0, 0, width, height);
     if (!renderer.setCompositingReference(background)) throw new Error('已知黑色背景上传失败');
     renderer.beginFrame();
-    const inputs = await replayUnityGeometry(renderer, particles, state, UNITY_FX_TOUCH);
+    let inputs;
+    if (mode === 'input' && !state.showParticles)
+    {
+      const { simulateInputTrail, loadTrailRuntime } = await import('./unity-trail-input.js');
+      const simulation = await simulateInputTrail(state, particles.renderSize, prefix);
+      const { appendTrailWebGLScene } = await loadTrailRuntime(prefix);
+      appendTrailWebGLScene(renderer, simulation.points, height / 1080, 1, UNITY_FX_TOUCH);
+      inputs = simulation;
+    }
+    else inputs = await replayUnityGeometry(renderer, particles, state, UNITY_FX_TOUCH, prefix);
     const settings = { ...UNITY_FX_TOUCH.bloom, outputCompositing: 'scene', opacity: 1, overlayAlphaLimit: 1 };
     if (!renderer.renderScene(settings) || !renderer.render(settings, { preserveCanvas: true })) throw new Error(`${backend} 实际渲染失败`);
     const stages = [['00_UI_HDR', renderer.sourceTarget], ...renderer.levels.map((level, index) =>
@@ -150,7 +159,7 @@ export async function captureWebStages(backend, particles, state)
       }
       finally { gl.bindFramebuffer = bind; }
       stages.push(['40_Composite', diagnosticFinal]);
-      for (const [name, target] of stages)
+      for (const [name, target] of stages.filter(([name]) => mode !== 'input' || name === '00_UI_HDR' || name === '40_Composite'))
       {
         gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
         const values = new Float32Array(target.width * target.height * 4);
@@ -176,7 +185,7 @@ export async function captureWebStages(backend, particles, state)
       finally { renderer._drawFullscreen = draw; renderer.finalPipeline = oldPipeline; }
       stages.push(['40_Composite', { texture: diagnosticFinal, width, height }]);
       await device.queue.onSubmittedWorkDone();
-      for (const [name, target] of stages)
+      for (const [name, target] of stages.filter(([name]) => mode !== 'input' || name === '00_UI_HDR' || name === '40_Composite'))
       {
         const rowBytes = Math.ceil(target.width * 8 / 256) * 256;
         const buffer = device.createBuffer({ size: rowBytes * target.height, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -200,7 +209,7 @@ export async function captureWebStages(backend, particles, state)
       const error = await renderer.device.popErrorScope();
       if (error) throw new Error(`WebGPU 实际提交失败：${error.message}`);
     }
-    return { backend, sampleScale: renderer.sampleScale, inputs, outputMode: renderer.deviceManager?.outputMode ?? 'sdr' };
+    return { backend, sampleScale: renderer.sampleScale, inputs, ringTopology: [UNITY_FX_TOUCH.rings.arcSamples, UNITY_FX_TOUCH.rings.radialSamples], outputMode: renderer.deviceManager?.outputMode ?? 'sdr' };
   }
   finally
   {

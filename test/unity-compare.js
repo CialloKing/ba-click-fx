@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { decodeHalf, compareRgb, encodePreview, srgbEncode, srgbDecode, summarizeTrailMesh } from '../scripts/unity-compare-data.mjs';
+import { decodeHalf, compareRgb, compareForegroundRgb, trailEndpoints, encodePreview, srgbEncode, srgbDecode, summarizeTrailMesh } from '../scripts/unity-compare-data.mjs';
 
 assert.deepEqual([...decodeHalf(Buffer.from([0, 0, 0, 60, 0, 192, 1, 0]))], [0, 1, -2, 2 ** -24]);
 assert.throws(() => decodeHalf(Buffer.from([0])), /长度/);
@@ -10,6 +10,13 @@ assert.equal(metric.maximumError, 1);
 assert.equal(metric.referenceEnergy, 6);
 assert.equal(metric.actualEnergy, 7);
 assert.equal(metric.meanAbsoluteError, 1 / 3);
+const foreground = compareForegroundRgb(Float32Array.of(0, 0, 0, 0, 1, 0, 0, 1), Float32Array.of(0, 0, 0, 0, 0.5, 0, 0, 1));
+assert.equal(foreground.actual.pixels, 1);
+assert.equal(foreground.actual.meanAbsoluteError, 1 / 6);
+assert.equal(compareForegroundRgb(new Float32Array(4), new Float32Array(4)).actual.rmse, 0);
+assert.deepEqual(trailEndpoints({ vertices: [{ x: 0, y: 1 }, { x: 0, y: -1 }, { x: 2, y: 1 }, { x: 2, y: -1 }],
+  uv: [{ x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 0 }, { x: 0, y: 1 }] }, 100, 100),
+  { start: { x: 50, y: 50 }, end: { x: 150, y: 50 } });
 assert.throws(() => compareRgb(reference, Float32Array.of(Infinity, 2, 3, 0)), /非有限/);
 assert.equal(srgbEncode(0), 0);
 assert(Math.abs(srgbEncode(1) - 1) < 1e-14);

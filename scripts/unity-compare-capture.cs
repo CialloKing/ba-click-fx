@@ -82,6 +82,20 @@ public static partial class BaFxTouchPreviewCapture
         public Matrix4x4 cameraProjection;
         public CompareMesh[] particles;
         public CompareMesh[] trails;
+        public CompareTrailFrame[] trailHistory;
+        public float elapsedReleaseTimeMs;
+    }
+
+    [Serializable]
+    private sealed class CompareTrailFrame
+    {
+        public string name;
+        public int timeMs;
+        public float elapsedUnityTime;
+        public bool emitting;
+        public Vector3[] positions;
+        public Vector3[] vertices;
+        public Vector2[] uv;
     }
 
     [Serializable]
@@ -114,6 +128,8 @@ public static partial class BaFxTouchPreviewCapture
     private static float compareStart;
     private static bool compareFinished;
     private static BaCompareTicker compareTicker;
+    private static readonly List<CompareTrailFrame> compareTrailHistory = new List<CompareTrailFrame>();
+    private static float compareReleaseTimeMs;
 
     public static void CompareStage11()
     {
@@ -210,6 +226,8 @@ public static partial class BaFxTouchPreviewCapture
         CompareCase specification = compareInput.cases[compareCase];
         compareTick = 0;
         compareStart = Time.time;
+        compareTrailHistory.Clear();
+        compareReleaseTimeMs = -1.0f;
         compareInstance = CreateCaptureInstance(comparePrefab,
             CompareWorld(specification.points[0]), specification.name);
         compareSystems = InitializeParticleSystems(compareInstance, DeterministicSeedBase);
@@ -259,6 +277,10 @@ public static partial class BaFxTouchPreviewCapture
             }
             if (specification.releaseMs > 0 && compareTick * 10 >= specification.releaseMs)
             {
+                if (compareReleaseTimeMs < 0.0f)
+                {
+                    compareReleaseTimeMs = (Time.time - compareStart) * 1000.0f;
+                }
                 foreach (TrailRenderer trail in compareTrails)
                 {
                     trail.emitting = false;
@@ -360,6 +382,24 @@ public static partial class BaFxTouchPreviewCapture
         {
             CompareCase specification = compareInput.cases[compareCase];
             int milliseconds = compareTick * 10;
+            if (specification.trail)
+            {
+                foreach (TrailRenderer trail in compareTrails)
+                {
+                    // 只记录真实帧末的原始点及烘焙几何；时间戳不是由 BakeMesh 推算。
+                    CompareMesh mesh = CompareBake(trail);
+                    compareTrailHistory.Add(new CompareTrailFrame
+                    {
+                        name = mesh.name,
+                        timeMs = milliseconds,
+                        elapsedUnityTime = Time.time - compareStart,
+                        emitting = mesh.emitting,
+                        positions = mesh.positions,
+                        vertices = mesh.vertices,
+                        uv = mesh.uv
+                    });
+                }
+            }
             if (Array.IndexOf(specification.captures, milliseconds) >= 0)
             {
                 string directory = Path.Combine(compareOutput, "reference",
@@ -395,7 +435,9 @@ public static partial class BaFxTouchPreviewCapture
                     cameraWorldToCamera = compareCamera.worldToCameraMatrix,
                     cameraProjection = compareCamera.projectionMatrix,
                     particles = particles.ToArray(),
-                    trails = trails.ToArray()
+                    trails = trails.ToArray(),
+                    trailHistory = compareTrailHistory.ToArray(),
+                    elapsedReleaseTimeMs = compareReleaseTimeMs
                 }));
                 using (BaGameBloomRendererFeature.DiagnosticCapture capture =
                     BaGameBloomRendererFeature.BeginDiagnosticCapture(compareCamera,

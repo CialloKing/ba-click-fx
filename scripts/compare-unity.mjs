@@ -29,7 +29,7 @@ for (let index = 2; index < process.argv.length; index++)
 {
   const key = process.argv[index];
   if (key === '--capture-only') options.captureOnly = true;
-  else if (['--project', '--editor', '--label', '--reuse'].includes(key)) options[key.slice(2)] = process.argv[++index];
+  else if (['--project', '--editor', '--label', '--reuse', '--baseline', '--runtime-prefix'].includes(key)) options[key.slice(2)] = process.argv[++index];
   else throw new Error(`未知参数：${key}`);
 }
 if (!options.project) throw new Error('用法：npm run compare:unity -- --project <Unity工程路径>');
@@ -39,13 +39,13 @@ const label = options.label ?? 'stage12';
 if (!/^[a-zA-Z0-9_-]+$/.test(label)) throw new Error('label 只能包含字母、数字、横线和下划线');
 const output = resolve(options.reuse ?? join(root, 'test-results', `unity-comparison-${label}`));
 const input = {
-  schema: 2, workloadVersion: 'trail-input-v2', width: 1950, height: 1097, dpr: 1, stepMs: 10, seed: 20260716,
+  schema: 2, workloadVersion: 'trail-input-v3-history', width: 1950, height: 1097, dpr: 1, stepMs: 10, seed: 20260716,
   cases: [
     { name: 'click', trail: false, captures: [50, 100, 120, 130, 250, 450], points: [{ timeMs: 0, x: 975, y: 548.5 }] },
     ...['manual', 'runtime'].flatMap(drive => [
-      { name: `trail-${drive}-fixed`, drive, trail: true, releaseMs: 20, captures: [140, 410], points: [{ timeMs: 0, x: 759, y: 548.5 }, { timeMs: 10, x: 1191, y: 548.5 }] },
+      { name: `trail-${drive}-fixed`, drive, trail: true, releaseMs: 20, captures: drive === 'runtime' ? [140, 290, 300, 310, 410] : [140, 410], points: [{ timeMs: 0, x: 759, y: 548.5 }, { timeMs: 10, x: 1191, y: 548.5 }] },
       ...['corner', 'reverse'].map(name => ({
-        name: `trail-${drive}-${name}`, drive, trail: true, releaseMs: 150, captures: [140, 410],
+        name: `trail-${drive}-${name}`, drive, trail: true, releaseMs: 150, captures: drive === 'runtime' ? [140, 300, 310, 410, 430, 440, 450] : [140, 410],
         points: Array.from({ length: 8 }, (_, index) => ({
           timeMs: index * 20,
           x: name === 'corner' ? 759 + Math.min(index, 4) * 54 : 759 + (index <= 4 ? index : 8 - index) * 108,
@@ -120,7 +120,8 @@ try
   if (!options.captureOnly)
   {
     const { compareUnityCapture } = await import('./unity-compare-browser.mjs');
-    await compareUnityCapture({ root, output });
+    await compareUnityCapture({ root, output, baseline: options.baseline ? resolve(options.baseline) : null,
+      runtimePrefix: options['runtime-prefix'] ?? '/src/' });
   }
 }
 catch (error)

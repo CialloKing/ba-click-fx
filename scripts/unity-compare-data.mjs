@@ -66,13 +66,15 @@ export function summarizeTrailMesh(trail, state)
     alignment: trail.alignment, emitting: trail.emitting };
 }
 
-export function compareRgb(reference, actual)
+export function compareRgb(reference, actual, mask = null)
 {
   if (reference.length !== actual.length || reference.length % 4) throw new Error('比较缓冲长度不一致');
   let maximum = 0; let absolute = 0; let squared = 0; let referenceEnergy = 0; let actualEnergy = 0;
-  let changedPixels = 0;
+  let changedPixels = 0; let pixels = 0;
   for (let index = 0; index < reference.length; index += 4)
   {
+    if (mask && !mask[index / 4]) continue;
+    pixels++;
     let changed = false;
     for (let channel = 0; channel < 3; channel++)
     {
@@ -84,10 +86,39 @@ export function compareRgb(reference, actual)
     }
     if (changed) changedPixels++;
   }
-  const count = reference.length / 4 * 3;
+  const count = Math.max(1, pixels * 3);
   return { maximumError: maximum, meanAbsoluteError: absolute / count, rmse: Math.sqrt(squared / count),
     referenceEnergy, actualEnergy, relativeEnergyError: referenceEnergy === 0 ? null : (actualEnergy - referenceEnergy) / referenceEnergy,
-    changedPixels, pixels: reference.length / 4 };
+    changedPixels, pixels };
+}
+
+export function compareForegroundRgb(reference, actual, baseline = actual)
+{
+  if (baseline.length !== actual.length) throw new Error('前景基线尺寸不一致');
+  const mask = new Uint8Array(reference.length / 4);
+  for (let index = 0; index < reference.length; index += 4)
+  {
+    // 前后版本使用同一并集遮罩，保留多出的尾迹，不允许裁小比较区域提高得分。
+    mask[index / 4] = [reference, actual, baseline].some(values =>
+      Math.max(values[index], values[index + 1], values[index + 2]) > 1 / 255);
+  }
+  return { actual: compareRgb(reference, actual, mask), baseline: compareRgb(reference, baseline, mask), threshold: 1 / 255 };
+}
+
+export function trailEndpoints(trail, width = 1950, height = 1097)
+{
+  if (!trail.vertices.length) return null;
+  const endpoint = u =>
+  {
+    const edge = v => trail.vertices.find((_, i) =>
+      Math.abs(trail.uv[i].x - u) < 1e-6 && Math.abs(trail.uv[i].y - v) < 1e-6);
+    const left = edge(0); const right = edge(1);
+    if (!left || !right || Math.hypot(left.x - right.x, left.y - right.y) < 1e-8) return null;
+    return { x: width / 2 + (left.x + right.x) * height / 4,
+      y: height / 2 - (left.y + right.y) * height / 4 };
+  };
+  const start = endpoint(1); const end = endpoint(0);
+  return start && end ? { start, end } : null;
 }
 
 function crc32(bytes)

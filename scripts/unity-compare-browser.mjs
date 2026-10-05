@@ -4,10 +4,11 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright-core';
 import { findChromiumExecutable, startViteServer, closeBrowserRuntime } from '../test/browser/harness.mjs';
-import { decodeHalf, decodeUnityBuffer, compareRgb, srgbEncode, srgbDecode, encodePreview, summarizeTrailMesh } from './unity-compare-data.mjs';
+import { decodeHalf, decodeUnityBuffer, compareRgb, compareForegroundRgb, trailEndpoints, srgbEncode, srgbDecode, encodePreview, summarizeTrailMesh } from './unity-compare-data.mjs';
 
 const json = async path => JSON.parse((await readFile(path, 'utf8')).replace(/^\uFEFF/, ''));
-const stableState = ({ frame, elapsedUnityTime, run, ...state }) => state;
+const stableState = value => JSON.parse(JSON.stringify(value, (key, item) =>
+  ['frame', 'elapsedUnityTime', 'elapsedReleaseTimeMs', 'run'].includes(key) ? undefined : item));
 
 export async function validateUnityCapture(output)
 {
@@ -42,10 +43,11 @@ export async function validateUnityCapture(output)
   }
   for (const specification of input.cases.filter(value => value.trail))
   {
-    const [start, end] = specification.captures.map(time => cases.find(sample => sample.name === `${specification.name}-${time}`));
+    const samples = specification.captures.map(time => cases.find(sample => sample.name === `${specification.name}-${time}`));
+    const start = samples[0]; const end = samples.at(-1);
     const count = sample => sample.state.trails.reduce((sum, trail) => sum + trail.positions.length, 0);
     if (count(start) < 2 || count(end) >= count(start)) throw new Error(`${specification.name} 拖尾没有实际生成或过期裁剪`);
-    for (const sample of [start, end])
+    for (const sample of samples)
     {
       sample.referenceGeometry = sample.state.trails.map(trail => summarizeTrailMesh(trail, sample.state));
       const scene = sample.buffers.buffers.find(buffer => buffer.name === '00_UI_HDR');
@@ -56,7 +58,7 @@ export async function validateUnityCapture(output)
   return { input, cases };
 }
 
-export async function compareUnityCapture({ root, output })
+export async function compareUnityCapture({ root, output, baseline = null, runtimePrefix = '/src/' })
 {
   const { input, cases } = await validateUnityCapture(output);
   const diagnostics = cases.filter(sample => sample.specification.trail).map(sample => ({
@@ -71,12 +73,14 @@ export async function compareUnityCapture({ root, output })
     repeatIdentical: true, diagnostics, invalidReferences }, null, 2));
   const report = { capture: await json(join(output, 'environment.json')),
     replayCommit: execFileSync('git', ['describe', '--always', '--dirty'], { cwd: root, encoding: 'utf8' }).trim(),
-    input, repeat: { runs: 2, stateAndPixelsIdentical: true }, cases: {}, consoleErrors: [], invalidReferences,
+    input, repeat: { runs: 2, stateAndPixelsIdentical: true }, cases: {}, inputCases: {}, baseline, runtimePrefix, consoleErrors: [], invalidReferences,
     note: '中间层比较原始线性 RGB。Final 同时报告原始 Unity HDR 与网页 SDR 解码后的线性差异，以及 SDR 显示域差异。前者保留 Unity 超出 1 的值，后者明确夹取和 sRGB 编码参考值；两者不能混用。Alpha 不纳入 RGB 指标。PNG 差异固定放大 16 倍，无自动对齐或缩放。' };
   let browser; let vite; let current;
   try
   {
     const runtime = await startViteServer(root); vite = runtime.server;
+    // 专项捕获使用固定源码快照；构建产物和报告写入不能触发 HMR 中断读回。
+    await vite.watcher.close();
     const executablePath = findChromiumExecutable();
     if (!executablePath) throw new Error('找不到 Chrome 或 Edge');
     browser = await chromium.launch({ executablePath, headless: true,
@@ -103,13 +107,25 @@ export async function compareUnityCapture({ root, output })
         for (let index = 0; index < reference.length; index++) if (index % 4 !== 3) reference[index] = srgbEncode(reference[index]);
       }
       const metrics = compareRgb(reference, actual);
-      const directory = join(output, 'web', current.backend, current.name);
+      const folder = current.mode === 'input' ? 'web-input' : 'web';
+      let baselineValues;
+      if (baseline)
+      {
+        try
+        {
+          const packed = gunzipSync(await readFile(join(baseline, folder, current.backend, current.name, `${stage.name}.rgba32f.gz`)));
+          baselineValues = new Float32Array(packed.buffer.slice(packed.byteOffset, packed.byteOffset + packed.byteLength));
+        }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+      const foreground = compareForegroundRgb(reference, actual, baselineValues);
+      const directory = join(output, folder, current.backend, current.name);
       await mkdir(directory, { recursive: true });
       await writeFile(join(directory, `${stage.name}.rgba32f.gz`), gzipSync(Buffer.from(actual.buffer)));
       await writeFile(join(directory, `${stage.name}.png`), encodePreview(actual, stage.width, stage.height, { encoded }));
       await writeFile(join(directory, `${stage.name}-diff.png`), encodePreview(actual, stage.width, stage.height, { reference }));
       if (encoded) await writeFile(join(directory, `${stage.name}-linear.rgba32f.gz`), gzipSync(Buffer.from(actualLinear.buffer)));
-      report.cases[current.name][current.backend].stages[stage.name] = { width: stage.width, height: stage.height, domain: encoded ? 'encoded-sRGB' : 'linear-HDR', ...metrics,
+      current.record.stages[stage.name] = { width: stage.width, height: stage.height, domain: encoded ? 'encoded-sRGB' : 'linear-HDR', ...metrics, foreground,
         ...(linearComparison ? { linearComparison: { domain: 'Unity-HDR-vs-web-decoded-SDR', ...linearComparison } } : {}) };
     });
     await page.goto(`${runtime.baseUrl}/test/browser/webgpu.html`);
@@ -117,20 +133,40 @@ export async function compareUnityCapture({ root, output })
     {
       // 手动驱动保留为流程诊断，不把退化参考混入正式视觉误差。
       if (sample.specification.drive === 'manual') continue;
-      report.cases[sample.name] = {};
+      for (const mode of sample.specification.drive === 'runtime' ? ['state', 'input'] : ['state'])
+      {
+      const records = mode === 'input' ? report.inputCases : report.cases;
+      records[sample.name] = {};
       for (const backend of ['webgl2', 'webgpu'])
       {
-        current = { ...sample, backend };
-        const record = report.cases[sample.name][backend] = { stages: {}, referenceGeometry: sample.referenceGeometry };
-        console.log(`Unity 对照 ${sample.name} / ${backend}`);
+        const record = records[sample.name][backend] = { stages: {}, referenceGeometry: sample.referenceGeometry };
+        current = { ...sample, backend, mode, record };
+        console.log(`Unity 对照 ${sample.name} / ${backend} / ${mode}`);
         const errorsBefore = report.consoleErrors.length;
-        Object.assign(record, await page.evaluate(async ({ backend, particles, state }) =>
+        Object.assign(record, await page.evaluate(async ({ backend, particles, state, mode, runtimePrefix }) =>
         {
           const { captureWebStages } = await import('/scripts/unity-compare-replay.js');
-          return captureWebStages(backend, particles, state);
-        }, { backend, particles: sample.particles, state: sample.state }));
+          return captureWebStages(backend, particles, state, mode, runtimePrefix);
+        }, { backend, particles: sample.particles, state: sample.state, mode, runtimePrefix }));
         if (!record.skipped && report.consoleErrors.length !== errorsBefore) throw new Error(`${backend} 渲染出现控制台错误`);
         if (!record.skipped && Math.abs(record.sampleScale - sample.buffers.sampleScale) > 0.000001) throw new Error('Bloom 采样倍率不匹配');
+        if (mode === 'input' && !record.skipped)
+        {
+          const frames = record.inputs.frames;
+          const referenceFrames = (sample.state.trailHistory ?? []).map(frame => ({
+            timeMs: frame.timeMs, endpoints: trailEndpoints(frame, input.width, input.height) }));
+          const pairs = frames.map(frame => ({ frame, reference: referenceFrames.find(other => other.timeMs === frame.timeMs) })).filter(pair => pair.reference);
+          const endpointErrors = pairs.filter(({ frame, reference }) => frame.visible && reference.endpoints).map(({ frame, reference }) =>
+            Math.hypot(frame.start.x - reference.endpoints.start.x, frame.start.y - reference.endpoints.start.y));
+          const disappearance = values => values.find(frame => frame.timeMs >= sample.specification.releaseMs && !frame.visible)?.timeMs ?? null;
+          const unityDisappearance = disappearance(referenceFrames.map(frame => ({ ...frame, visible: Boolean(frame.endpoints) })));
+          const webDisappearance = disappearance(frames);
+          record.lifecycle = { referenceFrames, maximumStartError: endpointErrors.length ? Math.max(...endpointErrors) : null,
+            currentStartError: pairs.at(-1)?.frame.visible && pairs.at(-1).reference.endpoints ? endpointErrors.at(-1) : null,
+            visibilityMismatches: pairs.filter(({ frame, reference }) => frame.visible !== Boolean(reference.endpoints)).map(pair => pair.frame.timeMs),
+            unityDisappearance, webDisappearance, disappearanceErrorMs: unityDisappearance === null || webDisappearance === null ? null : webDisappearance - unityDisappearance };
+        }
+      }
       }
     }
     if (invalidReferences.length)
@@ -153,7 +189,7 @@ export async function compareUnityCapture({ root, output })
     await writeFile(join(output, 'comparison.json'), JSON.stringify(report, null, 2)).catch(() => {});
     const rows = ['# Unity 同状态视觉对照', '', `状态：${report.status}`, '',
       `采集提交：${report.capture.commit}；网页重放：${report.replayCommit}；Unity ${report.capture.unityVersion}；${report.browser ?? '浏览器尚未启动'}`, '', report.note, '',
-      `两轮状态及像素一致性：${report.repeat.stateAndPixelsIdentical}。网页保留 96×8 网格；Unity 原网格 64×1。拖尾由同一原始点集重建网页网格。`, '',
+      `两轮状态及像素一致性：${report.repeat.stateAndPixelsIdentical}。Unity 原圆环网格 64×1；网页实际配置记录于结果。state 为最终状态重放，input 为手动输入 API 自行推进。`, '',
       '原 Prefab 拖尾的投影三角数量、宽度曲线求值另列于 JSON referenceGeometry；若投影几何退化，空参考图的差异不能代表正常可见 Unity 拖尾的还原误差。不修改参考 Prefab 来消除这个差异。', '',
       '| 场景 | 后端 | 层 | 最大误差 | MAE | RMSE | 参考能量 | 网页能量 |', '|---|---|---|---:|---:|---:|---:|---:|'];
     for (const [name, backends] of Object.entries(report.cases))
@@ -168,5 +204,15 @@ export async function compareUnityCapture({ root, output })
     }
     if (report.failure) rows.push('', `失败：${report.failure.message}`);
     await writeFile(join(output, 'comparison.md'), `${rows.join('\n')}\n`).catch(() => {});
+    const inputRows = ['# Unity 相同输入与完整拖尾生命周期', '',
+      'JS 通过手动输入 API、生产时钟和生产更新函数自行推进；不写入 Unity 有效端点或 BakeMesh。前景使用参考、基线、新版本的并集。', '',
+      '| 场景 | 后端 | RGB 总量变化 | 前景 MAE | 当前旧端误差 px | 消失偏差 ms |', '|---|---|---:|---:|---:|---:|'];
+    for (const [name, backends] of Object.entries(report.inputCases))
+    for (const [backend, record] of Object.entries(backends))
+    {
+      const final = record.stages['40_Composite'];
+      if (final) inputRows.push(`| ${name} | ${backend} | ${final.relativeEnergyError === null ? '空帧' : (final.relativeEnergyError * 100).toFixed(4) + '%'} | ${final.foreground.actual.meanAbsoluteError.toPrecision(6)} | ${record.lifecycle.currentStartError ?? '-'} | ${record.lifecycle.disappearanceErrorMs ?? '-'} |`);
+    }
+    await writeFile(join(output, 'input-comparison.md'), `${inputRows.join('\n')}\n`).catch(() => {});
   }
 }
