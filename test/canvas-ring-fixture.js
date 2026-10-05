@@ -4,7 +4,7 @@ import { instrumentRingSource } from '../scripts/runtime-ring-diagnostics.mjs';
 // 实际私有算法的 stop/回调序列黄金数据；只在测试副本中暴露函数。
 export async function ringFixture(sourceText = null)
 {
-  const url = new URL('../src/fx.js', import.meta.url);
+  const url = new URL('../src/engine-core.js', import.meta.url);
   const source = instrumentRingSource(sourceText ?? readFileSync(url, 'utf8'), url);
   const module = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
   const records = [];

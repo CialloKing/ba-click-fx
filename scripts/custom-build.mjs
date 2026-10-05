@@ -10,7 +10,7 @@ export function buildCustom(root, path, runVite)
   const outDir = join(root, 'dist-custom');
   mkdirSync(outDir, { recursive: true });
   const entry = join(outDir, '.entry.js');
-  writeFileSync(entry, `export { default, BAClickFX } from '../src/fx.js';\n`);
+  writeFileSync(entry, `export { default, BAClickFX } from '../src/engine-core.js';\n`);
   try
   {
     runVite(['build', '--config', 'vite.lib.config.js'], {

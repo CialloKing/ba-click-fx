@@ -6,7 +6,7 @@ import { TRIANGLE_TEXTURE_RGBA, TRIANGLE_TEXTURE_COVERAGE,
 // 只在测试副本中暴露内部染色和轻量计数，不增加发布 API。
 export async function tintFixture(sourceText = null, captureBytes = false)
 {
-  const sourceUrl = new URL('../src/fx.js', import.meta.url);
+  const sourceUrl = new URL('../src/engine-core.js', import.meta.url);
   let source = (sourceText ?? readFileSync(sourceUrl, 'utf8')).replace(/from '(\.\/[^']+)'/g,
     (_, path) => `from '${new URL(path, sourceUrl).href}'`);
   for (const [name, statements] of [

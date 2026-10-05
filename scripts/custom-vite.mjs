@@ -13,7 +13,7 @@ export function customVite(root, profile)
     load(id)
     {
       if (id === '\0virtual:ba-click-fx-profile') return compiled.constants;
-      if (id === '\0virtual:ba-click-fx-custom') return `export { default, BAClickFX } from ${JSON.stringify(resolve(root, 'src/fx.js'))};`;
+      if (id === '\0virtual:ba-click-fx-custom') return `export { default, BAClickFX } from ${JSON.stringify(resolve(root, 'src/engine-core.js'))};`;
       if (id.replaceAll('\\', '/').startsWith(resolve(root, 'src').replaceAll('\\', '/') + '/'))
         return compiled.sources.get(basename(id));
     },

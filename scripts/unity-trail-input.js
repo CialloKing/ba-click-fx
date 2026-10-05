@@ -6,8 +6,14 @@ export async function loadTrailRuntime(prefix = '/src/')
   {
     runtimeModules.set(prefix, (async () =>
     {
-      const file = `${prefix}fx.js`;
+      let file = `${prefix}fx.js`;
       let source = await (await fetch(file)).text();
+      if (!source.includes('function appendTrailWebGLScene('))
+      {
+        // 兼容拆分后的公共入口，也保留对旧源码快照的诊断能力。
+        file = `${prefix}engine-core.js`;
+        source = await (await fetch(file)).text();
+      }
       source = source.replace(/from\s*(['"])((?:\.\/|\/)[^'"]+)\1/g,
         (_, quote, path) => `from '${new URL(path, new URL(file, location.href)).href}'`);
       source += '\nexport { appendTrailWebGLScene };';

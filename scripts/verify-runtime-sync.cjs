@@ -11,7 +11,7 @@ const {
   verify,
 } = require('./verify-sync.cjs');
 
-const engineJs = readText('src/fx.js');
+const engineJs = ['engine-core', 'engine-input', 'engine-backends', 'engine-lifecycle', 'engine-config'].map(name => readText(`src/${name}.js`)).join('\n');
 const configJs = readText('src/config.js');
 const typeDefinitions = readText('src/ba-click-fx.d.ts');
 

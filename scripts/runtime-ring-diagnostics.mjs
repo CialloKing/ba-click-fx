@@ -45,7 +45,7 @@ export function instrumentRingSource(source, sourceUrl)
 
 export async function loadRingDiagnosticModule()
 {
-  const sourceUrl = new URL('/src/fx.js', location.href);
+  const sourceUrl = new URL('/src/engine-core.js', location.href);
   const response = await fetch(sourceUrl);
   if (!response.ok) throw new Error(`圆环诊断源码读取失败：${response.status}`);
   const url = URL.createObjectURL(new Blob([instrumentRingSource(await response.text(), sourceUrl)], { type: 'text/javascript' }));

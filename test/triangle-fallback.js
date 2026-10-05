@@ -127,7 +127,7 @@ assert.deepEqual(
   'roundness=1 必须退化为同尺寸圆形',
 );
 
-const fxSource = readFileSync(new URL('../src/fx.js', import.meta.url), 'utf8');
+const fxSource = readFileSync(new URL('../src/engine-core.js', import.meta.url), 'utf8');
 const fallbackCallCount = [
   ...fxSource.matchAll(/\btraceRoundedTrianglePath\(/g),
 ].length;

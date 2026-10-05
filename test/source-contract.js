@@ -14,6 +14,7 @@ import { ringFixture } from './canvas-ring-fixture.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BAClickFX } from '../src/fx.js';
+import { releaseMeshGradients } from '../src/engine-shared.js';
 
 // 独立计数包装必须保持返回值、异常和原型描述符，恢复可重复执行。
 {
@@ -421,7 +422,7 @@ assert(
   '点击与拖尾发射倍率相互独立，原生阴影回退单独标定',
 );
 const sourceFiles = {
-  fx: readFileSync(new URL('../src/fx.js', import.meta.url), 'utf8'),
+  fx: ['engine-core', 'engine-input', 'engine-backends', 'engine-lifecycle', 'engine-config'].map(name => readFileSync(new URL(`../src/${name}.js`, import.meta.url), 'utf8')).join('\n'),
   webgl2: readFileSync(
     new URL('../src/webgl2-effect.js', import.meta.url),
     'utf8',
@@ -920,12 +921,13 @@ assert.equal(fx.destroyed, true, '源码入口可以销毁实例');
 
 // 私有缓存函数直接取自源码，不增加发布导出或第二套测试框架。
 {
-  const source = readFileSync(new URL('../src/fx.js', import.meta.url), 'utf8');
-  const helpers = source.slice(source.indexOf('function releaseMeshGradients('), source.indexOf('function fillTrailMeshSegment('));
+  const source = readFileSync(new URL('../src/engine-core.js', import.meta.url), 'utf8');
+  const helpers = source.slice(source.indexOf('function getTrailGradientGroup('), source.indexOf('function fillTrailMeshSegment('));
   const { group, gradient, release } = new Function(`const TRAIL_GRADIENT_CACHE_CAPACITY = 8;
+    const releaseMeshGradients = arguments[0];
     const themeHueShift = 0, relativeOklchTheme = null, clamp01 = x => Math.max(0, Math.min(1, x));
     ${helpers}
-    return { group: getTrailGradientGroup, gradient: cachedTrailGradient, release: releaseMeshGradients };`)();
+    return { group: getTrailGradientGroup, gradient: cachedTrailGradient, release: releaseMeshGradients };`)(releaseMeshGradients);
   const mesh = {}, data = {}, config = {}, layer = { gradientPurpose: 'clear', alpha: 1 };
   const transform = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
   let creations = 0;

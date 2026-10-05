@@ -84,6 +84,30 @@ export function customApi(profile)
     ...(profile.features.compositingReference ? ['setCompositingReference'] : [])];
 }
 
+const ENGINE_PARTS = ['engine-input.js', 'engine-backends.js', 'engine-lifecycle.js', 'engine-config.js'];
+
+function inlineEngineParts(root, code)
+{
+  const ast = parseAst(code);
+  const cls = ast.body.find(node => node.declaration?.id?.name === 'BAClickFX').declaration;
+  const edits = [[cls.id.end, cls.body.start, '\n']];
+  for (const node of ast.body)
+    if (node.type === 'ImportDeclaration' && node.source.value === './engine-config.js') edits.push([node.start, node.end, '']);
+  const constructor = cls.body.body.find(member => member.key.name === 'constructor');
+  const superCall = constructor.value.body.body[0];
+  edits.push([superCall.start, superCall.end, '']);
+  const methods = ENGINE_PARTS.flatMap(filename =>
+  {
+    const source = readFileSync(join(root, 'src', filename), 'utf8');
+    const part = parseAst(source).body.find(node => node.declaration?.type === 'ClassDeclaration').declaration;
+    return part.body.body.map(member => source.slice(member.start, member.end));
+  });
+  // 类方法本身不会被 tree-shake：把同一份源码方法静态展开后再追踪能力。
+  // 完整版直接使用职责模块，定制版无需携带原型链或运行时模块装配。
+  edits.push([cls.body.end - 1, cls.body.end - 1, '\n' + methods.join('\n') + '\n']);
+  return edit(code, edits);
+}
+
 export function compileCustomSources(root, profile)
 {
   const gpu = ['webgl2', 'webgl2-bloom', 'webgpu', 'webgpu-hdr'].includes(profile.backend);
@@ -100,8 +124,9 @@ export function compileCustomSources(root, profile)
   const sources = new Map();
   for (const filename of readdirSync(join(root, 'src')).filter(name => name.endsWith('.js')))
   {
-    if (filename === 'build-capabilities.js') continue;
+    if (filename === 'build-capabilities.js' || ENGINE_PARTS.includes(filename)) continue;
     let code = readFileSync(join(root, 'src', filename), 'utf8');
+    if (filename === 'engine-core.js') code = inlineEngineParts(root, code);
     const ast = parseAst(code);
     const edits = [];
     walk(ast, (node, parent) =>
@@ -141,17 +166,17 @@ export function compileCustomSources(root, profile)
         }
         if (['number', 'boolean', 'string'].includes(typeof value)) edits.push([node.start, node.end, JSON.stringify(value)]);
       }
-      if (filename === 'fx.js' && node.type === 'ExportNamedDeclaration' && !node.declaration)
+      if (filename === 'engine-core.js' && node.type === 'ExportNamedDeclaration' && !node.declaration)
       {
         edits.push([node.start, node.end, '']);
       }
-      if (filename === 'fx.js' && node.type === 'ImportDeclaration' && node.source.value === './config.js')
+      if (filename === 'engine-core.js' && node.type === 'ImportDeclaration' && node.source.value === './config.js')
       {
         const specs = node.specifiers.filter(spec => spec.local.name !== 'UNITY_FX_TOUCH');
         edits.push([node.start, node.end, `import { ${specs.map(spec => spec.local.name).join(', ')} } from './config.js';
 import { FIXED_FX as UNITY_FX_TOUCH } from 'virtual:ba-click-fx-profile';`]);
       }
-      if (filename === 'fx.js' && node.type === 'MethodDefinition' && parent?.type === 'ClassBody')
+      if (filename === 'engine-core.js' && node.type === 'MethodDefinition' && parent?.type === 'ClassBody')
       {
         const name = node.key.name;
         const dynamic = ['setThemeColor', 'setThemeColorMode', 'setInputSamplingRate', 'updateConfig',
@@ -189,7 +214,7 @@ import { FIXED_FX as UNITY_FX_TOUCH } from 'virtual:ba-click-fx-profile';`]);
   for (let round = 0; round < 8; round++)
   {
     let changed = false;
-    let code = sources.get('fx.js');
+    let code = sources.get('engine-core.js');
     const ast = parseAst(code);
     const cls = ast.body.find(n => n.declaration?.id?.name === 'BAClickFX').declaration;
     const methods = new Map(cls.body.body.map(member => [member.key.name, member]));
@@ -213,7 +238,7 @@ import { FIXED_FX as UNITY_FX_TOUCH } from 'virtual:ba-click-fx-profile';`]);
     });
     if (inlines.length)
     {
-      sources.set('fx.js', compress(edit(code, inlines)));
+      sources.set('engine-core.js', compress(edit(code, inlines)));
       continue;
     }
     const reached = new Set(['constructor', ...customApi(profile)]);
@@ -233,7 +258,7 @@ import { FIXED_FX as UNITY_FX_TOUCH } from 'virtual:ba-click-fx-profile';`]);
     const next = compress(edit(code, [...methods].filter(([name]) => !reached.has(name))
       .map(([, node]) => [node.start, node.end, ''])));
     changed ||= next !== code;
-    sources.set('fx.js', next);
+    sources.set('engine-core.js', next);
     const localAst = parseAst(next);
     const localClasses = localAst.body.filter(n => n.type === 'ClassDeclaration');
     const called = new Set();
@@ -267,13 +292,13 @@ import { FIXED_FX as UNITY_FX_TOUCH } from 'virtual:ba-click-fx-profile';`]);
     }
     if (removals.length)
     {
-      sources.set('fx.js', compress(edit(next, removals)));
+      sources.set('engine-core.js', compress(edit(next, removals)));
       changed = true;
     }
     if (!changed) break;
   }
   const rendererNames = ['webgl2-effect.js', 'webgpu-effect.js'];
-  const engineRoots = memberNames(sources.get('fx.js'));
+  const engineRoots = memberNames(sources.get('engine-core.js'));
   const geometryRoots = new Set(engineRoots);
   for (const filename of rendererNames)
   {
@@ -283,7 +308,7 @@ import { FIXED_FX as UNITY_FX_TOUCH } from 'virtual:ba-click-fx-profile';`]);
   }
   sources.set('effect-geometry.js', pruneClasses(sources.get('effect-geometry.js'), geometryRoots));
   {
-    const code = sources.get('fx.js');
+    const code = sources.get('engine-core.js');
     const ast = parseAst(code);
     const cls = ast.body.find(node => node.declaration?.id?.name === 'BAClickFX').declaration;
     const hidden = new Set(cls.body.body.map(member => member.key.name)
@@ -296,7 +321,7 @@ import { FIXED_FX as UNITY_FX_TOUCH } from 'virtual:ba-click-fx-profile';`]);
       if (node.type === 'MemberExpression' && node.object.type === 'ThisExpression' && hidden.has(node.property.name))
         edits.push([node.property.start, node.property.end, '_' + node.property.name]);
     });
-    sources.set('fx.js', edit(code, edits));
+    sources.set('engine-core.js', edit(code, edits));
   }
   for (const [filename, code] of sources)
   {
