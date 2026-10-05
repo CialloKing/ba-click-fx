@@ -381,7 +381,8 @@ try
                   ringDiagnostic.resetRingWork();
                   const canvas = trackCanvasWork(fx, CanvasRenderingContext2D.prototype, CanvasGradient.prototype);
                   return { counts: { get ringWorkPer20() { return { ...ringDiagnostic.ringWork,
-                    preparationHits: ringDiagnostic.ringWork.preparationRequests - ringDiagnostic.ringWork.preparations }; },
+                    preparationHits: ringDiagnostic.ringWork.preparationRequests - ringDiagnostic.ringWork.preparations,
+                    stopHits: ringDiagnostic.ringWork.stopRequests - ringDiagnostic.ringWork.stopPreparations }; },
                     canvasWorkPer20: canvas.counts }, restore: canvas.restore };
                 },
                 destroy: () => destroyEffect(fx),
@@ -506,6 +507,8 @@ try
   // 正式基准全部结束后再包装诊断与 CPU 采样，避免影响七轮原始耗时。
   result.filterWork = await page.evaluate(async () =>
     (await import('/scripts/runtime-filter-diagnostics.mjs')).countSoftwareFiltering());
+  result.bufferWork = await page.evaluate(async () =>
+    (await import('/scripts/runtime-filter-diagnostics.mjs')).countSoftwareBuffers());
   const { diagnostics, profile } = await diagnoseSoftware(page);
   result.softwareDiagnosticsFile = `runtime-software-${label}.json`;
   result.softwareProfileFile = `runtime-software-${label}.cpuprofile`;

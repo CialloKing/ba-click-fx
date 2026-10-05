@@ -55,3 +55,44 @@ export async function countSoftwareFiltering()
   }
   finally { renderer?.destroy(); URL.revokeObjectURL(url); }
 }
+
+export async function countSoftwareBuffers()
+{
+  const { SoftwareBloomRenderer } = await import('/src/software-bloom.js');
+  const records = [];
+  for (const [width, height] of [[320, 240], [1950, 1097]])
+  {
+    const renderer = new SoftwareBloomRenderer(() => document.createElement('canvas'));
+    let allocations = 0; let allocatedBytes = 0;
+    const resize = renderer._resizeFloatBuffer;
+    renderer._resizeFloatBuffer = function (buffer, length)
+    {
+      const output = resize.call(this, buffer, length);
+      if (output.buffer !== buffer.buffer) { allocations++; allocatedBytes += output.buffer.byteLength; }
+      return output;
+    };
+    const take = (regionWidth, regionHeight, diffusion = 7) =>
+    {
+      allocations = 0; allocatedBytes = 0;
+      if (!renderer.beginFrame(regionWidth, regionHeight, 0.5,
+        { x: 0, y: 0, width: regionWidth, height: regionHeight }, diffusion, 1) ||
+        !renderer.beginCoverageFrame('browser-overlay') || !renderer._ensureCoverageBuffers())
+        throw new Error('缓冲计数布局准备失败');
+      const buffers = new Set([renderer.sourceLinear.buffer, renderer.sourceCoverage.buffer,
+        renderer.sceneCoverageMip0.buffer, ...[...renderer.levelStorage, ...renderer.coverageLevelStorage]
+          .flatMap(level => [level.down.buffer, level.up.buffer, level.scratch.buffer])]);
+      return { allocations, allocatedBytes, heldBytes: [...buffers].reduce((sum, buffer) => sum + buffer.byteLength, 0),
+        levels: renderer.levels.map(level => [level.width, level.height]),
+        scratchBytes: [...renderer.levels, ...renderer.coverageLevels].reduce((sum, level) => sum + level.scratch.buffer.byteLength, 0),
+        lastUpBytes: renderer.levels.at(-1).up.buffer.byteLength + renderer.coverageLevels.at(-1).up.buffer.byteLength };
+    };
+    try
+    {
+      records.push({ width, height, cold: take(width, height), stable: take(width, height),
+        fewerLevels: take(width, height, 5), moreLevels: take(width, height, 8),
+        shrunk: take(65, 33), restored: take(width, height) });
+    }
+    finally { delete renderer._resizeFloatBuffer; renderer.destroy(); }
+  }
+  return { records, note: '独立计数使用真实 Canvas 布局，字节按唯一 ArrayBuffer 计数；不参与正式耗时。' };
+}
