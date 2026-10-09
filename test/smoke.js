@@ -3595,6 +3595,36 @@ assert(
   '松开时立即释放没有存活拖尾碎片的空 owner 计数',
 );
 
+shardOwnerEffect.updateConfig({ trailAlways: true, clickEnabled: false });
+for (let index = 0; index < 20; index++)
+{
+  shardOwnerEffect.pointerMove({ x: 100, y: 100, pointerId: 81 });
+  shardOwnerEffect.pointerDown({ x: 100, y: 100, pointerId: 81 });
+  shardOwnerEffect.pointerUp(81);
+}
+assert(shardOwnerEffect.trailShardCounts.size === 0,
+  '连续悬停接管点击不会积累空 owner 计数');
+shardOwnerEffect.pointerMove({ x: 100, y: 100, pointerId: 81 });
+shardOwnerEffect.pointerMove({ x: 500, y: 100, pointerId: 81 });
+const hoverOwnerId = shardOwnerEffect.activeTrailOwnerId;
+const hoverStroke = shardOwnerEffect.currentTrailStroke;
+const hoverShard = shardOwnerEffect.shards.find((shard) =>
+  shard.kind === 'trail' && shard.ownerId === hoverOwnerId);
+shardOwnerEffect.pointerDown({ x: 500, y: 100, pointerId: 81 });
+assert(!hoverStroke.active && shardOwnerEffect.trailStrokes.includes(hoverStroke) &&
+  shardOwnerEffect.trailShardCounts.get(hoverOwnerId) === 1 &&
+  shardOwnerEffect.activeTrailOwnerId !== hoverOwnerId,
+  '点击接管保留悬停轨迹及存活碎片的 owner 计数');
+hoverShard.ageMs = hoverShard.lifetimeMs;
+shardOwnerEffect._updateShards(
+  shardOwnerEffect.clickTimeMs, shardOwnerEffect.trailTimeMs,
+  shardOwnerEffect._getScale(), false,
+);
+assert(!shardOwnerEffect.trailShardCounts.has(hoverOwnerId) &&
+  shardOwnerEffect.trailShardCounts.has(shardOwnerEffect.activeTrailOwnerId),
+  '悬停碎片过期后释放旧 owner 而不影响当前按下');
+shardOwnerEffect.pointerUp(81);
+
 shardOwnerEffect.setFxParam('shards.maxCount', 50);
 shardOwnerEffect.setFxParam('shards.trailSpacing', 1);
 shardOwnerEffect.pointerDown({ x: 100, y: 400, pointerId: 84 });

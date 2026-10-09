@@ -1246,10 +1246,10 @@ export class InputRuntime
       return false;
     }
 
-    if (this.activePointerId !== null && this.currentTrailStroke)
+    if (this.activePointerSource === 'hover')
     {
-      // 点击接管悬停时只停止旧 stroke 发射，已有顶点仍自然衰减。
-      this.currentTrailStroke.active = false;
+      // 正常结束悬停可保留衰减轨迹，同时释放空 owner 或等待存活碎片归还。
+      this._releaseActivePointer(false);
     }
 
     this.activePointerId = pointer.pointerId;
