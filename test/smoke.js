@@ -2208,6 +2208,33 @@ assert(
 );
 manualEffect.destroy();
 
+console.log('\n容器输入范围');
+const scopedMouseEffect = new BAClickFX({
+  target: new CanvasMock(null, { left: 100, top: 100, width: 400, height: 300 }),
+  effectBackend: 'canvas2d', bloomBackend: 'native',
+});
+for (const pointerType of ['mouse', 'pen', 'touch'])
+{
+  dom.windowMock.dispatch('pointerdown', {
+    pointerType, pointerId: 909, button: 0, clientX: 800, clientY: 650,
+  });
+}
+assert(scopedMouseEffect.activePointerId === null && scopedMouseEffect.waves.length === 0,
+  '容器拒绝外部鼠标、笔和默认触摸输入');
+dom.windowMock.dispatch('pointerdown', {
+  pointerType: 'mouse', pointerId: 909, button: 0, clientX: 120, clientY: 120,
+});
+dom.windowMock.dispatch('pointermove', { pointerId: 909, clientX: 800, clientY: 650 });
+dom.windowMock.dispatch('pointerup', { pointerId: 909, clientX: 800, clientY: 650 });
+assert(scopedMouseEffect.waves.length === 1 && scopedMouseEffect.activePointerId === null,
+  '容器内按下后仍在容器外接收拖拽与松开');
+scopedMouseEffect.updateConfig({ trailAlways: true });
+dom.windowMock.dispatch('pointermove', { pointerId: 910, clientX: 800, clientY: 650 });
+assert(scopedMouseEffect.activePointerId === null, '悬停拖尾不会从容器外启动');
+dom.windowMock.dispatch('pointermove', { pointerId: 910, clientX: 120, clientY: 120 });
+assert(scopedMouseEffect.activePointerId === 910, '悬停拖尾可以从容器内启动');
+scopedMouseEffect.destroy();
+
 console.log('\n移动端触摸行为');
 const touchActionEffect = new BAClickFX(
   {

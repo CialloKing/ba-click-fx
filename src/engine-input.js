@@ -1122,6 +1122,19 @@ export class InputRuntime
       return decision;
     }
 
+    if (!usesTouchShim && this.host)
+    {
+      const rect = this._getCanvasRect();
+      // 覆盖层不参与命中测试，closed Shadow 也可能隐藏 target；按显示矩形
+      // 限制新指针准入，已开始的拖拽仍由 window 接收移动和结束事件。
+      if (!(rect.width > 0 && rect.height > 0 &&
+        event.clientX >= rect.left && event.clientX <= rect.left + rect.width &&
+        event.clientY >= rect.top && event.clientY <= rect.top + rect.height))
+      {
+        return decision;
+      }
+    }
+
     if (
       usesTouchShim &&
       !this._isTouchEventInScope(event, event.target)
