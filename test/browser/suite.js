@@ -1024,6 +1024,85 @@ async function runFullscreenScrollbarGutterContract()
   }
 }
 
+async function runCanvasContentBoxContract()
+{
+  disposeActiveFixture();
+  resetVirtualRuntime();
+  const results = [];
+  for (const boxSizing of ['content-box', 'border-box'])
+  for (const [border, padding] of [[20, 0], [0, 10.25], [3, 10.25]])
+  for (const [scaleX, scaleY] of [[1, 1], [0.7, 1.2]])
+  {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = `position:absolute;left:100px;top:100px;width:400.5px;height:300.25px;
+      box-sizing:${boxSizing};border:${border}px solid black;padding:${padding}px;
+      transform-origin:0 0;transform:scale(${scaleX},${scaleY});touch-action:auto`;
+    document.body.appendChild(canvas);
+    const styleBefore = canvas.style.cssText;
+    const effect = new BAClickFX({ target: canvas, maxDpr: 2,
+      effectBackend: 'canvas2d', bloomBackend: 'native', scale: 4 });
+    try
+    {
+      const inset = border + padding;
+      const width = (400.5 - (boxSizing === 'border-box' ? inset * 2 : 0)) * scaleX;
+      const height = (300.25 - (boxSizing === 'border-box' ? inset * 2 : 0)) * scaleY;
+      const left = 100 + inset * scaleX;
+      const top = 100 + inset * scaleY;
+      const input = (type, x, y) => canvas.dispatchEvent(new PointerEvent(type,
+        { bubbles: true, pointerId: 701, button: 0, clientX: x, clientY: y }));
+      input('pointerdown', left - 1, top + 30);
+      const outsideRejected = effect.activePointerId === null && effect.waves.length === 0;
+      const x = left + width * 0.4;
+      const y = top + height * 0.4;
+      effect.setFxParam('rings.count', 0);
+      effect.setFxParam('shards.clickCount', 0);
+      effect.setFxParam('hit.enabled', false);
+      effect.setFxParam('bloom.clickEmissionScale', 0);
+      input('pointerdown', x, y);
+      const wave = effect.waves[0];
+      await runAnimationFrame(virtualNow + 30);
+      const pixels = effect.context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let alpha = 0;
+      let weightedX = 0;
+      let weightedY = 0;
+      for (let index = 3; index < pixels.length; index += 4)
+      {
+        const weight = pixels[index];
+        const pixel = (index - 3) / 4;
+        alpha += weight;
+        weightedX += (pixel % canvas.width + 0.5) * weight;
+        weightedY += (Math.floor(pixel / canvas.width) + 0.5) * weight;
+      }
+      const pixelCenterError = Math.hypot(
+        left + weightedX / alpha / canvas.width * width - x,
+        top + weightedY / alpha / canvas.height * height - y,
+      );
+      input('pointerup', x, y);
+      effect.resize(200, 150);
+      input('pointerdown', x, y);
+      const explicitResizeMatches = Math.abs(effect.waves.at(-1).x - 80) < 0.001 &&
+        Math.abs(effect.waves.at(-1).y - 60) < 0.001;
+      input('pointerup', x, y);
+      effect.resize();
+      effect.resize();
+      results.push({ boxSizing, border, padding, scaleX, scaleY, dpr: effect.dpr,
+        outsideRejected, explicitResizeMatches, pixelCenterError,
+        sizeMatches: Math.abs(effect.width - width) < 0.001 && Math.abs(effect.height - height) < 0.001,
+        pointerMatches: Math.abs(wave.x - width * 0.4) < 0.001 && Math.abs(wave.y - height * 0.4) < 0.001,
+        backingMatches: canvas.width === Math.round(width * effect.dpr) &&
+          canvas.height === Math.round(height * effect.dpr),
+        styleUnchanged: canvas.style.cssText === styleBefore,
+      });
+    }
+    finally
+    {
+      effect.destroy();
+      canvas.remove();
+    }
+  }
+  return results;
+}
+
 async function runPausedResizeContract(mode)
 {
   const { effect } = await prepareEffect(
@@ -2959,6 +3038,7 @@ window.browserPixelSuite = Object.freeze(
     beginTransparentContractTransitions,
     runCase,
     runPausedResizeContract,
+    runCanvasContentBoxContract,
     runCompositingReferenceReset,
     runContextLifecycle,
     runThemeColorContract,

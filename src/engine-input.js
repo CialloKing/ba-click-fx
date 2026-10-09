@@ -877,10 +877,36 @@ export class InputRuntime
 
   _getCanvasRect()
   {
-    // 绝对定位画布覆盖宿主的 padding box，宿主 border box 会带来原点和尺寸偏差。
+    // 使用画布自身的绘图内容区，宿主或画布的 border/padding 都不参与绘制。
     if (typeof this.canvas?.getBoundingClientRect === 'function')
     {
-      return this.canvas.getBoundingClientRect();
+      const rect = this.canvas.getBoundingClientRect();
+      const view = this.canvas.ownerDocument?.defaultView;
+      if (typeof view?.getComputedStyle !== 'function')
+      {
+        return rect;
+      }
+      const style = view.getComputedStyle(this.canvas);
+      const left = (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.paddingLeft) || 0);
+      const right = (parseFloat(style.borderRightWidth) || 0) + (parseFloat(style.paddingRight) || 0);
+      const top = (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.paddingTop) || 0);
+      const bottom = (parseFloat(style.borderBottomWidth) || 0) + (parseFloat(style.paddingBottom) || 0);
+      // clientWidth/offsetWidth 会取整，不能用于小数尺寸及 CSS 缩放后的坐标换算。
+      const borderBox = style.boxSizing === 'border-box';
+      const boxWidth = parseFloat(style.width) + (borderBox ? 0 : left + right);
+      const boxHeight = parseFloat(style.height) + (borderBox ? 0 : top + bottom);
+      if (!(boxWidth > 0 && boxHeight > 0))
+      {
+        return rect;
+      }
+      const scaleX = rect.width / boxWidth;
+      const scaleY = rect.height / boxHeight;
+      return {
+        left: rect.left + left * scaleX,
+        top: rect.top + top * scaleY,
+        width: Math.max(0, boxWidth - left - right) * scaleX,
+        height: Math.max(0, boxHeight - top - bottom) * scaleY,
+      };
     }
 
     if (this.host && !isCanvas(this.host) && typeof this.host.getBoundingClientRect === 'function')

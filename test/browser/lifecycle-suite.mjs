@@ -84,6 +84,23 @@ async function runLifecycleMatrix(browserInstance, baseUrl)
     trailTextureResourceLifecycle,
   );
   state.metrics.trailTextureResourceLifecycle = trailTextureResourceLifecycle;
+  state.metrics.canvasContentBox = {};
+  for (const dpr of [1, 2])
+  {
+    state.currentLabel = `canvas-content-box-dpr${dpr}`;
+    const session = await openFixture(browserInstance, baseUrl, dpr);
+    const results = await session.page.evaluate(() => window.browserPixelSuite.runCanvasContentBoxContract());
+    for (const result of results)
+    {
+      assert(result.dpr === dpr && result.outsideRejected && result.explicitResizeMatches && result.sizeMatches &&
+        result.pointerMatches && result.backingMatches && result.styleUnchanged && result.pixelCenterError < 1,
+      'Canvas 绘图内容区的尺寸、坐标、像素中心或样式所有权错误', result);
+    }
+    state.metrics.canvasContentBox[dpr] = results;
+    assert(session.pageErrors.length === 0 && session.consoleErrors.length === 0,
+      'Canvas 内容区回归出现浏览器异常', session.pageErrors);
+    await session.context.close();
+  }
   state.metrics.pausedResize = {};
   for (const mode of ['native', 'software-bloom'])
   {
