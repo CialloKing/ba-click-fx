@@ -5590,40 +5590,45 @@ export class BAClickFX extends ConfigRuntime
       setOverlayStyle(this.canvas, false, '2147483646', '');
       setOverlayStyle(this.contrastCanvas, false, '2147483647', 'darken');
 
-      this._applyCompositingMount();
     }
     else
     {
       this.overlayMountParent = null;
       this.overlayRoot = null;
       this.overlayParent = null;
-      this._applyCompositingMount();
     }
 
-    if (this.canvas.style)
-    {
-      this.canvas.style.touchAction = this.config.touchAction;
-    }
     const isDirectOffscreen = isOffscreenCanvas(this.canvas);
     const requiresCanvas2D = CUSTOM_BUILD
       ? BUILD_CANVAS
       : !isDirectOffscreen || this.config.effectBackend === 'canvas2d';
 
     // Canvas 上下文类型一旦确定便不能切换；GPU 模式必须把首次请求留给 WebGL2。
-    this.context = requiresCanvas2D ? this.canvas.getContext('2d') : null;
-    this.contrastContext = this.contrastCanvas?.getContext('2d') ?? null;
-
-    if (!this.context && requiresCanvas2D)
+    try
     {
-      const error = new Error('BAClickFX 无法创建 Canvas 2D 上下文');
+      this.context = requiresCanvas2D ? this.canvas.getContext('2d') : null;
+      this.contrastContext = this.contrastCanvas?.getContext('2d') ?? null;
+      if (!this.context && requiresCanvas2D)
+      {
+        throw new Error('BAClickFX 无法创建 Canvas 2D 上下文');
+      }
+    }
+    catch (cause)
+    {
+      const error = new Error('BAClickFX 无法创建 Canvas 2D 上下文', { cause });
       if (CUSTOM_BUILD)
       {
-        // 同步上下文失败时还没有完整实例，先释放自有宿主资源再通知调用者。
-        this.overlayRoot?.remove();
         error.code = 'initialization-failed';
         this.onError?.(error);
       }
       throw error;
+    }
+
+    // 确认上下文可用后才挂载节点和修改宿主样式，构造失败不会留下孤立覆盖层。
+    this._applyCompositingMount();
+    if (this.canvas.style)
+    {
+      this.canvas.style.touchAction = this.config.touchAction;
     }
 
     // 内部 Canvas 仅承担发射遮罩和 ImageData 暂存，不会插入 DOM。

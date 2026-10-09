@@ -960,6 +960,43 @@ for (const isolatedCompositing of [false, true])
 }
 dom.setCanvasBounds({ left: 0, top: 0, width: 1920, height: 1080 });
 
+const initializationGetContext = CanvasMock.prototype.getContext;
+try
+{
+  for (const isolatedCompositing of [false, true])
+  {
+    for (const throws of [false, true])
+    {
+      const childCount = dom.body.children.length;
+      const frameCount = dom.frames.size;
+      CanvasMock.prototype.getContext = () =>
+      {
+        if (throws)
+        {
+          throw new Error('injected context failure');
+        }
+        return null;
+      };
+      let error = null;
+      try
+      {
+        new BAClickFX({ isolatedCompositing });
+      }
+      catch (failure)
+      {
+        error = failure;
+      }
+      assert(/无法创建 Canvas 2D/.test(error?.message) &&
+        dom.body.children.length === childCount && dom.frames.size === frameCount,
+        `初始化失败不残留节点或动画（隔离=${isolatedCompositing}，抛异常=${throws}）`);
+    }
+  }
+}
+finally
+{
+  CanvasMock.prototype.getContext = initializationGetContext;
+}
+
 const defaultBackendEffect = new BAClickFX();
 
 assert(
