@@ -890,8 +890,9 @@ export class InputRuntime
     return {
       left: 0,
       top: 0,
-      width: this.canvas?.width || 0,
-      height: this.canvas?.height || 0,
+      // OffscreenCanvas 只有物理尺寸；首次初始化后沿用宿主提交的 CSS 尺寸。
+      width: this.width || this.canvas?.width || 0,
+      height: this.height || this.canvas?.height || 0,
     };
   }
 

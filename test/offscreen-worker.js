@@ -201,6 +201,22 @@ assert(
     !canvas2d.contextRequests.includes('webgl2'),
   'Explicit Canvas2D mode does not lock the OffscreenCanvas to WebGL2',
 );
+canvas2dFx.updateConfig({ maxDpr: 2 });
+canvas2dFx.resize(320, 240, 2);
+for (let index = 0; index < 3; index++)
+{
+  canvas2dFx.resize(undefined, undefined, 2);
+}
+assert(canvas2dFx.width === 320 && canvas2dFx.height === 240 &&
+  canvas2d.width === 640 && canvas2d.height === 480,
+  'Partial OffscreenCanvas resize does not feed physical pixels back into CSS dimensions');
+canvas2dFx.updateConfig({ maxDpr: 1 });
+assert(canvas2dFx.width === 320 && canvas2dFx.dpr === 1 && canvas2d.width === 320,
+  'Changing the DPR cap preserves OffscreenCanvas logical dimensions');
+canvas2dFx.updateConfig({ maxDpr: 2 });
+canvas2dFx.resize();
+assert(canvas2dFx.dpr === 2 && canvas2d.width === 640 && canvas2d.height === 480,
+  'OffscreenCanvas retains the host DPR across cap changes and resize without arguments');
 assertThrows(
   () => canvas2dFx.updateConfig({ effectBackend: 'webgl2' }),
   /无法切换 OffscreenCanvas context 类型/,

@@ -1,6 +1,6 @@
 // 内部职责边界；完整版与定制构建使用这些同一份方法。
 import { BackendRuntime } from './engine-backends.js';
-import { cancelRenderFrame, resolvePositiveFinite } from './engine-shared.js';
+import { cancelRenderFrame, isOffscreenCanvas, resolvePositiveFinite } from './engine-shared.js';
 import { CUSTOM_BUILD } from './build-capabilities.js';
 
 export class LifecycleRuntime extends BackendRuntime
@@ -23,15 +23,21 @@ export class LifecycleRuntime extends BackendRuntime
     const rect = this._getCanvasRect();
     const defaultWidth = typeof window !== 'undefined' ? window.innerWidth : this.canvas?.width;
     const defaultHeight = typeof window !== 'undefined' ? window.innerHeight : this.canvas?.height;
-    const defaultDpr = typeof window !== 'undefined' ? window.devicePixelRatio : 1;
+    const offscreen = isOffscreenCanvas(this.canvas);
+    const defaultDpr = offscreen
+      ? this._offscreenDpr ?? 1
+      : typeof window !== 'undefined' ? window.devicePixelRatio : 1;
     const measuredWidth = resolvePositiveFinite(rect.width, resolvePositiveFinite(defaultWidth, 1));
     const measuredHeight = resolvePositiveFinite(rect.height, resolvePositiveFinite(defaultHeight, 1));
     const width = resolvePositiveFinite(overrideWidth, measuredWidth);
     const height = resolvePositiveFinite(overrideHeight, measuredHeight);
-    const dpr = Math.min(
-      resolvePositiveFinite(overrideDpr, resolvePositiveFinite(defaultDpr, 1)),
-      this.config.maxDpr,
-    );
+    const requestedDpr = resolvePositiveFinite(overrideDpr, resolvePositiveFinite(defaultDpr, 1));
+    if (offscreen)
+    {
+      // 保留宿主 DPR 而不是钳制结果，调整 maxDpr 后仍能恢复原显示密度。
+      this._offscreenDpr = requestedDpr;
+    }
+    const dpr = Math.min(requestedDpr, this.config.maxDpr);
     const pixelWidth = Math.round(width * dpr);
     const pixelHeight = Math.round(height * dpr);
     const layers = [
