@@ -877,14 +877,15 @@ export class InputRuntime
 
   _getCanvasRect()
   {
-    if (this.host && !isCanvas(this.host) && typeof this.host.getBoundingClientRect === 'function')
-    {
-      return this.host.getBoundingClientRect();
-    }
-
+    // 绝对定位画布覆盖宿主的 padding box，宿主 border box 会带来原点和尺寸偏差。
     if (typeof this.canvas?.getBoundingClientRect === 'function')
     {
       return this.canvas.getBoundingClientRect();
+    }
+
+    if (this.host && !isCanvas(this.host) && typeof this.host.getBoundingClientRect === 'function')
+    {
+      return this.host.getBoundingClientRect();
     }
 
     return {
@@ -898,9 +899,12 @@ export class InputRuntime
 
   _getPointerPosition(event, rect = this._getCanvasRect())
   {
+    // 显式 resize 可让逻辑尺寸与 CSS 显示尺寸不同；输入需使用同一缩放比例。
+    const scaleX = rect.width > 0 ? this.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? this.height / rect.height : 1;
     return {
-      x: clamp(event.clientX - rect.left, 0, this.width),
-      y: clamp(event.clientY - rect.top, 0, this.height),
+      x: clamp((event.clientX - rect.left) * scaleX, 0, this.width),
+      y: clamp((event.clientY - rect.top) * scaleY, 0, this.height),
     };
   }
 

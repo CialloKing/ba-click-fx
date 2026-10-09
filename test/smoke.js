@@ -937,6 +937,29 @@ hiddenFullscreenEffect.destroy();
 dom.setCanvasBounds({ width: 1920, height: 1080 });
 dom.windowMock.devicePixelRatio = fullscreenTestDevicePixelRatio;
 
+for (const isolatedCompositing of [false, true])
+{
+  const borderedHost = new ElementMock('div');
+  borderedHost.getBoundingClientRect = () => ({ left: 100, top: 100, width: 440, height: 340 });
+  dom.setCanvasBounds({ left: 120, top: 120, width: 400, height: 300 });
+  const borderedEffect = new BAClickFX({
+    target: borderedHost, isolatedCompositing, effectBackend: 'canvas2d', bloomBackend: 'native',
+  });
+  const input = { pointerId: 908, button: 0, clientX: 150, clientY: 150 };
+  dom.windowMock.dispatch('pointerdown', input);
+  assert(borderedEffect.width === 400 && borderedEffect.height === 300 &&
+    borderedEffect.waves[0].x === 30 && borderedEffect.waves[0].y === 30,
+    `容器边框不改变 Canvas 坐标和尺寸（隔离=${isolatedCompositing}）`);
+  dom.windowMock.dispatch('pointerup', input);
+  borderedEffect.clear();
+  borderedEffect.resize(200, 150, 1);
+  dom.windowMock.dispatch('pointerdown', input);
+  assert(borderedEffect.waves[0].x === 15 && borderedEffect.waves[0].y === 15,
+    'DOM 输入按逻辑尺寸与实际显示尺寸的比例换算');
+  borderedEffect.destroy();
+}
+dom.setCanvasBounds({ left: 0, top: 0, width: 1920, height: 1080 });
+
 const defaultBackendEffect = new BAClickFX();
 
 assert(
