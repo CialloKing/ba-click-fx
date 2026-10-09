@@ -1465,6 +1465,16 @@ function syncHdrPresentationControls(snapshot)
     if (control)
     {
       control.disabled = !active;
+      // 只收紧当前端点的范围；步长边界按整数档位取整，避免浮点尾差。
+      const tolerance = Number.EPSILON * Math.max(1, snapshot.webgpuHdrWhiteEnd) * 4;
+      if (configKey === 'webgpuHdrWhiteStart')
+      {
+        control.max = String(Math.floor((snapshot.webgpuHdrWhiteEnd - 0.01 + tolerance) * 100) / 100);
+      }
+      else if (configKey === 'webgpuHdrWhiteEnd')
+      {
+        control.min = String(Math.ceil((snapshot.webgpuHdrWhiteStart + 0.01 - tolerance) * 100) / 100);
+      }
       control.value = String(snapshot[configKey]);
     }
 
@@ -1491,7 +1501,25 @@ function scheduleRenderBackendFrameRefresh()
 
 function applyHdrPresentation(overrides, persist = true)
 {
-  effect.updateConfig(overrides);
+  try
+  {
+    effect.updateConfig(overrides);
+  }
+  catch (error)
+  {
+    // bindRange 已更新显示；提交被拒绝时恢复引擎快照，后续存储也使用恢复值。
+    const snapshot = effect.getConfig();
+    syncHdrPresentationControls(snapshot);
+    if (persist)
+    {
+      persistHdrPresentation(snapshot);
+    }
+    if (!(error instanceof TypeError))
+    {
+      throw error;
+    }
+    return false;
+  }
   const snapshot = effect.getConfig();
 
   updateRenderBackendStatus();
@@ -1504,6 +1532,7 @@ function applyHdrPresentation(overrides, persist = true)
   {
     persistHdrPresentation(snapshot);
   }
+  return true;
 }
 
 function syncHdrPresentationDetails(mode)

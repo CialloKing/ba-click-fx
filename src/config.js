@@ -1249,6 +1249,13 @@ function normalizeFiniteRange(value, fallback, minimum, maximum)
   return Math.max(minimum, Math.min(maximum, value));
 }
 
+function hasWebGPUHdrWhiteGap(whiteStart, whiteEnd)
+{
+  // 十进制滑块步长不能精确表示；仅容忍计算舍入，不放宽实际最小间隔。
+  const tolerance = Number.EPSILON * Math.max(1, Math.abs(whiteStart), Math.abs(whiteEnd)) * 4;
+  return whiteEnd - whiteStart + tolerance >= WEBGPU_HDR_WHITE_THRESHOLD_STEP;
+}
+
 /**
  * HDR 展示校准是 WebGPU 输出合同，不属于 Unity FX 参数树。
  * 起止阈值始终保留一个滑块步长，避免 WGSL 出现退化 smoothstep。
@@ -1301,10 +1308,9 @@ export function normalizeWebGPUHdrPresentation(
     webgpuHdrColorPreservation: colorPreservation,
     webgpuHdrWhiteCore: whiteCore,
     webgpuHdrWhiteStart: whiteStart,
-    webgpuHdrWhiteEnd: Math.max(
-      whiteStart + WEBGPU_HDR_WHITE_THRESHOLD_STEP,
-      requestedWhiteEnd,
-    ),
+    webgpuHdrWhiteEnd: hasWebGPUHdrWhiteGap(whiteStart, requestedWhiteEnd)
+      ? requestedWhiteEnd
+      : whiteStart + WEBGPU_HDR_WHITE_THRESHOLD_STEP,
   };
 }
 
@@ -1402,7 +1408,10 @@ export function assertConfigOverrides(
   const whiteEnd = overrides.webgpuHdrWhiteEnd ??
     fallback.webgpuHdrWhiteEnd ?? fallback.whiteEnd;
 
-  if (whiteEnd < whiteStart + WEBGPU_HDR_WHITE_THRESHOLD_STEP)
+  if (
+    Number.isFinite(whiteStart) && Number.isFinite(whiteEnd) &&
+    !hasWebGPUHdrWhiteGap(whiteStart, whiteEnd)
+  )
   {
     throw new TypeError(
       'BAClickFX 配置项 webgpuHdrWhiteEnd 必须至少比 webgpuHdrWhiteStart 大 0.01',

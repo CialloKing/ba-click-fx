@@ -1603,6 +1603,85 @@ async function setDemoHdrUiEnabled(page, enabled)
   }, enabled);
 }
 
+async function runDemoHdrThresholdControls(page)
+{
+  const viewport = page.viewportSize();
+  const start = page.locator('#ctrlWebGPUHdrWhiteStart');
+  const end = page.locator('#ctrlWebGPUHdrWhiteEnd');
+  const check = async (expected) =>
+  {
+    await page.waitForFunction(() => !document.getElementById('ctrlWebGPUHdrWhiteStart').disabled);
+    const snapshot = await page.evaluate(() =>
+    {
+      const config = window.BAClickFXDemo.getConfig();
+      return ['Start', 'End'].map((name) =>
+      {
+        const id = `ctrlWebGPUHdrWhite${name}`;
+        const value = config[`webgpuHdrWhite${name}`];
+        return { value, control: Number(document.getElementById(id).value),
+          output: document.getElementById(`outWebGPUHdrWhite${name}`).textContent,
+          stored: Number(localStorage.getItem(`bafx-${id}`)) };
+      });
+    });
+    assert.deepEqual(snapshot.map(({ value }) => value), expected);
+    for (const entry of snapshot)
+    {
+      assert.equal(entry.control, entry.value);
+      assert.equal(entry.output, entry.value.toFixed(2));
+      assert.equal(entry.stored, entry.value);
+    }
+  };
+  try
+  {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.locator('#panelToggle').click();
+    for (const [control, key, expected] of [
+      [start, 'End', [4.99, 5]], [start, 'Home', [0, 5]],
+      [end, 'Home', [0, 0.01]], [end, 'End', [0, 16]],
+      [start, 'End', [15.99, 16]], [start, 'Home', [0, 16]],
+      [end, 'Home', [0, 0.01]],
+    ])
+    {
+      await control.press(key);
+      await check(expected);
+    }
+    for (let index = 0; index < 28; index++) await end.press('ArrowUp');
+    await start.press('End');
+    await check([0.28, 0.29]);
+    await page.reload();
+    await check([0.28, 0.29]);
+
+    // 模拟提交被校验拒绝，确认通用 range 绑定不会保存拒绝的显示值。
+    await page.evaluate(() =>
+    {
+      const effect = window.BAClickFXDemo;
+      try
+      {
+        effect.updateConfig = () => { throw new TypeError('rejected'); };
+        const control = document.getElementById('ctrlWebGPUHdrWhiteStart');
+        control.value = '0';
+        control.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      finally { delete effect.updateConfig; }
+    });
+    await check([0.28, 0.29]);
+    await page.locator('#panelToggle').click();
+    await start.scrollIntoViewIfNeeded();
+    const bounds = await start.boundingBox();
+    await page.mouse.click(bounds.x + 7, bounds.y + bounds.height / 2);
+    await check([0, 0.29]);
+    await page.mouse.click(bounds.x + bounds.width - 7, bounds.y + bounds.height / 2);
+    await check([0.28, 0.29]);
+    await page.selectOption('#ctrlHdrPresentationPreset', 'balanced');
+    await check([1, 5]);
+  }
+  finally
+  {
+    await page.evaluate(() => document.getElementById('panel').classList.remove('open'));
+    await page.setViewportSize(viewport);
+  }
+}
+
 async function runDemoHdrStatusTransitions(page)
 {
   currentStage = 'demo-hdr-state-transitions';
@@ -2297,6 +2376,7 @@ async function runDemoHdrUiIntegration(page, origin)
     `UI HDR 默认控制状态错误: ${extendedDetail}`,
   );
 
+  await runDemoHdrThresholdControls(page);
   const stateTransitions = await runDemoHdrStatusTransitions(page);
   const enabledScreenshot = await page.screenshot();
 

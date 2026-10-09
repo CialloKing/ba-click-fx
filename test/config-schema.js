@@ -330,6 +330,17 @@ assertConfigError(
   '构造配置拒绝无效的 HDR 白核阈值顺序',
 );
 
+for (const [start, end] of [[0.28, 0.29], [15.99, 16]])
+{
+  const config = createConfig({ webgpuHdrWhiteStart: start, webgpuHdrWhiteEnd: end });
+  check(config.webgpuHdrWhiteStart === start && config.webgpuHdrWhiteEnd === end,
+    `HDR 阈值 ${start}/${end} 保留十进制最小间隔且不改变原值`);
+}
+assertConfigError(
+  () => createConfig({ webgpuHdrWhiteStart: 0.28, webgpuHdrWhiteEnd: 0.289 }),
+  '浮点容差仍拒绝实质不足 0.01 的 HDR 白核间隔',
+);
+
 console.log('\n透明合成配置合同');
 check(
   CONFIG.overlayAlphaPolicy === 'coverage' &&
