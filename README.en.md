@@ -83,7 +83,7 @@ Place this code in the client entry of a build tool such as Vite. In a component
 
 ```html
 <script type="module">
-  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.8/dist/ba-click-fx.js';
+  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.9/dist/ba-click-fx.js';
 
   const fx = new BAClickFX(
   {
@@ -102,9 +102,9 @@ Download the ESM entries you need from [GitHub Releases](https://github.com/Cial
 
 | Entry | JavaScript | Declarations (package imports) |
 |---|---|---|
-| Main | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/ba-click-fx.d.ts) |
-| Config | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/config.d.ts) |
-| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.8/worker.d.ts) |
+| Main | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/ba-click-fx.d.ts) |
+| Config | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/config.d.ts) |
+| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/worker.d.ts) |
 
 **TypeScript:** Use the [npm setup](#npm) above with `import { BAClickFX } from 'ba-click-fx'` for automatic type resolution. For self-hosting, build and deploy the static files with your bundler. The downloaded main declaration currently uses `declare module 'ba-click-fx'`, and the Config and Worker declarations also reference that package name. Placing the `.d.ts` beside the downloaded JS does not make it a usable module declaration for `import ... from './ba-click-fx.js'`; that import produces TS2306 (the declaration file is not a module).
 
