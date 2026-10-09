@@ -834,6 +834,20 @@ assert(tintRecords.length === 12 && tintRecords.every(record => record[512] === 
 
 
 console.log('\n全屏坐标尺寸');
+const canvasesBeforeMissingTarget = dom.createdCanvases.length;
+const framesBeforeMissingTarget = dom.frames.size;
+let missingTargetError = null;
+try
+{
+  new BAClickFX({ target: '#missing-fx-host' });
+}
+catch (error)
+{
+  missingTargetError = error;
+}
+assert(/找不到 target/.test(missingTargetError?.message) &&
+  dom.createdCanvases.length === canvasesBeforeMissingTarget && dom.frames.size === framesBeforeMissingTarget,
+  '显式目标选择器不存在时，在创建 Canvas 和调度动画前失败');
 const fullscreenTestDevicePixelRatio = dom.windowMock.devicePixelRatio;
 
 dom.windowMock.devicePixelRatio = 1.5;

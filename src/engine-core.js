@@ -1046,9 +1046,15 @@ function resolveTarget(target)
 {
   if (typeof target === 'string')
   {
-    return typeof document !== 'undefined' && typeof document.querySelector === 'function'
+    const host = typeof document !== 'undefined' && typeof document.querySelector === 'function'
       ? document.querySelector(target)
       : null;
+    // 显式选择器查找失败不能与省略 target 混为一谈，否则会意外挂载全屏层。
+    if (!host)
+    {
+      throw new Error('BAClickFX 找不到 target');
+    }
+    return host;
   }
 
   return target ?? null;
