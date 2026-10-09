@@ -177,6 +177,26 @@ assert(fx.animationFrame !== null, 'Worker without requestAnimationFrame uses th
 const moveResult = fx.pointerMove({ x: 120, y: 220, pointerId: 1, pointerType: 'mouse' });
 assert(moveResult === true, 'pointerMove succeeded in manual mode');
 
+const configBeforeDomInput = JSON.stringify(fx.getConfig());
+const strokeBeforeDomInput = fx.currentTrailStroke;
+const pointerBeforeDomInput = fx.lastPointerPosition;
+let domInputError = null;
+try
+{
+  fx.updateConfig({ inputSource: 'dom', opacity: 0.5 });
+}
+catch (error)
+{
+  domInputError = error;
+}
+assert(domInputError instanceof TypeError && /DOM 输入/.test(domInputError.message),
+  'Worker rejects DOM input with an explicit TypeError');
+assert(JSON.stringify(fx.getConfig()) === configBeforeDomInput &&
+  fx.activePointerId === 1 && fx.currentTrailStroke === strokeBeforeDomInput &&
+  strokeBeforeDomInput.active && fx.lastPointerPosition === pointerBeforeDomInput &&
+  !fx.domPointerListenersAttached,
+  'Rejected DOM input preserves the entire config, active pointer and trail');
+
 const upResult = fx.pointerUp(1);
 assert(upResult === true, 'pointerUp succeeded in manual mode');
 

@@ -112,6 +112,15 @@ export class ConfigRuntime extends LifecycleRuntime
 
     assertConfigOverrides(overrides, { fallback: this.config });
 
+    if (
+      overrides.inputSource === 'dom' &&
+      (typeof window === 'undefined' || typeof document === 'undefined')
+    )
+    {
+      // Worker 无法接管 DOM 输入；必须在取消指针或提交任何配置前拒绝。
+      throw new TypeError('BAClickFX DOM 输入需要 window 和 document');
+    }
+
     const previousEffectBackend = this.config.effectBackend;
     const previousWebGPUPreferHdr = this.config.webgpuPreferHdr;
     const previousBloomBackend = this.config.bloomBackend;

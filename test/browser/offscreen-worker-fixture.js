@@ -142,6 +142,27 @@ self.addEventListener('message', async (event) =>
         fx.updateConfig(payload);
         break;
 
+      case 'rejectDomInput':
+      {
+        const snapshot = () => JSON.stringify([
+          fx.getConfig(), fx.activePointerId, fx.activePointerSource,
+          fx.activeTrailOwnerId, fx.lastPointerPosition,
+          fx.trailStrokes, fx.shards, [...fx.trailShardCounts],
+        ]);
+        const before = snapshot();
+        let error = null;
+        try
+        {
+          fx.updateConfig({ inputSource: 'dom', opacity: 0.5 });
+        }
+        catch (caught)
+        {
+          error = { name: caught.name, message: caught.message };
+        }
+        result = { error, unchanged: before === snapshot() };
+        break;
+      }
+
       case 'destroy':
         fx.destroy();
         break;

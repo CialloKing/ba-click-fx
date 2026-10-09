@@ -134,7 +134,7 @@ async function main()
     assert.equal(lockedRouteState.resolvedEffectBackend, 'webgl2');
 
     await page.waitForTimeout(750);
-    await page.evaluate(async () =>
+    const rejectedDomInput = await page.evaluate(async () =>
     {
       const api = window.offscreenWorkerTest;
       const pointerId = 7;
@@ -146,8 +146,13 @@ async function main()
         await api.request('pointerMove',
           { x, y, pointerId, pointerType: 'mouse' });
       }
+      const rejected = await api.request('rejectDomInput');
       await api.request('pointerUp', { pointerId });
+      return rejected;
     });
+    assert.equal(rejectedDomInput.error?.name, 'TypeError');
+    assert.match(rejectedDomInput.error?.message ?? '', /DOM 输入/);
+    assert.equal(rejectedDomInput.unchanged, true);
     const trailPixels = await waitForWorkerPixels(
       page,
       (pixels) => pixels.visiblePixels > 100 && pixels.visibleWidth > 180,
