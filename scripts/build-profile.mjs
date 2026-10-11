@@ -47,7 +47,10 @@ export function normalizeProfile(input)
   const features = Object.fromEntries(featureNames.map(key => [key, overrides[key] ?? true]));
   const resourceInput = object(input.resources === undefined ? {} : input.resources, 'resources');
   keys(resourceInput, ['trailSize', 'encoding'], 'resources');
-  const resources = { trailSize: resourceInput.trailSize ?? 512, encoding: resourceInput.encoding ?? 'original' };
+  const resources = {
+    trailSize: resourceInput.trailSize === undefined ? 512 : resourceInput.trailSize,
+    encoding: resourceInput.encoding === undefined ? 'original' : resourceInput.encoding,
+  };
   if (![128, 256, 512].includes(resources.trailSize) || !['original', 'deflate'].includes(resources.encoding))
   {
     throw new TypeError('resources 必须选择 128/256/512 拖尾和 original/deflate 编码');

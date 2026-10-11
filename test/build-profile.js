@@ -23,6 +23,7 @@ for (const extra of [
   { resources: null }, { resources: { unknown: 1 } },
   { resources: { trailSize: 64 } }, { resources: { trailSize: '128' } },
   { resources: { encoding: 'procedural' } }, { resources: { trailSize: 128 } },
+  { resources: { trailSize: null } }, { resources: { encoding: null } },
   { features: { trail: false }, resources: { trailSize: 128, encoding: 'deflate' } },
 ])
 {
