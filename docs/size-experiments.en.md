@@ -25,7 +25,7 @@ A complete run compares 9 profiles and 7 strategies: 63 builds covering six back
 | Name | Change | Visual requirement |
 |---|---|---|
 | `baseline` | Current custom build | Reference |
-| `minified` | Further whitespace minification | Byte-identical pixels |
+| `minified` | Further code optimization, variable mangling, and whitespace removal | Byte-identical pixels |
 | `lossless-deflate` | Paeth + DEFLATE, synchronous decoding, removable resource initialization, final minification | Byte-identical pixels |
 | `trail-256` | Average-downsampled 256² trail, otherwise the lossless strategy | Record actual differences |
 | `trail-128` | Average-downsampled 128² trail, otherwise the lossless strategy | Record actual differences |
@@ -59,18 +59,24 @@ Sizes cover deployment JS and actual external assets, compressed individually be
 
 ## Recorded results
 
-The full-feature WebGL2 DOM profile on source version 1.3.9 produced these gzip totals. See the local report for other profiles and images.
+The full-feature WebGL2 DOM profile on source version 1.3.9 produced these results. Raw size measures the deployment files; gzip measures compressed transfer size. Both include actual external assets. See the local report for other profiles and images.
 
-| Strategy | Total JS + assets, KiB |
-|---|---:|
-| Current custom build | 198.5 |
-| Final minification | 195.2 |
-| Lossless DEFLATE | 145.1 |
-| 256² trail | 108.9 |
-| 128² trail | 83.8 |
-| Procedural textures | 43.9 |
-| External DEFLATE | 143.9 |
+| Strategy | Total raw KiB | Total gzip KiB | gzip reduction |
+|---|---:|---:|---:|
+| Current custom build | 440.5 | 198.5 | — |
+| Final minification | 412.3 | 195.2 | 1.7% |
+| Lossless DEFLATE | 299.5 | 145.1 | 26.9% |
+| 256² trail | 251.0 | 108.9 | 45.1% |
+| 128² trail | 217.7 | 83.8 | 57.8% |
+| Procedural textures | 153.6 | 43.9 | 77.9% |
+| External DEFLATE | 274.7 | 143.9 | 27.5% |
+
+Lossless full-feature Native/Software profiles drop from 194.7/203.6 KiB gzip to 95.4/104.0 KiB, reducing size by 51.0%/48.9%. These gains also include removing Coverage resource initialization unused by those backends; one backend's reduction cannot be applied to others. The click-only Native procedural strategy drops from 52.7 KiB to 23.7 KiB gzip.
 
 Lossless encoding is the first candidate for adoption. Downsampling requires review of active trails, known backgrounds, and later dissolution. Procedural generation offers the greatest reduction but changes disk contours, texture detail, and dissolution patterns. External loading primarily reduces entry JS while adding a request; this prototype provides little combined transfer reduction.
+
+Current image comparisons use 320×240 readback scenes. Their difference metrics do not establish visual changes for every DPR, trail width, or user parameter.
+
+This run completed all 63 experiment builds, 231 image samples, and 42 Worker fault checks on Edge 149.0.4022.69 without device skips. The lossless trail's RGB, Coverage, and RGBA decoded arrays total 2 MiB and match source bytes. All six external-resource rejection checks passed for 404, short headers, and invalid lengths in DOM/real Workers. `npm run check` and the existing `npm run test:custom:release` passed; all 67 browser custom cases matched pixels without skips. Interactive report selectors, image loading, and background switching were checked.
 
 These strategies belong to the experiment command and are not production profile options. This branch evaluates choices rather than replacing a release.
