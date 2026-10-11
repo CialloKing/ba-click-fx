@@ -55,6 +55,8 @@ jobs:
         run: npm run test:browser:demo
       - name: Run Chromium Unity regression
         run: npm run test:browser:unity
+      - name: Run Chromium WebGPU regression
+        run: npm run test:browser:webgpu:optional
       - name: Run custom build parity and lifecycle checks
         run: npm run test:browser:custom -- --required
       - name: Check exact slim release files
