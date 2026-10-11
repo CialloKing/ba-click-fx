@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { gzipSync, brotliCompressSync } from 'node:zlib';
 import { readProfile } from './build-profile.mjs';
 import { customTypes } from './custom-types.mjs';
+import { resourceNotices } from './build-resources.mjs';
 
 export function buildCustom(root, path, runVite)
 {
@@ -29,6 +30,7 @@ export function buildCustom(root, path, runVite)
     version, ...profile, modules,
     sizes: { raw: code.length, gzip: gzipSync(code).length, brotli: brotliCompressSync(code).length },
   }, null, 2) + '\n');
-  for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) copyFileSync(join(root, name), join(outDir, name));
+  copyFileSync(join(root, 'LICENSE'), join(outDir, 'LICENSE'));
+  writeFileSync(join(outDir, 'THIRD_PARTY_NOTICES.md'), resourceNotices(root, modules));
   console.log(`定制构建完成: ${profile.backend} / ${profile.runtime}`);
 }

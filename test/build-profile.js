@@ -20,9 +20,15 @@ for (const extra of [
   { features: { trail: false }, fxParams: { 'trail.width': 2 } },
   { features: { click: false }, fxParams: { 'disk.radius': 30 } },
   { fxParams: { 'unknown.value': 1 } },
+  { resources: null }, { resources: { unknown: 1 } },
+  { resources: { trailSize: 64 } }, { resources: { trailSize: '128' } },
+  { resources: { encoding: 'procedural' } }, { resources: { trailSize: 128 } },
+  { features: { trail: false }, resources: { trailSize: 128, encoding: 'deflate' } },
 ])
 {
   assert.throws(() => normalizeProfile({ backend: 'webgl2', runtime: 'worker', ...extra }));
 }
 assert.equal(normalizeProfile({ backend: 'native', runtime: 'dom', config: { themeColor: '#ABCDEF' } }).config.themeColor, '#abcdef');
+assert.deepEqual(normalizeProfile({ backend: 'webgl2', runtime: 'dom' }).resources, { trailSize: 512, encoding: 'original' });
+assert.equal(normalizeProfile({ backend: 'webgl2', runtime: 'dom', resources: { trailSize: 128, encoding: 'deflate' } }).resources.trailSize, 128);
 console.log('build profile validation passed');
