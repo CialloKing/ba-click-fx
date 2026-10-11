@@ -1,7 +1,7 @@
 const measurementNow = performance.now.bind(performance);
 const measurementFrame = globalThis.requestAnimationFrame?.bind(globalThis);
 
-export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null })
+export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, timing = false })
 {
   const realNow = measurementNow;
   const importStart = realNow();
@@ -171,6 +171,21 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     now += 12;
     const start = realNow(); fx._renderFrame(now); frameTimes.push(realNow() - start);
   }
+  if (captureOffsetMs > 0)
+  {
+    now += captureOffsetMs;
+    fx._renderFrame(now);
+  }
+  if (sustainedTrail)
+  {
+    input('pointerdown', 40, 80);
+    for (let frame = 0; frame < 24; frame++)
+    {
+      now += 8;
+      input('pointermove', 40 + frame * 9, 80 + Math.sin(frame * 0.35) * 50);
+      fx._renderFrame(now);
+    }
+  }
   if (errors.length) throw new Error(`custom render: ${errors}`);
   const renderer = fx.webgpuEffectRenderer ?? fx.webglEffectRenderer ?? fx.webglBloomRenderer ?? fx.canvasSceneRenderer;
   const output = fx.webgpuEffectVisible ? fx.webgpuEffectCanvas : fx.webglEffectVisible ? fx.webglEffectCanvas
@@ -294,6 +309,9 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   fx.clearTrail?.(); fx.clear(); fx.setPaused(false); fx.destroy(); fx.destroy(); target.remove?.();
   if (!fx.destroyed || fx.animationFrame !== null || fx.waves.length || fx.shards.length) throw Error('destroy contract');
   return { hash, lit, pixelWidth, pixelHeight, state, config, actualRuntime: hasDom ? (dom ? 'dom' : 'manual') : 'worker',
+    // 仅实验命令请求像素和冷加载计时，默认验收报告保持原有成本和内容。
+    ...(capturePixels ? { pixels: Array.from(pixels) } : {}),
+    ...(timing && !benchmark ? { importMs, initMs } : {}),
     ...(benchmark ? { importMs, initMs, frameTimes, cpuFrameMs,
       heap: { beforeImport: heapBeforeImport, afterImport: heapAfterImport, afterInit: heapAfterInit }, gpuFrames } : {}),
     contextRestored, errors };

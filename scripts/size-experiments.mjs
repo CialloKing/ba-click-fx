@@ -10,6 +10,8 @@ import { normalizeProfile } from './build-profile.mjs';
 import { customTypes } from './custom-types.mjs';
 import { customVite } from './custom-vite.mjs';
 import { createExperimentResources, markResourceInitializersPure } from './size-experiment-resources.mjs';
+import { compareExperiments } from './size-experiment-browser.mjs';
+import { writeExperimentReport } from './size-experiment-report.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const output = join(root, 'test-results/size-experiments');
@@ -17,6 +19,7 @@ export const strategies = ['baseline', 'minified', 'lossless-deflate', 'trail-25
 export const profiles = [
   { name: 'webgl2-dom', profile: { backend: 'webgl2', runtime: 'dom' } },
   { name: 'webgpu-dom', profile: { backend: 'webgpu', runtime: 'dom' } },
+  { name: 'webgl2-trail-dom', profile: { backend: 'webgl2', runtime: 'dom', features: { click: false, shards: false, compositingReference: false } } },
   { name: 'webgl2-worker', profile: { backend: 'webgl2', runtime: 'worker' } },
   { name: 'webgpu-hdr-worker', profile: { backend: 'webgpu-hdr', runtime: 'worker' } },
   { name: 'webgl2-bloom-manual', profile: { backend: 'webgl2-bloom', runtime: 'manual' } },
@@ -96,7 +99,8 @@ export async function buildExperiment(entry, strategy)
   writeFileSync(join(directory, 'THIRD_PARTY_NOTICES.md'), notices);
   const totals = Object.fromEntries(['raw', 'gzip', 'brotli'].map(key =>
     [key, files.reduce((sum, file) => sum + file[key], 0)]));
-  const result = { name: entry.name, strategy, profile, exact: resources.exact,
+  const result = { name: entry.name, strategy, profile,
+    exact: resources.exact || (!profile.features.trail && strategy.startsWith('trail-')),
     asynchronous: resources.asynchronous && usesTrail, directory, files, totals };
   writeFileSync(join(directory, 'build-info.json'), JSON.stringify(result, null, 2) + '\n');
   return result;
@@ -110,7 +114,8 @@ async function main()
   const selectedProfile = args.find(arg => arg.startsWith('--profile='))?.slice(10);
   const selectedStrategy = args.find(arg => arg.startsWith('--strategy='))?.slice(11);
   const selected = profiles.filter(entry => !selectedProfile || entry.name === selectedProfile);
-  const modes = strategies.filter(strategy => !selectedStrategy || strategy === selectedStrategy);
+  const modes = strategies.filter(strategy => !selectedStrategy || strategy === selectedStrategy ||
+    (!args.includes('--build-only') && strategy === 'baseline'));
   assert(selected.length && modes.length, 'No matching experiment');
   const results = [];
   for (const entry of selected)
@@ -125,6 +130,12 @@ async function main()
   const report = { version: JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version,
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), results };
   writeFileSync(join(output, 'results.json'), JSON.stringify(report, null, 2) + '\n');
+  if (!args.includes('--build-only'))
+  {
+    report.browser = await compareExperiments(root, output, results);
+    writeFileSync(join(output, 'results.json'), JSON.stringify(report, null, 2) + '\n');
+    writeExperimentReport(output, report);
+  }
   console.log(`Report: ${join(output, 'results.json')}`);
 }
 
