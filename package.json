@@ -78,7 +78,7 @@
     "test:source-contract": "node test/source-contract.js && node test/triangle-fallback.js",
     "test:runtime": "node test/smoke.js",
     "test:worker": "node test/offscreen-worker.js",
-    "test:custom": "node test/build-profile.js && node test/custom-build.js",
+    "test:custom": "node test/build-profile.js && node test/build-resources.mjs && node test/custom-build.js",
     "test:custom:release": "node test/custom-release.mjs --required",
     "test:browser:custom": "node test/browser/custom-runtime.mjs",
     "test": "npm run test:unit && npm run test:source-contract && npm run test:runtime && npm run test:worker",
@@ -112,7 +112,8 @@
     "check:fast": "npm test && npm run verify:runtime-sync",
     "check": "npm run build && npm test && npm run verify:runtime-sync && npm run verify:demo-sync && npm run verify:package && npm run verify:tarball",
     "check:release": "npm run check && npm run test:browser:core && npm run test:browser:worker && npm run test:browser:lifecycle && npm run test:browser:demo && npm run test:browser:unity && npm run test:browser:webgpu:optional && npm run test:custom:release",
-    "prepack": "npm run check"
+    "prepack": "npm run check",
+    "test:browser:slim": "node test/browser/slim-runtime.mjs"
   },
   "devDependencies": {
     "fflate": "0.8.3",

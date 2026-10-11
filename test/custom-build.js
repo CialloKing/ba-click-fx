@@ -12,6 +12,7 @@ const dir = resolve(root, 'test-results/custom');
 mkdirSync(dir, { recursive: true });
 const fullBefore = readFileSync(resolve(root, 'dist/ba-click-fx.js'));
 const profiles = BACKENDS.flatMap(backend => RUNTIMES.map(runtime => ({ backend, runtime })));
+profiles.push(JSON.parse(readFileSync(resolve(root, 'examples/build-profiles/slim-webgl2-128.json'), 'utf8')));
 const typeConsumers = { dom: [], worker: [] };
 profiles.push(...['click', 'trail', 'shards', 'bloom', 'compositingReference'].map(feature => ({
   backend: 'webgl2', runtime: 'worker', features: { [feature]: false },
@@ -38,6 +39,10 @@ for (const [index, input] of profiles.entries())
   if (input.features?.click === false) assert(!modules.includes('src/circle-texture.js') && !modules.includes('src/ring3-alpha.js'));
   if (input.backend !== 'software') assert(!modules.includes('src/software-bloom.js'));
   assert.equal(info.sizes.raw, Buffer.byteLength(code));
+  if (info.resources.encoding === 'deflate')
+  {
+    assert(readFileSync(resolve(output, 'THIRD_PARTY_NOTICES.md'), 'utf8').includes('## fflate'));
+  }
   assert.deepEqual(readFileSync(resolve(root, 'dist/ba-click-fx.js')), fullBefore);
   // 检查实际生成的声明；Worker 使用独立 lib，避免 DOM 类型掩盖接入错误。
   writeFileSync(resolve(dir, `custom-${index}.d.ts`), readFileSync(resolve(output, 'ba-click-fx.d.ts')));

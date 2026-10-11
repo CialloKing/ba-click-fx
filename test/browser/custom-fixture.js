@@ -47,7 +47,22 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     target.width = 320; target.height = 240;
     if (hasDom) document.body.append(target);
   }
-  if (fault === 'context') target.getContext = () => null;
+  if (fault === 'context')
+  {
+    if (dom)
+    {
+      // DOM 宿主内部创建 Canvas，故障注入必须作用于实际的 WebGL2 上下文。
+      const getContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function(type, options)
+      {
+        return type === 'webgl2' ? null : getContext.call(this, type, options);
+      };
+    }
+    else
+    {
+      target.getContext = () => null;
+    }
+  }
   if (fault === 'gpu') Object.defineProperty(navigator, 'gpu', { value: undefined, configurable: true });
   if (forceStandard)
   {

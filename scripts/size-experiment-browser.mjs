@@ -127,7 +127,7 @@ onmessage = async event => { try { postMessage(await runCustomFixture(event.data
   }
 }
 
-export async function compareExperiments(root, output, builds)
+export async function compareExperiments(root, output, builds, { benchmark = true } = {})
 {
   const vite = await startViteServer(root);
   const browser = await chromium.launch({ executablePath: findChromiumExecutable(), headless: true,
@@ -159,17 +159,19 @@ export async function compareExperiments(root, output, builds)
         snapshots.push({ sample: sample.name, ...snapshot });
         savePixels(join(build.directory, `${sample.name}.png`), snapshot.pixelWidth, snapshot.pixelHeight, snapshot.pixels);
       }
-      for (let trial = 0; trial < 3; trial++)
+      for (let trial = 0; benchmark && trial < 3; trial++)
       {
         measurements.push(await runFixture(browser, vite.baseUrl,
           { profile: build.profile, url, timing: true, benchmark: trial === 0 }, worker));
       }
-      const cold = measurements;
-      const frames = [...measurements[0].cpuFrameMs].sort((left, right) => left - right);
-      const result = { name: build.name, strategy: build.strategy,
-        importMs: summary(cold.map(value => value.importMs)), initMs: summary(cold.map(value => value.initMs)),
-        cpuFrameMs: { samples: frames.length, p50: frames[Math.floor(frames.length * 0.5)], p95: frames[Math.floor(frames.length * 0.95)] },
-        samples: [], faultChecks: [] };
+      const result = { name: build.name, strategy: build.strategy, samples: [], faultChecks: [] };
+      if (benchmark)
+      {
+        const frames = [...measurements[0].cpuFrameMs].sort((left, right) => left - right);
+        result.importMs = summary(measurements.map(value => value.importMs));
+        result.initMs = summary(measurements.map(value => value.initMs));
+        result.cpuFrameMs = { samples: frames.length, p50: frames[Math.floor(frames.length * 0.5)], p95: frames[Math.floor(frames.length * 0.95)] };
+      }
       if (build.strategy === 'baseline')
       {
         baselines.set(build.name, snapshots);
@@ -216,6 +218,17 @@ export async function compareExperiments(root, output, builds)
           assert.equal(restored.contextRestored, 'passed');
           result.faultChecks.push('context-restoration');
         }
+      }
+      if (build.checkDomFaults)
+      {
+        const args = { profile: build.profile, url };
+        const failure = await runFixture(browser, vite.baseUrl, { ...args, fault: 'context' }, false);
+        assert.deepEqual(failure.errors, ['initialization-failed']);
+        assert(failure.stopped);
+        const restored = await runFixture(browser, vite.baseUrl, { ...args, restoreContext: true }, false);
+        assert.equal(restored.contextRestored, 'passed');
+        assert.deepEqual(restored.errors, []);
+        result.faultChecks.push('initialization-failed', 'context-restoration');
       }
       report.results.push(result);
       console.log(`Browser passed: ${build.name}/${build.strategy}, early RGBA MAE=${result.samples[0].mae.toFixed(4)}`);
