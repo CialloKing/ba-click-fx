@@ -13,10 +13,15 @@ import { createExperimentResources, markResourceInitializersPure } from './size-
 
 const root = resolve(import.meta.dirname, '..');
 const output = join(root, 'test-results/size-experiments');
-export const strategies = ['baseline', 'minified', 'lossless-deflate'];
+export const strategies = ['baseline', 'minified', 'lossless-deflate', 'trail-256', 'trail-128', 'procedural', 'external-deflate'];
 export const profiles = [
   { name: 'webgl2-dom', profile: { backend: 'webgl2', runtime: 'dom' } },
   { name: 'webgpu-dom', profile: { backend: 'webgpu', runtime: 'dom' } },
+  { name: 'webgl2-worker', profile: { backend: 'webgl2', runtime: 'worker' } },
+  { name: 'webgpu-hdr-worker', profile: { backend: 'webgpu-hdr', runtime: 'worker' } },
+  { name: 'webgl2-bloom-manual', profile: { backend: 'webgl2-bloom', runtime: 'manual' } },
+  { name: 'software-dom', profile: { backend: 'software', runtime: 'dom' } },
+  { name: 'native-dom', profile: { backend: 'native', runtime: 'dom' } },
   { name: 'native-click-dom', profile: JSON.parse(readFileSync(join(root, 'examples/build-profiles/native-click-dom.json'), 'utf8')) },
 ];
 
@@ -51,7 +56,7 @@ export async function buildExperiment(entry, strategy)
   await build({
     configFile: false, root, logLevel: 'silent', plugins: [plugin],
     build: {
-      target: 'es2020', outDir: directory, emptyOutDir: false, copyPublicDir: false,
+      target: resources.asynchronous ? 'es2022' : 'es2020', outDir: directory, emptyOutDir: false, copyPublicDir: false,
       lib: { entry: sourceEntry, formats: ['es'], fileName: () => 'ba-click-fx.js' },
       rollupOptions: { output: { exports: 'named', codeSplitting: false } },
     },
@@ -70,8 +75,14 @@ export async function buildExperiment(entry, strategy)
     writeFileSync(scriptPath, code);
   }
   const files = [{ name: 'ba-click-fx.js', ...scriptSizes(code) }];
+  const modules = JSON.parse(readFileSync(join(directory, 'modules.json'), 'utf8'));
+  const usesTrail = modules.some(module => module.id === 'src/trail-texture.js');
   for (const [name, data] of resources.assets)
   {
+    if (!usesTrail)
+    {
+      continue;
+    }
     writeFileSync(join(directory, name), data);
     files.push({ name, ...scriptSizes(data) });
   }
@@ -86,7 +97,7 @@ export async function buildExperiment(entry, strategy)
   const totals = Object.fromEntries(['raw', 'gzip', 'brotli'].map(key =>
     [key, files.reduce((sum, file) => sum + file[key], 0)]));
   const result = { name: entry.name, strategy, profile, exact: resources.exact,
-    asynchronous: resources.asynchronous, directory, files, totals };
+    asynchronous: resources.asynchronous && usesTrail, directory, files, totals };
   writeFileSync(join(directory, 'build-info.json'), JSON.stringify(result, null, 2) + '\n');
   return result;
 }
