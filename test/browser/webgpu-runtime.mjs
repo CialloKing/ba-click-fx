@@ -1699,6 +1699,13 @@ async function runDemoHdrThresholdControls(page)
 async function runDemoHdrStatusTransitions(page)
 {
   currentStage = 'demo-hdr-state-transitions';
+  // 恢复视口会重新配置 Canvas；先等真实输出就绪，避免暂停冻结未提交的配置。
+  await page.waitForFunction(() =>
+  {
+    const config = window.BAClickFXDemo.getConfig();
+    return config.resolvedEffectBackend === 'webgpu' &&
+      config.resolvedWebGPUOutputMode === 'extended';
+  });
   const transitions = await page.evaluate(async () =>
   {
     const effect = window.BAClickFXDemo;
