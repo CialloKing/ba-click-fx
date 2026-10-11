@@ -51,14 +51,15 @@ verify(
 
 for (const relativePath of [
   'README.md', 'README.en.md', 'index.html', 'src/main.js',
-  ...['api-reference', 'rendering-guide', 'worker-guide'].flatMap((name) =>
+  ...['api-reference', 'rendering-guide', 'worker-guide', 'custom-build', 'releases'].flatMap((name) =>
     [`docs/${name}.md`, `docs/${name}.en.md`]),
 ])
 {
   const referencedVersions = [
     ...readText(relativePath).matchAll(/ba-click-fx@(\d+\.\d+\.\d+)/g),
     // 构建附件跟随包版本更新；历史 GIF 的版本不受此约束。
-    ...readText(relativePath).matchAll(/ba-click-fx\/releases\/download\/v(\d+\.\d+\.\d+)\/(?:ba-click-fx|config|worker)\.(?:js|d\.ts)(?=[)\s"?#]|$)/g),
+    ...readText(relativePath).matchAll(/ba-click-fx\/releases\/download\/v(\d+\.\d+\.\d+)\/(?:ba-click-fx[^/\s)"?#]*\.(?:js|d\.ts|zip)|(?:config|worker)\.(?:js|d\.ts)|SHA256SUMS)(?=[)\s"?#]|$)/g),
+    ...readText(relativePath).matchAll(/git tag -a v(\d+\.\d+\.\d+)/g),
   ];
 
   for (const versionMatch of referencedVersions)

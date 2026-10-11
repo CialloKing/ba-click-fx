@@ -1,6 +1,6 @@
 {
   "name": "ba-click-fx",
-  "version": "1.3.9",
+  "version": "1.3.10",
   "description": "Blue Archive click effect and cursor trail animation for web. 蔚蓝档案风格网页鼠标点击特效、触摸特效、粒子圆环和拖尾动画库。",
   "author": "CialloKing",
   "license": "MIT",
@@ -78,7 +78,7 @@
     "test:source-contract": "node test/source-contract.js && node test/triangle-fallback.js",
     "test:runtime": "node test/smoke.js",
     "test:worker": "node test/offscreen-worker.js",
-    "test:custom": "node test/build-profile.js && node test/custom-build.js",
+    "test:custom": "node test/build-profile.js && node test/build-resources.mjs && node test/custom-build.js",
     "test:custom:release": "node test/custom-release.mjs --required",
     "test:browser:custom": "node test/browser/custom-runtime.mjs",
     "test": "npm run test:unit && npm run test:source-contract && npm run test:runtime && npm run test:worker",
@@ -99,6 +99,8 @@
     "benchmark:runtime": "node scripts/benchmark-runtime.mjs",
     "benchmark:report": "node scripts/benchmark-report.mjs",
     "benchmark:custom": "node test/browser/custom-runtime.mjs --benchmark",
+    "experiment:size": "node scripts/size-experiments.mjs",
+    "experiment:live": "node scripts/size-live-demo.mjs",
     "test:browser": "npm run build && npm run test:browser:core && npm run test:browser:worker",
     "test:browser:optional": "npm run build && npm run test:browser:core -- --optional && npm run test:browser:worker -- --optional",
     "verify:runtime-sync": "node scripts/verify-runtime-sync.cjs",
@@ -110,9 +112,12 @@
     "check:fast": "npm test && npm run verify:runtime-sync",
     "check": "npm run build && npm test && npm run verify:runtime-sync && npm run verify:demo-sync && npm run verify:package && npm run verify:tarball",
     "check:release": "npm run check && npm run test:browser:core && npm run test:browser:worker && npm run test:browser:lifecycle && npm run test:browser:demo && npm run test:browser:unity && npm run test:browser:webgpu:optional && npm run test:custom:release",
-    "prepack": "npm run check"
+    "prepack": "npm run check",
+    "test:browser:slim": "node test/browser/slim-runtime.mjs",
+    "release:prepare": "node scripts/prepare-release.mjs"
   },
   "devDependencies": {
+    "fflate": "0.8.3",
     "playwright-core": "^1.62.1",
     "rolldown": "^1.2.12",
     "typescript": "^7.0.2",

@@ -18,7 +18,7 @@ npm run build -- --profile ba-click-fx.build.json
 npm run build -- --profile examples/build-profiles/native-click-dom.json
 ```
 
-配置的五个顶层字段如下。`backend`、`runtime` 必填，其余字段可省略。
+配置的六个顶层字段如下。`backend`、`runtime` 必填，其余字段可省略。
 
 | 字段 | 内容 |
 |---|---|
@@ -27,6 +27,17 @@ npm run build -- --profile examples/build-profiles/native-click-dom.json
 | `features` | `click`、`trail`、`shards`、`bloom`、`compositingReference`；布尔值，默认全部开启 |
 | `config` | 现有普通配置，如主题、尺寸倍率、DPR 上限、输出合成等 |
 | `fxParams` | 现有参数 Schema 的路径补丁，如 `"bloom.intensity": 1.7` |
+| `resources` | `trailSize` 为 512（默认）、256 或 128；`encoding` 为 `original`（默认）或 `deflate` |
+
+官方 Release 精简版使用[固定配置预设](../examples/build-profiles/slim-webgl2-128.json)：
+
+```bash
+npm run build -- --profile examples/build-profiles/slim-webgl2-128.json
+```
+
+该预设为 WebGL2 / DOM，保留所有功能，使用 128² 拖尾和 Deflate 编码。默认蓝色主题 `#4ca7ff`、`scale: 1`、`maxDpr: 1` 及特效参数在构建时固定。修改预设中的 `config`、`fxParams` 可以生成自己的版本。`resize` 仍可调整画布尺寸。
+
+`deflate` 对圆形纹理、Ring3 和网格为无损编码；`trailSize: 512` 保留原始拖尾数据。128/256 会对拖尾做平均降采样，需要启用 `trail` 并选择 `deflate`。解压仅发生在模块首次加载，最终纹理占用由分辨率决定。脚本仍为自包含 ESM，构造保持同步。所有资源选项进入构建信息和缓存键。
 
 六种模式都可以选择三种接入方式。`webgl2-bloom` 与完整版一样复用完整 WebGL2 Scene；两者成功路径共享实现。`webgpu-hdr` 请求 Extended 输出，实际模式仍由设备和浏览器决定。
 
@@ -144,4 +155,6 @@ npm run benchmark:custom -- webgpu
 
 基准报告单独写入 `test-results/custom-browser/benchmark.json`，记录导入/初始化耗时、90 帧 CPU 耗时和浏览器公开的堆内存快照，不覆盖验收报告。完整版和定制版使用独立浏览器上下文。完整版尚不支持的接入组合使用 DOM 版作为画面对照，报告的 `actualRuntime` 记录实际接入；这些组合的初始化和内存数据不能视为同一接入方式的性能对照。Worker 未公开的堆内存以 `null` 记录；这些快照不能代替 GPU 显存测量。CPU 耗时包含更新与 GPU 提交；基础 GPU 配置另记录 30 帧真实 RAF 调度及 GPU 完成等待。无头浏览器的调度帧率不能代替物理显示帧率或 HDR 显示验证，相关环境缺失会明确记录。
 
-收益主要来自删除未使用的后端、输入处理、调参系统和功能资源。构建时也预计算主题映射及固定材质的 Bloom 数学常量，沿用相同公式与 double 精度。首轮保留 Shader、纹理编码和 HDR/Bloom 算法，不承诺固定体积或帧率提升；保留大纹理的版本仍可能较大。
+收益主要来自删除未使用的后端、输入处理、调参系统和功能资源。构建时也预计算主题映射及固定材质的 Bloom 数学常量，沿用相同公式与 double 精度。默认资源选项保留原始编码与 512² 拖尾，Shader 和 HDR/Bloom 算法沿用现有实现；资源压缩与降采样由 profile 显式选择，不承诺固定体积或帧率提升。
+
+官方双版本附件、校验清单和标签发布步骤见[发布指南](./releases.md)。

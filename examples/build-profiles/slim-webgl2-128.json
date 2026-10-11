@@ -1,0 +1,8 @@
+{
+  "backend": "webgl2",
+  "runtime": "dom",
+  "resources": {
+    "trailSize": 128,
+    "encoding": "deflate"
+  }
+}

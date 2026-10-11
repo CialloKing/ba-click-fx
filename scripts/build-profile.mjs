@@ -30,7 +30,7 @@ function keys(value, allowed, name)
 export function normalizeProfile(input)
 {
   object(input, 'profile');
-  keys(input, ['backend', 'runtime', 'features', 'config', 'fxParams'], 'profile');
+  keys(input, ['backend', 'runtime', 'features', 'config', 'fxParams', 'resources'], 'profile');
   if (!BACKENDS.includes(input.backend) || !RUNTIMES.includes(input.runtime))
   {
     throw new TypeError('profile 必须选择有效的 backend 和 runtime');
@@ -45,6 +45,20 @@ export function normalizeProfile(input)
     }
   }
   const features = Object.fromEntries(featureNames.map(key => [key, overrides[key] ?? true]));
+  const resourceInput = object(input.resources === undefined ? {} : input.resources, 'resources');
+  keys(resourceInput, ['trailSize', 'encoding'], 'resources');
+  const resources = {
+    trailSize: resourceInput.trailSize === undefined ? 512 : resourceInput.trailSize,
+    encoding: resourceInput.encoding === undefined ? 'original' : resourceInput.encoding,
+  };
+  if (![128, 256, 512].includes(resources.trailSize) || !['original', 'deflate'].includes(resources.encoding))
+  {
+    throw new TypeError('resources 必须选择 128/256/512 拖尾和 original/deflate 编码');
+  }
+  if (resources.trailSize !== 512 && (!features.trail || resources.encoding !== 'deflate'))
+  {
+    throw new TypeError('缩小拖尾必须开启 trail 并使用 deflate 编码');
+  }
   const configInput = object(input.config === undefined ? {} : input.config, 'config');
   for (const key of controlledConfig)
   {
@@ -95,7 +109,7 @@ export function normalizeProfile(input)
   {
     fxParams.bloom.intensity = 0;
   }
-  return { backend: input.backend, runtime: input.runtime, features, config, fxParams, normalized: result.normalized };
+  return { backend: input.backend, runtime: input.runtime, features, resources, config, fxParams, normalized: result.normalized };
 }
 
 export function readProfile(path)
