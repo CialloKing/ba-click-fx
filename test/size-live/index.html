@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<!-- 固定审查背景配色，避免 Dark Reader 转换影响透明光效的对照。 -->
+<meta name="darkreader-lock">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>纹理版本 · 实时人工对比</title>
+<link rel="stylesheet" href="compare.css">
+<header>
+  <div><h1>纹理版本实时对比</h1><p>在任一侧点击或按住拖动，输入会同步到另一侧。两侧使用正常动画帧和相同随机种子。</p></div>
+  <nav aria-label="页面场景"><a href="?scene=article">浅色文章</a><a href="?scene=dashboard">深色仪表盘</a><a href="?scene=gallery">彩色插画</a></nav>
+  <div class="controls">
+    <label>后端 <select id="backend"><option value="webgl2">WebGL2</option><option value="webgpu">WebGPU</option><option value="native">Native</option></select></label>
+    <label>右侧版本 <select id="strategy"><option value="procedural">程序化纹理</option><option value="trail-128">128² 拖尾</option><option value="lossless-deflate">无损压缩</option></select></label>
+    <button id="replay">循环演示</button><button id="pause">暂停</button><button id="clear">清空</button>
+  </div>
+</header>
+<main class="panes">
+  <section><div class="pane-title"><strong>当前定制版</strong><span id="left-status">加载中</span><a id="left-open" target="_blank" rel="noopener">单独打开</a></div><iframe id="left" title="当前版本网页"></iframe></section>
+  <section><div class="pane-title"><strong id="right-title">程序化纹理</strong><span id="right-status">加载中</span><a id="right-open" target="_blank" rel="noopener">单独打开</a></div><iframe id="right" title="实验版本网页"></iframe></section>
+</main>
+<footer>这是本地网页人工审查工具。两侧参数与页面内容一致；同步输入经过 DOM 指针事件，动画使用各页面的真实时间，存在少量消息和帧调度差异。</footer>
+<script type="module" src="compare.js"></script>
+</html>

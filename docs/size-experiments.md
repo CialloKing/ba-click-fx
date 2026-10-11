@@ -20,6 +20,18 @@ npm run experiment:size -- --build-only --profile=native-click-dom
 
 完整运行比较 9 个配置与 7 种方案，共 63 个构建。配置覆盖六种后端、DOM/手动 Canvas/真实 Dedicated Worker，以及仅点击和仅拖尾。每次从当前源码重新生成全部所选构建，不用磁盘上的旧产物替代验收。
 
+## 人工审查实时网页
+
+```bash
+npm run experiment:live
+```
+
+命令重新构建 WebGL2、WebGPU、Native 的当前版、无损版、128² 拖尾版和程序化版，共 12 个产物，然后启动本地服务器并打印浅色文章、深色仪表盘和彩色插画三个网页地址。保留进程运行供浏览器审查，Ctrl+C 停止服务。
+
+每个网页左侧为当前版，右侧可切换其他版本。可以在任意一侧点击、按住拖动或滚动，两侧同步输入；也可以使用循环演示、暂停、清空和各版本的“单独打开”入口。后端不可用时显示失败，不自动切换。两侧使用隔离页面和相同随机种子，正常时钟及 RAF 持续运行；消息与帧调度存在少量差异，因此这是人工观察工具，不替代固定时间的逐字节验收。
+
+审查页使用 [Dark Reader 官方页面锁定机制](https://github.com/darkreader/darkreader/blob/main/CONTRIBUTING.md#disabling-dark-reader-on-your-site) 保留自身配色，并禁止选中文字，避免深色转换和选择浮窗影响背景对照。
+
 ## 方案
 
 | 名称 | 内容 | 画面要求 |

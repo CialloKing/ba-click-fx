@@ -20,6 +20,18 @@ npm run experiment:size -- --build-only --profile=native-click-dom
 
 A complete run compares 9 profiles and 7 strategies: 63 builds covering six backends, DOM/manual Canvas/real Dedicated Worker integration, click-only, and trail-only configurations. Each invocation rebuilds the selected cases from current source; old files never substitute for acceptance.
 
+## Live pages for manual review
+
+```bash
+npm run experiment:live
+```
+
+This command rebuilds baseline, lossless, 128² trail, and procedural variants for WebGL2, WebGPU, and Native: 12 outputs. It then starts a local server and prints URLs for a light article, dark dashboard, and colorful illustration page. Keep the process running during browser review; Ctrl+C stops it.
+
+Each page keeps the baseline on the left and allows other variants on the right. Click, drag, or scroll either side to mirror input. Controls provide looping gestures, pause, clear, and separate full-page links for each version. Unavailable backends display failure without switching. Isolated pages share a random seed while retaining normal clocks and RAF. Messages and frame scheduling introduce small differences, so manual observation does not replace fixed-time byte equality acceptance.
+
+Review pages use the [official Dark Reader page lock](https://github.com/darkreader/darkreader/blob/main/CONTRIBUTING.md#disabling-dark-reader-on-your-site) to retain their colors and prevent text selection so recoloring and selection popups do not alter the background comparison.
+
 ## Strategies
 
 | Name | Change | Visual requirement |

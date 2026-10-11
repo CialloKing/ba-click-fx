@@ -100,6 +100,7 @@
     "benchmark:report": "node scripts/benchmark-report.mjs",
     "benchmark:custom": "node test/browser/custom-runtime.mjs --benchmark",
     "experiment:size": "node scripts/size-experiments.mjs",
+    "experiment:live": "node scripts/size-live-demo.mjs",
     "test:browser": "npm run build && npm run test:browser:core && npm run test:browser:worker",
     "test:browser:optional": "npm run build && npm run test:browser:core -- --optional && npm run test:browser:worker -- --optional",
     "verify:runtime-sync": "node scripts/verify-runtime-sync.cjs",
