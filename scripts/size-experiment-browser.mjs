@@ -132,7 +132,9 @@ export async function compareExperiments(root, output, builds)
   const vite = await startViteServer(root);
   const browser = await chromium.launch({ executablePath: findChromiumExecutable(), headless: true,
     args: ['--ignore-gpu-blocklist', '--enable-unsafe-webgpu', '--enable-precise-memory-info'] });
-  const report = { browser: browser.version(), complete: false, results: [] };
+  const report = { browser: browser.version(), complete: false,
+    pixelRasterization: 'Native/Software: Canvas2D willReadFrequently=true; GPU backends unchanged. Performance: default contexts.',
+    results: [] };
   const baselines = new Map();
   try
   {
@@ -151,17 +153,18 @@ export async function compareExperiments(root, output, builds)
       for (const sample of samples)
       {
         const snapshot = await runFixture(browser, vite.baseUrl,
-          { profile: build.profile, url, capturePixels: true, benchmark: sample.name === 'early', ...sample }, worker);
+          { profile: build.profile, url, capturePixels: true,
+            deterministicCanvas: ['native', 'software'].includes(build.profile.backend), ...sample }, worker);
         assert(snapshot.lit > 0, `${build.name}/${build.strategy}: empty output`);
-        measurements.push(snapshot);
         snapshots.push({ sample: sample.name, ...snapshot });
         savePixels(join(build.directory, `${sample.name}.png`), snapshot.pixelWidth, snapshot.pixelHeight, snapshot.pixels);
       }
-      for (let trial = 0; trial < 2; trial++)
+      for (let trial = 0; trial < 3; trial++)
       {
-        measurements.push(await runFixture(browser, vite.baseUrl, { profile: build.profile, url, timing: true }, worker));
+        measurements.push(await runFixture(browser, vite.baseUrl,
+          { profile: build.profile, url, timing: true, benchmark: trial === 0 }, worker));
       }
-      const cold = [measurements[0], ...measurements.slice(samples.length)];
+      const cold = measurements;
       const frames = [...measurements[0].cpuFrameMs].sort((left, right) => left - right);
       const result = { name: build.name, strategy: build.strategy,
         importMs: summary(cold.map(value => value.importMs)), initMs: summary(cold.map(value => value.initMs)),

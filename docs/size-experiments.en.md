@@ -51,6 +51,8 @@ Each profile uses identical random numbers, input, logical time, backend, and in
 
 All strategies reuse multi-instance, pause, resize/DPR, clearing, and repeated-destruction checks. Worker cases also cover initialization failure, WebGL context restoration, WebGPU destruction during initialization, device loss, and Standard output fallback. Unavailable or skipped devices fail the run.
 
+Repeated active-trail runs of the same Software artifact produced two hashes differing by two levels in one channel. Native/Software image comparisons therefore explicitly use Canvas2D contexts with `willReadFrequently: true`; lossless acceptance still requires byte equality. Performance is measured separately with default contexts to exclude the comparison rasterization policy from optimization benefits.
+
 Cold import and initialization each use three separate browser contexts. CPU frame times use 90 samples and report p50/p95. They include update/submission, not GPU memory or physical display FPS. Headless Extended output does not establish physical HDR display acceptance.
 
 Sizes cover deployment JS and actual external assets, compressed individually before summation. Declarations, licenses, and HTTP headers are separate. Compare both entry JS and combined asset totals for the external strategy.

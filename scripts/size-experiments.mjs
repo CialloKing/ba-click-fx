@@ -113,6 +113,7 @@ async function main()
     'Usage: experiment:size [--build-only] [--profile=name] [--strategy=name]');
   const selectedProfile = args.find(arg => arg.startsWith('--profile='))?.slice(10);
   const selectedStrategy = args.find(arg => arg.startsWith('--strategy='))?.slice(11);
+  assert(!selectedStrategy || strategies.includes(selectedStrategy), 'Unknown strategy');
   const selected = profiles.filter(entry => !selectedProfile || entry.name === selectedProfile);
   const modes = strategies.filter(strategy => !selectedStrategy || strategy === selectedStrategy ||
     (!args.includes('--build-only') && strategy === 'baseline'));
@@ -130,6 +131,7 @@ async function main()
   const report = { version: JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version,
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), results };
   writeFileSync(join(output, 'results.json'), JSON.stringify(report, null, 2) + '\n');
+  writeExperimentReport(output, report);
   if (!args.includes('--build-only'))
   {
     report.browser = await compareExperiments(root, output, results);

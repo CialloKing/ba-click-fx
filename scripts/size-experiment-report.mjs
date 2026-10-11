@@ -4,6 +4,15 @@ import { join } from 'node:path';
 export function writeExperimentReport(output, report)
 {
   const kib = value => (value / 1024).toFixed(1);
+  if (!report.browser?.complete)
+  {
+    const message = '本轮只有构建结果，浏览器验收尚未完成。旧的画面报告不能作为本轮验收证据。';
+    const table = report.results.map(build => `| ${build.name} | ${build.strategy} | ${kib(build.totals.gzip)} |`).join('\n');
+    writeFileSync(join(output, 'report.md'), '# 体积实验构建结果\n\n' + message +
+      '\n\n| 配置 | 方案 | 总 gzip KiB |\n|---|---|---:|\n' + table + '\n');
+    writeFileSync(join(output, 'report.html'), '<!doctype html><meta charset="utf-8"><h1>体积实验构建结果</h1><p>' + message + '</p><p>请查看 results.json 或 report.md。</p>');
+    return;
+  }
   const rows = report.results.map(build =>
   {
     const measurement = report.browser.results.find(item => item.name === build.name && item.strategy === build.strategy);
@@ -19,6 +28,7 @@ export function writeExperimentReport(output, report)
     '\n\n冷导入和初始化各三次独立浏览器上下文；CPU p50/p95 各 90 帧。局域回环网络和无头浏览器不代表真实网站下载、物理显示 FPS 或 HDR 显示效果。\n\n' +
     'baseline/minified/lossless-deflate/external-deflate 要求像素逐字节一致；降采样和程序化只记录差异，不放宽无损验收阈值。空白像素会稀释全图 MAE，因此交互报告同时显示活跃区域误差和差异图。\n\n' +
     '外置方案使用额外资源请求和模块顶层 await，目标为 ES2022。程序化方案替换 Trail、Circle、Ring3 三种纹理，继续复用当前渲染管线和三角纹理，并非完整轻量渲染器。\n\n' +
+    'Native/Software 的精确图像对照固定 willReadFrequently=true，以稳定 Canvas2D 读回；加载与 CPU 帧性能仍用默认上下文单独测量。\n\n' +
     '[打开交互画面对照](./report.html)\n');
   const data = JSON.stringify(rows).replaceAll('<', '\\u003c');
   const names = [...new Set(rows.map(row => row.name))];
@@ -36,7 +46,7 @@ figcaption{padding:10px}#metrics{background:white;padding:12px;border-radius:8px
 <label>画面 <select id="sample"></select></label><button id="backdrop">切换背景</button>
 <table><thead><tr><th>方案</th><th>原始总 KiB</th><th>入口 gzip KiB</th><th>总 gzip KiB</th><th>总 Brotli KiB</th><th>导入 ms</th><th>初始化 ms</th><th>CPU p95 ms</th></tr></thead><tbody id="sizes"></tbody></table>
 <div id="metrics"></div><div class="images" id="images"><figure><img id="baseline"><figcaption>当前定制版</figcaption></figure><figure><img id="candidate"><figcaption>实验方案</figcaption></figure><figure><img id="difference"><figcaption>差异 ×4；Alpha 差异显示为蓝色</figcaption></figure></div>
-<p><small>无损方案执行逐字节验收。全图 MAE 包含空白像素，不能视为一个整体拟合百分比。冷导入/初始化各采样三次，CPU 采样 90 帧；回环网络及无头浏览器结果不能代替实际下载和显示性能。外置方案的总大小已包括 trail.bin。</small></p>
+<p><small>无损方案执行逐字节验收。Native/Software 像素对照启用 willReadFrequently，性能另用默认上下文测量。全图 MAE 包含空白像素，不能视为整体拟合百分比。冷导入/初始化各采样三次，CPU 采样 90 帧；回环网络及无头浏览器结果不能代替实际下载和显示性能。外置方案总大小已包括 trail.bin。</small></p>
 <script>
 const rows=${data}; const profile=document.querySelector('#profile'),strategy=document.querySelector('#strategy'),sample=document.querySelector('#sample');
 strategy.value=rows.some(row=>row.strategy==='lossless-deflate')?'lossless-deflate':rows[0].strategy;

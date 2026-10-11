@@ -51,6 +51,8 @@ npm run experiment:size -- --build-only --profile=native-click-dom
 
 所有路线复用多实例、暂停、尺寸/DPR、清理和重复销毁检查；Worker 配置额外覆盖初始化失败、WebGL 上下文恢复，以及 WebGPU 初始化期间销毁、设备丢失和 Standard 输出降级。设备不可用或跳过会失败。
 
+连续拖尾时，相同的 Software 产物重复运行出现过两个哈希，差异只有一个通道的两个色阶。Native/Software 的图像对照因此显式使用 `willReadFrequently: true` 的 Canvas2D 上下文；无损比较仍要求逐字节一致。性能采样另外使用默认上下文，避免把对照光栅策略的影响算成优化收益。
+
 冷导入和初始化各测三次独立浏览器上下文；CPU 帧耗时采样 90 帧并报告 p50/p95。它包含更新及提交，不是 GPU 显存或物理显示帧率。无头浏览器的 Extended 输出也不证明物理 HDR 显示效果。
 
 体积只统计部署 JS 和实际外置资源；分别进行 gzip/Brotli 压缩后求和。类型声明、许可证和 HTTP 请求头另计。外置方案的入口 JS 大小与资源总大小必须同时比较。

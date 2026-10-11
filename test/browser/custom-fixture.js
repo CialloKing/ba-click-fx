@@ -1,8 +1,25 @@
 const measurementNow = performance.now.bind(performance);
 const measurementFrame = globalThis.requestAnimationFrame?.bind(globalThis);
 
-export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, timing = false })
+export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false })
 {
+  if (deterministicCanvas)
+  {
+    // 同一输入的 Canvas 读回会出现个别通道舍入波动；精确画面实验固定
+    // 频繁读回上下文。每次运行使用独立上下文，性能继续使用默认光栅路径。
+    for (const Constructor of [globalThis.HTMLCanvasElement, globalThis.OffscreenCanvas])
+    {
+      if (!Constructor)
+      {
+        continue;
+      }
+      const getContext = Constructor.prototype.getContext;
+      Constructor.prototype.getContext = function(type, options)
+      {
+        return getContext.call(this, type, type === '2d' ? { ...options, willReadFrequently: true } : options);
+      };
+    }
+  }
   const realNow = measurementNow;
   const importStart = realNow();
   const heapBeforeImport = performance.memory?.usedJSHeapSize ?? null;
