@@ -1603,6 +1603,19 @@ async function setDemoHdrUiEnabled(page, enabled)
   }, enabled);
 }
 
+async function waitForDemoHdrUiPaint(page, enabled)
+{
+  await page.waitForFunction((expected) =>
+  {
+    const content = getComputedStyle(document.querySelector('.hero-float h1'), '::after').content;
+    return document.body.dataset.hdrUiState === (expected ? 'extended' : 'disabled') &&
+      (content !== 'none') === expected;
+  }, enabled);
+  // GPU 队列完成不代表 CSS 已提交；截图前等待样式经过浏览器的绘制帧。
+  await page.evaluate(() => new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
+}
+
 async function runDemoHdrThresholdControls(page)
 {
   const viewport = page.viewportSize();
@@ -1668,9 +1681,10 @@ async function runDemoHdrThresholdControls(page)
     await page.locator('#panelToggle').click();
     await start.scrollIntoViewIfNeeded();
     const bounds = await start.boundingBox();
-    await page.mouse.click(bounds.x + 7, bounds.y + bounds.height / 2);
+    // 展开面板时绝对坐标可能失效；控件点击会等待布局稳定并检查命中目标。
+    await start.click({ position: { x: 7, y: bounds.height / 2 } });
     await check([0, 0.29]);
-    await page.mouse.click(bounds.x + bounds.width - 7, bounds.y + bounds.height / 2);
+    await start.click({ position: { x: bounds.width - 7, y: bounds.height / 2 } });
     await check([0.28, 0.29]);
     await page.selectOption('#ctrlHdrPresentationPreset', 'balanced');
     await check([1, 5]);
@@ -1863,12 +1877,12 @@ async function runDemoHdrUiEffectIsolation(page)
       window.BAClickFXDemo.webgpuEffectRenderer.device.queue.onSubmittedWorkDone());
     const clickClip = { x: 280, y: 180, width: 240, height: 240 };
     const uiClip = { x: 0, y: 0, width: 360, height: 150 };
+    await waitForDemoHdrUiPaint(page, true);
     const enabledClick = await page.screenshot({ clip: clickClip });
     const enabledUi = await page.screenshot({ clip: uiClip });
 
     await setDemoHdrUiEnabled(page, false);
-    await page.waitForFunction(() =>
-      document.body.dataset.hdrUiState === 'disabled');
+    await waitForDemoHdrUiPaint(page, false);
     const disabledClick = await page.screenshot({ clip: clickClip });
     const disabledUi = await page.screenshot({ clip: uiClip });
     const disabledFrame = await page.evaluate(() =>
