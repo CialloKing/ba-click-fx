@@ -56,9 +56,9 @@ function writeEdition(name, files, info, noticePath)
   for (const english of [false, true])
   {
     const introduction = english
-      ? slim ? 'Fixed-profile DOM build: WebGL2, 128x128 trail, click/shards/Bloom/reference enabled. Theme, scale, DPR cap and effect parameters are fixed by the included build profile. It has no alternate backend fallback or dynamic tuning API.'
+      ? slim ? 'Fixed-profile DOM build: WebGL2, 128x128 trail, click/shards/Bloom/reference enabled. Uses the ordinary-webpage recommendation: browser-overlay + screen + dom-backdrop. Theme, scale, DPR cap and effect parameters are fixed by the included build profile. It has no alternate backend fallback or dynamic tuning API.'
         : 'Full ESM distribution, including main, configuration and Worker entries.'
-      : slim ? '固定配置的 DOM 精简版：仅 WebGL2，128² 拖尾，保留点击、碎片、Bloom 和合成参考。主题、scale、DPR 上限及特效参数由附带的构建配置固定；设备失败通过 onError 通知，不切换其他后端。'
+      : slim ? '固定配置的 DOM 精简版：仅 WebGL2，128² 拖尾，保留点击、碎片、Bloom 和合成参考。采用普通网页推荐的 browser-overlay + screen + dom-backdrop。主题、scale、DPR 上限及特效参数由附带的构建配置固定；设备失败通过 onError 通知，不切换其他后端。'
         : '完整版 ESM，包含主入口、配置及 Worker 入口。';
     const detail = english
       ? slim ? 'Constructor options: target, onError, inputFilter. Use resize, setPaused, clear, clearTrail, boom, getConfig, getFxConfig, getEffectiveHostCompositing, setCompositingReference and destroy. Changing fixed settings requires rebuilding from source.'
@@ -90,6 +90,10 @@ assert.equal(slimInfo.version, version);
 assert.equal(slimInfo.backend, 'webgl2');
 assert.equal(slimInfo.runtime, 'dom');
 assert.deepEqual(slimInfo.resources, { trailSize: 128, encoding: 'deflate' });
+for (const [key, value] of Object.entries({ outputCompositing: 'browser-overlay', hostCompositing: 'screen', hostCompositingSurface: 'dom-backdrop' }))
+{
+  assert.equal(slimInfo.config[key], value, 'Slim webpage configuration: ' + key);
+}
 assert(Object.values(slimInfo.features).every(Boolean));
 assert.equal(slimInfo.sizes.raw, readFileSync(join(root, 'dist-custom/ba-click-fx.js')).length);
 assert(readFileSync(join(root, 'dist-custom/THIRD_PARTY_NOTICES.md'), 'utf8').includes('## fflate'));

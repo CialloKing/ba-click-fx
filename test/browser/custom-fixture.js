@@ -247,6 +247,17 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   const hash = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
   const lit = pixels.reduce((count, value, index) => count + (index % 4 !== 3 && value > 8 ? 1 : 0), 0);
   const config = fx.getConfig();
+  if (capturePixels && dom && profile.config.outputCompositing === 'browser-overlay' && profile.config.hostCompositing === 'screen')
+  {
+    // 未知背景只混合一次；已知参考已参与 Final Pass 时，DOM 必须停止重复 screen。
+    const expected = reference ? 'source-over' : 'screen';
+    if (fx.getEffectiveHostCompositing() !== expected ||
+        fx.overlayRoot.style.mixBlendMode !== (reference ? '' : 'screen') ||
+        (!reference && getComputedStyle(fx.overlayRoot).mixBlendMode !== 'screen'))
+    {
+      throw Error('webpage DOM compositing contract');
+    }
+  }
   const state = { clickTimeMs: fx.clickTimeMs, trailTimeMs: fx.trailTimeMs,
     waves: fx.waves.map(wave => ({ x: wave.x, y: wave.y, ageMs: wave.ageMs, rings: wave.rings })),
     shards: fx.shards.map(shard => ({ x: shard.x, y: shard.y, ageMs: shard.ageMs })),
