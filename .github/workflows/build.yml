@@ -3,8 +3,12 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -38,9 +42,13 @@ jobs:
             throw "Required system Edge was not found: $edge"
           }
           "BACLICKFX_CHROMIUM_PATH=$edge" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Prepare full and slim release artifacts
+        run: npm run release:prepare
       - name: Run Chromium pixel regression
-        run: npm run test:browser
-      # test:browser 已完成构建，以下专项复用同一份发布运行时。
+        run: npm run test:browser:core
+      - name: Run Chromium Worker regression
+        run: npm run test:browser:worker
+      # 发布准备已构建完整版；各专项复用这份待发布运行时。
       - name: Run Chromium lifecycle regression
         run: npm run test:browser:lifecycle
       - name: Run Chromium demo regression
@@ -49,6 +57,15 @@ jobs:
         run: npm run test:browser:unity
       - name: Run custom build parity and lifecycle checks
         run: npm run test:browser:custom -- --required
+      - name: Check exact slim release files
+        run: npm run test:browser:slim -- --release-assets
+      - name: Upload verified release artifacts
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets
+          path: dist-release
+          if-no-files-found: error
       - name: Upload browser failure artifacts
         if: failure()
         uses: actions/upload-artifact@v7
@@ -58,4 +75,38 @@ jobs:
             test-results/browser-pixels
             test-results/custom-browser
             test-results/custom-builds
+            test-results/slim-browser
           if-no-files-found: ignore
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, browser-pixels]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: dist-release
+      - name: Verify release identity and checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          node --input-type=module -e 'import assert from "node:assert/strict"; import {readFileSync} from "node:fs"; const info=JSON.parse(readFileSync("dist-release/build-info.json")); assert.equal("v"+info.version,process.env.RELEASE_TAG); assert.equal(info.commit,process.env.RELEASE_SHA); assert.equal(info.dirty,false);'
+          cd dist-release/assets
+          sha256sum --check SHA256SUMS
+      - name: Create draft and verify uploaded assets before publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG - 完整版与 WebGL2 精简版" --notes-file dist-release/notes.md dist-release/assets/*
+          gh release download "$RELEASE_TAG" --dir downloaded-assets
+          test "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')" = 11
+          cmp dist-release/assets/SHA256SUMS downloaded-assets/SHA256SUMS
+          cd downloaded-assets
+          sha256sum --check SHA256SUMS
+          gh release edit "$RELEASE_TAG" --draft=false
