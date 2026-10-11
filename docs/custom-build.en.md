@@ -35,7 +35,7 @@ The official slim Release uses this [fixed profile](../examples/build-profiles/s
 npm run build -- --profile examples/build-profiles/slim-webgl2-128.json
 ```
 
-It selects WebGL2 / DOM, all features, a 128x128 trail and Deflate encoding. The default blue theme `#4ca7ff`, `scale: 1`, `maxDpr: 1` and FX parameters are fixed at build time. Change `config` and `fxParams` in a copied profile to build your own variant. `resize` still adjusts canvas dimensions.
+It selects WebGL2 / DOM, all features, a 128x128 trail and Deflate encoding. The ordinary-webpage recommendation, `outputCompositing: 'browser-overlay'`, `hostCompositing: 'screen'` and `hostCompositingSurface: 'dom-backdrop'`, is fixed at build time and needs no constructor settings. The default blue theme `#4ca7ff`, `scale: 1`, `maxDpr: 1` and FX parameters are also fixed. Change `config` and `fxParams` in a copied profile to build your own variant. `resize` still adjusts canvas dimensions.
 
 `deflate` preserves Circle, Ring3 and mesh data exactly; `trailSize: 512` also retains the original trail. Sizes 128/256 use area-average trail downsampling and require enabled trails with `deflate`. Decoding happens once at module initialization; final texture memory depends on resolution. Output remains a self-contained ESM with synchronous construction. Resource settings are included in build metadata and cache keys.
 

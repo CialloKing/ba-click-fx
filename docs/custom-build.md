@@ -35,7 +35,7 @@ npm run build -- --profile examples/build-profiles/native-click-dom.json
 npm run build -- --profile examples/build-profiles/slim-webgl2-128.json
 ```
 
-该预设为 WebGL2 / DOM，保留所有功能，使用 128² 拖尾和 Deflate 编码。默认蓝色主题 `#4ca7ff`、`scale: 1`、`maxDpr: 1` 及特效参数在构建时固定。修改预设中的 `config`、`fxParams` 可以生成自己的版本。`resize` 仍可调整画布尺寸。
+该预设为 WebGL2 / DOM，保留所有功能，使用 128² 拖尾和 Deflate 编码。普通网页推荐的 `outputCompositing: 'browser-overlay'`、`hostCompositing: 'screen'`、`hostCompositingSurface: 'dom-backdrop'` 已在构建时固定，无需在构造时设置。默认蓝色主题 `#4ca7ff`、`scale: 1`、`maxDpr: 1` 及特效参数也固定。修改预设中的 `config`、`fxParams` 可以生成自己的版本。`resize` 仍可调整画布尺寸。
 
 `deflate` 对圆形纹理、Ring3 和网格为无损编码；`trailSize: 512` 保留原始拖尾数据。128/256 会对拖尾做平均降采样，需要启用 `trail` 并选择 `deflate`。解压仅发生在模块首次加载，最终纹理占用由分辨率决定。脚本仍为自包含 ESM，构造保持同步。所有资源选项进入构建信息和缓存键。
 

@@ -83,7 +83,7 @@ const fx = new BAClickFX(
 
 ```html
 <script type="module">
-  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.10/dist/ba-click-fx.js';
+  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.11/dist/ba-click-fx.js';
 
   const fx = new BAClickFX(
   {
@@ -102,14 +102,14 @@ const fx = new BAClickFX(
 
 | 入口 | JavaScript | 类型声明 |
 |---|---|---|
-| 主入口 | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx.d.ts) |
-| 配置 | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/config.d.ts) |
-| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/worker.d.ts) |
-| 固定配置 WebGL2 / 128² DOM 精简版 | [ba-click-fx.slim-webgl2-128.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx.slim-webgl2-128.js) | [ba-click-fx.slim-webgl2-128.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx.slim-webgl2-128.d.ts) |
+| 主入口 | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/ba-click-fx.d.ts) |
+| 配置 | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/config.d.ts) |
+| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/worker.d.ts) |
+| 固定配置 WebGL2 / 128² DOM 精简版 | [ba-click-fx.slim-webgl2-128.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/ba-click-fx.slim-webgl2-128.js) | [ba-click-fx.slim-webgl2-128.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/ba-click-fx.slim-webgl2-128.d.ts) |
 
-也可以下载附带使用说明和许可证的[完整版 ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx-v1.3.10-full.zip) 或[精简版 ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx-v1.3.10-slim-webgl2-128.zip)，使用 [SHA256SUMS](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/SHA256SUMS) 校验附件。
+也可以下载附带使用说明和许可证的[完整版 ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/ba-click-fx-v1.3.11-full.zip) 或[精简版 ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/ba-click-fx-v1.3.11-slim-webgl2-128.zip)，使用 [SHA256SUMS](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/SHA256SUMS) 校验附件。
 
-精简版主 JS 约 193.6 KiB，保留点击、拖尾、碎片、Bloom 与合成参考，仅提供 WebGL2 / DOM。主题、scale、DPR 上限和特效参数固定，构造时只接受 `target`、`onError`、`inputFilter`；不支持动态调参或其他后端回退。其声明支持相对 ESM 导入：
+精简版主 JS 约 193.9 KiB，保留点击、拖尾、碎片、Bloom 与合成参考，仅提供 WebGL2 / DOM。已在构建时固定普通网页推荐的 `browser-overlay + screen + dom-backdrop`，无需在构造时传入合成参数。主题、scale、DPR 上限和特效参数固定，构造时只接受 `target`、`onError`、`inputFilter`；不支持动态调参或其他后端回退。其声明支持相对 ESM 导入：
 
 ```js
 import BAClickFX from './ba-click-fx.slim-webgl2-128.js';

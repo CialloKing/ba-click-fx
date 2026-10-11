@@ -2,7 +2,7 @@
 
 [返回 README](../README.md) · [English](./releases.en.md)
 
-同一版本、标签和 Release 同时提供完整版与固定配置的 WebGL2 / 128² DOM 精简版。npm/CDN 默认包为完整版。精简版保留点击、拖尾、碎片、Bloom、合成参考；仅接受宿主和回调参数，修改主题、scale、DPR 上限或特效参数需从源码重新构建。没有其他渲染后端回退。
+同一版本、标签和 Release 同时提供完整版与固定配置的 WebGL2 / 128² DOM 精简版。npm/CDN 默认包为完整版。精简版固定普通网页推荐的 `browser-overlay + screen + dom-backdrop`，保留点击、拖尾、碎片、Bloom、合成参考；仅接受宿主和回调参数，修改合成配置、主题、scale、DPR 上限或特效参数需从源码重新构建。没有其他渲染后端回退。
 
 ## 本地准备与验收
 
@@ -36,8 +36,8 @@ ZIP 包含使用说明、构建信息、LICENSE、THIRD_PARTY_NOTICES.md；精�
 主分支合并后，确认对应提交的 Build CI 通过。需要实际发布时才创建并推送标签：
 
 ```bash
-git tag -a v1.3.10 -m "发布v1.3.10：完整版与WebGL2精简版"
-git push origin v1.3.10
+git tag -a v1.3.11 -m "发布v1.3.11：完整版与WebGL2精简版"
+git push origin v1.3.11
 ```
 
 标签触发同一工作流重新验收。Linux 完成包与定制构建检查；Windows 构建附件并运行完整浏览器与精简版验收。两项均成功后，发布任务核对版本、提交和 SHA256SUMS，创建草稿，上传 11 个附件，下载验证数量和所有哈希，然后转为正式 Release。失败时不会发布正式版本；上传后校验失败会保留草稿供排查。

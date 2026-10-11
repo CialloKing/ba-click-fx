@@ -2,7 +2,7 @@
 
 [Back to README](../README.en.md) · [简体中文](./releases.md)
 
-One version, tag and Release contains the full edition and the fixed-profile WebGL2 / 128x128 DOM slim edition. The default npm/CDN package is the full edition. Slim retains clicks, trails, shards, Bloom and compositing references. Constructors accept host and callback options only; theme, scale, DPR cap and FX settings require a source rebuild. It has no alternate rendering backend fallback.
+One version, tag and Release contains the full edition and the fixed-profile WebGL2 / 128x128 DOM slim edition. The default npm/CDN package is the full edition. Slim fixes the ordinary-webpage recommendation, `browser-overlay + screen + dom-backdrop`, and retains clicks, trails, shards, Bloom and compositing references. Constructors accept host and callback options only; compositing settings, theme, scale, DPR cap and FX settings require a source rebuild. It has no alternate rendering backend fallback.
 
 ## Local Preparation and Acceptance
 
@@ -36,8 +36,8 @@ ZIPs contain usage notes, build information, LICENSE and THIRD_PARTY_NOTICES.md.
 Merge into main and confirm Build CI passed for that commit. Create and push a tag only when actually publishing:
 
 ```bash
-git tag -a v1.3.10 -m "发布v1.3.10：完整版与WebGL2精简版"
-git push origin v1.3.10
+git tag -a v1.3.11 -m "发布v1.3.11：完整版与WebGL2精简版"
+git push origin v1.3.11
 ```
 
 The tag reruns the same workflow. Linux checks packaging and custom builds; Windows prepares assets and runs full browser and slim acceptance. After both pass, the publishing job checks version, commit and SHA256SUMS, creates a draft, uploads 11 assets, downloads them to verify their count and hashes, then publishes. A failure prevents formal publication; a verification failure after upload leaves a draft for diagnosis.
