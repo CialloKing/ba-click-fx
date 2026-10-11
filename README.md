@@ -83,7 +83,7 @@ const fx = new BAClickFX(
 
 ```html
 <script type="module">
-  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.9/dist/ba-click-fx.js';
+  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.10/dist/ba-click-fx.js';
 
   const fx = new BAClickFX(
   {
@@ -100,13 +100,23 @@ const fx = new BAClickFX(
 
 从 [GitHub Releases](https://github.com/CialloKing/ba-click-fx/releases) 下载所需的 ESM 入口。普通网页只需主入口 `ba-click-fx.js`；类型声明的使用方式见表后说明。
 
-| 入口 | JavaScript | 类型声明（包名导入） |
+| 入口 | JavaScript | 类型声明 |
 |---|---|---|
-| 主入口 | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/ba-click-fx.d.ts) |
-| 配置 | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/config.d.ts) |
-| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.9/worker.d.ts) |
+| 主入口 | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx.d.ts) |
+| 配置 | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/config.d.ts) |
+| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/worker.d.ts) |
+| 固定配置 WebGL2 / 128² DOM 精简版 | [ba-click-fx.slim-webgl2-128.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx.slim-webgl2-128.js) | [ba-click-fx.slim-webgl2-128.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx.slim-webgl2-128.d.ts) |
 
-**TypeScript：** 推荐使用上方的 [npm 方式](#npm)，通过 `import { BAClickFX } from 'ba-click-fx'` 自动获取类型；需要自托管时，由构建工具生成并部署静态文件。当前下载的主声明使用 `declare module 'ba-click-fx'`，配置和 Worker 声明也引用该包名。仅把 `.d.ts` 放在下载的 JS 旁边，不能为 `import ... from './ba-click-fx.js'` 提供可直接使用的模块类型，会出现 TS2306（声明文件不是模块）。
+也可以下载附带使用说明和许可证的[完整版 ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx-v1.3.10-full.zip) 或[精简版 ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/ba-click-fx-v1.3.10-slim-webgl2-128.zip)，使用 [SHA256SUMS](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.10/SHA256SUMS) 校验附件。
+
+精简版主 JS 约 193.6 KiB，保留点击、拖尾、碎片、Bloom 与合成参考，仅提供 WebGL2 / DOM。主题、scale、DPR 上限和特效参数固定，构造时只接受 `target`、`onError`、`inputFilter`；不支持动态调参或其他后端回退。其声明支持相对 ESM 导入：
+
+```js
+import BAClickFX from './ba-click-fx.slim-webgl2-128.js';
+const fx = new BAClickFX({ target: '#fx-host', onError: error => console.error(error) });
+```
+
+**完整版 TypeScript：** 推荐使用上方的 [npm 方式](#npm)，通过 `import { BAClickFX } from 'ba-click-fx'` 自动获取类型；需要自托管时，由构建工具生成并部署静态文件。当前下载的主声明使用 `declare module 'ba-click-fx'`，配置和 Worker 声明也引用该包名。仅把 `.d.ts` 放在下载的 JS 旁边，不能为 `import ... from './ba-click-fx.js'` 提供可直接使用的模块类型，会出现 TS2306（声明文件不是模块）。
 
 本包和 CDN 构建仅提供 ESM。以下是浏览器 JavaScript 示例：使用 `type="module"` 和 `import`，将下载文件与页面一起通过 HTTP(S) 服务访问；不提供 IIFE 或 UMD 全局脚本。
 
@@ -150,6 +160,13 @@ npm run build -- --profile examples/build-profiles/native-click-dom.json
 ```
 
 也可以复制 [Worker 配置示例](https://github.com/CialloKing/ba-click-fx/blob/main/examples/build-profiles/webgl2-worker.json)为自己的 `ba-click-fx.build.json`，修改所需功能和固定参数，再运行 `npm run build -- --profile ba-click-fx.build.json`。
+
+
+官方 WebGL2 / 128² 精简预设可直接构建：
+
+```bash
+npm run build -- --profile examples/build-profiles/slim-webgl2-128.json
+```
 
 定制产物位于 `dist-custom`，包含自包含 ESM、对应类型声明、构建信息及许可证，不覆盖完整版。默认导出与 `BAClickFX` 命名导出均保留；构造时只接受宿主资源和必要回调。配置字段、裁剪后的接口及接入示例见[定制构建指南](https://github.com/CialloKing/ba-click-fx/blob/main/docs/custom-build.md)。
 
@@ -280,6 +297,9 @@ fx.destroy();
 ### 定制构建
 
 [README 构建步骤](#从源码自行构建) · [定制构建指南](https://github.com/CialloKing/ba-click-fx/blob/main/docs/custom-build.md)：完整配置字段、功能与接口裁剪、宿主接入及故障处理。
+
+
+[双版本发布指南](https://github.com/CialloKing/ba-click-fx/blob/main/docs/releases.md)：附件、校验、验收与标签发布步骤。
 
 ## 常见问题
 

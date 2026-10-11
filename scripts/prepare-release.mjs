@@ -62,9 +62,9 @@ function writeEdition(name, files, info, noticePath)
         : '完整版 ESM，包含主入口、配置及 Worker 入口。';
     const detail = english
       ? slim ? 'Constructor options: target, onError, inputFilter. Use resize, setPaused, clear, clearTrail, boom, getConfig, getFxConfig, getEffectiveHostCompositing, setCompositingReference and destroy. Changing fixed settings requires rebuilding from source.'
-        : 'Serve these files over HTTP(S); retain the matching TypeScript declarations in the same directory. Worker usage requires transferring an OffscreenCanvas from the host.'
+        : 'Serve JavaScript over HTTP(S). Full declarations describe package imports; use npm and a bundler for TypeScript. Worker usage requires transferring an OffscreenCanvas from the host.'
       : slim ? '构造参数为 target、onError、inputFilter。保留 resize、setPaused、clear、clearTrail、boom、getConfig、getFxConfig、getEffectiveHostCompositing、setCompositingReference、destroy。修改固定参数需从源码重新构建。'
-        : '通过 HTTP(S) 部署，并将对应类型声明保持在同一目录。Worker 接入需由宿主转移 OffscreenCanvas。';
+        : 'JavaScript 可通过 HTTP(S) 部署。完整版声明服务于包名导入，TypeScript 推荐 npm 安装后构建部署。Worker 接入需由宿主转移 OffscreenCanvas。';
     writeFileSync(join(directory, english ? 'README.en.md' : 'README.md'), `# ba-click-fx v${version}\n\n${introduction}\n\n${detail}\n\n\`\`\`js\nimport BAClickFX from './${script}';\nconst fx = new BAClickFX({ target: '#fx-host', onError: error => console.error(error) });\n// fx.destroy();\n\`\`\`\n\n[Source and documentation](https://github.com/CialloKing/ba-click-fx/tree/v${version})\n\nKeep LICENSE and THIRD_PARTY_NOTICES.md when deploying.\n`);
   }
   if (slim)
