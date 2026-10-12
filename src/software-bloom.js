@@ -2259,7 +2259,7 @@ export class SoftwareBloomRenderer
     this.outputBounds = null;
   }
 
-  destroy()
+  releaseFrameResources()
   {
     this.sourceCanvas.width = 0;
     this.sourceCanvas.height = 0;
@@ -2272,7 +2272,6 @@ export class SoftwareBloomRenderer
       this.coverageCanvas.height = 0;
     }
 
-    this.available = false;
     this.sourceLinear = new Float32Array(0);
     this.sourceCoverage = new Float32Array(0);
     this.sceneCoverageMip0 = new Float32Array(0);
@@ -2290,5 +2289,11 @@ export class SoftwareBloomRenderer
     this.outputBounds = null;
     this.samplingTables = [];
     this.sourceReadBounds = null;
+  }
+
+  destroy()
+  {
+    this.releaseFrameResources();
+    this.available = false;
   }
 }

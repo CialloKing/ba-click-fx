@@ -2411,6 +2411,29 @@ assert(getPlan(3, samplingRenderer.sampleScale * 0.5) !== physicalPlan,
 samplingRenderer.destroy(); samplingRenderer.destroy(); secondSamplingRenderer.destroy();
 assert(samplingRenderer.samplingTables.length === 0, '重复销毁解除采样表引用');
 
+const reclaimRenderer = new SoftwareBloomRenderer(createSoftwareCanvasFactory().createCanvas);
+reclaimRenderer.beginFrame(65, 33, 0.5, { x: 0, y: 0, width: 65, height: 33 }, 7, 1);
+reclaimRenderer.beginCoverageFrame('browser-overlay');
+reclaimRenderer._getSamplingPlan(0, 3, 5, 2, 3, 1);
+const allocatedBeforeReclaim = reclaimRenderer.floatBufferAllocationCount;
+reclaimRenderer.releaseFrameResources();
+reclaimRenderer.releaseFrameResources();
+assert(reclaimRenderer.available && reclaimRenderer.sourceLinear.buffer.byteLength === 0 &&
+  reclaimRenderer.sourceCoverage.buffer.byteLength === 0 && reclaimRenderer.sceneCoverageMip0.buffer.byteLength === 0 &&
+  !reclaimRenderer.levelStorage.length && !reclaimRenderer.coverageLevelStorage.length &&
+  !reclaimRenderer.samplingTables.length && !reclaimRenderer.outputImageData &&
+  reclaimRenderer.sourceCanvas.width === 0 && reclaimRenderer.outputCanvas.width === 0 && !reclaimRenderer.coverageCanvas,
+  '释放工作资源保留可用状态，解除全部浮点、采样和 Canvas 容量');
+assert(reclaimRenderer.beginFrame(65, 33, 0.5, { x: 0, y: 0, width: 65, height: 33 }, 7, 1) &&
+  reclaimRenderer.beginCoverageFrame('browser-overlay') && reclaimRenderer._ensureCoverageBuffers() &&
+  reclaimRenderer.floatBufferAllocationCount > allocatedBeforeReclaim && reclaimRenderer.coverageLayoutVersion === reclaimRenderer.layoutVersion,
+  '回收后相同尺寸必须完整重建布局和 Coverage');
+reclaimRenderer.available = false;
+reclaimRenderer.releaseFrameResources();
+assert(!reclaimRenderer.available && !reclaimRenderer.beginFrame(65, 33, 0.5),
+  '释放工作缓存不重置已失败后端');
+reclaimRenderer.destroy();
+
 // 透明纹理首次创建失败时不能留下可复用的半成品或泄漏新句柄。
 {
   const renderer = Object.create(WebGL2EffectRenderer.prototype);

@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { normalizeProfile } from '../../scripts/build-profile.mjs';
+import { buildCustomFixture } from '../custom-build-fixture.mjs';
 import { closeBrowserRuntime, findChromiumExecutable, startViteServer } from './harness.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -48,6 +49,19 @@ try
     try
     {
       await page.goto(runtime.baseUrl + '/test/browser/custom.html');
+      if (parameters.profile.runtime === 'worker') return await page.evaluate(parameters => new Promise((done, fail) =>
+      {
+        const source = `import { runCustomFixture } from ${JSON.stringify(location.origin + '/test/browser/custom-fixture.js')};
+          onmessage = async event => { try { postMessage(await runCustomFixture(event.data)); } catch(error) { postMessage({ error: error.stack }); } };`;
+        const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+        const worker = new Worker(url, { type: 'module' });
+        const canvas = document.createElement('canvas').transferControlToOffscreen();
+        const cleanup = () => { clearTimeout(timer); worker.terminate(); URL.revokeObjectURL(url); };
+        const timer = setTimeout(() => { cleanup(); fail(Error('Software Worker timeout')); }, 30000);
+        worker.onerror = error => { cleanup(); fail(Error(error.message)); };
+        worker.onmessage = event => { cleanup(); event.data.error ? fail(Error(event.data.error)) : done(event.data); };
+        worker.postMessage({ ...parameters, targetCanvas: canvas }, [canvas]);
+      }), parameters);
       return await page.evaluate(async parameters =>
         (await import('/test/browser/custom-fixture.js')).runCustomFixture(parameters), parameters);
     }
@@ -86,6 +100,46 @@ try
         if (entry.name === 'alpha-one') assert.equal(normal.reads.finalFrameStages.regionAlpha.calls, 0, 'Alpha 255 needs no regional readback');
       }
       console.log(`Software optimization: ${entry.name} DPR=${dpr} passed`);
+    }
+  }
+  if (!benchmark)
+  {
+    for (const runtime of ['manual', 'worker'])
+    {
+      const input = { backend: 'software', runtime,
+        config: { hostCompositing: 'source-over', outputCompositing: 'browser-overlay', overlayAlphaPolicy: 'visual-max' } };
+      const { info: profile, url: customUrl } = buildCustomFixture(input);
+      const parameters = { profile, deterministicCanvas: true, softwareCache: true };
+      const baseline = baselineUrl && await run({ ...parameters, url: baselineUrl, full: true });
+      for (const [kind, url, full] of [['full', args.includes('--source') ? '/src/fx.js' : '/dist/ba-click-fx.js', true], ['custom', customUrl, false]])
+      {
+        const candidate = await run({ ...parameters, url, full });
+        results.push({ case: 'cache', runtime, kind, candidate, baseline });
+        assert.deepEqual(candidate.errors, []);
+        const cache = candidate.softwareCache;
+        assert.equal(cache.delay, 30000, 'Natural idle uses one 30 second timeout');
+        assert(cache.small.floatBytes > 60 * 1024 * 1024, 'Large-to-small high water workload exercised');
+        assert.equal(cache.active.floatBytes, cache.warm.floatBytes);
+        assert.equal(cache.active.allocations, cache.warm.allocations, 'Stable frames retain allocations');
+        assert.equal(cache.active.hash, cache.paused.hash, 'Paused visible frame preserved');
+        assert.equal(cache.active.floatBytes, cache.paused.floatBytes, 'Paused visible frame retains resources');
+        assert.equal(cache.idle.pendingTimers, 1);
+        assert.equal(cache['before-deadline'].floatBytes, cache.idle.floatBytes, 'No early release');
+        assert.equal(cache.resumed.pendingTimers, 0, 'Input cancels idle timeout');
+        assert.equal(cache.resumed.allocations, cache.idle.allocations, 'Short input gaps reuse capacities');
+        for (const state of [cache.released, cache.cleared, cache.destroyed])
+          for (const key of ['floatBytes', 'canvasPixels', 'samplingBytes', 'outputBytes', 'auxiliaryPixels', 'pendingTimers'])
+            assert.equal(state[key], 0, `${kind}/${runtime}: ${key} released`);
+        assert(cache.released.available && cache.rebuilt.allocations > cache.released.allocations, 'First click rebuilds available renderer');
+        assert(cache.failurePreserved && cache.destroyPending, 'Failure state retained and destroy cancels pending timeout');
+        if (baseline)
+        {
+          assert.equal(candidate.hash, baseline.hash, 'Cache fixture initial independent pixels');
+          for (const name of ['active', 'warm', 'paused', 'idle', 'before-deadline', 'resumed', 'released', 'rebuilt', 'cleared'])
+            assert.equal(cache[name].hash, baseline.softwareCache[name].hash, `${kind}/${runtime}/${name}: independent pixels`);
+        }
+        console.log(`Software cache: ${kind}/${runtime} passed`);
+      }
     }
   }
   complete = true;

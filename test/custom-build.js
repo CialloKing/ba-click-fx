@@ -18,6 +18,7 @@ profiles.push(...['click', 'trail', 'shards', 'bloom', 'compositingReference'].m
   backend: 'webgl2', runtime: 'worker', features: { [feature]: false },
 })));
 profiles.push({ backend: 'native', runtime: 'dom', features: { click: false, trail: false, shards: false, bloom: false, compositingReference: false } });
+profiles.push({ backend: 'software', runtime: 'manual', features: { bloom: false } });
 for (const [index, input] of profiles.entries())
 {
   const { directory: output, info } = buildCustomFixture(input);
@@ -37,6 +38,8 @@ for (const [index, input] of profiles.entries())
   if (input.features?.trail === false) assert(!modules.includes('src/trail-texture.js'));
   if (input.features?.shards === false) assert(!modules.includes('src/triangle-texture.js'));
   if (input.features?.bloom === false) assert(!code.includes('_getTransparentBloomTexture'), 'disabled Bloom removes the zero-texture path');
+  if (input.backend !== 'software' || input.features?.bloom === false)
+    assert(!code.includes('softwareBloomIdleTimer'), 'unused Software cache path is pruned');
   if (input.features?.click === false) assert(!modules.includes('src/circle-texture.js') && !modules.includes('src/ring3-alpha.js'));
   if (input.backend !== 'software') assert(!modules.includes('src/software-bloom.js'));
   assert.equal(info.sizes.raw, Buffer.byteLength(code));

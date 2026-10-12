@@ -1,7 +1,7 @@
 const measurementNow = performance.now.bind(performance);
 const measurementFrame = globalThis.requestAnimationFrame?.bind(globalThis);
 
-export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false, softwareOptimization = false })
+export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false, softwareOptimization = false, softwareCache = false })
 {
   if (deterministicCanvas)
   {
@@ -275,6 +275,19 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     shards: fx.shards.map(shard => ({ x: shard.x, y: shard.y, ageMs: shard.ageMs })),
     trail: fx.trailStrokes.map(stroke => stroke.points), stats: structuredClone(renderer?.stats) };
   let softwareOptimizationResults;
+  let softwareCacheResults;
+  if (softwareCache)
+  {
+    fx.resizeObserver?.disconnect();
+    const { probeSoftwareCache } = await import('./software-probe.js');
+    softwareCacheResults = await probeSoftwareCache(fx, (delta = 0) => { now += delta; fx._renderFrame(now); }, capture,
+      () =>
+      {
+        const target = hasDom ? document.createElement('canvas') : new OffscreenCanvas(65, 33);
+        target.width = 65; target.height = 33;
+        return new BAClickFX(full ? { ...profile.config, target, inputSource: 'manual' } : { target });
+      });
+  }
   if (softwareOptimization)
   {
     fx.resizeObserver?.disconnect();
@@ -384,6 +397,12 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     input('pointerup', 110, 105);
   }
   let gpuFrames;
+  let softwareCacheTiming;
+  if (benchmark && profile.backend === 'software' && profile.features.click && profile.features.bloom)
+  {
+    const { benchmarkSoftwareCache } = await import('./software-probe.js');
+    softwareCacheTiming = benchmarkSoftwareCache(fx, () => fx._renderFrame(now), realNow);
+  }
   if (benchmark && gpuPerformance)
   {
     if (!renderer?.gl && !gpu?.device) gpuFrames = { skipped: 'selected mode has no GPU renderer' };
@@ -480,6 +499,8 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     ...(timing && !benchmark ? { importMs, initMs } : {}),
     ...(gpuOptimization ? { gpuOptimization: gpuOptimizationResults } : {}),
     ...(softwareOptimization ? { softwareOptimization: softwareOptimizationResults } : {}),
+    ...(softwareCache ? { softwareCache: softwareCacheResults } : {}),
+    ...(softwareCacheTiming ? { softwareCacheTiming } : {}),
     ...(benchmark ? { importMs, initMs, frameTimes, cpuFrameMs,
       heap: { beforeImport: heapBeforeImport, afterImport: heapAfterImport, afterInit: heapAfterInit }, gpuFrames } : {}),
     contextRestored, errors };

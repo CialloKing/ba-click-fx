@@ -9,6 +9,7 @@ import {
   setOverlayStyle,
 } from './engine-shared.js';
 import {
+  BUILD_BLOOM,
   BUILD_CANVAS,
   BUILD_REFERENCE,
   BUILD_SOFTWARE,
@@ -1458,6 +1459,58 @@ export class BackendRuntime extends InputRuntime
     }
 
     return this.bloomRenderers[index];
+  }
+
+  _cancelSoftwareBloomRelease()
+  {
+    if (!BUILD_SOFTWARE || !BUILD_BLOOM) return false;
+    if (this.softwareBloomIdleTimer !== null)
+    {
+      clearTimeout(this.softwareBloomIdleTimer);
+      this.softwareBloomIdleTimer = null;
+    }
+  }
+
+  _scheduleSoftwareBloomRelease()
+  {
+    if (!BUILD_SOFTWARE || !BUILD_BLOOM) return false;
+    if (this.destroyed || this.softwareBloomIdleTimer !== null || this._hasVisibleEffects() ||
+        !this.bloomRenderers.some(renderer => renderer.sourceWidth > 0 && renderer.sourceCanvas.width > 0))
+    {
+      return;
+    }
+    // 空闲不申请 RAF；短暂输入间隔保留容量，持续空闲后一次性归还工作面。
+    const timer = setTimeout(() =>
+    {
+      if (this.softwareBloomIdleTimer !== timer) return;
+      this.softwareBloomIdleTimer = null;
+      if (!this.destroyed && !this.renderingFrame && !this._hasVisibleEffects())
+      {
+        this._releaseSoftwareBloomResources();
+      }
+    }, 30000);
+    this.softwareBloomIdleTimer = timer;
+  }
+
+  _releaseSoftwareBloomResources()
+  {
+    if (!BUILD_SOFTWARE || !BUILD_BLOOM) return false;
+    this._cancelSoftwareBloomRelease();
+    this._releaseSoftwareBloomFrame();
+    // 保留 renderer 身份及 available：缓存回收不能重启已经失败的后端。
+    for (const renderer of this.bloomRenderers) renderer.releaseFrameResources();
+    if (BUILD_TRAIL)
+    {
+      for (const stroke of this.trailStrokes) releaseTrailGradients(stroke.trailFrameData);
+    }
+    if (this.canvasBloomTransportCanvas)
+    {
+      this.canvasBloomTransportCanvas.width = 0;
+      this.canvasBloomTransportCanvas.height = 0;
+      this.canvasBloomTransportCanvas = null;
+      this.canvasBloomTransportContext = null;
+    }
+    this.canvasNativeSceneAlphaSnapshot = null;
   }
 
   _trimBloomRendererPool(activeCount, reserve = 2)

@@ -44,7 +44,9 @@ npm run test:browser:gpu-optimization -- --benchmark --baseline=test-results/gpu
 `--baseline` 会核对清单中的 SHA-256，并在独立浏览器上下文中逐字节对照旧版输出；
 普通 CI 不依赖本地旧文件，仍运行现有像素基线与本专项的路由、资源和生命周期断言。
 
-Software 专项复用相同场景，覆盖 Alpha 策略、颜色补偿、DPR、合成参考及回读失败：
+Software 专项复用相同场景，覆盖 Alpha 策略、颜色补偿、DPR、合成参考及回读失败；
+使用受控定时器验证 30 秒空闲回收、恢复取消、暂停保持、clear/destroy、重建像素与真实 Worker。
+完整版和 Software 定制版均执行缓存验收，不实际等待 30 秒。
 
 ```sh
 npm run test:browser:software-optimization
@@ -56,3 +58,7 @@ npm run test:browser:software-optimization -- --benchmark --baseline=test-result
 验收和性能分别写入 `test-results/software-optimization/results.json` 与 `benchmark.json`。
 独立基准目录的 `manifest.json` 记录提交、版本及主入口/Worker 的字节数和 SHA-256；
 对照前核验哈希，避免把本次重建的产物当作旧版。
+
+缓存容量按实例持有的 ArrayBuffer 字节数、工作 Canvas 像素数及辅助缓冲分别记录，
+解除引用不等同于浏览器立即降低进程内存。显式性能运行保留 90 帧混合交互样本，
+另记录七轮 clear 后首帧和每轮 20 个稳定帧的耗时与分配次数；首帧包括同步资源重建。
