@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { resourceVite } from '../scripts/resource-vite.mjs';
 import { normalizeProfile } from '../scripts/build-profile.mjs';
+import { compressionSession, compressResource, compressionInfo } from '../scripts/resource-compression.mjs';
 import { createBuildResources, resizeTexture } from '../scripts/build-resources.mjs';
 import { TRAIL_TEXTURE_RGB, TRAIL_TEXTURE_COVERAGE } from '../src/trail-texture.js';
 import { CIRCLE_TEXTURE_RGBA } from '../src/circle-texture.js';
@@ -10,28 +14,56 @@ import { RING3_ALPHA } from '../src/ring3-alpha.js';
 import { RING_MESH_VERTICES, RING_MESH_INDICES } from '../src/ring-mesh.js';
 
 const root = resolve(import.meta.dirname, '..');
-for (const trailSize of [128, 512])
+const session = compressionSession();
+try
 {
-  const profile = normalizeProfile({ backend: 'webgl2', runtime: 'dom', resources: { trailSize, encoding: 'deflate' } });
-  const directory = resolve(root, 'test-results/resource-codecs', String(trailSize));
-  mkdirSync(directory, { recursive: true });
-  const decoded = {};
-  for (const [filename, code] of createBuildResources(root, profile))
+  assert.equal((await createBuildResources(root, normalizeProfile({ backend: 'webgl2', runtime: 'dom', resources: { encoding: 'original' } }))).size, 0);
+  assert.equal((await createBuildResources(root, normalizeProfile({ backend: 'webgl2', runtime: 'dom', features: { trail: false, click: false } }))).size, 0);
+  for (const encoding of ['deflate', 'zopfli'])
   {
-    const path = resolve(directory, filename);
-    writeFileSync(path, code);
-    decoded[filename] = await import(pathToFileURL(path).href);
+    for (const trailSize of [128, 256, 512])
+    {
+      const profile = normalizeProfile({ backend: 'webgl2', runtime: 'dom', resources: { trailSize, encoding } });
+      const directory = resolve(root, 'test-results/resource-codecs', encoding, String(trailSize));
+      mkdirSync(directory, { recursive: true });
+      const decoded = {};
+      for (const [filename, code] of await createBuildResources(root, profile))
+      {
+        const path = resolve(directory, filename);
+        writeFileSync(path, code);
+        decoded[filename] = await import(pathToFileURL(path).href);
+      }
+      const trail = decoded['trail-texture.js'];
+      assert.equal(trail.TRAIL_TEXTURE_WIDTH, trailSize);
+      assert.deepEqual(trail.TRAIL_TEXTURE_RGB, resizeTexture(TRAIL_TEXTURE_RGB, 3, trailSize));
+      assert.deepEqual(trail.TRAIL_TEXTURE_COVERAGE, resizeTexture(TRAIL_TEXTURE_COVERAGE, 1, trailSize));
+      assert.deepEqual(decoded['circle-texture.js'].CIRCLE_TEXTURE_RGBA, CIRCLE_TEXTURE_RGBA);
+      assert.deepEqual(decoded['ring3-alpha.js'].RING3_ALPHA, RING3_ALPHA);
+      for (const [name, expected] of [['RING_MESH_VERTICES', RING_MESH_VERTICES], ['RING_MESH_INDICES', RING_MESH_INDICES]])
+      {
+        const actual = decoded['ring-mesh.js'][name];
+        assert.deepEqual(Buffer.from(actual.buffer), Buffer.from(expected.buffer));
+      }
+    }
   }
-  const trail = decoded['trail-texture.js'];
-  assert.equal(trail.TRAIL_TEXTURE_WIDTH, trailSize);
-  assert.deepEqual(trail.TRAIL_TEXTURE_RGB, resizeTexture(TRAIL_TEXTURE_RGB, 3, trailSize));
-  assert.deepEqual(trail.TRAIL_TEXTURE_COVERAGE, resizeTexture(TRAIL_TEXTURE_COVERAGE, 1, trailSize));
-  assert.deepEqual(decoded['circle-texture.js'].CIRCLE_TEXTURE_RGBA, CIRCLE_TEXTURE_RGBA);
-  assert.deepEqual(decoded['ring3-alpha.js'].RING3_ALPHA, RING3_ALPHA);
-  for (const [name, expected] of [['RING_MESH_VERTICES', RING_MESH_VERTICES], ['RING_MESH_INDICES', RING_MESH_INDICES]])
-  {
-    const actual = decoded['ring-mesh.js'][name];
-    assert.deepEqual(Buffer.from(actual.buffer), Buffer.from(expected.buffer));
-  }
+  const input = Buffer.from('cache round trip');
+  await compressResource(input, 'deflate');
+  const cacheFile = createHash('sha256').update(input).update(JSON.stringify(compressionInfo('deflate'))).digest('hex') + '.deflate';
+  assert(existsSync(resolve(session.directory, cacheFile)));
+  const child = `import { compressResource } from ${JSON.stringify(pathToFileURL(resolve(root, 'scripts/resource-compression.mjs')).href)}; await compressResource(Buffer.from('cache round trip'), 'deflate');`;
+  execFileSync(process.execPath, ['--input-type=module', '-e', child]);
+  // 故意破坏子进程即将读取的缓存，确认构建钩子把压缩错误传给 Vite。
+  writeFileSync(resolve(session.directory, cacheFile), Buffer.from('invalid compressed data'));
+  assert.throws(() => execFileSync(process.execPath, ['--input-type=module', '-e', child], { stdio: 'pipe' }));
+  await assert.rejects(resourceVite(root, { resources: { encoding: 'invalid', trailSize: 128 }, features: { trail: true } }).buildStart());
+}
+finally
+{
+  session.close();
 }
 console.log('resource codecs preserve exact texture and mesh bytes');
+
+if (session.owned)
+{
+  assert(!existsSync(session.directory), 'Owned temporary cache must be cleaned');
+}

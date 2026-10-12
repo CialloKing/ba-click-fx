@@ -2,9 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { compressionSession } from '../scripts/resource-compression.mjs';
 import { normalizeProfile } from '../scripts/build-profile.mjs';
 
 const root = resolve(import.meta.dirname, '..');
+compressionSession();
 const builds = new Map();
 let reused = 0;
 

@@ -27,7 +27,7 @@ npm run build -- --profile examples/build-profiles/native-click-dom.json
 | `features` | `click`、`trail`、`shards`、`bloom`、`compositingReference`；布尔值，默认全部开启 |
 | `config` | 现有普通配置，如主题、尺寸倍率、DPR 上限、输出合成等 |
 | `fxParams` | 现有参数 Schema 的路径补丁，如 `"bloom.intensity": 1.7` |
-| `resources` | `trailSize` 为 512（默认）、256 或 128；`encoding` 为 `original`（默认）或 `deflate` |
+| `resources` | `trailSize` 为 512（默认）、256 或 128；`encoding` 为 `zopfli`（默认）、`deflate` 或 `original` |
 
 官方 Release 精简版使用[固定配置预设](../examples/build-profiles/slim-webgl2-128.json)：
 
@@ -35,9 +35,11 @@ npm run build -- --profile examples/build-profiles/native-click-dom.json
 npm run build -- --profile examples/build-profiles/slim-webgl2-128.json
 ```
 
-该预设为 WebGL2 / DOM，保留所有功能，使用 128² 拖尾和 Deflate 编码。普通网页推荐的 `outputCompositing: 'browser-overlay'`、`hostCompositing: 'screen'`、`hostCompositingSurface: 'dom-backdrop'` 已在构建时固定，无需在构造时设置。默认蓝色主题 `#4ca7ff`、`scale: 1`、`maxDpr: 1` 及特效参数也固定。修改预设中的 `config`、`fxParams` 可以生成自己的版本。`resize` 仍可调整画布尺寸。
+该预设为 WebGL2 / DOM，保留所有功能，使用 128² 拖尾和 Zopfli 编码。普通网页推荐的 `outputCompositing: 'browser-overlay'`、`hostCompositing: 'screen'`、`hostCompositingSurface: 'dom-backdrop'` 已在构建时固定，无需在构造时设置。默认蓝色主题 `#4ca7ff`、`scale: 1`、`maxDpr: 1` 及特效参数也固定。修改预设中的 `config`、`fxParams` 可以生成自己的版本。`resize` 仍可调整画布尺寸。
 
-`deflate` 对圆形纹理、Ring3 和网格为无损编码；`trailSize: 512` 保留原始拖尾数据。128/256 会对拖尾做平均降采样，需要启用 `trail` 并选择 `deflate`。解压仅发生在模块首次加载，最终纹理占用由分辨率决定。脚本仍为自包含 ESM，构造保持同步。所有资源选项进入构建信息和缓存键。
+`deflate`、`zopfli` 对圆形纹理、Ring3 和网格为无损编码；`trailSize: 512` 保留原始拖尾数据。128/256 会对拖尾做平均降采样，需要启用 `trail` 并选择 `deflate` 或 `zopfli`。解压仅发生在模块首次加载，最终纹理占用由分辨率决定。脚本仍为自包含 ESM，构造保持同步。所有资源选项进入构建信息和缓存键。
+
+Zopfli 固定使用 15 次迭代，直接压缩现有 Paeth、RLE、残差及几何序列化后的六个数据块；三角纹理保持原编码。它生成标准 DEFLATE 数据，运行时内嵌 fflate 同步解压，WASM 只在构建时使用。显式 `original` 保留旧资源，显式 `deflate` 保留 level 9 编码。Zopfli 会增加构建时间；同一次构建或验收共享临时压缩缓存，键包含原始字节哈希、编码器版本与参数，结束后删除，下次重新生成。压缩或缓存校验失败会使构建失败。
 
 六种模式都可以选择三种接入方式。`webgl2-bloom` 与完整版一样复用完整 WebGL2 Scene；两者成功路径共享实现。`webgpu-hdr` 请求 Extended 输出，实际模式仍由设备和浏览器决定。
 
@@ -47,7 +49,7 @@ npm run build -- --profile examples/build-profiles/slim-webgl2-128.json
 
 ## 产物与接口
 
-`dist-custom` 包含一个自包含 `ba-click-fx.js`、同名顶层 ESM 类型声明、`build-info.json`、`modules.json`、`LICENSE` 和 `THIRD_PARTY_NOTICES.md`。构建信息包含版本、最终普通配置和特效参数、功能、依赖模块及脚本的 raw/gzip/Brotli 字节数。部署脚本与声明时保留许可证和第三方说明。
+`dist-custom` 包含一个自包含 `ba-click-fx.js`、同名顶层 ESM 类型声明、`build-info.json`、`modules.json`、`LICENSE` 和 `THIRD_PARTY_NOTICES.md`。构建信息包含版本、最终普通配置和特效参数、功能、资源编码与拖尾尺寸、编码器版本和压缩参数、依赖模块及脚本的 raw/gzip/Brotli 字节数。部署脚本与声明时保留许可证和第三方说明。
 
 ```js
 import BAClickFX, { BAClickFX as NamedBAClickFX } from './ba-click-fx.js';
@@ -155,6 +157,8 @@ npm run benchmark:custom -- webgpu
 
 基准报告单独写入 `test-results/custom-browser/benchmark.json`，记录导入/初始化耗时、90 帧 CPU 耗时和浏览器公开的堆内存快照，不覆盖验收报告。完整版和定制版使用独立浏览器上下文。完整版尚不支持的接入组合使用 DOM 版作为画面对照，报告的 `actualRuntime` 记录实际接入；这些组合的初始化和内存数据不能视为同一接入方式的性能对照。Worker 未公开的堆内存以 `null` 记录；这些快照不能代替 GPU 显存测量。CPU 耗时包含更新与 GPU 提交；基础 GPU 配置另记录 30 帧真实 RAF 调度及 GPU 完成等待。无头浏览器的调度帧率不能代替物理显示帧率或 HDR 显示验证，相关环境缺失会明确记录。
 
-收益主要来自删除未使用的后端、输入处理、调参系统和功能资源。构建时也预计算主题映射及固定材质的 Bloom 数学常量，沿用相同公式与 double 精度。默认资源选项保留原始编码与 512² 拖尾，Shader 和 HDR/Bloom 算法沿用现有实现；资源压缩与降采样由 profile 显式选择，不承诺固定体积或帧率提升。
+收益主要来自删除未使用的后端、输入处理、调参系统和功能资源。构建时也预计算主题映射及固定材质的 Bloom 数学常量，沿用相同公式与 double 精度。默认资源选项使用 Zopfli 与 512² 拖尾，Shader 和 HDR/Bloom 算法沿用现有实现；降采样与旧编码由 profile 显式选择，不承诺固定体积或帧率提升。
+
+纹理压缩性能单独运行 `npm run benchmark:codecs`，报告位于 `test-results/resource-benchmark/results.json`，分别记录冷构建、六块纯解码、冷导入和初始化；只代表本机无头浏览器，不能推断所有设备的帧率。发布门禁用 SHA-256 已核验的 v1.3.11 正式附件作独立四场景对照。
 
 官方双版本附件、校验清单和标签发布步骤见[发布指南](./releases.md)。

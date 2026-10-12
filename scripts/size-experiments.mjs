@@ -36,8 +36,8 @@ export function scriptSizes(code)
 export async function buildExperiment(entry, strategy)
 {
   assert(strategies.includes(strategy), 'Unknown strategy');
-  const profile = normalizeProfile(entry.profile);
-  const resources = createExperimentResources(root, strategy);
+  const profile = normalizeProfile({ ...entry.profile, resources: entry.profile.resources ?? { encoding: 'original' } });
+  const resources = await createExperimentResources(root, strategy);
   const plugin = customVite(root, profile);
   const originalLoad = plugin.load;
   plugin.load = function(id)
@@ -92,7 +92,7 @@ export async function buildExperiment(entry, strategy)
   writeFileSync(join(directory, 'ba-click-fx.d.ts'), customTypes(profile));
   copyFileSync(join(root, 'LICENSE'), join(directory, 'LICENSE'));
   let notices = readFileSync(join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8');
-  if (resources.sources.get('trail-texture.js')?.includes('inflateSync'))
+  if (resources.sources.get('trail-texture.js')?.includes('inflateSync') && !/^## fflate\s*$/m.test(notices))
   {
     notices += '\n\n## fflate\n\n' + readFileSync(join(root, 'node_modules/fflate/LICENSE'), 'utf8');
   }

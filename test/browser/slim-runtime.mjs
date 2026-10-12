@@ -26,7 +26,7 @@ else
   candidate = buildCustomFixture(input);
 }
 assert.equal(candidate.info.resources.trailSize, 128);
-assert.equal(candidate.info.resources.encoding, 'deflate');
+assert.equal(candidate.info.resources.encoding, 'zopfli');
 for (const [key, value] of Object.entries(webpageConfig))
 {
   assert.equal(candidate.info.config[key], value, 'Slim webpage configuration: ' + key);

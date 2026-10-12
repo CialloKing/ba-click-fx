@@ -68,7 +68,7 @@ function proceduralSources(root)
   return new Map([['trail-texture.js', trail], ['circle-texture.js', circle], ['ring3-alpha.js', ring]]);
 }
 
-export function createExperimentResources(root, strategy)
+export async function createExperimentResources(root, strategy)
 {
   const sources = new Map();
   const assets = new Map();
@@ -79,7 +79,7 @@ export function createExperimentResources(root, strategy)
   if (['lossless-deflate', 'trail-256', 'trail-128', 'external-deflate'].includes(strategy))
   {
     const width = strategy === 'trail-256' ? 256 : strategy === 'trail-128' ? 128 : 512;
-    const result = trailSource(root, width, strategy === 'external-deflate');
+    const result = await trailSource(root, width, strategy === 'external-deflate');
     sources.set('trail-texture.js', result.source);
     if (result.asset)
     {

@@ -27,7 +27,7 @@ The six top-level fields are below. `backend` and `runtime` are required; the ot
 | `features` | Boolean `click`, `trail`, `shards`, `bloom`, `compositingReference`; all enabled by default |
 | `config` | Existing ordinary settings, such as theme, scale, DPR cap, and output compositing |
 | `fxParams` | Path patches from the existing parameter Schema, such as `"bloom.intensity": 1.7` |
-| `resources` | `trailSize`: 512 (default), 256, or 128; `encoding`: `original` (default) or `deflate` |
+| `resources` | `trailSize`: 512 (default), 256, or 128; `encoding`: `zopfli` (default), `deflate`, or `original` |
 
 The official slim Release uses this [fixed profile](../examples/build-profiles/slim-webgl2-128.json):
 
@@ -35,9 +35,11 @@ The official slim Release uses this [fixed profile](../examples/build-profiles/s
 npm run build -- --profile examples/build-profiles/slim-webgl2-128.json
 ```
 
-It selects WebGL2 / DOM, all features, a 128x128 trail and Deflate encoding. The ordinary-webpage recommendation, `outputCompositing: 'browser-overlay'`, `hostCompositing: 'screen'` and `hostCompositingSurface: 'dom-backdrop'`, is fixed at build time and needs no constructor settings. The default blue theme `#4ca7ff`, `scale: 1`, `maxDpr: 1` and FX parameters are also fixed. Change `config` and `fxParams` in a copied profile to build your own variant. `resize` still adjusts canvas dimensions.
+It selects WebGL2 / DOM, all features, a 128x128 trail and Zopfli encoding. The ordinary-webpage recommendation, `outputCompositing: 'browser-overlay'`, `hostCompositing: 'screen'` and `hostCompositingSurface: 'dom-backdrop'`, is fixed at build time and needs no constructor settings. The default blue theme `#4ca7ff`, `scale: 1`, `maxDpr: 1` and FX parameters are also fixed. Change `config` and `fxParams` in a copied profile to build your own variant. `resize` still adjusts canvas dimensions.
 
-`deflate` preserves Circle, Ring3 and mesh data exactly; `trailSize: 512` also retains the original trail. Sizes 128/256 use area-average trail downsampling and require enabled trails with `deflate`. Decoding happens once at module initialization; final texture memory depends on resolution. Output remains a self-contained ESM with synchronous construction. Resource settings are included in build metadata and cache keys.
+`deflate` and `zopfli` preserve Circle, Ring3 and mesh data exactly; `trailSize: 512` also retains the original trail. Sizes 128/256 use area-average trail downsampling and require enabled trails with `deflate` or `zopfli`. Decoding happens once at module initialization; final texture memory depends on resolution. Output remains a self-contained ESM with synchronous construction. Resource settings are included in build metadata and cache keys.
+
+Zopfli uses 15 iterations directly on the six existing Paeth, RLE, residual and serialized geometry payloads. Triangle coding is unchanged. Its standard DEFLATE output is decoded synchronously by bundled fflate; WASM is used only during builds. Explicit `original` retains legacy resources; explicit `deflate` retains level 9 coding. Zopfli increases build time. One build or acceptance session shares a temporary compression cache keyed by raw byte hash, encoder version and parameters, then deletes it. The next session starts fresh; compression or cache validation failure fails the build.
 
 All six modes support all three runtimes. Like the full version, `webgl2-bloom` reuses the complete WebGL2 Scene; successful paths share an implementation. `webgpu-hdr` requests Extended output, while the actual mode depends on the device and browser.
 
@@ -47,7 +49,7 @@ A disabled feature cannot receive `fxParams` patches. `hit`, `flare`, `disk`, an
 
 ## Output and API
 
-`dist-custom` contains one self-contained `ba-click-fx.js`, a matching top-level ESM declaration, `build-info.json`, `modules.json`, `LICENSE`, and `THIRD_PARTY_NOTICES.md`. Build information records the version, final ordinary settings and FX parameters, features, included modules, and raw/gzip/Brotli script bytes. Keep the license and third-party notices when deploying.
+`dist-custom` contains one self-contained `ba-click-fx.js`, a matching top-level ESM declaration, `build-info.json`, `modules.json`, `LICENSE`, and `THIRD_PARTY_NOTICES.md`. Build information records the version, final ordinary settings and FX parameters, features, resource encoding and trail size, encoder version and parameters, included modules, and raw/gzip/Brotli script bytes. Keep the license and third-party notices when deploying.
 
 ```js
 import BAClickFX, { BAClickFX as NamedBAClickFX } from './ba-click-fx.js';
@@ -155,6 +157,8 @@ npm run benchmark:custom -- webgpu
 
 The separate `test-results/custom-browser/benchmark.json` report records import/initialization times, 90 CPU frame samples, and exposed browser heap snapshots without overwriting acceptance results. Full and custom builds run in separate browser contexts. Integration combinations unsupported by the full version use its DOM build as the visual reference; `actualRuntime` records the integration used, so initialization and memory results for these combinations cannot be treated as performance comparisons of the same integration. Unavailable Worker heap values are `null`; snapshots do not measure GPU memory. CPU times include updates and GPU submission. Basic GPU profiles separately record 30 native RAF frames and GPU completion waits. Headless scheduling FPS does not validate physical display FPS or HDR output; unavailable environments are explicitly recorded.
 
-Most savings come from omitting unused backends, input handling, tuning systems, and feature resources. Theme mappings and fixed-material Bloom math are also precomputed with the same formulas and double precision. Default resource options retain the original encoding and 512x512 trail. Shaders and HDR/Bloom algorithms keep the existing implementation; resource compression and downsampling require explicit profile settings. No fixed size or FPS gain is promised.
+Most savings come from omitting unused backends, input handling, tuning systems, and feature resources. Theme mappings and fixed-material Bloom math are also precomputed with the same formulas and double precision. Default resource options use Zopfli and a 512x512 trail. Shaders and HDR/Bloom algorithms keep the existing implementation; downsampling and legacy encoding require explicit profile settings. No fixed size or FPS gain is promised.
+
+Run `npm run benchmark:codecs` separately for cold build, pure six-payload decode, cold import and initialization measurements in `test-results/resource-benchmark/results.json`. These describe the local headless browser only and do not predict FPS on all devices. Release acceptance compares four scenes with independently SHA-256-verified v1.3.11 assets.
 
 See the [release guide](./releases.en.md) for official full/slim assets, checksums and tag publication.

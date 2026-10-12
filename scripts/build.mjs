@@ -1,7 +1,8 @@
 ﻿import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compressionSession, compressionInfo } from './resource-compression.mjs';
 import { buildCustom } from './custom-build.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -18,48 +19,62 @@ function runVite(args, env = process.env)
   });
 }
 
-const args = process.argv.slice(2);
-if (args.length)
+const session = compressionSession();
+try
 {
-  if (args.length !== 2 || args[0] !== '--profile')
+  const args = process.argv.slice(2);
+  if (args.length)
   {
-    throw new TypeError('用法: npm run build -- --profile <profile.json>');
-  }
-  buildCustom(rootDir, resolve(args[1]), runVite);
-}
-else
-{
-  runVite(['build']);
-  for (const fileName of readdirSync(distDir))
-  {
-    if (
-      fileName === 'ba-click-fx.cjs' ||
-      fileName === 'ba-click-fx.iife.js' ||
-      /^config(?:-[A-Za-z0-9_-]+)?\.js$/.test(fileName) ||
-      /^fx(?:-[A-Za-z0-9_-]+)?\.js$/.test(fileName)
-    )
+    if (args.length !== 2 || args[0] !== '--profile')
     {
-      rmSync(join(distDir, fileName), { force: true });
+      throw new TypeError('用法: npm run build -- --profile <profile.json>');
+    }
+    buildCustom(rootDir, resolve(args[1]), runVite);
+  }
+  else
+  {
+    runVite(['build']);
+    for (const fileName of readdirSync(distDir))
+    {
+      if (
+        fileName === 'ba-click-fx.cjs' ||
+        fileName === 'ba-click-fx.iife.js' ||
+        /^config(?:-[A-Za-z0-9_-]+)?\.js$/.test(fileName) ||
+        /^fx(?:-[A-Za-z0-9_-]+)?\.js$/.test(fileName)
+      )
+      {
+        rmSync(join(distDir, fileName), { force: true });
+      }
+    }
+
+    for (const entryName of ['ba-click-fx', 'config', 'worker'])
+    {
+      runVite(
+        ['build', '--config', 'vite.lib.config.js'],
+        {
+          ...process.env,
+          BA_CLICK_FX_LIB_ENTRY: entryName,
+        },
+      );
+    }
+
+    writeFileSync(join(distDir, 'build-info.json'), JSON.stringify({
+      version: JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8')).version,
+      resources: { trailSize: 512, encoding: 'zopfli' },
+      compression: compressionInfo('zopfli'),
+    }, null, 2) + '\n');
+    mkdirSync(distDir, { recursive: true });
+    for (const declarationName of ['ba-click-fx', 'config', 'worker'])
+    {
+      copyFileSync(
+        join(rootDir, 'src', `${declarationName}.d.ts`),
+        join(distDir, `${declarationName}.d.ts`),
+      );
     }
   }
 
-  for (const entryName of ['ba-click-fx', 'config', 'worker'])
-  {
-    runVite(
-      ['build', '--config', 'vite.lib.config.js'],
-      {
-        ...process.env,
-        BA_CLICK_FX_LIB_ENTRY: entryName,
-      },
-    );
-  }
-
-  mkdirSync(distDir, { recursive: true });
-  for (const declarationName of ['ba-click-fx', 'config', 'worker'])
-  {
-    copyFileSync(
-      join(rootDir, 'src', `${declarationName}.d.ts`),
-      join(distDir, `${declarationName}.d.ts`),
-    );
-  }
+}
+finally
+{
+  session.close();
 }

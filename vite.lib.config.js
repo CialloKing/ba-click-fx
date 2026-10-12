@@ -2,6 +2,7 @@ import
 {
   defineConfig,
 } from 'vite';
+import { resourceVite } from './scripts/resource-vite.mjs';
 import { customVite } from './scripts/custom-vite.mjs';
 
 const libraryEntries =
@@ -15,7 +16,7 @@ const profile = process.env.BA_CLICK_FX_PROFILE ? JSON.parse(process.env.BA_CLIC
 
 export default defineConfig(
 {
-  plugins: profile ? [customVite(process.cwd(), profile)] : [],
+  plugins: profile ? [customVite(process.cwd(), profile)] : selectedEntry === 'config' ? [] : [resourceVite(process.cwd())],
   build:
   {
     target: 'es2020',
