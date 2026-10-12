@@ -41,8 +41,8 @@ ZIP 包含使用说明、构建信息、LICENSE、THIRD_PARTY_NOTICES.md；精�
 主分支合并后，确认对应提交的 Build CI 通过。需要实际发布时才创建并推送标签：
 
 ```bash
-git tag -a v1.3.11 -m "发布v1.3.11：完整版与WebGL2精简版"
-git push origin v1.3.11
+git tag -a v1.3.12 -m "发布v1.3.12：完整版与WebGL2精简版"
+git push origin v1.3.12
 ```
 
 标签触发同一工作流重新验收。Linux 完成包与定制构建检查；Windows 构建附件并运行完整浏览器与精简版验收。两项均成功后，发布任务核对版本、提交和 SHA256SUMS，创建草稿，上传 11 个附件，下载验证数量和所有哈希，然后转为正式 Release。失败时不会发布正式版本；上传后校验失败会保留草稿供排查。
