@@ -316,7 +316,7 @@ instance.destroy();
 
   const notice = readFileSync(join(installedRoot, 'THIRD_PARTY_NOTICES.md'), 'utf8');
   verify(notice.match(/^## fflate$/gm)?.length === 1 &&
-    notice.includes(readFileSync(join(rootDir, 'node_modules/fflate/LICENSE'), 'utf8').trim()),
+    notice.replaceAll('\r\n', '\n').includes(readFileSync(join(rootDir, 'node_modules/fflate/LICENSE'), 'utf8').trim()),
     'installed package must include the complete fflate license once');
 
   console.log('\u2714 local tarball exposes ESM root/config/worker entries and strict TypeScript types');

@@ -122,5 +122,5 @@ for (const declarationName of ['ba-click-fx', 'config', 'worker'])
 }
 
 const notice = readText('THIRD_PARTY_NOTICES.md');
-verify(notice.match(/^## fflate$/gm)?.length === 1 && notice.includes(readText('node_modules/fflate/LICENSE').trim()), 'complete fflate license must appear once');
+verify(notice.match(/^## fflate$/gm)?.length === 1 && notice.replaceAll('\r\n', '\n').includes(readText('node_modules/fflate/LICENSE').trim()), 'complete fflate license must appear once');
 console.log(`\u2714 ESM-only package metadata and version are synchronized (${version})`);
