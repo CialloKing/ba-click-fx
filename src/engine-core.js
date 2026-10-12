@@ -7201,14 +7201,14 @@ export class BAClickFX extends ConfigRuntime
       (this.ownsCanvas && this.canvas.style.visibility === 'hidden')
     )
     {
-      return;
+      return true;
     }
 
     const bounds = this._getCanvasOverlayPixelBounds(scale);
 
     if (!bounds || bounds.width <= 0 || bounds.height <= 0)
     {
-      return;
+      return true;
     }
 
     try
@@ -7275,7 +7275,7 @@ export class BAClickFX extends ConfigRuntime
         bounds.minimumX,
         bounds.minimumY,
       );
-      return;
+      return true;
     }
     catch
     {
@@ -7284,7 +7284,7 @@ export class BAClickFX extends ConfigRuntime
 
     if (overlayAlphaPolicy === 'visual-max')
     {
-      return;
+      return false;
     }
 
     // getImageData 使用物理像素；只处理活跃特效脏区，避免 Native
@@ -7299,6 +7299,8 @@ export class BAClickFX extends ConfigRuntime
       },
       overlayAlphaLimit,
     );
+    // 失败后的尽力限制不能证明完整 Alpha 处理成功，帧收尾仍需重试。
+    return false;
   }
 
   _getSoftwareBloomFrameSignature(scale)
@@ -7710,13 +7712,20 @@ export class BAClickFX extends ConfigRuntime
     {
       // Software Bloom 需要在本阶段提交 visual-max 的 Alpha；颜色补偿延后到
       // 帧收尾且只执行一次，避免 Bloom 与清晰层连续抬高同一核心。
-      this._limitCanvasOverlayAlpha(
+      const scope = this._canvasBoundsScope;
+      const alphaComplete = this._limitCanvasOverlayAlpha(
         scale,
         sceneAlphaSnapshot,
         bloomTransportContext,
         'lighter',
         false,
       );
+      if (alphaComplete && scope?.valid && scope === this._canvasBoundsScope &&
+          this._getOverlayColorCompensation() === 'none')
+      {
+        // 此后没有新的主画布绘制；复用当前帧的完成状态，保留已有写回舍入。
+        scope.softwareAlphaComplete = true;
+      }
       this._cacheSoftwareBloomFrame(scale);
     }
 
@@ -8118,6 +8127,13 @@ export class BAClickFX extends ConfigRuntime
     const sceneAlphaSnapshot = this.canvasNativeSceneAlphaSnapshot;
 
     this.canvasNativeSceneAlphaSnapshot = null;
+    const scope = this._canvasBoundsScope;
+    if (BUILD_SOFTWARE && scope?.valid && scope.softwareAlphaComplete &&
+        scope.scale === scale && scope.dpr === this.dpr &&
+        scope.width === this.canvas.width && scope.height === this.canvas.height)
+    {
+      return;
+    }
     this._limitCanvasOverlayAlpha(
       scale,
       sceneAlphaSnapshot,

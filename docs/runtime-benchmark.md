@@ -27,8 +27,9 @@ Software 收尾与整帧最终处理；各子类的次数、像素、字节、�
 采集期间不要编辑浏览器加载的文件：Vite 热更新会中断当前页面，使该次测量无效。
 
 Alpha 上限量化为 255 时，字节图像可以省去回读后的 Alpha 扫描。
-默认上限为 `250/255`，不会进入该快速路径；Canvas 读写次数仍保持原样。
-因此验收关注扫描访问数和输出字节，不把默认场景的计时波动解释为此优化的收益。
+共用 `limitCanvasAlpha` 保留回读与失败语义；Software 区域调用在上限为 255 时直接跳过。
+默认上限为 `250/255`，区域限制仍执行；Software 已完成 Alpha 且无需颜色补偿时，
+整帧收尾省去一次重复回读，既有默认诊断场景从每帧 5 次降为 4 次。
 
 GPU 优化专项复用定制浏览器夹具，检查零强度滤波、恢复强度、透明合成与纹理生命周期，
 以及 fractional diffusion、层数边界、尺寸/DPR、1×1 和目标释放后的布局复用：
@@ -42,3 +43,16 @@ npm run test:browser:gpu-optimization -- --benchmark --baseline=test-results/gpu
 结果与显式性能采样分别写入 `test-results/gpu-optimization/results.json` 和 `benchmark.json`。
 `--baseline` 会核对清单中的 SHA-256，并在独立浏览器上下文中逐字节对照旧版输出；
 普通 CI 不依赖本地旧文件，仍运行现有像素基线与本专项的路由、资源和生命周期断言。
+
+Software 专项复用相同场景，覆盖 Alpha 策略、颜色补偿、DPR、合成参考及回读失败：
+
+```sh
+npm run test:browser:software-optimization
+npm run test:browser:software-optimization -- --baseline=test-results/software-optimization-baseline
+# 独立性能采样使用默认 Canvas 光栅路径，像素验收固定频繁回读上下文。
+npm run test:browser:software-optimization -- --benchmark --baseline=test-results/software-optimization-baseline
+```
+
+验收和性能分别写入 `test-results/software-optimization/results.json` 与 `benchmark.json`。
+独立基准目录的 `manifest.json` 记录提交、版本及主入口/Worker 的字节数和 SHA-256；
+对照前核验哈希，避免把本次重建的产物当作旧版。

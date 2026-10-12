@@ -1,7 +1,7 @@
 const measurementNow = performance.now.bind(performance);
 const measurementFrame = globalThis.requestAnimationFrame?.bind(globalThis);
 
-export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false })
+export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false, softwareOptimization = false })
 {
   if (deterministicCanvas)
   {
@@ -274,6 +274,13 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     waves: fx.waves.map(wave => ({ x: wave.x, y: wave.y, ageMs: wave.ageMs, rings: wave.rings })),
     shards: fx.shards.map(shard => ({ x: shard.x, y: shard.y, ageMs: shard.ageMs })),
     trail: fx.trailStrokes.map(stroke => stroke.points), stats: structuredClone(renderer?.stats) };
+  let softwareOptimizationResults;
+  if (softwareOptimization)
+  {
+    fx.resizeObserver?.disconnect();
+    const { probeSoftwareReadbacks } = await import('./software-probe.js');
+    softwareOptimizationResults = await probeSoftwareReadbacks(fx, () => fx._renderFrame(now), capture);
+  }
   let gpuOptimizationResults;
   if (gpuOptimization)
   {
@@ -472,6 +479,7 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     ...(capturePixels ? { pixels: Array.from(pixels) } : {}),
     ...(timing && !benchmark ? { importMs, initMs } : {}),
     ...(gpuOptimization ? { gpuOptimization: gpuOptimizationResults } : {}),
+    ...(softwareOptimization ? { softwareOptimization: softwareOptimizationResults } : {}),
     ...(benchmark ? { importMs, initMs, frameTimes, cpuFrameMs,
       heap: { beforeImport: heapBeforeImport, afterImport: heapAfterImport, afterInit: heapAfterInit }, gpuFrames } : {}),
     contextRestored, errors };

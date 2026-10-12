@@ -59,6 +59,8 @@ jobs:
         run: npm run test:browser:webgpu:optional
       - name: Check GPU filter routing and resource reuse
         run: npm run test:browser:gpu-optimization
+      - name: Check Software readbacks and resource lifecycle
+        run: npm run test:browser:software-optimization
       - name: Run custom build parity and lifecycle checks
         run: npm run test:browser:custom -- --required
       - name: Check exact slim release files
