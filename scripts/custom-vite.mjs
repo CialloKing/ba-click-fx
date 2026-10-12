@@ -1,15 +1,16 @@
 import { basename, resolve } from 'node:path';
 import { compileCustomSources } from './custom-compiler.mjs';
-import { createBuildResources, markResourceInitializersPure } from './build-resources.mjs';
+import { markResourceInitializersPure } from './build-resources.mjs';
+import { resourceVite } from './resource-vite.mjs';
 import { minifySync } from 'rolldown/experimental';
 
 export function customVite(root, profile)
 {
   const compiled = compileCustomSources(root, profile);
-  const resources = createBuildResources(root, profile);
-  const compact = profile.resources.encoding === 'deflate';
+  const resources = resourceVite(root, profile);
+  const compact = profile.resources.encoding !== 'original';
   return {
-    name: 'ba-click-fx-profile', enforce: 'pre',
+    ...resources, name: 'ba-click-fx-profile',
     resolveId(id)
     {
       if (id === 'virtual:ba-click-fx-profile') return '\0' + id;
@@ -20,7 +21,7 @@ export function customVite(root, profile)
       if (id.replaceAll('\\', '/').startsWith(resolve(root, 'src').replaceAll('\\', '/') + '/'))
       {
         const filename = basename(id);
-        const code = resources.get(filename) ?? compiled.sources.get(filename);
+        const code = resources.load.call(this, id) ?? compiled.sources.get(filename);
         return compact && code ? markResourceInitializersPure(code, filename) : code;
       }
     },

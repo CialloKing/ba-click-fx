@@ -1,6 +1,8 @@
-﻿import { defineConfig } from 'vite';
+﻿import { resourceVite } from './scripts/resource-vite.mjs';
+import { defineConfig } from 'vite';
 
 export default defineConfig({
+  plugins: [resourceVite(process.cwd())],
   build: {
     target: 'es2020',
   },

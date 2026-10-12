@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { gzipSync, brotliCompressSync } from 'node:zlib';
 import { readProfile } from './build-profile.mjs';
 import { customTypes } from './custom-types.mjs';
+import { compressionInfo } from './resource-compression.mjs';
 import { resourceNotices } from './build-resources.mjs';
 
 export function buildCustom(root, path, runVite)
@@ -27,7 +28,7 @@ export function buildCustom(root, path, runVite)
   const modules = JSON.parse(readFileSync(join(outDir, 'modules.json'), 'utf8'));
   writeFileSync(join(outDir, 'ba-click-fx.d.ts'), customTypes(profile));
   writeFileSync(join(outDir, 'build-info.json'), JSON.stringify({
-    version, ...profile, modules,
+    version, ...profile, compression: compressionInfo(profile.resources.encoding), modules,
     sizes: { raw: code.length, gzip: gzipSync(code).length, brotli: brotliCompressSync(code).length },
   }, null, 2) + '\n');
   copyFileSync(join(root, 'LICENSE'), join(outDir, 'LICENSE'));

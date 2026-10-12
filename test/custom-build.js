@@ -39,7 +39,7 @@ for (const [index, input] of profiles.entries())
   if (input.features?.click === false) assert(!modules.includes('src/circle-texture.js') && !modules.includes('src/ring3-alpha.js'));
   if (input.backend !== 'software') assert(!modules.includes('src/software-bloom.js'));
   assert.equal(info.sizes.raw, Buffer.byteLength(code));
-  if (info.resources.encoding === 'deflate')
+  if (info.resources.encoding !== 'original')
   {
     assert(readFileSync(resolve(output, 'THIRD_PARTY_NOTICES.md'), 'utf8').includes('## fflate'));
   }

@@ -1,7 +1,8 @@
 ﻿import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compressionSession, compressionInfo } from './resource-compression.mjs';
 import { buildCustom } from './custom-build.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -18,6 +19,9 @@ function runVite(args, env = process.env)
   });
 }
 
+const session = compressionSession();
+try
+{
 const args = process.argv.slice(2);
 if (args.length)
 {
@@ -54,6 +58,11 @@ else
     );
   }
 
+  writeFileSync(join(distDir, 'build-info.json'), JSON.stringify({
+    version: JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8')).version,
+    resources: { trailSize: 512, encoding: 'zopfli' },
+    compression: compressionInfo('zopfli'),
+  }, null, 2) + '\n');
   mkdirSync(distDir, { recursive: true });
   for (const declarationName of ['ba-click-fx', 'config', 'worker'])
   {
@@ -62,4 +71,10 @@ else
       join(distDir, `${declarationName}.d.ts`),
     );
   }
+}
+
+}
+finally
+{
+  session.close();
 }
