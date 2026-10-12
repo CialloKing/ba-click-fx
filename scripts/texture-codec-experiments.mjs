@@ -37,7 +37,7 @@ async function buildCodec(edition, codec)
   const sourceRoot = relative(directory, join(root, 'src')).replaceAll('\\', '/');
   const entry = join(directory, '.entry.js');
   writeFileSync(entry, `export { default, BAClickFX } from '${sourceRoot}/engine-core.js';\n`);
-  const plugin = () => codecPlugin(root, resources, codec, edition === 'slim' ? customVite(root, { ...slimProfile, resources: { ...slimProfile.resources, encoding: 'original' } }) : {});
+  const plugin = () => codecPlugin(root, resources, codec, edition === 'slim' ? customVite(root, { ...slimProfile, resources: { ...slimProfile.resources, encoding: 'deflate' } }) : {});
   await bundle(edition === 'slim' ? entry : join(root, 'src/fx.js'), directory, plugin(), 'ba-click-fx.js');
   const sizes = scriptSizes(readFileSync(join(directory, 'ba-click-fx.js'), 'utf8'));
 
