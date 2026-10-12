@@ -1540,7 +1540,13 @@ export class WebGPUEffectRenderer extends EffectGeometry
       const encoder = this.device.createCommandEncoder(
         { label: 'BA Click FX WebGPU bloom commands' },
       );
-      const bloom = BUILD_BLOOM ? this._renderBloomPasses(encoder, settings) : this.sourceTarget;
+      const intensity = resolveUnityBloomIntensity(settings.intensity);
+      // 零强度仍需要清晰层的 Final Pass，复用已有透明占位纹理即可。
+      const bloom = BUILD_BLOOM
+        ? intensity === 0
+          ? { view: this.placeholderView, width: this.width, height: this.height }
+          : this._renderBloomPasses(encoder, settings)
+        : this.sourceTarget;
       const [backgroundScaleX, backgroundScaleY] =
         this._getBackgroundUvScale();
       const hasBackground = hasScene && this.sceneBackgroundFrameReady;
@@ -1556,7 +1562,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
           backgroundScaleX,
           backgroundScaleY,
           sampleScale: this.sampleScale,
-          intensity: resolveUnityBloomIntensity(settings.intensity),
+          intensity,
           overlayAlphaLimit: clamp(settings.overlayAlphaLimit ?? 1, 0, 1),
           opacity: clamp(settings.opacity ?? 1, 0, 1),
           hasScene,

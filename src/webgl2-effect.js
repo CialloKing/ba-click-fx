@@ -922,6 +922,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
     this.triangleOverlayTexture = null;
     this.trailTexture = null;
     this.circleTexture = null;
+    this.transparentBloomTexture = null;
     this.fullscreenVao = null;
     this._onContextLost = this._handleContextLost.bind(this);
     this._onContextRestored = this._handleContextRestored.bind(this);
@@ -1461,6 +1462,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
     this.triangleOverlayTexture = null;
     this.trailTexture = null;
     this.circleTexture = null;
+    this.transparentBloomTexture = null;
     this.sceneBackgroundTexture = null;
     this.sceneBackgroundTarget = null;
     this.fullscreenVao = null;
@@ -1649,6 +1651,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
     gl.deleteTexture(this.triangleOverlayTexture);
     gl.deleteTexture(this.trailTexture);
     gl.deleteTexture(this.circleTexture);
+    gl.deleteTexture(this.transparentBloomTexture);
     gl.deleteTexture(this.sceneBackgroundTexture);
     gl.deleteVertexArray(this.fullscreenVao);
     this.programs = null;
@@ -1669,6 +1672,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
     this.triangleOverlayTexture = null;
     this.trailTexture = null;
     this.circleTexture = null;
+    this.transparentBloomTexture = null;
     this.sceneBackgroundTexture = null;
     this.sceneBackgroundTarget = null;
     this.sceneBackgroundFrameReady = false;
@@ -2843,6 +2847,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
     hasScene = false,
     hasBackground = false,
     hasSceneOverlay = false,
+    intensity = resolveUnityBloomIntensity(settings.intensity),
   )
   {
     const gl = this.gl;
@@ -2916,7 +2921,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
     );
     gl.uniform1f(
       this._getUniformLocation(program, 'u_intensity'),
-      resolveUnityBloomIntensity(settings.intensity),
+      intensity,
     );
     gl.uniform1f(
       this._getUniformLocation(program, 'u_overlayAlphaLimit'),
@@ -2928,6 +2933,44 @@ export class WebGL2EffectRenderer extends EffectGeometry
     );
     gl.bindVertexArray(this.fullscreenVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  _getTransparentBloomTexture()
+  {
+    if (this.transparentBloomTexture)
+    {
+      return this.transparentBloomTexture;
+    }
+
+    const gl = this.gl;
+    const texture = gl.createTexture();
+    if (!texture)
+    {
+      throw new Error('WebGL2 无法创建透明 Bloom 纹理');
+    }
+
+    try
+    {
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0,
+        gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+      // 最终合成仍采样 Bloom；零纹理避免复用旧辉光或 HDR 溢出值乘零。
+      this.transparentBloomTexture = texture;
+      return texture;
+    }
+    catch (error)
+    {
+      gl.deleteTexture(texture);
+      throw error;
+    }
+    finally
+    {
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
   }
 
   render(settings, options = {})
@@ -2971,25 +3014,26 @@ export class WebGL2EffectRenderer extends EffectGeometry
         this._renderEmission(settings);
       }
 
-      if (BUILD_BLOOM) this._renderPrefilter(settings);
-
-      for (let level = 1; BUILD_BLOOM && level < this.levels.length; level++)
+      const intensity = resolveUnityBloomIntensity(settings.intensity);
+      let bloomTexture = this.sourceTarget.texture;
+      if (BUILD_BLOOM && intensity === 0)
       {
-        this._renderDownsample(
-          this.levels[level - 1],
-          this.levels[level],
-        );
+        bloomTexture = this._getTransparentBloomTexture();
       }
-
-      let bloomTexture = BUILD_BLOOM ? this.levels.at(-1).down.texture : this.sourceTarget.texture;
-
-      for (let level = this.levels.length - 2; BUILD_BLOOM && level >= 0; level--)
+      else if (BUILD_BLOOM)
       {
-        bloomTexture = this._renderUpsample(
-          this.levels[level],
-          this.levels[level + 1],
-          bloomTexture,
-        );
+        this._renderPrefilter(settings);
+        for (let level = 1; level < this.levels.length; level++)
+        {
+          this._renderDownsample(this.levels[level - 1], this.levels[level]);
+        }
+
+        bloomTexture = this.levels.at(-1).down.texture;
+        for (let level = this.levels.length - 2; level >= 0; level--)
+        {
+          bloomTexture = this._renderUpsample(
+            this.levels[level], this.levels[level + 1], bloomTexture);
+        }
       }
 
       this._renderFinal(
@@ -2998,6 +3042,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
         hasScene,
         hasBackground,
         hasSceneOverlay,
+        intensity,
       );
       this.stats.vertexCount = this.vertexCount +
         this.triangleVertexCount +

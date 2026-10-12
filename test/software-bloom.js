@@ -2385,4 +2385,23 @@ assert(getPlan(3, samplingRenderer.sampleScale * 0.5) !== physicalPlan,
 samplingRenderer.destroy(); samplingRenderer.destroy(); secondSamplingRenderer.destroy();
 assert(samplingRenderer.samplingTables.length === 0, '重复销毁解除采样表引用');
 
+// 透明纹理首次创建失败时不能留下可复用的半成品或泄漏新句柄。
+{
+  const renderer = Object.create(WebGL2EffectRenderer.prototype);
+  const texture = {};
+  let deleted;
+  renderer.transparentBloomTexture = null;
+  renderer.gl = {
+    createTexture: () => texture,
+    bindTexture() {}, texParameteri() {},
+    texImage2D() { throw new Error('expected zero texture upload failure'); },
+    deleteTexture(value) { deleted = value; },
+  };
+  strictAssert.throws(() => renderer._getTransparentBloomTexture(), /expected zero texture/);
+  assert(deleted === texture && renderer.transparentBloomTexture === null,
+    '零纹理上传失败释放句柄且不缓存半成品');
+  renderer.gl.createTexture = () => null;
+  strictAssert.throws(() => renderer._getTransparentBloomTexture(), /无法创建透明 Bloom/);
+}
+
 console.log(`\n✅ ${passed} 项 Software Bloom 数值检查通过\n`);

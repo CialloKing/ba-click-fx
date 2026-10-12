@@ -29,3 +29,15 @@ Software 收尾与整帧最终处理；各子类的次数、像素、字节、�
 Alpha 上限量化为 255 时，字节图像可以省去回读后的 Alpha 扫描。
 默认上限为 `250/255`，不会进入该快速路径；Canvas 读写次数仍保持原样。
 因此验收关注扫描访问数和输出字节，不把默认场景的计时波动解释为此优化的收益。
+
+GPU 优化专项复用定制浏览器夹具，检查零强度滤波、恢复强度、透明合成与纹理生命周期：
+
+```sh
+npm run test:browser:gpu-optimization
+# 性能采样独立运行，不进入发布门禁；目录需包含已核验的旧版 JS 和 manifest.json。
+npm run test:browser:gpu-optimization -- --benchmark --baseline=test-results/gpu-optimization-baseline-v1.3.12
+```
+
+结果与显式性能采样分别写入 `test-results/gpu-optimization/results.json` 和 `benchmark.json`。
+`--baseline` 会核对清单中的 SHA-256，并在独立浏览器上下文中逐字节对照旧版输出；
+普通 CI 不依赖本地旧文件，仍运行现有像素基线与本专项的路由、资源和生命周期断言。

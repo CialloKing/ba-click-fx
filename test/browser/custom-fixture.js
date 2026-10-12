@@ -1,7 +1,7 @@
 const measurementNow = performance.now.bind(performance);
 const measurementFrame = globalThis.requestAnimationFrame?.bind(globalThis);
 
-export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false })
+export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false })
 {
   if (deterministicCanvas)
   {
@@ -223,28 +223,33 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   const output = fx.webgpuEffectVisible ? fx.webgpuEffectCanvas : fx.webglEffectVisible ? fx.webglEffectCanvas
     : fx.webglBloomVisible ? fx.webglBloomCanvas : fx.canvasSceneVisible && fx.ownsCanvas ? fx.canvasSceneCanvas : fx.canvas;
   const pixelWidth = output.width, pixelHeight = output.height;
-  let pixels;
-  if (renderer?.gl && output === renderer.canvas && !(reference && profile.backend === 'native'))
+  const capture = async () =>
   {
-    pixels = new Uint8Array(pixelWidth * pixelHeight * 4);
-    const gl = renderer.gl;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.finish();
-    gl.readPixels(0, 0, pixelWidth, pixelHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    const flipped = new Uint8Array(pixels.length);
-    const stride = pixelWidth * 4;
-    for (let row = 0; row < pixelHeight; row++) flipped.set(pixels.subarray(row * stride, (row + 1) * stride), (pixelHeight - 1 - row) * stride);
-    pixels = flipped;
-  }
-  else
-  {
-    const read = hasDom ? document.createElement('canvas') : new OffscreenCanvas(320, 240);
-    read.width = pixelWidth; read.height = pixelHeight;
-    const context = read.getContext('2d');
-    context.drawImage(output, 0, 0);
-    pixels = context.getImageData(0, 0, pixelWidth, pixelHeight).data;
-  }
-  const digest = await crypto.subtle.digest('SHA-256', pixels);
-  const hash = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
+    let pixels;
+    if (renderer?.gl && output === renderer.canvas && !(reference && profile.backend === 'native'))
+    {
+      pixels = new Uint8Array(pixelWidth * pixelHeight * 4);
+      const gl = renderer.gl;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.finish();
+      gl.readPixels(0, 0, pixelWidth, pixelHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      const flipped = new Uint8Array(pixels.length);
+      const stride = pixelWidth * 4;
+      for (let row = 0; row < pixelHeight; row++) flipped.set(pixels.subarray(row * stride, (row + 1) * stride), (pixelHeight - 1 - row) * stride);
+      pixels = flipped;
+    }
+    else
+    {
+      const read = hasDom ? document.createElement('canvas') : new OffscreenCanvas(320, 240);
+      read.width = pixelWidth; read.height = pixelHeight;
+      const context = read.getContext('2d');
+      context.drawImage(output, 0, 0);
+      pixels = context.getImageData(0, 0, pixelWidth, pixelHeight).data;
+    }
+    const digest = await crypto.subtle.digest('SHA-256', pixels);
+    const hash = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
+    return { hash, pixels };
+  };
+  const { hash, pixels } = await capture();
   const lit = pixels.reduce((count, value, index) => count + (index % 4 !== 3 && value > 8 ? 1 : 0), 0);
   const config = fx.getConfig();
   if (capturePixels && dom && profile.config.outputCompositing === 'browser-overlay' && profile.config.hostCompositing === 'screen')
@@ -262,6 +267,47 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     waves: fx.waves.map(wave => ({ x: wave.x, y: wave.y, ageMs: wave.ageMs, rings: wave.rings })),
     shards: fx.shards.map(shard => ({ x: shard.x, y: shard.y, ageMs: shard.ageMs })),
     trail: fx.trailStrokes.map(stroke => stroke.points), stats: structuredClone(renderer?.stats) };
+  let gpuOptimizationResults;
+  if (gpuOptimization)
+  {
+    if (!full || !['webgl2', 'webgpu'].includes(profile.backend)) throw Error('GPU optimization fixture requires a full GPU runtime');
+    const targets = () => [renderer.sourceTarget, renderer.sceneOverlayTarget,
+      ...renderer.levels.flatMap(level => [level.down, level.up].filter(Boolean))];
+    const originalTargets = targets();
+    let bloomPasses = 0;
+    let allocations = 0;
+    const restores = [];
+    const wrap = (name, count) =>
+    {
+      const original = renderer[name];
+      renderer[name] = function (...args) { count(args); return original.apply(this, args); };
+      restores.push(() => { delete renderer[name]; });
+    };
+    wrap('_allocateTargets', () => allocations++);
+    if (renderer.gl)
+    {
+      for (const name of ['_renderPrefilter', '_renderDownsample', '_renderUpsample']) wrap(name, () => bloomPasses++);
+    }
+    else
+    {
+      wrap('_drawFullscreen', args => { if (args.at(-1).includes('WebGPU bloom ')) bloomPasses++; });
+    }
+    gpuOptimizationResults = { initiallyLazy: renderer.transparentBloomTexture == null, intensity: [] };
+    try
+    {
+      for (const intensity of [1.7, 0, 0, 1.7])
+      {
+        fx.setFxParam('bloom.intensity', intensity);
+        bloomPasses = 0; allocations = 0;
+        fx._renderFrame(now);
+        if (fx.resolvedEffectBackend !== profile.backend) throw Error('GPU optimization unexpectedly fell back');
+        gpuOptimizationResults.intensity.push({ intensity, bloomPasses, allocations,
+          targetsReused: targets().every((target, index) => target === originalTargets[index]),
+          hash: (await capture()).hash });
+      }
+    }
+    finally { restores.reverse().forEach(restore => restore()); }
+  }
   // 压测只由显式基准命令启用，避免每次像素和生命周期回归都支付采样成本。
   const cpuFrameMs = [];
   if (benchmark)
@@ -316,6 +362,14 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     if (!extension) contextRestored = 'skipped: WEBGL_lose_context unavailable';
     else
     {
+      let previousZeroTexture;
+      let zeroHash;
+      if (gpuOptimization)
+      {
+        fx.setFxParam('bloom.intensity', 0); fx._renderFrame(now);
+        previousZeroTexture = renderer.transparentBloomTexture;
+        zeroHash = (await capture()).hash;
+      }
       const event = type => new Promise((done, fail) =>
       {
         const timer = setTimeout(() => fail(Error(`${type} timeout`)), 5000);
@@ -329,6 +383,13 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
       const restored = event('webglcontextrestored'); extension.restoreContext(); await restored;
       fx._renderFrame(now);
       if (renderer.contextLost || errors.length) throw Error('context restoration failed');
+      if (gpuOptimization)
+      {
+        gpuOptimizationResults.restoredHash = (await capture()).hash;
+        gpuOptimizationResults.beforeRestoreHash = zeroHash;
+        gpuOptimizationResults.zeroTextureRestored = !!renderer.transparentBloomTexture &&
+          renderer.transparentBloomTexture !== previousZeroTexture;
+      }
       contextRestored = 'passed';
     }
   }
@@ -350,11 +411,13 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   if (fx.width !== 240 || fx.height !== 180 || fx.dpr !== Math.min(2, profile.config.maxDpr) ||
       fx.canvas.width !== Math.round(240 * fx.dpr) || fx.canvas.height !== Math.round(180 * fx.dpr)) throw Error('resize/DPR contract');
   fx.clearTrail?.(); fx.clear(); fx.setPaused(false); fx.destroy(); fx.destroy(); target.remove?.();
+  if (gpuOptimization && renderer.gl) gpuOptimizationResults.zeroTextureReleased = renderer.transparentBloomTexture === null;
   if (!fx.destroyed || fx.animationFrame !== null || fx.waves.length || fx.shards.length) throw Error('destroy contract');
   return { hash, lit, pixelWidth, pixelHeight, state, config, actualRuntime: hasDom ? (dom ? 'dom' : 'manual') : 'worker',
     // 仅实验命令请求像素和冷加载计时，默认验收报告保持原有成本和内容。
     ...(capturePixels ? { pixels: Array.from(pixels) } : {}),
     ...(timing && !benchmark ? { importMs, initMs } : {}),
+    ...(gpuOptimization ? { gpuOptimization: gpuOptimizationResults } : {}),
     ...(benchmark ? { importMs, initMs, frameTimes, cpuFrameMs,
       heap: { beforeImport: heapBeforeImport, afterImport: heapAfterImport, afterInit: heapAfterInit }, gpuFrames } : {}),
     contextRestored, errors };

@@ -36,6 +36,7 @@ for (const [index, input] of profiles.entries())
   if (input.backend.startsWith('webgpu')) assert(!modules.includes('src/webgl2-effect.js'));
   if (input.features?.trail === false) assert(!modules.includes('src/trail-texture.js'));
   if (input.features?.shards === false) assert(!modules.includes('src/triangle-texture.js'));
+  if (input.features?.bloom === false) assert(!code.includes('_getTransparentBloomTexture'), 'disabled Bloom removes the zero-texture path');
   if (input.features?.click === false) assert(!modules.includes('src/circle-texture.js') && !modules.includes('src/ring3-alpha.js'));
   if (input.backend !== 'software') assert(!modules.includes('src/software-bloom.js'));
   assert.equal(info.sizes.raw, Buffer.byteLength(code));
