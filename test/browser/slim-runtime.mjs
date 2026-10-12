@@ -10,8 +10,9 @@ const output = resolve(root, 'test-results/slim-browser');
 const args = process.argv.slice(2).filter(value => value !== '--required');
 assert(args.every(value => value === '--release-assets'), 'Unknown slim runtime option');
 const input = JSON.parse(readFileSync(resolve(root, 'examples/build-profiles/slim-webgl2-128.json'), 'utf8'));
-// 以已人工接受的 128² 编码为对照；不把 512² 与 128² 的有损差异当成精确一致。
-const baseline = await buildExperiment({ name: 'release-slim-reference', profile: { backend: 'webgl2', runtime: 'dom' } }, 'trail-128');
+const webpageConfig = { outputCompositing: 'browser-overlay', hostCompositing: 'screen', hostCompositingSurface: 'dom-backdrop' };
+// 保留已接受的 128² 编码，用网页推荐配置作独立对照；不要求与 Scene 输出一致。
+const baseline = await buildExperiment({ name: 'release-slim-reference', profile: { backend: 'webgl2', runtime: 'dom', config: webpageConfig } }, 'trail-128');
 let candidate;
 if (args.includes('--release-assets'))
 {
@@ -26,6 +27,10 @@ else
 }
 assert.equal(candidate.info.resources.trailSize, 128);
 assert.equal(candidate.info.resources.encoding, 'deflate');
+for (const [key, value] of Object.entries(webpageConfig))
+{
+  assert.equal(candidate.info.config[key], value, 'Slim webpage configuration: ' + key);
+}
 const report = await compareExperiments(root, output, [
   { ...baseline, name: 'slim-webgl2-128', strategy: 'baseline' },
   { name: 'slim-webgl2-128', strategy: 'release', directory: candidate.directory,

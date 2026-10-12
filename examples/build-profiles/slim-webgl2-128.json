@@ -1,6 +1,11 @@
 {
   "backend": "webgl2",
   "runtime": "dom",
+  "config": {
+    "outputCompositing": "browser-overlay",
+    "hostCompositing": "screen",
+    "hostCompositingSurface": "dom-backdrop"
+  },
   "resources": {
     "trailSize": 128,
     "encoding": "deflate"
