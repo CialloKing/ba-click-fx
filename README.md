@@ -109,7 +109,7 @@ const fx = new BAClickFX(
 
 也可以下载附带使用说明和许可证的[完整版 ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/ba-click-fx-v1.3.11-full.zip) 或[精简版 ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/ba-click-fx-v1.3.11-slim-webgl2-128.zip)，使用 [SHA256SUMS](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.11/SHA256SUMS) 校验附件。
 
-精简版主 JS 约 193.9 KiB，保留点击、拖尾、碎片、Bloom 与合成参考，仅提供 WebGL2 / DOM。已在构建时固定普通网页推荐的 `browser-overlay + screen + dom-backdrop`，无需在构造时传入合成参数。主题、scale、DPR 上限和特效参数固定，构造时只接受 `target`、`onError`、`inputFilter`；不支持动态调参或其他后端回退。其声明支持相对 ESM 导入：
+精简版主 JS 约 190.7 KiB，保留点击、拖尾、碎片、Bloom 与合成参考，仅提供 WebGL2 / DOM。已在构建时固定普通网页推荐的 `browser-overlay + screen + dom-backdrop`，无需在构造时传入合成参数。主题、scale、DPR 上限和特效参数固定，构造时只接受 `target`、`onError`、`inputFilter`；不支持动态调参或其他后端回退。其声明支持相对 ESM 导入：
 
 ```js
 import BAClickFX from './ba-click-fx.slim-webgl2-128.js';
@@ -139,6 +139,8 @@ const fx = new BAClickFX({ target: '#fx-host', onError: error => console.error(e
 将 `ba-click-fx.js` 放在页面同目录，在容器内点击或拖动即可预览。
 
 省略 `target` 会创建全屏覆盖层；普通网页容器应使用定位元素。已有 `HTMLCanvasElement` 适合需要自行管理单张 Canvas 的宿主，但会关闭多层 DOM 合成并使完整 GPU/Bloom 路径安全降级。
+
+完整版、精简版和普通定制构建默认使用 Zopfli（15 次迭代）无损压缩纹理，运行时内嵌 fflate 同步解压，保持现有画面、API 和同步构造。WASM 仅用于构建；Zopfli 会增加构建时间，同轮构建共享临时缓存。可在定制配置中显式选择 `original` 或 `deflate`；详见[定制构建说明](./docs/custom-build.md)。
 
 ### 从源码自行构建
 

@@ -13,11 +13,16 @@ npm ci
 npm run check:release
 npm run release:prepare
 npm run test:browser:slim -- --release-assets
+npm run test:browser:zopfli -- --release-assets
 ```
 
 The complete gate retains runtime, type, browser, Worker, lifecycle and device coverage. Slim additionally checks lossless resource bytes, four scenes against the accepted 128x128 reference, input, multiple instances, initialization failure and WebGL context restoration. `npm run benchmark:custom` remains separate from default release acceptance.
 
 `release:prepare` freshly builds both editions in `dist-release`, verifies ZIP contents and writes SHA256SUMS. `test:browser:slim -- --release-assets` checks the exact JS intended for upload. `build-info.json` records version, commit and working-tree state; tagged release sources must be committed and clean. Experiment reports are excluded from assets.
+
+Full, slim and ordinary custom builds default to Zopfli (15 iterations), with bundled synchronous fflate decoding. Full retains 512x512 trails and all APIs/backends; slim retains its 128x128 profile. Build metadata records encoding, size and compression parameters. Preparation requires Zopfli, equal full/Worker modules, complete licenses and raw/gzip/Brotli sizes below verified v1.3.11 assets. `test:browser:zopfli` compares both exact upload modules with that independent baseline; required checks may not be skipped.
+
+Zopfli adds build time. Run `npm run benchmark:codecs` explicitly; it records cold build, decode, import and initialization separately, with local measurement limits. Before delivery, commit all changes and regenerate assets from a clean tree. Keep work on the experimental branch until the later merge/tag/publication stage; npm publication is separate.
 
 ## Assets
 
@@ -29,7 +34,7 @@ The complete gate retains runtime, type, browser, Worker, lifecycle and device c
 | Slim ZIP | `ba-click-fx-v<version>-slim-webgl2-128.zip` |
 | SHA-256 of all ten files | `SHA256SUMS` |
 
-ZIPs contain usage notes, build information, LICENSE and THIRD_PARTY_NOTICES.md. Slim also includes profile.json and the fflate license notice. Full declarations describe package imports; npm is recommended for TypeScript. Slim declarations support relative ESM imports of the matching file. The script records gzip/Brotli sizes for comparison; separate compressed script assets are not published. GitHub Source code attachments are automatic source archives.
+ZIPs contain usage notes, build information, LICENSE and THIRD_PARTY_NOTICES.md. Slim also includes profile.json. Both editions and the npm package include the complete fflate license once. Full declarations describe package imports; npm is recommended for TypeScript. Slim declarations support relative ESM imports of the matching file. The script records gzip/Brotli sizes for comparison; separate compressed script assets are not published. GitHub Source code attachments are automatic source archives.
 
 ## Tag Publication
 

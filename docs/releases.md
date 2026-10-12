@@ -13,11 +13,16 @@ npm ci
 npm run check:release
 npm run release:prepare
 npm run test:browser:slim -- --release-assets
+npm run test:browser:zopfli -- --release-assets
 ```
 
 完整门禁保留既有运行时、类型、浏览器、Worker、生命周期和设备覆盖。精简版额外比较已接受的 128² 画面，检查无损资源字节、四个像素场景、输入、多实例、初始化失败和 WebGL 上下文恢复。`npm run benchmark:custom` 独立采样，不作为默认发布门禁。
 
 `release:prepare` 从当前源码重新构建两种产物，写入 `dist-release`，验证 ZIP 内容并生成 SHA256SUMS。`test:browser:slim -- --release-assets` 检查实际待上传的 JS。`build-info.json` 记录版本、提交与工作区状态；正式标签的源码必须已提交且工作区干净。实验报告不进入附件。
+
+完整版、精简版与普通定制构建默认使用 Zopfli（15 次迭代），运行时内嵌 fflate 同步解码。完整版保留 512² 与全部接口和后端，精简版保留 128² 预设。构建信息记录编码、尺寸和压缩参数；发布准备要求 Zopfli、主入口与 Worker 一致、许可证完整，且 raw/gzip/Brotli 均小于已核验的 v1.3.11 正式附件。`test:browser:zopfli` 将两版实际待上传 JS 与这个独立基线逐字节比较；必需检查不能跳过。
+
+Zopfli 会增加构建时间，显式运行 `npm run benchmark:codecs` 分别记录冷构建、解码、导入和初始化及本机测量范围。交付前先提交全部修改，再从干净工作区重新生成附件。实验分支的发布准备与后续合并、标签、正式发布分开进行，npm 发布也单独处理。
 
 ## 附件
 
@@ -29,7 +34,7 @@ npm run test:browser:slim -- --release-assets
 | 精简版 ZIP | `ba-click-fx-v<版本>-slim-webgl2-128.zip` |
 | 全部十个文件的 SHA-256 | `SHA256SUMS` |
 
-ZIP 包含使用说明、构建信息、LICENSE、THIRD_PARTY_NOTICES.md；精简版额外包含 profile.json 与 fflate 许可证说明。完整版声明服务于包名导入，TypeScript 推荐使用 npm；精简版声明支持对应文件的相对 ESM 导入。gzip/Brotli 体积由脚本记录，用于比较，不额外发布压缩脚本附件。GitHub 的 Source code 为自动生成的源码归档。
+ZIP 包含使用说明、构建信息、LICENSE、THIRD_PARTY_NOTICES.md；精简版额外包含 profile.json。两版 ZIP 和 npm 包均附带完整 fflate 许可证且只收录一次。完整版声明服务于包名导入，TypeScript 推荐使用 npm；精简版声明支持对应文件的相对 ESM 导入。gzip/Brotli 体积由脚本记录，用于比较，不额外发布压缩脚本附件。GitHub 的 Source code 为自动生成的源码归档。
 
 ## 标签发布
 

@@ -61,6 +61,8 @@ jobs:
         run: npm run test:browser:custom -- --required
       - name: Check exact slim release files
         run: npm run test:browser:slim -- --release-assets
+      - name: Compare exact full and slim assets with v1.3.11
+        run: npm run test:browser:zopfli -- --release-assets
       - name: Upload verified release artifacts
         if: github.event_name == 'push'
         uses: actions/upload-artifact@v7
@@ -78,6 +80,7 @@ jobs:
             test-results/custom-browser
             test-results/custom-builds
             test-results/slim-browser
+            test-results/zopfli-release
           if-no-files-found: ignore
 
   release:

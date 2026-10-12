@@ -43,7 +43,7 @@ export function compressionSession()
   {
     process.once('exit', close);
   }
-  return { directory, close };
+  return { directory, close, owned: !existing };
 }
 
 export async function compressResource(input, encoding)

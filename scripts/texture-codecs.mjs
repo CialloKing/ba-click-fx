@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { brotliCompressSync, constants, inflateRawSync, zstdCompressSync } from 'node:zlib';
-import { deflateAsync } from '@gfx/zopfli';
 import { parseAst } from 'rolldown/parseAst';
 import { createBuildResources, markResourceInitializersPure, replaceRanges } from './build-resources.mjs';
 import { normalizeProfile } from './build-profile.mjs';
@@ -56,7 +55,7 @@ export async function codecResources(root, width, codec)
   assert(textureCodecs.includes(codec), 'Unknown texture codec');
   assert([128, 512].includes(width), 'Unknown texture dimensions');
   const sources = codec === 'original' ? new Map() : await createBuildResources(root,
-    normalizeProfile({ backend: 'webgl2', runtime: 'dom', resources: { trailSize: width, encoding: 'deflate' } }));
+    normalizeProfile({ backend: 'webgl2', runtime: 'dom', resources: { trailSize: width, encoding: codec === 'zopfli' ? 'zopfli' : 'deflate' } }));
   const packets = [];
   let compressionMs = 0;
   for (const [filename, source] of sources)
@@ -72,8 +71,7 @@ export async function codecResources(root, width, codec)
       const current = Buffer.from(literal.value, 'base64');
       const bytes = inflateRawSync(current);
       const start = performance.now();
-      const packed = codec === 'zopfli' ? Buffer.from(await deflateAsync(bytes, { numiterations: 15 }))
-        : codec === 'brotli' ? brotliCompressSync(bytes, { params: { [constants.BROTLI_PARAM_QUALITY]: 11 } })
+      const packed = codec === 'brotli' ? brotliCompressSync(bytes, { params: { [constants.BROTLI_PARAM_QUALITY]: 11 } })
         : codec === 'zstd' ? zstdCompressSync(bytes, { params: { [constants.ZSTD_c_compressionLevel]: 22 } }) : current;
       compressionMs += performance.now() - start;
       const encoded = packed.toString('base64');

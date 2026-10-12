@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'vite';
+import { compressionSession } from './resource-compression.mjs';
 import { normalizeProfile } from './build-profile.mjs';
 import { customVite } from './custom-vite.mjs';
 import { resizeTexture } from './build-resources.mjs';
@@ -36,7 +37,7 @@ async function buildCodec(edition, codec)
   const sourceRoot = relative(directory, join(root, 'src')).replaceAll('\\', '/');
   const entry = join(directory, '.entry.js');
   writeFileSync(entry, `export { default, BAClickFX } from '${sourceRoot}/engine-core.js';\n`);
-  const plugin = () => codecPlugin(root, resources, codec, edition === 'slim' ? customVite(root, slimProfile) : {});
+  const plugin = () => codecPlugin(root, resources, codec, edition === 'slim' ? customVite(root, { ...slimProfile, resources: { ...slimProfile.resources, encoding: 'original' } }) : {});
   await bundle(edition === 'slim' ? entry : join(root, 'src/fx.js'), directory, plugin(), 'ba-click-fx.js');
   const sizes = scriptSizes(readFileSync(join(directory, 'ba-click-fx.js'), 'utf8'));
 
@@ -149,5 +150,13 @@ async function main()
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
 {
-  await main();
+  const session = compressionSession();
+  try
+  {
+    await main();
+  }
+  finally
+  {
+    session.close();
+  }
 }
