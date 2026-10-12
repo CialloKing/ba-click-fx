@@ -64,23 +64,35 @@ async function buildCodec(edition, codec)
   const result = { name: edition, codec, strategy: codec === (full ? 'original' : 'deflate') ? 'baseline' : codec,
     full, directory, profile: full ? normalizeProfile({ backend: 'webgl2', runtime: 'dom' }) : slimProfile,
     exact: true, checkDomFaults: !full, sizes, width, byteChecks: 8,
-    compressionMs: resources.compressionMs,
-    payloadBytes: resources.packets.reduce((sum, packet) => sum + packet.packedBytes, 0),
+    recompressionMs: resources.compressionMs,
+    payloadBytes: resources.packets.length ? resources.packets.reduce((sum, packet) => sum + packet.packedBytes, 0) : null,
     packets: resources.packets.map(({ encoded, ...packet }) => packet) };
   writeFileSync(join(directory, 'build-info.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(`${edition}/${codec}: raw=${sizes.raw}, gzip=${sizes.gzip}, br=${sizes.brotli}; eight resource byte checks passed`);
   return result;
 }
 
-function writeReport(report)
+export function writeReport(report)
 {
   writeFileSync(join(output, 'results.json'), JSON.stringify(report, null, 2) + '\n');
   const kib = value => (value / 1024).toFixed(1);
-  const lines = ['# 纹理无损压缩实验', '', `版本 ${report.version}；提交 ${report.commit}；Node ${report.node}。`, '',
+  const lines = ['# 纹理无损压缩实验', '', `版本 ${report.version}；提交 ${report.commit}；Node ${report.node}；运行开始时工作区有改动：${report.dirty}。`, '',
     '| 产物 | 编码 | JS raw KiB | gzip KiB | Brotli KiB | 资源校验 |', '|---|---|---:|---:|---:|---:|',
     ...report.results.map(result => `| ${result.name} | ${result.codec} | ${kib(result.sizes.raw)} | ${kib(result.sizes.gzip)} | ${kib(result.sizes.brotli)} | ${result.byteChecks}/8 |`), '',
     '体积计入所需解码器；resource-check.js、报告和图片是校验工具，不计入部署体积。完整版保留 512²、全部后端和可变配置；精简版使用正式 128² 网页配置。', '',
     report.browser ? `浏览器 ${report.browser.browser}；完成：${report.browser.complete}；逐字节场景 ${report.browser.results.reduce((sum, result) => sum + result.samples.length, 0)} 个。` : '浏览器验收尚未运行。', ''];
+  if (report.decoding)
+  {
+    lines.push('| 产物 | 编码 | 解码 median ms | 解码 p95 ms | 冷导入 median ms | 初始化 median ms |', '|---|---|---:|---:|---:|---:|');
+    for (const build of report.results)
+    {
+      const result = report.decoding.results.find(item => item.name === build.name && item.codec === build.codec);
+      const startup = report.browser.results.find(item => item.name === build.name && item.strategy === build.strategy);
+      lines.push(`| ${build.name} | ${build.codec} | ${result?.medianMs.toFixed(3) ?? '-'} | ${result?.p95Ms.toFixed(3) ?? '-'} | ${startup.importMs.median.toFixed(1)} | ${startup.initMs.median.toFixed(1)} |`);
+    }
+    lines.push('', '同步解码计时包含六个数据块，不包含 Base64、Paeth 还原或 GPU 上传；冷导入包含网络、解析和完整资源初始化，各使用三个独立上下文。计时只描述当前机器与无头浏览器。', '',
+      'DecompressionStream 支持探测：`' + JSON.stringify(report.decoding.nativeFormats) + '`。', '');
+  }
   writeFileSync(join(output, 'report.md'), lines.join('\n'));
 }
 
@@ -93,11 +105,22 @@ async function main()
   const codec = args.find(arg => arg.startsWith('--codec='))?.slice(8);
   assert(!edition || ['full', 'slim'].includes(edition), 'Unknown edition');
   assert(!codec || textureCodecs.includes(codec), 'Unknown codec');
+  assert(edition !== 'slim' || codec !== 'original', 'The original encoding is only a full-edition baseline');
   const report = { version: JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version,
-    node: process.version, commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), results: [] };
+    node: process.version, commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
+    dirty: !!execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim(),
+    dependencies: Object.fromEntries(['@gfx/zopfli', 'brotli', 'fzstd', 'fflate'].map(name =>
+      [name, JSON.parse(readFileSync(join(root, 'node_modules', name, 'package.json'), 'utf8')).version])),
+    complete: false, results: [] };
   mkdirSync(output, { recursive: true });
+  // 新运行先覆盖旧状态；失败时不能让上一次成功的结果冒充本次验收。
+  writeReport(report);
   for (const selected of ['full', 'slim'].filter(value => !edition || value === edition))
   {
+    if (codec === 'original' && selected === 'slim')
+    {
+      continue;
+    }
     const baseline = selected === 'full' ? 'original' : 'deflate';
     for (const mode of textureCodecs.filter(value => (selected === 'full' || value !== 'original') &&
       (!codec || value === codec || value === baseline)))
@@ -112,8 +135,15 @@ async function main()
     const { compareExperiments } = await import('./size-experiment-browser.mjs');
     report.browser = await compareExperiments(root, output, report.results,
       { benchmark: false, startupTrials: args.includes('--benchmark') ? 3 : 0 });
+    if (args.includes('--benchmark'))
+    {
+      const { benchmarkTextureCodecs } = await import('./texture-codec-benchmark.mjs');
+      report.decoding = await benchmarkTextureCodecs(root, report.results);
+    }
     writeReport(report);
   }
+  report.complete = true;
+  writeReport(report);
   console.log('Report: ' + join(output, 'report.md'));
 }
 

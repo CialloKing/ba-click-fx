@@ -127,7 +127,7 @@ onmessage = async event => { try { postMessage(await runCustomFixture(event.data
   }
 }
 
-export async function compareExperiments(root, output, builds, { benchmark = true } = {})
+export async function compareExperiments(root, output, builds, { benchmark = true, startupTrials = 0 } = {})
 {
   const vite = await startViteServer(root);
   const browser = await chromium.launch({ executablePath: findChromiumExecutable(), headless: true,
@@ -142,6 +142,7 @@ export async function compareExperiments(root, output, builds, { benchmark = tru
     {
       const url = vite.baseUrl + '/' + relative(root, join(build.directory, 'ba-click-fx.js')).replaceAll('\\', '/');
       const worker = build.profile.runtime === 'worker';
+      const fixtureArgs = { profile: build.profile, url, full: !!build.full };
       const snapshots = [];
       const measurements = [];
       const samples = [
@@ -153,23 +154,26 @@ export async function compareExperiments(root, output, builds, { benchmark = tru
       for (const sample of samples)
       {
         const snapshot = await runFixture(browser, vite.baseUrl,
-          { profile: build.profile, url, capturePixels: true,
+          { ...fixtureArgs, capturePixels: true,
             deterministicCanvas: ['native', 'software'].includes(build.profile.backend), ...sample }, worker);
         assert(snapshot.lit > 0, `${build.name}/${build.strategy}: empty output`);
         snapshots.push({ sample: sample.name, ...snapshot });
         savePixels(join(build.directory, `${sample.name}.png`), snapshot.pixelWidth, snapshot.pixelHeight, snapshot.pixels);
       }
-      for (let trial = 0; benchmark && trial < 3; trial++)
+      for (let trial = 0; trial < (benchmark ? 3 : startupTrials); trial++)
       {
         measurements.push(await runFixture(browser, vite.baseUrl,
-          { profile: build.profile, url, timing: true, benchmark: trial === 0 }, worker));
+          { ...fixtureArgs, timing: true, benchmark: benchmark && trial === 0 }, worker));
       }
       const result = { name: build.name, strategy: build.strategy, samples: [], faultChecks: [] };
+      if (measurements.length)
+      {
+        result.importMs = summary(measurements.map(value => value.importMs));
+        result.initMs = summary(measurements.map(value => value.initMs));
+      }
       if (benchmark)
       {
         const frames = [...measurements[0].cpuFrameMs].sort((left, right) => left - right);
-        result.importMs = summary(measurements.map(value => value.importMs));
-        result.initMs = summary(measurements.map(value => value.initMs));
         result.cpuFrameMs = { samples: frames.length, p50: frames[Math.floor(frames.length * 0.5)], p95: frames[Math.floor(frames.length * 0.95)] };
       }
       if (build.strategy === 'baseline')
@@ -197,7 +201,7 @@ export async function compareExperiments(root, output, builds, { benchmark = tru
       if (worker)
       {
         const gpu = build.profile.backend.startsWith('webgpu');
-        const args = { profile: build.profile, url };
+        const args = fixtureArgs;
         const failure = await runFixture(browser, vite.baseUrl, { ...args, fault: gpu ? 'gpu' : 'context' }, true);
         assert.deepEqual(failure.errors, ['initialization-failed']);
         assert(failure.stopped);
@@ -221,7 +225,7 @@ export async function compareExperiments(root, output, builds, { benchmark = tru
       }
       if (build.checkDomFaults)
       {
-        const args = { profile: build.profile, url };
+        const args = fixtureArgs;
         const failure = await runFixture(browser, vite.baseUrl, { ...args, fault: 'context' }, false);
         assert.deepEqual(failure.errors, ['initialization-failed']);
         assert(failure.stopped);
