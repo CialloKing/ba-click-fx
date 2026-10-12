@@ -222,9 +222,16 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   const renderer = fx.webgpuEffectRenderer ?? fx.webglEffectRenderer ?? fx.webglBloomRenderer ?? fx.canvasSceneRenderer;
   const output = fx.webgpuEffectVisible ? fx.webgpuEffectCanvas : fx.webglEffectVisible ? fx.webglEffectCanvas
     : fx.webglBloomVisible ? fx.webglBloomCanvas : fx.canvasSceneVisible && fx.ownsCanvas ? fx.canvasSceneCanvas : fx.canvas;
+  if (!full && !profile.features.bloom && ['webgl2', 'webgpu', 'webgpu-hdr'].includes(profile.backend))
+  {
+    const previous = renderer.sourceTarget;
+    fx._renderFrame(now);
+    if (renderer.sourceTarget !== previous || renderer.levels.length !== 0) throw Error('Bloom-disabled layout was reallocated');
+  }
   const pixelWidth = output.width, pixelHeight = output.height;
   const capture = async () =>
   {
+    const pixelWidth = output.width, pixelHeight = output.height;
     let pixels;
     if (renderer?.gl && output === renderer.canvas && !(reference && profile.backend === 'native'))
     {
@@ -271,6 +278,9 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   if (gpuOptimization)
   {
     if (!full || !['webgl2', 'webgpu'].includes(profile.backend)) throw Error('GPU optimization fixture requires a full GPU runtime');
+    // 异步设备就绪会刷新 DOM 尺寸；专项从同一显式 DPR 开始，避免把 DPR 切换算作复用。
+    fx.resizeObserver?.disconnect();
+    fx.resize(320, 240, 2); fx._renderFrame(now);
     const targets = () => [renderer.sourceTarget, renderer.sceneOverlayTarget,
       ...renderer.levels.flatMap(level => [level.down, level.up].filter(Boolean))];
     const originalTargets = targets();
@@ -292,7 +302,25 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     {
       wrap('_drawFullscreen', args => { if (args.at(-1).includes('WebGPU bloom ')) bloomPasses++; });
     }
-    gpuOptimizationResults = { initiallyLazy: renderer.transparentBloomTexture == null, intensity: [] };
+    gpuOptimizationResults = { initiallyLazy: renderer.transparentBloomTexture == null, intensity: [], layout: [] };
+    if (renderer._hasTargetLayout)
+    {
+      // 不丢弃真实句柄：仅暂时遮蔽引用，验证不完整资源不会被误判为可复用。
+      const checks = [[renderer.sourceTarget, 'texture'], [renderer.sceneOverlayTarget, renderer.gl ? 'framebuffer' : 'view'],
+        [renderer.levels[0].down, 'texture'], [renderer.levels[0], 'width']];
+      if (!renderer.gl) checks.push([renderer.levels[0], 'upUniform']);
+      for (const [object, key] of checks)
+      {
+        const previous = object[key]; object[key] = null;
+        try
+        {
+          if (renderer._hasTargetLayout(renderer.sourceWidth, renderer.sourceHeight,
+            renderer.width, renderer.height, renderer.levels.length)) throw Error('Incomplete GPU layout was reused');
+        }
+        finally { object[key] = previous; }
+      }
+      gpuOptimizationResults.integrityChecks = checks.length;
+    }
     try
     {
       for (const intensity of [1.7, 0, 0, 1.7])
@@ -305,6 +333,32 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
           targetsReused: targets().every((target, index) => target === originalTargets[index]),
           hash: (await capture()).hash });
       }
+      const changes = [
+        { name: 'fractional-diffusion', diffusion: 7.125, reuse: true },
+        { name: 'level-boundary', diffusion: 8, reuse: false },
+        { name: 'fractional-size', width: 320.2, height: 240.2, dpr: 2, reuse: true },
+        { name: 'fractional-dpr', width: 320.2, height: 240.2, dpr: 1.9999, reuse: true },
+        { name: 'resize', width: 300, height: 210, dpr: 1, reuse: false },
+        { name: 'dpr', width: 300, height: 210, dpr: 2, reuse: false },
+        { name: 'tiny', width: 1, height: 1, dpr: 1, reuse: false },
+        { name: 'tiny-diffusion', diffusion: 10, reuse: true },
+        { name: 'released', release: true, reuse: false },
+      ];
+      for (const change of changes)
+      {
+        const previous = targets();
+        bloomPasses = 0; allocations = 0;
+        if (change.diffusion !== undefined) fx.setFxParam('bloom.diffusion', change.diffusion);
+        if (change.width !== undefined) fx.resize(change.width, change.height, change.dpr);
+        if (change.release) renderer._deleteTargets();
+        fx._renderFrame(now);
+        if (fx.resolvedEffectBackend !== profile.backend) throw Error('GPU layout unexpectedly fell back');
+        gpuOptimizationResults.layout.push({ ...change, allocations, sampleScale: renderer.sampleScale,
+          levelCount: renderer.levels.length, targetsReused: targets().length === previous.length &&
+            targets().every((target, index) => target === previous[index]), hash: (await capture()).hash });
+      }
+      // 生命周期继续使用原尺寸；缩放专项不改变其输入和黄金场景。
+      fx.setFxParam('bloom.diffusion', 7); fx.resize(320, 240, 1); fx._renderFrame(now);
     }
     finally { restores.reverse().forEach(restore => restore()); }
   }

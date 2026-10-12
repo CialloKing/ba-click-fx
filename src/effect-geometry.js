@@ -138,6 +138,43 @@ export class EffectGeometry
     return this.sceneBackgroundSource !== null;
   }
 
+  _hasTargetLayout(sourceWidth, sourceHeight, width, height, levelCount)
+  {
+    const matches = (target, targetWidth, targetHeight) =>
+      target?.texture && (target.framebuffer || target.view) &&
+      target.width === targetWidth && target.height === targetHeight;
+
+    if (!matches(this.sourceTarget, sourceWidth, sourceHeight) ||
+        !matches(this.sceneOverlayTarget, sourceWidth, sourceHeight) ||
+        (this.bloomSourceTarget && !matches(this.bloomSourceTarget, sourceWidth, sourceHeight)) ||
+        (this.gl && this.sceneBackgroundTexture && !matches(this.sceneBackgroundTarget, sourceWidth, sourceHeight)))
+    {
+      return false;
+    }
+
+    // 只比较真实目标布局；fractional diffusion 改变采样偏移，不改变这些资源。
+    let count = 0;
+    for (let index = 0; BUILD_BLOOM && index < levelCount; index++)
+    {
+      const level = this.levels[index];
+      const last = index === levelCount - 1;
+      if (!level || level.width !== width || level.height !== height ||
+          !matches(level.down, width, height) || (!last && !matches(level.up, width, height)) ||
+          (!this.gl && (!level.downUniform || (!last && !level.upUniform))))
+      {
+        return false;
+      }
+      count++;
+      if (width === 1 && height === 1)
+      {
+        break;
+      }
+      width = Math.max(1, width >> 1);
+      height = Math.max(1, height >> 1);
+    }
+    return this.levels.length === count;
+  }
+
   beginFrame(options = {})
   {
     this.vertexCount = 0;

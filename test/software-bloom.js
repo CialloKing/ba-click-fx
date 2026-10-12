@@ -1465,7 +1465,7 @@ assert(
   'Software renderer 销毁时释放 Coverage Canvas 与单通道金字塔',
 );
 
-function createResizeTestRenderer(maximumSize = 64)
+function createResizeTestRenderer(maximumSize = 64, Renderer = WebGL2BloomRenderer)
 {
   let nextTargetId = 1;
   const targetCreations = [];
@@ -1513,7 +1513,7 @@ function createResizeTestRenderer(maximumSize = 64)
     {
     },
   };
-  const renderer = Object.create(WebGL2BloomRenderer.prototype);
+  const renderer = Object.create(Renderer.prototype);
 
   Object.assign(
     renderer,
@@ -1705,6 +1705,32 @@ assert(
 );
 
 console.log('\nWebGL2 独立点击 Bloom 源');
+{
+  const harness = createResizeTestRenderer(64, WebGL2EffectRenderer);
+  const renderer = harness.renderer;
+  renderer.resize(64, 32, 1, 0.5, 0);
+  const source = renderer.sourceTarget;
+  const creations = harness.targetCreations.length;
+  assert(renderer.resize(64, 32, 1, 0.5, 0.125) && renderer.sourceTarget === source &&
+    harness.targetCreations.length === creations && renderer.sampleScale === 0.625,
+    'Scene renderer fractional diffusion 刷新采样倍率并复用目标');
+  renderer.failureSourceWidth = 48; renderer.failureAfterTargetCount = 1;
+  const warn = console.warn;
+  try
+  {
+    console.warn = () => {};
+    assert(!renderer.resize(48, 32, 1, 0.5, 0.125) && renderer.available &&
+      renderer.sourceTarget === null && renderer.levels.length === 0 && !harness.pendingErrors.length,
+      'Scene renderer 部分分配失败清理目标与错误，保留设备可用状态');
+    const failedCreations = harness.targetCreations.length;
+    assert(!renderer.resize(48, 32, 1, 0.5, 0.125) && harness.targetCreations.length === failedCreations,
+      'Scene renderer 不重复分配同一失败布局');
+  }
+  finally { console.warn = warn; }
+  assert(renderer.resize(64, 32, 1, 0.5, 0.125) && renderer.failedResizeSignature === null,
+    'Scene renderer 从失败布局恢复后重新建立完整目标');
+  renderer.destroy();
+}
 const scaledBloomCalls =
 {
   createdTargets: 0,

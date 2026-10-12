@@ -70,10 +70,12 @@ try
         gpuOptimization: !benchmark, benchmark };
       const baseline = baselineUrl && await run({ ...parameters, url: baselineUrl });
       const candidate = await run({ ...parameters, url: candidateUrl });
+      results.push({ backend, case: entry.name, candidate, baseline });
       if (!benchmark)
       {
         const probe = candidate.gpuOptimization;
         assert(probe.initiallyLazy, 'Zero texture must not be allocated for positive intensity');
+        assert.equal(probe.integrityChecks, backend === 'webgl2' ? 4 : 5, 'Incomplete target resources must reject reuse');
         for (const [index, stage] of probe.intensity.entries())
         {
           assert.equal(stage.bloomPasses === 0, stage.intensity === 0, `${backend}: filter pass routing`);
@@ -82,6 +84,18 @@ try
           if (baseline) assert.equal(stage.hash, baseline.gpuOptimization.intensity[index].hash, `${backend}/${entry.name}: independent pixel parity`);
         }
         assert.equal(probe.intensity[0].hash, probe.intensity.at(-1).hash, 'Restored positive intensity pixels');
+        for (const [index, stage] of probe.layout.entries())
+        {
+          assert.equal(stage.targetsReused, stage.reuse, `${backend}/${stage.name}: target identity`);
+          assert.equal(stage.allocations, stage.reuse ? 0 : 1, `${backend}/${stage.name}: allocation count`);
+          if (baseline)
+          {
+            const previous = baseline.gpuOptimization.layout[index];
+            assert.equal(stage.hash, previous.hash, `${backend}/${entry.name}/${stage.name}: independent pixel parity`);
+            assert.equal(stage.sampleScale, previous.sampleScale, 'Fractional parameters must update sampling');
+            assert.equal(stage.levelCount, previous.levelCount, 'Effective pyramid level count');
+          }
+        }
         if (parameters.restoreContext)
         {
           assert.equal(candidate.contextRestored, 'passed');
@@ -90,7 +104,6 @@ try
         }
       }
       else if (baseline) assert.equal(candidate.hash, baseline.hash, 'Benchmark workload pixel parity');
-      results.push({ backend, case: entry.name, candidate, baseline });
       console.log(`${backend}/${entry.name}: passed${baseline ? ', independent baseline matched' : ''}`);
     }
   }

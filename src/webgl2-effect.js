@@ -2193,14 +2193,8 @@ export class WebGL2EffectRenderer extends EffectGeometry
       }
     }
 
-    const unchanged = sourceWidth === this.sourceWidth &&
-      sourceHeight === this.sourceHeight &&
-      width === this.width &&
-      height === this.height &&
-      safeDiffusion === this.diffusion &&
-      this.sourceTarget !== null &&
-      this.sceneOverlayTarget !== null &&
-      this.levels.length > 0;
+    const pyramid = calculatePyramidSettings(sourceWidth, sourceHeight, safeScale, safeDiffusion);
+    const unchanged = this._hasTargetLayout(sourceWidth, sourceHeight, width, height, pyramid.levelCount);
 
     this.displayWidth = safeDisplayWidth;
     this.displayHeight = safeDisplayHeight;
@@ -2209,6 +2203,9 @@ export class WebGL2EffectRenderer extends EffectGeometry
     this.diffusion = safeDiffusion;
     this.sourceWidth = sourceWidth;
     this.sourceHeight = sourceHeight;
+    this.width = width;
+    this.height = height;
+    this.sampleScale = pyramid.sampleScale;
 
     if (unchanged)
     {
@@ -2216,8 +2213,6 @@ export class WebGL2EffectRenderer extends EffectGeometry
       return this.available;
     }
 
-    this.width = width;
-    this.height = height;
     this.canvas.width = sourceWidth;
     this.canvas.height = sourceHeight;
 

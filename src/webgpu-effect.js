@@ -1195,13 +1195,8 @@ export class WebGPUEffectRenderer extends EffectGeometry
       return false;
     }
 
-    const unchanged = sourceWidth === this.sourceWidth &&
-      sourceHeight === this.sourceHeight &&
-      width === this.width &&
-      height === this.height &&
-      safeDiffusion === this.diffusion &&
-      this.sourceTarget !== null &&
-      this.levels.length > 0;
+    const pyramid = calculatePyramidSettings(sourceWidth, sourceHeight, safeScale, safeDiffusion);
+    const unchanged = this._hasTargetLayout(sourceWidth, sourceHeight, width, height, pyramid.levelCount);
 
     this.displayWidth = safeDisplayWidth;
     this.displayHeight = safeDisplayHeight;
@@ -1212,6 +1207,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
     this.sourceHeight = sourceHeight;
     this.width = width;
     this.height = height;
+    this.sampleScale = pyramid.sampleScale;
 
     if (this.canvas.width !== sourceWidth || this.canvas.height !== sourceHeight)
     {
