@@ -100,6 +100,7 @@
     "benchmark:report": "node scripts/benchmark-report.mjs",
     "benchmark:custom": "node test/browser/custom-runtime.mjs --benchmark",
     "experiment:size": "node scripts/size-experiments.mjs",
+    "experiment:codecs": "node scripts/texture-codec-experiments.mjs",
     "experiment:live": "node scripts/size-live-demo.mjs",
     "test:browser": "npm run build && npm run test:browser:core && npm run test:browser:worker",
     "test:browser:optional": "npm run build && npm run test:browser:core -- --optional && npm run test:browser:worker -- --optional",
@@ -117,7 +118,10 @@
     "release:prepare": "node scripts/prepare-release.mjs"
   },
   "devDependencies": {
+    "@gfx/zopfli": "1.0.15",
+    "brotli": "2.1.0",
     "fflate": "0.8.3",
+    "fzstd": "0.1.1",
     "playwright-core": "^1.62.1",
     "rolldown": "^1.2.12",
     "typescript": "^7.0.2",
