@@ -55,7 +55,7 @@ export async function codecResources(root, width, codec)
 {
   assert(textureCodecs.includes(codec), 'Unknown texture codec');
   assert([128, 512].includes(width), 'Unknown texture dimensions');
-  const sources = codec === 'original' ? new Map() : createBuildResources(root,
+  const sources = codec === 'original' ? new Map() : await createBuildResources(root,
     normalizeProfile({ backend: 'webgl2', runtime: 'dom', resources: { trailSize: width, encoding: 'deflate' } }));
   const packets = [];
   let compressionMs = 0;

@@ -36,8 +36,8 @@ export function scriptSizes(code)
 export async function buildExperiment(entry, strategy)
 {
   assert(strategies.includes(strategy), 'Unknown strategy');
-  const profile = normalizeProfile(entry.profile);
-  const resources = createExperimentResources(root, strategy);
+  const profile = normalizeProfile({ ...entry.profile, resources: entry.profile.resources ?? { encoding: 'original' } });
+  const resources = await createExperimentResources(root, strategy);
   const plugin = customVite(root, profile);
   const originalLoad = plugin.load;
   plugin.load = function(id)

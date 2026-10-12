@@ -49,15 +49,15 @@ export function normalizeProfile(input)
   keys(resourceInput, ['trailSize', 'encoding'], 'resources');
   const resources = {
     trailSize: resourceInput.trailSize === undefined ? 512 : resourceInput.trailSize,
-    encoding: resourceInput.encoding === undefined ? 'original' : resourceInput.encoding,
+    encoding: resourceInput.encoding === undefined ? 'zopfli' : resourceInput.encoding,
   };
-  if (![128, 256, 512].includes(resources.trailSize) || !['original', 'deflate'].includes(resources.encoding))
+  if (![128, 256, 512].includes(resources.trailSize) || !['original', 'deflate', 'zopfli'].includes(resources.encoding))
   {
-    throw new TypeError('resources 必须选择 128/256/512 拖尾和 original/deflate 编码');
+    throw new TypeError('resources 必须选择 128/256/512 拖尾和 original/deflate/zopfli 编码');
   }
-  if (resources.trailSize !== 512 && (!features.trail || resources.encoding !== 'deflate'))
+  if (resources.trailSize !== 512 && (!features.trail || resources.encoding === 'original'))
   {
-    throw new TypeError('缩小拖尾必须开启 trail 并使用 deflate 编码');
+    throw new TypeError('缩小拖尾必须开启 trail 并使用 deflate 或 zopfli 编码');
   }
   const configInput = object(input.config === undefined ? {} : input.config, 'config');
   for (const key of controlledConfig)

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { deflateRawSync } from 'node:zlib';
+import { compressResource } from './resource-compression.mjs';
 import { parseAst } from 'rolldown/parseAst';
 import { TRAIL_TEXTURE_RGB, TRAIL_TEXTURE_COVERAGE } from '../src/trail-texture.js';
 import { RING_MESH_VERTICES, RING_MESH_INDICES } from '../src/ring-mesh.js';
@@ -35,7 +35,7 @@ function base64Strings(node, result = [])
   return result;
 }
 
-function compressedResource(root, filename, name, decode, chunks)
+async function compressedResource(root, filename, name, decode, chunks, encoding)
 {
   const code = readFileSync(join(root, 'src', filename), 'utf8');
   const declarations = parseAst(code).body.flatMap(statement =>
@@ -49,12 +49,12 @@ function compressedResource(root, filename, name, decode, chunks)
   // Circle 的最后一个短块也参与解码；块不能因长度较短而被丢弃。
   const bytes = chunks ? Buffer.concat(encoded.map(value => Buffer.from(value, 'base64')))
     : Buffer.from(encoded.join(''), 'base64');
-  const packed = JSON.stringify(deflateRawSync(bytes, { level: 9 }).toString('base64'));
+  const packed = JSON.stringify((await compressResource(bytes, encoding)).toString('base64'));
   return inflateImport + rewriteResource(root, filename, { [name]: chunks ? `[${packed}]` : packed })
     .replace(decode, `inflateSync(${decode})`);
 }
 
-function meshSource(root)
+async function meshSource(root, encoding)
 {
   const values = {};
   for (const [name, array, floats] of [
@@ -65,7 +65,7 @@ function meshSource(root)
     const bytes = Buffer.alloc(array.length * (floats ? 4 : 2));
     array.forEach((value, index) => floats ? bytes.writeFloatLE(value, index * 4)
       : bytes.writeUInt16LE(value, index * 2));
-    values[name] = `decodeMeshBytes(${JSON.stringify(deflateRawSync(bytes, { level: 9 }).toString('base64'))}, ${floats}, ${array.length})`;
+    values[name] = `decodeMeshBytes(${JSON.stringify((await compressResource(bytes, encoding)).toString('base64'))}, ${floats}, ${array.length})`;
   }
   // 明确指定小端，保留原 Float32 位模式，不重新生成近似的圆环几何。
   return inflateImport + `function decodeMeshBytes(encoded, floats, length)
@@ -88,7 +88,7 @@ function meshSource(root)
 ` + rewriteResource(root, 'ring-mesh.js', values);
 }
 
-export function createBuildResources(root, profile)
+export async function createBuildResources(root, profile)
 {
   const sources = new Map();
   if (profile.resources.encoding === 'original')
@@ -97,15 +97,15 @@ export function createBuildResources(root, profile)
   }
   if (profile.features.trail)
   {
-    sources.set('trail-texture.js', trailSource(root, profile.resources.trailSize, false).source);
+    sources.set('trail-texture.js', (await trailSource(root, profile.resources.trailSize, false, profile.resources.encoding)).source);
   }
   if (profile.features.click)
   {
-    sources.set('circle-texture.js', compressedResource(root, 'circle-texture.js', 'RUNS_BASE64_CHUNKS',
-      'decodeBase64Chunks(RUNS_BASE64_CHUNKS)', true));
-    sources.set('ring3-alpha.js', compressedResource(root, 'ring3-alpha.js', 'PACKED_RING3_ALPHA',
-      'decodeBase64Bytes(PACKED_RING3_ALPHA)', false));
-    sources.set('ring-mesh.js', meshSource(root));
+    sources.set('circle-texture.js', await compressedResource(root, 'circle-texture.js', 'RUNS_BASE64_CHUNKS',
+      'decodeBase64Chunks(RUNS_BASE64_CHUNKS)', true, profile.resources.encoding));
+    sources.set('ring3-alpha.js', await compressedResource(root, 'ring3-alpha.js', 'PACKED_RING3_ALPHA',
+      'decodeBase64Bytes(PACKED_RING3_ALPHA)', false, profile.resources.encoding));
+    sources.set('ring-mesh.js', await meshSource(root, profile.resources.encoding));
   }
   return sources;
 }
@@ -113,7 +113,7 @@ export function createBuildResources(root, profile)
 export function resourceNotices(root, modules)
 {
   let text = readFileSync(join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8');
-  if (modules.some(module => module.id.includes('/fflate/')))
+  if (modules.some(module => module.id.includes('/fflate/')) && !/^## fflate\s*$/m.test(text))
   {
     text += '\n\n## fflate\n\n' + readFileSync(join(root, 'node_modules/fflate/LICENSE'), 'utf8');
   }
@@ -137,7 +137,7 @@ function paeth(left, above, corner)
     ? left : distances[1] <= distances[2] ? above : corner;
 }
 
-export function compressTexture(data, channels, width)
+export async function compressTexture(data, channels, width, encoding = 'deflate')
 {
   const residual = new Uint8Array(data.length);
   const stride = width * channels;
@@ -149,7 +149,7 @@ export function compressTexture(data, channels, width)
     const corner = index >= stride && x >= channels ? data[index - stride - channels] : 0;
     residual[index] = (data[index] - paeth(left, above, corner) + 256) & 255;
   }
-  return deflateRawSync(residual, { level: 9 });
+  return compressResource(residual, encoding);
 }
 
 export function resizeTexture(source, channels, width)
@@ -202,10 +202,10 @@ export function rewriteResource(root, filename, values, functions = {})
   return replaceRanges(code, edits);
 }
 
-export function trailSource(root, width, external)
+export async function trailSource(root, width, external, encoding = 'deflate')
 {
-  const rgb = compressTexture(resizeTexture(TRAIL_TEXTURE_RGB, 3, width), 3, width);
-  const coverage = compressTexture(resizeTexture(TRAIL_TEXTURE_COVERAGE, 1, width), 1, width);
+  const rgb = await compressTexture(resizeTexture(TRAIL_TEXTURE_RGB, 3, width), 3, width, encoding);
+  const coverage = await compressTexture(resizeTexture(TRAIL_TEXTURE_COVERAGE, 1, width), 1, width, encoding);
   const values = {
     TRAIL_TEXTURE_WIDTH: String(width), TRAIL_TEXTURE_HEIGHT: String(width),
     PACKED_TRAIL_TEXTURE_RGB: JSON.stringify(rgb.toString('base64')),
