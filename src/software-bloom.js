@@ -2154,9 +2154,10 @@ export class SoftwareBloomRenderer
 
   _limitTransparentOverlayAlpha(targetContext, overlayAlphaLimit)
   {
-    // Canvas Alpha 已是字节；上限为 255 时区域限制不会改变任何像素。
-    // 共用 limitCanvasAlpha 保留原回读语义，仅在 Software 调用处省去无效工作。
-    if (Math.round(clamp01(overlayAlphaLimit ?? 1) * 255) === 255)
+    // 默认 Canvas 的回读会影响浏览器后续栅格路径；省去它可能改变 RGB 舍入。
+    // 仅显式频繁回读的上下文跳过无效限制，共用 limitCanvasAlpha 的语义不变。
+    if (Math.round(clamp01(overlayAlphaLimit ?? 1) * 255) === 255 &&
+        targetContext?.getContextAttributes?.()?.willReadFrequently === true)
     {
       return;
     }

@@ -28,6 +28,7 @@ const cases = [
   { name: 'visual-max', config: { outputCompositing: 'browser-overlay', overlayAlphaPolicy: 'visual-max' } },
   { name: 'bright-core', config: { outputCompositing: 'browser-overlay', overlayColorCompensation: 'bright-core' } },
   { name: 'alpha-one', config: { outputCompositing: 'browser-overlay', overlayAlphaLimit: 1 } },
+  { name: 'alpha-one-default', config: { outputCompositing: 'browser-overlay', overlayAlphaLimit: 1 }, deterministicCanvas: false },
   { name: 'alpha-low', config: { outputCompositing: 'browser-overlay', overlayAlphaLimit: 0.4 } },
   { name: 'scene', config: { outputCompositing: 'scene' } },
   { name: 'reference', config: { outputCompositing: 'browser-overlay' }, reference: true },
@@ -73,11 +74,12 @@ try
     {
       const profile = normalizeProfile({ backend: 'software', runtime: 'manual',
         config: { hostCompositing: 'source-over', maxDpr: dpr, ...entry.config } });
+      const deterministicCanvas = entry.deterministicCanvas ?? !benchmark;
       const parameters = { profile, full: true, reference: entry.reference, benchmark,
-        deterministicCanvas: !benchmark, softwareOptimization: !benchmark };
+        deterministicCanvas, softwareOptimization: !benchmark };
       const baseline = baselineUrl && await run({ ...parameters, url: baselineUrl });
       const candidate = await run({ ...parameters, url: args.includes('--source') ? '/src/fx.js' : '/dist/ba-click-fx.js' });
-      results.push({ case: entry.name, dpr, candidate, baseline });
+      results.push({ case: entry.name, dpr, deterministicCanvas, candidate, baseline });
       assert.deepEqual(candidate.errors, []);
       if (baseline) assert.equal(candidate.hash, baseline.hash, `${entry.name}/${dpr}: independent pixels`);
       if (!benchmark)
@@ -97,9 +99,10 @@ try
           assert.equal(candidate.softwareOptimization[1].reads.total.failures, 1, 'Alpha readback fault was exercised');
         }
         if (entry.name === 'bright-core') assert.equal(normal.reads.finalFrameStages.frameFinalize.calls, 1, 'Bright-core still needs color compensation');
-        if (entry.name === 'alpha-one') assert.equal(normal.reads.finalFrameStages.regionAlpha.calls, 0, 'Alpha 255 needs no regional readback');
+        if (entry.name.startsWith('alpha-one')) assert.equal(normal.reads.finalFrameStages.regionAlpha.calls, deterministicCanvas ? 0 : 1,
+          'Alpha 255 skips explicit readback contexts and preserves default Canvas raster behavior');
+        console.log(`Software optimization: ${entry.name} DPR=${dpr} passed`);
       }
-      console.log(`Software optimization: ${entry.name} DPR=${dpr} passed`);
     }
   }
   if (!benchmark)
