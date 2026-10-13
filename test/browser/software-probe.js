@@ -158,7 +158,9 @@ export async function probeSoftwareCache(fx, renderFrame, capture, createInstanc
   const record = async name =>
   {
     results[name] = { ...softwareResources(fx), hash: (await capture()).hash,
-      pendingTimers: timers.size, available: fx.bloomRenderer.available, visible: fx._hasVisibleEffects() };
+      // 共享纹理组也有独立计时器；此夹具只检查 Software 实例自己的计时器。
+      pendingTimers: timers.has(fx.softwareBloomIdleTimer) ? 1 : 0,
+      available: fx.bloomRenderer.available, visible: fx._hasVisibleEffects() };
   };
   try
   {

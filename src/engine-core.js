@@ -166,12 +166,43 @@ let triangleTextureResources = null;
 let triangleTextureUnavailable = false;
 let circleTextureResources = null;
 let circleTextureUnavailable = false;
-let triangleLinearTintUnavailable = false;
-let circleLinearTintUnavailable = false;
 const canvasTextureOwners = BUILD_CANVAS ? new Set() : null;
 let canvasTextureFrameOwner = null;
 let canvasTextureReadDepth = 0;
 let canvasTextureReleasePending = false;
+let canvasTextureIdleTimer = null;
+
+function cancelCanvasTextureRelease()
+{
+  if (canvasTextureIdleTimer !== null)
+  {
+    clearTimeout(canvasTextureIdleTimer);
+    canvasTextureIdleTimer = null;
+  }
+}
+
+function scheduleCanvasTextureRelease()
+{
+  if (!BUILD_CANVAS || canvasTextureOwners.size === 0 ||
+      (!triangleTextureResources && !circleTextureResources)) return;
+  for (const owner of canvasTextureOwners)
+  {
+    if (owner.visible)
+    {
+      cancelCanvasTextureRelease();
+      return;
+    }
+  }
+  if (canvasTextureReadDepth > 0 || canvasTextureIdleTimer !== null) return;
+  // 整个模块只有一个空闲计时器；可见的暂停帧仍然持有缓存，不申请 RAF。
+  const timer = setTimeout(() =>
+  {
+    if (canvasTextureIdleTimer !== timer) return;
+    canvasTextureIdleTimer = null;
+    releaseCanvasTextureCache(true);
+  }, 30000);
+  canvasTextureIdleTimer = timer;
+}
 
 function trackCanvasTextureUse()
 {
@@ -181,48 +212,48 @@ function trackCanvasTextureUse()
   }
   // 只保存独立标记，不能让共享缓存延长 BAClickFX 实例的生命周期。
   canvasTextureOwners.add(canvasTextureFrameOwner);
+  cancelCanvasTextureRelease();
   canvasTextureReleasePending = false;
 }
 
 function releaseCanvasTextureResource(resources)
 {
   if (!resources) return;
-  for (const value of Object.values(resources))
-  {
-    if (typeof value?.getContext === 'function')
-    {
-      value.width = 0;
-      value.height = 0;
-    }
-  }
+  // 默认 Canvas 的位图历史会影响少量栅格字节；保留位图及命中键，只归还 CPU 工作面。
+  resources.linearTextureRgb = resources.linearTextureEnergyRgb = null;
+  if (resources.linearTextureCoverageFromSrgbRed) resources.linearTextureCoverage = null;
   for (const frames of [resources.linearTintFrames, resources.roundedSceneFrames])
   {
-    for (const frame of frames ?? [])
-    {
-      frame.canvas.width = 0;
-      frame.canvas.height = 0;
-      frame.canvas = frame.context = frame.image = frame.key = null;
-    }
+    for (const frame of frames ?? []) frame.image = null;
   }
   resources.roundedCoverages?.clear();
-  // 原始字节由资源模块继续持有；这里只解除派生工作面的引用。
-  for (const key of Object.keys(resources)) resources[key] = null;
+  resources.roundedCoverages = null;
 }
 
-function releaseCanvasTextureCache()
+function releaseCanvasTextureCache(idle = false)
 {
-  if (!BUILD_CANVAS || canvasTextureOwners.size > 0) return;
+  if (!BUILD_CANVAS || (!idle && canvasTextureOwners.size > 0)) return;
+  if (idle)
+  {
+    for (const owner of canvasTextureOwners)
+    {
+      if (owner.visible)
+      {
+        canvasTextureReleasePending = false;
+        return;
+      }
+    }
+  }
+  cancelCanvasTextureRelease();
   if (canvasTextureReadDepth > 0)
   {
-    // clear/destroy 可以同步重入绘制；最外层 finally 才能清空工作 Canvas。
+    // clear/destroy 和空闲回调可以同步重入绘制；最外层 finally 才能归还工作数据。
     canvasTextureReleasePending = true;
     return;
   }
-  triangleLinearTintUnavailable ||= triangleTextureResources?.linearTintUnavailable === true;
-  circleLinearTintUnavailable ||= circleTextureResources?.linearTintUnavailable === true;
+  if (idle) canvasTextureOwners.clear();
   releaseCanvasTextureResource(triangleTextureResources);
   releaseCanvasTextureResource(circleTextureResources);
-  triangleTextureResources = circleTextureResources = null;
   linearToSrgbLut = null;
   canvasTextureReleasePending = false;
 }
@@ -1156,7 +1187,7 @@ function getTriangleTextureResources()
     linearTextureEnergyRgb: null,
     linearTintFrameCount: 2,
     linearTintFrames: null,
-    linearTintUnavailable: triangleLinearTintUnavailable,
+    linearTintUnavailable: false,
   };
   trackCanvasTextureUse();
   return triangleTextureResources;
@@ -1211,7 +1242,7 @@ function getCircleTextureResources()
     linearTextureEnergyRgb: null,
     linearTintFrameCount: 1,
     linearTintFrames: null,
-    linearTintUnavailable: circleLinearTintUnavailable,
+    linearTintUnavailable: false,
   };
   trackCanvasTextureUse();
   return circleTextureResources;
@@ -1471,6 +1502,15 @@ function prepareLinearTintedTextureCanvas(
     return frame.canvas;
   }
 
+  if (!frame.image)
+  {
+    try { frame.image = frame.context.createImageData(textureSize, textureSize); }
+    catch
+    {
+      resources.linearTintUnavailable = true;
+      return null;
+    }
+  }
   const { context, image } = frame;
   const sourceEnergyRgb = resources.linearTextureEnergyRgb;
   const sourceTextureRgb = resources.linearTextureRgb;
@@ -2545,6 +2585,12 @@ function prepareSceneRoundedTriangleCanvas(
   if (frame.key === key)
   {
     return frame.canvas;
+  }
+
+  if (!frame.image)
+  {
+    try { frame.image = frame.context.createImageData(TRIANGLE_TEXTURE_SIZE, TRIANGLE_TEXTURE_SIZE); }
+    catch { return null; }
   }
 
   prepareLinearTextureData(resources);
@@ -6186,33 +6232,44 @@ export class BAClickFX extends ConfigRuntime
     if (!BUILD_CANVAS) return null;
     const previous = canvasTextureFrameOwner;
     canvasTextureFrameOwner = this._canvasTextureOwner ??= { closed: false, visible: false };
+    canvasTextureFrameOwner.visible = this._hasVisibleEffects();
     canvasTextureReadDepth++;
     return previous;
   }
 
   _endCanvasTextureFrame(previous)
   {
-    if (!BUILD_CANVAS) return;
+    if (!BUILD_CANVAS) return false;
     canvasTextureFrameOwner = previous;
     canvasTextureReadDepth--;
-    if (this._canvasTextureOwner) this._canvasTextureOwner.visible = this._hasVisibleEffects();
-    if (canvasTextureReleasePending && canvasTextureReadDepth === 0) releaseCanvasTextureCache();
+    this._syncCanvasTextureOwner();
+    if (canvasTextureReleasePending && canvasTextureReadDepth === 0) releaseCanvasTextureCache(true);
+  }
+
+  _syncCanvasTextureOwner()
+  {
+    if (!BUILD_CANVAS) return false;
+    if (!canvasTextureOwners.has(this._canvasTextureOwner)) return;
+    this._canvasTextureOwner.visible = this._hasVisibleEffects();
+    scheduleCanvasTextureRelease();
   }
 
   _releaseCanvasTextureOwner()
   {
-    if (!BUILD_CANVAS) return;
+    if (!BUILD_CANVAS) return false;
     const owner = this._canvasTextureOwner;
     if (!owner) return;
     owner.closed = true;
     canvasTextureOwners.delete(owner);
     this._canvasTextureOwner = null;
     releaseCanvasTextureCache();
+    scheduleCanvasTextureRelease();
   }
 
   _requestRender()
   {
     this._invalidateCanvasBoundsScope();
+    if (BUILD_CANVAS) this._syncCanvasTextureOwner();
     if (BUILD_SOFTWARE && BUILD_BLOOM && this._hasVisibleEffects()) this._cancelSoftwareBloomRelease();
     if (this.destroyed || this.paused || this.animationFrame !== null || (CUSTOM_BUILD && this.buildFailed))
     {

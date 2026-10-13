@@ -134,6 +134,7 @@ export class LifecycleRuntime extends BackendRuntime
         this.clear();
       }
 
+      this._syncCanvasTextureOwner();
       return;
     }
 

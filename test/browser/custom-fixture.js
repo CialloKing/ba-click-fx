@@ -1,7 +1,7 @@
 const measurementNow = performance.now.bind(performance);
 const measurementFrame = globalThis.requestAnimationFrame?.bind(globalThis);
 
-export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false, softwareOptimization = false, softwareCache = false, softwareZero = false })
+export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false, softwareOptimization = false, softwareCache = false, softwareZero = false, canvasTextureIdle = false })
 {
   if (deterministicCanvas)
   {
@@ -277,6 +277,13 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   let softwareOptimizationResults;
   let softwareCacheResults;
   let softwareZeroResults;
+  let canvasTextureIdleResults;
+  if (canvasTextureIdle)
+  {
+    fx.resizeObserver?.disconnect();
+    const { probeCanvasTextureIdle } = await import('./canvas-texture-probe.js');
+    canvasTextureIdleResults = await probeCanvasTextureIdle(fx, delta => { now += delta; fx._renderFrame(now); }, capture);
+  }
   if (softwareZero)
   {
     fx.resizeObserver?.disconnect();
@@ -542,6 +549,7 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     ...(softwareOptimization ? { softwareOptimization: softwareOptimizationResults } : {}),
     ...(softwareCache ? { softwareCache: softwareCacheResults } : {}),
     ...(softwareZero ? { softwareZero: softwareZeroResults } : {}),
+    ...(canvasTextureIdle ? { canvasTextureIdle: canvasTextureIdleResults } : {}),
     ...(softwareCacheTiming ? { softwareCacheTiming } : {}),
     ...(benchmark ? { importMs, initMs, frameTimes, cpuFrameMs,
       heap: { beforeImport: heapBeforeImport, afterImport: heapAfterImport, afterInit: heapAfterInit }, gpuFrames } : {}),

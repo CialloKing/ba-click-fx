@@ -45,6 +45,9 @@ for (const [index, input] of profiles.entries())
   }
   if (input.backend !== 'software' || input.features?.bloom === false)
     assert(!code.includes('softwareBloomIdleTimer'), 'unused Software cache path is pruned');
+  if (input.backend === 'webgl2' || input.backend.startsWith('webgpu'))
+    assert(!code.includes('_canvasTextureOwner') && !code.includes('scheduleCanvasTextureRelease'),
+      'pure GPU builds remove shared Canvas cache ownership and timers');
   if (input.features?.click === false) assert(!modules.includes('src/circle-texture.js') && !modules.includes('src/ring3-alpha.js'));
   if (input.backend !== 'software') assert(!modules.includes('src/software-bloom.js'));
   assert.equal(info.sizes.raw, Buffer.byteLength(code));
