@@ -32,6 +32,9 @@ const cases = [
   { name: 'alpha-low', config: { outputCompositing: 'browser-overlay', overlayAlphaLimit: 0.4 } },
   { name: 'scene', config: { outputCompositing: 'scene' } },
   { name: 'reference', config: { outputCompositing: 'browser-overlay' }, reference: true },
+  { name: 'single-level', config: { outputCompositing: 'browser-overlay' }, fxParams: { 'bloom.diffusion': 1 } },
+  { name: 'empty', config: { outputCompositing: 'browser-overlay' }, fxParams: { 'bloom.threshold': 100 } },
+  { name: 'cold-zero', config: { outputCompositing: 'browser-overlay' }, fxParams: { 'bloom.intensity': 0 } },
 ];
 const results = [];
 let browser;
@@ -73,10 +76,11 @@ try
     for (const entry of benchmark ? cases.slice(0, 1) : cases)
     {
       const profile = normalizeProfile({ backend: 'software', runtime: 'manual',
-        config: { hostCompositing: 'source-over', maxDpr: dpr, ...entry.config } });
+        config: { hostCompositing: 'source-over', maxDpr: dpr, ...entry.config },
+        fxParams: { ...entry.fxParams, ...(benchmark ? { 'bloom.intensity': 0 } : {}) } });
       const deterministicCanvas = entry.deterministicCanvas ?? !benchmark;
       const parameters = { profile, full: true, reference: entry.reference, benchmark,
-        deterministicCanvas, softwareOptimization: !benchmark };
+        deterministicCanvas, softwareOptimization: !benchmark, softwareZero: !benchmark };
       const baseline = baselineUrl && await run({ ...parameters, url: baselineUrl });
       const candidate = await run({ ...parameters, url: args.includes('--source') ? '/src/fx.js' : '/dist/ba-click-fx.js' });
       results.push({ case: entry.name, dpr, deterministicCanvas, candidate, baseline });
@@ -84,6 +88,22 @@ try
       if (baseline) assert.equal(candidate.hash, baseline.hash, `${entry.name}/${dpr}: independent pixels`);
       if (!benchmark)
       {
+        for (const [index, stage] of candidate.softwareZero.entries())
+        {
+          assert.equal(stage.allocations, 0, 'Intensity changes retain Software allocations');
+          assert(stage.buffersReused, 'Intensity changes retain Software buffer identity');
+          if (stage.intensity === 0) assert.equal(stage.laterPlans, 0, 'Zero strength skips all later sampling stages');
+          else if (entry.name !== 'empty') assert(stage.laterPlans > 0, 'Positive strength restores the pyramid');
+          if (entry.name !== 'empty') assert.equal(stage.prefilterPlans, 1, 'Keep prefilter activity and Canvas submission semantics');
+          if (baseline)
+          {
+            const old = baseline.softwareZero[index];
+            assert.equal(stage.hash, old.hash, `${entry.name}/${dpr}/zero-${index}: independent pixels`);
+            assert.equal(stage.reads, old.reads, 'Zero shortcut retains required readbacks');
+            assert.deepEqual(stage.outputBounds, old.outputBounds, 'Zero output preserves dirty bounds');
+          }
+        }
+        assert.equal(candidate.softwareZero[0].hash, candidate.softwareZero[3].hash, 'Positive Software restoration');
         for (const [index, stage] of candidate.softwareOptimization.entries())
         {
           if (baseline) assert.equal(stage.hash, baseline.softwareOptimization[index].hash, `${entry.name}/${dpr}/${stage.name}: independent pixels`);
@@ -104,9 +124,40 @@ try
         console.log(`Software optimization: ${entry.name} DPR=${dpr} passed`);
       }
     }
+    if (!benchmark)
+    {
+      // 所有零强度策略在默认 Canvas 再对照一次，不能用频繁回读掩盖栅格差异。
+      for (const entry of cases.filter(entry => !['alpha-one-default', 'empty', 'cold-zero'].includes(entry.name)))
+      {
+        const profile = normalizeProfile({ backend: 'software', runtime: 'manual',
+          config: { hostCompositing: 'source-over', maxDpr: dpr, ...entry.config }, fxParams: entry.fxParams });
+        const parameters = { profile, full: true, reference: entry.reference, deterministicCanvas: false, softwareZero: true };
+        const baseline = baselineUrl && await run({ ...parameters, url: baselineUrl });
+        const candidate = await run({ ...parameters, url: args.includes('--source') ? '/src/fx.js' : '/dist/ba-click-fx.js' });
+        for (const [index, stage] of candidate.softwareZero.entries())
+        {
+          if (stage.intensity === 0) assert.equal(stage.laterPlans, 0);
+          if (baseline) assert.equal(stage.hash, baseline.softwareZero[index].hash, `default Canvas/${entry.name}/${dpr}/${index}`);
+        }
+        results.push({ case: entry.name, dpr, deterministicCanvas: false, candidate, baseline });
+      }
+    }
   }
   if (!benchmark)
   {
+    for (const runtime of ['manual', 'worker'])
+    {
+      const input = { backend: 'software', runtime, config: { outputCompositing: 'browser-overlay' },
+        fxParams: { 'bloom.intensity': 0 } };
+      const { info: profile, url } = buildCustomFixture(input);
+      const parameters = { profile, deterministicCanvas: true, softwareZero: true };
+      const baseline = await run({ ...parameters, url: args.includes('--source') ? '/src/fx.js' : '/dist/ba-click-fx.js', full: true });
+      const candidate = await run({ ...parameters, url });
+      assert.equal(candidate.hash, baseline.hash, 'First zero frame in a fixed Software build');
+      assert.equal(candidate.softwareZero[0].laterPlans, 0);
+      assert.equal(candidate.softwareZero[0].prefilterPlans, 1);
+      results.push({ case: 'fixed-zero', runtime, candidate, baseline });
+    }
     for (const runtime of ['manual', 'worker'])
     {
       const input = { backend: 'software', runtime,

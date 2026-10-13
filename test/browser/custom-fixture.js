@@ -1,7 +1,7 @@
 const measurementNow = performance.now.bind(performance);
 const measurementFrame = globalThis.requestAnimationFrame?.bind(globalThis);
 
-export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false, softwareOptimization = false, softwareCache = false })
+export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false, softwareOptimization = false, softwareCache = false, softwareZero = false })
 {
   if (deterministicCanvas)
   {
@@ -276,6 +276,13 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     trail: fx.trailStrokes.map(stroke => stroke.points), stats: structuredClone(renderer?.stats) };
   let softwareOptimizationResults;
   let softwareCacheResults;
+  let softwareZeroResults;
+  if (softwareZero)
+  {
+    fx.resizeObserver?.disconnect();
+    const { probeSoftwareZero } = await import('./software-probe.js');
+    softwareZeroResults = await probeSoftwareZero(fx, () => fx._renderFrame(now), capture, full);
+  }
   if (softwareCache)
   {
     fx.resizeObserver?.disconnect();
@@ -291,6 +298,7 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   if (softwareOptimization)
   {
     fx.resizeObserver?.disconnect();
+    if (full && profile.fxParams.bloom.intensity === 0) fx.setFxParam('bloom.intensity', 0);
     const { probeSoftwareReadbacks } = await import('./software-probe.js');
     softwareOptimizationResults = await probeSoftwareReadbacks(fx, () => fx._renderFrame(now), capture);
   }
@@ -533,6 +541,7 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     ...(gpuOptimization ? { gpuOptimization: gpuOptimizationResults } : {}),
     ...(softwareOptimization ? { softwareOptimization: softwareOptimizationResults } : {}),
     ...(softwareCache ? { softwareCache: softwareCacheResults } : {}),
+    ...(softwareZero ? { softwareZero: softwareZeroResults } : {}),
     ...(softwareCacheTiming ? { softwareCacheTiming } : {}),
     ...(benchmark ? { importMs, initMs, frameTimes, cpuFrameMs,
       heap: { beforeImport: heapBeforeImport, afterImport: heapAfterImport, afterInit: heapAfterInit }, gpuFrames } : {}),

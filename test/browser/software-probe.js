@@ -1,5 +1,48 @@
 import { trackCanvasReadbacks } from '../../scripts/runtime-readback-diagnostics.mjs';
 
+export async function probeSoftwareZero(fx, renderFrame, capture, tune)
+{
+  const renderer = fx.bloomRenderer;
+  const results = [];
+  for (const intensity of tune ? [1.7, 0, 0, 1.7] : [0])
+  {
+    if (tune) fx.setFxParam('bloom.intensity', intensity);
+    const allocations = renderer.floatBufferAllocationCount;
+    const buffers = () => [renderer.sourceLinear.buffer, renderer.sourceCoverage.buffer,
+      ...renderer.levels.flatMap(level => [level.down.buffer, level.up.buffer, level.scratch.buffer])];
+    const previous = buffers();
+    let prefilterPlans = 0, laterPlans = 0;
+    const sampling = renderer._getSamplingPlan;
+    renderer._getSamplingPlan = function (slot, ...args)
+    {
+      if (slot === 0) prefilterPlans++; else laterPlans++;
+      return sampling.call(this, slot, ...args);
+    };
+    const classify = context => context === renderer.sourceContext ? 'emission'
+      : context === renderer.coverageContext ? 'coverage'
+      : context === fx.canvasBloomTransportContext ? 'bloomTransport'
+      : context === fx.context ? 'finalFrame' : 'unclassified';
+    const prototypes = new Set([fx.context, renderer.sourceContext, renderer.coverageContext,
+      fx.canvasBloomTransportContext].filter(Boolean).map(context => Object.getPrototypeOf(context)));
+    const trackers = [...prototypes].map(prototype => trackCanvasReadbacks(prototype, { classify }));
+    try { renderFrame(); }
+    finally
+    {
+      for (const tracker of trackers) tracker.restore();
+      renderer._getSamplingPlan = sampling;
+    }
+    results.push({ intensity, prefilterPlans, laterPlans,
+      allocations: renderer.floatBufferAllocationCount - allocations,
+      buffersReused: buffers().every((buffer, index) => buffer === previous[index]),
+      reads: trackers.reduce((sum, tracker) => sum + tracker.stats.total.calls, 0),
+      emissionReads: trackers.reduce((sum, tracker) => sum + tracker.stats.byRole.emission.calls, 0),
+      coverageReads: trackers.reduce((sum, tracker) => sum + tracker.stats.byRole.coverage.calls, 0),
+      outputBounds: renderer.outputBounds && { ...renderer.outputBounds },
+      hash: (await capture()).hash });
+  }
+  return results;
+}
+
 // 复用真实场景夹具；计数和故障注入只围绕待检查帧，截图不计入工作量。
 export async function probeSoftwareReadbacks(fx, renderFrame, capture)
 {

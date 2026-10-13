@@ -1797,153 +1797,8 @@ export class SoftwareBloomRenderer
     return this.coverageContext;
   }
 
-  composite(targetContext, settings)
+  _filterAndEncodeBloom(settings, transparentOverlay, activeBounds)
   {
-    if (
-      !this.available ||
-      !this.outputImageData ||
-      this.levels.length === 0
-    )
-    {
-      return false;
-    }
-
-    const transparentOverlay =
-      settings.outputCompositing === 'browser-overlay';
-
-    if (
-      transparentOverlay &&
-      (!this.coverageFrameReady || !this._ensureCoverageBuffers())
-    )
-    {
-      // 缺少 Coverage 时不能退回 maxRGB，否则会重新引入不透明中心。
-      return false;
-    }
-
-    const readBounds = this.sourceReadBounds ?? {
-      x: 0,
-      y: 0,
-      width: this.sourceWidth,
-      height: this.sourceHeight,
-    };
-    let emissionBounds = null;
-    let coverageBounds = null;
-
-    if (readBounds.width > 0 && readBounds.height > 0)
-    {
-      let sourceImageData;
-      let coverageImageData;
-
-      try
-      {
-        sourceImageData = this.sourceContext.getImageData(
-          readBounds.x,
-          readBounds.y,
-          readBounds.width,
-          readBounds.height,
-        );
-
-        if (transparentOverlay)
-        {
-          coverageImageData = this.coverageContext.getImageData(
-            readBounds.x,
-            readBounds.y,
-            readBounds.width,
-            readBounds.height,
-          );
-        }
-      }
-      catch
-      {
-        // 回读失败后永久使用原生回退，避免每帧重复触发异常。
-        this.available = false;
-        return false;
-      }
-
-      emissionBounds = decodeEmissionMask(
-        sourceImageData.data,
-        this.sourceLinear,
-        settings.encodingRange,
-        readBounds.width,
-        readBounds.height,
-        this.sourceWidth,
-        readBounds.x,
-        readBounds.y,
-      );
-
-      if (transparentOverlay)
-      {
-        coverageBounds = decodeCoverageMask(
-          coverageImageData.data,
-          this.sourceCoverage,
-          readBounds.width,
-          readBounds.height,
-          this.sourceWidth,
-          readBounds.x,
-          readBounds.y,
-        );
-      }
-    }
-    else
-    {
-      // 发射几何完全在屏幕外时不存在可回读像素，但这不是 Canvas 故障。
-      this.sourceLinear.fill(0);
-
-      if (transparentOverlay)
-      {
-        this.sourceCoverage.fill(0);
-      }
-    }
-
-    this.coverageFrameReady = false;
-
-    const firstLevel = this.levels[0];
-    const firstCoverageLevel = transparentOverlay
-      ? this.coverageLevels[0]
-      : null;
-
-    const activeBounds = [];
-
-    const firstSampling = this._getSamplingPlan(0, this.sourceWidth, this.sourceHeight,
-      firstLevel.width, firstLevel.height, 1);
-    activeBounds[0] = prefilterBloomPrepared(
-      this.sourceLinear,
-      this.sourceWidth,
-      this.sourceHeight,
-      firstLevel.down,
-      firstLevel.width,
-      firstLevel.height,
-      gammaToLinear(settings.threshold),
-      settings.softKnee,
-      resolveUnityBloomClamp(settings.clamp),
-      true,
-      1,
-      emissionBounds,
-      firstCoverageLevel?.down,
-      firstSampling,
-    );
-
-    if (transparentOverlay)
-    {
-      filterBoxCoverage(
-        this.sourceCoverage,
-        this.sourceWidth,
-        this.sourceHeight,
-        this.sceneCoverageMip0,
-        firstCoverageLevel.width,
-        firstCoverageLevel.height,
-        1,
-        coverageBounds,
-        firstSampling,
-      );
-    }
-
-    if (!activeBounds[0])
-    {
-      this._clearOutputBounds();
-      return this._drawOutput(targetContext);
-    }
-
     for (let level = 1; level < this.levels.length; level++)
     {
       const previous = this.levels[level - 1];
@@ -2092,6 +1947,171 @@ export class SoftwareBloomRenderer
           : null,
       },
     );
+    return bloomBounds;
+  }
+
+  composite(targetContext, settings)
+  {
+    if (
+      !this.available ||
+      !this.outputImageData ||
+      this.levels.length === 0
+    )
+    {
+      return false;
+    }
+
+    const transparentOverlay =
+      settings.outputCompositing === 'browser-overlay';
+
+    if (
+      transparentOverlay &&
+      (!this.coverageFrameReady || !this._ensureCoverageBuffers())
+    )
+    {
+      // 缺少 Coverage 时不能退回 maxRGB，否则会重新引入不透明中心。
+      return false;
+    }
+
+    const readBounds = this.sourceReadBounds ?? {
+      x: 0,
+      y: 0,
+      width: this.sourceWidth,
+      height: this.sourceHeight,
+    };
+    let emissionBounds = null;
+    let coverageBounds = null;
+
+    if (readBounds.width > 0 && readBounds.height > 0)
+    {
+      let sourceImageData;
+      let coverageImageData;
+
+      try
+      {
+        sourceImageData = this.sourceContext.getImageData(
+          readBounds.x,
+          readBounds.y,
+          readBounds.width,
+          readBounds.height,
+        );
+
+        if (transparentOverlay)
+        {
+          coverageImageData = this.coverageContext.getImageData(
+            readBounds.x,
+            readBounds.y,
+            readBounds.width,
+            readBounds.height,
+          );
+        }
+      }
+      catch
+      {
+        // 回读失败后永久使用原生回退，避免每帧重复触发异常。
+        this.available = false;
+        return false;
+      }
+
+      emissionBounds = decodeEmissionMask(
+        sourceImageData.data,
+        this.sourceLinear,
+        settings.encodingRange,
+        readBounds.width,
+        readBounds.height,
+        this.sourceWidth,
+        readBounds.x,
+        readBounds.y,
+      );
+
+      if (transparentOverlay)
+      {
+        coverageBounds = decodeCoverageMask(
+          coverageImageData.data,
+          this.sourceCoverage,
+          readBounds.width,
+          readBounds.height,
+          this.sourceWidth,
+          readBounds.x,
+          readBounds.y,
+        );
+      }
+    }
+    else
+    {
+      // 发射几何完全在屏幕外时不存在可回读像素，但这不是 Canvas 故障。
+      this.sourceLinear.fill(0);
+
+      if (transparentOverlay)
+      {
+        this.sourceCoverage.fill(0);
+      }
+    }
+
+    this.coverageFrameReady = false;
+
+    const firstLevel = this.levels[0];
+    const firstCoverageLevel = transparentOverlay
+      ? this.coverageLevels[0]
+      : null;
+
+    const activeBounds = [];
+
+    const firstSampling = this._getSamplingPlan(0, this.sourceWidth, this.sourceHeight,
+      firstLevel.width, firstLevel.height, 1);
+    activeBounds[0] = prefilterBloomPrepared(
+      this.sourceLinear,
+      this.sourceWidth,
+      this.sourceHeight,
+      firstLevel.down,
+      firstLevel.width,
+      firstLevel.height,
+      gammaToLinear(settings.threshold),
+      settings.softKnee,
+      resolveUnityBloomClamp(settings.clamp),
+      true,
+      1,
+      emissionBounds,
+      firstCoverageLevel?.down,
+      firstSampling,
+    );
+
+    if (transparentOverlay)
+    {
+      filterBoxCoverage(
+        this.sourceCoverage,
+        this.sourceWidth,
+        this.sourceHeight,
+        this.sceneCoverageMip0,
+        firstCoverageLevel.width,
+        firstCoverageLevel.height,
+        1,
+        coverageBounds,
+        firstSampling,
+      );
+    }
+
+    if (!activeBounds[0])
+    {
+      this._clearOutputBounds();
+      return this._drawOutput(targetContext);
+    }
+
+    let bloomBounds;
+    if (resolveUnityBloomIntensity(settings.intensity) === 0)
+    {
+      // 预过滤决定旧路径是否提交区域 Alpha，不能连同回读与透明绘制一起省掉。
+      // 单层沿用活动边界；多层上采样原本覆盖整层，保留相同的 Canvas 舍入顺序。
+      this._clearOutputBounds();
+      bloomBounds = this.levels.length === 1 ? activeBounds[0] : {
+        minimumX: 0, minimumY: 0, maximumX: this.width - 1, maximumY: this.height - 1,
+      };
+      this.outputImageData.data.fill(0);
+    }
+    else
+    {
+      bloomBounds = this._filterAndEncodeBloom(settings, transparentOverlay, activeBounds);
+    }
     this.outputBounds = bloomBounds;
     this.outputContext.putImageData(
       this.outputImageData,
