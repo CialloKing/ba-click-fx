@@ -192,6 +192,7 @@ export class LifecycleRuntime extends BackendRuntime
     this.lastInputSampleSourceTime = null;
     this._trimBloomRendererPool(0, 0);
     this._releaseSoftwareBloomResources();
+    this._releaseCanvasTextureOwner();
     // 直接 WebGL2 OffscreenCanvas 不创建 2D context，由对应 Renderer 清屏。
     this.context?.clearRect(0, 0, this.width, this.height);
     this.contrastContext?.clearRect(0, 0, this.width, this.height);

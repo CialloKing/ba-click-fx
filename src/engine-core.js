@@ -166,6 +166,66 @@ let triangleTextureResources = null;
 let triangleTextureUnavailable = false;
 let circleTextureResources = null;
 let circleTextureUnavailable = false;
+let triangleLinearTintUnavailable = false;
+let circleLinearTintUnavailable = false;
+const canvasTextureOwners = BUILD_CANVAS ? new Set() : null;
+let canvasTextureFrameOwner = null;
+let canvasTextureReadDepth = 0;
+let canvasTextureReleasePending = false;
+
+function trackCanvasTextureUse()
+{
+  if (!BUILD_CANVAS || !canvasTextureFrameOwner || canvasTextureFrameOwner.closed)
+  {
+    return;
+  }
+  // 只保存独立标记，不能让共享缓存延长 BAClickFX 实例的生命周期。
+  canvasTextureOwners.add(canvasTextureFrameOwner);
+  canvasTextureReleasePending = false;
+}
+
+function releaseCanvasTextureResource(resources)
+{
+  if (!resources) return;
+  for (const value of Object.values(resources))
+  {
+    if (typeof value?.getContext === 'function')
+    {
+      value.width = 0;
+      value.height = 0;
+    }
+  }
+  for (const frames of [resources.linearTintFrames, resources.roundedSceneFrames])
+  {
+    for (const frame of frames ?? [])
+    {
+      frame.canvas.width = 0;
+      frame.canvas.height = 0;
+      frame.canvas = frame.context = frame.image = frame.key = null;
+    }
+  }
+  resources.roundedCoverages?.clear();
+  // 原始字节由资源模块继续持有；这里只解除派生工作面的引用。
+  for (const key of Object.keys(resources)) resources[key] = null;
+}
+
+function releaseCanvasTextureCache()
+{
+  if (!BUILD_CANVAS || canvasTextureOwners.size > 0) return;
+  if (canvasTextureReadDepth > 0)
+  {
+    // clear/destroy 可以同步重入绘制；最外层 finally 才能清空工作 Canvas。
+    canvasTextureReleasePending = true;
+    return;
+  }
+  triangleLinearTintUnavailable ||= triangleTextureResources?.linearTintUnavailable === true;
+  circleLinearTintUnavailable ||= circleTextureResources?.linearTintUnavailable === true;
+  releaseCanvasTextureResource(triangleTextureResources);
+  releaseCanvasTextureResource(circleTextureResources);
+  triangleTextureResources = circleTextureResources = null;
+  linearToSrgbLut = null;
+  canvasTextureReleasePending = false;
+}
 
 // ── 共享 HSL 转换 ──────────────────────────────────────────────────────
 function rgbToHsl(r, g, b)
@@ -1064,6 +1124,7 @@ function getTriangleTextureResources()
 {
   if (triangleTextureResources)
   {
+    trackCanvasTextureUse();
     return triangleTextureResources;
   }
 
@@ -1095,8 +1156,9 @@ function getTriangleTextureResources()
     linearTextureEnergyRgb: null,
     linearTintFrameCount: 2,
     linearTintFrames: null,
-    linearTintUnavailable: false,
+    linearTintUnavailable: triangleLinearTintUnavailable,
   };
+  trackCanvasTextureUse();
   return triangleTextureResources;
 }
 
@@ -1104,6 +1166,7 @@ function getCircleTextureResources()
 {
   if (circleTextureResources)
   {
+    trackCanvasTextureUse();
     return circleTextureResources;
   }
 
@@ -1148,8 +1211,9 @@ function getCircleTextureResources()
     linearTextureEnergyRgb: null,
     linearTintFrameCount: 1,
     linearTintFrames: null,
-    linearTintUnavailable: false,
+    linearTintUnavailable: circleLinearTintUnavailable,
   };
+  trackCanvasTextureUse();
   return circleTextureResources;
 }
 
@@ -6117,6 +6181,35 @@ export class BAClickFX extends ConfigRuntime
     }
   }
 
+  _beginCanvasTextureFrame()
+  {
+    if (!BUILD_CANVAS) return null;
+    const previous = canvasTextureFrameOwner;
+    canvasTextureFrameOwner = this._canvasTextureOwner ??= { closed: false, visible: false };
+    canvasTextureReadDepth++;
+    return previous;
+  }
+
+  _endCanvasTextureFrame(previous)
+  {
+    if (!BUILD_CANVAS) return;
+    canvasTextureFrameOwner = previous;
+    canvasTextureReadDepth--;
+    if (this._canvasTextureOwner) this._canvasTextureOwner.visible = this._hasVisibleEffects();
+    if (canvasTextureReleasePending && canvasTextureReadDepth === 0) releaseCanvasTextureCache();
+  }
+
+  _releaseCanvasTextureOwner()
+  {
+    if (!BUILD_CANVAS) return;
+    const owner = this._canvasTextureOwner;
+    if (!owner) return;
+    owner.closed = true;
+    canvasTextureOwners.delete(owner);
+    this._canvasTextureOwner = null;
+    releaseCanvasTextureCache();
+  }
+
   _requestRender()
   {
     this._invalidateCanvasBoundsScope();
@@ -6260,6 +6353,7 @@ export class BAClickFX extends ConfigRuntime
 
     this.canvasNativeSceneAlphaSnapshot = null;
 
+    const previousTextureOwner = BUILD_CANVAS ? this._beginCanvasTextureFrame() : null;
     try
     {
       // Context 异常也不能泄漏模块级主题状态；先建立 Canvas
@@ -6467,9 +6561,13 @@ export class BAClickFX extends ConfigRuntime
       ringSampleCache = previousRingSampleCache;
       this._canvasBoundsScope = previousBoundsScope;
 
-      if (contextSaved)
+      try
       {
-        this.context.restore();
+        if (contextSaved) this.context.restore();
+      }
+      finally
+      {
+        if (BUILD_CANVAS) this._endCanvasTextureFrame(previousTextureOwner);
       }
     }
 
@@ -8172,6 +8270,7 @@ export class BAClickFX extends ConfigRuntime
 
     let contextSaved = false;
 
+    const previousTextureOwner = BUILD_CANVAS ? this._beginCanvasTextureFrame() : null;
     try
     {
       this.context.save();
@@ -8228,9 +8327,13 @@ export class BAClickFX extends ConfigRuntime
       gradientEnergyCache = previousGradientEnergyCache;
       ringSampleCache = previousRingSampleCache;
 
-      if (contextSaved)
+      try
       {
-        this.context.restore();
+        if (contextSaved) this.context.restore();
+      }
+      finally
+      {
+        if (BUILD_CANVAS) this._endCanvasTextureFrame(previousTextureOwner);
       }
     }
 
