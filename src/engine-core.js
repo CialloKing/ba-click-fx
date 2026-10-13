@@ -7868,6 +7868,9 @@ export class BAClickFX extends ConfigRuntime
         {
           outputCompositing: this.config.outputCompositing,
           hostCompositing: this._getEffectiveHostCompositing(),
+          ...(BUILD_BLOOM ? {
+            bloomEnabled: resolveUnityBloomIntensity(bloomCfg.intensity) > 0,
+          } : {}),
           // Unity 默认倍率为 1；偏离默认值时 renderer 只为 Bloom 重绘点击
           // 材质，不能缩放供清晰 Scene 与 Coverage 使用的 HDR 颜色。
           diskEmissionScale: bloomCfg.clickEmissionScale *

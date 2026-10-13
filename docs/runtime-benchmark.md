@@ -36,6 +36,10 @@ Alpha 上限量化为 255 时，字节图像可以省去回读后的 Alpha 扫�
 GPU 优化专项复用定制浏览器夹具，检查零强度滤波、恢复强度、透明合成与纹理生命周期，
 以及 fractional diffusion、层数边界、尺寸/DPR、1×1 和目标释放后的布局复用：
 
+专项使用非默认点击发光倍率，覆盖完整 WebGL2、WebGPU 与 WebGL2 Bloom。
+零强度不创建或重绘专用发光场景；已经分配的目标保留，恢复正数继续复用。
+首次使用即为零、直接 Renderer 未传内部标志及固定零强度定制版分别检查。
+
 ```sh
 npm run test:browser:gpu-optimization
 # 性能采样独立运行，不进入发布门禁；目录需包含已核验的旧版 JS 和 manifest.json。

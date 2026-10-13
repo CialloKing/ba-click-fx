@@ -19,6 +19,7 @@ profiles.push(...['click', 'trail', 'shards', 'bloom', 'compositingReference'].m
 })));
 profiles.push({ backend: 'native', runtime: 'dom', features: { click: false, trail: false, shards: false, bloom: false, compositingReference: false } });
 profiles.push({ backend: 'software', runtime: 'manual', features: { bloom: false } });
+profiles.push({ backend: 'webgpu', runtime: 'worker', features: { bloom: false } });
 for (const [index, input] of profiles.entries())
 {
   const { directory: output, info } = buildCustomFixture(input);
@@ -37,7 +38,11 @@ for (const [index, input] of profiles.entries())
   if (input.backend.startsWith('webgpu')) assert(!modules.includes('src/webgl2-effect.js'));
   if (input.features?.trail === false) assert(!modules.includes('src/trail-texture.js'));
   if (input.features?.shards === false) assert(!modules.includes('src/triangle-texture.js'));
-  if (input.features?.bloom === false) assert(!code.includes('_getTransparentBloomTexture'), 'disabled Bloom removes the zero-texture path');
+  if (input.features?.bloom === false)
+  {
+    assert(!code.includes('_getTransparentBloomTexture'), 'disabled Bloom removes the zero-texture path');
+    assert(!code.includes('_ensureBloomSourceTarget') && !code.includes('bloomEnabled'), 'disabled Bloom removes scaled source routing');
+  }
   if (input.backend !== 'software' || input.features?.bloom === false)
     assert(!code.includes('softwareBloomIdleTimer'), 'unused Software cache path is pruned');
   if (input.features?.click === false) assert(!modules.includes('src/circle-texture.js') && !modules.includes('src/ring3-alpha.js'));

@@ -297,15 +297,22 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   let gpuOptimizationResults;
   if (gpuOptimization)
   {
-    if (!full || !['webgl2', 'webgpu'].includes(profile.backend)) throw Error('GPU optimization fixture requires a full GPU runtime');
+    if (!full || !['webgl2', 'webgpu', 'webgl2-bloom'].includes(profile.backend)) throw Error('GPU optimization fixture requires a full GPU runtime');
+    const initialScaledSource = renderer.bloomSourceTarget != null;
+    const initiallyLazy = renderer.transparentBloomTexture == null;
     // 异步设备就绪会刷新 DOM 尺寸；专项从同一显式 DPR 开始，避免把 DPR 切换算作复用。
     fx.resizeObserver?.disconnect();
+    fx.setFxParam('bloom.intensity', 1.7);
     fx.resize(320, 240, 2); fx._renderFrame(now);
     const targets = () => [renderer.sourceTarget, renderer.sceneOverlayTarget,
       ...renderer.levels.flatMap(level => [level.down, level.up].filter(Boolean))];
     const originalTargets = targets();
+    const scaledSource = renderer.bloomSourceTarget;
     let bloomPasses = 0;
     let allocations = 0;
+    let sourceDraws = 0;
+    let sourceAllocations = 0;
+    let omitBloomFlag = false;
     const restores = [];
     const wrap = (name, count) =>
     {
@@ -314,15 +321,35 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
       restores.push(() => { delete renderer[name]; });
     };
     wrap('_allocateTargets', () => allocations++);
+    const ensureSource = renderer._ensureBloomSourceTarget;
+    renderer._ensureBloomSourceTarget = function (...args)
+    {
+      const previous = this.bloomSourceTarget;
+      const result = ensureSource.apply(this, args);
+      if (this.bloomSourceTarget !== previous) sourceAllocations++;
+      return result;
+    };
+    restores.push(() => { delete renderer._ensureBloomSourceTarget; });
+    const renderScene = renderer.renderScene;
+    renderer.renderScene = function (settings)
+    {
+      if (omitBloomFlag) { settings = { ...settings }; delete settings.bloomEnabled; }
+      return renderScene.call(this, settings);
+    };
+    restores.push(() => { delete renderer.renderScene; });
     if (renderer.gl)
     {
       for (const name of ['_renderPrefilter', '_renderDownsample', '_renderUpsample']) wrap(name, () => bloomPasses++);
+      wrap('_drawGeometryBatches', args => { if (args[2]) sourceDraws++; });
     }
     else
     {
       wrap('_drawFullscreen', args => { if (args.at(-1).includes('WebGPU bloom ')) bloomPasses++; });
+      wrap('_renderGeometryTarget', args => { if (args[1] !== renderer.sourceTarget) sourceDraws++; });
     }
-    gpuOptimizationResults = { initiallyLazy: renderer.transparentBloomTexture == null, intensity: [], layout: [] };
+    gpuOptimizationResults = { initiallyLazy, initialScaledSource, intensity: [], layout: [] };
+    const backendReady = () => profile.backend === 'webgl2-bloom'
+      ? fx.resolvedBloomBackend === 'webgl2' : fx.resolvedEffectBackend === profile.backend;
     if (renderer._hasTargetLayout)
     {
       // 不丢弃真实句柄：仅暂时遮蔽引用，验证不完整资源不会被误判为可复用。
@@ -343,16 +370,22 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     }
     try
     {
-      for (const intensity of [1.7, 0, 0, 1.7])
+      for (const stage of [{ intensity: 1.7 }, { intensity: 0 }, { intensity: 0 },
+        { intensity: 1.7 }, { intensity: 0, omitBloomFlag: true }])
       {
+        const { intensity } = stage;
+        omitBloomFlag = stage.omitBloomFlag ?? false;
         fx.setFxParam('bloom.intensity', intensity);
-        bloomPasses = 0; allocations = 0;
+        bloomPasses = 0; allocations = 0; sourceDraws = 0; sourceAllocations = 0;
         fx._renderFrame(now);
-        if (fx.resolvedEffectBackend !== profile.backend) throw Error('GPU optimization unexpectedly fell back');
-        gpuOptimizationResults.intensity.push({ intensity, bloomPasses, allocations,
+        if (!backendReady()) throw Error('GPU optimization unexpectedly fell back');
+        gpuOptimizationResults.intensity.push({ ...stage, bloomPasses, allocations, sourceDraws, sourceAllocations,
+          sourceReady: renderer.bloomSourceFrameReady, sourceReused: renderer.bloomSourceTarget === scaledSource,
           targetsReused: targets().every((target, index) => target === originalTargets[index]),
           hash: (await capture()).hash });
       }
+      omitBloomFlag = false;
+      fx.setFxParam('bloom.intensity', 1.7);
       const changes = [
         { name: 'fractional-diffusion', diffusion: 7.125, reuse: true },
         { name: 'level-boundary', diffusion: 8, reuse: false },
@@ -372,7 +405,7 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
         if (change.width !== undefined) fx.resize(change.width, change.height, change.dpr);
         if (change.release) renderer._deleteTargets();
         fx._renderFrame(now);
-        if (fx.resolvedEffectBackend !== profile.backend) throw Error('GPU layout unexpectedly fell back');
+        if (!backendReady()) throw Error('GPU layout unexpectedly fell back');
         gpuOptimizationResults.layout.push({ ...change, allocations, sampleScale: renderer.sampleScale,
           levelCount: renderer.levels.length, targetsReused: targets().length === previous.length &&
             targets().every((target, index) => target === previous[index]), hash: (await capture()).hash });

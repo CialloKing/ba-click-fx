@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { normalizeProfile } from '../../scripts/build-profile.mjs';
+import { buildCustomFixture } from '../custom-build-fixture.mjs';
 import { closeBrowserRuntime, findChromiumExecutable, startViteServer } from './harness.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
@@ -31,6 +32,7 @@ const cases = [
   { name: 'bright-core', config: { outputCompositing: 'browser-overlay', overlayColorCompensation: 'bright-core' } },
   { name: 'screen', config: { outputCompositing: 'browser-overlay', hostCompositing: 'screen' } },
   { name: 'reference', config: { outputCompositing: 'browser-overlay' }, reference: true },
+  { name: 'cold-zero', config: { outputCompositing: 'browser-overlay' }, cold: true },
 ];
 const results = [];
 let browser;
@@ -58,13 +60,14 @@ try
     }
     finally { await page.close(); }
   };
-  for (const backend of ['webgl2', 'webgpu'])
+  for (const backend of ['webgl2', 'webgpu', 'webgl2-bloom'])
   {
     for (const entry of benchmark ? cases.slice(1, 2) : cases)
     {
-      const profile = normalizeProfile({ backend, runtime: 'dom',
+      const input = { backend, runtime: 'dom',
         config: { hostCompositing: 'source-over', maxDpr: 2, ...entry.config },
-        ...(benchmark ? { fxParams: { 'bloom.intensity': 0 } } : {}) });
+        fxParams: { 'bloom.clickEmissionScale': 2, ...((benchmark || entry.cold) ? { 'bloom.intensity': 0 } : {}) } };
+      const profile = normalizeProfile(input);
       const parameters = { profile, full: true, reference: entry.reference,
         restoreContext: !benchmark && backend === 'webgl2' && entry.name === 'coverage',
         gpuOptimization: !benchmark, benchmark };
@@ -74,16 +77,26 @@ try
       if (!benchmark)
       {
         const probe = candidate.gpuOptimization;
-        assert(probe.initiallyLazy, 'Zero texture must not be allocated for positive intensity');
-        assert.equal(probe.integrityChecks, backend === 'webgl2' ? 4 : 5, 'Incomplete target resources must reject reuse');
+        if (!entry.cold) assert(probe.initiallyLazy, 'Zero texture must not be allocated for positive intensity');
+        else assert.equal(probe.initialScaledSource, false, 'First zero frame must not allocate a scaled Bloom source');
+        assert.equal(probe.integrityChecks, backend === 'webgpu' ? 5 : 4, 'Incomplete target resources must reject reuse');
         for (const [index, stage] of probe.intensity.entries())
         {
           assert.equal(stage.bloomPasses === 0, stage.intensity === 0, `${backend}: filter pass routing`);
           assert.equal(stage.allocations, 0, 'Intensity changes must reuse targets');
           assert(stage.targetsReused);
+          assert.equal(stage.sourceDraws, stage.intensity > 0 || stage.omitBloomFlag ? 1 : 0, 'Scaled source draw routing');
+          assert.equal(stage.sourceReady, stage.sourceDraws > 0, 'No stale scaled source readiness');
+          assert(stage.sourceReused && stage.sourceAllocations === 0, 'Scaled source survives zero strength');
           if (baseline) assert.equal(stage.hash, baseline.gpuOptimization.intensity[index].hash, `${backend}/${entry.name}: independent pixel parity`);
         }
-        assert.equal(probe.intensity[0].hash, probe.intensity.at(-1).hash, 'Restored positive intensity pixels');
+        assert.equal(probe.intensity[0].hash, probe.intensity[3].hash, 'Restored positive intensity pixels');
+        if (entry.cold)
+        {
+          const { info: fixed, url } = buildCustomFixture(input);
+          const custom = await run({ profile: fixed, url });
+          assert.equal(custom.hash, candidate.hash, 'Fixed zero-strength build pixel parity');
+        }
         for (const [index, stage] of probe.layout.entries())
         {
           assert.equal(stage.targetsReused, stage.reuse, `${backend}/${stage.name}: target identity`);

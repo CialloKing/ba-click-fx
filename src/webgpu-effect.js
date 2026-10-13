@@ -1386,7 +1386,8 @@ export class WebGPUEffectRenderer extends EffectGeometry
 
       this.bloomSourceFrameReady = false;
 
-      if (disk !== 1 || ring !== 1)
+      // 零强度不绘制专用发光场景，也不丢弃已分配目标。
+      if (BUILD_BLOOM && settings.bloomEnabled !== false && (disk !== 1 || ring !== 1))
       {
         this._ensureBloomSourceTarget();
         this._renderGeometryTarget(
@@ -1398,7 +1399,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
         );
         this.bloomSourceFrameReady = true;
       }
-      else
+      else if (BUILD_BLOOM && settings.bloomEnabled !== false)
       {
         this._invalidateBindGroups(this.bloomSourceTarget?.view);
         destroyTexture(this.bloomSourceTarget);

@@ -2600,7 +2600,10 @@ export class WebGL2EffectRenderer extends EffectGeometry
         settings.outputCompositing === 'browser-overlay',
       );
 
-      if (!this._renderScaledBloomSource(settings))
+      // 零强度不消费专用发光源；保留目标容量，恢复强度时继续复用。
+      // 未传内部标志的直接 Renderer 调用仍沿用原场景提交行为。
+      if (BUILD_BLOOM && settings.bloomEnabled !== false &&
+          !this._renderScaledBloomSource(settings))
       {
         throw new Error('WebGL2 独立点击 Bloom 源生成失败');
       }
