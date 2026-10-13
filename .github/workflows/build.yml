@@ -61,6 +61,8 @@ jobs:
         run: npm run test:browser:gpu-optimization
       - name: Check Software readbacks and resource lifecycle
         run: npm run test:browser:software-optimization
+      - name: Check shared Canvas cache ownership and idle release
+        run: npm run test:browser:canvas-texture-cache
       - name: Run custom build parity and lifecycle checks
         run: npm run test:browser:custom -- --required
       - name: Check exact slim release files
@@ -85,6 +87,7 @@ jobs:
             test-results/custom-builds
             test-results/slim-browser
             test-results/zopfli-release
+            test-results/shared-canvas-cache
           if-no-files-found: ignore
 
   release:
