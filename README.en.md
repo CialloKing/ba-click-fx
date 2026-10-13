@@ -83,7 +83,7 @@ Place this code in the client entry of a build tool such as Vite. In a component
 
 ```html
 <script type="module">
-  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.12/dist/ba-click-fx.js';
+  import { BAClickFX } from 'https://cdn.jsdelivr.net/npm/ba-click-fx@1.3.13/dist/ba-click-fx.js';
 
   const fx = new BAClickFX(
   {
@@ -102,14 +102,14 @@ Download the ESM entries you need from [GitHub Releases](https://github.com/Cial
 
 | Entry | JavaScript | Declarations |
 |---|---|---|
-| Main | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.12/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.12/ba-click-fx.d.ts) |
-| Config | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.12/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.12/config.d.ts) |
-| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.12/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.12/worker.d.ts) |
-| Fixed-profile WebGL2 / 128x128 DOM slim | [ba-click-fx.slim-webgl2-128.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.12/ba-click-fx.slim-webgl2-128.js) | [ba-click-fx.slim-webgl2-128.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.12/ba-click-fx.slim-webgl2-128.d.ts) |
+| Main | [ba-click-fx.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.13/ba-click-fx.js) | [ba-click-fx.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.13/ba-click-fx.d.ts) |
+| Config | [config.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.13/config.js) | [config.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.13/config.d.ts) |
+| Worker | [worker.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.13/worker.js) | [worker.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.13/worker.d.ts) |
+| Fixed-profile WebGL2 / 128x128 DOM slim | [ba-click-fx.slim-webgl2-128.js](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.13/ba-click-fx.slim-webgl2-128.js) | [ba-click-fx.slim-webgl2-128.d.ts](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.13/ba-click-fx.slim-webgl2-128.d.ts) |
 
-Download the [full ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.12/ba-click-fx-v1.3.12-full.zip) or [slim ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.12/ba-click-fx-v1.3.12-slim-webgl2-128.zip) for usage notes and licenses, and verify assets with [SHA256SUMS](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.12/SHA256SUMS).
+Download the [full ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.13/ba-click-fx-v1.3.13-full.zip) or [slim ZIP](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.13/ba-click-fx-v1.3.13-slim-webgl2-128.zip) for usage notes and licenses, and verify assets with [SHA256SUMS](https://github.com/CialloKing/ba-click-fx/releases/download/v1.3.13/SHA256SUMS).
 
-The slim main JS is about 190.7 KiB. It retains clicks, trails, shards, Bloom and compositing references with WebGL2 / DOM only. The ordinary-webpage recommendation, `browser-overlay + screen + dom-backdrop`, is fixed at build time; do not pass compositing settings to the constructor. Theme, scale, DPR cap and FX settings are fixed; constructors accept only `target`, `onError` and `inputFilter`. There is no runtime tuning or alternate backend fallback. Its declarations support relative ESM imports:
+The slim main JS is about 192.1 KiB. It retains clicks, trails, shards, Bloom and compositing references with WebGL2 / DOM only. The ordinary-webpage recommendation, `browser-overlay + screen + dom-backdrop`, is fixed at build time; do not pass compositing settings to the constructor. Theme, scale, DPR cap and FX settings are fixed; constructors accept only `target`, `onError` and `inputFilter`. There is no runtime tuning or alternate backend fallback. Its declarations support relative ESM imports:
 
 ```js
 import BAClickFX from './ba-click-fx.slim-webgl2-128.js';

@@ -41,8 +41,8 @@ ZIPs contain usage notes, build information, LICENSE and THIRD_PARTY_NOTICES.md.
 Merge into main and confirm Build CI passed for that commit. Create and push a tag only when actually publishing:
 
 ```bash
-git tag -a v1.3.12 -m "发布v1.3.12：完整版与WebGL2精简版"
-git push origin v1.3.12
+git tag -a v1.3.13 -m "发布v1.3.13：完整版与WebGL2精简版"
+git push origin v1.3.13
 ```
 
 The tag reruns the same workflow. Linux checks packaging and custom builds; Windows prepares assets and runs full browser and slim acceptance. After both pass, the publishing job checks version, commit and SHA256SUMS, creates a draft, uploads 11 assets, downloads them to verify their count and hashes, then publishes. A failure prevents formal publication; a verification failure after upload leaves a draft for diagnosis.
