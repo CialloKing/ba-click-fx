@@ -16,6 +16,19 @@ import { readFileSync } from 'node:fs';
 import { BAClickFX } from '../src/fx.js';
 import { releaseMeshGradients } from '../src/engine-shared.js';
 import { EffectGeometry } from '../src/effect-geometry.js';
+import { verifyWorkerEntry } from '../scripts/worker-entry.mjs';
+
+{
+  const main = readFileSync(new URL('../src/fx.js', import.meta.url), 'utf8');
+  const worker = readFileSync(new URL('../src/worker.js', import.meta.url), 'utf8');
+  verifyWorkerEntry(main, worker);
+  for (const invalid of [worker.replace('  default,', ''), worker.replace('  BAClickFX,', '  CONFIG as BAClickFX,'),
+    worker + '\nconsole.log("side effect");', worker.replace("'./fx.js'", "'./config.js'"),
+    worker.replace('  BAClickFX,', '  BAClickFX, Extra,')])
+  {
+    assert.throws(() => verifyWorkerEntry(main, invalid), '不能复制导出合同不一致或含副作用的入口');
+  }
+}
 
 // 黄金值来自优化前 0687b5c；同时覆盖模板和自定义圆环的顶点、索引字节。
 {

@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compressionSession, compressionInfo } from './resource-compression.mjs';
 import { buildCustom } from './custom-build.mjs';
+import { verifyWorkerEntry } from './worker-entry.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const viteBin = join(rootDir, 'node_modules', 'vite', 'bin', 'vite.js');
@@ -33,6 +34,8 @@ try
   }
   else
   {
+    verifyWorkerEntry(readFileSync(join(rootDir, 'src/fx.js'), 'utf8'),
+      readFileSync(join(rootDir, 'src/worker.js'), 'utf8'));
     runVite(['build']);
     for (const fileName of readdirSync(distDir))
     {
@@ -47,7 +50,7 @@ try
       }
     }
 
-    for (const entryName of ['ba-click-fx', 'config', 'worker'])
+    for (const entryName of ['ba-click-fx', 'config'])
     {
       runVite(
         ['build', '--config', 'vite.lib.config.js'],
@@ -57,6 +60,8 @@ try
         },
       );
     }
+    // 两个入口的绑定已核对，保留独立自包含文件而只支付一次运行时编译。
+    copyFileSync(join(distDir, 'ba-click-fx.js'), join(distDir, 'worker.js'));
 
     writeFileSync(join(distDir, 'build-info.json'), JSON.stringify({
       version: JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8')).version,
