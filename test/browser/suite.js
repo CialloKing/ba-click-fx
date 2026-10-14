@@ -2800,14 +2800,19 @@ async function runTrailTextureResourceLifecycle()
   }
 
   const initialTextureValid = context.isTexture(texture);
-  const hadFrameTargets = renderer.sourceTarget !== null &&
-    renderer.levels.length > 0;
+  const hadFrameTargets = !!renderer.sourceTarget &&
+    context.isTexture(renderer.sourceTarget.texture) &&
+    context.isFramebuffer(renderer.sourceTarget.framebuffer);
+  // 该纹理探针关闭 Bloom 并使用 Scene 合成，只需要清晰层目标。
+  const optionalTargetsAbsent = renderer.sceneOverlayTarget === null &&
+    renderer.levels.length === 0;
 
   effect.updateConfig({ effectBackend: 'canvas2d' });
 
   const releaseRetainedTexture = renderer.trailTexture === texture &&
     context.isTexture(texture);
   const releaseClearedFrameTargets = renderer.sourceTarget === null &&
+    renderer.sceneOverlayTarget === null && renderer.bloomSourceTarget === null &&
     renderer.levels.length === 0;
   const canvas = resources.canvas;
 
@@ -2823,6 +2828,7 @@ async function runTrailTextureResourceLifecycle()
   return {
     initialTextureValid,
     hadFrameTargets,
+    optionalTargetsAbsent,
     releaseRetainedTexture,
     releaseClearedFrameTargets,
     destroyDeletedTexture,
