@@ -1584,10 +1584,16 @@ export class WebGL2EffectRenderer extends EffectGeometry
     this.stats.bloomPixels = 0;
   }
 
-  releaseFrameResources()
+  releaseFrameResources({ preservePresentation = false } = {})
   {
     this._deleteTargets();
     this.beginFrame();
+    this.idleFrameResourcesReleased = preservePresentation;
+    if (preservePresentation)
+    {
+      // 空闲回收只归还中间目标；宿主画布尺寸及失败状态保持原样。
+      return;
+    }
     this.displayWidth = 1;
     this.displayHeight = 1;
     this.sourceWidth = 0;
@@ -2030,6 +2036,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
   _allocateTargets(needs = {}, preserveScene = false)
   {
     // 同布局新增消费者时只补齐缺席资源，不能丢弃已经绘好的 Scene。
+    this.idleFrameResourcesReleased = false;
     if (!this.available || !this.gl || this.width <= 0 || this.height <= 0)
     {
       return false;

@@ -1070,11 +1070,14 @@ export class WebGPUEffectRenderer extends EffectGeometry
     this.bloomSourceTarget = null;
     this.sceneOverlayTarget = null;
     this.levels = [];
+    this.stats.levelCount = 0;
+    this.stats.bloomPixels = 0;
   }
 
   _allocateTargets(needs = {}, preserveScene = false)
   {
     // 同布局新增消费者时只补齐缺席资源，不能丢弃已经绘好的 Scene。
+    this.idleFrameResourcesReleased = false;
     try
     {
       if (!preserveScene)
@@ -1677,12 +1680,13 @@ export class WebGPUEffectRenderer extends EffectGeometry
     return this.deviceManager.unconfigure();
   }
 
-  releaseFrameResources()
+  releaseFrameResources({ preservePresentation = false } = {})
   {
-    const suspended = this.suspendPresentation();
+    const suspended = preservePresentation ? true : this.suspendPresentation();
 
     this._deleteTargets();
     this.beginFrame();
+    this.idleFrameResourcesReleased = preservePresentation;
     return suspended;
   }
 

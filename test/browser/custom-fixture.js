@@ -1,7 +1,7 @@
 const measurementNow = performance.now.bind(performance);
 const measurementFrame = globalThis.requestAnimationFrame?.bind(globalThis);
 
-export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false, softwareOptimization = false, softwareCache = false, softwareZero = false, canvasTextureIdle = false })
+export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false, gpuCache = false, softwareOptimization = false, softwareCache = false, softwareZero = false, canvasTextureIdle = false })
 {
   if (deterministicCanvas)
   {
@@ -310,6 +310,23 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     softwareOptimizationResults = await probeSoftwareReadbacks(fx, () => fx._renderFrame(now), capture);
   }
   let gpuOptimizationResults;
+  let gpuCacheResults;
+  if (gpuCache)
+  {
+    fx.resizeObserver?.disconnect();
+    const { probeGpuCache } = await import('./gpu-resource-probe.js');
+    gpuCacheResults = await probeGpuCache(fx, renderer, (delta = 0) => { now += delta; fx._renderFrame(now); }, capture,
+      async () =>
+      {
+        const target = dom ? document.createElement('div') : hasDom ? document.createElement('canvas') : new OffscreenCanvas(320, 240);
+        if (dom) { target.style.cssText = 'width:320px;height:240px'; document.body.append(target); }
+        const other = new BAClickFX(full ? { ...profile.config, target, inputSource: 'manual' } : { target });
+        if (full) Object.assign(other.fxConfig, structuredClone(profile.fxParams));
+        other.resizeObserver?.disconnect(); other.resize(320, 240, 1); other._renderFrame(now);
+        await other.webgpuEffectRenderer?.ready; other._renderFrame(now);
+        return { fx: other, dispose() { other.destroy(); target.remove?.(); } };
+      });
+  }
   if (gpuOptimization)
   {
     if (!full || !['webgl2', 'webgpu', 'webgl2-bloom'].includes(profile.backend)) throw Error('GPU optimization fixture requires a full GPU runtime');
@@ -480,6 +497,12 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   }
   let gpuFrames;
   let softwareCacheTiming;
+  let gpuCacheTiming;
+  if (benchmark && ['webgl2', 'webgpu', 'webgl2-bloom'].includes(profile.backend))
+  {
+    const { benchmarkGpuCache } = await import('./gpu-resource-probe.js');
+    gpuCacheTiming = await benchmarkGpuCache(fx, renderer, () => fx._renderFrame(now), realNow);
+  }
   if (benchmark && profile.backend === 'software' && profile.features.click && profile.features.bloom)
   {
     const { benchmarkSoftwareCache } = await import('./software-probe.js');
@@ -580,11 +603,13 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     ...(capturePixels ? { pixels: Array.from(pixels) } : {}),
     ...(timing && !benchmark ? { importMs, initMs } : {}),
     ...(gpuOptimization ? { gpuOptimization: gpuOptimizationResults } : {}),
+    ...(gpuCache ? { gpuCache: gpuCacheResults } : {}),
     ...(softwareOptimization ? { softwareOptimization: softwareOptimizationResults } : {}),
     ...(softwareCache ? { softwareCache: softwareCacheResults } : {}),
     ...(softwareZero ? { softwareZero: softwareZeroResults } : {}),
     ...(canvasTextureIdle ? { canvasTextureIdle: canvasTextureIdleResults } : {}),
     ...(softwareCacheTiming ? { softwareCacheTiming } : {}),
+    ...(gpuCacheTiming ? { gpuCacheTiming } : {}),
     ...(benchmark ? { importMs, initMs, frameTimes, cpuFrameMs,
       heap: { beforeImport: heapBeforeImport, afterImport: heapAfterImport, afterInit: heapAfterInit }, gpuFrames } : {}),
     contextRestored, errors };

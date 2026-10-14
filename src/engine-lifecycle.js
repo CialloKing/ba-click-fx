@@ -201,6 +201,7 @@ export class LifecycleRuntime extends BackendRuntime
     this.webgpuEffectRenderer?.clear();
     this.webglEffectRenderer?.clear();
     this.canvasSceneRenderer?.clear();
+    this._scheduleGpuFrameRelease();
     this._flushCompositingMountRefresh();
   }
 
@@ -213,6 +214,7 @@ export class LifecycleRuntime extends BackendRuntime
     }
 
     this.destroyed = true;
+    this._cancelGpuFrameRelease();
     this._gradientEnergyCache = null;
     this._softwareBloomConfigSignature = null;
     if (typeof window !== 'undefined')

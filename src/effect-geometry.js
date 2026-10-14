@@ -113,6 +113,7 @@ export class EffectGeometry
     this.sceneBackgroundTexture = null;
     this.sceneBackgroundTarget = null;
     this.failedResizeSignature = null;
+    this.idleFrameResourcesReleased = false;
     this.programs = null;
 
     this.stats =

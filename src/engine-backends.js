@@ -143,8 +143,8 @@ export class BackendRuntime extends InputRuntime
 
       return (
         renderer.available &&
-        (renderer._hasRequiredTargets?.(this._getGpuTargetNeeds()) ??
-          (renderer.sourceTarget && renderer.levels?.length > 0))
+        (renderer.idleFrameResourcesReleased || (renderer._hasRequiredTargets?.(this._getGpuTargetNeeds()) ??
+          (renderer.sourceTarget && renderer.levels?.length > 0)))
       )
         ? 'webgl2'
         : fallback;
@@ -1481,6 +1481,47 @@ export class BackendRuntime extends InputRuntime
       clearTimeout(this.softwareBloomIdleTimer);
       this.softwareBloomIdleTimer = null;
     }
+  }
+
+  _cancelGpuFrameRelease()
+  {
+    if (!(BUILD_WEBGL || BUILD_WEBGPU || BUILD_WEBGL_BLOOM)) return;
+    if (this.gpuFrameIdleTimer !== null)
+    {
+      clearTimeout(this.gpuFrameIdleTimer);
+      this.gpuFrameIdleTimer = null;
+    }
+  }
+
+  _scheduleGpuFrameRelease()
+  {
+    if (!(BUILD_WEBGL || BUILD_WEBGPU || BUILD_WEBGL_BLOOM)) return;
+    if (this.destroyed || this.gpuFrameIdleTimer !== null || this._hasVisibleEffects() ||
+        !(this.webgpuEffectRenderer?.sourceTarget || this.webglEffectRenderer?.sourceTarget ||
+          this.webglBloomRenderer?.sourceTarget))
+    {
+      return;
+    }
+    // 不唤醒 RAF；恢复交互使旧回调失效，可见暂停帧不会进入空闲回收。
+    const timer = setTimeout(() =>
+    {
+      if (this.gpuFrameIdleTimer !== timer) return;
+      this.gpuFrameIdleTimer = null;
+      if (this.destroyed || this._hasVisibleEffects()) return;
+      if (this.renderingFrame)
+      {
+        this._scheduleGpuFrameRelease();
+        return;
+      }
+      for (const renderer of [this.webgpuEffectRenderer, this.webglEffectRenderer, this.webglBloomRenderer])
+      {
+        if (renderer?.sourceTarget)
+        {
+          renderer.releaseFrameResources({ preservePresentation: true });
+        }
+      }
+    }, 30000);
+    this.gpuFrameIdleTimer = timer;
   }
 
   _scheduleSoftwareBloomRelease()

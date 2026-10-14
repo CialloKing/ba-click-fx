@@ -5758,6 +5758,7 @@ export class BAClickFX extends ConfigRuntime
     // 它只用于相同输入的过渡帧，避免故障瞬间把透明拖尾降成细线。
     this.lastSoftwareBloomFrame = null;
     if (BUILD_SOFTWARE && BUILD_BLOOM) this.softwareBloomIdleTimer = null;
+    if (BUILD_WEBGL || BUILD_WEBGPU || BUILD_WEBGL_BLOOM) this.gpuFrameIdleTimer = null;
     // visual-max 必须保留独立 Bloom transport；该离屏层按需创建，不进入 DOM。
     this.canvasBloomTransportCanvas = null;
     this.canvasBloomTransportContext = null;
@@ -6271,6 +6272,7 @@ export class BAClickFX extends ConfigRuntime
     this._invalidateCanvasBoundsScope();
     if (BUILD_CANVAS) this._syncCanvasTextureOwner();
     if (BUILD_SOFTWARE && BUILD_BLOOM && this._hasVisibleEffects()) this._cancelSoftwareBloomRelease();
+    if ((BUILD_WEBGL || BUILD_WEBGPU || BUILD_WEBGL_BLOOM) && this._hasVisibleEffects()) this._cancelGpuFrameRelease();
     if (this.destroyed || this.paused || this.animationFrame !== null || (CUSTOM_BUILD && this.buildFailed))
     {
       return;
@@ -6641,6 +6643,7 @@ export class BAClickFX extends ConfigRuntime
       this.lastFrameTime = null;
       this._releaseSoftwareBloomFrame();
       this._scheduleSoftwareBloomRelease();
+      this._scheduleGpuFrameRelease();
     }
   }
 

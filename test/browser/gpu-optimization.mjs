@@ -53,7 +53,23 @@ try
     {
       await page.goto(runtime.baseUrl + '/test/browser/custom.html');
       const result = await page.evaluate(async parameters =>
-        (await import('/test/browser/custom-fixture.js')).runCustomFixture(parameters), parameters);
+      {
+        if (parameters.profile.runtime !== 'worker')
+          return (await import('/test/browser/custom-fixture.js')).runCustomFixture(parameters);
+        return new Promise((done, fail) =>
+        {
+          const url = URL.createObjectURL(new Blob([`import { runCustomFixture } from ${JSON.stringify(location.origin + '/test/browser/custom-fixture.js')};
+            onmessage = async event => { try { postMessage(await runCustomFixture(event.data)); } catch(error) { postMessage({ error: error.stack }); } };`], { type: 'text/javascript' }));
+          const worker = new Worker(url, { type: 'module' });
+          const finish = (value, error) =>
+          { clearTimeout(timer); worker.terminate(); URL.revokeObjectURL(url); error ? fail(Error(error)) : done(value); };
+          const timer = setTimeout(() => finish(null, 'GPU cache Worker timeout'), 30000);
+          worker.onmessage = event => finish(event.data, event.data.error);
+          worker.onerror = error => finish(null, error.message);
+          const canvas = document.createElement('canvas').transferControlToOffscreen();
+          worker.postMessage({ ...parameters, targetCanvas: canvas }, [canvas]);
+        });
+      }, parameters);
       assert(!result.skipped, result.skipped);
       assert.deepEqual(result.errors, []);
       return result;
@@ -62,11 +78,15 @@ try
   };
   for (const backend of ['webgl2', 'webgpu', 'webgl2-bloom'])
   {
-    for (const entry of benchmark ? cases.slice(1, 2) : cases)
+    for (const entry of benchmark ? [
+      { ...cases[1], name: 'coverage-zero', intensity: 0 },
+      { ...cases[1], name: 'coverage-positive', intensity: 1.7 },
+    ] : cases)
     {
       const input = { backend, runtime: 'dom',
         config: { hostCompositing: 'source-over', maxDpr: 2, ...entry.config },
-        fxParams: { 'bloom.clickEmissionScale': 2, ...((benchmark || entry.cold) ? { 'bloom.intensity': 0 } : {}) } };
+        fxParams: { 'bloom.clickEmissionScale': 2, ...(benchmark ? { 'bloom.intensity': entry.intensity }
+          : entry.cold ? { 'bloom.intensity': 0 } : {}) } };
       const profile = normalizeProfile(input);
       const parameters = { profile, full: true, reference: entry.reference,
         restoreContext: !benchmark && backend === 'webgl2' && entry.name === 'coverage',
@@ -128,6 +148,62 @@ try
       }
       else if (baseline) assert.equal(candidate.hash, baseline.hash, 'Benchmark workload pixel parity');
       console.log(`${backend}/${entry.name}: passed${baseline ? ', independent baseline matched' : ''}`);
+    }
+  }
+  if (!benchmark)
+  {
+    const backends = ['webgl2', 'webgpu', 'webgl2-bloom'];
+    const cacheCases = backends.flatMap(backend => ['scene', 'coverage', 'reference'].map(mode =>
+      ({ backend, runtime: 'dom', full: true, mode })));
+    cacheCases.push({ backend: 'webgl2', runtime: 'worker', full: true, mode: 'coverage' });
+    cacheCases.push(...backends.flatMap(backend => (backend === 'webgl2-bloom' ? ['dom'] : ['dom', 'worker']).map(runtime =>
+      ({ backend, runtime, full: false, mode: 'coverage' }))));
+    const baselineManifest = baselineDirectory && JSON.parse(readFileSync(resolve(root, baselineDirectory, 'manifest.json'), 'utf8'));
+    for (const entry of cacheCases)
+    {
+      const input = { backend: entry.backend, runtime: entry.runtime,
+        config: { hostCompositing: 'source-over', maxDpr: 2, outputCompositing: entry.mode === 'scene' ? 'scene' : 'browser-overlay' },
+        fxParams: { 'bloom.clickEmissionScale': 2, 'bloom.intensity': entry.full ? 1.7 : 0 } };
+      const profile = normalizeProfile(input);
+      const url = entry.full ? candidateUrl : buildCustomFixture(input).url;
+      const parameters = { profile, full: entry.full, gpuCache: true, reference: entry.mode === 'reference' };
+      const oldCustom = !entry.full && baselineManifest?.custom?.find(item => item.backend === entry.backend && item.runtime === entry.runtime);
+      let oldUrl = entry.full ? baselineUrl : undefined;
+      if (oldCustom)
+      {
+        const bytes = readFileSync(resolve(root, oldCustom.path, 'ba-click-fx.js'));
+        assert.equal(createHash('sha256').update(bytes).digest('hex'), oldCustom.sha256, 'Independent custom baseline');
+        assert.deepEqual(normalizeProfile(oldCustom.input), profile, 'Custom baseline uses the same profile');
+        oldUrl = '/' + oldCustom.path + '/ba-click-fx.js';
+      }
+      const baseline = oldUrl && await run({ ...parameters, url: oldUrl });
+      const candidate = await run({ ...parameters, url });
+      const probe = candidate.gpuCache;
+      assert.equal(probe.delay, 30000);
+      assert(probe.singleTimer && probe.otherPreserved && probe.destroyPending && probe.destroyed && probe.failurePreserved);
+      assert.equal(probe.active.targetBytes, probe.paused.targetBytes, 'Visible pause retains resources');
+      assert.equal(probe.active.hash, probe.paused.hash, 'Visible pause retains pixels');
+      assert.equal(probe.idle.targetBytes, probe['before-deadline'].targetBytes);
+      assert(!probe.resumed.pending && probe.resumed.targetBytes > 0, 'Interaction cancels stale idle callback');
+      for (const name of ['released', 'clear-released'])
+      {
+        assert.equal(probe[name].targetCount, 0);
+        assert.equal(probe[name].uniformCount, 0);
+        assert.equal(probe[name].bindGroups, 0);
+        assert(!probe[name].pending);
+      }
+      assert.deepEqual(probe.idle.status, probe.released.status, 'Idle release preserves presentation and backend state');
+      assert.equal(probe.idle.animationFrame, probe.released.animationFrame, 'Idle release does not request RAF');
+      assert(probe.rebuilt.targetBytes > 0 && probe.cleared.pending);
+      assert.equal(probe.failedResources.targetCount, 0, 'Failed backend can release resources without being revived');
+      if (baseline)
+      {
+        assert.equal(candidate.hash, baseline.hash);
+        for (const name of ['active', 'paused', 'idle', 'before-deadline', 'resumed', 'released', 'rebuilt', 'cleared', 'clear-released'])
+          assert.equal(probe[name].hash, baseline.gpuCache[name].hash, `${entry.backend}/${name}: independent cache pixel parity`);
+      }
+      results.push({ cache: entry, candidate, baseline });
+      console.log(`GPU cache ${entry.backend}/${entry.runtime}/${entry.full ? 'full' : 'custom'}/${entry.mode}: passed`);
     }
   }
   complete = true;
