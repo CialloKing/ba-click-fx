@@ -15,6 +15,30 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BAClickFX } from '../src/fx.js';
 import { releaseMeshGradients } from '../src/engine-shared.js';
+import { EffectGeometry } from '../src/effect-geometry.js';
+
+// 黄金值来自优化前 0687b5c；同时覆盖模板和自定义圆环的顶点、索引字节。
+{
+  const hash = createHash('sha256');
+  for (const [bands, segments] of [[1, 64], [8, 96], [3, 64], [1, 128]])
+  {
+    for (const rotation of [0, 0.35, -1.2])
+    {
+      for (const threshold of [0, 0.5, 1])
+      {
+        const renderer = new EffectGeometry(null);
+        renderer.addDissolveRing(17, 23, 50, 10, rotation, bands, segments,
+          [1, 0.6, 2], 0.7, threshold, 0.1, 0.9, -1);
+        renderer._prepareRingIndices();
+        hash.update(Buffer.from(renderer.ringVertexData.buffer, 0, renderer.ringVertexCount * 9 * 4));
+        hash.update(Buffer.from(renderer.ringIndexData.buffer, 0, renderer.ringIndexCount * 4));
+        assert.equal(renderer._ringCosine === null, bands === 1 && segments === 64,
+          '模板不分配自定义采样工作表');
+      }
+    }
+  }
+  assert.equal(hash.digest('hex'), '75e0cd8676678ea4fe915c8cfe781d71be0e617ec5e607e38686931aab2ab228');
+}
 
 // 独立计数包装必须保持返回值、异常和原型描述符，恢复可重复执行。
 {

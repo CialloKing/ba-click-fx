@@ -1043,14 +1043,6 @@ export class EffectGeometry
     const template = bands === 1 && segments === 64;
     const innerEdge = Math.max(0, radius - width * 0.5);
     const bandWidth = width / bands;
-    if (!this._ringCosine || this._ringCosine.length < segments + 1)
-    {
-      // 工作表只随采样容量增长；逐环复用，避免每帧产生短命 TypedArray。
-      this._ringCosine = new Float64Array(segments + 1);
-      this._ringSine = new Float64Array(segments + 1);
-    }
-    const cosine = this._ringCosine;
-    const sine = this._ringSine;
     const coverageOpacity = clamp(opacity, 0, 1);
     const safeThreshold = Number.isFinite(dissolveThreshold)
       ? clamp(dissolveThreshold, 0, 1)
@@ -1063,15 +1055,6 @@ export class EffectGeometry
       : 1;
     const uvSpan = safeUvMax - safeUvMin;
     const direction = dissolveDirection >= 0 ? 1 : -1;
-
-    for (let segment = 0; segment <= segments; segment++)
-    {
-      const angularProgress = segment / segments;
-      const angle = rotation + angularProgress * Math.PI * 2;
-
-      cosine[segment] = Math.cos(angle);
-      sine[segment] = Math.sin(angle);
-    }
 
     const base = this.ringVertexCount;
     const slot = this._ringTopologyCount++;
@@ -1108,6 +1091,22 @@ export class EffectGeometry
         );
       }
       return;
+    }
+
+    // 模板只使用原始网格和旋转；仅自定义采样需要这张工作表。
+    if (!this._ringCosine || this._ringCosine.length < segments + 1)
+    {
+      this._ringCosine = new Float64Array(segments + 1);
+      this._ringSine = new Float64Array(segments + 1);
+    }
+    const cosine = this._ringCosine;
+    const sine = this._ringSine;
+    for (let segment = 0; segment <= segments; segment++)
+    {
+      const angularProgress = segment / segments;
+      const angle = rotation + angularProgress * Math.PI * 2;
+      cosine[segment] = Math.cos(angle);
+      sine[segment] = Math.sin(angle);
     }
 
     // 按径向行保存唯一顶点；每一行的末端仍单独计算原来的角度和 UV。
