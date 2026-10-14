@@ -1336,7 +1336,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
 
       if (this.width > 0 && this.height > 0)
       {
-        this._allocateTargets();
+        this._allocateTargets(this._targetNeeds);
       }
     }
     catch (error)
@@ -2027,8 +2027,9 @@ export class WebGL2EffectRenderer extends EffectGeometry
     return this.bloomSourceTarget !== null;
   }
 
-  _allocateTargets()
+  _allocateTargets(needs = {}, preserveScene = false)
   {
+    // 同布局新增消费者时只补齐缺席资源，不能丢弃已经绘好的 Scene。
     if (!this.available || !this.gl || this.width <= 0 || this.height <= 0)
     {
       return false;
@@ -2036,15 +2037,15 @@ export class WebGL2EffectRenderer extends EffectGeometry
 
     try
     {
-      this._deleteTargets();
-      this.sourceTarget = this._createTarget(
-        this.sourceWidth,
-        this.sourceHeight,
-      );
-      this.sceneOverlayTarget = this._createTarget(
-        this.sourceWidth,
-        this.sourceHeight,
-      );
+      if (!preserveScene)
+      {
+        this._deleteTargets();
+        this.sourceTarget = this._createTarget(this.sourceWidth, this.sourceHeight);
+      }
+      if (needs.coverage !== false && !this.sceneOverlayTarget)
+      {
+        this.sceneOverlayTarget = this._createTarget(this.sourceWidth, this.sourceHeight);
+      }
 
       const pyramid = calculatePyramidSettings(
         this.sourceWidth,
@@ -2058,7 +2059,8 @@ export class WebGL2EffectRenderer extends EffectGeometry
       let width = this.width;
       let height = this.height;
 
-      for (let index = 0; BUILD_BLOOM && index < levelCount; index++)
+      const allocateBloom = BUILD_BLOOM && needs.bloom !== false && this.levels.length === 0;
+      for (let index = 0; allocateBloom && index < levelCount; index++)
       {
         const level =
         {
@@ -2086,7 +2088,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
         height = Math.max(1, height >> 1);
       }
 
-      if (this.sceneBackgroundTexture)
+      if (this.sceneBackgroundTexture && !this.sceneBackgroundTarget)
       {
         if (!this._rebuildSceneBackgroundTarget())
         {
@@ -2111,6 +2113,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
         this.width,
         this.height,
         this.diffusion,
+        needs,
       );
       this._deleteTargets();
       this._discardPendingErrors();
@@ -2124,9 +2127,10 @@ export class WebGL2EffectRenderer extends EffectGeometry
     width,
     height,
     diffusion,
+    needs = {},
   )
   {
-    return `${sourceWidth}:${sourceHeight}:${width}:${height}:${diffusion}`;
+    return `${sourceWidth}:${sourceHeight}:${width}:${height}:${diffusion}:${needs.coverage !== false}:${needs.bloom !== false}`;
   }
 
   resize(
@@ -2135,8 +2139,10 @@ export class WebGL2EffectRenderer extends EffectGeometry
     dpr,
     resolutionScale,
     diffusion,
+    needs = {},
   )
   {
+    this._targetNeeds = needs;
     const safeDisplayWidth = Math.max(1, displayWidth);
     const safeDisplayHeight = Math.max(1, displayHeight);
     const safeDpr = clamp(dpr, 1, 4);
@@ -2160,6 +2166,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
       width,
       height,
       safeDiffusion,
+      needs,
     );
 
     if (resizeSignature === this.failedResizeSignature)
@@ -2194,7 +2201,8 @@ export class WebGL2EffectRenderer extends EffectGeometry
     }
 
     const pyramid = calculatePyramidSettings(sourceWidth, sourceHeight, safeScale, safeDiffusion);
-    const unchanged = this._hasTargetLayout(sourceWidth, sourceHeight, width, height, pyramid.levelCount);
+    const unchanged = this._hasTargetLayout(sourceWidth, sourceHeight, width, height,
+      pyramid.levelCount, { coverage: false, bloom: false });
 
     this.displayWidth = safeDisplayWidth;
     this.displayHeight = safeDisplayHeight;
@@ -2210,13 +2218,13 @@ export class WebGL2EffectRenderer extends EffectGeometry
     if (unchanged)
     {
       this.failedResizeSignature = null;
-      return this.available;
+      return this._hasRequiredTargets(needs) ? this.available : this._allocateTargets(needs, true);
     }
 
     this.canvas.width = sourceWidth;
     this.canvas.height = sourceHeight;
 
-    return this._allocateTargets();
+    return this._allocateTargets(needs);
   }
 
 
@@ -2562,6 +2570,11 @@ export class WebGL2EffectRenderer extends EffectGeometry
 
     try
     {
+      if (needsCoverageOverlay && !this.sceneOverlayTarget &&
+          !this._allocateTargets({ coverage: true, bloom: false }, true))
+      {
+        return false;
+      }
       gl.bindFramebuffer(
         gl.FRAMEBUFFER,
         this.sourceTarget.framebuffer,
@@ -2976,8 +2989,7 @@ export class WebGL2EffectRenderer extends EffectGeometry
     if (
       !this.available ||
       this.contextLost ||
-      !this.sourceTarget ||
-      (BUILD_BLOOM && this.levels.length === 0)
+      !this.sourceTarget
     )
     {
       return false;
@@ -3013,6 +3025,11 @@ export class WebGL2EffectRenderer extends EffectGeometry
       }
 
       const intensity = resolveUnityBloomIntensity(settings.intensity);
+      if (BUILD_BLOOM && intensity > 0 && this.levels.length === 0 &&
+          !this._allocateTargets({ coverage: false, bloom: true }, true))
+      {
+        return false;
+      }
       let bloomTexture = this.sourceTarget.texture;
       if (BUILD_BLOOM && intensity === 0)
       {

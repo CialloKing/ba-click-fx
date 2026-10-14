@@ -138,14 +138,21 @@ export class EffectGeometry
     return this.sceneBackgroundSource !== null;
   }
 
-  _hasTargetLayout(sourceWidth, sourceHeight, width, height, levelCount)
+  _hasRequiredTargets(needs = {})
+  {
+    return !!this.sourceTarget && (needs.coverage === false || !!this.sceneOverlayTarget) &&
+      (!BUILD_BLOOM || needs.bloom === false || this.levels.length > 0);
+  }
+
+  _hasTargetLayout(sourceWidth, sourceHeight, width, height, levelCount, needs = {})
   {
     const matches = (target, targetWidth, targetHeight) =>
       target?.texture && (target.framebuffer || target.view) &&
       target.width === targetWidth && target.height === targetHeight;
 
     if (!matches(this.sourceTarget, sourceWidth, sourceHeight) ||
-        !matches(this.sceneOverlayTarget, sourceWidth, sourceHeight) ||
+        ((needs.coverage !== false || this.sceneOverlayTarget) &&
+          !matches(this.sceneOverlayTarget, sourceWidth, sourceHeight)) ||
         (this.bloomSourceTarget && !matches(this.bloomSourceTarget, sourceWidth, sourceHeight)) ||
         (this.gl && this.sceneBackgroundTexture && !matches(this.sceneBackgroundTarget, sourceWidth, sourceHeight)))
     {
@@ -154,7 +161,9 @@ export class EffectGeometry
 
     // 只比较真实目标布局；fractional diffusion 改变采样偏移，不改变这些资源。
     let count = 0;
-    for (let index = 0; BUILD_BLOOM && index < levelCount; index++)
+    // 未申请的可选资源可以缺席；已持有的资源仍必须完整且匹配当前布局。
+    const checkBloom = BUILD_BLOOM && (needs.bloom !== false || this.levels.length > 0);
+    for (let index = 0; checkBloom && index < levelCount; index++)
     {
       const level = this.levels[index];
       const last = index === levelCount - 1;

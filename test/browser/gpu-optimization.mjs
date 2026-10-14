@@ -79,7 +79,10 @@ try
         const probe = candidate.gpuOptimization;
         if (!entry.cold) assert(probe.initiallyLazy, 'Zero texture must not be allocated for positive intensity');
         else assert.equal(probe.initialScaledSource, false, 'First zero frame must not allocate a scaled Bloom source');
-        assert.equal(probe.integrityChecks, backend === 'webgpu' ? 5 : 4, 'Incomplete target resources must reject reuse');
+        assert.equal(probe.initialCoverage, !['scene', 'screen'].includes(entry.name), 'Coverage is allocated only for its consumer');
+        if (entry.cold) assert.equal(probe.initialLevelCount, 0, 'Cold zero intensity has no pyramid');
+        assert.equal(probe.integrityChecks, 3 + Number(probe.initialCoverage) + Number(backend === 'webgpu'),
+          'Every allocated target must reject incomplete resources');
         for (const [index, stage] of probe.intensity.entries())
         {
           assert.equal(stage.bloomPasses === 0, stage.intensity === 0, `${backend}: filter pass routing`);
@@ -91,6 +94,13 @@ try
           if (baseline) assert.equal(stage.hash, baseline.gpuOptimization.intensity[index].hash, `${backend}/${entry.name}: independent pixel parity`);
         }
         assert.equal(probe.intensity[0].hash, probe.intensity[3].hash, 'Restored positive intensity pixels');
+        for (const [index, stage] of (probe.demand ?? []).entries())
+        {
+          assert.equal(stage.coverage, index > 0, 'Coverage starts absent and is retained after first use');
+          assert.equal(stage.levels > 0, index >= 3, 'Pyramid starts absent and is retained after first positive intensity');
+          assert(stage.sourceReused && stage.coverageReused && stage.pyramidReused, 'Optional allocation preserves existing resources');
+          if (baseline) assert.equal(stage.hash, baseline.gpuOptimization.demand[index].hash, 'Compositing transitions match independent baseline');
+        }
         if (entry.cold)
         {
           const { info: fixed, url } = buildCustomFixture(input);

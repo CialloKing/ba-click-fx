@@ -23,10 +23,19 @@ import { SoftwareBloomRenderer } from './software-bloom.js';
 import { WebGL2CanvasSceneRenderer } from './webgl2-canvas-scene.js';
 import { WebGL2EffectRenderer } from './webgl2-effect.js';
 import { WebGPUEffectRenderer } from './webgpu-effect.js';
-import { normalizeBloomBackend, normalizeEffectBackend } from './config.js';
+import { isIndependentHostCompositing, normalizeBloomBackend, normalizeEffectBackend } from './config.js';
+import { resolveUnityBloomIntensity } from './bloom-color-space.js';
 
 export class BackendRuntime extends InputRuntime
 {
+  _getGpuTargetNeeds()
+  {
+    return {
+      coverage: this.config.outputCompositing === 'browser-overlay' &&
+        !isIndependentHostCompositing(this._getEffectiveHostCompositing()),
+      bloom: BUILD_BLOOM && resolveUnityBloomIntensity(this.fxConfig.bloom.intensity) > 0,
+    };
+  }
 
   _getRequestedEffectBackendState()
   {
@@ -134,8 +143,8 @@ export class BackendRuntime extends InputRuntime
 
       return (
         renderer.available &&
-        renderer.sourceTarget &&
-        renderer.levels?.length > 0
+        (renderer._hasRequiredTargets?.(this._getGpuTargetNeeds()) ??
+          (renderer.sourceTarget && renderer.levels?.length > 0))
       )
         ? 'webgl2'
         : fallback;
@@ -380,6 +389,7 @@ export class BackendRuntime extends InputRuntime
       this.dpr,
       this.fxConfig.bloom.resolutionScale,
       this.fxConfig.bloom.diffusion,
+      this._getGpuTargetNeeds(),
     );
   }
 
@@ -791,6 +801,7 @@ export class BackendRuntime extends InputRuntime
       this.dpr,
       this.fxConfig.bloom.resolutionScale,
       this.fxConfig.bloom.diffusion,
+      this._getGpuTargetNeeds(),
     );
   }
 
@@ -1253,6 +1264,7 @@ export class BackendRuntime extends InputRuntime
       this.dpr,
       this.fxConfig.bloom.resolutionScale,
       this.fxConfig.bloom.diffusion,
+      this._getGpuTargetNeeds(),
     );
   }
 

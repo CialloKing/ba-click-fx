@@ -1072,23 +1072,22 @@ export class WebGPUEffectRenderer extends EffectGeometry
     this.levels = [];
   }
 
-  _allocateTargets()
+  _allocateTargets(needs = {}, preserveScene = false)
   {
+    // 同布局新增消费者时只补齐缺席资源，不能丢弃已经绘好的 Scene。
     try
     {
-      this._deleteTargets();
-      this.sourceTarget = createTarget(
-        this.device,
-        this.sourceWidth,
-        this.sourceHeight,
-        'BA Click FX WebGPU scene target',
-      );
-      this.sceneOverlayTarget = createTarget(
-        this.device,
-        this.sourceWidth,
-        this.sourceHeight,
-        'BA Click FX WebGPU scene overlay',
-      );
+      if (!preserveScene)
+      {
+        this._deleteTargets();
+        this.sourceTarget = createTarget(this.device, this.sourceWidth, this.sourceHeight,
+          'BA Click FX WebGPU scene target');
+      }
+      if (needs.coverage !== false && !this.sceneOverlayTarget)
+      {
+        this.sceneOverlayTarget = createTarget(this.device, this.sourceWidth, this.sourceHeight,
+          'BA Click FX WebGPU scene overlay');
+      }
       let width = this.width;
       let height = this.height;
       const pyramid = calculatePyramidSettings(
@@ -1100,7 +1099,8 @@ export class WebGPUEffectRenderer extends EffectGeometry
 
       this.sampleScale = pyramid.sampleScale;
 
-      for (let index = 0; BUILD_BLOOM && index < pyramid.levelCount; index++)
+      const allocateBloom = BUILD_BLOOM && needs.bloom !== false && this.levels.length === 0;
+      for (let index = 0; allocateBloom && index < pyramid.levelCount; index++)
       {
         const level =
         {
@@ -1114,27 +1114,17 @@ export class WebGPUEffectRenderer extends EffectGeometry
         // 先登记空槽；后续任一步抛错，统一清理都能看见部分初始化的资源。
         this.levels.push(level);
         level.down = createTarget(
-            this.device,
-            width,
-            height,
-            `BA Click FX WebGPU bloom down ${index}`,
-          );
+          this.device, width, height, `BA Click FX WebGPU bloom down ${index}`,
+        );
         level.up = index === pyramid.levelCount - 1
-            ? null
-            : createTarget(
-                this.device,
-                width,
-                height,
-                `BA Click FX WebGPU bloom up ${index}`,
-              );
+          ? null
+          : createTarget(this.device, width, height, `BA Click FX WebGPU bloom up ${index}`);
         level.downUniform = this._createUniformBuffer(
-            `BA Click FX WebGPU down uniforms ${index}`,
-            PASS_UNIFORM_SIZE,
-          );
+          `BA Click FX WebGPU down uniforms ${index}`, PASS_UNIFORM_SIZE,
+        );
         level.upUniform = this._createUniformBuffer(
-            `BA Click FX WebGPU up uniforms ${index}`,
-            PASS_UNIFORM_SIZE,
-          );
+          `BA Click FX WebGPU up uniforms ${index}`, PASS_UNIFORM_SIZE,
+        );
 
         if (width === 1 && height === 1)
         {
@@ -1150,7 +1140,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
         (sum, level) => sum + level.width * level.height,
         0,
       );
-      return !BUILD_BLOOM || this.levels.length > 0;
+      return this._hasRequiredTargets(needs);
     }
     catch (error)
     {
@@ -1178,7 +1168,7 @@ export class WebGPUEffectRenderer extends EffectGeometry
     return true;
   }
 
-  resize(displayWidth, displayHeight, dpr, resolutionScale, diffusion)
+  resize(displayWidth, displayHeight, dpr, resolutionScale, diffusion, needs = {})
   {
     if (!this.available || this.contextLost)
     {
@@ -1204,7 +1194,8 @@ export class WebGPUEffectRenderer extends EffectGeometry
     }
 
     const pyramid = calculatePyramidSettings(sourceWidth, sourceHeight, safeScale, safeDiffusion);
-    const unchanged = this._hasTargetLayout(sourceWidth, sourceHeight, width, height, pyramid.levelCount);
+    const unchanged = this._hasTargetLayout(sourceWidth, sourceHeight, width, height,
+      pyramid.levelCount, { coverage: false, bloom: false });
 
     this.displayWidth = safeDisplayWidth;
     this.displayHeight = safeDisplayHeight;
@@ -1229,7 +1220,8 @@ export class WebGPUEffectRenderer extends EffectGeometry
     }
 
     this._ensureFinalPipeline();
-    return unchanged || this._allocateTargets();
+    return unchanged && this._hasRequiredTargets(needs)
+      ? true : this._allocateTargets(needs, unchanged);
   }
 
   _uploadSceneBackground()
@@ -1421,6 +1413,10 @@ export class WebGPUEffectRenderer extends EffectGeometry
         !isIndependentHostCompositing(settings.hostCompositing)
       )
       {
+        if (!this.sceneOverlayTarget && !this._allocateTargets({ coverage: true, bloom: false }, true))
+        {
+          return false;
+        }
         this._drawFullscreen(
           encoder,
           this.pipelines.sceneOverlay,
@@ -1532,7 +1528,6 @@ export class WebGPUEffectRenderer extends EffectGeometry
       !this.available ||
       this.contextLost ||
       !this.sourceTarget ||
-      (BUILD_BLOOM && this.levels.length === 0) ||
       !this.finalPipeline
     )
     {
@@ -1546,6 +1541,11 @@ export class WebGPUEffectRenderer extends EffectGeometry
         { label: 'BA Click FX WebGPU bloom commands' },
       );
       const intensity = resolveUnityBloomIntensity(settings.intensity);
+      if (BUILD_BLOOM && intensity > 0 && this.levels.length === 0 &&
+          !this._allocateTargets({ coverage: false, bloom: true }, true))
+      {
+        return false;
+      }
       // 零强度仍需要清晰层的 Final Pass，复用已有透明占位纹理即可。
       const bloom = BUILD_BLOOM
         ? intensity === 0

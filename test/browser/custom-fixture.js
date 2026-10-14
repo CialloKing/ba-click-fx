@@ -314,6 +314,9 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   {
     if (!full || !['webgl2', 'webgpu', 'webgl2-bloom'].includes(profile.backend)) throw Error('GPU optimization fixture requires a full GPU runtime');
     const initialScaledSource = renderer.bloomSourceTarget != null;
+    const optionalTargets = typeof renderer._hasRequiredTargets === 'function';
+    const initialCoverage = renderer.sceneOverlayTarget != null;
+    const initialLevelCount = renderer.levels.length;
     const initiallyLazy = renderer.transparentBloomTexture == null;
     // 异步设备就绪会刷新 DOM 尺寸；专项从同一显式 DPR 开始，避免把 DPR 切换算作复用。
     fx.resizeObserver?.disconnect();
@@ -362,13 +365,15 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
       wrap('_drawFullscreen', args => { if (args.at(-1).includes('WebGPU bloom ')) bloomPasses++; });
       wrap('_renderGeometryTarget', args => { if (args[1] !== renderer.sourceTarget) sourceDraws++; });
     }
-    gpuOptimizationResults = { initiallyLazy, initialScaledSource, intensity: [], layout: [] };
+    gpuOptimizationResults = { initiallyLazy, initialScaledSource, optionalTargets,
+      initialCoverage, initialLevelCount, intensity: [], layout: [] };
     const backendReady = () => profile.backend === 'webgl2-bloom'
       ? fx.resolvedBloomBackend === 'webgl2' : fx.resolvedEffectBackend === profile.backend;
     if (renderer._hasTargetLayout)
     {
       // 不丢弃真实句柄：仅暂时遮蔽引用，验证不完整资源不会被误判为可复用。
-      const checks = [[renderer.sourceTarget, 'texture'], [renderer.sceneOverlayTarget, renderer.gl ? 'framebuffer' : 'view'],
+      const checks = [[renderer.sourceTarget, 'texture'],
+        ...(renderer.sceneOverlayTarget ? [[renderer.sceneOverlayTarget, renderer.gl ? 'framebuffer' : 'view']] : []),
         [renderer.levels[0].down, 'texture'], [renderer.levels[0], 'width']];
       if (!renderer.gl) checks.push([renderer.levels[0], 'upUniform']);
       for (const [object, key] of checks)
@@ -377,7 +382,8 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
         try
         {
           if (renderer._hasTargetLayout(renderer.sourceWidth, renderer.sourceHeight,
-            renderer.width, renderer.height, renderer.levels.length)) throw Error('Incomplete GPU layout was reused');
+            renderer.width, renderer.height, renderer.levels.length,
+            { coverage: renderer.sceneOverlayTarget != null })) throw Error('Incomplete GPU layout was reused');
         }
         finally { object[key] = previous; }
       }
@@ -427,6 +433,34 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
       }
       // 生命周期继续使用原尺寸；缩放专项不改变其输入和黄金场景。
       fx.setFxParam('bloom.diffusion', 7); fx.resize(320, 240, 1); fx._renderFrame(now);
+      if (profile.config.outputCompositing === 'scene')
+      {
+        gpuOptimizationResults.demand = [];
+        const stages = [
+          { outputCompositing: 'scene', hostCompositing: 'source-over', intensity: 0 },
+          { outputCompositing: 'browser-overlay', hostCompositing: 'source-over', intensity: 0 },
+          { outputCompositing: 'browser-overlay', hostCompositing: 'screen', intensity: 0 },
+          { outputCompositing: 'browser-overlay', hostCompositing: 'screen', intensity: 1.7 },
+          { outputCompositing: 'scene', hostCompositing: 'source-over', intensity: 0 },
+          { outputCompositing: 'browser-overlay', hostCompositing: 'source-over', intensity: 1.7 },
+        ];
+        renderer._deleteTargets();
+        let source, coverage, firstLevel;
+        for (const stage of stages)
+        {
+          fx.updateConfig({ outputCompositing: stage.outputCompositing, hostCompositing: stage.hostCompositing });
+          fx.setFxParam('bloom.intensity', stage.intensity); fx._renderFrame(now);
+          if (!backendReady()) throw Error('On-demand targets unexpectedly fell back');
+          gpuOptimizationResults.demand.push({ ...stage, coverage: !!renderer.sceneOverlayTarget,
+            levels: renderer.levels.length, sourceReused: !source || renderer.sourceTarget === source,
+            coverageReused: !coverage || renderer.sceneOverlayTarget === coverage,
+            pyramidReused: !firstLevel || renderer.levels[0] === firstLevel,
+            hash: (await capture()).hash });
+          source = renderer.sourceTarget; coverage = renderer.sceneOverlayTarget; firstLevel = renderer.levels[0];
+        }
+        fx.updateConfig({ outputCompositing: profile.config.outputCompositing, hostCompositing: profile.config.hostCompositing });
+        fx.setFxParam('bloom.intensity', 1.7); fx._renderFrame(now);
+      }
     }
     finally { restores.reverse().forEach(restore => restore()); }
   }
