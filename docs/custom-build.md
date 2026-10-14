@@ -6,6 +6,8 @@
 
 定制版本扩展现有 Vite 构建，复用完整版的输入、生命周期、几何和渲染实现。`npm run build` 仍生成完整版与演示页；带 `--profile` 时只生成 `dist-custom`，不会覆盖 `dist`，也不会把定制文件加入 npm 发布白名单。
 
+完整版构建先校验主入口与 Worker 的纯重导出合同，主运行时只编译一次，并复制为独立、自包含的 `worker.js`；`config` 继续独立构建，Worker 类型声明和实际运行验收保留。GPU 定制版复用完整版的 Coverage/Bloom 按需分配与 30 秒空闲回收；固定零强度不分配滤波金字塔，关闭的功能继续在构建时裁剪，回收后首帧同步重建所需资源。
+
 需要 Node.js >=24，先在源码目录运行 `npm ci`。复制[Worker 配置示例](../examples/build-profiles/webgl2-worker.json)为自己的 `ba-click-fx.build.json`，然后运行：
 
 ```bash

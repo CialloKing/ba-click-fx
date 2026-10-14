@@ -6,6 +6,8 @@
 
 Custom versions extend the existing Vite build and share the full version's input, lifecycle, geometry, and rendering implementations. `npm run build` still produces the full library and demo. With `--profile`, only `dist-custom` is generated: `dist` is preserved and custom files stay outside the npm publishing whitelist.
 
+Full builds first validate that the main and Worker entries have matching pure re-export contracts, compile the main runtime once, and copy it into a separate, self-contained `worker.js`. `config` is still built separately, with Worker declarations and actual runtime acceptance preserved. GPU custom builds share the full version's demand-based Coverage/Bloom allocation and 30-second idle cleanup. Fixed zero intensity skips the filter pyramid, disabled features are still trimmed at build time, and the first frame after cleanup synchronously rebuilds the required resources.
+
 Use Node.js >=24 and run `npm ci` in the source directory. Copy the [Worker profile](../examples/build-profiles/webgl2-worker.json) to your own `ba-click-fx.build.json`, then run:
 
 ```bash

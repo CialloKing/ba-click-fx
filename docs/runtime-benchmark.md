@@ -45,6 +45,12 @@ GPU 优化专项复用定制浏览器夹具，检查零强度滤波、恢复强�
 零强度不创建或重绘专用发光场景；已经分配的目标保留，恢复正数继续复用。
 首次使用即为零、直接 Renderer 未传内部标志及固定零强度定制版分别检查。
 
+Coverage 与 Bloom 金字塔按当前合成路径和有效强度分别分配；测试覆盖首次零强度、
+恢复正数、再次归零、合成模式切换、参考背景及 WebGL 上下文恢复，已分配的可选目标
+在布局有效时继续复用。GPU 空闲专项使用受控定时器验证每实例一次性的 30 秒边界、
+交互取消、多实例隔离、可见暂停、clear/destroy、失败状态保留及回收后首帧重建。
+完整版与三种 GPU 定制版均执行，另在真实 WebGL2/WebGPU Worker 中验证。
+
 ```sh
 npm run test:browser:gpu-optimization
 # 性能采样独立运行，不进入发布门禁；目录需包含已核验的旧版 JS 和 manifest.json。
@@ -54,6 +60,13 @@ npm run test:browser:gpu-optimization -- --benchmark --baseline=test-results/gpu
 结果与显式性能采样分别写入 `test-results/gpu-optimization/results.json` 和 `benchmark.json`。
 `--baseline` 会核对清单中的 SHA-256，并在独立浏览器上下文中逐字节对照旧版输出；
 普通 CI 不依赖本地旧文件，仍运行现有像素基线与本专项的路由、资源和生命周期断言。
+
+独立基准清单还可包含五种 GPU 定制配置的 `custom` 记录（`backend`、`runtime`、
+`input`、`path`、`sha256`）；测试先核对旧文件哈希及归一化配置，再比较生命周期画面。
+GPU 性能结果另记录七轮空闲后首帧和 140 个稳定帧的 CPU 构建/提交耗时，GPU 完成等待
+在计时之外。逐项枚举中间目标容量、Uniform 数和绑定缓存，不能把目标容量当作进程
+显存读数；回收后首帧包含资源重建，旧版在相同空闲边界仍持有目标。构建耗时应使用
+相同源码和压缩会话条件，分别运行旧构建流程与去重后的流程，并核对产物字节一致。
 
 Software 专项复用相同场景，覆盖 Alpha 策略、颜色补偿、DPR、合成参考及回读失败；
 使用受控定时器验证 30 秒空闲回收、恢复取消、暂停保持、clear/destroy、重建像素与真实 Worker。
