@@ -2081,7 +2081,6 @@ export class WebGL2EffectRenderer extends EffectGeometry
         // 先登记空槽位，任一步分配失败时 _deleteTargets() 都能释放已创建资源。
         this.levels.push(level);
         level.down = this._createTarget(width, height);
-        level.scratch = null;
         level.up = index === levelCount - 1
           ? null
           : this._createTarget(width, height);
