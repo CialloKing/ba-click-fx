@@ -131,12 +131,16 @@ function createTarget(device, width, height, label)
     },
   );
 
-  return {
-    width,
-    height,
-    texture,
-    view: texture.createView(),
-  };
+  try
+  {
+    return { width, height, texture, view: texture.createView() };
+  }
+  catch (error)
+  {
+    // 视图创建失败时目标尚未交给调用者，必须在这里归还纹理。
+    texture.destroy();
+    throw error;
+  }
 }
 
 function createTextureFromBytes(
@@ -1102,31 +1106,35 @@ export class WebGPUEffectRenderer extends EffectGeometry
         {
           width,
           height,
-          down: createTarget(
+          down: null,
+          up: null,
+          downUniform: null,
+          upUniform: null,
+        };
+        // 先登记空槽；后续任一步抛错，统一清理都能看见部分初始化的资源。
+        this.levels.push(level);
+        level.down = createTarget(
             this.device,
             width,
             height,
             `BA Click FX WebGPU bloom down ${index}`,
-          ),
-          up: index === pyramid.levelCount - 1
+          );
+        level.up = index === pyramid.levelCount - 1
             ? null
             : createTarget(
                 this.device,
                 width,
                 height,
                 `BA Click FX WebGPU bloom up ${index}`,
-              ),
-          downUniform: this._createUniformBuffer(
+              );
+        level.downUniform = this._createUniformBuffer(
             `BA Click FX WebGPU down uniforms ${index}`,
             PASS_UNIFORM_SIZE,
-          ),
-          upUniform: this._createUniformBuffer(
+          );
+        level.upUniform = this._createUniformBuffer(
             `BA Click FX WebGPU up uniforms ${index}`,
             PASS_UNIFORM_SIZE,
-          ),
-        };
-
-        this.levels.push(level);
+          );
 
         if (width === 1 && height === 1)
         {

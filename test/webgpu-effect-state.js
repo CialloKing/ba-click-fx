@@ -269,8 +269,55 @@ async function verifySceneUploads()
 
 process.on('unhandledRejection', onUnhandledRejection);
 
+function verifyTargetAllocationFailures()
+{
+  // 只注入资源工厂的同步异常，检查每个已返回句柄的所有权与重复清理。
+  for (const operation of ['texture', 'view', 'buffer'])
+  {
+    for (let failAt = 1; failAt <= 6; failAt++)
+    {
+      const resources = [];
+      let calls = 0;
+      const check = kind =>
+      {
+        if (kind === operation && ++calls === failAt) throw Error('injected allocation failure');
+      };
+      const resource = () =>
+      {
+        const value = { destroys: 0, destroy() { this.destroys++; } };
+        resources.push(value);
+        return value;
+      };
+      const renderer = Object.create(WebGPUEffectRenderer.prototype);
+      Object.assign(renderer, { bindGroups: new Map(), levels: [], stats: {},
+        sourceWidth: 1920, sourceHeight: 1080, width: 960, height: 540,
+        resolutionScale: 0.5, diffusion: 7,
+        device: {
+          createTexture()
+          {
+            check('texture');
+            return Object.assign(resource(), { createView() { check('view'); return {}; } });
+          },
+          createBuffer() { check('buffer'); return resource(); },
+        },
+      });
+      const warn = console.warn;
+      try
+      {
+        console.warn = () => {};
+        assert.equal(renderer._allocateTargets(), false, `${operation}/${failAt}: failure is reported`);
+      }
+      finally { console.warn = warn; }
+      renderer._deleteTargets();
+      assert.equal(renderer.levels.length, 0);
+      assert(resources.every(value => value.destroys === 1), `${operation}/${failAt}: no orphan or double destroy`);
+    }
+  }
+}
+
 try
 {
+  verifyTargetAllocationFailures();
   await verifyResourceReuse();
   await verifySceneUploads();
   await verifyUnavailableCase(
