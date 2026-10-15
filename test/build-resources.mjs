@@ -9,6 +9,7 @@ import { normalizeProfile } from '../scripts/build-profile.mjs';
 import { compressionSession, compressResource, compressionInfo } from '../scripts/resource-compression.mjs';
 import { createBuildResources, resizeTexture } from '../scripts/build-resources.mjs';
 import { TRAIL_TEXTURE_RGB, TRAIL_TEXTURE_COVERAGE } from '../src/trail-texture.js';
+import { createTrailCoverage } from '../scripts/trail-coverage-data.mjs';
 import { CIRCLE_TEXTURE_RGBA } from '../src/circle-texture.js';
 import { RING3_ALPHA } from '../src/ring3-alpha.js';
 import { RING_MESH_VERTICES, RING_MESH_INDICES } from '../src/ring-mesh.js';
@@ -17,6 +18,11 @@ const root = resolve(import.meta.dirname, '..');
 const session = compressionSession();
 try
 {
+  assert.deepEqual(createTrailCoverage(TRAIL_TEXTURE_RGB, 512, 512), TRAIL_TEXTURE_COVERAGE,
+    'Shared derivation preserves the independently embedded Coverage bytes');
+  assert.deepEqual(createTrailCoverage(new Uint8Array([
+    0, 0, 0, 10, 20, 0, 0, 0, 0, 40, 5, 10,
+  ]), 2, 2), new Uint8Array([0, 128, 0, 255]), 'Zero columns, channel maxima and rounding');
   assert.equal((await createBuildResources(root, normalizeProfile({ backend: 'webgl2', runtime: 'dom', resources: { encoding: 'original' } }))).size, 0);
   assert.equal((await createBuildResources(root, normalizeProfile({ backend: 'webgl2', runtime: 'dom', features: { trail: false, click: false } }))).size, 0);
   for (const encoding of ['deflate', 'zopfli'])

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
+import { createTrailCoverage } from './trail-coverage-data.mjs';
 
 const PNG_SIGNATURE = '89504e470d0a1a0a';
 const EXPECTED_SOURCE_SHA256 =
@@ -344,50 +345,6 @@ function formatChunks(encoded, width = 100)
   return chunks.join('\n');
 }
 
-function createCoverage(rgb, width, height)
-{
-  const coverage = Buffer.alloc(width * height);
-
-  for (let x = 0; x < width; x++)
-  {
-    let columnPeak = 0;
-
-    for (let y = 0; y < height; y++)
-    {
-      const offset = (y * width + x) * 3;
-
-      columnPeak = Math.max(
-        columnPeak,
-        rgb[offset],
-        rgb[offset + 1],
-        rgb[offset + 2],
-      );
-    }
-
-    if (columnPeak === 0)
-    {
-      continue;
-    }
-
-    for (let y = 0; y < height; y++)
-    {
-      const sourceOffset = (y * width + x) * 3;
-      const outputOffset = y * width + x;
-      const support = Math.max(
-        rgb[sourceOffset],
-        rgb[sourceOffset + 1],
-        rgb[sourceOffset + 2],
-      );
-
-      // 离线移除每个 U 切片的发射亮度，只保留二维横截面支持度。
-      // 固定字节进入运行时后不再读取 RGB，也不会受主题色或 Bloom 影响。
-      coverage[outputOffset] = Math.round(support / columnPeak * 255);
-    }
-  }
-
-  return coverage;
-}
-
 function createCoverageGolden(width, height, coverage)
 {
   const samples = [
@@ -689,7 +646,7 @@ if (sha256(rgb) !== EXPECTED_RGB_SHA256)
   throw new Error('PNG 解码后的 RGB SHA256 与审计值不一致');
 }
 
-const coverage = createCoverage(rgb, width, height);
+const coverage = createTrailCoverage(rgb, width, height);
 
 if (sha256(coverage) !== EXPECTED_COVERAGE_SHA256)
 {
