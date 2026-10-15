@@ -730,7 +730,7 @@ function getNativeCircleBloomSamples()
   return nativeCircleBloomSamples;
 }
 
-function colorToLinearEnergy(color, intensity = 1, decodeSrgb = false)
+function colorToLinearEnergy(color, intensity = 1, decodeSrgb = false, output = [0, 0, 0])
 {
   const safeIntensity = Math.max(0, intensity);
 
@@ -744,22 +744,25 @@ function colorToLinearEnergy(color, intensity = 1, decodeSrgb = false)
         linearToSrgb(clamp01(channel / 255)) * 255);
     const themed = applyRelativeOklchTheme(themeInput, relativeOklchTheme);
 
-    return themed.map((channel) =>
-      srgbToLinearChannel(channel) * safeIntensity);
+    for (let index = 0; index < 3; index++)
+      output[index] = srgbToLinearChannel(themed[index]) * safeIntensity;
+    return output;
   }
 
   const themed = relativeOklchTheme?.identity
     ? color
     : applyThemeHue(color);
 
-  return themed.map((channel) =>
+  for (let index = 0; index < 3; index++)
   {
+    const channel = themed[index];
     const linear = decodeSrgb
       ? srgbToLinearChannel(channel)
       : clamp01(channel / 255);
 
-    return linear * safeIntensity;
-  });
+    output[index] = linear * safeIntensity;
+  }
+  return output;
 }
 
 function evaluateSrgbGradientEnergy(
@@ -3956,30 +3959,29 @@ function interpolateTrailColor(progress, trailCfg = UNITY_FX_TOUCH.trail)
   return evaluateColor(trailCfg.gradient, progress);
 }
 
-function measureTrail(points, cacheSegmentLengths = false)
+function measureTrail(points, cacheSegmentLengths = false, measurement = {})
 {
   let totalLength = 0;
-  const distances = [0];
-  const segmentLengths = cacheSegmentLengths ? [0] : null;
+  const distances = measurement.distances ??= [];
+  const segmentLengths = cacheSegmentLengths ? (measurement.segmentLengths ??= []) : null;
+  distances[0] = 0;
+  if (segmentLengths) segmentLengths[0] = 0;
 
   for (let index = 1; index < points.length; index++)
   {
     const segmentLength = distance(points[index - 1], points[index]);
 
     totalLength += segmentLength;
-    distances.push(totalLength);
+    distances[index] = totalLength;
 
     if (segmentLengths)
     {
-      segmentLengths.push(segmentLength);
+      segmentLengths[index] = segmentLength;
     }
   }
 
-  return {
-    distances,
-    segmentLengths,
-    totalLength,
-  };
+  measurement.totalLength = totalLength;
+  return measurement;
 }
 
 function createTrailFrameData(
@@ -3988,124 +3990,74 @@ function createTrailFrameData(
   materialIntensity = null,
   cacheSegmentLengths = materialIntensity !== null,
   sharedData = null,
+  workspace = null,
 )
 {
   if (!sharedData)
   {
-    // 重建时保留原来的求和顺序；GPU 当帧回退则补材质，不再次测量。
-    const measurement = measureTrail(points, cacheSegmentLengths);
-    const pointProgresses = measurement.distances.map((distanceAlongTrail) =>
-      measurement.totalLength > 0
-        ? distanceAlongTrail / measurement.totalLength
-        : 0);
-    const segmentProgresses = new Array(Math.max(0, points.length - 1));
-
+    sharedData = workspace ?? {};
+    releaseTrailGradients(sharedData);
+    sharedData.meshCache?.clear();
+    sharedData.gpuPointCache = null;
+    sharedData.version = (sharedData.version ?? 0) + 1;
+    sharedData.materialReady = false;
+    sharedData.pointCount = points.length;
+    sharedData.segmentCount = Math.max(0, points.length - 1);
+    // 数组长度保留工作容量；消费者只读取本次有效点/段，维持原求和顺序。
+    const measurement = measureTrail(points, cacheSegmentLengths, sharedData.measurement ??= {});
+    const pointProgresses = sharedData.pointProgresses ??= [];
+    const segmentProgresses = sharedData.segmentProgresses ??= [];
+    const pointCoverageFactors = sharedData.pointCoverageFactors ??= [];
+    const segmentCoverageFactors = sharedData.segmentCoverageFactors ??= [];
+    const coverageKeys = trailCfg.coverageLongitudinalKeys;
+    for (let index = 0; index < points.length; index++)
+    {
+      const progress = measurement.totalLength > 0 ? measurement.distances[index] / measurement.totalLength : 0;
+      pointProgresses[index] = progress;
+      pointCoverageFactors[index] = evaluateTrailLongitudinalCoverage(coverageKeys, progress);
+    }
     for (let index = 1; index < points.length; index++)
     {
-      segmentProgresses[index - 1] = measurement.totalLength > 0
-        ? (measurement.distances[index - 1] + measurement.distances[index]) *
-          0.5 / measurement.totalLength
-        : 0;
+      const progress = measurement.totalLength > 0
+        ? (measurement.distances[index - 1] + measurement.distances[index]) * 0.5 / measurement.totalLength : 0;
+      segmentProgresses[index - 1] = progress;
+      segmentCoverageFactors[index - 1] = evaluateTrailLongitudinalCoverage(coverageKeys, progress);
     }
-
-    const coverageKeys = trailCfg.coverageLongitudinalKeys;
-    sharedData = {
-      measurement,
-      pointProgresses,
-      segmentProgresses,
-      pointCoverageFactors: pointProgresses.map((progress) =>
-        evaluateTrailLongitudinalCoverage(coverageKeys, progress)),
-      segmentCoverageFactors: segmentProgresses.map((progress) =>
-        evaluateTrailLongitudinalCoverage(coverageKeys, progress)),
-    };
   }
+  if (materialIntensity === null) return sharedData;
+
   const { measurement, pointProgresses, segmentProgresses } = sharedData;
-
-  if (materialIntensity === null)
-  {
-    return sharedData;
-  }
-
-  const pointEnergies = [];
-  const pointTransverseProfiles = new Array(points.length);
-  const pointCoverageProfiles = new Array(points.length);
-  const segmentEnergies = [];
-  const segmentMaximumEnergies = [];
-  const segmentTransverseProfiles = [];
-  const segmentCoverageProfiles = [];
-  const textureLongitudinalKeys = trailCfg.textureLongitudinalKeys;
-
-  if (measurement.totalLength <= 0)
-  {
-    return {
-      ...sharedData,
-      pointEnergies,
-      pointTransverseProfiles,
-      pointCoverageProfiles,
-      segmentEnergies,
-      segmentMaximumEnergies,
-      segmentTransverseProfiles,
-      segmentCoverageProfiles,
-      textureLongitudinalKeys,
-    };
-  }
+  const pointEnergies = sharedData.pointEnergies ??= [];
+  const segmentEnergies = sharedData.segmentEnergies ??= [];
+  const segmentMaximumEnergies = sharedData.segmentMaximumEnergies ??= [];
+  const segmentTransverseProfiles = sharedData.segmentTransverseProfiles ??= [];
+  const segmentCoverageProfiles = sharedData.segmentCoverageProfiles ??= [];
+  sharedData.pointTransverseProfiles ??= [];
+  sharedData.pointCoverageProfiles ??= [];
+  sharedData.pointTransverseVersions ??= [];
+  sharedData.pointCoverageVersions ??= [];
+  sharedData.materialVersion = (sharedData.materialVersion ?? 0) + 1;
+  sharedData.materialReady = true;
+  const textureLongitudinalKeys = sharedData.textureLongitudinalKeys = trailCfg.textureLongitudinalKeys;
+  if (measurement.totalLength <= 0) return sharedData;
 
   for (let index = 0; index < points.length; index++)
   {
-    const progress = pointProgresses[index];
-
-    pointEnergies.push(
-      evaluateTrailLinearEnergy(
-        progress,
-        trailCfg,
-        materialIntensity,
-        textureLongitudinalKeys,
-      ),
-    );
+    evaluateTrailLinearEnergy(pointProgresses[index], trailCfg, materialIntensity,
+      textureLongitudinalKeys, pointEnergies[index] ??= [0, 0, 0]);
   }
-
   for (let index = 1; index < points.length; index++)
   {
-    const progress = segmentProgresses[index - 1];
-    const energy = evaluateTrailLinearEnergy(
-      progress,
-      trailCfg,
-      materialIntensity,
-      textureLongitudinalKeys,
-    );
-
-    segmentEnergies.push(energy);
-    // Bloom 的量化裁剪仍使用原规则，但必须覆盖端点插值的峰值。
-    segmentMaximumEnergies.push(
-      Math.max(
-        ...pointEnergies[index - 1],
-        ...energy,
-        ...pointEnergies[index],
-      ),
-    );
-    segmentTransverseProfiles.push(
-      evaluateTrailTransverseProfile(
-        progress,
-        trailCfg,
-        textureLongitudinalKeys,
-      ),
-    );
-    segmentCoverageProfiles.push(
-      evaluateTrailTextureCoverageProfile(progress),
-    );
+    const offset = index - 1;
+    const progress = segmentProgresses[offset];
+    const energy = evaluateTrailLinearEnergy(progress, trailCfg, materialIntensity,
+      textureLongitudinalKeys, segmentEnergies[offset] ??= [0, 0, 0]);
+    segmentMaximumEnergies[offset] = Math.max(...pointEnergies[offset], ...energy, ...pointEnergies[index]);
+    segmentTransverseProfiles[offset] = evaluateTrailTransverseProfile(progress, trailCfg,
+      textureLongitudinalKeys, segmentTransverseProfiles[offset]);
+    segmentCoverageProfiles[offset] = evaluateTrailTextureCoverageProfile(progress, undefined, segmentCoverageProfiles[offset]);
   }
-
-  return {
-    ...sharedData,
-    pointEnergies,
-    pointTransverseProfiles,
-    pointCoverageProfiles,
-    segmentEnergies,
-    segmentMaximumEnergies,
-    segmentTransverseProfiles,
-    segmentCoverageProfiles,
-    textureLongitudinalKeys,
-  };
+  return sharedData;
 }
 
 function evaluateTrailLinearEnergy(
@@ -4113,6 +4065,7 @@ function evaluateTrailLinearEnergy(
   trailCfg,
   materialIntensity,
   textureLongitudinalKeys = trailCfg.textureLongitudinalKeys,
+  output = [0, 0, 0],
 )
 {
   const textureIntensity = evaluateNumber(
@@ -4123,18 +4076,22 @@ function evaluateTrailLinearEnergy(
     progress,
     trailCfg,
     materialIntensity,
+    output,
   );
 
   // 原 Shader 先将线性顶点色与已解码的 Stretch 纹理相乘，再施加 _Intensity。
-  return materialColor.map((channel) => channel * textureIntensity);
+  for (let index = 0; index < 3; index++) output[index] = materialColor[index] * textureIntensity;
+  return output;
 }
 
-function evaluateTrailMaterialColor(progress, trailCfg, materialIntensity)
+function evaluateTrailMaterialColor(progress, trailCfg, materialIntensity, output = [0, 0, 0])
 {
   // Gradient 已按网页的旧点到新点顺序反转；纹理 U 的反向由 WebGL 顶点处理。
   return colorToLinearEnergy(
-    interpolateTrailColor(progress, trailCfg),
+    evaluateColor(trailCfg.gradient, progress, output),
     materialIntensity,
+    false,
+    output,
   );
 }
 
@@ -4142,13 +4099,21 @@ function evaluateTrailTransverseProfile(
   progress,
   trailCfg,
   textureLongitudinalKeys = trailCfg.textureLongitudinalKeys,
+  profile = [],
 )
 {
+  const pairs = profile.pairs ??= [];
+  const writePoint = (index, position, value) =>
+  {
+    const pair = pairs[index] ??= [0, 0];
+    pair[0] = position; pair[1] = value; profile[index] = pair;
+  };
   const keys = trailCfg.textureTransverseProfileKeys;
 
   if (!Array.isArray(keys) || keys.length === 0)
   {
-    return [[0, 1], [1, 1]];
+    writePoint(0, 0, 1); writePoint(1, 1, 1); profile.length = 2;
+    return profile;
   }
 
   const t = clamp01(progress);
@@ -4185,8 +4150,11 @@ function evaluateTrailTransverseProfile(
     textureLongitudinalKeys,
     t,
   );
-  const centerToEdge = previous[1].map((value, index) =>
+  const centerToEdge = profile.centerToEdge ??= [];
+  centerToEdge.length = previous[1].length;
+  for (let index = 0; index < previous[1].length; index++)
   {
+    const value = previous[1][index];
     const previousEnergy = value * previousCenter;
     const currentEnergy = current[1][index] * currentCenter;
     const absoluteEnergy = lerp(
@@ -4196,32 +4164,23 @@ function evaluateTrailTransverseProfile(
     );
 
     // 分别插值绝对纹理能量，最后再恢复相对中心值，等价于二维双线性采样。
-    return interpolatedCenter > 0.0000001
+    centerToEdge[index] = interpolatedCenter > 0.0000001
       ? clamp01(absoluteEnergy / interpolatedCenter)
       : 0;
-  });
+  }
   const edgeIndex = centerToEdge.length - 1;
-  const profile = [];
+  let count = 0;
 
   for (let index = edgeIndex; index >= 0; index--)
   {
-    profile.push(
-      [
-        (edgeIndex - index) / (edgeIndex * 2),
-        centerToEdge[index],
-      ],
-    );
+    writePoint(count++, (edgeIndex - index) / (edgeIndex * 2), centerToEdge[index]);
   }
 
   for (let index = 1; index <= edgeIndex; index++)
   {
-    profile.push(
-      [
-        0.5 + index / (edgeIndex * 2),
-        centerToEdge[index],
-      ],
-    );
+    writePoint(count++, 0.5 + index / (edgeIndex * 2), centerToEdge[index]);
   }
+  profile.length = count;
 
   return profile;
 }
@@ -4496,7 +4455,7 @@ function getTrailGradientGroup(mesh, context, data, trailCfg, layer, opacity)
   // 未知变换的轻量 Context 保持原路径；真实 Canvas 以当前变换和尺寸识别渐变。
   if (!layer.gradientPurpose || typeof context.getTransform !== 'function') return null;
   const transform = context.getTransform();
-  const signature = [data.pointEnergies, data.segmentEnergies, data.pointTransverseProfiles,
+  const signature = [data.version, data.materialVersion, data.pointEnergies, data.segmentEnergies, data.pointTransverseProfiles,
     data.segmentTransverseProfiles, data.pointCoverageProfiles, data.segmentCoverageProfiles,
     trailCfg, themeHueShift, relativeOklchTheme, opacity, layer.alpha, layer.materialIntensity,
     layer.outputCompositing, layer.overlayColorCompensation, layer.overlayAlphaLimit,
@@ -4677,7 +4636,7 @@ function resolveTrailPointTransverseProfile(
 {
   const profiles = trailData.pointTransverseProfiles;
 
-  if (profiles?.[pointIndex])
+  if (profiles?.[pointIndex] && trailData.pointTransverseVersions?.[pointIndex] === trailData.materialVersion)
   {
     return profiles[pointIndex];
   }
@@ -4687,12 +4646,14 @@ function resolveTrailPointTransverseProfile(
       trailData.measurement.totalLength,
     trailCfg,
     trailData.textureLongitudinalKeys,
+    profiles?.[pointIndex],
   );
 
   // 端帽可能被 Native 与清晰层重复使用；按实际点索引只求值一次。
   if (profiles)
   {
     profiles[pointIndex] = profile;
+    (trailData.pointTransverseVersions ??= [])[pointIndex] = trailData.materialVersion;
   }
 
   return profile;
@@ -4721,7 +4682,7 @@ function resolveTrailPointCoverageProfile(trailData, pointIndex)
 {
   const profiles = trailData.pointCoverageProfiles;
 
-  if (profiles?.[pointIndex])
+  if (profiles?.[pointIndex] && trailData.pointCoverageVersions?.[pointIndex] === trailData.version)
   {
     return profiles[pointIndex];
   }
@@ -4729,11 +4690,12 @@ function resolveTrailPointCoverageProfile(trailData, pointIndex)
   const progress = trailData.pointProgresses?.[pointIndex] ??
     trailData.measurement.distances[pointIndex] /
       trailData.measurement.totalLength;
-  const profile = evaluateTrailTextureCoverageProfile(progress);
+  const profile = evaluateTrailTextureCoverageProfile(progress, undefined, profiles?.[pointIndex]);
 
   if (profiles)
   {
     profiles[pointIndex] = profile;
+    (trailData.pointCoverageVersions ??= [])[pointIndex] = trailData.version;
   }
 
   return profile;
@@ -4904,11 +4866,12 @@ function hasDrawableNativeTrailEnergy(trailData, trailCfg)
 {
   const segmentLengths = trailData.measurement.segmentLengths;
   const segmentEnergies = trailData.segmentEnergies;
+  const pointCount = trailData.pointCount ?? segmentLengths?.length;
 
   if (
     !segmentLengths ||
     !Array.isArray(segmentEnergies) ||
-    segmentLengths.length !== segmentEnergies.length + 1
+    segmentLengths.length < pointCount || segmentEnergies.length < pointCount - 1
   )
   {
     // 缓存不完整时无法证明透明，继续绘制以兼容外部传入的帧数据。
@@ -4918,7 +4881,7 @@ function hasDrawableNativeTrailEnergy(trailData, trailCfg)
   let startCapPointIndex = null;
   let endCapPointIndex = null;
 
-  for (let index = 1; index < segmentLengths.length; index++)
+  for (let index = 1; index < pointCount; index++)
   {
     if (segmentLengths[index] <= MIN_TRAIL_SEGMENT_LENGTH)
     {
@@ -4997,9 +4960,15 @@ function drawNativeTrailBloom(
   }
 
   // 只裁剪 Unity Stretch 的零能量前缀；宿主自定义可见 start cap 时保留完整范围。
-  const firstVisibleSegmentOffset = trailData.segmentEnergies.findIndex(
-    (energy) => energy.some((channel) => channel !== 0),
-  );
+  let firstVisibleSegmentOffset = -1;
+  for (let index = 0; index < (trailData.segmentCount ?? trailData.segmentEnergies.length); index++)
+  {
+    if (trailData.segmentEnergies[index].some(channel => channel !== 0))
+    {
+      firstVisibleSegmentOffset = index;
+      break;
+    }
+  }
   const startCapIsTransparent = trailData.pointEnergies[0]?.every(
     (channel) => channel === 0,
   ) === true;
@@ -6283,6 +6252,38 @@ export class BAClickFX extends ConfigRuntime
   }
 
   _renderFrame(now)
+  {
+    // 只有同实例嵌套帧隔离工作区；常规移动帧不复制数组或快照。
+    const nested = BUILD_TRAIL && this._trailRenderDepth > 0;
+    const saved = nested ? this.trailStrokes.map(stroke =>
+      ({ stroke, data: stroke.trailFrameData, cache: stroke.trailFrameCache, work: stroke.trailWork })) : null;
+    if (saved)
+    {
+      for (const { stroke } of saved)
+        stroke.trailFrameData = stroke.trailFrameCache = stroke.trailWork = null;
+    }
+    this._trailRenderDepth = (this._trailRenderDepth ?? 0) + 1;
+    try
+    {
+      return this._renderFrameBody(now);
+    }
+    finally
+    {
+      this._trailRenderDepth--;
+      for (const entry of saved ?? [])
+      {
+        const { stroke, data, cache, work } = entry;
+        releaseTrailGradients(stroke.trailWork);
+        const retain = !this.destroyed && this.trailStrokes.includes(stroke) && getTrailRenderPoints(stroke).length >= 2;
+        stroke.trailFrameData = retain ? data : null;
+        stroke.trailFrameCache = retain ? cache : null;
+        stroke.trailWork = retain ? work : null;
+        if (!retain) releaseTrailGradients(work);
+      }
+    }
+  }
+
+  _renderFrameBody(now)
   {
     // 同步通知允许重入；外层范围一旦被打断，不能恢复成仍然有效的缓存。
     this._invalidateCanvasBoundsScope();
@@ -8725,7 +8726,8 @@ export class BAClickFX extends ConfigRuntime
     if (!data)
     {
       releaseTrailGradients(stroke.trailFrameData);
-      data = createTrailFrameData(getTrailRenderPoints(stroke), this.fxConfig.trail, materialIntensity, true);
+      data = createTrailFrameData(getTrailRenderPoints(stroke), this.fxConfig.trail, materialIntensity, true, null, stroke.trailWork);
+      stroke.trailWork = data;
       stroke.trailFrameCache = {
         points: getTrailRenderPoints(stroke),
         pointsVersion: stroke.pointsVersion,
@@ -8738,7 +8740,7 @@ export class BAClickFX extends ConfigRuntime
       };
     }
     else if (materialIntensity !== null &&
-      (cached.materialIntensity !== materialIntensity || !Array.isArray(data.segmentEnergies)))
+      (cached.materialIntensity !== materialIntensity || !data.materialReady))
     {
       // 几何缓存可跨后端复用，材质只在 Canvas 路径确实需要时补齐。
       data = createTrailFrameData(getTrailRenderPoints(stroke), this.fxConfig.trail, materialIntensity, true, data);
@@ -8760,6 +8762,7 @@ export class BAClickFX extends ConfigRuntime
       for (const stroke of this.trailStrokes)
       {
         invalidateTrailPoints(stroke);
+        stroke.trailWork = null;
       }
     }
     this.trailStrokes.length = 0;
@@ -8799,6 +8802,7 @@ export class BAClickFX extends ConfigRuntime
         releaseTrailGradients(stroke.trailFrameData);
         stroke.trailFrameData = null;
         stroke.trailFrameCache = null;
+        stroke.trailWork = null;
       }
       if (!stroke.active && getTrailRenderPoints(stroke).length < 2)
       {

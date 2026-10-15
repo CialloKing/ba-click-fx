@@ -90,21 +90,23 @@ function sampleTrailTextureCoverage(u, v)
 export function evaluateTrailTextureCoverageProfile(
   progress,
   sampleCount = DEFAULT_PROFILE_SAMPLE_COUNT,
+  profile = [],
 )
 {
   const count = Math.max(2, Math.floor(sampleCount));
   const u = 1 - clamp01(progress);
-  const profile = new Array(count);
+  const pairs = profile.pairs ??= [];
+  profile.length = count;
 
   for (let index = 0; index < count; index++)
   {
     const position = index / (count - 1);
 
     // Canvas fromLeft maps to WebGL V=1; retain the original asymmetric mask.
-    profile[index] = [
-      position,
-      sampleTrailTextureCoverage(u, 1 - position),
-    ];
+    const pair = pairs[index] ??= [0, 0];
+    pair[0] = position;
+    pair[1] = sampleTrailTextureCoverage(u, 1 - position);
+    profile[index] = pair;
   }
 
   return profile;

@@ -6425,7 +6425,8 @@ const budgetPointProfileIndices = [];
 geometryEffect.currentTrailStroke.trailFrameData.pointTransverseProfiles
   .forEach((profile, index) =>
   {
-    if (profile)
+    if (profile && geometryEffect.currentTrailStroke.trailFrameData.pointTransverseVersions[index] ===
+      geometryEffect.currentTrailStroke.trailFrameData.materialVersion)
     {
       budgetPointProfileIndices.push(index);
     }
@@ -6507,7 +6508,8 @@ const repeatedEndpointSegmentLengths = geometryEffect.currentTrailStroke
 geometryEffect.currentTrailStroke.trailFrameData.pointTransverseProfiles
   .forEach((profile, index) =>
   {
-    if (profile)
+    if (profile && geometryEffect.currentTrailStroke.trailFrameData.pointTransverseVersions[index] ===
+      geometryEffect.currentTrailStroke.trailFrameData.materialVersion)
     {
       repeatedEndpointProfileIndices.push(index);
     }
@@ -6516,7 +6518,7 @@ geometryEffect.currentTrailStroke.trailFrameData.pointTransverseProfiles
 assert(
   JSON.stringify(repeatedEndpointProfileIndices) ===
       JSON.stringify([1, 3]) &&
-    JSON.stringify(repeatedEndpointSegmentLengths) ===
+    JSON.stringify(repeatedEndpointSegmentLengths.slice(0, 5)) ===
       JSON.stringify([0, 0, 60, 60, 0]) &&
     repeatedEndpointGeometry.paths.length === 4 &&
     JSON.stringify(repeatedEndpointGeometry.paths) ===
@@ -6690,18 +6692,19 @@ assert(cachedMeasurements === 0 && cachedStroke.trailFrameData === initialTrailD
   '点集未变且未过期的连续帧不重新测量或分配拖尾数据');
 trailCacheEffect._drawCanvasTrails(1, false);
 const materialData = cachedStroke.trailFrameData;
+const materialSnapshot = JSON.stringify(materialData.segmentEnergies);
 trailCacheEffect._getTrailFrameData(cachedStroke, trailCacheEffect.fxConfig.bloom.trailEmission * 2);
 assert(cachedStroke.trailFrameData.measurement === materialData.measurement &&
-  JSON.stringify(cachedStroke.trailFrameData.segmentEnergies) !== JSON.stringify(materialData.segmentEnergies),
+  JSON.stringify(cachedStroke.trailFrameData.segmentEnergies) !== materialSnapshot,
   '材质强度变化只重建材质，保留测量与覆盖率数据');
-let previousTrailData = cachedStroke.trailFrameData;
+let previousTrailVersion = cachedStroke.trailFrameData.version;
 trailCacheEffect.setFxParam('trail.width', 9);
 trailCacheEffect._updateTrail(30, 1, false, false, true);
-assert(cachedStroke.trailFrameData !== previousTrailData, '特效参数提交后重建轨迹缓存');
-previousTrailData = cachedStroke.trailFrameData;
+assert(cachedStroke.trailFrameData.version > previousTrailVersion, '特效参数提交后重建轨迹缓存');
+previousTrailVersion = cachedStroke.trailFrameData.version;
 trailCacheEffect.setThemeColor('#ff6600');
 trailCacheEffect._renderFrame(30);
-assert(cachedStroke.trailFrameData !== previousTrailData, '主题变化后的实际渲染重建轨迹材质');
+assert(cachedStroke.trailFrameData.version > previousTrailVersion, '主题变化后的实际渲染重建轨迹材质');
 const pausedData = cachedStroke.trailFrameData;
 cacheDom.setCurrentTime(30);
 trailCacheEffect.setPaused(true);
@@ -6720,12 +6723,13 @@ trailCacheEffect.pointerMove({ x: 110, y: 70, pointerId: 11 });
 const appendedStroke = trailCacheEffect.currentTrailStroke;
 trailCacheEffect._updateTrail(trailCacheEffect.trailTimeMs, 1, false, false, true);
 const beforeAppend = appendedStroke.trailFrameData;
+const beforeAppendDataVersion = beforeAppend.version;
 const beforeVersion = appendedStroke.pointsVersion;
 cacheDom.setCurrentTime(150);
 trailCacheEffect.pointerMove({ x: 180, y: 130, pointerId: 11 });
 trailCacheEffect._updateTrail(trailCacheEffect.trailTimeMs, 1, false, false, true);
-assert(appendedStroke.pointsVersion > beforeVersion && appendedStroke.trailFrameData !== beforeAppend,
-  '有效移动追加轨迹点后重建缓存');
+assert(appendedStroke.pointsVersion > beforeVersion && appendedStroke.trailFrameData === beforeAppend && appendedStroke.trailFrameData.version > beforeAppendDataVersion,
+  '有效移动覆写同一工作区并更新版本');
 const beforeExpiry = appendedStroke.points.length;
 const cutoff = appendedStroke.points[0].bornAt + trailCacheEffect.fxConfig.trail.lifetimeMs + 1;
 trailCacheEffect._updateTrail(cutoff, 1, false, false, true);

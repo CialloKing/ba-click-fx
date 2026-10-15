@@ -1113,4 +1113,42 @@ assert.equal(fx.destroyed, true, '源码入口可以销毁实例');
   assert.equal(module.ringWork.stopPreparations, stopPreparations + 2, '独立调用不跨帧缓存颜色');
 }
 
+// 容量只属于轨迹；同实例嵌套帧不能覆写外层正在使用的数组。
+{
+  const stroke = { points: [{ x: 0, y: 0 }, { x: 20, y: 0 }], pointsVersion: 1 };
+  const owner = Object.create(BAClickFX.prototype);
+  Object.assign(owner, { trailStrokes: [stroke], fxConfig: fx.fxConfig, _fxConfigVersion: 0, _themeVersion: 0 });
+  const first = owner._getTrailFrameData(stroke, 1);
+  const distances = first.measurement.distances, energies = first.pointEnergies;
+  const energy = energies[1], profile = first.segmentTransverseProfiles[0];
+  let nested = false;
+  owner._renderFrameBody = () =>
+  {
+    if (!nested)
+    {
+      nested = true;
+      stroke.points[1].x = 40;
+      stroke.pointsVersion++;
+      owner._renderFrame(0);
+      assert.equal(stroke.trailWork, first);
+      assert.equal(distances[1], 20, '嵌套帧不覆写外层测量');
+    }
+    else
+    {
+      const inner = owner._getTrailFrameData(stroke, 1);
+      assert.notEqual(inner, first);
+      assert.equal(inner.measurement.distances[1], 40);
+    }
+  };
+  owner._renderFrame(0);
+  const updated = owner._getTrailFrameData(stroke, 2);
+  assert.equal(updated, first);
+  assert.equal(distances[1], 40);
+  assert.equal(updated.pointEnergies, energies);
+  assert.equal(updated.pointEnergies[1], energy);
+  assert.equal(updated.segmentTransverseProfiles[0], profile);
+  owner._clearTrailStrokes();
+  assert.equal(stroke.trailWork, null);
+}
+
 console.log('\n源码入口与资源合同通过');
