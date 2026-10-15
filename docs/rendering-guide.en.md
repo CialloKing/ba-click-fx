@@ -192,6 +192,10 @@ Full WebGL2, WebGPU, WebGL2 Bloom, and their custom builds allocate Coverage onl
 
 Each instance schedules one 30-second timer when no effects remain active and GPU intermediate targets are still held. Cleanup releases intermediate textures, per-level uniforms, and associated binding caches while retaining pipelines/programs, static textures, and background sources. `clear()` clears the output immediately and starts the timer; resumed interaction cancels it, a paused visible frame retains its resources, and `destroy()` cancels the timer and destroys the instance. Idle cleanup preserves Canvas dimensions, WebGPU presentation configuration, and public backend status. It adds no animation loop or configuration and does not restart failed backends. The first frame after cleanup pays the resource reconstruction cost; this does not guarantee a frame-rate improvement.
 
+WebGPU compositing references finish uploading the candidate texture and creating its view before replacing old resources. A synchronous failure preserves the previous background and bindings. If material upload throws synchronously, the creation path immediately destroys the texture that has not yet been registered with the Renderer.
+
+Moving trails retain growable working capacity per stroke for measurements, materials, meshes, and GPU point samples. Data versions trigger recomputation after movement, clipping, or theme changes while preserving colors and geometry. Instances own separate workspaces; nested frames on the same instance use temporary workspaces. Full expiry, clearTrail(), clear(), and destroy() release references. The four-entry mesh cache remains bounded. This does not reclaim peak dynamic GPU geometry capacity or skip stationary vertex uploads.
+
 ## Effects
 
 ### Click FX

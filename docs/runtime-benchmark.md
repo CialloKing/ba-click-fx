@@ -86,3 +86,22 @@ npm run test:browser:software-optimization -- --benchmark --baseline=test-result
 缓存容量按实例持有的 ArrayBuffer 字节数、工作 Canvas 像素数及辅助缓冲分别记录，
 解除引用不等同于浏览器立即降低进程内存。显式性能运行保留 90 帧混合交互样本，
 另记录七轮 clear 后首帧和每轮 20 个稳定帧的耗时与分配次数；首帧包括同步资源重建。
+
+
+移动拖尾专项复用浏览器夹具，覆盖完整 WebGL2、WebGPU、WebGL2 Bloom、Native、Software，
+以及完整与定制 GPU Worker。测试持续移动、部分裁切、暂停、主题/端帽/缩放变化及完全过期，
+统计首次 60 帧的不同工作对象；预热至 240 帧后，检查后续 120 帧的工作容量不再增长。
+计数针对受控工作数组、网格段、GPU 点样本及边界点，不代表整个运行时没有分配。
+
+```sh
+npm run test:browser:trail-work
+npm run test:browser:trail-work -- --baseline=test-results/round2-baseline-7929389
+# 采样独立运行；五轮交替顺序，预热 360 帧后测量 600 帧。
+npm run test:browser:trail-work -- --benchmark --baseline=test-results/round2-baseline-7929389
+```
+
+结果分别写入 `test-results/trail-work/results.json` 与 `benchmark.json`。基线目录使用前先验证
+主入口和相关定制产物的 SHA-256，不用候选构建覆盖旧文件。计时包含输入更新与同步帧构建/提交，
+不遍历工作对象；每帧在计时外等待 GPU 完成，避免批量提交积压。GC 记录来自 Chromium trace 的同渲染进程 MinorGC/MajorGC 事件，报告保留原始
+帧耗时、GC 事件及可用的堆快照读数。跟踪开销对两组相同，数据不代表 GPU 完成时间或显示帧率。
+保留容量用有效点数、距离/样本槽位与网格数表示；堆读数不等于工作区大小，也不等于物理显存。

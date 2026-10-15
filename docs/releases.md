@@ -20,7 +20,7 @@ npm run test:browser:zopfli -- --release-assets
 
 `release:prepare` 从当前源码重新构建两种产物，写入 `dist-release`，验证 ZIP 内容并生成 SHA256SUMS。`test:browser:slim -- --release-assets` 检查实际待上传的 JS。`build-info.json` 记录版本、提交与工作区状态；正式标签的源码必须已提交且工作区干净。实验报告不进入附件。
 
-完整版、精简版与普通定制构建默认使用 Zopfli（15 次迭代），运行时内嵌 fflate 同步解码。完整版保留 512² 与全部接口和后端，精简版保留 128² 预设。构建信息记录编码、尺寸和压缩参数；发布准备要求 Zopfli、主入口与 Worker 一致、许可证完整，且 raw/gzip/Brotli 均小于已核验的 v1.3.11 正式附件。`test:browser:zopfli` 将两版实际待上传 JS 与这个独立基线逐字节比较；必需检查不能跳过。
+完整版、精简版与普通定制构建默认使用 Zopfli（15 次迭代），运行时内嵌 fflate 同步解码。完整版保留 512² 与全部接口和后端，精简版保留 128² 预设。构建信息记录编码、尺寸和压缩参数；发布准备要求 Zopfli、主入口与 Worker 一致及许可证完整。raw/gzip/Brotli 与 SHA-256 已核验的 v1.3.11 正式附件比较，只报告当前字节数、增减字节和百分比，不设置大小上限。`test:browser:zopfli` 对两版实际待上传 JS 与这个独立基线执行四场景逐字节像素对照；资源、类型、像素和哈希失败仍阻断验收，必需检查不能跳过。
 
 Zopfli 会增加构建时间，显式运行 `npm run benchmark:codecs` 分别记录冷构建、解码、导入和初始化及本机测量范围。交付前先提交全部修改，再从干净工作区重新生成附件。实验分支的发布准备与后续合并、标签、正式发布分开进行，npm 发布也单独处理。
 
