@@ -329,8 +329,55 @@ function verifyMaterialUploadFailure()
   assert.deepEqual(renderer.textures, {}, '失败纹理不登记到 Renderer');
 }
 
+async function verifyReferenceReplacementFailures()
+{
+  for (const stage of ['create', 'upload', 'view'])
+  {
+    const renderer = new WebGPUEffectRenderer(createCanvas(() => null), { gpu: {} });
+    await renderer.ready;
+    const resource = () => ({ destroys: 0, destroy() { this.destroys++; } });
+    const oldTexture = resource(), candidate = resource(), oldView = {}, newView = {};
+    const oldSource = { width: 32, height: 32 }, newSource = { width: 64, height: 64 };
+    let fail = true;
+    const check = operation => { if (fail && operation === stage) throw Error('injected reference failure'); };
+    Object.assign(renderer, { available: true, sceneBackgroundTexture: oldTexture,
+      sceneBackgroundView: oldView, sceneBackgroundSource: oldSource,
+      sceneBackgroundWidth: 32, sceneBackgroundHeight: 32,
+      device: { createTexture() { check('create'); return candidate; },
+        queue: { copyExternalImageToTexture() { check('upload'); } } } });
+    candidate.createView = () => { check('view'); return newView; };
+    renderer.bindGroups.set('reference', { sources: [oldView] });
+    const warn = console.warn;
+    try
+    {
+      console.warn = () => {};
+      assert.equal(renderer.setCompositingReference(newSource), false);
+    }
+    finally { console.warn = warn; }
+    assert.equal(renderer.sceneBackgroundTexture, oldTexture);
+    assert.equal(renderer.sceneBackgroundView, oldView);
+    assert.equal(renderer.sceneBackgroundSource, oldSource);
+    assert.equal(renderer.sceneBackgroundWidth, 32);
+    assert.equal(renderer.sceneBackgroundHeight, 32);
+    assert(renderer.bindGroups.has('reference'), '失败不失效旧背景绑定');
+    assert.equal(oldTexture.destroys, 0);
+    assert.equal(candidate.destroys, stage === 'create' ? 0 : 1);
+    fail = false;
+    candidate.destroys = 0; // 下一次工厂调用代表新的候选资源。
+    assert.equal(renderer.setCompositingReference(newSource), true);
+    assert.equal(renderer.sceneBackgroundTexture, candidate);
+    assert.equal(renderer.sceneBackgroundView, newView);
+    assert.equal(renderer.sceneBackgroundSource, newSource);
+    assert.equal(oldTexture.destroys, 1);
+    assert(!renderer.bindGroups.has('reference'));
+    renderer.destroy(); renderer.destroy();
+    assert.equal(candidate.destroys, 1, '成功替换后的资源由 Renderer 一次销毁');
+  }
+}
+
 try
 {
+  await verifyReferenceReplacementFailures();
   verifyMaterialUploadFailure();
   verifyTargetAllocationFailures();
   await verifyResourceReuse();

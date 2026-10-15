@@ -1276,10 +1276,13 @@ export class WebGPUEffectRenderer extends EffectGeometry
           height: this.sceneBackgroundHeight,
         },
       );
+      // 所有可能失败的候选创建完成后才交接，拒绝更新时旧背景仍可绘制。
+      const view = texture.createView();
+      const previousTexture = this.sceneBackgroundTexture;
       this._invalidateBindGroups(this.sceneBackgroundView);
-      this.sceneBackgroundTexture?.destroy?.();
       this.sceneBackgroundTexture = texture;
-      this.sceneBackgroundView = texture.createView();
+      this.sceneBackgroundView = view;
+      previousTexture?.destroy?.();
       return true;
     }
     catch (error)
