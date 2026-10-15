@@ -69,9 +69,10 @@ try
       {
         const finished = new Promise(done => session.once('Tracing.tracingComplete', done));
         await session.send('Tracing.end'); await finished;
-        const start = trace.find(event => event.name === 'trail-measure-start')?.ts;
+        const startEvent = trace.find(event => event.name === 'trail-measure-start');
+        const start = startEvent?.ts;
         const end = trace.find(event => event.name === 'trail-measure-end')?.ts;
-        const events = trace.filter(event => ['MinorGC', 'MajorGC'].includes(event.name) && event.ph === 'X' && event.ts >= start && event.ts < end);
+        const events = trace.filter(event => event.pid === startEvent?.pid && ['MinorGC', 'MajorGC'].includes(event.name) && event.ph === 'X' && event.ts >= start && event.ts < end);
         result.trailWork.gc = { measured: Number.isFinite(start) && Number.isFinite(end),
           count: events.length, durationMs: events.reduce((sum, event) => sum + (event.dur ?? 0) / 1000, 0), events };
         await session.detach(); session = null;

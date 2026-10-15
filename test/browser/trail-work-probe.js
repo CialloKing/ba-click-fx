@@ -64,18 +64,27 @@ export async function probeTrailWork(fx, render, capture, full, benchmark = fals
   for (let frame = 60; frame < warmEnd; frame++) { move(frame); work.visit(fx.currentTrailStroke?.trailFrameData); }
   const warm = { ...work.counts };
   const frameMs = [];
+  const gpu = fx.webgpuEffectRenderer?.available ? fx.webgpuEffectRenderer : null;
+  const gl = fx.webglEffectRenderer?.gl;
   const heapBefore = benchmark ? performance.memory?.usedJSHeapSize ?? null : null;
   if (benchmark) performance.mark('trail-measure-start');
   for (let frame = warmEnd; frame < measuredEnd; frame++)
   {
     const start = benchmark ? realNow() : 0;
     move(frame);
-    if (benchmark) frameMs.push(realNow() - start);
+    if (benchmark)
+    {
+      frameMs.push(realNow() - start);
+      // 完成等待不计入 CPU 样本，避免批量提交的队列积压改变下一帧成本。
+      if (gpu) await gpu.device.queue.onSubmittedWorkDone();
+      else gl?.finish();
+    }
     else work.visit(fx.currentTrailStroke?.trailFrameData);
   }
   if (benchmark) performance.mark('trail-measure-end');
   const heapAfter = benchmark ? performance.memory?.usedJSHeapSize ?? null : null;
-  const growth = Object.fromEntries(Object.keys(warm).map(key => [key, work.counts[key] - warm[key]]));
+  // 计时阶段不遍历对象；未采样的分配增量不能报告为零。
+  const growth = benchmark ? null : Object.fromEntries(Object.keys(warm).map(key => [key, work.counts[key] - warm[key]]));
   const stroke = fx.currentTrailStroke;
   const retained = { points: stroke?.trailFrameData?.pointCount ?? stroke?.renderPoints?.length,
     distanceCapacity: stroke?.trailFrameData?.measurement.distances.length,
