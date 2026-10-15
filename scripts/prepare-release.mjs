@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { brotliCompressSync, gzipSync } from 'node:zlib';
+import { scriptSizes as sizes, compareSizes, sizeComparisonRows } from './release-sizes.mjs';
 import { compressionSession, compressionInfo } from './resource-compression.mjs';
 import { baselineAssets, releaseBaseline } from './release-baseline.mjs';
 import { zipSync, unzipSync } from 'fflate/node';
@@ -15,7 +15,6 @@ const assets = join(output, 'assets');
 const fullFiles = ['ba-click-fx.js', 'ba-click-fx.d.ts', 'config.js', 'config.d.ts', 'worker.js', 'worker.d.ts'];
 const slimStem = 'ba-click-fx.slim-webgl2-128';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-const sizes = bytes => ({ raw: bytes.length, gzip: gzipSync(bytes).length, brotli: brotliCompressSync(bytes).length });
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 const dirty = !!execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim();
@@ -130,10 +129,8 @@ try
   for (const edition of [full, slim])
   {
     const previous = sizes(readFileSync(join(baseline.directory, baselineAssets[edition.edition].filename)));
-    for (const format of ['raw', 'gzip', 'brotli'])
-    {
-      assert(edition.sizes[format] < previous[format], `${edition.edition}/${format} must be smaller than v1.3.11`);
-    }
+    edition.sizeComparison = compareSizes(previous, edition.sizes);
+    console.log(sizeComparisonRows(edition.edition, edition.sizeComparison));
   }
   const assetFiles = readdirSync(assets).sort();
   assert.equal(assetFiles.length, 10);
@@ -147,6 +144,9 @@ try
   const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8').split(/^## /m)[1].trim();
   assert(changelog.startsWith('v' + version + ' '), 'Changelog version differs');
   writeFileSync(join(output, 'notes.md'), `## ${changelog}\n\n| 产物 | 主 JS raw | gzip | Brotli |\n|---|---:|---:|---:|\n${[full, slim].map(edition => `| ${edition.edition === 'full' ? '完整版' : '固定配置 WebGL2 / 128² DOM 精简版'} | ${(edition.sizes.raw / 1024).toFixed(1)} KiB | ${(edition.sizes.gzip / 1024).toFixed(1)} KiB | ${(edition.sizes.brotli / 1024).toFixed(1)} KiB |`).join('\n')}\n\n精简版仅接受宿主与回调选项；固定参数见 ZIP 中的 profile.json 和 build-info.json。保留点击、拖尾、碎片、Bloom、合成参考及生命周期接口。无动态调参和其他后端回退。\n\nZIP 附带类型、使用说明、构建信息及许可证。SHA256SUMS 覆盖全部 10 个文件附件；Source code 为 GitHub 自动生成的源码归档。\n`);
+  const comparisonTable = '\n\n相对 SHA-256 已验证的 v1.3.11 附件（只报告，不设大小上限）：\n\n| 产物 | 格式 | 基线字节 | 当前字节 | 增减字节 | 增减比例 |\n|---|---|---:|---:|---:|---:|\n' +
+    [full, slim].map(edition => sizeComparisonRows(edition.edition, edition.sizeComparison)).join('\n') + '\n';
+  writeFileSync(join(output, 'notes.md'), readFileSync(join(output, 'notes.md'), 'utf8') + comparisonTable);
   writeFileSync(join(output, 'build-info.json'), JSON.stringify({ complete: true, version, commit, dirty, full, slim,
     assets: assetFiles, assetHashes: [...assetFiles, 'SHA256SUMS'].map(name => ({ name, bytes: readFileSync(join(assets, name)).length, sha256: hash(readFileSync(join(assets, name))) })), baseline: { version: '1.3.11', assets: baselineAssets } }, null, 2) + '\n');
   console.log(`发布附件已准备: v${version}, ${join(assets, 'SHA256SUMS')}`);

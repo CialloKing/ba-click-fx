@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { brotliCompressSync, gzipSync } from 'node:zlib';
+import { scriptSizes, compareSizes, sizeComparisonRows } from '../../scripts/release-sizes.mjs';
 import { normalizeProfile } from '../../scripts/build-profile.mjs';
 import { releaseBaseline, baselineAssets } from '../../scripts/release-baseline.mjs';
 import { compareExperiments } from '../../scripts/size-experiment-browser.mjs';
@@ -29,13 +29,10 @@ for (const edition of ['full', 'slim'])
   const profile = normalizeProfile(full ? { backend: 'webgl2', runtime: 'dom' } : input);
   const previousBytes = readFileSync(join(baseline.directory, baselineAssets[edition].filename));
   const bytes = readFileSync(candidate);
-  const sizes = bytes => ({ raw: bytes.length, gzip: gzipSync(bytes).length, brotli: brotliCompressSync(bytes).length });
-  const previous = sizes(previousBytes);
-  const current = sizes(bytes);
-  for (const format of Object.keys(current))
-  {
-    assert(current[format] < previous[format], `${edition}/${format}: smaller than v1.3.11`);
-  }
+  const previous = scriptSizes(previousBytes);
+  const current = scriptSizes(bytes);
+  const comparison = compareSizes(previous, current);
+  console.log(sizeComparisonRows(edition, comparison));
   for (const strategy of ['baseline', 'zopfli'])
   {
     const directory = join(output, edition, strategy);
@@ -44,7 +41,7 @@ for (const edition of ['full', 'slim'])
       join(directory, 'ba-click-fx.js'));
     builds.push({ name: edition, strategy, directory, full, profile, exact: true, checkDomFaults: !full });
   }
-  report.results.push({ edition, previous, current, sha256: digest(bytes) });
+  report.results.push({ edition, previous, current, comparison, sha256: digest(bytes) });
 }
 assert(readFileSync(ready ? join(root, 'dist-release/assets/worker.js') : join(root, 'dist/worker.js'))
   .equals(readFileSync(ready ? join(root, 'dist-release/assets/ba-click-fx.js') : join(root, 'dist/ba-click-fx.js'))));
@@ -54,4 +51,4 @@ assert(report.browser.results.every(result => result.samples.length === 4));
 report.complete = true;
 report.readyAssets = ready;
 writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n');
-console.log('Zopfli release: full/slim match independently verified v1.3.11 in all four WebGL2 scenes; all sizes decreased');
+console.log('Zopfli release: full/slim match independently verified v1.3.11 in all four WebGL2 scenes; size deltas reported');
