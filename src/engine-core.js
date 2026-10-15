@@ -4208,21 +4208,22 @@ function createTrailMesh(
   const caps = mesh.caps ??= [];
   const pool = mesh.segmentPool ??= [];
   const capPool = mesh.capPool ??= [];
-  // 连接边界会共享顶点；每次重建必须先恢复独立边界，并解除旧输入点引用。
-  for (let index = 1; index < (mesh.pointCount ?? 0); index++)
+  // 只清理本次不用的槽位；有效段会原地覆写，避免先清空再写回的屏障成本。
+  for (let index = halfWidth > 0 ? points.length : 1; index < (mesh.pointCount ?? 0); index++)
   {
     const segment = pool[index];
     if (segment) { segment.from = segment.to = null; segment.endJoin = null; }
   }
   mesh.pointCount = points.length;
   segments.length = points.length;
-  segments.fill(null);
+  segments[0] = null;
   caps.length = 0;
   const visibleSegments = mesh.visibleSegments ??= new Set();
   visibleSegments.clear();
 
   if (halfWidth <= 0)
   {
+    segments.fill(null);
     return mesh;
   }
 
@@ -4237,12 +4238,16 @@ function createTrailMesh(
 
     if (length <= MIN_TRAIL_SEGMENT_LENGTH)
     {
+      const unused = pool[index];
+      if (unused) { unused.from = unused.to = null; unused.endJoin = null; }
+      segments[index] = null;
       continue;
     }
 
     const segment = pool[index] ??= {
       index, tangent: {}, normal: {}, boundaries: [{}, {}, {}, {}],
     };
+    segment.endJoin = null;
     const tangent = segment.tangent;
     tangent.x = deltaX / length; tangent.y = deltaY / length;
     const normal = segment.normal;
