@@ -1147,6 +1147,9 @@ assert.equal(fx.destroyed, true, '源码入口可以销毁实例');
   assert.equal(updated.pointEnergies, energies);
   assert.equal(updated.pointEnergies[1], energy);
   assert.equal(updated.segmentTransverseProfiles[0], profile);
+  stroke.pointsVersion++;
+  assert.equal(owner._getTrailFrameData(stroke, null).pointEnergies, null, 'GPU 帧不暴露上一帧 Canvas 材质');
+  assert.equal(owner._getTrailFrameData(stroke, 2).pointEnergies, energies, '回退补齐时复用保留的材质容量');
   owner._clearTrailStrokes();
   assert.equal(stroke.trailWork, null);
 }

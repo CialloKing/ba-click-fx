@@ -6015,8 +6015,8 @@ const texturedFrameData = deferredTrailDataEffect.trailStrokes[0].trailFrameData
 
 assert(
   texturedFrameData.measurement.segmentLengths.length === 2 &&
-    texturedFrameData.pointEnergies === undefined &&
-    texturedFrameData.segmentTransverseProfiles === undefined,
+    texturedFrameData.pointEnergies === null &&
+    texturedFrameData.segmentTransverseProfiles === null && !texturedFrameData.materialReady,
   '完整 WebGL2 正常帧只缓存网格测量，不再计算 Canvas 拖尾 LUT',
 );
 deferredTrailDataEffect._drawCanvasTrails(1, false, false);
@@ -6858,10 +6858,11 @@ for (const update of [
 ])
 {
   const before = gpuTrail.stroke.trailFrameData.gpuPointCache.samples;
+  const version = gpuTrail.stroke.trailFrameData.version;
   update();
   gpuTrail.fx._renderFrame(100);
-  assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples !== before,
-    '材质强度、参数重置或主题变化后重建 GPU 拖尾缓存');
+  assert(gpuTrail.stroke.trailFrameData.gpuPointCache.samples === before && gpuTrail.stroke.trailFrameData.version > version,
+    '材质强度、参数重置或主题变化后覆写 GPU 拖尾工作区');
 }
 const beforeGpuFallback = gpuTrail.stroke.trailFrameData;
 gpuTrail.recorder.render = () => false;
@@ -6877,15 +6878,16 @@ gpuTrail.fx.destroy();
 gpuTrail.fx.destroy();
 const movingGpuTrail = createGpuTrailFixture();
 const beforeGpuAppend = movingGpuTrail.stroke.trailFrameData.gpuPointCache;
+const beforeGpuAppendVersion = beforeGpuAppend.version;
 movingGpuTrail.fx._appendPointerSample({ x: 30, y: 40 }, 60);
 movingGpuTrail.fx._renderFrame(60);
-assert(movingGpuTrail.stroke.trailFrameData.gpuPointCache !== beforeGpuAppend,
-  '追加点后重建 GPU 拖尾逐点材质');
-const beforeGpuExpiry = movingGpuTrail.stroke.trailFrameData.gpuPointCache;
+assert(movingGpuTrail.stroke.trailFrameData.gpuPointCache === beforeGpuAppend && beforeGpuAppend.version > beforeGpuAppendVersion,
+  '追加点后覆写 GPU 拖尾逐点材质并更新版本');
+const beforeGpuExpiry = movingGpuTrail.stroke.trailFrameData.gpuPointCache.version;
 const beforeGpuExpiryStart = { ...movingGpuTrail.stroke.renderPoints[0] };
 const gpuExpiryTime = movingGpuTrail.stroke.points[0].bornAt + movingGpuTrail.fx.fxConfig.trail.lifetimeMs + 1;
 movingGpuTrail.fx._renderFrame(gpuExpiryTime);
-assert(movingGpuTrail.stroke.trailFrameData?.gpuPointCache !== beforeGpuExpiry &&
+assert(movingGpuTrail.stroke.trailFrameData?.gpuPointCache.version > beforeGpuExpiry &&
   movingGpuTrail.stroke.renderPoints[0].bornAt > beforeGpuExpiryStart.bornAt &&
   movingGpuTrail.stroke.renderPoints[0] !== movingGpuTrail.stroke.points[0],
   'GPU 逐点缓存命中不会阻止过期裁剪及缓存失效');
@@ -6897,7 +6899,7 @@ assert(destroyedGpuTrail.stroke.trailFrameData === null, '销毁时释放仍存�
 const lruTrail = createGpuTrailFixture();
 const lruData = lruTrail.stroke.trailFrameData;
 const originalLruMesh = [...lruData.meshCache.values()][0];
-const originalLruGeometry = JSON.stringify(originalLruMesh);
+const originalLruGeometry = JSON.stringify(lruTrail.recorder.triangles);
 const renderLruScale = scale =>
 {
   lruTrail.fx.updateConfig({ scale });
@@ -6910,12 +6912,12 @@ renderLruScale(1.3);
 assert(renderLruScale(1) === originalLruMesh, '命中网格时复用对象并更新 LRU 顺序');
 renderLruScale(1.4);
 assert(lruData.meshCache.size === 4 && [...lruData.meshCache.values()].includes(originalLruMesh) &&
-  ![...lruData.meshCache.values()].includes(secondLruMesh), '第五个宽度淘汰最久未使用网格');
+  [...lruData.meshCache.values()].at(-1) === secondLruMesh, '第五个宽度复用最久未使用网格的容量');
 for (let index = 0; index < 100; index++) renderLruScale(2 + index / 100);
 assert(lruTrail.stroke.trailFrameData === lruData && lruData.meshCache.size === 4,
   '固定点集连续切换 100 个缩放值，网格缓存始终有界');
 const rebuiltLruMesh = renderLruScale(1);
-assert(rebuiltLruMesh !== originalLruMesh && JSON.stringify(rebuiltLruMesh) === originalLruGeometry,
+assert(JSON.stringify(lruTrail.recorder.triangles) === originalLruGeometry,
   '被淘汰网格按原算法重建，几何与可见段保持一致');
 lruTrail.fx.destroy();
 assert(lruTrail.stroke.trailFrameData === null, '销毁时解除 LRU 网格及可见段引用');

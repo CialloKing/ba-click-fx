@@ -1,7 +1,7 @@
 const measurementNow = performance.now.bind(performance);
 const measurementFrame = globalThis.requestAnimationFrame?.bind(globalThis);
 
-export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false, gpuCache = false, softwareOptimization = false, softwareCache = false, softwareZero = false, canvasTextureIdle = false })
+export async function runCustomFixture({ url, profile, full = false, fault = false, reference = false, pendingDestroy = false, deviceLost = false, restoreContext = false, forceStandard = false, benchmark = false, gpuPerformance = false, targetCanvas = null, capturePixels = false, captureOffsetMs = 0, sustainedTrail = false, deterministicCanvas = false, timing = false, gpuOptimization = false, gpuCache = false, softwareOptimization = false, softwareCache = false, softwareZero = false, canvasTextureIdle = false, trailWork = false })
 {
   if (deterministicCanvas)
   {
@@ -33,8 +33,8 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   globalThis.requestAnimationFrame = () => 1;
   globalThis.cancelAnimationFrame = () => {};
   const hasDom = typeof document !== 'undefined';
-  const dom = profile.runtime === 'dom' || (full && ['webgpu', 'webgpu-hdr', 'webgl2-bloom'].includes(profile.backend)) ||
-    (full && profile.runtime === 'manual' && profile.backend === 'webgl2') || (full && reference && profile.backend === 'native');
+  const dom = hasDom && (profile.runtime === 'dom' || (full && ['webgpu', 'webgpu-hdr', 'webgl2-bloom'].includes(profile.backend)) ||
+    (full && profile.runtime === 'manual' && profile.backend === 'webgl2') || (full && reference && profile.backend === 'native'));
   const target = targetCanvas ?? (dom ? document.createElement('div')
     : hasDom ? document.createElement('canvas') : new OffscreenCanvas(320, 240));
   if (dom)
@@ -278,6 +278,14 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
   let softwareCacheResults;
   let softwareZeroResults;
   let canvasTextureIdleResults;
+  let trailWorkResults;
+  if (trailWork)
+  {
+    fx.resizeObserver?.disconnect();
+    const { probeTrailWork } = await import('./trail-work-probe.js');
+    trailWorkResults = await probeTrailWork(fx, delta => { now += delta; fx._renderFrame(now); },
+      capture, full, trailWork === 'benchmark', realNow);
+  }
   if (canvasTextureIdle)
   {
     fx.resizeObserver?.disconnect();
@@ -608,6 +616,7 @@ export async function runCustomFixture({ url, profile, full = false, fault = fal
     ...(softwareCache ? { softwareCache: softwareCacheResults } : {}),
     ...(softwareZero ? { softwareZero: softwareZeroResults } : {}),
     ...(canvasTextureIdle ? { canvasTextureIdle: canvasTextureIdleResults } : {}),
+    ...(trailWork ? { trailWork: trailWorkResults } : {}),
     ...(softwareCacheTiming ? { softwareCacheTiming } : {}),
     ...(gpuCacheTiming ? { gpuCacheTiming } : {}),
     ...(benchmark ? { importMs, initMs, frameTimes, cpuFrameMs,

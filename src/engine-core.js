@@ -3997,10 +3997,12 @@ function createTrailFrameData(
   {
     sharedData = workspace ?? {};
     releaseTrailGradients(sharedData);
-    sharedData.meshCache?.clear();
-    sharedData.gpuPointCache = null;
     sharedData.version = (sharedData.version ?? 0) + 1;
     sharedData.materialReady = false;
+    // 容量与可用结果分离：GPU 帧的 Canvas 辅助绘制不能读到上一帧材质。
+    sharedData.pointEnergies = sharedData.segmentEnergies = sharedData.segmentMaximumEnergies = null;
+    sharedData.pointTransverseProfiles = sharedData.pointCoverageProfiles = null;
+    sharedData.segmentTransverseProfiles = sharedData.segmentCoverageProfiles = null;
     sharedData.pointCount = points.length;
     sharedData.segmentCount = Math.max(0, points.length - 1);
     // 数组长度保留工作容量；消费者只读取本次有效点/段，维持原求和顺序。
@@ -4027,13 +4029,14 @@ function createTrailFrameData(
   if (materialIntensity === null) return sharedData;
 
   const { measurement, pointProgresses, segmentProgresses } = sharedData;
-  const pointEnergies = sharedData.pointEnergies ??= [];
-  const segmentEnergies = sharedData.segmentEnergies ??= [];
-  const segmentMaximumEnergies = sharedData.segmentMaximumEnergies ??= [];
-  const segmentTransverseProfiles = sharedData.segmentTransverseProfiles ??= [];
-  const segmentCoverageProfiles = sharedData.segmentCoverageProfiles ??= [];
-  sharedData.pointTransverseProfiles ??= [];
-  sharedData.pointCoverageProfiles ??= [];
+  const materialWork = sharedData.materialWork ??= {};
+  const pointEnergies = sharedData.pointEnergies = materialWork.pointEnergies ??= [];
+  const segmentEnergies = sharedData.segmentEnergies = materialWork.segmentEnergies ??= [];
+  const segmentMaximumEnergies = sharedData.segmentMaximumEnergies = materialWork.segmentMaximumEnergies ??= [];
+  const segmentTransverseProfiles = sharedData.segmentTransverseProfiles = materialWork.segmentTransverseProfiles ??= [];
+  const segmentCoverageProfiles = sharedData.segmentCoverageProfiles = materialWork.segmentCoverageProfiles ??= [];
+  sharedData.pointTransverseProfiles = materialWork.pointTransverseProfiles ??= [];
+  sharedData.pointCoverageProfiles = materialWork.pointCoverageProfiles ??= [];
   sharedData.pointTransverseVersions ??= [];
   sharedData.pointCoverageVersions ??= [];
   sharedData.materialVersion = (sharedData.materialVersion ?? 0) + 1;
@@ -4095,6 +4098,12 @@ function evaluateTrailMaterialColor(progress, trailCfg, materialIntensity, outpu
   );
 }
 
+function writeTrailProfilePoint(profile, index, position, value)
+{
+  const pair = (profile.pairs ??= [])[index] ??= [0, 0];
+  pair[0] = position; pair[1] = value; profile[index] = pair;
+}
+
 function evaluateTrailTransverseProfile(
   progress,
   trailCfg,
@@ -4102,17 +4111,11 @@ function evaluateTrailTransverseProfile(
   profile = [],
 )
 {
-  const pairs = profile.pairs ??= [];
-  const writePoint = (index, position, value) =>
-  {
-    const pair = pairs[index] ??= [0, 0];
-    pair[0] = position; pair[1] = value; profile[index] = pair;
-  };
   const keys = trailCfg.textureTransverseProfileKeys;
 
   if (!Array.isArray(keys) || keys.length === 0)
   {
-    writePoint(0, 0, 1); writePoint(1, 1, 1); profile.length = 2;
+    writeTrailProfilePoint(profile, 0, 0, 1); writeTrailProfilePoint(profile, 1, 1, 1); profile.length = 2;
     return profile;
   }
 
@@ -4173,16 +4176,22 @@ function evaluateTrailTransverseProfile(
 
   for (let index = edgeIndex; index >= 0; index--)
   {
-    writePoint(count++, (edgeIndex - index) / (edgeIndex * 2), centerToEdge[index]);
+    writeTrailProfilePoint(profile, count++, (edgeIndex - index) / (edgeIndex * 2), centerToEdge[index]);
   }
 
   for (let index = 1; index <= edgeIndex; index++)
   {
-    writePoint(count++, 0.5 + index / (edgeIndex * 2), centerToEdge[index]);
+    writeTrailProfilePoint(profile, count++, 0.5 + index / (edgeIndex * 2), centerToEdge[index]);
   }
   profile.length = count;
 
   return profile;
+}
+
+function writeTrailPoint(point, x, y)
+{
+  point.x = x; point.y = y;
+  return point;
 }
 
 function createTrailMesh(
@@ -4191,15 +4200,30 @@ function createTrailMesh(
   numCornerVertices = 0,
   numCapVertices = 0,
   segmentLengths = null,
+  mesh = {},
 )
 {
   const halfWidth = Math.max(0, width) * 0.5;
-  const segments = new Array(points.length).fill(null);
-  const caps = [];
+  const segments = mesh.segments ??= [];
+  const caps = mesh.caps ??= [];
+  const pool = mesh.segmentPool ??= [];
+  const capPool = mesh.capPool ??= [];
+  // 连接边界会共享顶点；每次重建必须先恢复独立边界，并解除旧输入点引用。
+  for (let index = 1; index < (mesh.pointCount ?? 0); index++)
+  {
+    const segment = pool[index];
+    if (segment) { segment.from = segment.to = null; segment.endJoin = null; }
+  }
+  mesh.pointCount = points.length;
+  segments.length = points.length;
+  segments.fill(null);
+  caps.length = 0;
+  const visibleSegments = mesh.visibleSegments ??= new Set();
+  visibleSegments.clear();
 
   if (halfWidth <= 0)
   {
-    return { segments, caps };
+    return mesh;
   }
 
   for (let index = 1; index < points.length; index++)
@@ -4216,24 +4240,22 @@ function createTrailMesh(
       continue;
     }
 
-    const tangent = { x: deltaX / length, y: deltaY / length };
-    const normal = { x: -tangent.y, y: tangent.x };
+    const segment = pool[index] ??= {
+      index, tangent: {}, normal: {}, boundaries: [{}, {}, {}, {}],
+    };
+    const tangent = segment.tangent;
+    tangent.x = deltaX / length; tangent.y = deltaY / length;
+    const normal = segment.normal;
+    normal.x = -tangent.y; normal.y = tangent.x;
     const offsetX = normal.x * halfWidth;
     const offsetY = normal.y * halfWidth;
-
-    segments[index] =
-    {
-      index,
-      from,
-      to,
-      length,
-      tangent,
-      normal,
-      fromLeft: { x: from.x + offsetX, y: from.y + offsetY },
-      fromRight: { x: from.x - offsetX, y: from.y - offsetY },
-      toLeft: { x: to.x + offsetX, y: to.y + offsetY },
-      toRight: { x: to.x - offsetX, y: to.y - offsetY },
-    };
+    segment.from = from; segment.to = to; segment.length = length;
+    segment.fromLeft = writeTrailPoint(segment.boundaries[0], from.x + offsetX, from.y + offsetY);
+    segment.fromRight = writeTrailPoint(segment.boundaries[1], from.x - offsetX, from.y - offsetY);
+    segment.toLeft = writeTrailPoint(segment.boundaries[2], to.x + offsetX, to.y + offsetY);
+    segment.toRight = writeTrailPoint(segment.boundaries[3], to.x - offsetX, to.y - offsetY);
+    segments[index] = segment;
+    visibleSegments.add(index);
   }
 
   const cornerVertexCount = Math.max(0, Math.floor(numCornerVertices));
@@ -4262,25 +4284,18 @@ function createTrailMesh(
     const point = points[pointIndex];
     const innerSign = turn > 0 ? 1 : -1;
     const outerSign = -innerSign;
-    const previousInner =
-    {
-      x: point.x + previous.normal.x * halfWidth * innerSign,
-      y: point.y + previous.normal.y * halfWidth * innerSign,
-    };
-    const nextInner =
-    {
-      x: point.x + next.normal.x * halfWidth * innerSign,
-      y: point.y + next.normal.y * halfWidth * innerSign,
-    };
+    const previousInnerX = point.x + previous.normal.x * halfWidth * innerSign;
+    const previousInnerY = point.y + previous.normal.y * halfWidth * innerSign;
+    const nextInnerX = point.x + next.normal.x * halfWidth * innerSign;
+    const nextInnerY = point.y + next.normal.y * halfWidth * innerSign;
     const innerScale = (
-      (nextInner.x - previousInner.x) * next.tangent.y -
-      (nextInner.y - previousInner.y) * next.tangent.x
+      (nextInnerX - previousInnerX) * next.tangent.y -
+      (nextInnerY - previousInnerY) * next.tangent.x
     ) / turn;
-    const inner =
-    {
-      x: previousInner.x + previous.tangent.x * innerScale,
-      y: previousInner.y + previous.tangent.y * innerScale,
-    };
+    const join = previous.joinWork ??= { inner: {}, outerArc: [], arcPool: [] };
+    const inner = writeTrailPoint(join.inner,
+      previousInnerX + previous.tangent.x * innerScale,
+      previousInnerY + previous.tangent.y * innerScale);
     const innerDistance = Math.hypot(
       inner.x - point.x,
       inner.y - point.y,
@@ -4311,18 +4326,16 @@ function createTrailMesh(
       previous.normal.x * outerSign,
     );
     const arcStepCount = cornerVertexCount + 1;
-    const outerArc = [];
+    const outerArc = join.outerArc;
+    outerArc.length = arcStepCount + 1;
 
     for (let step = 0; step <= arcStepCount; step++)
     {
       const angle = outerStartAngle + turnAngle * step / arcStepCount;
 
-      outerArc.push(
-        {
-          x: point.x + Math.cos(angle) * halfWidth,
-          y: point.y + Math.sin(angle) * halfWidth,
-        },
-      );
+      outerArc[step] = writeTrailPoint(join.arcPool[step] ??= {},
+        point.x + Math.cos(angle) * halfWidth,
+        point.y + Math.sin(angle) * halfWidth);
     }
 
     if (innerSign > 0)
@@ -4341,13 +4354,9 @@ function createTrailMesh(
     }
 
     // Unity 的数量表示端点间的插入点；记在前一段上可合并等价 fan 轮廓。
-    previous.endJoin =
-    {
-      nextSegmentIndex: next.index,
-      inner,
-      innerSide: innerSign > 0 ? 'left' : 'right',
-      outerArc,
-    };
+    join.nextSegmentIndex = next.index;
+    join.innerSide = innerSign > 0 ? 'left' : 'right';
+    previous.endJoin = join;
   }
 
   if (Math.floor(numCapVertices) > 0)
@@ -4366,46 +4375,27 @@ function createTrailMesh(
 
     if (first)
     {
-      caps.push(
-        {
-          position: 'start',
-          segmentIndex: first.index,
-          pointIndex: first.index - 1,
-          points:
-          [
-            first.fromLeft,
-            first.fromRight,
-            {
-              x: first.from.x - first.tangent.x * halfWidth,
-              y: first.from.y - first.tangent.y * halfWidth,
-            },
-          ],
-        },
-      );
+      const cap = capPool[0] ??= { position: 'start', points: [], tip: {} };
+      cap.segmentIndex = first.index; cap.pointIndex = first.index - 1;
+      cap.points[0] = first.fromLeft; cap.points[1] = first.fromRight;
+      cap.points[2] = writeTrailPoint(cap.tip,
+        first.from.x - first.tangent.x * halfWidth, first.from.y - first.tangent.y * halfWidth);
+      caps.push(cap);
     }
 
     if (last)
     {
-      caps.push(
-        {
-          position: 'end',
-          segmentIndex: last.index,
-          pointIndex: last.index,
-          points:
-          [
-            last.toLeft,
-            {
-              x: last.to.x + last.tangent.x * halfWidth,
-              y: last.to.y + last.tangent.y * halfWidth,
-            },
-            last.toRight,
-          ],
-        },
-      );
+      const cap = capPool[1] ??= { position: 'end', points: [], tip: {} };
+      cap.segmentIndex = last.index; cap.pointIndex = last.index;
+      cap.points[0] = last.toLeft;
+      cap.points[1] = writeTrailPoint(cap.tip,
+        last.to.x + last.tangent.x * halfWidth, last.to.y + last.tangent.y * halfWidth);
+      cap.points[2] = last.toRight;
+      caps.push(cap);
     }
   }
 
-  return { segments, caps };
+  return mesh;
 }
 
 function getTrailMesh(trailData, points, width, trailCfg)
@@ -4430,23 +4420,22 @@ function getTrailMesh(trailData, points, width, trailCfg)
   {
     trailData.meshCache.delete(cacheKey);
   }
-  else
+  else if (trailData.meshCache.size >= TRAIL_MESH_CACHE_CAPACITY)
   {
-    mesh = createTrailMesh(
-      points,
-      width,
-      cornerVertices,
-      capVertices,
-      trailData.measurement.segmentLengths,
-    );
+    const oldest = trailData.meshCache.keys().next().value;
+    mesh = trailData.meshCache.get(oldest);
+    trailData.meshCache.delete(oldest);
+    mesh.version = -1;
   }
+  if (!mesh || mesh.version !== trailData.version)
+  {
+    releaseMeshGradients(mesh);
+    mesh = createTrailMesh(points, width, cornerVertices, capVertices,
+      trailData.measurement.segmentLengths, mesh);
+    mesh.version = trailData.version;
+  }
+  // 四个宽度槽保留原 LRU 顺序，淘汰时直接覆写容量而不积累历史网格。
   trailData.meshCache.set(cacheKey, mesh);
-  // 清晰层和 Bloom 可保留各自宽度，但连续缩放不能积累全部历史网格。
-  if (trailData.meshCache.size > TRAIL_MESH_CACHE_CAPACITY)
-  {
-    releaseMeshGradients(trailData.meshCache.values().next().value);
-    trailData.meshCache.delete(trailData.meshCache.keys().next().value);
-  }
   return mesh;
 }
 
@@ -5372,28 +5361,31 @@ function appendTexturedTrailMeshJoins(
 function getTrailGpuPointSamples(trailData, points, trailCfg, materialIntensity)
 {
   const cached = trailData.gpuPointCache;
-  if (cached && cached.trailCfg === trailCfg && cached.materialIntensity === materialIntensity &&
+  if (cached && cached.version === trailData.version && cached.trailCfg === trailCfg && cached.materialIntensity === materialIntensity &&
     cached.hueShift === themeHueShift && cached.relativeTheme === relativeOklchTheme)
   {
     return cached.samples;
   }
 
-  const samples = new Array(points.length);
+  const work = cached ?? { samples: [], pool: [] };
+  const samples = work.samples;
+  samples.length = points.length;
   for (let index = 0; index < points.length; index++)
   {
     const progress = trailData.pointProgresses?.[index] ??
       trailData.measurement.distances[index] / trailData.measurement.totalLength;
-    samples[index] = {
-      // 点集版本由 trailData 管理；保持先插值再映射主题，不能插值已映射的关键帧。
-      // Unity 的 U=0 位于最新点，项目点序则是旧点到新点。
-      u: 1 - progress,
-      color: evaluateTrailMaterialColor(progress, trailCfg, materialIntensity),
-      coverage: resolveTrailPointCoverageFactor(trailData, index, trailCfg),
-    };
+    const sample = work.pool[index] ??= { color: [0, 0, 0] };
+    samples[index] = sample;
+    // 点集版本由 trailData 管理；保持先插值再映射主题，不能插值已映射的关键帧。
+    // Unity 的 U=0 位于最新点，项目点序则是旧点到新点。
+    sample.u = 1 - progress;
+    evaluateTrailMaterialColor(progress, trailCfg, materialIntensity, sample.color);
+    sample.coverage = resolveTrailPointCoverageFactor(trailData, index, trailCfg);
   }
-  trailData.gpuPointCache = {
-    trailCfg, materialIntensity, hueShift: themeHueShift, relativeTheme: relativeOklchTheme, samples,
-  };
+  work.version = trailData.version;
+  work.trailCfg = trailCfg; work.materialIntensity = materialIntensity;
+  work.hueShift = themeHueShift; work.relativeTheme = relativeOklchTheme;
+  trailData.gpuPointCache = work;
   return samples;
 }
 
@@ -6270,7 +6262,7 @@ export class BAClickFX extends ConfigRuntime
     finally
     {
       this._trailRenderDepth--;
-      for (const entry of saved ?? [])
+      if (saved) for (const entry of saved)
       {
         const { stroke, data, cache, work } = entry;
         releaseTrailGradients(stroke.trailWork);
@@ -8728,16 +8720,16 @@ export class BAClickFX extends ConfigRuntime
       releaseTrailGradients(stroke.trailFrameData);
       data = createTrailFrameData(getTrailRenderPoints(stroke), this.fxConfig.trail, materialIntensity, true, null, stroke.trailWork);
       stroke.trailWork = data;
-      stroke.trailFrameCache = {
-        points: getTrailRenderPoints(stroke),
-        pointsVersion: stroke.pointsVersion,
-        configVersion: this._fxConfigVersion,
-        themeVersion: this._themeVersion,
-        // 后端事件可在帧内改主题；版本之外还记录本次实际使用的渲染上下文。
-        hueShift: themeHueShift,
-        relativeTheme: relativeOklchTheme,
-        materialIntensity,
-      };
+      const nextCache = data.frameCache ??= {};
+      nextCache.points = getTrailRenderPoints(stroke);
+      nextCache.pointsVersion = stroke.pointsVersion;
+      nextCache.configVersion = this._fxConfigVersion;
+      nextCache.themeVersion = this._themeVersion;
+      // 同步后端事件可能改主题，记录实际渲染上下文而非只依赖实例版本。
+      nextCache.hueShift = themeHueShift;
+      nextCache.relativeTheme = relativeOklchTheme;
+      nextCache.materialIntensity = materialIntensity;
+      stroke.trailFrameCache = nextCache;
     }
     else if (materialIntensity !== null &&
       (cached.materialIntensity !== materialIntensity || !data.materialReady))
