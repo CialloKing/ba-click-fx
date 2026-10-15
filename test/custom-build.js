@@ -6,11 +6,16 @@ import { pathToFileURL } from 'node:url';
 import { BACKENDS, RUNTIMES, normalizeProfile } from '../scripts/build-profile.mjs';
 import { customApi } from '../scripts/custom-compiler.mjs';
 import { buildCustomFixture, customBuildStats } from './custom-build-fixture.mjs';
+import { trailSource } from '../scripts/build-resources.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const dir = resolve(root, 'test-results/custom');
 mkdirSync(dir, { recursive: true });
 const fullBefore = readFileSync(resolve(root, 'dist/ba-click-fx.js'));
+const auditSource = (await trailSource(root, 512, false, 'zopfli')).source;
+const packets = ['RGB', 'COVERAGE'].map(name =>
+  JSON.parse(auditSource.match(new RegExp(`PACKED_TRAIL_TEXTURE_${name} = ("[^"]+")`))[1]));
+assert(fullBefore.includes(packets[0]) && !fullBefore.includes(packets[1]), 'Full build embeds RGB only');
 const profiles = BACKENDS.flatMap(backend => RUNTIMES.map(runtime => ({ backend, runtime })));
 profiles.push(JSON.parse(readFileSync(resolve(root, 'examples/build-profiles/slim-webgl2-128.json'), 'utf8')));
 const typeConsumers = { dom: [], worker: [] };
@@ -32,6 +37,14 @@ for (const [index, input] of profiles.entries())
   assert(!/\b(?:import|export)\s.*?\bfrom\s*['"]|\bimport\s*\(/.test(code), 'single self-contained module');
   assert(!code.includes('createFxParamDescriptor') && !code.includes('applyFxParamPatch'));
   const modules = info.modules.map(item => item.id);
+  if (info.resources.trailSize === 512)
+  {
+    const gpuTrail = ['webgl2', 'webgpu', 'webgpu-hdr'].includes(input.backend);
+    // WebGL2 Bloom 原本也保留 GPU Scene 材质；Software/Native 才只消费 Coverage。
+    assert.equal(code.includes(packets[0]), info.features.trail && (gpuTrail || input.backend === 'webgl2-bloom'),
+      'Preserve existing RGB consumers without adding RGB to Canvas-only builds');
+    assert.equal(code.includes(packets[1]), info.features.trail && !gpuTrail, 'GPU builds derive Coverage once');
+  }
   assert(!modules.includes('src/fx-param-patch.js'));
   assert(!modules.includes('src/engine-config.js') && !modules.includes('src/engine-input.js'), 'methods are statically expanded and trimmed');
   if (!input.backend.startsWith('webgpu')) assert(!modules.includes('src/webgpu-effect.js'));

@@ -7,8 +7,8 @@ import { execFileSync } from 'node:child_process';
 import { resourceVite } from '../scripts/resource-vite.mjs';
 import { normalizeProfile } from '../scripts/build-profile.mjs';
 import { compressionSession, compressResource, compressionInfo } from '../scripts/resource-compression.mjs';
-import { createBuildResources, resizeTexture } from '../scripts/build-resources.mjs';
-import { TRAIL_TEXTURE_RGB, TRAIL_TEXTURE_COVERAGE } from '../src/trail-texture.js';
+import { createBuildResources, resizeTexture, trailSource } from '../scripts/build-resources.mjs';
+import { TRAIL_TEXTURE_RGB, TRAIL_TEXTURE_COVERAGE, TRAIL_TEXTURE_RGBA } from '../src/trail-texture.js';
 import { createTrailCoverage } from '../scripts/trail-coverage-data.mjs';
 import { CIRCLE_TEXTURE_RGBA } from '../src/circle-texture.js';
 import { RING3_ALPHA } from '../src/ring3-alpha.js';
@@ -35,6 +35,9 @@ try
       const decoded = {};
       for (const [filename, code] of await createBuildResources(root, profile))
       {
+        if (filename === 'trail-texture.js')
+          assert.equal(code.includes('PACKED_TRAIL_TEXTURE_COVERAGE'), trailSize !== 512,
+            'Only full-resolution GPU builds remove the embedded Coverage payload');
         const path = resolve(directory, filename);
         writeFileSync(path, code);
         decoded[filename] = await import(pathToFileURL(path).href);
@@ -43,6 +46,7 @@ try
       assert.equal(trail.TRAIL_TEXTURE_WIDTH, trailSize);
       assert.deepEqual(trail.TRAIL_TEXTURE_RGB, resizeTexture(TRAIL_TEXTURE_RGB, 3, trailSize));
       assert.deepEqual(trail.TRAIL_TEXTURE_COVERAGE, resizeTexture(TRAIL_TEXTURE_COVERAGE, 1, trailSize));
+      if (trailSize === 512) assert.deepEqual(trail.TRAIL_TEXTURE_RGBA, TRAIL_TEXTURE_RGBA);
       assert.deepEqual(decoded['circle-texture.js'].CIRCLE_TEXTURE_RGBA, CIRCLE_TEXTURE_RGBA);
       assert.deepEqual(decoded['ring3-alpha.js'].RING3_ALPHA, RING3_ALPHA);
       for (const [name, expected] of [['RING_MESH_VERTICES', RING_MESH_VERTICES], ['RING_MESH_INDICES', RING_MESH_INDICES]])
@@ -51,7 +55,24 @@ try
         assert.deepEqual(Buffer.from(actual.buffer), Buffer.from(expected.buffer));
       }
     }
+    for (const backend of [undefined, 'webgpu', 'webgpu-hdr', 'webgl2-bloom', 'software', 'native'])
+    {
+      const profile = { resources: { trailSize: 512, encoding }, features: { trail: true } };
+      if (backend) profile.backend = backend;
+      const source = (await createBuildResources(root, profile)).get('trail-texture.js');
+      assert.equal(source.includes('PACKED_TRAIL_TEXTURE_COVERAGE'),
+        ['webgl2-bloom', 'software', 'native'].includes(backend), 'Backend-specific Coverage storage');
+      if (!backend)
+      {
+        const audit = (await createBuildResources(root, profile, { deriveCoverage: false })).get('trail-texture.js');
+        assert(audit.includes('PACKED_TRAIL_TEXTURE_COVERAGE'), 'Codec experiments retain both audited assets');
+      }
+    }
   }
+  await assert.rejects(trailSource(root, 128, false, 'deflate', true));
+  await assert.rejects(trailSource(root, 512, true, 'deflate', true));
+  const external = await trailSource(root, 512, true);
+  assert(external.asset && external.source.includes('payload.subarray(rgbEnd)'));
   const input = Buffer.from('cache round trip');
   await compressResource(input, 'deflate');
   const cacheFile = createHash('sha256').update(input).update(JSON.stringify(compressionInfo('deflate'))).digest('hex') + '.deflate';

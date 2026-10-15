@@ -55,7 +55,9 @@ export async function codecResources(root, width, codec)
   assert(textureCodecs.includes(codec), 'Unknown texture codec');
   assert([128, 512].includes(width), 'Unknown texture dimensions');
   const sources = codec === 'original' ? new Map() : await createBuildResources(root,
-    normalizeProfile({ backend: 'webgl2', runtime: 'dom', resources: { trailSize: width, encoding: codec === 'zopfli' ? 'zopfli' : 'deflate' } }));
+    normalizeProfile({ backend: 'webgl2', runtime: 'dom', resources: { trailSize: width, encoding: codec === 'zopfli' ? 'zopfli' : 'deflate' } }),
+    // 编码器实验固定双资产布局，不能把 Coverage 推导收益算成压缩算法收益。
+    { deriveCoverage: false });
   const packets = [];
   let compressionMs = 0;
   for (const [filename, source] of sources)

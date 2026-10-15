@@ -4,6 +4,7 @@ import { compressResource } from './resource-compression.mjs';
 import { parseAst } from 'rolldown/parseAst';
 import { TRAIL_TEXTURE_RGB, TRAIL_TEXTURE_COVERAGE } from '../src/trail-texture.js';
 import { RING_MESH_VERTICES, RING_MESH_INDICES } from '../src/ring-mesh.js';
+import { createTrailCoverage } from './trail-coverage-data.mjs';
 
 const inflateImport = "import { inflateSync } from 'fflate/browser';\n";
 
@@ -88,7 +89,7 @@ async function meshSource(root, encoding)
 ` + rewriteResource(root, 'ring-mesh.js', values);
 }
 
-export async function createBuildResources(root, profile)
+export async function createBuildResources(root, profile, { deriveCoverage = true } = {})
 {
   const sources = new Map();
   if (profile.resources.encoding === 'original')
@@ -97,7 +98,10 @@ export async function createBuildResources(root, profile)
   }
   if (profile.features.trail)
   {
-    sources.set('trail-texture.js', (await trailSource(root, profile.resources.trailSize, false, profile.resources.encoding)).source);
+    // 低分辨率必须先生成 Coverage 再降采样；Canvas 定制版不能为推导引入 RGB。
+    const derive = deriveCoverage && profile.resources.trailSize === 512 &&
+      (profile.backend === undefined || ['webgl2', 'webgpu', 'webgpu-hdr'].includes(profile.backend));
+    sources.set('trail-texture.js', (await trailSource(root, profile.resources.trailSize, false, profile.resources.encoding, derive)).source);
   }
   if (profile.features.click)
   {
@@ -190,7 +194,16 @@ export function rewriteResource(root, filename, values, functions = {})
       {
         if (Object.hasOwn(values, declaration.id.name))
         {
-          edits.push([declaration.init.start, declaration.init.end, values[declaration.id.name]]);
+          const value = values[declaration.id.name];
+          if (value === null)
+          {
+            if (node.declarations.length !== 1) throw new Error('Cannot remove a grouped resource declaration');
+            edits.push([statement.start, statement.end, '']);
+          }
+          else
+          {
+            edits.push([declaration.init.start, declaration.init.end, value]);
+          }
         }
       }
     }
@@ -202,16 +215,28 @@ export function rewriteResource(root, filename, values, functions = {})
   return replaceRanges(code, edits);
 }
 
-export async function trailSource(root, width, external, encoding = 'deflate')
+export async function trailSource(root, width, external, encoding = 'deflate', deriveCoverage = false)
 {
+  if (deriveCoverage && (width !== 512 || external))
+  {
+    throw new Error('Trail Coverage derivation requires an embedded 512px RGB texture');
+  }
   const rgb = await compressTexture(resizeTexture(TRAIL_TEXTURE_RGB, 3, width), 3, width, encoding);
-  const coverage = await compressTexture(resizeTexture(TRAIL_TEXTURE_COVERAGE, 1, width), 1, width, encoding);
+  const coverage = deriveCoverage ? null
+    : await compressTexture(resizeTexture(TRAIL_TEXTURE_COVERAGE, 1, width), 1, width, encoding);
   const values = {
     TRAIL_TEXTURE_WIDTH: String(width), TRAIL_TEXTURE_HEIGHT: String(width),
     PACKED_TRAIL_TEXTURE_RGB: JSON.stringify(rgb.toString('base64')),
-    PACKED_TRAIL_TEXTURE_COVERAGE: JSON.stringify(coverage.toString('base64')),
+    PACKED_TRAIL_TEXTURE_COVERAGE: coverage ? JSON.stringify(coverage.toString('base64')) : null,
   };
   let prefix = "import { inflateSync } from 'fflate/browser';\n";
+  if (deriveCoverage)
+  {
+    values.TRAIL_TEXTURE_COVERAGE_LENGTH = null;
+    values.TRAIL_TEXTURE_COVERAGE = 'createTrailCoverage(TRAIL_TEXTURE_RGB, TRAIL_TEXTURE_WIDTH, TRAIL_TEXTURE_HEIGHT)';
+    // 嵌入同一纯函数，既避免 Node 依赖，也避免离线和运行时算法漂移。
+    prefix += createTrailCoverage.toString() + '\n';
+  }
   let asset = null;
   if (external)
   {
@@ -231,7 +256,7 @@ if (rgbEnd + header.getUint32(4, true) !== payload.length) { throw new Error('In
     values.PACKED_TRAIL_TEXTURE_RGB = 'payload.subarray(8, rgbEnd)';
     values.PACKED_TRAIL_TEXTURE_COVERAGE = 'payload.subarray(rgbEnd)';
   }
-  const source = rewriteResource(root, 'trail-texture.js', values, {
+  let source = rewriteResource(root, 'trail-texture.js', values, {
     decodeLz4Block: `function decodeLz4Block(source, outputLength)
 {
   const output = inflateSync(source, { out: new Uint8Array(outputLength) });
@@ -242,6 +267,11 @@ if (rgbEnd + header.getUint32(4, true) !== payload.length) { throw new Error('In
   return output;
 }`,
   });
+  if (deriveCoverage)
+  {
+    source = source.replace('// Coverage 是离线审计后的独立二维资产，不在运行时从 RGB 或最终颜色反推。',
+      '// Coverage 仅在模块初始化时从原始 RGB 精确重建，不依赖主题或渲染输出。');
+  }
   return { source: prefix + (external ? source.replace('const packed = decodeBase64Bytes(encoded);', 'const packed = encoded;') : source), asset };
 }
 
