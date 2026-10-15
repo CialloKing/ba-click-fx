@@ -22,7 +22,7 @@ const report = { complete: false, version: JSON.parse(readFileSync(join(root, 'p
   dirty: !!execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim(),
   environment: { node: process.version, platform: platform(), os: release(), cpu: cpus()[0].model },
   compression: compressionInfo('zopfli'), builds: [],
-  scope: 'Local headless browser only; no physical GPU/HDR acceptance. Cold builds use separate temporary caches; full build includes demo/config/Worker. Pure decode excludes Base64/Paeth/GPU; cold import includes HTTP/parse/resource initialization.' };
+  scope: 'Local headless browser only; no physical GPU/HDR acceptance. Cold builds use separate temporary caches; full build includes demo/config/Worker. Pure decode uses six audited payloads with both trail assets, excludes Base64/Paeth/Coverage reconstruction/GPU, and is not production resource initialization. Cold import uses the actual build and includes HTTP/parse/resource initialization.' };
 writeFileSync(path, JSON.stringify(report, null, 2) + '\n');
 const baseline = await releaseBaseline(root);
 const slimInput = JSON.parse(readFileSync(join(root, 'examples/build-profiles/slim-webgl2-128.json'), 'utf8'));

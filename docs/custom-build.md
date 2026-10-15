@@ -41,7 +41,9 @@ npm run build -- --profile examples/build-profiles/slim-webgl2-128.json
 
 `deflate`、`zopfli` 对圆形纹理、Ring3 和网格为无损编码；`trailSize: 512` 保留原始拖尾数据。128/256 会对拖尾做平均降采样，需要启用 `trail` 并选择 `deflate` 或 `zopfli`。解压仅发生在模块首次加载，最终纹理占用由分辨率决定。脚本仍为自包含 ESM，构造保持同步。所有资源选项进入构建信息和缓存键。
 
-Zopfli 固定使用 15 次迭代，直接压缩现有 Paeth、RLE、残差及几何序列化后的六个数据块；三角纹理保持原编码。它生成标准 DEFLATE 数据，运行时内嵌 fflate 同步解压，WASM 只在构建时使用。显式 `original` 保留旧资源，显式 `deflate` 保留 level 9 编码。Zopfli 会增加构建时间；同一次构建或验收共享临时压缩缓存，键包含原始字节哈希、编码器版本与参数，结束后删除，下次重新生成。压缩或缓存校验失败会使构建失败。
+完整版及开启拖尾的 `webgl2`、`webgpu`、`webgpu-hdr` 定制版，在 `512 + deflate/zopfli` 下只内嵌 Trail RGB，模块初始化时从原始字节精确生成 Coverage。每个模块环境执行一次，与主题、Bloom 和最终输出无关，设备恢复不会重新推导。128/256、`original`、外置资源实验及其他后端保留原数据路径；Software/Native 不因此引入 RGB，WebGL2 Bloom 保留原有 GPU Scene 材质。该优化减少包体，数组和 GPU RGBA 纹理容量不变，初始化耗时须独立测量。
+
+Zopfli 固定使用 15 次迭代，压缩保留的 Paeth、RLE、残差及几何序列化数据块；三角纹理保持原编码。它生成标准 DEFLATE 数据，运行时内嵌 fflate 同步解压，WASM 只在构建时使用。显式 `original` 保留旧资源，显式 `deflate` 保留 level 9 编码。Zopfli 会增加构建时间；同一次构建或验收共享临时压缩缓存，键包含原始字节哈希、编码器版本与参数，结束后删除，下次重新生成。压缩或缓存校验失败会使构建失败。
 
 六种模式都可以选择三种接入方式。`webgl2-bloom` 与完整版一样复用完整 WebGL2 Scene；两者成功路径共享实现。`webgpu-hdr` 请求 Extended 输出，实际模式仍由设备和浏览器决定。
 
@@ -161,6 +163,6 @@ npm run benchmark:custom -- webgpu
 
 收益主要来自删除未使用的后端、输入处理、调参系统和功能资源。构建时也预计算主题映射及固定材质的 Bloom 数学常量，沿用相同公式与 double 精度。默认资源选项使用 Zopfli 与 512² 拖尾，Shader 和 HDR/Bloom 算法沿用现有实现；降采样与旧编码由 profile 显式选择，不承诺固定体积或帧率提升。
 
-纹理压缩性能单独运行 `npm run benchmark:codecs`，报告位于 `test-results/resource-benchmark/results.json`，分别记录冷构建、六块纯解码、冷导入和初始化；只代表本机无头浏览器，不能推断所有设备的帧率。发布门禁用 SHA-256 已核验的 v1.3.11 正式附件作独立四场景对照。
+纹理压缩性能单独运行 `npm run benchmark:codecs`，报告位于 `test-results/resource-benchmark/results.json`，分别记录冷构建、六块审计载荷纯解码、冷导入和初始化。纯解码固定使用双资产布局，不包含正式构建的 Coverage 重建成本；完整冷导入使用实际构建产物。测量只代表本机无头浏览器，不能推断所有设备的帧率。发布门禁用 SHA-256 已核验的 v1.3.11 正式附件作独立四场景对照。
 
 官方双版本附件、校验清单和标签发布步骤见[发布指南](./releases.md)。

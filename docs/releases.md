@@ -26,6 +26,8 @@ Zopfli 会增加构建时间，显式运行 `npm run benchmark:codecs` 分别记
 
 ## 附件
 
+完整版主入口和 Worker 只内嵌 512² Trail RGB，在模块初始化时同步生成与审计资产逐字节一致的 Coverage；128² 精简版仍分别保存降采样后的 RGB/Coverage。源码快照与 Golden 保留。此调整减少包体，不减少最终数组或 GPU 纹理容量，也不承诺初始化提速。编码器实验继续使用固定双资产布局，避免混入本次收益。
+
 | 内容 | 文件 |
 |---|---|
 | 完整版原有入口与类型 | `ba-click-fx.js`、`ba-click-fx.d.ts`、`config.js`、`config.d.ts`、`worker.js`、`worker.d.ts` |

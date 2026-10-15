@@ -27,6 +27,8 @@ Each run rebuilds the selected artifacts and replaces the previous success state
 
 The official Paeth, Circle symmetry/RLE, Ring3 prediction/4-bit residuals, and mesh serialization are reused directly. Only the outer compression of six blocks changes: trail RGB, coverage, Circle RLE, Ring3 alpha, ring vertices, and indices. Triangle textures retain their current encoding.
 
+For comparable codec measurements, experiments explicitly retain both audited Trail RGB and Coverage assets instead of enabling the Coverage reconstruction used by production 512x512 GPU builds. The historical measurements below also use both assets. Experimental sizes are not current release sizes; reconstruction savings require a separate comparison with the same codec and configuration.
+
 | Variant | Build-time compression | Synchronous runtime decoder |
 |---|---|---|
 | `original` | Current full-edition LZ4 and other resource encodings | Current resource decoders |

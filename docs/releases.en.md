@@ -26,6 +26,8 @@ Zopfli adds build time. Run `npm run benchmark:codecs` explicitly; it records co
 
 ## Assets
 
+Full main and Worker modules embed only 512x512 Trail RGB and synchronously reconstruct Coverage byte for byte from the audited data during module initialization. Slim 128x128 builds still store separately downsampled RGB/Coverage. Source snapshots and Golden data remain intact. This reduces package size, not final array or GPU texture capacity, and does not promise faster initialization. Codec experiments retain both assets to keep their comparisons independent of this change.
+
 | Contents | Files |
 |---|---|
 | Existing full entries and declarations | `ba-click-fx.js`, `ba-click-fx.d.ts`, `config.js`, `config.d.ts`, `worker.js`, `worker.d.ts` |

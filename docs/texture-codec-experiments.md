@@ -27,6 +27,8 @@ npm run experiment:codecs -- --build-only --edition=full --codec=zstd
 
 正式的 Paeth、Circle 对称/RLE、Ring3 预测/4-bit 残差和网格序列化直接复用。实验只替换六个数据块的外层压缩：拖尾 RGB、Coverage、Circle RLE、Ring3 Alpha、圆环顶点和索引。三角纹理维持当前编码。
 
+为保持编码器对照口径，实验显式保留 Trail RGB 和 Coverage 两份审计资产，不启用正式 512² GPU 构建的 Coverage 重建。以下历史数据也采用双资产布局；实验体积不能直接当作当前发布包体，推导收益须在同编码、同配置下另行比较。
+
 | 方案 | 构建压缩 | 运行时同步解码 |
 |---|---|---|
 | `original` | 完整版当前 LZ4 和其他资源原编码 | 当前资源解码器 |

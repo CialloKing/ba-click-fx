@@ -69,8 +69,13 @@ try
           : 'Full ESM distribution, including main, configuration and Worker entries.'
         : slim ? '固定配置的 DOM 精简版：仅 WebGL2，128² 拖尾，保留点击、碎片、Bloom 和合成参考。采用普通网页推荐的 browser-overlay + screen + dom-backdrop。主题、scale、DPR 上限及特效参数由附带的构建配置固定；设备失败通过 onError 通知，不切换其他后端。'
           : '完整版 ESM，包含主入口、配置及 Worker 入口。';
-      const codec = english ? 'Textures use lossless Zopfli (15 build-time iterations) and bundled synchronous fflate decoding; WASM is not required at runtime.'
+      let codec = english ? 'Textures use lossless Zopfli (15 build-time iterations) and bundled synchronous fflate decoding; WASM is not required at runtime.'
         : '纹理使用 Zopfli 无损压缩（构建时 15 次迭代），内嵌 fflate 同步解码，运行时无需 WASM。';
+      if (!slim)
+      {
+        codec += english ? ' Trail Coverage is reconstructed exactly from the embedded 512x512 RGB once during module initialization; GPU texture capacity is unchanged.'
+          : ' Trail Coverage 在模块初始化时从内嵌 512² RGB 精确生成一次，GPU 纹理容量不变。';
+      }
       const detail = english
         ? slim ? 'Constructor options: target, onError, inputFilter. Use resize, setPaused, clear, clearTrail, boom, getConfig, getFxConfig, getEffectiveHostCompositing, setCompositingReference and destroy. Changing fixed settings requires rebuilding from source.'
           : 'Serve JavaScript over HTTP(S). Full declarations describe package imports; use npm and a bundler for TypeScript. Worker usage requires transferring an OffscreenCanvas from the host.'
