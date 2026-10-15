@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { normalizeProfile } from '../../scripts/build-profile.mjs';
 import { buildCustomFixture } from '../custom-build-fixture.mjs';
@@ -174,7 +174,7 @@ try
         const bytes = readFileSync(resolve(root, oldCustom.path, 'ba-click-fx.js'));
         assert.equal(createHash('sha256').update(bytes).digest('hex'), oldCustom.sha256, 'Independent custom baseline');
         assert.deepEqual(normalizeProfile(oldCustom.input), profile, 'Custom baseline uses the same profile');
-        oldUrl = '/' + oldCustom.path + '/ba-click-fx.js';
+        oldUrl = '/' + relative(root, resolve(root, oldCustom.path, 'ba-click-fx.js')).replaceAll('\\', '/');
       }
       const baseline = oldUrl && await run({ ...parameters, url: oldUrl });
       const candidate = await run({ ...parameters, url });
