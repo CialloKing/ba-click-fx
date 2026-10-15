@@ -162,12 +162,21 @@ function createTextureFromBytes(
   );
   const bytesPerPixel = format === 'r8unorm' ? 1 : 4;
 
-  device.queue.writeTexture(
-    { texture },
-    data,
-    { bytesPerRow: width * bytesPerPixel, rowsPerImage: height },
-    { width, height },
-  );
+  try
+  {
+    device.queue.writeTexture(
+      { texture },
+      data,
+      { bytesPerRow: width * bytesPerPixel, rowsPerImage: height },
+      { width, height },
+    );
+  }
+  catch (error)
+  {
+    // 返回之前纹理尚未移交给 Renderer，上传失败由工厂负责清理。
+    texture.destroy();
+    throw error;
+  }
   return texture;
 }
 

@@ -315,8 +315,23 @@ function verifyTargetAllocationFailures()
   }
 }
 
+function verifyMaterialUploadFailure()
+{
+  const failure = new Error('injected material upload failure');
+  const texture = { destroys: 0, destroy() { this.destroys++; } };
+  const renderer = Object.create(WebGPUEffectRenderer.prototype);
+  Object.assign(renderer, { textures: {}, device: {
+    createTexture: () => texture,
+    queue: { writeTexture() { throw failure; } },
+  } });
+  assert.throws(() => renderer._createMaterialTextures(), error => error === failure);
+  assert.equal(texture.destroys, 1, '未移交的材质纹理立即清理');
+  assert.deepEqual(renderer.textures, {}, '失败纹理不登记到 Renderer');
+}
+
 try
 {
+  verifyMaterialUploadFailure();
   verifyTargetAllocationFailures();
   await verifyResourceReuse();
   await verifySceneUploads();
