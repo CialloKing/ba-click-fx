@@ -59,6 +59,8 @@ jobs:
         run: npm run test:browser:webgpu:optional
       - name: Check GPU filter routing and resource reuse
         run: npm run test:browser:gpu-optimization
+      - name: Check moving trail capacity reuse and Worker parity
+        run: npm run test:browser:trail-work
       - name: Check Software readbacks and resource lifecycle
         run: npm run test:browser:software-optimization
       - name: Check shared Canvas cache ownership and idle release
@@ -88,6 +90,7 @@ jobs:
             test-results/slim-browser
             test-results/zopfli-release
             test-results/shared-canvas-cache
+            test-results/trail-work
           if-no-files-found: ignore
 
   release:
