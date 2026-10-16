@@ -1699,21 +1699,27 @@ async function runDemoHdrThresholdControls(page)
 async function runDemoHdrStatusTransitions(page)
 {
   currentStage = 'demo-hdr-state-transitions';
-  // 恢复视口会重新配置 Canvas；先等真实输出就绪，避免暂停冻结未提交的配置。
+  const wasPaused = await page.evaluate(() => window.BAClickFXDemo.paused);
+  // 恢复视口会排队背景参考与 Canvas 更新；先让 resize 的后续帧完成。
+  await page.evaluate(() => new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.waitForFunction(() =>
   {
-    const config = window.BAClickFXDemo.getConfig();
-    return config.resolvedEffectBackend === 'webgpu' &&
-      config.resolvedWebGPUOutputMode === 'extended';
+    const effect = window.BAClickFXDemo;
+    const config = effect.getConfig();
+    if (config.resolvedEffectBackend !== 'webgpu' ||
+      config.resolvedWebGPUOutputMode !== 'extended') return false;
+    // 就绪检查与暂停必须在同一回调，避免两次 Playwright 调用间的帧改变快照。
+    effect.setPaused(true);
+    return true;
   });
-  const transitions = await page.evaluate(async () =>
+  const transitions = await page.evaluate(async (wasPaused) =>
   {
     const effect = window.BAClickFXDemo;
     const descriptor = Object.getOwnPropertyDescriptor(effect, 'getConfig');
     const getConfig = effect.getConfig;
     const updateDescriptor = Object.getOwnPropertyDescriptor(effect, 'updateConfig');
     const updateConfig = effect.updateConfig;
-    const wasPaused = effect.paused;
     const storedEnabled = localStorage.getItem('bafx-ctrlHdrUiEnabled');
     let override = null;
     const read = () => ({
@@ -1731,7 +1737,6 @@ async function runDemoHdrStatusTransitions(page)
     const results = [];
     try
     {
-      effect.setPaused(true);
       // 只替换测试读取的快照，模拟同一事务内的过渡状态；不伪造 GPU 成功。
       effect.getConfig = function () { return { ...getConfig.call(this), ...override }; };
       for (const [backend, mode] of [['pending', 'pending'], ['webgpu', 'standard'], ['webgl2', 'unavailable']])
@@ -1770,7 +1775,7 @@ async function runDemoHdrStatusTransitions(page)
       if (storedEnabled === null) localStorage.removeItem('bafx-ctrlHdrUiEnabled');
       else localStorage.setItem('bafx-ctrlHdrUiEnabled', storedEnabled);
     }
-  });
+  }, wasPaused);
   for (const transition of transitions)
   {
     if (transition.immediate)
@@ -1884,6 +1889,8 @@ async function runDemoHdrUiEffectIsolation(page)
       window.BAClickFXDemo.webgpuEffectRenderer.device.queue.onSubmittedWorkDone());
     const clickClip = { x: 280, y: 180, width: 240, height: 240 };
     const uiClip = { x: 0, y: 0, width: 360, height: 150 };
+    // 手动提交固定帧绕过 Demo 的配置刷新；从真实 UI change 开始比较开关效果。
+    await setDemoHdrUiEnabled(page, true);
     await waitForDemoHdrUiPaint(page, true);
     const enabledClick = await page.screenshot({ clip: clickClip });
     const enabledUi = await page.screenshot({ clip: uiClip });
