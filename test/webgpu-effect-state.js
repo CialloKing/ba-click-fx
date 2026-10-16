@@ -191,8 +191,12 @@ async function verifySceneUploads()
   const target = () => ({ width: 320, height: 240, view: {}, texture: { destroy() {} } });
   renderer.sourceTarget = target();
   renderer.bloomSourceTarget = target();
-  for (const key of ['sceneDiskVertexCount', 'trailVertexCount', 'vertexCount',
-    'triangleVertexCount']) renderer[key] = 3;
+  for (const prefix of ['SceneDisk', 'Trail', '', 'Triangle'])
+  {
+    renderer['_ensure' + prefix + 'VertexCapacity'](3);
+    const key = prefix ? prefix[0].toLowerCase() + prefix.slice(1) + 'VertexCount' : 'vertexCount';
+    renderer[key] = 3;
+  }
   const addRing = () => renderer.addDissolveRing(100, 100, 50, 10, 0, 8, 96, [1, 1, 1], 1, 0.5, 0, 1, 1);
   addRing();
   const settings = { outputCompositing: 'scene', diskEmissionScale: 2, ringEmissionScale: 3 };

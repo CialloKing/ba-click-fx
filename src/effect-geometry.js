@@ -76,13 +76,12 @@ export class EffectGeometry
     this.maximumViewportWidth = 0;
     this.maximumViewportHeight = 0;
     this.vertexCount = 0;
-    this.vertexData = new Float32Array(
-      INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_VERTEX,
-    );
+    // 未使用的几何类型不预占容量；首次写入仍沿用原来的容量和增长序列。
+    this.vertexData = new Float32Array(0);
     this.sceneDiskVertexCount = 0;
-    this.sceneDiskVertexData = new Float32Array((BUILD_CLICK) ? INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_DISK_VERTEX : 0);
+    this.sceneDiskVertexData = new Float32Array(0);
     this.ringVertexCount = 0;
-    this.ringVertexData = new Float32Array((BUILD_CLICK) ? INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_RING_VERTEX : 0);
+    this.ringVertexData = new Float32Array(0);
     this._ringCosine = null;
     this._ringSine = null;
     this.ringIndexCount = 0;
@@ -94,9 +93,9 @@ export class EffectGeometry
     this._ringIndexVersion = 0;
     this._ringUploadedIndexVersion = -1;
     this.triangleVertexCount = 0;
-    this.triangleVertexData = new Float32Array(BUILD_SHARDS ? INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRIANGLE_VERTEX : 0);
+    this.triangleVertexData = new Float32Array(0);
     this.trailVertexCount = 0;
-    this.trailVertexData = new Float32Array((BUILD_TRAIL) ? INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRAIL_VERTEX : 0);
+    this.trailVertexData = new Float32Array(0);
     this.sourceTarget = null;
     // 非默认点击辉光倍率需要与清晰 Scene 分离；默认值不额外占用显存。
     this.bloomSourceTarget = null;
@@ -234,7 +233,7 @@ export class EffectGeometry
       return;
     }
 
-    let nextLength = this.vertexData.length;
+    let nextLength = this.vertexData.length || INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_VERTEX;
 
     while (nextLength < requiredComponents)
     {
@@ -274,7 +273,7 @@ export class EffectGeometry
       return;
     }
 
-    let nextLength = this.sceneDiskVertexData.length;
+    let nextLength = this.sceneDiskVertexData.length || INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_DISK_VERTEX;
 
     while (nextLength < requiredComponents)
     {
@@ -326,7 +325,7 @@ export class EffectGeometry
       return;
     }
 
-    let nextLength = this.ringVertexData.length;
+    let nextLength = this.ringVertexData.length || INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_RING_VERTEX;
 
     while (nextLength < requiredComponents)
     {
@@ -423,7 +422,7 @@ export class EffectGeometry
       return;
     }
 
-    let nextLength = this.triangleVertexData.length;
+    let nextLength = this.triangleVertexData.length || INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRIANGLE_VERTEX;
 
     while (nextLength < requiredComponents)
     {
@@ -477,7 +476,7 @@ export class EffectGeometry
       return;
     }
 
-    let nextLength = this.trailVertexData.length;
+    let nextLength = this.trailVertexData.length || INITIAL_VERTEX_CAPACITY * COMPONENTS_PER_TRAIL_VERTEX;
 
     while (nextLength < requiredComponents)
     {

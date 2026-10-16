@@ -1154,4 +1154,25 @@ assert.equal(fx.destroyed, true, '源码入口可以销毁实例');
   assert.equal(stroke.trailWork, null);
 }
 
+{
+  for (const [prefix, components] of [['', 6], ['SceneDisk', 8], ['Ring', 9], ['Triangle', 9], ['Trail', 9]])
+  {
+    const geometry = new EffectGeometry({});
+    const name = prefix ? prefix[0].toLowerCase() + prefix.slice(1) + 'Vertex' : 'vertex';
+    const data = name + 'Data', count = name + 'Count';
+    const ensure = '_ensure' + prefix + 'VertexCapacity';
+    assert.equal(geometry[data].length, 0, '未使用几何不预分配');
+    geometry[ensure](1);
+    const initial = geometry[data];
+    assert.equal(initial.length, 4096 * components);
+    geometry[data][0] = 1.25;
+    geometry[count] = 1;
+    geometry[ensure](2);
+    assert.equal(geometry[data], initial, '稳定容量复用');
+    geometry[ensure](4096);
+    assert.equal(geometry[data].length, 6144 * components, '保持原 1.5 倍增长');
+    assert.equal(geometry[data][0], 1.25, '扩容保留有效顶点');
+  }
+}
+
 console.log('\n源码入口与资源合同通过');
