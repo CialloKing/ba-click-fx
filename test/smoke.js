@@ -5465,6 +5465,9 @@ const resizeRecoveryRenderer =
   sourceTarget: null,
   levels: [],
   destroyed: false,
+  // 这个替身只模拟中间目标的尺寸失败，不持有动态几何。
+  _hasGeometryResources() { return false; },
+  _releaseGeometryResources() {},
   resize()
   {
     resizeCallCount++;
