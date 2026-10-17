@@ -1,10 +1,30 @@
-import { clamp, clamp01, createCanvas } from './engine-shared.js';
-import { linearToSrgb } from './bloom-color-space.js';
-import { BRIGHT_CORE_CHANNEL_MIX } from './overlay-compositing.js';
-import { CIRCLE_TEXTURE_SIZE, CIRCLE_TEXTURE_RGBA, createCircleTextureSources } from './circle-texture.js';
-import { TRIANGLE_TEXTURE_COVERAGE, TRIANGLE_TEXTURE_SIZE, TRIANGLE_TEXTURE_RGBA, createRoundedTriangleCoverage, createTriangleTextureSources, getRoundedTriangleTextureDivisor, mapRoundedTriangleTextureUv } from './triangle-texture.js';
-import { BUILD_CANVAS } from './build-capabilities.js';
-import { srgbToLinearChannel } from './engine-materials.js';
+import {
+  clamp, clamp01, createCanvas,
+} from './engine-shared.js';
+import {
+  linearToSrgb,
+} from './bloom-color-space.js';
+import {
+  BRIGHT_CORE_CHANNEL_MIX,
+} from './overlay-compositing.js';
+import {
+  CIRCLE_TEXTURE_SIZE, CIRCLE_TEXTURE_RGBA, createCircleTextureSources,
+} from './circle-texture.js';
+import {
+  TRIANGLE_TEXTURE_COVERAGE,
+  TRIANGLE_TEXTURE_SIZE,
+  TRIANGLE_TEXTURE_RGBA,
+  createRoundedTriangleCoverage,
+  createTriangleTextureSources,
+  getRoundedTriangleTextureDivisor,
+  mapRoundedTriangleTextureUv,
+} from './triangle-texture.js';
+import {
+  BUILD_CANVAS,
+} from './build-capabilities.js';
+import {
+  srgbToLinearChannel,
+} from './engine-materials.js';
 
 let triangleTextureResources = null;
 
@@ -819,7 +839,17 @@ function prepareSceneRoundedTriangleCanvas(
   return frame.canvas;
 }
 
-export { triangleTextureResources, triangleTextureUnavailable, circleTextureResources, circleTextureUnavailable, canvasTextureOwners, canvasTextureFrameOwner, canvasTextureReadDepth, canvasTextureReleasePending, canvasTextureIdleTimer, cancelCanvasTextureRelease, scheduleCanvasTextureRelease, trackCanvasTextureUse, releaseCanvasTextureResource, releaseCanvasTextureCache, getTriangleTextureResources, getCircleTextureResources, prepareLinearTextureData, sampleTextureChannel, prepareTextureSample, samplePreparedTextureChannel, LINEAR_TO_SRGB_LUT_SIZE, linearToSrgbLut, getLinearToSrgbLut, createLinearTintFrames, prepareLinearTintedTextureCanvas, prepareCircleTextureCanvas, getRoundedTriangleCoverage, prepareSceneRoundedTriangleCanvas };
+export {
+  canvasTextureOwners,
+  scheduleCanvasTextureRelease,
+  releaseCanvasTextureCache,
+  getTriangleTextureResources,
+  getCircleTextureResources,
+  prepareLinearTintedTextureCanvas,
+  prepareCircleTextureCanvas,
+  getRoundedTriangleCoverage,
+  prepareSceneRoundedTriangleCanvas,
+};
 
 // 仅登记轻量所有权标记，缓存不持有引擎实例。
 export function beginCanvasTextureFrame(owner)

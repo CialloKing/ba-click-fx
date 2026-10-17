@@ -1,13 +1,47 @@
-import { TAU, evaluateNumber, evaluateUnityHermiteCurve, evaluateColor } from './engine-math.js';
-import { clamp01, lerp } from './engine-shared.js';
-import { UNITY_FX_TOUCH } from './config.js';
-import { sampleRing3Alpha } from './ring3-alpha.js';
-import { CIRCLE_TEXTURE_SIZE, CIRCLE_TEXTURE_RGBA } from './circle-texture.js';
-import { TRIANGLE_TEXTURE_SIZE } from './triangle-texture.js';
-import { traceRoundedTrianglePath } from './triangle-path.js';
-import { themeHueShift, relativeOklchTheme, ringSampleCache } from './engine-render-state.js';
-import { srgbToLinearChannel, colorToLinearEnergy, evaluateSrgbGradientEnergy, linearEnergyToAdditiveCss, resolveHostAdditivePayload, linearEnergyToHostAdditiveCss, resolveOverlayCompensation, colorToCanvasOutputCss, linearEnergyToOverlayCss, linearEnergyToEmissionCss } from './engine-materials.js';
-import { getTriangleTextureResources, getCircleTextureResources, prepareLinearTintedTextureCanvas, prepareCircleTextureCanvas, getRoundedTriangleCoverage, prepareSceneRoundedTriangleCanvas } from './engine-canvas-textures.js';
+import {
+  TAU, evaluateNumber, evaluateUnityHermiteCurve, evaluateColor,
+} from './engine-math.js';
+import {
+  clamp01, lerp,
+} from './engine-shared.js';
+import {
+  UNITY_FX_TOUCH,
+} from './config.js';
+import {
+  sampleRing3Alpha,
+} from './ring3-alpha.js';
+import {
+  CIRCLE_TEXTURE_SIZE, CIRCLE_TEXTURE_RGBA,
+} from './circle-texture.js';
+import {
+  TRIANGLE_TEXTURE_SIZE,
+} from './triangle-texture.js';
+import {
+  traceRoundedTrianglePath,
+} from './triangle-path.js';
+import {
+  themeHueShift, relativeOklchTheme, ringSampleCache,
+} from './engine-render-state.js';
+import {
+  srgbToLinearChannel,
+  colorToLinearEnergy,
+  evaluateSrgbGradientEnergy,
+  linearEnergyToAdditiveCss,
+  resolveHostAdditivePayload,
+  linearEnergyToHostAdditiveCss,
+  resolveOverlayCompensation,
+  colorToCanvasOutputCss,
+  linearEnergyToOverlayCss,
+  linearEnergyToEmissionCss,
+} from './engine-materials.js';
+import {
+  getTriangleTextureResources,
+  getCircleTextureResources,
+  prepareLinearTintedTextureCanvas,
+  prepareCircleTextureCanvas,
+  getRoundedTriangleCoverage,
+  prepareSceneRoundedTriangleCanvas,
+} from './engine-canvas-textures.js';
 
 const NATIVE_BLOOM_DISK_SAMPLES = 16;
 
@@ -1293,4 +1327,22 @@ function drawFlare(
   context.restore();
 }
 
-export { NATIVE_BLOOM_DISK_SAMPLES, nativeCircleBloomSamples, getNativeCircleBloomSamples, evaluateRingTextureAlpha, evaluateRingLuminance, resolveRingTextureProgress, findRingClipBoundary, prepareRingGradientSamples, getRingGradientSamples, createRingStopDescriptor, getRingGradientStops, prepareRingGradientStops, createDissolvedRingGradient, fillDissolvedRingFallback, resolveRingIntegrationSamples, resolveRingIntegrationArcSamples, fillDissolvedRing, resolveRingGeometry, drawDissolvedCircle, drawDissolvedCircleEmission, drawDisk, drawDiskEmission, drawDiskCoverage, resolveShardTextureFrameIndex, resolveShardTextureFrame, drawTriangleTextureFrame, resolveShardRoundness, drawTexturedTriangle, drawTriangle, drawTriangleCoverage, drawTriangleEmission, drawHit, drawFlare };
+export {
+  NATIVE_BLOOM_DISK_SAMPLES,
+  getNativeCircleBloomSamples,
+  evaluateRingLuminance,
+  resolveRingIntegrationSamples,
+  resolveRingGeometry,
+  drawDissolvedCircle,
+  drawDissolvedCircleEmission,
+  drawDisk,
+  drawDiskEmission,
+  drawDiskCoverage,
+  resolveShardTextureFrameIndex,
+  resolveShardRoundness,
+  drawTriangle,
+  drawTriangleCoverage,
+  drawTriangleEmission,
+  drawHit,
+  drawFlare,
+};

@@ -1,4 +1,6 @@
-import { distance, releaseMeshGradients } from './engine-shared.js';
+import {
+  distance, releaseMeshGradients,
+} from './engine-shared.js';
 
 const MAX_TRAIL_INNER_MITER_RATIO = 4;
 
@@ -287,4 +289,8 @@ function getTrailMesh(trailData, points, width, trailCfg)
   return mesh;
 }
 
-export { MAX_TRAIL_INNER_MITER_RATIO, MIN_TRAIL_SEGMENT_LENGTH, TRAIL_MESH_CACHE_CAPACITY, measureTrail, writeTrailPoint, createTrailMesh, getTrailMesh };
+export {
+  MIN_TRAIL_SEGMENT_LENGTH,
+  measureTrail,
+  getTrailMesh,
+};

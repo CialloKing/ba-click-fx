@@ -1,10 +1,24 @@
-import { rgbToHsl, hslToRgb, smoothstep, evaluateColor } from './engine-math.js';
-import { clamp, clamp01 } from './engine-shared.js';
-import { applyRelativeOklchTheme } from './theme-color.js';
-import { gammaToLinear, linearToSrgb, resolveUnityBloomClamp, resolveUnityBloomIntensity } from './bloom-color-space.js';
-import { calculateBloomContribution } from './bloom-math.js';
-import { compensateBrightCorePremultipliedRgb } from './overlay-compositing.js';
-import { themeHueShift, relativeOklchTheme, gradientEnergyCache } from './engine-render-state.js';
+import {
+  rgbToHsl, hslToRgb, smoothstep, evaluateColor,
+} from './engine-math.js';
+import {
+  clamp, clamp01,
+} from './engine-shared.js';
+import {
+  applyRelativeOklchTheme,
+} from './theme-color.js';
+import {
+  gammaToLinear, linearToSrgb, resolveUnityBloomClamp, resolveUnityBloomIntensity,
+} from './bloom-color-space.js';
+import {
+  calculateBloomContribution,
+} from './bloom-math.js';
+import {
+  compensateBrightCorePremultipliedRgb,
+} from './overlay-compositing.js';
+import {
+  themeHueShift, relativeOklchTheme, gradientEnergyCache,
+} from './engine-render-state.js';
 
 const BASE_BLUE = [76, 167, 255];
 
@@ -455,4 +469,18 @@ function colorToEmissionCss(
   );
 }
 
-export { BASE_BLUE, BASE_BLUE_HUE, computeThemeHueShift, applyThemeHue, applyThemeColor, colorToCss, srgbToLinearChannel, colorToLinearEnergy, evaluateSrgbGradientEnergy, linearEnergyToAdditiveCss, resolveHostAdditivePayload, linearEnergyToHostAdditiveCss, resolveOverlayStraightColor, resolveOverlayCompensation, colorToCanvasOutputCss, linearEnergyToOverlayCss, linearEnergyToNativeTrailBloomCss, linearEnergyToEmissionCss, colorToEmissionCss };
+export {
+  computeThemeHueShift,
+  colorToCss,
+  srgbToLinearChannel,
+  colorToLinearEnergy,
+  evaluateSrgbGradientEnergy,
+  linearEnergyToAdditiveCss,
+  resolveHostAdditivePayload,
+  linearEnergyToHostAdditiveCss,
+  resolveOverlayCompensation,
+  colorToCanvasOutputCss,
+  linearEnergyToOverlayCss,
+  linearEnergyToNativeTrailBloomCss,
+  linearEnergyToEmissionCss,
+};

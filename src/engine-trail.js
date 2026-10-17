@@ -1,10 +1,29 @@
-import { evaluateNumber, evaluateColor } from './engine-math.js';
-import { clamp, clamp01, lerp, releaseTrailGradients } from './engine-shared.js';
-import { UNITY_FX_TOUCH } from './config.js';
-import { evaluateTrailLongitudinalCoverage, evaluateTrailTextureCoverageProfile } from './trail-coverage.js';
-import { themeHueShift, relativeOklchTheme } from './engine-render-state.js';
-import { colorToLinearEnergy, linearEnergyToAdditiveCss, linearEnergyToHostAdditiveCss, linearEnergyToOverlayCss, linearEnergyToNativeTrailBloomCss, linearEnergyToEmissionCss } from './engine-materials.js';
-import { MIN_TRAIL_SEGMENT_LENGTH, measureTrail, getTrailMesh } from './engine-trail-geometry.js';
+import {
+  evaluateNumber, evaluateColor,
+} from './engine-math.js';
+import {
+  clamp, clamp01, lerp, releaseTrailGradients,
+} from './engine-shared.js';
+import {
+  UNITY_FX_TOUCH,
+} from './config.js';
+import {
+  evaluateTrailLongitudinalCoverage, evaluateTrailTextureCoverageProfile,
+} from './trail-coverage.js';
+import {
+  themeHueShift, relativeOklchTheme,
+} from './engine-render-state.js';
+import {
+  colorToLinearEnergy,
+  linearEnergyToAdditiveCss,
+  linearEnergyToHostAdditiveCss,
+  linearEnergyToOverlayCss,
+  linearEnergyToNativeTrailBloomCss,
+  linearEnergyToEmissionCss,
+} from './engine-materials.js';
+import {
+  MIN_TRAIL_SEGMENT_LENGTH, measureTrail, getTrailMesh,
+} from './engine-trail-geometry.js';
 
 const TRAIL_GRADIENT_CACHE_CAPACITY = 8;
 
@@ -1311,4 +1330,11 @@ function appendTrailWebGLBloom(
   }
 }
 
-export { TRAIL_GRADIENT_CACHE_CAPACITY, hasVisibleTrailPoints, interpolateTrailColor, createTrailFrameData, evaluateTrailLinearEnergy, evaluateTrailMaterialColor, writeTrailProfilePoint, evaluateTrailTransverseProfile, getTrailGradientGroup, cachedTrailGradient, resolveTrailTransverseProfile, createTrailCrossSectionGradient, fillTrailMeshSegment, fillTrailMeshCap, resolveTrailPointEnergy, resolveTrailPointTransverseProfile, resolveTrailPointCoverageFactor, resolveTrailPointCoverageProfile, drawTrailLayer, hasPositiveTrailEnergy, hasDrawableNativeTrailEnergy, drawNativeTrailBloom, drawTrail, drawTrailCoverage, drawTrailEmission, appendTexturedTrailMeshSegment, appendTexturedTrailMeshJoin, appendTexturedTrailMeshCaps, appendTexturedTrailMeshJoins, getTrailGpuPointSamples, appendTrailWebGLScene, appendTrailWebGLBloom };
+export {
+  hasVisibleTrailPoints,
+  createTrailFrameData,
+  drawTrail,
+  drawTrailCoverage,
+  drawTrailEmission,
+  appendTrailWebGLScene,
+};

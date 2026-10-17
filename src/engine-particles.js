@@ -1,8 +1,36 @@
-import { TAU, random, evaluateNumber, evaluateUnityHermiteCurve, evaluateUnitySmoothCurve, evaluateColor } from './engine-math.js';
-import { clamp01, lerp } from './engine-shared.js';
-import { UNITY_FX_TOUCH } from './config.js';
-import { colorToLinearEnergy, evaluateSrgbGradientEnergy } from './engine-materials.js';
-import { evaluateRingLuminance, resolveRingGeometry, drawDissolvedCircle, drawDissolvedCircleEmission, drawDisk, drawDiskEmission, drawDiskCoverage, resolveShardTextureFrameIndex, resolveShardRoundness, drawTriangle, drawTriangleCoverage, drawTriangleEmission, drawHit, drawFlare } from './engine-canvas-primitives.js';
+import {
+  TAU,
+  random,
+  evaluateNumber,
+  evaluateUnityHermiteCurve,
+  evaluateUnitySmoothCurve,
+  evaluateColor,
+} from './engine-math.js';
+import {
+  clamp01, lerp,
+} from './engine-shared.js';
+import {
+  UNITY_FX_TOUCH,
+} from './config.js';
+import {
+  colorToLinearEnergy, evaluateSrgbGradientEnergy,
+} from './engine-materials.js';
+import {
+  evaluateRingLuminance,
+  resolveRingGeometry,
+  drawDissolvedCircle,
+  drawDissolvedCircleEmission,
+  drawDisk,
+  drawDiskEmission,
+  drawDiskCoverage,
+  resolveShardTextureFrameIndex,
+  resolveShardRoundness,
+  drawTriangle,
+  drawTriangleCoverage,
+  drawTriangleEmission,
+  drawHit,
+  drawFlare,
+} from './engine-canvas-primitives.js';
 
 function evaluateRingAngularVelocity(angularBlend, progress, ringCfg = UNITY_FX_TOUCH.rings)
 {
@@ -811,4 +839,7 @@ function createShard(
   );
 }
 
-export { evaluateRingAngularVelocity, ClickWave, ShardParticle, createShard };
+export {
+  ClickWave,
+  createShard,
+};

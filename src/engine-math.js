@@ -1,5 +1,7 @@
 // 纯数值计算；保留求值顺序以保证跨后端几何一致。
-import { clamp, clamp01, lerp } from './engine-shared.js';
+import {
+  clamp01, lerp,
+} from './engine-shared.js';
 
 const TAU = Math.PI * 2;
 
@@ -355,4 +357,16 @@ function evaluateColor(keys, progress, output = [0, 0, 0])
   return output;
 }
 
-export { TAU, rgbToHsl, hslToRgb, smoothstep, boundsIntersect, mergeBloomRegion, combineBloomRegionBounds, random, evaluateNumber, evaluateUnityHermiteCurve, evaluateUnitySmoothCurve, evaluateColor };
+export {
+  TAU,
+  rgbToHsl,
+  hslToRgb,
+  smoothstep,
+  mergeBloomRegion,
+  combineBloomRegionBounds,
+  random,
+  evaluateNumber,
+  evaluateUnityHermiteCurve,
+  evaluateUnitySmoothCurve,
+  evaluateColor,
+};

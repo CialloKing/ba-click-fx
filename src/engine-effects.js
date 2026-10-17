@@ -1,12 +1,28 @@
 // 内部职责层不增加构造函数，初始化顺序由公开入口统一维护。
-import { themeHueShift, relativeOklchTheme } from './engine-render-state.js';
-import { TAU, random } from './engine-math.js';
-import { distance, invalidateTrailPoints, lerp, releaseTrailGradients } from './engine-shared.js';
-import { getTrailRenderPoints, updateTrailRenderPoints } from './trail-lifetime.js';
-import { BUILD_CANVAS, BUILD_CLICK, BUILD_TRAIL, BUILD_SHARDS } from './build-capabilities.js';
-import { ClickWave, createShard } from './engine-particles.js';
-import { hasVisibleTrailPoints, createTrailFrameData } from './engine-trail.js';
-import { ConfigRuntime } from './engine-config.js';
+import {
+  themeHueShift, relativeOklchTheme,
+} from './engine-render-state.js';
+import {
+  TAU, random,
+} from './engine-math.js';
+import {
+  distance, invalidateTrailPoints, lerp, releaseTrailGradients,
+} from './engine-shared.js';
+import {
+  getTrailRenderPoints, updateTrailRenderPoints,
+} from './trail-lifetime.js';
+import {
+  BUILD_CANVAS, BUILD_CLICK, BUILD_TRAIL, BUILD_SHARDS,
+} from './build-capabilities.js';
+import {
+  ClickWave, createShard,
+} from './engine-particles.js';
+import {
+  hasVisibleTrailPoints, createTrailFrameData,
+} from './engine-trail.js';
+import {
+  ConfigRuntime,
+} from './engine-config.js';
 
 export class EffectRuntime extends ConfigRuntime
 {
@@ -61,7 +77,6 @@ export class EffectRuntime extends ConfigRuntime
     this.trailDistanceSinceShard = (this.trailDistanceSinceShard + segmentLength) % spacing;
   }
 
-
   _spawnClick(x, y)
   {
     if (!BUILD_CLICK)
@@ -87,7 +102,6 @@ export class EffectRuntime extends ConfigRuntime
       ));
     }
   }
-
 
   _getTrailFrameData(stroke, materialIntensity)
   {
@@ -130,7 +144,6 @@ export class EffectRuntime extends ConfigRuntime
     return data;
   }
 
-
   _clearTrailStrokes()
   {
     if (!BUILD_TRAIL)
@@ -148,7 +161,6 @@ export class EffectRuntime extends ConfigRuntime
     }
     this.trailStrokes.length = 0;
   }
-
 
   _updateTrail(
     trailTimeMs,
@@ -197,7 +209,6 @@ export class EffectRuntime extends ConfigRuntime
     }
   }
 
-
   _updateWaves(
     clickTimeMs,
     scale,
@@ -239,7 +250,6 @@ export class EffectRuntime extends ConfigRuntime
       }
     }
   }
-
 
   _updateShards(clickTimeMs, trailTimeMs, scale, drawCanvas = true)
   {
@@ -284,7 +294,6 @@ export class EffectRuntime extends ConfigRuntime
       }
     }
   }
-
 
   _hasVisibleEffects()
   {

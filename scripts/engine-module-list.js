@@ -2,6 +2,6 @@
 export const ENGINE_HELPERS = ['engine-math.js', 'engine-render-state.js', 'engine-materials.js', 'engine-canvas-textures.js',
   'engine-canvas-primitives.js', 'engine-particles.js', 'engine-trail-geometry.js', 'engine-trail.js'];
 export const ENGINE_RUNTIMES = [
-  'engine-input.js', 'engine-backends.js', 'engine-lifecycle.js', 'engine-config.js', 'engine-effects.js',
+  'engine-input.js', 'engine-backends.js', 'engine-lifecycle.js', 'engine-config.js', 'engine-effects.js', 'engine-render.js',
 ];
 export const ENGINE_MODULES = [...ENGINE_HELPERS, ...ENGINE_RUNTIMES, 'engine-core.js'];
