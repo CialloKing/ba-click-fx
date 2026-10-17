@@ -58,9 +58,16 @@ export async function loadRingDiagnosticModule(options = {})
 {
   const sourceUrl = options.sourceUrl ?? new URL('/src/engine-core.js', location.href);
   const file = options.file ?? 'engine-canvas-primitives.js';
+  const names = ['ringWork', 'resetRingWork', 'createDissolvedRingGradient',
+    'hasRingSampleCache', 'readRingSampleScope', 'withRingSampleScope', 'withRingTheme'];
   return isolatedEngineFixture({ ...options, sourceUrl,
-    transform: (name, source) => name === file ? instrumentRingSource(source, sourceUrl) : source,
-    expose: { [file]: ['ringWork', 'resetRingWork', 'createDissolvedRingGradient', 'createRingStopDescriptor',
-      'hasRingSampleCache', 'readRingSampleScope', 'withRingSampleScope', 'withRingTheme'] },
+    transform: (name, source) =>
+    {
+      if (name !== file) return source;
+      // 旧快照可能没有 stop 缓存，诊断副本继续只暴露实际存在的能力。
+      if (source.includes('function createRingStopDescriptor(')) names.push('createRingStopDescriptor');
+      return instrumentRingSource(source, sourceUrl);
+    },
+    expose: { [file]: names },
   });
 }
