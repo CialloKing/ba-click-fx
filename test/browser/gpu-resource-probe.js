@@ -127,6 +127,12 @@ export async function probeGpuCache(fx, renderer, renderFrame, capture, createIn
     results.glBindingsRetained = !renderer.gl || (renderer.ringVao === ringVao &&
       geometryBuffers.every((name, index) => renderer[name] === glBuffers[index]));
     fx.boom(110, 105); renderFrame(); await record('burst-rebuilt');
+    fx.clear();
+    renderer.releaseFrameResources();
+    fx._cancelGpuFrameRelease(); fx._scheduleGpuFrameRelease();
+    results.retiredTimer = timers.has(fx.gpuFrameIdleTimer);
+    advance(30000); await record('retired-released');
+    fx.boom(110, 105); renderFrame(); await record('retired-rebuilt');
     return results;
   }
   finally

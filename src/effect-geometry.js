@@ -1470,6 +1470,13 @@ export class EffectGeometry
     }
   }
 
+  _hasGeometryResources()
+  {
+    return this.vertexData.length > 0 || this.sceneDiskVertexData.length > 0 ||
+      this.ringVertexData.length > 0 || this.triangleVertexData.length > 0 ||
+      this.trailVertexData.length > 0 || this.ringIndexData.length > 0;
+  }
+
   _releaseGeometry()
   {
     this.beginFrame();

@@ -1496,9 +1496,10 @@ export class BackendRuntime extends InputRuntime
   _scheduleGpuFrameRelease()
   {
     if (!(BUILD_WEBGL || BUILD_WEBGPU || BUILD_WEBGL_BLOOM)) return;
+    // 后端切换可能已释放目标，仍保留的几何也要进入同一个空闲窗口。
+    const hasResources = renderer => renderer && (renderer.sourceTarget || renderer._hasGeometryResources());
     if (this.destroyed || this.gpuFrameIdleTimer !== null || this._hasVisibleEffects() ||
-        !(this.webgpuEffectRenderer?.sourceTarget || this.webglEffectRenderer?.sourceTarget ||
-          this.webglBloomRenderer?.sourceTarget))
+        ![this.webgpuEffectRenderer, this.webglEffectRenderer, this.webglBloomRenderer].some(hasResources))
     {
       return;
     }
@@ -1515,7 +1516,7 @@ export class BackendRuntime extends InputRuntime
       }
       for (const renderer of [this.webgpuEffectRenderer, this.webglEffectRenderer, this.webglBloomRenderer])
       {
-        if (renderer?.sourceTarget)
+        if (hasResources(renderer))
         {
           renderer.releaseFrameResources({ preservePresentation: true });
           // 普通 resize/后端切换仍保留热容量，只有长期空闲归还动态几何。
