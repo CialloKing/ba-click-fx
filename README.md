@@ -368,6 +368,8 @@ npm run check
 
 发布前运行 `npm run check:release` 完成全部浏览器及定制构建验收，并确认当前提交的 CI 通过。`npm pack` 和 `npm publish` 的打包钩子只运行快速的 `check`，构建一次，不再重复完整浏览器验收。性能测量独立运行 `npm run benchmark:custom`；默认验收保留全部配置和像素精度，省去性能压测。
 
+核心入口保留构造、公开方法和帧调度，内部职责与资源所有权见[核心模块说明](https://github.com/CialloKing/ba-click-fx/blob/main/docs/core-modules.md)。模块拆分不改变公开接口、同步构造或单文件发布形式。
+
 浏览器检查需要 Chrome / Edge，可用 `BACLICKFX_CHROMIUM_PATH` 指定路径。
 
 下载量徽章每天按自然年重新累计首次发布至 UTC 昨日的 npm 下载量；手动更新与统计规则见[下载量统计说明](https://github.com/CialloKing/ba-click-fx/blob/main/badges/README.md)。

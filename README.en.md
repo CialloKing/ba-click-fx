@@ -368,6 +368,8 @@ npm run check
 
 Before publishing, run `npm run check:release` for complete browser and custom-build acceptance and confirm CI passes for the current commit. The packing hook for `npm pack` and `npm publish` runs only the fast `check`, building once without repeating complete browser acceptance. Run `npm run benchmark:custom` separately for performance measurements. Default acceptance retains every profile and pixel precision while omitting performance workloads.
 
+The core entry retains construction, public methods, and frame scheduling. See [core modules](https://github.com/CialloKing/ba-click-fx/blob/main/docs/core-modules.en.md) for responsibilities and resource ownership. This split preserves public APIs, synchronous construction, and single-file distribution.
+
 Browser checks require Chrome / Edge; set `BACLICKFX_CHROMIUM_PATH` to select an executable.
 
 The download badge is recalculated daily by calendar year, from the first publication through yesterday in UTC. See [download statistics](https://github.com/CialloKing/ba-click-fx/blob/main/badges/README.md) for manual updates and counting rules.

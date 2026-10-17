@@ -267,7 +267,7 @@ Consequently, “ported from the Unity project” describes the source of parame
 ba-click-fx/
 ├── src/
 │   ├── fx.js            # Stable public ESM entry
-│   ├── engine-core.js   # ParticleSystem, TrailRenderer, and render scheduling
+│   ├── engine-core.js   # Construction, public methods, host integration, frame scheduling
 │   ├── engine-input.js  # DOM and manual pointer input
 │   ├── engine-lifecycle.js # Dimensions, pause, clear, and destruction
 │   ├── engine-backends.js # Backend preparation, output ownership, and resources
@@ -297,6 +297,8 @@ ba-click-fx/
 ├── dist/                 # Build output (ESM)
 └── package.json
 ```
+
+Algorithms are separated into numeric, material, Canvas texture/primitive, particle, trail, and render-pass modules. See [core modules](./core-modules.en.md) for the complete responsibility table, dependency direction, and resource ownership.
 
 ### Architecture
 

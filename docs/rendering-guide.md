@@ -267,7 +267,7 @@ WebGPU 可用性由实际申请 Adapter/Device、创建 `webgpu` Canvas Context 
 ba-click-fx/
 ├── src/
 │   ├── fx.js            # 稳定的公共 ESM 入口
-│   ├── engine-core.js   # ParticleSystem、TrailRenderer 与渲染调度
+│   ├── engine-core.js   # 构造、公开方法、宿主接入与帧调度
 │   ├── engine-input.js  # DOM 和手动指针输入
 │   ├── engine-lifecycle.js # 尺寸、暂停、清空与销毁
 │   ├── engine-backends.js # 后端准备、输出所有权与资源管理
@@ -300,6 +300,8 @@ ba-click-fx/
 │   └── worker.js          # ESM Worker 子入口
 └── package.json
 ```
+
+具体算法已拆到数值、材质、Canvas 纹理/图元、粒子、拖尾和帧绘制模块。完整职责表、单向依赖及资源所有权见[核心模块说明](./core-modules.md)。
 
 ### 架构特点
 
