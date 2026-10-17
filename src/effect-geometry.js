@@ -1470,6 +1470,17 @@ export class EffectGeometry
     }
   }
 
+  _releaseGeometry()
+  {
+    this.beginFrame();
+    this.vertexData = new Float32Array(0);
+    this.sceneDiskVertexData = new Float32Array(0);
+    this.ringVertexData = new Float32Array(0);
+    this.triangleVertexData = new Float32Array(0);
+    this.trailVertexData = new Float32Array(0);
+    this._releaseRingScratch();
+  }
+
   _releaseRingScratch()
   {
     this._ringCosine = null;

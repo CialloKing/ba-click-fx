@@ -62,6 +62,8 @@ async function verifyUnavailableCase(
   renderer.destroy();
   assert.equal(renderer._ringCosine, null, 'WebGPU 重复销毁释放圆环余弦缓冲');
   assert.equal(renderer._ringSine, null, 'WebGPU 重复销毁释放圆环正弦缓冲');
+  for (const key of ['vertexData', 'sceneDiskVertexData', 'ringVertexData', 'triangleVertexData', 'trailVertexData'])
+    assert.equal(renderer[key].byteLength, 0, '销毁后持有 Renderer 也不保留 CPU 数组');
 }
 
 const unhandledRejections = [];

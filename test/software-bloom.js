@@ -2037,7 +2037,11 @@ for (let index = 0; index < batches.length; index++)
   const [name, components] = batches[index];
   const prefix = name ? `${name}Vertex` : 'vertex';
   if (name === 'ring') uploadRenderer.addDissolveRing(100, 100, 50, 10, 0, 1, 32, [1, 1, 1], 1, 0.5, 0, 1, 1);
-  else uploadRenderer[`${prefix}Count`] = 3;
+  else
+  {
+    uploadRenderer['_ensure' + (name ? name[0].toUpperCase() + name.slice(1) : '') + 'VertexCapacity'](3);
+    uploadRenderer[`${prefix}Count`] = 3;
+  }
   uploadRenderer[`${prefix}Data`].fill(index + 1, 0, uploadRenderer[`${prefix}Count`] * components);
 }
 assert(uploadRenderer.renderScene({ diskEmissionScale: 2, ringEmissionScale: 2 }),

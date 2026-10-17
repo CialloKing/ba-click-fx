@@ -181,6 +181,16 @@ try
       const probe = candidate.gpuCache;
       assert.equal(probe.delay, 30000);
       assert(probe.singleTimer && probe.otherPreserved && probe.destroyPending && probe.destroyed && probe.failurePreserved);
+      assert(probe.geometryReused && probe.switchRetainedGeometry && probe.glBindingsRetained);
+      assert.equal(probe.active.geometryCpuBytes, probe.paused.geometryCpuBytes);
+      assert.equal(probe.active.geometryGpuBytes, probe.paused.geometryGpuBytes);
+      assert.equal(probe.idle.geometryCpuBytes, probe['before-deadline'].geometryCpuBytes);
+      assert(probe.burst.geometryCpuBytes > probe.active.geometryCpuBytes);
+      for (const state of [probe.released, probe['clear-released'], probe['burst-released'], probe.failedResources, probe.destroyedGeometry])
+      {
+        assert.equal(state.geometryCpuBytes, 0, '空闲或销毁归还 CPU 几何容量');
+        assert.equal(state.geometryGpuBytes, 0, '空闲或销毁归还 GPU 几何存储');
+      }
       assert.equal(probe.active.targetBytes, probe.paused.targetBytes, 'Visible pause retains resources');
       assert.equal(probe.active.hash, probe.paused.hash, 'Visible pause retains pixels');
       assert.equal(probe.idle.targetBytes, probe['before-deadline'].targetBytes);
@@ -199,7 +209,7 @@ try
       if (baseline)
       {
         assert.equal(candidate.hash, baseline.hash);
-        for (const name of ['active', 'paused', 'idle', 'before-deadline', 'resumed', 'released', 'rebuilt', 'cleared', 'clear-released'])
+        for (const name of ['active', 'paused', 'idle', 'before-deadline', 'resumed', 'released', 'rebuilt', 'cleared', 'clear-released', 'burst', 'burst-released', 'burst-rebuilt'])
           assert.equal(probe[name].hash, baseline.gpuCache[name].hash, `${entry.backend}/${name}: independent cache pixel parity`);
       }
       results.push({ cache: entry, candidate, baseline });

@@ -1518,6 +1518,8 @@ export class BackendRuntime extends InputRuntime
         if (renderer?.sourceTarget)
         {
           renderer.releaseFrameResources({ preservePresentation: true });
+          // 普通 resize/后端切换仍保留热容量，只有长期空闲归还动态几何。
+          renderer._releaseGeometryResources();
         }
       }
     }, 30000);

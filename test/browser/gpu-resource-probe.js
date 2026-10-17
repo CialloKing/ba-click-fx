@@ -1,8 +1,34 @@
+const geometryArrays = ['vertexData', 'sceneDiskVertexData', 'ringVertexData',
+  'triangleVertexData', 'trailVertexData', 'ringIndexData', '_ringCosine', '_ringSine'];
+const geometryBuffers = ['emissionBuffer', 'sceneDiskBuffer', 'ringBuffer',
+  'triangleBuffer', 'trailBuffer', 'ringIndexBuffer'];
+
 export function gpuResources(renderer)
 {
   const targets = [renderer.sourceTarget, renderer.sceneOverlayTarget, renderer.bloomSourceTarget,
     renderer.sceneBackgroundTarget, ...renderer.levels.flatMap(level => [level.down, level.up])].filter(Boolean);
-  return { targetBytes: targets.reduce((sum, target) => sum + target.width * target.height * 8, 0),
+  let geometryGpuBytes = Object.values(renderer.vertexBuffers ?? {}).reduce((sum, entry) => sum + entry.size, 0) +
+    (renderer.ringIndexBufferSize ?? 0);
+  const gl = renderer.gl;
+  if (gl && !renderer.contextLost)
+  {
+    const vao = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+    const array = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+    try
+    {
+      for (const name of geometryBuffers)
+      {
+        if (!renderer[name]) continue;
+        const target = name === 'ringIndexBuffer' ? gl.ELEMENT_ARRAY_BUFFER : gl.ARRAY_BUFFER;
+        if (name === 'ringIndexBuffer') gl.bindVertexArray(renderer.ringVao);
+        gl.bindBuffer(target, renderer[name]);
+        geometryGpuBytes += gl.getBufferParameter(target, gl.BUFFER_SIZE);
+      }
+    }
+    finally { gl.bindVertexArray(vao); gl.bindBuffer(gl.ARRAY_BUFFER, array); }
+  }
+  return { geometryCpuBytes: geometryArrays.reduce((sum, name) => sum + (renderer[name]?.byteLength ?? 0), 0),
+    geometryGpuBytes, targetBytes: targets.reduce((sum, target) => sum + target.width * target.height * 8, 0),
     targetCount: targets.length, uniformCount: renderer.levels.reduce((sum, level) =>
       sum + Number(!!level.downUniform) + Number(!!level.upUniform), 0),
     bindGroups: renderer.bindGroups?.size ?? 0 };
@@ -47,6 +73,9 @@ export async function probeGpuCache(fx, renderer, renderFrame, capture, createIn
   try
   {
     renderFrame(); await record('active');
+    const storage = geometryArrays.map(name => renderer[name]);
+    renderFrame();
+    results.geometryReused = geometryArrays.every((name, index) => renderer[name] === storage[index]);
     fx.setPaused(true); advance(30000); await record('paused');
     fx.setPaused(false); renderFrame(10000); await record('idle');
     const firstTimer = timers.get(fx.gpuFrameIdleTimer);
@@ -70,6 +99,7 @@ export async function probeGpuCache(fx, renderer, renderFrame, capture, createIn
     const doomedTimer = timers.get(other.fx.gpuFrameIdleTimer);
     results.destroyPending = !!doomedTimer;
     other.dispose(); doomedTimer?.callback();
+    results.destroyedGeometry = gpuResources(otherRenderer);
     results.destroyed = other.fx.destroyed && !timers.has(other.fx.gpuFrameIdleTimer) && !otherRenderer.sourceTarget;
     other = null;
 
@@ -84,6 +114,19 @@ export async function probeGpuCache(fx, renderer, renderFrame, capture, createIn
     }
     finally { renderer.available = available; renderer.failedResizeSignature = signature; }
     fx.boom(110, 105); renderFrame();
+    for (let index = 0; index < 64; index++) fx.boom(110, 105);
+    renderFrame(50); await record('burst');
+    const burstArrays = geometryArrays.map(name => renderer[name]);
+    // 普通资源释放用于后端切换，仍保留热几何；空闲回调才归还容量。
+    renderer.releaseFrameResources();
+    results.switchRetainedGeometry = geometryArrays.every((name, index) => renderer[name] === burstArrays[index]);
+    renderFrame();
+    const glBuffers = geometryBuffers.map(name => renderer[name]);
+    const ringVao = renderer.ringVao;
+    fx.clear(); advance(30000); await record('burst-released');
+    results.glBindingsRetained = !renderer.gl || (renderer.ringVao === ringVao &&
+      geometryBuffers.every((name, index) => renderer[name] === glBuffers[index]));
+    fx.boom(110, 105); renderFrame(); await record('burst-rebuilt');
     return results;
   }
   finally

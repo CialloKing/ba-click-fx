@@ -1618,6 +1618,39 @@ export class WebGL2EffectRenderer extends EffectGeometry
     }
   }
 
+  _releaseGeometryResources()
+  {
+    const gl = this.gl;
+    if (gl && !this.contextLost)
+    {
+      // 只归还存储，保留 VAO 指向的 Buffer 身份；恢复帧沿用原上传路径。
+      const previousVao = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+      const previousArray = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+      try
+      {
+        for (const buffer of [this.emissionBuffer, this.sceneDiskBuffer, this.ringBuffer,
+          this.triangleBuffer, this.trailBuffer])
+        {
+          if (!buffer) continue;
+          gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+          gl.bufferData(gl.ARRAY_BUFFER, 0, gl.DYNAMIC_DRAW);
+        }
+        if (this.ringIndexBuffer)
+        {
+          gl.bindVertexArray(this.ringVao);
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ringIndexBuffer);
+          gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, 0, gl.STATIC_DRAW);
+        }
+      }
+      finally
+      {
+        gl.bindVertexArray(previousVao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, previousArray);
+      }
+    }
+    this._releaseGeometry();
+  }
+
   _deleteResources()
   {
     this.uniformLocations?.clear();
@@ -3127,19 +3160,9 @@ export class WebGL2EffectRenderer extends EffectGeometry
     this.canvas?.removeEventListener?.('webglcontextlost', this._onContextLost);
     this.canvas?.removeEventListener?.('webglcontextrestored', this._onContextRestored);
     this._deleteResources();
-    this._releaseRingScratch();
+    this._releaseGeometry();
     this.available = false;
     this.contextLost = false;
-    this.vertexCount = 0;
-    this.vertexData = new Float32Array(0);
-    this.sceneDiskVertexCount = 0;
-    this.sceneDiskVertexData = new Float32Array(0);
-    this.ringVertexCount = 0;
-    this.ringVertexData = new Float32Array(0);
-    this.triangleVertexCount = 0;
-    this.triangleVertexData = new Float32Array(0);
-    this.trailVertexCount = 0;
-    this.trailVertexData = new Float32Array(0);
     this.maximumTextureSize = 0;
     this.maximumViewportWidth = 0;
     this.maximumViewportHeight = 0;

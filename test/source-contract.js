@@ -1172,6 +1172,11 @@ assert.equal(fx.destroyed, true, '源码入口可以销毁实例');
     geometry[ensure](4096);
     assert.equal(geometry[data].length, 6144 * components, '保持原 1.5 倍增长');
     assert.equal(geometry[data][0], 1.25, '扩容保留有效顶点');
+    geometry._releaseGeometry();
+    geometry._releaseGeometry();
+    assert.equal(geometry[data].length, 0, '重复释放归零');
+    geometry[ensure](1);
+    assert.equal(geometry[data].length, initial.length, '空闲后恢复原首次容量');
   }
 }
 

@@ -1702,6 +1702,14 @@ export class WebGPUEffectRenderer extends EffectGeometry
     return suspended;
   }
 
+  _releaseGeometryResources()
+  {
+    for (const entry of Object.values(this.vertexBuffers)) entry.buffer?.destroy?.();
+    this.vertexBuffers = {};
+    this._deleteRingIndexBuffer();
+    this._releaseGeometry();
+  }
+
   destroy()
   {
     if (this.status === 'destroyed')
@@ -1711,16 +1719,10 @@ export class WebGPUEffectRenderer extends EffectGeometry
 
     this._setRendererStatus('destroyed');
     this._deleteTargets();
-    this._releaseRingScratch();
-    this._deleteRingIndexBuffer();
+    this._releaseGeometryResources();
     this.textureViews = new WeakMap();
     this.geometryUniformScratch = null;
     this.passUniformScratch = null;
-
-    for (const entry of Object.values(this.vertexBuffers))
-    {
-      entry.buffer?.destroy?.();
-    }
 
     for (const texture of Object.values(this.textures))
     {
