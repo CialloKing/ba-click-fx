@@ -147,7 +147,7 @@ npm run check:release
 
 发布检查包括完整版回归、`test:custom` 的构建与类型检查，以及 `test:browser:custom -- --required` 的实际运行验收。浏览器验证需要 Chrome/Edge，可设置 `BACLICKFX_CHROMIUM_PATH`。测试覆盖六种模式与三种接入、功能裁剪和非默认参数、已知背景、多实例、生命周期及真实 Canvas 转移；固定输入、随机数和时间后逐字节比较完整版与定制版，不更新黄金数据或放宽阈值。WebGPU Worker 额外检查异步初始化、初始化期间销毁、设备丢失和 Standard 输出降级。单独运行 `npm run test:browser:custom` 时，设备不可用会明确标为跳过；发布检查要求全部设备实际运行，出现跳过则失败。
 
-`check:release` 通过 `test:custom:release` 在同一进程内完成两套定制检查，相同的最终配置只构建一次。单独运行构建或浏览器检查也保留各自完整的覆盖范围。构建文件留在已忽略的 `test-results/custom-builds`，仅复用当前进程内刚生成的产物；下次运行重新构建，不依赖旧文件或旧验收结果。
+`check:release` 通过 `test/release-browser.mjs --prepare` 顺序编排全部检查，从主构建开始共享本轮压缩会话。GPU、移动拖尾、Software、Canvas 纹理缓存及定制发布专项共用配置构建缓存，相同的归一化配置只编译一次；测试页面、浏览器状态及结果文件各自隔离。单独命令和 `test:custom:release` 保留完整覆盖。构建文件留在已忽略的 `test-results/custom-builds`，仅复用本轮刚生成的产物，下次运行重新构建。`test-results/release-browser/results.json` 记录各阶段耗时、完成状态、定制配置实际构建/复用次数与总耗时。CI 使用相同入口的 `--prepare --release-assets`，先生成本轮附件，再对实际待发布的完整/精简文件验收。
 
 完整发布验收需显式执行，并确认当前提交的 CI 通过。`npm pack` 和 `npm publish` 仅通过 `prepack` 运行快速的 `check`：构建一次，完成单元、运行时、同步、版本、包清单、实际打包安装和类型校验，不自动重跑浏览器矩阵。CI 的定制浏览器验收使用 `--required`，设备跳过仍会失败。
 
