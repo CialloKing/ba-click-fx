@@ -8,6 +8,7 @@ import { scriptSizes as sizes, compareSizes, sizeComparisonRows } from './releas
 import { compressionSession, compressionInfo } from './resource-compression.mjs';
 import { baselineAssets, releaseBaseline } from './release-baseline.mjs';
 import { zipSync, unzipSync } from 'fflate/node';
+import { currentReleaseNotes } from './changelog.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const output = resolve(root, 'dist-release');
@@ -146,7 +147,7 @@ try
     const [expected, filename] = line.split('  ');
     assert.equal(hash(readFileSync(join(assets, filename))), expected);
   }
-  const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8').split(/^## /m)[1].trim();
+  const changelog = currentReleaseNotes(readFileSync(join(root, 'CHANGELOG.md'), 'utf8'));
   assert(changelog.startsWith('v' + version + ' '), 'Changelog version differs');
   writeFileSync(join(output, 'notes.md'), `## ${changelog}\n\n| 产物 | 主 JS raw | gzip | Brotli |\n|---|---:|---:|---:|\n${[full, slim].map(edition => `| ${edition.edition === 'full' ? '完整版' : '固定配置 WebGL2 / 128² DOM 精简版'} | ${(edition.sizes.raw / 1024).toFixed(1)} KiB | ${(edition.sizes.gzip / 1024).toFixed(1)} KiB | ${(edition.sizes.brotli / 1024).toFixed(1)} KiB |`).join('\n')}\n\n精简版仅接受宿主与回调选项；固定参数见 ZIP 中的 profile.json 和 build-info.json。保留点击、拖尾、碎片、Bloom、合成参考及生命周期接口。无动态调参和其他后端回退。\n\nZIP 附带类型、使用说明、构建信息及许可证。SHA256SUMS 覆盖全部 10 个文件附件；Source code 为 GitHub 自动生成的源码归档。\n`);
   const comparisonTable = '\n\n相对 SHA-256 已验证的 v1.3.11 附件（只报告，不设大小上限）：\n\n| 产物 | 格式 | 基线字节 | 当前字节 | 增减字节 | 增减比例 |\n|---|---|---:|---:|---:|---:|\n' +

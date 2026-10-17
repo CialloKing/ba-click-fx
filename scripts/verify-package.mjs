@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { currentReleaseNotes } from './changelog.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -42,10 +43,10 @@ verify(
   'lockfile packages[""] version is out of sync',
 );
 
-const changelogHeadings = [...changelog.matchAll(/^##\s+(.+)$/gm)];
-verify(changelogHeadings.length > 0, 'CHANGELOG does not contain any version heading');
+const releaseNotes = currentReleaseNotes(changelog);
+verify(releaseNotes.length > 0, 'CHANGELOG does not contain any version heading');
 verify(
-  changelogHeadings[0][1].trim().split(/\s+/)[0] === `v${version}`,
+  releaseNotes.split(/\s+/)[0] === `v${version}`,
   `latest CHANGELOG heading must be v${version}`,
 );
 
