@@ -1,3 +1,4 @@
+import { ENGINE_MODULES } from '../scripts/engine-module-list.js';
 /**
  * 源码入口与 Unity 资源合同。
  *
@@ -459,7 +460,7 @@ assert(
   '点击与拖尾发射倍率相互独立，原生阴影回退单独标定',
 );
 const sourceFiles = {
-  fx: ['engine-core', 'engine-input', 'engine-backends', 'engine-lifecycle', 'engine-config'].map(name => readFileSync(new URL(`../src/${name}.js`, import.meta.url), 'utf8')).join('\n'),
+  fx: ENGINE_MODULES.map(name => readFileSync(new URL(`../src/${name}`, import.meta.url), 'utf8')).join('\n'),
   webgl2: readFileSync(
     new URL('../src/webgl2-effect.js', import.meta.url),
     'utf8',

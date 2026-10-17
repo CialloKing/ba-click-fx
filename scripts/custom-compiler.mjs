@@ -1,3 +1,5 @@
+import { ENGINE_MODULES } from './engine-module-list.js';
+import { inlineEngineParts } from './engine-source.mjs';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseAst } from 'rolldown/parseAst';
@@ -102,30 +104,6 @@ export function customApi(profile)
     ...(profile.features.compositingReference ? ['setCompositingReference'] : [])];
 }
 
-const ENGINE_PARTS = ['engine-input.js', 'engine-backends.js', 'engine-lifecycle.js', 'engine-config.js'];
-
-function inlineEngineParts(root, code)
-{
-  const ast = parseAst(code);
-  const cls = ast.body.find(node => node.declaration?.id?.name === 'BAClickFX').declaration;
-  const edits = [[cls.id.end, cls.body.start, '\n']];
-  for (const node of ast.body)
-    if (node.type === 'ImportDeclaration' && node.source.value === './engine-config.js') edits.push([node.start, node.end, '']);
-  const constructor = cls.body.body.find(member => member.key.name === 'constructor');
-  const superCall = constructor.value.body.body[0];
-  edits.push([superCall.start, superCall.end, '']);
-  const methods = ENGINE_PARTS.flatMap(filename =>
-  {
-    const source = readFileSync(join(root, 'src', filename), 'utf8');
-    const part = parseAst(source).body.find(node => node.declaration?.type === 'ClassDeclaration').declaration;
-    return part.body.body.map(member => source.slice(member.start, member.end));
-  });
-  // 类方法本身不会被 tree-shake：把同一份源码方法静态展开后再追踪能力。
-  // 完整版直接使用职责模块，定制版无需携带原型链或运行时模块装配。
-  edits.push([cls.body.end - 1, cls.body.end - 1, '\n' + methods.join('\n') + '\n']);
-  return edit(code, edits);
-}
-
 export function compileCustomSources(root, profile)
 {
   const gpu = ['webgl2', 'webgl2-bloom', 'webgpu', 'webgpu-hdr'].includes(profile.backend);
@@ -142,7 +120,7 @@ export function compileCustomSources(root, profile)
   const sources = new Map();
   for (const filename of readdirSync(join(root, 'src')).filter(name => name.endsWith('.js')))
   {
-    if (filename === 'build-capabilities.js' || ENGINE_PARTS.includes(filename)) continue;
+    if (filename === 'build-capabilities.js' || (filename !== 'engine-core.js' && ENGINE_MODULES.includes(filename))) continue;
     let code = readFileSync(join(root, 'src', filename), 'utf8');
     if (filename === 'engine-core.js') code = inlineEngineParts(root, code);
     const ast = parseAst(code);
