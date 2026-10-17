@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
-import { instrumentRingSource } from '../scripts/runtime-ring-diagnostics.mjs';
+import { loadRingDiagnosticModule } from '../scripts/runtime-ring-diagnostics.mjs';
 
 // 实际私有算法的 stop/回调序列黄金数据；只在测试副本中暴露函数。
 export async function ringFixture(sourceText = null)
 {
   const url = new URL('../src/engine-core.js', import.meta.url);
-  const source = instrumentRingSource(sourceText ?? readFileSync(url, 'utf8'), url);
-  const module = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+  const module = await loadRingDiagnosticModule({ sourceUrl: url,
+    readSource: sourceUrl => sourceText && sourceUrl.pathname.endsWith('/engine-core.js') ? sourceText : readFileSync(sourceUrl, 'utf8') });
   const records = [];
   for (const arcSamples of [1, 32, 33, 96, 96.5, 512])
     for (const direction of [-1, 0, 1])

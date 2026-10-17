@@ -1,21 +1,24 @@
+import { isolatedEngineFixture } from '../../scripts/engine-fixture.js';
 // 测试副本暴露私有缓存；发布入口不增加诊断 API。
 export async function probeCanvasTextureCache()
 {
   const sourceUrl = new URL('/src/engine-core.js', import.meta.url);
-  let source = await (await fetch(sourceUrl)).text();
-  source = source.replace(/from ['"]((?:\.\/|\/)[^'"]+)['"]/g,
-    (_, path) => `from '${new URL(path, sourceUrl).href}'`);
-  source = source.replace(/(const sources = create(?:Circle|Triangle)TextureSources\(createCanvas\);)/g,
-    '$1 cacheWork.rebuilds++;');
-  source = source.replace('const rgba = resources.linearTextureRgba;',
-    'cacheWork.cpuRebuilds++; const rgba = resources.linearTextureRgba;');
-  source += `\nexport { getCircleTextureResources, prepareLinearTintedTextureCanvas, prepareSceneRoundedTriangleCanvas };
-    export const cacheWork = { rebuilds: 0, cpuRebuilds: 0 };
-    export const inspectCache = () => ({ circle: circleTextureResources, triangle: triangleTextureResources,
-      lut: linearToSrgbLut, owners: canvasTextureOwners.size, depth: canvasTextureReadDepth });`;
-  const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+  const load = () => isolatedEngineFixture({ sourceUrl,
+    transform: (file, source) => {
+      if (file !== 'engine-canvas-textures.js') return source;
+      source = source.replace(/(const sources = create(?:Circle|Triangle)TextureSources\(createCanvas\);)/g,
+        '$1 cacheWork.rebuilds++;');
+      source = source.replace('const rgba = resources.linearTextureRgba;',
+        'cacheWork.cpuRebuilds++; const rgba = resources.linearTextureRgba;');
+      return source + `\nexport const cacheWork = { rebuilds: 0, cpuRebuilds: 0 };
+        export const inspectCache = () => ({ circle: circleTextureResources, triangle: triangleTextureResources,
+          lut: linearToSrgbLut, owners: canvasTextureOwners.size, depth: canvasTextureReadDepth });`;
+    },
+    expose: { 'engine-canvas-textures.js': ['inspectCache', 'cacheWork', 'getCircleTextureResources',
+      'prepareLinearTintedTextureCanvas', 'prepareSceneRoundedTriangleCanvas'] },
+  });
   const { BAClickFX, inspectCache, cacheWork, getCircleTextureResources,
-    prepareLinearTintedTextureCanvas, prepareSceneRoundedTriangleCanvas } = await import(url);
+    prepareLinearTintedTextureCanvas, prepareSceneRoundedTriangleCanvas } = await load();
   const assert = (condition, message) => { if (!condition) throw Error(message); };
   const instances = [];
   const raf = globalThis.requestAnimationFrame, cancel = globalThis.cancelAnimationFrame;
@@ -175,8 +178,7 @@ export async function probeCanvasTextureCache()
     finally { failed._endCanvasTextureFrame(restored); }
     failed.destroy();
     // 原始资源仍保留，因此用独立模块验证首次资源失败及失败状态的生命周期。
-    const failureUrl = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
-    const fresh = await import(failureUrl);
+    const fresh = await load();
     const unavailable = create(fresh.BAClickFX);
     const canvasPrototype = Object.getPrototypeOf(unavailable.canvas);
     const getContext = canvasPrototype.getContext;
@@ -192,7 +194,7 @@ export async function probeCanvasTextureCache()
     unavailable.clear();
     const retryScope = unavailable._beginCanvasTextureFrame();
     try { assert(fresh.getCircleTextureResources() === null && sourceAttempts === 3, 'Release preserves source failure'); }
-    finally { unavailable._endCanvasTextureFrame(retryScope); unavailable.destroy(); URL.revokeObjectURL(failureUrl); }
+    finally { unavailable._endCanvasTextureFrame(retryScope); unavailable.destroy();  }
     assert(inspectCache().owners === 0 && capacity().bytes === 0, 'Destroy releases group');
     return { held, released: capacity(), idleReleased, warmRebuilds: 0, warmCpuRebuilds: 0,
       idleRebuilds, idleCpuRebuilds, reentered, failurePreserved: true };
@@ -202,7 +204,7 @@ export async function probeCanvasTextureCache()
     for (const fx of instances) fx.destroy();
     globalThis.requestAnimationFrame = raf; globalThis.cancelAnimationFrame = cancel;
     if (nowDescriptor) Object.defineProperty(performance, 'now', nowDescriptor); else delete performance.now;
-    URL.revokeObjectURL(url);
+    
   }
 }
 

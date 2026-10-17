@@ -1,3 +1,4 @@
+import { isolatedEngineFixture } from '../scripts/engine-fixture.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { TRIANGLE_TEXTURE_RGBA, TRIANGLE_TEXTURE_COVERAGE,
@@ -7,15 +8,19 @@ import { TRIANGLE_TEXTURE_RGBA, TRIANGLE_TEXTURE_COVERAGE,
 export async function tintFixture(sourceText = null, captureBytes = false)
 {
   const sourceUrl = new URL('../src/engine-core.js', import.meta.url);
-  let source = (sourceText ?? readFileSync(sourceUrl, 'utf8')).replace(/from '(\.\/[^']+)'/g,
-    (_, path) => `from '${new URL(path, sourceUrl).href}'`);
-  for (const [name, statements] of [
-    ['sampleTextureChannel', 'work.preparations++; work.samples++;'],
-    ['prepareTextureSample', 'work.preparations++;'],
-    ['samplePreparedTextureChannel', 'work.samples++;'],
-  ]) source = source.replace(new RegExp(`(function ${name}\\([\\s\\S]*?\\)\\s*\\{)`), `$1\n${statements}`);
-  source += '\nexport const work = { preparations: 0, samples: 0 };\nexport { prepareLinearTintedTextureCanvas };';
-  const module = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+  const instrument = source => {
+    for (const [name, statements] of [
+      ['sampleTextureChannel', 'work.preparations++; work.samples++;'],
+      ['prepareTextureSample', 'work.preparations++;'],
+      ['samplePreparedTextureChannel', 'work.samples++;'],
+    ]) source = source.replace(new RegExp(`(function ${name}\\([\\s\\S]*?\\)\\s*\\{)`), `$1\n${statements}`);
+    return source + '\nexport const work = { preparations: 0, samples: 0 };';
+  };
+  const module = await isolatedEngineFixture({ sourceUrl,
+    readSource: url => sourceText && url.pathname.endsWith('/engine-core.js') ? sourceText : readFileSync(url, 'utf8'),
+    transform: (file, source) => file === (sourceText ? 'engine-core.js' : 'engine-canvas-textures.js') ? instrument(source) : source,
+    expose: { [sourceText ? 'engine-core.js' : 'engine-canvas-textures.js']: ['work', 'prepareLinearTintedTextureCanvas'] },
+  });
   const records = [];
   for (const roundness of [0, 0.000001, 0.5, 0.999999, 1])
   for (const frameIndex of [0, 1])

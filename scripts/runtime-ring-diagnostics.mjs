@@ -1,3 +1,4 @@
+import { isolatedEngineFixture, exposeEngineBindings } from './engine-fixture.js';
 // 计数只注入测试副本；正式耗时和 CPU 采样始终使用未包装的源码。
 export function instrumentRingSource(source, sourceUrl)
 {
@@ -25,12 +26,15 @@ export function instrumentRingSource(source, sourceUrl)
   const end = source.indexOf('\nfunction ', start + 1);
   source = source.slice(0, start) + source.slice(start, end).replace(
     'const middle = (start + end) * 0.5;', 'ringWork.boundaryIterations++;\n    const middle = (start + end) * 0.5;') + source.slice(end);
-  return source + `\nexport const ringWork = { textureSamples: 0, boundarySearches: 0,
+  const stateImport = source.match(/import\s*\{[^}]*\bringSampleCache\b[^}]*\}\s*from\s*['"]([^'"]+)['"]/);
+  const scope = stateImport ? 'diagnosticState.' : '';
+  if (stateImport) source += `\nimport * as diagnosticState from '${stateImport[1]}';`;
+  let result = source + `\nexport const ringWork = { textureSamples: 0, boundarySearches: 0,
     boundaryIterations: 0, preparationRequests: 0, preparations: 0,
     colorEvaluations: 0, stopRequests: 0, stopPreparations: 0, stopDataAllocations: 0 };
     export function resetRingWork() { for (const key of Object.keys(ringWork)) ringWork[key] = 0; }
-    export { createDissolvedRingGradient };
-    ${preparedStops ? 'export { createRingStopDescriptor };' : ''}
+
+
     export const hasRingSampleCache = ${prepared};
     export function readRingSampleScope() { return ${prepared ? 'ringSampleCache' : 'null'}; }
     export function withRingSampleScope(callback) {
@@ -41,14 +45,22 @@ export function instrumentRingSource(source, sourceUrl)
       themeHueShift = hue; relativeOklchTheme = theme;
       try { return callback(); } finally { themeHueShift = previousHue; relativeOklchTheme = previousTheme; }
     }`;
+  if (scope) result = result
+    .replace('ringSampleCache = new WeakMap();', 'diagnosticState.setRenderState(diagnosticState.themeHueShift, diagnosticState.relativeOklchTheme, diagnosticState.gradientEnergyCache, new WeakMap());')
+    .replace('ringSampleCache = previous;', 'diagnosticState.setRenderState(diagnosticState.themeHueShift, diagnosticState.relativeOklchTheme, diagnosticState.gradientEnergyCache, previous);')
+    .replace('themeHueShift = hue; relativeOklchTheme = theme;', 'diagnosticState.setRenderState(hue, theme, diagnosticState.gradientEnergyCache, diagnosticState.ringSampleCache);')
+    .replace('themeHueShift = previousHue; relativeOklchTheme = previousTheme;', 'diagnosticState.setRenderState(previousHue, previousTheme, diagnosticState.gradientEnergyCache, diagnosticState.ringSampleCache);');
+  return exposeEngineBindings(result, ['createDissolvedRingGradient', ...(preparedStops ? ['createRingStopDescriptor'] : [])]);
+
 }
 
-export async function loadRingDiagnosticModule()
+export async function loadRingDiagnosticModule(options = {})
 {
-  const sourceUrl = new URL('/src/engine-core.js', location.href);
-  const response = await fetch(sourceUrl);
-  if (!response.ok) throw new Error(`圆环诊断源码读取失败：${response.status}`);
-  const url = URL.createObjectURL(new Blob([instrumentRingSource(await response.text(), sourceUrl)], { type: 'text/javascript' }));
-  try { return await import(url); }
-  finally { URL.revokeObjectURL(url); }
+  const sourceUrl = options.sourceUrl ?? new URL('/src/engine-core.js', location.href);
+  const file = options.file ?? 'engine-core.js';
+  return isolatedEngineFixture({ ...options, sourceUrl,
+    transform: (name, source) => name === file ? instrumentRingSource(source, sourceUrl) : source,
+    expose: { [file]: ['ringWork', 'resetRingWork', 'createDissolvedRingGradient', 'createRingStopDescriptor',
+      'hasRingSampleCache', 'readRingSampleScope', 'withRingSampleScope', 'withRingTheme'] },
+  });
 }
