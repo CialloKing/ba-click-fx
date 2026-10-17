@@ -42,35 +42,8 @@ jobs:
             throw "Required system Edge was not found: $edge"
           }
           "BACLICKFX_CHROMIUM_PATH=$edge" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Prepare full and slim release artifacts
-        run: npm run release:prepare
-      - name: Run Chromium pixel regression
-        run: npm run test:browser:core
-      - name: Run Chromium Worker regression
-        run: npm run test:browser:worker
-      # 发布准备已构建完整版；各专项复用这份待发布运行时。
-      - name: Run Chromium lifecycle regression
-        run: npm run test:browser:lifecycle
-      - name: Run Chromium demo regression
-        run: npm run test:browser:demo
-      - name: Run Chromium Unity regression
-        run: npm run test:browser:unity
-      - name: Run Chromium WebGPU regression
-        run: npm run test:browser:webgpu:optional
-      - name: Check GPU filter routing and resource reuse
-        run: npm run test:browser:gpu-optimization
-      - name: Check moving trail capacity reuse and Worker parity
-        run: npm run test:browser:trail-work
-      - name: Check Software readbacks and resource lifecycle
-        run: npm run test:browser:software-optimization
-      - name: Check shared Canvas cache ownership and idle release
-        run: npm run test:browser:canvas-texture-cache
-      - name: Run custom build parity and lifecycle checks
-        run: npm run test:browser:custom -- --required
-      - name: Check exact slim release files
-        run: npm run test:browser:slim -- --release-assets
-      - name: Compare exact full and slim assets with v1.3.11
-        run: npm run test:browser:zopfli -- --release-assets
+      - name: Run browser release acceptance in one build session
+        run: node test/release-browser.mjs --prepare --release-assets
       - name: Upload verified release artifacts
         if: github.event_name == 'push'
         uses: actions/upload-artifact@v7
@@ -91,6 +64,9 @@ jobs:
             test-results/zopfli-release
             test-results/shared-canvas-cache
             test-results/trail-work
+            test-results/gpu-optimization
+            test-results/software-optimization
+            test-results/release-browser
           if-no-files-found: ignore
 
   release:

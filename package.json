@@ -116,7 +116,7 @@
     "verify:tarball": "node scripts/verify-tarball.mjs",
     "check:fast": "npm test && npm run verify:runtime-sync",
     "check": "npm run build && npm test && npm run verify:runtime-sync && npm run verify:demo-sync && npm run verify:package && npm run verify:tarball",
-    "check:release": "npm run check && npm run test:browser:core && npm run test:browser:worker && npm run test:browser:lifecycle && npm run test:browser:demo && npm run test:browser:unity && npm run test:browser:webgpu:optional && npm run test:browser:gpu-optimization && npm run test:browser:trail-work && npm run test:browser:software-optimization && npm run test:browser:canvas-texture-cache && npm run test:custom:release",
+    "check:release": "node test/release-browser.mjs --prepare",
     "prepack": "npm run check",
     "test:browser:zopfli": "node test/browser/zopfli-release.mjs",
     "benchmark:codecs": "node scripts/benchmark-resource-build.mjs",
