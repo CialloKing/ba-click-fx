@@ -5,7 +5,7 @@ import { loadRingDiagnosticModule } from '../scripts/runtime-ring-diagnostics.mj
 export async function ringFixture(sourceText = null)
 {
   const url = new URL('../src/engine-core.js', import.meta.url);
-  const module = await loadRingDiagnosticModule({ sourceUrl: url,
+  const module = await loadRingDiagnosticModule({ sourceUrl: url, file: sourceText ? 'engine-core.js' : 'engine-canvas-primitives.js',
     readSource: sourceUrl => sourceText && sourceUrl.pathname.endsWith('/engine-core.js') ? sourceText : readFileSync(sourceUrl, 'utf8') });
   const records = [];
   for (const arcSamples of [1, 32, 33, 96, 96.5, 512])

@@ -1,3 +1,4 @@
+import { isolatedEngineFixture } from './engine-fixture.js';
 const runtimeModules = new Map();
 
 export async function loadTrailRuntime(prefix = '/src/')
@@ -13,6 +14,11 @@ export async function loadTrailRuntime(prefix = '/src/')
         // 兼容拆分后的公共入口，也保留对旧源码快照的诊断能力。
         file = `${prefix}engine-core.js`;
         source = await (await fetch(file)).text();
+      }
+      if (!source.includes('function appendTrailWebGLScene('))
+      {
+        return isolatedEngineFixture({ sourceUrl: new URL(file, location.href),
+          expose: { 'engine-trail.js': ['appendTrailWebGLScene'], 'engine-effects.js': ['updateTrailRenderPoints'] } });
       }
       source = source.replace(/from\s*(['"])((?:\.\/|\/)[^'"]+)\1/g,
         (_, quote, path) => `from '${new URL(path, new URL(file, location.href)).href}'`);

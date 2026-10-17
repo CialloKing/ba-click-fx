@@ -1,3 +1,4 @@
+import { isolatedEngineFixture } from '../scripts/engine-fixture.js';
 import { ENGINE_MODULES } from '../scripts/engine-module-list.js';
 /**
  * 源码入口与 Unity 资源合同。
@@ -959,13 +960,11 @@ assert.equal(fx.destroyed, true, '源码入口可以销毁实例');
 
 // 私有缓存函数直接取自源码，不增加发布导出或第二套测试框架。
 {
-  const source = readFileSync(new URL('../src/engine-core.js', import.meta.url), 'utf8');
-  const helpers = source.slice(source.indexOf('function getTrailGradientGroup('), source.indexOf('function fillTrailMeshSegment('));
-  const { group, gradient, release } = new Function(`const TRAIL_GRADIENT_CACHE_CAPACITY = 8;
-    const releaseMeshGradients = arguments[0];
-    const themeHueShift = 0, relativeOklchTheme = null, clamp01 = x => Math.max(0, Math.min(1, x));
-    ${helpers}
-    return { group: getTrailGradientGroup, gradient: cachedTrailGradient, release: releaseMeshGradients };`)(releaseMeshGradients);
+  const { getTrailGradientGroup: group, cachedTrailGradient: gradient } = await isolatedEngineFixture({
+    sourceUrl: new URL('../src/engine-core.js', import.meta.url), readSource: url => readFileSync(url, 'utf8'),
+    expose: { 'engine-trail.js': ['getTrailGradientGroup', 'cachedTrailGradient'] },
+  });
+  const release = releaseMeshGradients;
   const mesh = {}, data = {}, config = {}, layer = { gradientPurpose: 'clear', alpha: 1 };
   const transform = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
   let creations = 0;

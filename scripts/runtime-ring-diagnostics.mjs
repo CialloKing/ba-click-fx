@@ -41,7 +41,7 @@ export function instrumentRingSource(source, sourceUrl)
       ${prepared ? 'const previous = ringSampleCache; ringSampleCache = new WeakMap(); try { return callback(); } finally { ringSampleCache = previous; }' : 'return callback();'}
     }
     export function withRingTheme(hue, theme, callback) {
-      const previousHue = themeHueShift, previousTheme = relativeOklchTheme;
+      const previousHue = ${scope}themeHueShift, previousTheme = ${scope}relativeOklchTheme;
       themeHueShift = hue; relativeOklchTheme = theme;
       try { return callback(); } finally { themeHueShift = previousHue; relativeOklchTheme = previousTheme; }
     }`;
@@ -57,7 +57,7 @@ export function instrumentRingSource(source, sourceUrl)
 export async function loadRingDiagnosticModule(options = {})
 {
   const sourceUrl = options.sourceUrl ?? new URL('/src/engine-core.js', location.href);
-  const file = options.file ?? 'engine-core.js';
+  const file = options.file ?? 'engine-canvas-primitives.js';
   return isolatedEngineFixture({ ...options, sourceUrl,
     transform: (name, source) => name === file ? instrumentRingSource(source, sourceUrl) : source,
     expose: { [file]: ['ringWork', 'resetRingWork', 'createDissolvedRingGradient', 'createRingStopDescriptor',
