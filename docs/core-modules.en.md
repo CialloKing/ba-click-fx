@@ -31,3 +31,5 @@ Dependencies flow from basic calculations and state through materials/textures, 
 `scripts/engine-fixture.js` creates isolated module copies for probes requiring counters or private state. Each internal module has one identity within a copied graph, so the engine and probe access the same cache. Node and browser/Worker probes share the dependency rewriting implementation. Probes are excluded from published artifacts.
 
 Use `npm run check:fast` for daily work and `npm run check:release` before publishing. Module boundaries, pixel goldens, lifecycle, failures, real Workers, capability pruning, types, and licenses remain checked. Performance sampling runs separately. This refactor changes no Shaders, sampling density, texture precision, or public behavior, and does not reintroduce the previously rejected upload/clearing experiments.
+
+See the [core modularization comparison report](./core-modularization-report.en.md) for baseline hashes, acceptance results, single-file sizes, and independent performance samples.
