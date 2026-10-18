@@ -2,7 +2,7 @@
 
 [English](./core-modularization-report.en.md)
 
-日期：2026-10-18。基线为 `a8817da31a5cef80d5c9cc89d44888aabed6d8b0`，实现分支为 `codex/core-modularization`，运行时代码完成于 `38b708d`。版本仍为 1.3.14，没有推送、合并或发布。
+日期：2026-10-18。基线为 `a8817da31a5cef80d5c9cc89d44888aabed6d8b0`，实现分支为 `codex/core-modularization`，运行时代码完成于 `38b708d`。本报告记录发布准备前的独立验收快照；当时版本为 1.3.14，尚未推送、合并或发布，随后纳入 v1.3.15。
 
 ## 范围与源码审计
 

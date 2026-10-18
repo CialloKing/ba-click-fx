@@ -2,7 +2,7 @@
 
 [中文](./core-modularization-report.md)
 
-Date: 2026-10-18. Baseline: `a8817da31a5cef80d5c9cc89d44888aabed6d8b0`. Implementation branch: `codex/core-modularization`; runtime changes completed at `38b708d`. The version remains 1.3.14. Nothing has been pushed, merged, or published.
+Date: 2026-10-18. Baseline: `a8817da31a5cef80d5c9cc89d44888aabed6d8b0`. Implementation branch: `codex/core-modularization`; runtime changes completed at `38b708d`. This report records independent acceptance before release preparation. At that point the version was 1.3.14 and nothing had been pushed, merged, or published; these changes were subsequently included in v1.3.15.
 
 ## Scope and source audit
 
