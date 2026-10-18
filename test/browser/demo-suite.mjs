@@ -397,11 +397,27 @@ async function runDemoMobileTouchSmoke(browserInstance, baseUrl)
           { capture: true },
         );
       }
+      for (const type of ['touchend', 'touchcancel'])
+      {
+        window.addEventListener(type, (event) =>
+        {
+          if (event.touches.length > 0) return;
+          const effect = window.__mobileShadowEffect ?? window.BAClickFXDemo;
+
+          // 在库的 capture 终止处理完成后记录几何；慢速 CI 的 CDP 往返
+          // 可能超过拖尾寿命，不能把之后的正常过期误判为手势被取消。
+          window.__mobileTouchEndState = {
+            pointCounts: effect.trailStrokes.map((stroke) => stroke.points.length),
+            strokeCount: effect.trailStrokes.length,
+          };
+        });
+      }
     });
     const cdp = await context.newCDPSession(page);
     const results = [];
     const dispatchTouchGesture = async (start, moves) =>
     {
+      await page.evaluate(() => { window.__mobileTouchEndState = null; });
       await cdp.send('Input.dispatchTouchEvent',
         {
           type: 'touchStart',
@@ -429,6 +445,7 @@ async function runDemoMobileTouchSmoke(browserInstance, baseUrl)
           type: 'touchEnd',
           touchPoints: [],
         });
+      await page.waitForFunction(() => window.__mobileTouchEndState !== null);
       await page.waitForTimeout(30);
     };
 
@@ -534,10 +551,10 @@ async function runDemoMobileTouchSmoke(browserInstance, baseUrl)
         return {
           action: effect.getConfig().touchAction,
           events: window.__mobileTouchEvents,
-          pointCounts: effect.trailStrokes.map((stroke) => stroke.points.length),
+          pointCounts: window.__mobileTouchEndState.pointCounts,
           scrollLeft: surface.scrollLeft,
           scrollTop: surface.scrollTop,
-          strokeCount: effect.trailStrokes.length,
+          strokeCount: window.__mobileTouchEndState.strokeCount,
           activePointerId: effect.activePointerId,
           currentTrailStroke: effect.currentTrailStroke !== null,
           touchGestureCount: effect.touchGestureStarts.size,
@@ -720,8 +737,8 @@ async function runDemoMobileTouchSmoke(browserInstance, baseUrl)
       {
         events: window.__mobileTouchEvents,
         filterEvents: window.__mobileShadowFilterEvents,
-        pointCounts: effect.trailStrokes.map((stroke) => stroke.points.length),
-        strokeCount: effect.trailStrokes.length,
+        pointCounts: window.__mobileTouchEndState.pointCounts,
+        strokeCount: window.__mobileTouchEndState.strokeCount,
       };
 
       effect.destroy();
